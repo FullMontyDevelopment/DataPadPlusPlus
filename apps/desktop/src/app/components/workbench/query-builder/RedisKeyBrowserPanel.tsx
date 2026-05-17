@@ -356,9 +356,6 @@ export function RedisKeyBrowserPanel({
         onTogglePrefix={togglePrefix}
       />
       {status ? <div className="redis-browser-message">{status}</div> : null}
-      <div className="redis-browser-footnote">
-        Select a key to load a type-aware editor in Results. Wildcard deletes are never run from this browser.
-      </div>
     </section>
   )
 }

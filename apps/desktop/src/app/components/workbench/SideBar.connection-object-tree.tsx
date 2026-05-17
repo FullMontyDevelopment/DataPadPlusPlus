@@ -218,7 +218,8 @@ function ConnectionObjectTreeNode({
   const remainingChildren = Math.max(children.length - visibleChildren.length, 0)
   const environmentStyle = environmentAccentVariables(environment)
   const hasChildren = children.length > 0
-  const canExpand = hasChildren || Boolean(node.expandable)
+  const canLoadChildren = Boolean(node.expandable && node.scope && onLoadExplorerScope)
+  const canExpand = hasChildren || canLoadChildren
   const expanded = Boolean(expandedNodes[nodeKey])
   const queryable = isScopedQueryable(node)
   const toggleNode = () => {
@@ -229,7 +230,7 @@ function ConnectionObjectTreeNode({
     const nextExpanded = !expanded
     onToggleNode(nodeKey)
 
-    if (nextExpanded && node.scope && node.expandable && children.length === 0) {
+    if (nextExpanded && canLoadChildren && children.length === 0) {
       onLoadExplorerScope?.(connection.id, node.scope)
     }
   }
@@ -248,7 +249,7 @@ function ConnectionObjectTreeNode({
         aria-level={depth}
         className={`tree-item connection-object-item${canExpand ? ' is-branch' : ''}${queryable ? ' is-queryable' : ''}${environment ? ' has-environment-accent' : ''}`}
         style={{ '--tree-depth': depth, ...environmentStyle } as CSSProperties}
-        title={objectNodeTitle(node, queryable, hasChildren)}
+        title={objectNodeTitle(node, queryable, canExpand)}
         onClick={() => {
           if (canExpand) {
             toggleNode()
@@ -306,7 +307,19 @@ function ConnectionObjectTreeNode({
             {node.detail ? ` / ${node.detail}` : ''}
           </span>
         </span>
-        {queryable ? <span className="tree-item-action-hint">Query</span> : null}
+        {queryable ? (
+          <button
+            type="button"
+            className="tree-item-action-hint"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              onOpenQuery(node)
+            }}
+          >
+            Query
+          </button>
+        ) : null}
       </div>
 
       {expanded
@@ -333,7 +346,7 @@ function ConnectionObjectTreeNode({
             )
           })
         : null}
-      {expanded && node.expandable && children.length === 0 && explorerStatus === 'loading' ? (
+      {expanded && canLoadChildren && children.length === 0 && explorerStatus === 'loading' ? (
         <div
           className="connection-object-empty"
           role="treeitem"
@@ -341,6 +354,16 @@ function ConnectionObjectTreeNode({
           style={{ '--tree-depth': depth + 1, ...environmentStyle } as CSSProperties}
         >
           Loading live metadata...
+        </div>
+      ) : null}
+      {expanded && canLoadChildren && children.length === 0 && explorerStatus === 'ready' ? (
+        <div
+          className="connection-object-empty"
+          role="treeitem"
+          aria-level={depth + 1}
+          style={{ '--tree-depth': depth + 1, ...environmentStyle } as CSSProperties}
+        >
+          No objects found.
         </div>
       ) : null}
       {expanded && remainingChildren > 0 ? (
@@ -383,7 +406,7 @@ function ConnectionObjectContextMenu({
   onToggleNode(nodeKey: string): void
 }) {
   const { node } = menu
-  const hasChildren = Boolean(node.children?.length)
+  const hasChildren = Boolean(node.children?.length || (node.expandable && node.scope))
   const queryable = isScopedQueryable(node)
   const managementActions = node.actions ?? []
 

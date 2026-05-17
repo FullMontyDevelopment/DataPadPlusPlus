@@ -76,6 +76,23 @@ describe('EditorTabItem', () => {
       expect.stringContaining('Unsaved changes'),
     )
   })
+
+  it('does not show an unsaved marker for dirty unsaveable metrics tabs', () => {
+    renderEditorTabItem({
+      tab: {
+        ...tab,
+        title: 'Metrics - Primary Orders',
+        tabKind: 'metrics',
+        dirty: true,
+      },
+    })
+
+    expect(screen.queryByTitle('Unsaved changes')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab')).not.toHaveAttribute(
+      'title',
+      expect.stringContaining('Unsaved changes'),
+    )
+  })
 })
 
 function renderEditorTabItem(overrides: Partial<Parameters<typeof EditorTabItem>[0]> = {}) {

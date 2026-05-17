@@ -24,12 +24,24 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+fn bundled_app_icon() -> tauri::Result<tauri::image::Image<'static>> {
+    tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).map(|icon| icon.to_owned())
+}
+
+fn configure_main_window_icon(app: &tauri::App) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_icon(bundled_app_icon()?)?;
+    }
+
+    Ok(())
+}
+
 fn tray_icon_image(app: &tauri::App) -> tauri::Result<tauri::image::Image<'static>> {
     if let Some(icon) = app.default_window_icon() {
         return Ok(icon.clone().to_owned());
     }
 
-    tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).map(|icon| icon.to_owned())
+    bundled_app_icon()
 }
 
 fn configure_system_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -74,6 +86,7 @@ pub fn run() {
             app.manage(std::sync::Mutex::new(app::runtime::ManagedAppState::load(
                 app.handle().clone(),
             )));
+            configure_main_window_icon(app)?;
             configure_system_tray(app)?;
             Ok(())
         })
@@ -84,19 +97,23 @@ pub fn run() {
             commands::app::get_app_health,
             commands::app::store_secret,
             commands::workspace::cancel_execution_request,
+            commands::workspace::cancel_test_run,
             commands::workspace::close_query_tab,
             commands::workspace::collect_adapter_diagnostics,
             commands::workspace::create_library_folder,
             commands::workspace::create_local_database,
             commands::workspace::create_explorer_tab,
+            commands::workspace::create_metrics_tab,
             commands::workspace::create_query_tab,
             commands::workspace::create_scoped_query_tab,
+            commands::workspace::create_test_suite_tab,
             commands::workspace::delete_connection_profile,
             commands::workspace::delete_library_node,
             commands::workspace::delete_saved_work_item,
             commands::workspace::execute_data_edit,
             commands::workspace::execute_query_request,
             commands::workspace::execute_datastore_operation,
+            commands::workspace::execute_test_suite,
             commands::workspace::export_workspace_bundle,
             commands::workspace::fetch_result_page,
             commands::workspace::import_workspace_bundle,
@@ -109,11 +126,13 @@ pub fn run() {
             commands::workspace::load_structure_map,
             commands::workspace::move_library_node,
             commands::workspace::open_library_item,
+            commands::workspace::open_test_suite_template,
             commands::workspace::open_saved_work_item,
             commands::workspace::plan_data_edit,
             commands::workspace::plan_datastore_operation,
             commands::workspace::pick_local_database_file,
             commands::workspace::reorder_query_tabs,
+            commands::workspace::refresh_metrics_tab,
             commands::workspace::reopen_closed_query_tab,
             commands::workspace::rename_query_tab,
             commands::workspace::rename_library_node,
@@ -131,6 +150,7 @@ pub fn run() {
             commands::workspace::unlock_app,
             commands::workspace::update_query_builder_state,
             commands::workspace::update_query_tab,
+            commands::workspace::update_test_suite_tab,
             commands::workspace::upsert_connection_profile,
             commands::workspace::upsert_environment_profile,
             commands::workspace::upsert_saved_work_item

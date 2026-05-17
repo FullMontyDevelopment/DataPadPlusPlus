@@ -324,6 +324,8 @@ fn experience(edit_kinds: &[&str], live_execution: bool) -> DatastoreExperienceM
         diagnostics_tabs: Vec::new(),
         result_renderers: Vec::new(),
         safety_rules: Vec::new(),
+        test_templates: Vec::new(),
+        test_assertions: Vec::new(),
     }
 }
 

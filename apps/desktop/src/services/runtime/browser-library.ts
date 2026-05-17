@@ -165,8 +165,9 @@ export function saveQueryTabToLibrary(
     connectionId: tab.connectionId,
     environmentId: request.environmentId,
     language: tab.language,
-    queryText: kind === 'script' ? undefined : tab.queryText,
+    queryText: kind === 'script' || kind === 'test-suite' ? undefined : tab.queryText,
     scriptText: kind === 'script' ? tab.queryText : undefined,
+    testSuite: kind === 'test-suite' ? tab.testSuite : undefined,
   }
   const existingIndex = next.libraryNodes.findIndex((item) => item.id === itemId)
 
@@ -215,7 +216,10 @@ export function saveQueryTabToLocalFile(
 export function openLibraryItem(snapshot: WorkspaceSnapshot, libraryItemId: string) {
   const next = cloneSnapshot(snapshot)
   const item = next.libraryNodes.find((node) => node.id === libraryItemId)
-  const queryText = item?.queryText ?? item?.scriptText
+  const queryText =
+    item?.queryText ??
+    item?.scriptText ??
+    (item?.testSuite ? JSON.stringify(item.testSuite, null, 2) : undefined)
 
   if (!item || item.kind === 'folder' || !queryText) {
     return next
@@ -245,6 +249,7 @@ export function openLibraryItem(snapshot: WorkspaceSnapshot, libraryItemId: stri
   const tab: QueryTabState = {
     id: createId('tab'),
     title: item.name,
+    tabKind: item.kind === 'test-suite' ? 'test-suite' : 'query',
     connectionId: connection.id,
     environmentId:
       effectiveLibraryEnvironmentId(next.libraryNodes, item.id) ??
@@ -254,6 +259,7 @@ export function openLibraryItem(snapshot: WorkspaceSnapshot, libraryItemId: stri
     language: item.language ?? languageForConnection(connection),
     editorLabel: editorLabelForConnection(connection),
     queryText,
+    testSuite: item.testSuite,
     status: 'idle',
     dirty: false,
     saveTarget: { kind: 'library', libraryItemId: item.id },

@@ -11,22 +11,23 @@ use crate::{
         error::CommandError,
         models::{
             AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, BootstrapPayload,
-            CancelExecutionRequest, CancelExecutionResult, ConnectionProfile,
+            CancelExecutionRequest, CancelExecutionResult, CancelTestRunRequest, ConnectionProfile,
             ConnectionTestRequest, ConnectionTestResult, CreateScopedQueryTabRequest,
-            DataEditExecutionRequest, DataEditExecutionResponse, DataEditPlanRequest,
-            DataEditPlanResponse, DatastoreExperienceResponse, EnvironmentProfile,
+            CreateTestSuiteTabRequest, DataEditExecutionRequest, DataEditExecutionResponse,
+            DataEditPlanRequest, DataEditPlanResponse, DatastoreExperienceResponse,
+            EnvironmentProfile, ExecuteTestSuiteRequest, ExecuteTestSuiteResponse,
             ExecutionRequest, ExecutionResponse, ExplorerInspectRequest, ExplorerInspectResponse,
             ExplorerRequest, ExplorerResponse, ExportBundle, LibraryCreateFolderRequest,
             LibraryDeleteNodeRequest, LibraryMoveNodeRequest, LibraryRenameNodeRequest,
             LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest, LocalDatabaseCreateResult,
-            LocalDatabasePickRequest, LocalDatabasePickResult, OperationExecutionRequest,
-            OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse,
-            OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest,
-            PermissionInspectionResponse, QueryTabReorderRequest, RedisKeyInspectRequest,
-            RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
-            SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
-            StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
-            UpdateUiStateRequest,
+            LocalDatabasePickRequest, LocalDatabasePickResult, OpenTestSuiteTemplateRequest,
+            OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest,
+            OperationManifestResponse, OperationPlanRequest, OperationPlanResponse,
+            PermissionInspectionRequest, PermissionInspectionResponse, QueryTabReorderRequest,
+            RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest,
+            ResultPageResponse, SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest,
+            SavedWorkItem, StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
+            UpdateTestSuiteTabRequest, UpdateUiStateRequest,
         },
     },
 };
@@ -118,12 +119,49 @@ pub fn create_explorer_tab(
 }
 
 #[tauri::command]
+pub fn create_metrics_tab(
+    state: State<'_, SharedAppState>,
+    connection_id: String,
+    environment_id: Option<String>,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = state.lock().unwrap();
+    state.create_metrics_tab(&connection_id, environment_id)
+}
+
+#[tauri::command]
 pub fn create_scoped_query_tab(
     state: State<'_, SharedAppState>,
     request: CreateScopedQueryTabRequest,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = state.lock().unwrap();
     state.create_scoped_query_tab(request)
+}
+
+#[tauri::command]
+pub fn create_test_suite_tab(
+    state: State<'_, SharedAppState>,
+    request: CreateTestSuiteTabRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = state.lock().unwrap();
+    state.create_test_suite_tab(request)
+}
+
+#[tauri::command]
+pub fn open_test_suite_template(
+    state: State<'_, SharedAppState>,
+    request: OpenTestSuiteTemplateRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = state.lock().unwrap();
+    state.open_test_suite_template(request)
+}
+
+#[tauri::command]
+pub fn update_test_suite_tab(
+    state: State<'_, SharedAppState>,
+    request: UpdateTestSuiteTabRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = state.lock().unwrap();
+    state.update_test_suite_tab(request)
 }
 
 #[tauri::command]
@@ -293,7 +331,7 @@ pub fn save_query_tab_to_local_file(
         .as_deref()
         .is_none_or(|path| path.trim().is_empty())
     {
-        let (title, language) = {
+        let (title, language, tab_kind) = {
             let state = state.lock().unwrap();
             state.ensure_unlocked()?;
             let tab = state
@@ -302,13 +340,17 @@ pub fn save_query_tab_to_local_file(
                 .iter()
                 .find(|tab| tab.id == request.tab_id)
                 .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
-            (tab.title.clone(), tab.language.clone())
+            (
+                tab.title.clone(),
+                tab.language.clone(),
+                tab.tab_kind.clone().unwrap_or_else(|| "query".into()),
+            )
         };
         let selected = app
             .dialog()
             .file()
-            .set_title("Save query to local file")
-            .set_file_name(default_query_file_name(&title, &language))
+            .set_title("Save item to local file")
+            .set_file_name(default_query_file_name(&title, &language, &tab_kind))
             .blocking_save_file();
 
         let Some(selected) = selected else {
@@ -452,6 +494,17 @@ pub async fn collect_adapter_diagnostics(
 }
 
 #[tauri::command]
+pub async fn refresh_metrics_tab(
+    state: State<'_, SharedAppState>,
+    tab_id: String,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut runtime = clone_runtime(&state);
+    let response = runtime.refresh_metrics_tab(&tab_id).await?;
+    replace_runtime(&state, runtime);
+    Ok(response)
+}
+
+#[tauri::command]
 pub async fn execute_query_request(
     state: State<'_, SharedAppState>,
     request: ExecutionRequest,
@@ -460,6 +513,24 @@ pub async fn execute_query_request(
     let response = runtime.execute_query(request).await?;
     replace_runtime(&state, runtime);
     Ok(response)
+}
+
+#[tauri::command]
+pub fn execute_test_suite(
+    state: State<'_, SharedAppState>,
+    request: ExecuteTestSuiteRequest,
+) -> Result<ExecuteTestSuiteResponse, CommandError> {
+    let mut state = state.lock().unwrap();
+    state.execute_test_suite(request)
+}
+
+#[tauri::command]
+pub fn cancel_test_run(
+    state: State<'_, SharedAppState>,
+    request: CancelTestRunRequest,
+) -> Result<CancelExecutionResult, CommandError> {
+    let mut state = state.lock().unwrap();
+    state.cancel_test_run(request)
 }
 
 #[tauri::command]
@@ -630,7 +701,15 @@ fn dialog_path_to_string(path: FilePath) -> Result<String, CommandError> {
         .map_err(|error| CommandError::new("dialog-path-error", error.to_string()))
 }
 
-fn default_query_file_name(title: &str, language: &str) -> String {
+fn default_query_file_name(title: &str, language: &str, tab_kind: &str) -> String {
+    if tab_kind == "test-suite" {
+        let stem = title
+            .trim()
+            .strip_suffix(".datapad-test.json")
+            .unwrap_or_else(|| title.trim());
+        return format!("{}.datapad-test.json", safe_file_stem(stem, "test-suite"));
+    }
+
     let extension = match language {
         "mongodb" | "json" | "query-dsl" | "esql" => "json",
         "promql" => "promql",
@@ -643,16 +722,22 @@ fn default_query_file_name(title: &str, language: &str) -> String {
         _ => "txt",
     };
     let trimmed = title.trim().trim_end_matches(&format!(".{extension}"));
-    let stem = if trimmed.is_empty() { "query" } else { trimmed };
-    let safe_stem = stem
-        .chars()
+    format!("{}.{}", safe_file_stem(trimmed, "query"), extension)
+}
+
+fn safe_file_stem(stem: &str, fallback: &str) -> String {
+    let raw = if stem.trim().is_empty() {
+        fallback
+    } else {
+        stem.trim()
+    };
+
+    raw.chars()
         .map(|character| match character {
             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
             _ => character,
         })
-        .collect::<String>();
-
-    format!("{safe_stem}.{extension}")
+        .collect()
 }
 
 struct LocalDatabaseSpec {

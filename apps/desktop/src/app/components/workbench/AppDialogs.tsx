@@ -82,10 +82,18 @@ export function SaveQueryDialog({
   const existingLibraryItemId =
     tab.saveTarget?.kind === 'library' ? tab.saveTarget.libraryItemId : tab.savedQueryId
   const existingNode = libraryNodes.find((node) => node.id === existingLibraryItemId)
+  const defaultFolderId =
+    tab.tabKind === 'test-suite' || tab.testSuite
+      ? 'library-root-tests'
+      : 'library-root-queries'
   const [folderId, setFolderId] = useState(
-    existingNode?.parentId ?? folders[0]?.id ?? 'library-root-queries',
+    existingNode?.parentId ??
+      folders.find((folder) => folder.id === defaultFolderId)?.id ??
+      folders[0]?.id ??
+      defaultFolderId,
   )
   const [name, setName] = useState(existingNode?.name ?? displayLibraryNameForTab(tab.title))
+  const itemLabel = tab.tabKind === 'test-suite' || tab.testSuite ? 'Test Suite' : 'Query'
 
   return (
     <div className="workbench-modal-overlay" role="presentation">
@@ -95,7 +103,7 @@ export function SaveQueryDialog({
         aria-modal="true"
         aria-labelledby="save-query-dialog-title"
       >
-        <p className="sidebar-eyebrow">Save Query</p>
+        <p className="sidebar-eyebrow">Save {itemLabel}</p>
         <h2 id="save-query-dialog-title">Save {displayLibraryNameForTab(tab.title)}</h2>
         <p>
           Save this item to the workspace Library, or save a standalone local
@@ -165,7 +173,7 @@ function libraryNodePath(nodes: LibraryNode[], node: LibraryNode) {
 }
 
 function displayLibraryNameForTab(title: string) {
-  return title.replace(/\.(sql|json|redis|promql|cql|txt)$/i, '')
+  return title.replace(/\.(datapad-test\.json|sql|json|redis|promql|cql|txt)$/i, '')
 }
 
 export function DeleteConnectionDialog({

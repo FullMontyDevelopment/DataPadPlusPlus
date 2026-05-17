@@ -6,6 +6,7 @@ import {
   ExplainIcon,
   PanelIcon,
   ColumnIcon,
+  ConsoleIcon,
   PlayIcon,
   SettingsIcon,
   StopIcon,
@@ -30,6 +31,10 @@ interface EditorToolbarProps {
   builderKind?: QueryBuilderState['kind']
   queryWindowMode: QueryWindowMode
   onToggleQueryWindowMode(mode: QueryWindowMode): void
+  executeLabel?: string
+  executeAriaLabel?: string
+  executeTitle?: string
+  executeDisabled?: boolean
 }
 
 export function EditorToolbar({
@@ -46,6 +51,10 @@ export function EditorToolbar({
   builderKind,
   queryWindowMode,
   onToggleQueryWindowMode,
+  executeLabel = 'Run',
+  executeAriaLabel = 'Run query',
+  executeTitle = 'Run the current query against the selected connection and environment. Shortcut: Ctrl+Enter.',
+  executeDisabled = false,
 }: EditorToolbarProps) {
   const queryWindowModeButtonLabels: Record<
     QueryWindowMode,
@@ -61,7 +70,7 @@ export function EditorToolbar({
   > = {
     both: { icon: ColumnIcon, text: 'Show key browser and console' },
     builder: { icon: KeyValueIcon, text: 'Show key browser' },
-    raw: { icon: TableIcon, text: 'Show Redis console' },
+    raw: { icon: ConsoleIcon, text: 'Show Redis console' },
   }
   const modeLabels =
     builderKind === 'redis-key-browser'
@@ -74,13 +83,13 @@ export function EditorToolbar({
         <button
           type="button"
           className="toolbar-action toolbar-action--run"
-          aria-label="Run query"
-          title="Run the current query against the selected connection and environment. Shortcut: Ctrl+Enter."
-          disabled={executionStatus === 'loading'}
+          aria-label={executeAriaLabel}
+          title={executeTitle}
+          disabled={executionStatus === 'loading' || executeDisabled}
           onClick={onExecute}
         >
           <PlayIcon className="toolbar-icon" />
-          <span>{executionStatus === 'loading' ? 'Running' : 'Run'}</span>
+          <span>{executionStatus === 'loading' ? 'Running' : executeLabel}</span>
         </button>
 
         <button
@@ -118,12 +127,13 @@ export function EditorToolbar({
         <div className="toolbar-group toolbar-group--query-layout" aria-label="Query window mode">
           {(
             [
-              { mode: 'both', icon: ColumnIcon },
-              { mode: 'builder', icon: JsonIcon },
-              { mode: 'raw', icon: TableIcon },
+              { mode: 'both' },
+              { mode: 'builder' },
+              { mode: 'raw' },
             ] as const
-          ).map(({ mode, icon: Icon }) => {
+          ).map(({ mode }) => {
             const label = modeLabels[mode].text
+            const Icon = modeLabels[mode].icon
 
             return (
               <button

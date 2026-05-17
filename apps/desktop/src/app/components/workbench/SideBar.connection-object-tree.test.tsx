@@ -62,6 +62,77 @@ describe('ConnectionObjectTree', () => {
     )
   })
 
+  it('opens Redis prefixes through the visible Query button', () => {
+    const onOpenScopedQuery = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={redisConnection()}
+        explorerNodes={[
+          {
+            id: 'prefix-perf',
+            label: 'perf:*',
+            kind: 'prefix',
+            detail: '51 sampled key(s)',
+            family: 'keyvalue',
+            path: ['Fixture Redis'],
+            scope: 'prefix:perf:',
+            queryTemplate: 'SCAN 0 MATCH perf:* COUNT 50',
+            expandable: true,
+          },
+        ]}
+        explorerStatus="ready"
+        onLoadExplorerScope={vi.fn()}
+        onOpenScopedQuery={onOpenScopedQuery}
+      />,
+    )
+
+    expandTreeItem('Key Prefixes')
+    const prefixRow = treeItemForLabel('perf:*')
+    const queryButton = within(prefixRow).getByRole('button', { name: 'Query' })
+
+    fireEvent.click(queryButton)
+
+    expect(onOpenScopedQuery).toHaveBeenCalledWith(
+      'conn-redis',
+      expect.objectContaining({
+        label: 'perf:*',
+        preferredBuilder: 'redis-key-browser',
+        scope: 'prefix:perf:',
+        queryTemplate: expect.stringContaining('"pattern": "perf:*"'),
+      }),
+    )
+  })
+
+  it('does not render an expander for remote nodes that cannot be loaded', () => {
+    render(
+      <ConnectionObjectTree
+        connection={redisConnection()}
+        explorerNodes={[
+          {
+            id: 'prefix-perf',
+            label: 'perf:*',
+            kind: 'prefix',
+            detail: 'metadata only',
+            family: 'keyvalue',
+            path: ['Fixture Redis'],
+            expandable: true,
+          },
+        ]}
+        explorerStatus="ready"
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Key Prefixes')
+    const prefixRow = treeItemForLabel('perf:*')
+
+    expect(prefixRow).not.toHaveAttribute('aria-expanded')
+    expect(
+      within(prefixRow).queryByRole('button', { name: /Expand perf:\*/ }),
+    ).not.toBeInTheDocument()
+  })
+
   it('shows datastore-specific management actions and scoped refresh options', () => {
     const onOpenScopedQuery = vi.fn()
     const onLoadExplorerScope = vi.fn()

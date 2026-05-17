@@ -13,6 +13,7 @@ mod query_tabs;
 mod saved_work;
 mod sql_hints;
 mod tabs;
+mod tests_workbench;
 mod ui;
 mod workspace;
 

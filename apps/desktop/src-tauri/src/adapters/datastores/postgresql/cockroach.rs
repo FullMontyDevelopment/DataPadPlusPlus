@@ -64,7 +64,14 @@ impl DatastoreAdapter for CockroachAdapter {
         scope: Option<&str>,
     ) -> Result<AdapterDiagnostics, CommandError> {
         let manifest = self.manifest();
-        Ok(cockroach_adapter_diagnostics(connection, &manifest, scope))
+        let mut diagnostics = collect_postgres_diagnostics(connection, &manifest, scope)
+            .await
+            .unwrap_or_else(|_| cockroach_adapter_diagnostics(connection, &manifest, scope));
+        diagnostics.warnings.push(
+            "CockroachDB extends PostgreSQL metrics with jobs, sessions, contention, and ranges where permissions allow."
+                .into(),
+        );
+        Ok(diagnostics)
     }
 
     async fn test_connection(

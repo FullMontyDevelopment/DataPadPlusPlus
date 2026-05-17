@@ -626,7 +626,7 @@ fn normalize_redis_type(value: &str) -> String {
         "tdigest" => "tdigest".into(),
         "vectorset" | "vector" | "vectors" => "vectorset".into(),
         known @ ("string" | "hash" | "list" | "set" | "zset" | "stream" | "none") => known.into(),
-        other if other.is_empty() => "unknown".into(),
+        "" => "unknown".into(),
         _ => "module".into(),
     }
 }

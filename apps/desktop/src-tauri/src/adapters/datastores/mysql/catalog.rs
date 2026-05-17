@@ -16,6 +16,7 @@ pub(super) fn mysql_manifest(engine: &str) -> AdapterManifest {
             "supports_schema_browser",
             "supports_transactions",
             "supports_result_snapshots",
+            "supports_metrics_collection",
             "supports_structure_visualization",
         ],
     )

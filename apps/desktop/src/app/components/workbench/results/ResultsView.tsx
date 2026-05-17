@@ -11,6 +11,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { ClockIcon, CopyIcon, DownloadIcon } from '../icons'
 import { ResultPayloadView } from './ResultPayloadView'
+import { TestRunResultsView } from './TestRunResultsView'
 import { copyText, exportPayload, payloadToText } from './payload-export'
 import { formatDurationClock } from './result-runtime'
 
@@ -50,6 +51,15 @@ export function ResultsView({
     pageSize: DEFAULT_RESULT_PAGE_SIZE,
     resultId: '',
   })
+
+  if (activeTab?.tabKind === 'test-suite') {
+    return (
+      <div className="panel-body-frame panel-body-frame--results">
+        <TestRunResultsView run={activeTab.testRun} />
+      </div>
+    )
+  }
+
   const resultId = result?.id ?? ''
   const usesDocumentPaging = connection?.family === 'document' && payload?.renderer === 'document'
   const pageSize = pagination.pageSize

@@ -2,6 +2,7 @@ use super::super::*;
 
 mod catalog;
 mod connection;
+mod diagnostics;
 mod editing;
 mod explorer;
 mod metadata;
@@ -13,6 +14,7 @@ pub(crate) use paging::fetch_mongodb_page;
 
 use catalog::*;
 use connection::test_mongodb_connection;
+use diagnostics::collect_mongodb_diagnostics;
 use editing::execute_mongodb_data_edit;
 use explorer::*;
 
@@ -66,6 +68,14 @@ impl DatastoreAdapter for MongoDbAdapter {
         request: &DataEditExecutionRequest,
     ) -> Result<DataEditExecutionResponse, CommandError> {
         execute_mongodb_data_edit(self, connection, request).await
+    }
+
+    async fn collect_diagnostics(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        scope: Option<&str>,
+    ) -> Result<AdapterDiagnostics, CommandError> {
+        collect_mongodb_diagnostics(connection, scope).await
     }
 
     async fn cancel(

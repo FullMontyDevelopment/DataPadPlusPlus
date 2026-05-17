@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { MouseEvent } from 'react'
 import type {
+  AdapterManifest,
   ConnectionGroupMode,
   ConnectionProfile,
   EnvironmentProfile,
@@ -33,6 +34,7 @@ import { SidebarSection } from './SideBar.section'
 
 export function ConnectionsPane({
   activeConnectionId,
+  adapterManifests,
   connectionFilter,
   connectionGroupMode,
   connectionGroups,
@@ -47,6 +49,7 @@ export function ConnectionsPane({
   onDeleteConnection,
   onDuplicateConnection,
   onOpenConnectionExplorer,
+  onOpenConnectionMetrics,
   onOpenConnectionDrawer,
   onLoadExplorerScope,
   onOpenScopedQuery,
@@ -54,6 +57,7 @@ export function ConnectionsPane({
   onSelectConnection,
 }: {
   activeConnectionId: string
+  adapterManifests: AdapterManifest[]
   connectionFilter: string
   connectionGroupMode: ConnectionGroupMode
   connectionGroups: Record<string, ConnectionProfile[]>
@@ -70,6 +74,7 @@ export function ConnectionsPane({
   onLoadExplorerScope(connectionId: string, scope?: string): void
   onDuplicateConnection(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
+  onOpenConnectionMetrics(connectionId: string): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onCreateTab(connectionId?: string): void
   onSelectConnection(connectionId: string): void
@@ -283,6 +288,9 @@ export function ConnectionsPane({
       {contextMenu && contextConnection ? (
         <ConnectionContextMenu
           connection={contextConnection}
+          adapterManifest={adapterManifests.find(
+            (manifest) => manifest.engine === contextConnection.engine,
+          )}
           position={contextMenu}
           onClose={() => setContextMenu(undefined)}
           onCreateTab={onCreateTab}
@@ -290,6 +298,7 @@ export function ConnectionsPane({
           onDuplicateConnection={onDuplicateConnection}
           onOpenConnectionDrawer={onOpenConnectionDrawer}
           onOpenConnectionExplorer={onOpenConnectionExplorer}
+          onOpenConnectionMetrics={onOpenConnectionMetrics}
         />
       ) : null}
     </>

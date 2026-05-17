@@ -32,6 +32,8 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         status: 'ready',
         payload: action.payload,
         diagnostics: action.payload.diagnostics,
+        executionStatus:
+          state.executionStatus === 'loading' ? 'ready' : state.executionStatus,
       }
     case 'DIAGNOSTICS_READY':
       return {

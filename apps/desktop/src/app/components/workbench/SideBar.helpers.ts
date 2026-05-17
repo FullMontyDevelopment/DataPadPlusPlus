@@ -16,7 +16,7 @@ export type { ConnectionTreeNode } from './SideBar.connection-tree'
 export type { ConnectionTreeAction } from './SideBar.datastore-tree-registry'
 
 export function isScopedQueryable(node: ConnectionTreeNode) {
-  return Boolean(node.queryable || node.queryTemplate || node.builderKind)
+  return Boolean(node.queryable || node.builderKind)
 }
 
 export function connectionTreeNodeTarget(node: ConnectionTreeNode): ScopedQueryTarget {
@@ -31,22 +31,55 @@ export function connectionTreeNodeTarget(node: ConnectionTreeNode): ScopedQueryT
 }
 
 export function isExplorerNodeQueryable(node: ExplorerNode) {
-  return Boolean(node.queryTemplate || ['collection', 'table', 'view'].includes(node.kind))
+  const kind = node.kind.trim().toLowerCase().replace(/_/g, '-')
+
+  return ['collection', 'table', 'base-table', 'view', 'prefix'].includes(kind)
 }
 
 export function explorerNodeTarget(
   node: ExplorerNode,
   connection: ConnectionProfile | undefined,
 ): ScopedQueryTarget {
+  const kind = node.kind.trim().toLowerCase().replace(/_/g, '-')
+  const redisPrefix =
+    ['redis', 'valkey'].includes(connection?.engine ?? '') && kind === 'prefix'
+
   return {
     kind: node.kind,
     label: node.label,
     path: node.path,
     scope: node.scope,
-    queryTemplate: node.queryTemplate,
+    queryTemplate: redisPrefix ? redisKeyBrowserQueryTemplateForNode(node) : node.queryTemplate,
     preferredBuilder:
-      connection?.engine === 'mongodb' && node.kind === 'collection' ? 'mongo-find' : undefined,
+      connection?.engine === 'mongodb' && kind === 'collection'
+        ? 'mongo-find'
+        : redisPrefix
+          ? 'redis-key-browser'
+          : undefined,
   }
+}
+
+function redisKeyBrowserQueryTemplateForNode(node: ExplorerNode) {
+  const scopedPrefix = node.scope?.startsWith('prefix:')
+    ? node.scope.replace('prefix:', '')
+    : undefined
+  const candidate = scopedPrefix || node.label || '*'
+  const pattern = candidate.includes('*')
+    ? candidate
+    : candidate.endsWith(':')
+      ? `${candidate}*`
+      : candidate
+
+  return JSON.stringify(
+    {
+      mode: 'redis-key-browser',
+      pattern,
+      type: 'all',
+      count: 100,
+    },
+    null,
+    2,
+  )
 }
 
 export function sidebarSectionId(pane: string, scope: string, label: string) {

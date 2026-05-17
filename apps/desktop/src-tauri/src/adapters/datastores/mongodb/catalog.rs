@@ -10,6 +10,7 @@ pub(super) fn mongodb_manifest() -> AdapterManifest {
         &[
             "supports_document_view",
             "supports_result_snapshots",
+            "supports_metrics_collection",
             "supports_structure_visualization",
         ],
     )

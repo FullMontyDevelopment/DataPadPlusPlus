@@ -6,7 +6,12 @@ import type {
   DataEditPlanResponse,
   DatastoreExperienceManifest,
 } from '@datapadplusplus/shared-types'
-import { DATAPADPLUSPLUS_ADAPTER_MANIFESTS, datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
+import {
+  DATASTORE_TEST_ASSERTIONS,
+  DATAPADPLUSPLUS_ADAPTER_MANIFESTS,
+  datastoreBacklogByEngine,
+  datastoreTestTemplatesForEngine,
+} from '@datapadplusplus/shared-types'
 import { languageForConnection } from '../../app/state/helpers'
 import {
   browserDataEditPermission,
@@ -35,6 +40,8 @@ export function buildDatastoreExperiences(): DatastoreExperienceManifest[] {
         'Destructive and admin operations remain guarded preview plans in this phase.',
         'Safe edits require an unambiguous target and adapter-specific permission checks.',
       ],
+      testTemplates: datastoreTestTemplatesForEngine(manifest.engine, family),
+      testAssertions: DATASTORE_TEST_ASSERTIONS,
     }
   })
 }

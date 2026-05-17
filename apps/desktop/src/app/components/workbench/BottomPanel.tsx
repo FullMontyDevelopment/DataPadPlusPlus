@@ -82,7 +82,9 @@ export function BottomPanel({
   onClearWorkbenchMessages,
 }: BottomPanelProps) {
   const hasPanelContext = Boolean(activeTab && activeConnection && activeEnvironment)
-  const hasQueryContext = Boolean(hasPanelContext && activeTab?.tabKind !== 'explorer')
+  const hasQueryContext = Boolean(
+    hasPanelContext && activeTab?.tabKind !== 'explorer' && activeTab?.tabKind !== 'metrics',
+  )
   const safePanelTab =
     activePanelTab === 'details' && hasPanelContext
       ? 'details'

@@ -11,6 +11,10 @@ import type { GuardrailDecision } from './security'
 import type {
   ExecutionResultEnvelope,
   ExplorerNode,
+  DatastoreTestAssertionKind,
+  DatastoreTestRunResult,
+  DatastoreTestSuiteDefinition,
+  DatastoreTestTemplate,
   QueryBuilderKind,
   QueryBuilderState,
   QueryLanguage,
@@ -164,6 +168,8 @@ export interface DatastoreExperienceManifest {
   diagnosticsTabs: DatastoreDiagnosticsTab[]
   resultRenderers: ResultRenderer[]
   safetyRules: string[]
+  testTemplates: DatastoreTestTemplate[]
+  testAssertions: DatastoreTestAssertionKind[]
 }
 
 export interface DatastoreExperienceResponse {
@@ -505,6 +511,42 @@ export interface CreateScopedQueryTabRequest {
   connectionId: string
   environmentId?: string
   target: ScopedQueryTarget
+}
+
+export interface CreateTestSuiteTabRequest {
+  connectionId?: string
+  environmentId?: string
+  templateId?: string
+  suite?: DatastoreTestSuiteDefinition
+}
+
+export interface UpdateTestSuiteTabRequest {
+  tabId: string
+  suite?: DatastoreTestSuiteDefinition
+  rawText?: string
+}
+
+export interface ExecuteTestSuiteRequest {
+  tabId: string
+  caseId?: string
+  confirmedGuardrailId?: string
+}
+
+export interface ExecuteTestSuiteResponse {
+  tab: QueryTabState
+  run: DatastoreTestRunResult
+  diagnostics: string[]
+}
+
+export interface CancelTestRunRequest {
+  runId: string
+  tabId?: string
+}
+
+export interface OpenTestSuiteTemplateRequest {
+  connectionId?: string
+  environmentId?: string
+  templateId: string
 }
 
 export interface UpdateQueryBuilderStateRequest {

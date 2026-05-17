@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createSeedSnapshot } from '../../test/fixtures/seed-workspace'
 import {
   createExplorerTabInSnapshot,
+  createMetricsTabInSnapshot,
   createScopedQueryTabInSnapshot,
   scopedTargetsMatch,
 } from './browser-tabs'
@@ -27,6 +28,32 @@ describe('browser tab runtime', () => {
 
     expect(reopened.tabs.filter((tab) => tab.tabKind === 'explorer')).toHaveLength(1)
     expect(reopened.ui.activeTabId).toBe(explorerTab?.id)
+  })
+
+  it('opens Metrics as one unsaveable tab per connection and environment', () => {
+    const snapshot = createSeedSnapshot()
+    const opened = createMetricsTabInSnapshot(snapshot, 'conn-catalog', 'env-dev')
+    const metricsTab = opened.tabs.find((tab) => tab.tabKind === 'metrics')
+
+    expect(metricsTab).toMatchObject({
+      connectionId: 'conn-catalog',
+      environmentId: 'env-dev',
+      dirty: false,
+      editorLabel: 'Metrics',
+      queryText: '',
+      metricsState: expect.objectContaining({
+        connectionId: 'conn-catalog',
+        environmentId: 'env-dev',
+      }),
+    })
+    expect(metricsTab?.saveTarget).toBeUndefined()
+    expect(opened.ui.activeTabId).toBe(metricsTab?.id)
+    expect(opened.ui.rightDrawer).toBe('none')
+
+    const reopened = createMetricsTabInSnapshot(opened, 'conn-catalog', 'env-dev')
+
+    expect(reopened.tabs.filter((tab) => tab.tabKind === 'metrics')).toHaveLength(1)
+    expect(reopened.ui.activeTabId).toBe(metricsTab?.id)
   })
 
   it('reuses an already-open scoped object query tab', () => {
@@ -84,6 +111,34 @@ describe('browser tab runtime', () => {
 
     expect(reopened.tabs).toHaveLength(1)
     expect(reopened.ui.activeTabId).toBe('tab-legacy-products')
+  })
+
+  it('creates Redis scoped tabs as key-browser tabs filtered to the selected prefix', () => {
+    const snapshot = createSeedSnapshot()
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-cache',
+      target: {
+        kind: 'prefix',
+        label: 'perf:*',
+        path: ['Session Redis', 'Key Prefixes'],
+        scope: 'prefix:perf:',
+        preferredBuilder: 'redis-key-browser',
+        queryTemplate: 'SCAN 0 MATCH perf:* COUNT 50',
+      },
+    })
+    const redisTab = opened.tabs.find((tab) => tab.scopedTarget?.scope === 'prefix:perf:')
+
+    expect(redisTab).toMatchObject({
+      connectionId: 'conn-cache',
+      title: 'perf:*.redis',
+      builderState: expect.objectContaining({
+        kind: 'redis-key-browser',
+        pattern: 'perf:*',
+        typeFilter: 'all',
+      }),
+      queryText: expect.stringContaining('"mode": "redis-key-browser"'),
+    })
+    expect(redisTab?.queryText).toContain('"pattern": "perf:*"')
   })
 
   it('matches scoped targets by object identity instead of generated query text', () => {

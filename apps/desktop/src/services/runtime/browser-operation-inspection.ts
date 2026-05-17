@@ -5,7 +5,6 @@ import type {
   PermissionInspectionResponse,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
-import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 import { buildOperationManifestsForConnection } from './browser-operation-manifests'
 import { findConnection } from './browser-store'
 
@@ -85,10 +84,59 @@ export function collectDiagnosticsLocally(
           renderer: 'metrics',
           metrics: [
             {
-              name: 'preview.capabilities',
-              value: datastoreBacklogByEngine(connection.engine)?.capabilities.length ?? 0,
-              unit: 'capabilities',
+              name: 'preview.connections_active',
+              value: 3,
+              unit: 'connections',
               labels: { engine: connection.engine },
+            },
+            {
+              name: 'preview.query_latency_p95',
+              value: 42,
+              unit: 'ms',
+              labels: { engine: connection.engine },
+            },
+            {
+              name: 'preview.cache_hit_rate',
+              value: 98.4,
+              unit: '%',
+              labels: { engine: connection.engine },
+            },
+            {
+              name: 'preview.storage_used',
+              value: 7340032,
+              unit: 'bytes',
+              labels: { engine: connection.engine },
+            },
+          ],
+        },
+        {
+          renderer: 'series',
+          series: [
+            {
+              name: 'preview.query_latency_p95',
+              unit: 'ms',
+              points: [
+                { timestamp: new Date(Date.now() - 180000).toISOString(), value: 35 },
+                { timestamp: new Date(Date.now() - 120000).toISOString(), value: 48 },
+                { timestamp: new Date(Date.now() - 60000).toISOString(), value: 41 },
+                { timestamp: new Date().toISOString(), value: 42 },
+              ],
+            },
+          ],
+        },
+        {
+          renderer: 'chart',
+          chartType: 'bar',
+          xAxis: 'Metric',
+          yAxis: 'Value',
+          series: [
+            {
+              name: 'Preview health',
+              points: [
+                { x: 'latency', y: 42 },
+                { x: 'hit rate', y: 98.4 },
+                { x: 'sessions', y: 3 },
+              ],
             },
           ],
         },

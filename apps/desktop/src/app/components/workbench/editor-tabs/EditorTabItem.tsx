@@ -72,7 +72,7 @@ export function EditorTabItem({
     '--tab-env-color': environmentColor,
     '--tab-env-tint': colorWithAlpha(environmentColor, 0.16),
   } as CSSProperties
-  const tabCanBeSaved = tab.tabKind !== 'explorer'
+  const tabCanBeSaved = tab.tabKind !== 'explorer' && tab.tabKind !== 'metrics'
   const showUnsavedChanges = tabCanBeSaved && tab.dirty
   const connectionName = connection?.name ?? 'Unknown connection'
   const environmentName = environment?.label ?? 'No environment'

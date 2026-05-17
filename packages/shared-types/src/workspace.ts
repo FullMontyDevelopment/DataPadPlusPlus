@@ -1,4 +1,5 @@
 import type { DatastoreEngine, DatastoreFamily } from './connection'
+import type { AdapterDiagnostics } from './runtime'
 
 export const RESULT_RENDERERS = [
   'table',
@@ -55,6 +56,7 @@ export type QueryExecutionState =
 export type SavedWorkItemKind =
   | 'query'
   | 'script'
+  | 'test-suite'
   | 'template'
   | 'snippet'
   | 'snapshot'
@@ -72,7 +74,7 @@ export type QuerySaveTarget =
 export interface QueryTabDefinition {
   id: string
   title: string
-  tabKind?: 'query' | 'explorer'
+  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics'
   connectionId: string
   environmentId: string
   family: DatastoreFamily
@@ -80,6 +82,14 @@ export interface QueryTabDefinition {
   pinned?: boolean
   saveTarget?: QuerySaveTarget
   savedQueryId?: string
+}
+
+export interface MetricsTabState {
+  connectionId: string
+  environmentId: string
+  lastRefreshedAt?: string
+  diagnostics?: AdapterDiagnostics
+  warnings: string[]
 }
 
 export type QueryBuilderKind =
@@ -380,6 +390,144 @@ export type QueryBuilderState =
   | CqlPartitionBuilderState
   | SearchDslBuilderState
 
+export type DatastoreTestPhase = 'setup' | 'execute' | 'teardown'
+export type DatastoreTestStepKind = 'query' | 'builder' | 'data-edit' | 'operation'
+export type DatastoreTestStatus =
+  | 'idle'
+  | 'running'
+  | 'passed'
+  | 'failed'
+  | 'blocked'
+  | 'error'
+  | 'canceled'
+
+export type DatastoreTestAssertionKind =
+  | 'row-count'
+  | 'cell-value'
+  | 'json-path'
+  | 'document-count'
+  | 'key-exists'
+  | 'key-type'
+  | 'key-ttl'
+  | 'search-hit-count'
+  | 'schema-exists'
+  | 'no-error'
+  | 'duration-under'
+
+export type DatastoreTestComparison =
+  | 'equals'
+  | 'not-equals'
+  | 'contains'
+  | 'greater-than'
+  | 'greater-than-or-equal'
+  | 'less-than'
+  | 'less-than-or-equal'
+  | 'exists'
+
+export interface DatastoreTestStep {
+  id: string
+  label: string
+  phase: DatastoreTestPhase
+  kind: DatastoreTestStepKind
+  enabled?: boolean
+  language?: QueryLanguage
+  queryText?: string
+  builderState?: QueryBuilderState
+  operationId?: string
+  editKind?: string
+  parameters?: Record<string, unknown>
+  timeoutMs?: number
+}
+
+export interface DatastoreTestAssertion {
+  id: string
+  label: string
+  kind: DatastoreTestAssertionKind
+  enabled?: boolean
+  comparison?: DatastoreTestComparison
+  path?: string
+  field?: string
+  expected?: unknown
+  timeoutMs?: number
+}
+
+export interface DatastoreTestCaseDefinition {
+  id: string
+  name: string
+  enabled?: boolean
+  timeoutMs?: number
+  scopedTarget?: ScopedQueryTarget
+  setup: DatastoreTestStep[]
+  execute: DatastoreTestStep[]
+  assertions: DatastoreTestAssertion[]
+  teardown: DatastoreTestStep[]
+}
+
+export interface DatastoreTestSuiteDefinition {
+  id: string
+  name: string
+  description?: string
+  engine?: DatastoreEngine
+  family?: DatastoreFamily
+  connectionId?: string
+  environmentId?: string
+  variables?: Record<string, string>
+  cases: DatastoreTestCaseDefinition[]
+}
+
+export interface DatastoreTestStepRunResult {
+  id: string
+  label: string
+  phase: DatastoreTestPhase
+  status: DatastoreTestStatus
+  durationMs: number
+  messages: string[]
+  warnings: string[]
+  payloadSummary?: string
+}
+
+export interface DatastoreTestAssertionRunResult {
+  id: string
+  label: string
+  kind: DatastoreTestAssertionKind
+  status: DatastoreTestStatus
+  expected?: unknown
+  actual?: unknown
+  message: string
+}
+
+export interface DatastoreTestCaseRunResult {
+  id: string
+  name: string
+  status: DatastoreTestStatus
+  durationMs: number
+  steps: DatastoreTestStepRunResult[]
+  assertions: DatastoreTestAssertionRunResult[]
+}
+
+export interface DatastoreTestRunResult {
+  id: string
+  suiteId: string
+  status: DatastoreTestStatus
+  startedAt: string
+  finishedAt?: string
+  durationMs: number
+  passed: number
+  failed: number
+  blocked: number
+  warnings: string[]
+  cases: DatastoreTestCaseRunResult[]
+}
+
+export interface DatastoreTestTemplate {
+  id: string
+  label: string
+  description: string
+  engine?: DatastoreEngine
+  family: DatastoreFamily
+  suite: DatastoreTestSuiteDefinition
+}
+
 export interface QueryExecutionNotice {
   code: string
   level: 'info' | 'warning' | 'error'
@@ -589,6 +737,9 @@ export interface QueryTabState extends QueryTabDefinition {
   queryText: string
   scopedTarget?: ScopedQueryTarget
   builderState?: QueryBuilderState
+  metricsState?: MetricsTabState
+  testSuite?: DatastoreTestSuiteDefinition
+  testRun?: DatastoreTestRunResult
   status: QueryExecutionState
   dirty: boolean
   lastRunAt?: string
@@ -636,6 +787,7 @@ export interface LibraryNode {
   language?: QueryLanguage
   queryText?: string
   scriptText?: string
+  testSuite?: DatastoreTestSuiteDefinition
   snapshotResultId?: string
 }
 

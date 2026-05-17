@@ -72,6 +72,62 @@ export function createExplorerTabInSnapshot(
   return focused
 }
 
+export function createMetricsTabInSnapshot(
+  snapshot: WorkspaceSnapshot,
+  connectionId: string,
+  environmentId?: string,
+): WorkspaceSnapshot {
+  const next = cloneSnapshot(snapshot)
+  const connection = next.connections.find((item) => item.id === connectionId)
+
+  if (!connection) {
+    return next
+  }
+
+  const resolvedEnvironmentId =
+    environmentId ?? connection.environmentIds[0] ?? next.environments[0]?.id ?? 'env-dev'
+  const existingMetricsTab = next.tabs.find(
+    (tab) =>
+      tab.connectionId === connection.id &&
+      tab.environmentId === resolvedEnvironmentId &&
+      tab.tabKind === 'metrics',
+  )
+
+  if (existingMetricsTab) {
+    const focused = upsertTab(next, existingMetricsTab)
+    focused.ui.activeActivity = 'connections'
+    focused.ui.activeSidebarPane = 'connections'
+    focused.ui.rightDrawer = 'none'
+    return focused
+  }
+
+  const tab: QueryTabState = {
+    id: createId('tab'),
+    title: uniqueMetricsTabTitle(next, connection),
+    tabKind: 'metrics',
+    connectionId: connection.id,
+    environmentId: resolvedEnvironmentId,
+    family: connection.family,
+    language: 'json',
+    editorLabel: 'Metrics',
+    queryText: '',
+    metricsState: {
+      connectionId: connection.id,
+      environmentId: resolvedEnvironmentId,
+      warnings: [],
+    },
+    status: 'idle',
+    dirty: false,
+    history: [],
+  }
+
+  const focused = upsertTab(next, tab)
+  focused.ui.activeActivity = 'connections'
+  focused.ui.activeSidebarPane = 'connections'
+  focused.ui.rightDrawer = 'none'
+  return focused
+}
+
 
 
 export function createScopedQueryTabInSnapshot(
@@ -86,10 +142,7 @@ export function createScopedQueryTabInSnapshot(
   }
 
   const targetLabel = normalizeScopedTargetLabel(request.target.label)
-  const builderKind =
-    connection.engine === 'mongodb' && request.target.preferredBuilder === 'mongo-find'
-      ? 'mongo-find'
-      : undefined
+  const builderKind = scopedBuilderKind(connection, request.target)
   const legacyTitle = scopedQueryTitleCandidate(
     connection,
     targetLabel,
@@ -110,6 +163,8 @@ export function createScopedQueryTabInSnapshot(
   const queryText =
     builderKind === 'mongo-find'
       ? mongoFindQueryText(targetLabel, 50, connection.database)
+      : builderKind === 'redis-key-browser'
+        ? redisKeyBrowserQueryText(redisPatternFromTarget(request.target))
       : (request.target.queryTemplate ?? defaultQueryTextForConnection(connection))
   const tab: QueryTabState = {
     id: createId('tab'),
@@ -136,6 +191,20 @@ export function createScopedQueryTabInSnapshot(
             limit: 50,
             lastAppliedQueryText: queryText,
           }
+        : builderKind === 'redis-key-browser'
+          ? {
+              kind: 'redis-key-browser',
+              pattern: redisPatternFromTarget(request.target),
+              typeFilter: 'all',
+              cursor: '0',
+              scanCount: 100,
+              pageSize: 100,
+              scannedCount: 0,
+              expandedPrefixes: [],
+              visibleColumns: ['ttl', 'memory', 'length'],
+              viewMode: 'tree',
+              lastAppliedQueryText: queryText,
+            }
         : undefined,
     status: 'idle',
     dirty: true,
@@ -145,8 +214,45 @@ export function createScopedQueryTabInSnapshot(
   return upsertTab(next, tab)
 }
 
+function scopedBuilderKind(
+  connection: ConnectionProfile,
+  target: ScopedQueryTarget,
+): ScopedQueryTarget['preferredBuilder'] {
+  if (connection.engine === 'mongodb' && target.preferredBuilder === 'mongo-find') {
+    return 'mongo-find'
+  }
+
+  if (
+    (connection.engine === 'redis' || connection.engine === 'valkey') &&
+    target.preferredBuilder === 'redis-key-browser'
+  ) {
+    return 'redis-key-browser'
+  }
+
+  return undefined
+}
+
 function uniqueExplorerTabTitle(snapshot: WorkspaceSnapshot, connection: ConnectionProfile) {
   const candidate = `Explorer - ${connection.name}`
+  const titles = new Set(snapshot.tabs.map((tab) => tab.title))
+
+  if (!titles.has(candidate)) {
+    return candidate
+  }
+
+  let index = 2
+  let title = `${candidate} ${index}`
+
+  while (titles.has(title)) {
+    index += 1
+    title = `${candidate} ${index}`
+  }
+
+  return title
+}
+
+function uniqueMetricsTabTitle(snapshot: WorkspaceSnapshot, connection: ConnectionProfile) {
+  const candidate = `Metrics - ${connection.name}`
   const titles = new Set(snapshot.tabs.map((tab) => tab.title))
 
   if (!titles.has(candidate)) {
@@ -248,6 +354,36 @@ export function mongoFindQueryText(collection: string, limit: number, database?:
     null,
     2,
   )
+}
+
+export function redisKeyBrowserQueryText(pattern: string, count = 100) {
+  return JSON.stringify(
+    {
+      mode: 'redis-key-browser',
+      pattern,
+      type: 'all',
+      count,
+    },
+    null,
+    2,
+  )
+}
+
+function redisPatternFromTarget(target: ScopedQueryTarget) {
+  const scopedPrefix = target.scope?.startsWith('prefix:')
+    ? target.scope.replace('prefix:', '')
+    : undefined
+  const candidate = scopedPrefix || target.label || '*'
+
+  if (candidate.includes('*')) {
+    return candidate
+  }
+
+  if (candidate.endsWith(':')) {
+    return `${candidate}*`
+  }
+
+  return candidate
 }
 
 

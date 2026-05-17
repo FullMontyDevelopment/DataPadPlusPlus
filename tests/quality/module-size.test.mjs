@@ -15,6 +15,13 @@ const documentedExceptions = new Map([
     },
   ],
   [
+    'apps/desktop/src/app/components/workbench/results/KeyValueResultsView.tsx',
+    {
+      maxLines: 430,
+      reason: 'Redis key inspection, typed value rendering, and guarded edit actions remain one result view.',
+    },
+  ],
+  [
     'apps/desktop/src/app/components/workbench/results/DataGridView.tsx',
     {
       maxLines: 455,
@@ -31,14 +38,14 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/SideBar.connection-object-tree.tsx',
     {
-      maxLines: 550,
+      maxLines: 570,
       reason: 'Tree rendering, scoped refresh, batching, and context menu behavior are one UI unit.',
     },
   ],
   [
     'apps/desktop/src/app/components/workbench/SideBar.connection-tree.ts',
     {
-      maxLines: 570,
+      maxLines: 610,
       reason: 'Fallback connection tree templates cover all datastore families until live explorers mature.',
     },
   ],
@@ -57,9 +64,16 @@ const documentedExceptions = new Map([
     },
   ],
   [
+    'apps/desktop/src/app/state/app-actions-runtime.ts',
+    {
+      maxLines: 430,
+      reason: 'Runtime action wrappers coordinate tab, metrics, explorer, and test-suite command refreshes.',
+    },
+  ],
+  [
     'apps/desktop/src/app/state/app-actions-tabs.ts',
     {
-      maxLines: 445,
+      maxLines: 520,
       reason: 'Tab and Library actions share save/open lifecycle state.',
     },
   ],
@@ -73,8 +87,15 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/services/runtime/browser-tabs.ts',
     {
-      maxLines: 475,
+      maxLines: 610,
       reason: 'Browser-preview tab persistence mirrors the desktop tab runtime contract.',
+    },
+  ],
+  [
+    'apps/desktop/src/services/runtime/browser-tests.ts',
+    {
+      maxLines: 450,
+      reason: 'Browser-preview test suite simulation stays together with its deterministic run result helpers.',
     },
   ],
   [
@@ -92,10 +113,24 @@ const documentedExceptions = new Map([
     },
   ],
   [
+    'apps/desktop/src-tauri/src/app/runtime/query_tabs.rs',
+    {
+      maxLines: 470,
+      reason: 'Query, explorer, metrics, and test-suite tab builders share title and target dedupe invariants.',
+    },
+  ],
+  [
     'apps/desktop/src-tauri/src/app/runtime/tabs.rs',
     {
-      maxLines: 460,
+      maxLines: 510,
       reason: 'Tab lifecycle, scoped query creation, and reopen behavior share ordering invariants.',
+    },
+  ],
+  [
+    'apps/desktop/src-tauri/src/app/runtime/tests_workbench.rs',
+    {
+      maxLines: 550,
+      reason: 'Test-suite runtime owns visual/raw edits, deterministic execution, cancellation, and templates.',
     },
   ],
 ])

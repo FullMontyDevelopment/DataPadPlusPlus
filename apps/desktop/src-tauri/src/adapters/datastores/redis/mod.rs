@@ -4,6 +4,7 @@ mod browser;
 mod catalog;
 mod commands;
 mod connection;
+mod diagnostics;
 mod editing;
 mod explorer;
 mod metadata;
@@ -17,6 +18,7 @@ pub(crate) use paging::fetch_redis_page;
 
 use catalog::*;
 use connection::test_redis_connection;
+use diagnostics::collect_redis_diagnostics;
 use explorer::*;
 
 pub(crate) struct RedisAdapter;
@@ -69,6 +71,14 @@ impl DatastoreAdapter for RedisAdapter {
         request: &DataEditExecutionRequest,
     ) -> Result<DataEditExecutionResponse, CommandError> {
         execute_redis_data_edit(connection, &self.experience_manifest(), request).await
+    }
+
+    async fn collect_diagnostics(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        scope: Option<&str>,
+    ) -> Result<AdapterDiagnostics, CommandError> {
+        collect_redis_diagnostics(connection, scope).await
     }
 
     async fn cancel(

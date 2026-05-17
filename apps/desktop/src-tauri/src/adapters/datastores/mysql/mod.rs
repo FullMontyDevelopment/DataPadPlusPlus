@@ -2,6 +2,7 @@ use super::super::*;
 
 mod catalog;
 mod connection;
+mod diagnostics;
 mod editing;
 mod explorer;
 mod metadata;
@@ -13,6 +14,7 @@ pub(crate) use paging::fetch_mysql_page;
 
 use catalog::mysql_manifest;
 use connection::test_mysql_connection;
+use diagnostics::collect_mysql_diagnostics;
 use editing::execute_mysql_data_edit;
 use explorer::{inspect_mysql_explorer_node, list_mysql_explorer_nodes};
 
@@ -78,6 +80,14 @@ impl DatastoreAdapter for MysqlLikeAdapter {
             request,
         )
         .await
+    }
+
+    async fn collect_diagnostics(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        scope: Option<&str>,
+    ) -> Result<AdapterDiagnostics, CommandError> {
+        collect_mysql_diagnostics(self.engine, connection, scope).await
     }
 
     async fn cancel(

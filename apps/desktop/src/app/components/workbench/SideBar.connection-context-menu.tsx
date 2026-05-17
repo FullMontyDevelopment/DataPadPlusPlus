@@ -1,7 +1,9 @@
-import type { ConnectionProfile } from '@datapadplusplus/shared-types'
+import type { AdapterManifest, ConnectionProfile } from '@datapadplusplus/shared-types'
+import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 import {
   CopyIcon,
   ExplorerIcon,
+  MetricsIcon,
   PlayIcon,
   RenameIcon,
   TrashIcon,
@@ -15,6 +17,7 @@ export interface ConnectionContextMenuState {
 
 export function ConnectionContextMenu({
   connection,
+  adapterManifest,
   position,
   onClose,
   onCreateTab,
@@ -22,8 +25,10 @@ export function ConnectionContextMenu({
   onDuplicateConnection,
   onOpenConnectionDrawer,
   onOpenConnectionExplorer,
+  onOpenConnectionMetrics,
 }: {
   connection: ConnectionProfile
+  adapterManifest?: AdapterManifest
   position: Pick<ConnectionContextMenuState, 'x' | 'y'>
   onClose(): void
   onCreateTab(connectionId?: string): void
@@ -31,11 +36,17 @@ export function ConnectionContextMenu({
   onDuplicateConnection(connectionId: string): void
   onOpenConnectionDrawer(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
+  onOpenConnectionMetrics(connectionId: string): void
 }) {
   const runAndClose = (action: () => void) => {
     onClose()
     action()
   }
+  const capabilities = new Set([
+    ...(adapterManifest?.capabilities ?? []),
+    ...(datastoreBacklogByEngine(connection.engine)?.capabilities ?? []),
+  ])
+  const supportsMetrics = capabilities.has('supports_metrics_collection')
 
   return (
     <div
@@ -69,6 +80,18 @@ export function ConnectionContextMenu({
         <ExplorerIcon className="connection-context-menu-icon" />
         <span>Open Explorer</span>
       </button>
+      {supportsMetrics ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="connection-context-menu-item"
+          aria-label={`Open metrics for ${connection.name}`}
+          onClick={() => runAndClose(() => onOpenConnectionMetrics(connection.id))}
+        >
+          <MetricsIcon className="connection-context-menu-icon" />
+          <span>Metrics</span>
+        </button>
+      ) : null}
       <button
         type="button"
         role="menuitem"

@@ -1,20 +1,50 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentType, DragEvent } from 'react'
 import { readFieldDragData } from './results/field-drag'
+import {
+  registerDatastoreCompletionProvider,
+  type MonacoApiLike,
+  type MonacoDisposableLike,
+  type MonacoEditorLike,
+} from './intellisense/monaco-completions'
+import type {
+  DatastoreCompletionProvider,
+  EditorCompletionContext,
+} from './intellisense/types'
 
 export function DesktopCodeEditor({
   value,
   language,
   theme,
+  ariaLabel = 'Query editor',
+  completionContext,
+  completionProviders = [],
+  onRequestCompletionRefresh,
   onChange,
   onDropField,
 }: {
   value: string
   language: string
   theme: 'light' | 'dark'
+  ariaLabel?: string
+  completionContext?: EditorCompletionContext
+  completionProviders?: DatastoreCompletionProvider[]
+  onRequestCompletionRefresh?(): void
   onChange(value: string): void
   onDropField?(fieldPath: string): void
 }) {
+  const completionRef = useRef({
+    completionContext,
+    completionProviders,
+    onRequestCompletionRefresh,
+  })
+  const [monacoRuntime, setMonacoRuntime] = useState<
+    | {
+        editor: MonacoEditorLike
+        monaco: MonacoApiLike
+      }
+    | undefined
+  >()
   const [LoadedEditor, setLoadedEditor] = useState<null | ComponentType<{
     height: string
     language: string
@@ -22,7 +52,14 @@ export function DesktopCodeEditor({
     theme: string
     options: Record<string, unknown>
     onChange(value: string | undefined): void
+    onMount?(editor: MonacoEditorLike, monaco: MonacoApiLike): void
   }>>(null)
+  const completionProviderCount = completionProviders.length
+  const hasCompletionContext = Boolean(completionContext)
+  const completionRegistrationKey = useMemo(
+    () => `${language}:${completionProviderCount}:${hasCompletionContext ? 'on' : 'off'}`,
+    [completionProviderCount, hasCompletionContext, language],
+  )
 
   useEffect(() => {
     let mounted = true
@@ -43,6 +80,31 @@ export function DesktopCodeEditor({
       mounted = false
     }
   }, [])
+
+  useEffect(() => {
+    completionRef.current = {
+      completionContext,
+      completionProviders,
+      onRequestCompletionRefresh,
+    }
+  }, [completionContext, completionProviders, onRequestCompletionRefresh])
+
+  useEffect(() => {
+    if (!monacoRuntime || !hasCompletionContext || completionProviderCount === 0) {
+      return undefined
+    }
+
+    const disposable: MonacoDisposableLike = registerDatastoreCompletionProvider({
+      ...monacoRuntime,
+      language,
+      getContext: () => completionRef.current.completionContext,
+      getProviders: () => completionRef.current.completionProviders,
+      onRequestCompletionRefresh: () =>
+        completionRef.current.onRequestCompletionRefresh?.(),
+    })
+
+    return () => disposable.dispose()
+  }, [completionProviderCount, completionRegistrationKey, hasCompletionContext, language, monacoRuntime])
 
   const handleDragOver = (event: DragEvent<HTMLElement>) => {
     if (!onDropField) {
@@ -69,7 +131,7 @@ export function DesktopCodeEditor({
   if (!LoadedEditor) {
     return (
       <textarea
-        aria-label="Query editor"
+        aria-label={ariaLabel}
         className="editor-textarea"
         value={value}
         onDragOver={handleDragOver}
@@ -95,7 +157,10 @@ export function DesktopCodeEditor({
           tabSize: 2,
           lineNumbersMinChars: 3,
           padding: { top: 12 },
+          quickSuggestions: true,
+          suggestOnTriggerCharacters: true,
         }}
+        onMount={(editor, monaco) => setMonacoRuntime({ editor, monaco })}
         onChange={(nextValue) => onChange(nextValue ?? '')}
       />
     </div>

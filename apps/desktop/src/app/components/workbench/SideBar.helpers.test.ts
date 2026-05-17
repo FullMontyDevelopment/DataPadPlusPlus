@@ -120,6 +120,75 @@ describe('sidebar connection tree helpers', () => {
     })
   })
 
+  it('maps explorer Redis prefixes to key-browser scoped targets', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-cache')
+    const node: ExplorerNode = {
+      id: 'prefix-perf',
+      label: 'perf:*',
+      kind: 'prefix',
+      detail: '51 sampled key(s)',
+      family: 'keyvalue',
+      path: ['Session Redis'],
+      scope: 'prefix:perf:',
+      queryTemplate: 'SCAN 0 MATCH perf:* COUNT 50',
+      expandable: true,
+    }
+
+    expect(isExplorerNodeQueryable(node)).toBe(true)
+    expect(explorerNodeTarget(node, connection)).toMatchObject({
+      kind: 'prefix',
+      label: 'perf:*',
+      preferredBuilder: 'redis-key-browser',
+      queryTemplate: expect.stringContaining('"mode": "redis-key-browser"'),
+      scope: 'prefix:perf:',
+    })
+  })
+
+  it('maps Redis prefix nodes to the Redis key browser instead of a raw console template', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-cache')!
+    const tree = buildConnectionObjectTreeFromExplorerNodes(connection, [
+      {
+        id: 'prefix-perf',
+        label: 'perf:*',
+        kind: 'prefix',
+        detail: '51 sampled key(s)',
+        family: 'keyvalue',
+        path: [connection.name],
+        scope: 'prefix:perf:',
+        queryTemplate: 'SCAN 0 MATCH perf:* COUNT 50',
+        expandable: true,
+      },
+    ])
+
+    const prefix = findNode(tree, 'prefix-perf')
+
+    expect(prefix).toMatchObject({
+      label: 'perf:*',
+      kind: 'prefix',
+      queryable: true,
+      builderKind: 'redis-key-browser',
+      queryTemplate: expect.stringContaining('"pattern": "perf:*"'),
+    })
+    expect(connectionTreeNodeTarget(prefix!)).toMatchObject({
+      preferredBuilder: 'redis-key-browser',
+      queryTemplate: expect.stringContaining('"mode": "redis-key-browser"'),
+    })
+  })
+
+  it('does not treat internal metadata templates as scoped user queries', () => {
+    const node: ConnectionTreeNode = {
+      id: 'schema-public',
+      label: 'public',
+      kind: 'schema',
+      detail: 'schema',
+      queryTemplate: 'select table_name from information_schema.tables',
+    }
+
+    expect(isScopedQueryable(node)).toBe(false)
+  })
+
   it('builds connection object nodes from live explorer metadata', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')!

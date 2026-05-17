@@ -143,7 +143,7 @@ export function KeyValueResultsView({
       }))
       setStatusMessage(`Updated ${keyName}.`)
     } else {
-      setStatusMessage(response?.warnings.join(' ') || `Unable to update ${keyName}.`)
+      setStatusMessage(editStatusMessage(response, `Unable to update ${keyName}.`))
     }
   }
 
@@ -179,7 +179,7 @@ export function KeyValueResultsView({
       }))
       setStatusMessage(`Added ${keyName}.`)
     } else {
-      setStatusMessage(response?.warnings.join(' ') || `Unable to add ${keyName}.`)
+      setStatusMessage(editStatusMessage(response, `Unable to add ${keyName}.`))
     }
   }
 
@@ -207,7 +207,7 @@ export function KeyValueResultsView({
     setStatusMessage(
       response?.executed
         ? `Set TTL for ${keyName}.`
-        : response?.warnings.join(' ') || `Unable to set TTL for ${keyName}.`,
+        : editStatusMessage(response, `Unable to set TTL for ${keyName}.`),
     )
   }
 
@@ -241,7 +241,7 @@ export function KeyValueResultsView({
       })
       setStatusMessage(`Deleted ${keyName}.`)
     } else {
-      setStatusMessage(response?.warnings.join(' ') || `Unable to delete ${keyName}.`)
+      setStatusMessage(editStatusMessage(response, `Unable to delete ${keyName}.`))
     }
   }
 
@@ -374,6 +374,13 @@ export function KeyValueResultsView({
 
 function serializedKeyValue(value: unknown) {
   return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+function editStatusMessage(
+  response: DataEditExecutionResponse | undefined,
+  fallback: string,
+) {
+  return (response?.messages.at(-1) ?? response?.warnings.join(' ')) || fallback
 }
 
 function redisEditKindForValue(

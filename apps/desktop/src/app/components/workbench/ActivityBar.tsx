@@ -6,6 +6,7 @@ import {
   LightThemeIcon,
   SavedWorkIcon,
   SettingsIcon,
+  TestsIcon,
   ThemeIcon,
 } from './icons'
 import { AppLogo } from './AppLogo'
@@ -31,6 +32,12 @@ const activityItems = [
     label: 'Library',
     tooltip: 'Library: organize saved queries, scripts, snippets, notes, and snapshots.',
     icon: SavedWorkIcon,
+  },
+  {
+    id: 'tests',
+    label: 'Tests',
+    tooltip: 'Tests: create, run, and review datastore test suites.',
+    icon: TestsIcon,
   },
   {
     id: 'environments',

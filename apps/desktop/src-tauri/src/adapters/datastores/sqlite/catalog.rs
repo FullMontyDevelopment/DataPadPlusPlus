@@ -12,6 +12,7 @@ pub(super) fn sqlite_manifest() -> AdapterManifest {
             "supports_schema_browser",
             "supports_result_snapshots",
             "supports_local_database_creation",
+            "supports_metrics_collection",
             "supports_structure_visualization",
         ],
     );

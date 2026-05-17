@@ -1,8 +1,19 @@
 use super::*;
+use serde_json::json;
 
 mod objects;
 
 use objects::object_kinds;
+
+type TestTemplateParts = (
+    &'static str,
+    &'static str,
+    Vec<&'static str>,
+    &'static str,
+    &'static str,
+    &'static str,
+    serde_json::Value,
+);
 
 pub(crate) fn experience_manifest_for_manifest(
     manifest: &AdapterManifest,
@@ -19,6 +30,8 @@ pub(crate) fn experience_manifest_for_manifest(
         diagnostics_tabs: diagnostics_tabs(manifest),
         result_renderers: result_renderers(manifest),
         safety_rules: safety_rules(manifest),
+        test_templates: test_templates(manifest),
+        test_assertions: test_assertions(),
     }
 }
 
@@ -320,6 +333,167 @@ fn safety_rules(manifest: &AdapterManifest) -> Vec<String> {
     }
 
     rules
+}
+
+fn test_assertions() -> Vec<String> {
+    [
+        "row-count",
+        "cell-value",
+        "json-path",
+        "document-count",
+        "key-exists",
+        "key-type",
+        "key-ttl",
+        "search-hit-count",
+        "schema-exists",
+        "no-error",
+        "duration-under",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+fn test_templates(manifest: &AdapterManifest) -> Vec<serde_json::Value> {
+    let Some((name, language, setup, execute, teardown, assertion, expected)) =
+        test_template_parts(manifest)
+    else {
+        return Vec::new();
+    };
+    let setup_steps = setup
+        .into_iter()
+        .enumerate()
+        .map(|(index, query_text)| {
+            json!({
+                "id": format!("{}-setup-{}", manifest.engine, index + 1),
+                "label": format!("Setup {}", index + 1),
+                "phase": "setup",
+                "kind": "query",
+                "enabled": true,
+                "language": language,
+                "queryText": query_text,
+            })
+        })
+        .collect::<Vec<_>>();
+    let suite = json!({
+        "id": format!("{}-smoke-suite", manifest.engine),
+        "name": name,
+        "description": format!("Repeatable smoke test for {}.", manifest.label),
+        "engine": manifest.engine,
+        "family": manifest.family,
+        "variables": {},
+        "cases": [{
+            "id": format!("{}-smoke-case", manifest.engine),
+            "name": "returns expected fixture data",
+            "enabled": true,
+            "timeoutMs": 30000,
+            "setup": setup_steps,
+            "execute": [{
+                "id": format!("{}-execute-1", manifest.engine),
+                "label": "Execute read",
+                "phase": "execute",
+                "kind": "query",
+                "enabled": true,
+                "language": language,
+                "queryText": execute,
+            }],
+            "assertions": [{
+                "id": format!("{}-assert-1", manifest.engine),
+                "label": "Expected result",
+                "kind": assertion,
+                "enabled": true,
+                "comparison": "equals",
+                "expected": expected,
+            }, {
+                "id": format!("{}-assert-no-error", manifest.engine),
+                "label": "No execution errors",
+                "kind": "no-error",
+                "enabled": true,
+                "expected": true,
+            }],
+            "teardown": [{
+                "id": format!("{}-teardown-1", manifest.engine),
+                "label": "Cleanup fixture data",
+                "phase": "teardown",
+                "kind": "query",
+                "enabled": true,
+                "language": language,
+                "queryText": teardown,
+            }],
+        }],
+    });
+
+    vec![json!({
+        "id": format!("{}-smoke-suite", manifest.engine),
+        "label": name,
+        "description": format!("Create a repeatable {} suite with setup, assertions, and teardown.", manifest.label),
+        "engine": manifest.engine,
+        "family": manifest.family,
+        "suite": suite,
+    })]
+}
+
+fn test_template_parts(manifest: &AdapterManifest) -> Option<TestTemplateParts> {
+    match manifest.engine.as_str() {
+        "postgresql" | "cockroachdb" | "sqlserver" | "mysql" | "mariadb" | "sqlite" => Some((
+            "SQL smoke test",
+            "sql",
+            vec![
+                "create temporary table if not exists datapad_test_accounts (id int primary key, name text);",
+                "insert into datapad_test_accounts (id, name) values (1, 'Ada');",
+            ],
+            "select id, name from datapad_test_accounts where id = 1;",
+            "drop table if exists datapad_test_accounts;",
+            "row-count",
+            json!(1),
+        )),
+        "mongodb" => Some((
+            "MongoDB document test",
+            "mongodb",
+            vec![r#"{ "collection": "datapad_test_products", "operation": "insertOne", "document": { "_id": "datapad-test-product", "sku": "luna-lamp" } }"#],
+            r#"{ "collection": "datapad_test_products", "filter": { "_id": "datapad-test-product" }, "limit": 5 }"#,
+            r#"{ "collection": "datapad_test_products", "operation": "deleteOne", "filter": { "_id": "datapad-test-product" } }"#,
+            "document-count",
+            json!(1),
+        )),
+        "redis" | "valkey" => Some((
+            "Redis key test",
+            "redis",
+            vec!["SET datapad:test:sku luna-lamp EX 300"],
+            "GET datapad:test:sku",
+            "DEL datapad:test:sku",
+            "key-exists",
+            json!(true),
+        )),
+        "elasticsearch" | "opensearch" => Some((
+            "Search index test",
+            "query-dsl",
+            vec![r#"{ "index": "datapad-test-products", "operation": "index", "id": "luna-lamp", "document": { "sku": "luna-lamp" } }"#],
+            r#"{ "index": "datapad-test-products", "body": { "query": { "term": { "sku": "luna-lamp" } }, "size": 5 } }"#,
+            r#"{ "index": "datapad-test-products", "operation": "delete", "id": "luna-lamp" }"#,
+            "search-hit-count",
+            json!(1),
+        )),
+        "dynamodb" => Some((
+            "DynamoDB item test",
+            "json",
+            vec![r#"{ "operation": "PutItem", "tableName": "datapad-test-orders", "item": { "pk": { "S": "ORDER#1" }, "sk": { "S": "META" } } }"#],
+            "{ \"operation\": \"Query\", \"tableName\": \"datapad-test-orders\", \"keyConditionExpression\": \"#pk = :pk\" }",
+            r#"{ "operation": "DeleteItem", "tableName": "datapad-test-orders", "key": { "pk": { "S": "ORDER#1" }, "sk": { "S": "META" } } }"#,
+            "row-count",
+            json!(1),
+        )),
+        "cassandra" => Some((
+            "Cassandra partition test",
+            "cql",
+            vec!["insert into datapad_test.orders (account_id, order_id, total) values ('acct-1', 'order-1', 42);"],
+            "select * from datapad_test.orders where account_id = 'acct-1' and order_id = 'order-1';",
+            "delete from datapad_test.orders where account_id = 'acct-1' and order_id = 'order-1';",
+            "row-count",
+            json!(1),
+        )),
+        _ => None,
+    }
 }
 
 fn action(

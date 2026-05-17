@@ -17,6 +17,7 @@ import {
   Database,
   Download,
   FilePlus2,
+  FlaskConical,
   FolderTree,
   Gauge,
   History,
@@ -37,6 +38,7 @@ import {
   Star,
   Sun,
   Table2,
+  Terminal,
   Trash2,
   X,
 } from 'lucide-react'
@@ -56,6 +58,7 @@ export const ConnectionsIcon = adapt(Server)
 export const EnvironmentsIcon = adapt(Layers3)
 export const ExplorerIcon = adapt(FolderTree)
 export const SavedWorkIcon = adapt(BookMarked)
+export const TestsIcon = adapt(FlaskConical)
 export const SearchIcon = adapt(Search)
 export const SettingsIcon = adapt(Settings)
 export const ThemeIcon = adapt(Moon)
@@ -75,12 +78,14 @@ export const ArrowRightIcon = adapt(ArrowRight)
 export const MoveFirstIcon = adapt(ArrowUpToLine)
 export const MoveLastIcon = adapt(ArrowDownToLine)
 export const ExplainIcon = adapt(Gauge)
+export const MetricsIcon = adapt(Gauge)
 export const FavoriteIcon = adapt(Star)
 export const ReadOnlyIcon = adapt(ShieldCheck)
 export const TableIcon = adapt(Table2)
 export const JsonIcon = adapt(Braces)
 export const ColumnIcon = adapt(Columns3)
 export const KeyValueIcon = adapt(KeyRound)
+export const ConsoleIcon = adapt(Terminal)
 export const LightThemeIcon = adapt(Sun)
 export const CopyIcon = adapt(Copy)
 export const DownloadIcon = adapt(Download)

@@ -52,11 +52,15 @@ impl DatastoreAdapter for TimescaleAdapter {
         connection: &ResolvedConnectionProfile,
         scope: Option<&str>,
     ) -> Result<AdapterDiagnostics, CommandError> {
-        Ok(timescale_adapter_diagnostics(
-            connection,
-            &self.manifest(),
-            scope,
-        ))
+        let manifest = self.manifest();
+        let mut diagnostics = collect_postgres_diagnostics(connection, &manifest, scope)
+            .await
+            .unwrap_or_else(|_| timescale_adapter_diagnostics(connection, &manifest, scope));
+        diagnostics.warnings.push(
+            "TimescaleDB adds hypertable, chunk, compression, and retention metrics where extension views are installed."
+                .into(),
+        );
+        Ok(diagnostics)
     }
 
     async fn test_connection(

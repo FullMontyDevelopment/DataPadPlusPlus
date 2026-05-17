@@ -233,6 +233,37 @@ export function documentFindQueryTemplate(
   )
 }
 
+export function redisKeyBrowserQueryTemplate(pattern: string, count = 100) {
+  return JSON.stringify(
+    {
+      mode: 'redis-key-browser',
+      pattern: normalizeRedisPattern(pattern),
+      type: 'all',
+      count,
+    },
+    null,
+    2,
+  )
+}
+
+function normalizeRedisPattern(pattern: string) {
+  const trimmed = pattern.trim()
+
+  if (!trimmed) {
+    return '*'
+  }
+
+  if (trimmed.includes('*')) {
+    return trimmed
+  }
+
+  if (trimmed.endsWith(':')) {
+    return `${trimmed}*`
+  }
+
+  return trimmed
+}
+
 function categoryPathForNode(
   connection: ConnectionProfile,
   node: ExplorerNode,

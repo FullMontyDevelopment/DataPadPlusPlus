@@ -1,0 +1,151 @@
+use serde_json::json;
+use tiberius::ColumnData;
+
+use super::super::super::*;
+use super::connection::sqlserver_client;
+use super::SqlServerAdapter;
+
+pub(super) async fn collect_sqlserver_diagnostics(
+    connection: &ResolvedConnectionProfile,
+    scope: Option<&str>,
+) -> Result<AdapterDiagnostics, CommandError> {
+    let manifest = SqlServerAdapter.manifest();
+    let mut diagnostics = default_adapter_diagnostics(connection, &manifest, scope);
+    diagnostics.metrics.clear();
+    diagnostics.query_history.clear();
+
+    let mut client = sqlserver_client(connection).await?;
+    let mut metrics = Vec::new();
+    let mut warnings = Vec::new();
+
+    let statement = r#"
+        SELECT
+          CAST((SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE is_user_process = 1) AS float) AS user_sessions,
+          CAST((SELECT COUNT(*) FROM sys.dm_exec_requests WHERE session_id <> @@SPID) AS float) AS active_requests,
+          CAST((SELECT COUNT(*) FROM sys.dm_exec_requests WHERE blocking_session_id <> 0) AS float) AS blocked_requests,
+          CAST((SELECT COALESCE(SUM(size), 0) * 8.0 * 1024.0 FROM sys.database_files) AS float) AS database_size_bytes,
+          CAST((SELECT COALESCE(SUM(total_logical_reads), 0) FROM sys.dm_exec_requests WHERE session_id <> @@SPID) AS float) AS request_logical_reads,
+          CAST((SELECT COALESCE(SUM(writes), 0) FROM sys.dm_exec_requests WHERE session_id <> @@SPID) AS float) AS request_writes
+    "#;
+
+    match client.simple_query(statement).await {
+        Ok(stream) => match stream.into_results().await {
+            Ok(results) => {
+                if let Some(row) = results
+                    .into_iter()
+                    .next()
+                    .and_then(|rows| rows.into_iter().next())
+                {
+                    for (index, name, unit) in [
+                        (0, "sqlserver.user_sessions", "sessions"),
+                        (1, "sqlserver.active_requests", "requests"),
+                        (2, "sqlserver.blocked_requests", "requests"),
+                        (3, "sqlserver.database_size", "bytes"),
+                        (4, "sqlserver.request_logical_reads", "reads"),
+                        (5, "sqlserver.request_writes", "writes"),
+                    ] {
+                        if let Some(value) = row
+                            .cells()
+                            .nth(index)
+                            .and_then(|(_, value)| column_data_f64(value))
+                        {
+                            metrics.push(metric(
+                                name,
+                                value,
+                                unit,
+                                json!({ "source": "dmv/database_files" }),
+                            ));
+                        }
+                    }
+                }
+            }
+            Err(error) => warnings.push(format!(
+                "SQL Server DMV metrics are unavailable for this login: {error}"
+            )),
+        },
+        Err(error) => warnings.push(format!(
+            "SQL Server DMV metrics are unavailable for this login: {error}"
+        )),
+    }
+
+    if !metrics.iter().any(|item| {
+        item.get("name").and_then(serde_json::Value::as_str) == Some("sqlserver.database_size")
+    }) {
+        match client
+            .simple_query(
+                "SELECT CAST(COALESCE(SUM(size), 0) * 8.0 * 1024.0 AS float) AS database_size_bytes FROM sys.database_files",
+            )
+            .await
+        {
+            Ok(stream) => {
+                if let Ok(results) = stream.into_results().await {
+                    if let Some(row) = results
+                        .into_iter()
+                        .next()
+                        .and_then(|rows| rows.into_iter().next())
+                    {
+                        if let Some(value) = row
+                            .cells()
+                            .next()
+                            .and_then(|(_, value)| column_data_f64(value))
+                        {
+                            metrics.push(metric(
+                                "sqlserver.database_size",
+                                value,
+                                "bytes",
+                                json!({ "source": "sys.database_files" }),
+                            ));
+                        }
+                    }
+                }
+            }
+            Err(error) => warnings.push(format!("SQL Server database size is unavailable: {error}")),
+        }
+    }
+
+    if metrics.is_empty() {
+        warnings.push(
+            "SQL Server connected, but no metrics could be collected with the current permissions."
+                .into(),
+        );
+    } else {
+        let timestamp = crate::app::runtime::timestamp_now();
+        diagnostics.metrics.push(payload_metrics(json!(metrics)));
+        diagnostics
+            .metrics
+            .push(payload_metric_series(&metrics, &timestamp));
+        diagnostics.metrics.push(payload_metric_bar_chart(
+            &metrics,
+            "SQL Server activity and size",
+        ));
+    }
+
+    diagnostics.warnings.extend(warnings);
+    Ok(diagnostics)
+}
+
+fn column_data_f64(data: &ColumnData<'_>) -> Option<f64> {
+    match data {
+        ColumnData::F64(value) => *value,
+        ColumnData::F32(value) => value.map(f64::from),
+        ColumnData::I64(value) => value.map(|item| item as f64),
+        ColumnData::I32(value) => value.map(f64::from),
+        ColumnData::I16(value) => value.map(f64::from),
+        ColumnData::U8(value) => value.map(f64::from),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tiberius::ColumnData;
+
+    use super::column_data_f64;
+
+    #[test]
+    fn converts_sqlserver_numeric_cells() {
+        assert_eq!(column_data_f64(&ColumnData::F64(Some(9.5))), Some(9.5));
+        assert_eq!(column_data_f64(&ColumnData::I32(Some(7))), Some(7.0));
+        assert_eq!(column_data_f64(&ColumnData::String(Some("7".into()))), None);
+    }
+}

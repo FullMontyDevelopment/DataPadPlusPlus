@@ -79,7 +79,7 @@ describe('migrateWorkspaceSnapshot', () => {
 
     const migrated = migrateWorkspaceSnapshot(legacy)
 
-    expect(migrated.schemaVersion).toBe(7)
+    expect(migrated.schemaVersion).toBe(8)
     expect(migrated.ui.activeActivity).toBe('connections')
     expect(migrated.ui.activeSidebarPane).toBe('connections')
     expect(migrated.ui.sidebarWidth).toBe(280)
@@ -90,6 +90,7 @@ describe('migrateWorkspaceSnapshot', () => {
     expect(migrated.ui.explorerFilter).toBe('orders')
     expect(migrated.ui.connectionGroupMode).toBe('none')
     expect(migrated.ui.sidebarSectionStates).toEqual({})
+    expect(migrated.libraryNodes.some((node) => node.id === 'library-root-tests')).toBe(true)
   })
 
   it('migrates legacy saved work into Library nodes and maps saved-work UI state', () => {
@@ -198,7 +199,7 @@ describe('migrateWorkspaceSnapshot', () => {
     expect(migrated.tabs).toHaveLength(0)
     expect(migrated.closedTabs).toHaveLength(0)
     expect(migrated.savedWork).toHaveLength(0)
-    expect(migrated.libraryNodes).toHaveLength(4)
+    expect(migrated.libraryNodes).toHaveLength(5)
     expect(migrated.explorerNodes).toHaveLength(0)
     expect(migrated.guardrails).toHaveLength(0)
     expect(migrated.ui.activeConnectionId).toBe('')

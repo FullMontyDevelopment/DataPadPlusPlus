@@ -203,6 +203,12 @@ pub struct QueryTabState {
     pub scoped_target: Option<ScopedQueryTarget>,
     #[serde(default)]
     pub builder_state: Option<Value>,
+    #[serde(default)]
+    pub metrics_state: Option<Value>,
+    #[serde(default)]
+    pub test_suite: Option<Value>,
+    #[serde(default)]
+    pub test_run: Option<Value>,
     pub status: String,
     pub dirty: bool,
     pub last_run_at: Option<String>,
@@ -259,6 +265,8 @@ pub struct LibraryNode {
     pub language: Option<String>,
     pub query_text: Option<String>,
     pub script_text: Option<String>,
+    #[serde(default)]
+    pub test_suite: Option<Value>,
     pub snapshot_result_id: Option<String>,
 }
 
@@ -315,6 +323,54 @@ pub struct SaveQueryTabToLibraryRequest {
 pub struct SaveQueryTabToLocalFileRequest {
     pub tab_id: String,
     pub path: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTestSuiteTabRequest {
+    pub connection_id: Option<String>,
+    pub environment_id: Option<String>,
+    pub template_id: Option<String>,
+    pub suite: Option<Value>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTestSuiteTabRequest {
+    pub tab_id: String,
+    pub suite: Option<Value>,
+    pub raw_text: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteTestSuiteRequest {
+    pub tab_id: String,
+    pub case_id: Option<String>,
+    pub confirmed_guardrail_id: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteTestSuiteResponse {
+    pub tab: QueryTabState,
+    pub run: Value,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelTestRunRequest {
+    pub run_id: String,
+    pub tab_id: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTestSuiteTemplateRequest {
+    pub connection_id: Option<String>,
+    pub environment_id: Option<String>,
+    pub template_id: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -546,6 +602,10 @@ pub struct DatastoreExperienceManifest {
     pub diagnostics_tabs: Vec<DatastoreDiagnosticsTab>,
     pub result_renderers: Vec<String>,
     pub safety_rules: Vec<String>,
+    #[serde(default)]
+    pub test_templates: Vec<Value>,
+    #[serde(default)]
+    pub test_assertions: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

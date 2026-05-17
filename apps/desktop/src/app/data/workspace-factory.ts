@@ -9,7 +9,7 @@ import type {
 import { DATAPADPLUSPLUS_ADAPTER_MANIFESTS } from '@datapadplusplus/shared-types'
 import { buildDiagnosticsReport, resolveEnvironment } from '../state/helpers'
 
-export const EMPTY_WORKSPACE_SCHEMA_VERSION = 7
+export const EMPTY_WORKSPACE_SCHEMA_VERSION = 8
 
 export const adapterManifests: AdapterManifest[] = DATAPADPLUSPLUS_ADAPTER_MANIFESTS
 
@@ -43,6 +43,15 @@ export function createBlankSnapshot(): WorkspaceSnapshot {
         id: 'library-root-scripts',
         kind: 'folder',
         name: 'Scripts',
+        tags: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        summary: 'Workspace library folder.',
+      },
+      {
+        id: 'library-root-tests',
+        kind: 'folder',
+        name: 'Tests',
         tags: [],
         createdAt: timestamp,
         updatedAt: timestamp,

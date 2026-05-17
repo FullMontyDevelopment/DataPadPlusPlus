@@ -1,5 +1,3 @@
-use serde_json::json;
-
 use super::super::*;
 use super::redis::{execute_redis_data_edit, fetch_redis_page, load_redis_structure, RedisAdapter};
 
@@ -95,16 +93,8 @@ impl DatastoreAdapter for ValkeyAdapter {
         connection: &ResolvedConnectionProfile,
         scope: Option<&str>,
     ) -> Result<AdapterDiagnostics, CommandError> {
-        let manifest = self.manifest();
-        let mut diagnostics = default_adapter_diagnostics(connection, &manifest, scope);
-        diagnostics.metrics.push(payload_metrics(json!([
-            {
-                "name": "valkey.protocol.redis_compatible",
-                "value": 1,
-                "unit": "flag",
-                "labels": { "protocol": "RESP" }
-            }
-        ])));
+        let mut diagnostics = RedisAdapter.collect_diagnostics(connection, scope).await?;
+        diagnostics.engine = "valkey".into();
         Ok(diagnostics)
     }
 

@@ -1,5 +1,6 @@
 import type { BootstrapPayload, CreateScopedQueryTabRequest, QueryTabReorderRequest, UpdateQueryBuilderStateRequest } from '@datapadplusplus/shared-types'
-import { closeQueryTab, createExplorerTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, upsertTab } from './browser-tabs'
+import { closeQueryTab, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, upsertTab } from './browser-tabs'
+import { collectDiagnosticsLocally } from './browser-operation-inspection'
 import { buildBrowserPayload, cloneSnapshot, findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 
@@ -82,6 +83,78 @@ export const clientTabs = {
     const snapshot = createExplorerTabInSnapshot(loadBrowserSnapshot(), connectionId)
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
+  },
+
+  async createMetricsTab(
+    connectionId: string,
+    environmentId?: string,
+  ): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('create_metrics_tab', {
+        connectionId,
+        environmentId,
+      })
+    }
+
+    const snapshot = createMetricsTabInSnapshot(
+      loadBrowserSnapshot(),
+      connectionId,
+      environmentId,
+    )
+    saveBrowserSnapshot(snapshot)
+    return buildBrowserPayload(snapshot)
+  },
+
+  async refreshMetricsTab(tabId: string): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('refresh_metrics_tab', { tabId })
+    }
+
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    const tab = findTab(next, tabId)
+
+    if (!tab || tab.tabKind !== 'metrics') {
+      return buildBrowserPayload(next)
+    }
+
+    try {
+      const response = collectDiagnosticsLocally(next, {
+        connectionId: tab.connectionId,
+        environmentId: tab.environmentId,
+        scope: 'connection',
+      })
+      const refreshedAt = new Date().toISOString()
+      tab.metricsState = {
+        connectionId: tab.connectionId,
+        environmentId: tab.environmentId,
+        lastRefreshedAt: refreshedAt,
+        diagnostics: response.diagnostics,
+        warnings: response.diagnostics.warnings,
+      }
+      tab.status = 'success'
+      tab.error = undefined
+      tab.dirty = false
+      tab.lastRunAt = refreshedAt
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to refresh metrics.'
+      tab.metricsState = {
+        connectionId: tab.connectionId,
+        environmentId: tab.environmentId,
+        lastRefreshedAt: new Date().toISOString(),
+        warnings: [message],
+      }
+      tab.status = 'error'
+      tab.error = { code: 'metrics-refresh-failed', message }
+      tab.dirty = false
+    }
+
+    next.ui.activeTabId = tab.id
+    next.ui.activeConnectionId = tab.connectionId
+    next.ui.activeEnvironmentId = tab.environmentId
+    next.ui.rightDrawer = 'none'
+    next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
   },
 
   async createScopedQueryTab(

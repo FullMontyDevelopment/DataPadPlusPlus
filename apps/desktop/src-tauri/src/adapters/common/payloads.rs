@@ -75,6 +75,77 @@ pub(crate) fn payload_series(series: Value) -> Value {
     })
 }
 
+pub(crate) fn payload_chart(chart_type: &str, series: Value, x_axis: &str, y_axis: &str) -> Value {
+    json!({
+        "renderer": "chart",
+        "chartType": chart_type,
+        "xAxis": x_axis,
+        "yAxis": y_axis,
+        "series": series,
+    })
+}
+
+pub(crate) fn metric(name: &str, value: f64, unit: &str, labels: Value) -> Value {
+    json!({
+        "name": name,
+        "value": value,
+        "unit": unit,
+        "labels": labels,
+    })
+}
+
+pub(crate) fn payload_metric_series(metrics: &[Value], timestamp: &str) -> Value {
+    payload_series(json!(metrics
+        .iter()
+        .filter_map(|metric| {
+            let name = metric.get("name")?.as_str()?.to_string();
+            let value = metric.get("value")?.as_f64()?;
+            let unit = metric
+                .get("unit")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let labels = metric.get("labels").cloned();
+            Some(json!({
+                "name": name,
+                "unit": unit,
+                "points": [
+                    {
+                        "timestamp": timestamp,
+                        "value": value,
+                        "labels": labels,
+                    }
+                ]
+            }))
+        })
+        .collect::<Vec<Value>>()))
+}
+
+pub(crate) fn payload_metric_bar_chart(metrics: &[Value], title: &str) -> Value {
+    let points = metrics
+        .iter()
+        .filter_map(|metric| {
+            let name = metric.get("name")?.as_str()?;
+            let value = metric.get("value")?.as_f64()?;
+            Some(json!({
+                "x": name.rsplit('.').next().unwrap_or(name),
+                "y": value,
+            }))
+        })
+        .collect::<Vec<Value>>();
+
+    payload_chart(
+        "bar",
+        json!([
+            {
+                "name": title,
+                "points": points,
+            }
+        ]),
+        "Metric",
+        "Value",
+    )
+}
+
 pub(crate) fn payload_search_hits(total: u64, hits: Value, aggregations: Value) -> Value {
     json!({
         "renderer": "searchHits",

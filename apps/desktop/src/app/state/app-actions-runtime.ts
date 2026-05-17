@@ -15,6 +15,8 @@ type RuntimeActions = Pick<
   | 'scanRedisKeys'
   | 'inspectRedisKey'
   | 'executeQuery'
+  | 'executeTestSuite'
+  | 'cancelTestRun'
   | 'fetchResultPage'
   | 'cancelExecution'
   | 'pickLocalDatabaseFile'
@@ -187,6 +189,37 @@ export function useRuntimeActions({
     [dispatch, handleError, stateRef],
   )
 
+  const executeTestSuite = useCallback<Actions['executeTestSuite']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        dispatch({ type: 'EXECUTION_LOADING' })
+        const response = await desktopClient.executeTestSuite(request)
+        dispatch({ type: 'COMMAND_SUCCESS', payload: await desktopClient.bootstrapApp() })
+        return response
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [dispatch, handleError, state.payload],
+  )
+
+  const cancelTestRun = useCallback<Actions['cancelTestRun']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        const response = await desktopClient.cancelTestRun(request)
+        dispatch({ type: 'COMMAND_SUCCESS', payload: await desktopClient.bootstrapApp() })
+        return response
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [dispatch, handleError, state.payload],
+  )
+
   const fetchResultPage = useCallback<Actions['fetchResultPage']>(
     async (tabId, renderer) => {
       try {
@@ -346,6 +379,8 @@ export function useRuntimeActions({
       scanRedisKeys,
       inspectRedisKey,
       executeQuery,
+      executeTestSuite,
+      cancelTestRun,
       fetchResultPage,
       cancelExecution,
       pickLocalDatabaseFile,
@@ -361,6 +396,8 @@ export function useRuntimeActions({
       createLocalDatabase,
       executeDatastoreOperation,
       executeQuery,
+      executeTestSuite,
+      cancelTestRun,
       fetchResultPage,
       inspectRedisKey,
       inspectExplorer,

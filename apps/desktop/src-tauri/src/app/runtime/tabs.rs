@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use super::query_tabs::{
-    build_explorer_tab, build_query_tab, build_scoped_query_tab, next_query_tab_title,
-    normalize_tab_title, query_tab_title_parts,
+    build_explorer_tab, build_metrics_tab, build_query_tab, build_scoped_query_tab,
+    next_query_tab_title, normalize_tab_title, query_tab_title_parts,
 };
 use super::ui::focus_query_tab;
 use super::{generate_id, timestamp_now, ManagedAppState};
@@ -128,6 +128,54 @@ impl ManagedAppState {
         self.snapshot.ui.active_activity = "connections".into();
         self.snapshot.ui.active_sidebar_pane = "connections".into();
         self.snapshot.ui.explorer_view = "structure".into();
+        self.snapshot.ui.right_drawer = "none".into();
+        self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
+    pub fn create_metrics_tab(
+        &mut self,
+        connection_id: &str,
+        environment_id: Option<String>,
+    ) -> Result<BootstrapPayload, CommandError> {
+        let connection = self
+            .snapshot
+            .connections
+            .iter()
+            .find(|item| item.id == connection_id)
+            .cloned()
+            .ok_or_else(|| CommandError::new("connection-missing", "Connection was not found."))?;
+        let environment_id = environment_id
+            .or_else(|| connection.environment_ids.first().cloned())
+            .unwrap_or_else(|| "env-dev".into());
+
+        if let Some(existing_tab) = self
+            .snapshot
+            .tabs
+            .iter()
+            .find(|tab| {
+                tab.connection_id == connection.id
+                    && tab.environment_id == environment_id
+                    && tab.tab_kind.as_deref() == Some("metrics")
+            })
+            .cloned()
+        {
+            focus_query_tab(&mut self.snapshot.ui, &existing_tab);
+            self.snapshot.ui.active_activity = "connections".into();
+            self.snapshot.ui.active_sidebar_pane = "connections".into();
+            self.snapshot.ui.right_drawer = "none".into();
+            self.snapshot.updated_at = timestamp_now();
+            self.persist()?;
+            return Ok(self.bootstrap_payload());
+        }
+
+        let tab = build_metrics_tab(&self.snapshot, &connection, environment_id);
+
+        self.snapshot.tabs.push(tab.clone());
+        focus_query_tab(&mut self.snapshot.ui, &tab);
+        self.snapshot.ui.active_activity = "connections".into();
+        self.snapshot.ui.active_sidebar_pane = "connections".into();
         self.snapshot.ui.right_drawer = "none".into();
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;

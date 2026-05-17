@@ -13,12 +13,16 @@ type QueryTabActions = Pick<
   | 'selectTab'
   | 'createTab'
   | 'createExplorerTab'
+  | 'createMetricsTab'
+  | 'refreshMetricsTab'
+  | 'createTestSuiteTab'
   | 'createScopedTab'
   | 'closeTab'
   | 'reopenClosedTab'
   | 'reorderTabs'
   | 'updateQuery'
   | 'updateQueryBuilderState'
+  | 'updateTestSuiteTab'
   | 'renameTab'
   | 'saveCurrentQuery'
   | 'saveAndCloseTab'
@@ -65,6 +69,49 @@ export function useQueryTabActions({
     async (connectionId) => {
       try {
         applyPayload(await desktopClient.createExplorerTab(connectionId))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
+  const createMetricsTab = useCallback<Actions['createMetricsTab']>(
+    async (connectionId, environmentId) => {
+      try {
+        const payload = await desktopClient.createMetricsTab(connectionId, environmentId)
+        const activeMetricsTab = payload.snapshot.tabs.find(
+          (tab) => tab.id === payload.snapshot.ui.activeTabId && tab.tabKind === 'metrics',
+        )
+        applyPayload(payload)
+
+        if (!activeMetricsTab) {
+          return
+        }
+
+        applyPayload(await desktopClient.refreshMetricsTab(activeMetricsTab.id))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
+  const refreshMetricsTab = useCallback<Actions['refreshMetricsTab']>(
+    async (tabId) => {
+      try {
+        applyPayload(await desktopClient.refreshMetricsTab(tabId))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
+  const createTestSuiteTab = useCallback<Actions['createTestSuiteTab']>(
+    async (request) => {
+      try {
+        applyPayload(await desktopClient.createTestSuiteTab(request))
       } catch (error) {
         handleError(error)
       }
@@ -138,6 +185,17 @@ export function useQueryTabActions({
     [applyPayload, handleError],
   )
 
+  const updateTestSuiteTab = useCallback<Actions['updateTestSuiteTab']>(
+    async (request) => {
+      try {
+        applyPayload(await desktopClient.updateTestSuiteTab(request))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
   const renameTab = useCallback<Actions['renameTab']>(
     async (tabId, title) => {
       try {
@@ -161,7 +219,7 @@ export function useQueryTabActions({
         if (!tab) {
           throw new Error('The active query tab cannot be saved yet.')
         }
-        if (tab.tabKind === 'explorer') {
+        if (tab.tabKind === 'explorer' || tab.tabKind === 'metrics') {
           return
         }
         if (tab.saveTarget?.kind === 'local-file') {
@@ -181,7 +239,7 @@ export function useQueryTabActions({
               tab.saveTarget?.kind === 'library'
                 ? tab.saveTarget.libraryItemId
                 : tab.savedQueryId,
-            folderId: 'library-root-queries',
+            folderId: defaultLibraryFolderForTab(tab),
             name: tab.title,
             kind: inferLibraryItemKind(state.payload.snapshot, tab),
             tags: [],
@@ -206,7 +264,7 @@ export function useQueryTabActions({
         if (!tab) {
           throw new Error('The active query tab cannot be saved yet.')
         }
-        if (tab.tabKind === 'explorer') {
+        if (tab.tabKind === 'explorer' || tab.tabKind === 'metrics') {
           applyPayload(await desktopClient.closeQueryTab(tabId))
           return
         }
@@ -222,7 +280,7 @@ export function useQueryTabActions({
               tab.saveTarget?.kind === 'library'
                 ? tab.saveTarget.libraryItemId
                 : tab.savedQueryId,
-            folderId: 'library-root-queries',
+            folderId: defaultLibraryFolderForTab(tab),
             name: tab.title,
             kind: inferLibraryItemKind(state.payload.snapshot, tab),
             tags: [],
@@ -361,12 +419,16 @@ export function useQueryTabActions({
       selectTab,
       createTab,
       createExplorerTab,
+      createMetricsTab,
+      refreshMetricsTab,
+      createTestSuiteTab,
       createScopedTab,
       closeTab,
       reopenClosedTab,
       reorderTabs,
       updateQuery,
       updateQueryBuilderState,
+      updateTestSuiteTab,
       renameTab,
       saveCurrentQuery,
       saveAndCloseTab,
@@ -385,6 +447,8 @@ export function useQueryTabActions({
       closeTab,
       createLibraryFolder,
       createExplorerTab,
+      createMetricsTab,
+      createTestSuiteTab,
       createScopedTab,
       createTab,
       deleteLibraryNode,
@@ -396,6 +460,7 @@ export function useQueryTabActions({
       renameLibraryNode,
       reorderTabs,
       reopenClosedTab,
+      refreshMetricsTab,
       saveAndCloseTab,
       saveCurrentQuery,
       saveQueryTabToLibrary,
@@ -404,6 +469,7 @@ export function useQueryTabActions({
       setLibraryNodeEnvironment,
       updateQuery,
       updateQueryBuilderState,
+      updateTestSuiteTab,
     ],
   )
 }
@@ -420,9 +486,19 @@ function inferLibraryItemKind(
     return existingNode.kind
   }
 
+  if (tab.tabKind === 'test-suite' || tab.testSuite) {
+    return 'test-suite'
+  }
+
   if (/\.(ps1|sh|bash|bat|cmd|js|ts|py)$/i.test(tab.title)) {
     return 'script'
   }
 
   return 'query'
+}
+
+function defaultLibraryFolderForTab(tab: QueryTabState) {
+  return tab.tabKind === 'test-suite' || tab.testSuite
+    ? 'library-root-tests'
+    : 'library-root-queries'
 }

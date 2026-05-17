@@ -21,6 +21,7 @@ impl DatastoreAdapter for PostgresAdapter {
                 "supports_transactions",
                 "supports_result_snapshots",
                 "supports_streaming_results",
+                "supports_metrics_collection",
                 "supports_structure_visualization",
             ],
         )
@@ -84,6 +85,14 @@ impl DatastoreAdapter for PostgresAdapter {
         request: &DataEditExecutionRequest,
     ) -> Result<DataEditExecutionResponse, CommandError> {
         execute_postgres_data_edit(connection, &self.experience_manifest(), request).await
+    }
+
+    async fn collect_diagnostics(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        scope: Option<&str>,
+    ) -> Result<AdapterDiagnostics, CommandError> {
+        collect_postgres_diagnostics(connection, &self.manifest(), scope).await
     }
 
     async fn cancel(

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::{
     blank_workspace_snapshot,
-    query_tabs::{build_query_tab, build_scoped_query_tab},
+    query_tabs::{build_metrics_tab, build_query_tab, build_scoped_query_tab},
     timestamp_now,
     ui::{focus_query_tab, is_bottom_panel_tab},
 };
@@ -32,6 +32,28 @@ fn focusing_query_tab_closes_connection_drawer() {
     assert_eq!(snapshot.ui.active_environment_id, tab.environment_id);
     assert_eq!(snapshot.ui.active_tab_id, tab.id);
     assert_eq!(snapshot.ui.right_drawer, "none");
+}
+
+#[test]
+fn metrics_tab_is_unsaved_and_scoped_to_connection_environment() {
+    let snapshot = blank_workspace_snapshot();
+    let connection = test_connection("conn-postgres", "Postgres", "postgresql", "sql");
+    let tab = build_metrics_tab(&snapshot, &connection, "env-dev".into());
+
+    assert_eq!(tab.tab_kind.as_deref(), Some("metrics"));
+    assert_eq!(tab.title, "Metrics - Postgres");
+    assert_eq!(tab.connection_id, "conn-postgres");
+    assert_eq!(tab.environment_id, "env-dev");
+    assert!(!tab.dirty);
+    assert_eq!(tab.query_text, "");
+    assert!(tab.save_target.is_none());
+    assert_eq!(
+        tab.metrics_state
+            .as_ref()
+            .and_then(|value| value.get("connectionId"))
+            .and_then(serde_json::Value::as_str),
+        Some("conn-postgres")
+    );
 }
 
 #[test]
@@ -116,6 +138,46 @@ fn scoped_raw_query_tab_uses_query_template_without_builder() {
             .as_ref()
             .map(|target| target.scope.as_deref()),
         Some(Some("table:public.accounts"))
+    );
+}
+
+#[test]
+fn scoped_redis_prefix_tab_gets_key_browser_state() {
+    let snapshot = blank_workspace_snapshot();
+    let connection = test_connection("conn-redis", "Redis", "redis", "keyvalue");
+    let tab = build_scoped_query_tab(
+        &snapshot,
+        &connection,
+        CreateScopedQueryTabRequest {
+            connection_id: connection.id.clone(),
+            environment_id: Some("env-dev".into()),
+            target: crate::domain::models::ScopedQueryTarget {
+                kind: "prefix".into(),
+                label: "perf:*".into(),
+                path: vec!["Redis".into(), "Key Prefixes".into()],
+                scope: Some("prefix:perf:".into()),
+                query_template: Some("SCAN 0 MATCH perf:* COUNT 50".into()),
+                preferred_builder: Some("redis-key-browser".into()),
+            },
+        },
+    );
+
+    assert_eq!(tab.title, "perf:*.redis");
+    assert!(tab.query_text.contains("\"mode\": \"redis-key-browser\""));
+    assert!(tab.query_text.contains("\"pattern\": \"perf:*\""));
+    assert_eq!(
+        tab.builder_state
+            .as_ref()
+            .and_then(|value| value.get("kind"))
+            .and_then(serde_json::Value::as_str),
+        Some("redis-key-browser")
+    );
+    assert_eq!(
+        tab.builder_state
+            .as_ref()
+            .and_then(|value| value.get("pattern"))
+            .and_then(serde_json::Value::as_str),
+        Some("perf:*")
     );
 }
 

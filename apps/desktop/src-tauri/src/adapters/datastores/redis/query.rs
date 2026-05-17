@@ -89,8 +89,8 @@ pub(super) async fn execute_redis_query(
                         vec!["key".into()],
                         keys.iter().map(|key| vec![key.clone()]).collect(),
                     ),
-                    payload_json(json!({ "keys": keys })),
-                    payload_raw(line.to_string()),
+                    payload_json(json!({ "keys": keys.clone() })),
+                    payload_raw(format_redis_list(&keys)),
                 ],
                 format!("Redis scan returned {} key(s).", keys.len()),
             )
@@ -116,8 +116,8 @@ pub(super) async fn execute_redis_query(
             (
                 vec![
                     payload_keyvalue(entries, Some(ttl.to_string()), None),
-                    payload_json(json!({ "key": key, "fields": values })),
-                    payload_raw(line.to_string()),
+                    payload_json(json!({ "key": key, "fields": values.clone() })),
+                    payload_raw(format_redis_pairs(&values)),
                 ],
                 format!("Redis hash {} loaded successfully.", key),
             )
@@ -131,8 +131,8 @@ pub(super) async fn execute_redis_query(
             (
                 vec![
                     payload_keyvalue(entries, None, None),
-                    payload_json(json!({ "key": key, "value": value })),
-                    payload_raw(line.to_string()),
+                    payload_json(json!({ "key": key, "value": value.clone() })),
+                    payload_raw(value.unwrap_or_else(|| "(nil)".into())),
                 ],
                 format!("Redis value {} loaded successfully.", key),
             )
@@ -146,8 +146,8 @@ pub(super) async fn execute_redis_query(
             (
                 vec![
                     payload_keyvalue(entries, None, None),
-                    payload_json(json!({ "key": key, "type": key_type })),
-                    payload_raw(line.to_string()),
+                    payload_json(json!({ "key": key, "type": key_type.clone() })),
+                    payload_raw(key_type),
                 ],
                 format!("Redis type for {} resolved successfully.", key),
             )
@@ -162,7 +162,7 @@ pub(super) async fn execute_redis_query(
                 vec![
                     payload_keyvalue(entries, Some(ttl.to_string()), None),
                     payload_json(json!({ "key": key, "ttl": ttl })),
-                    payload_raw(line.to_string()),
+                    payload_raw(ttl.to_string()),
                 ],
                 format!("Redis TTL for {} resolved successfully.", key),
             )
@@ -267,5 +267,52 @@ fn redis_value_to_raw(value: &RedisValue) -> String {
         RedisValue::Boolean(value) => value.to_string(),
         RedisValue::VerbatimString { text, .. } => text.clone(),
         other => serde_json::to_string_pretty(&redis_value_to_json(other)).unwrap_or_default(),
+    }
+}
+
+fn format_redis_list(values: &[String]) -> String {
+    if values.is_empty() {
+        return "(empty array)".into();
+    }
+
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| format!("{}) {}", index + 1, value))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_redis_pairs(values: &[String]) -> String {
+    if values.is_empty() {
+        return "(empty hash)".into();
+    }
+
+    values
+        .chunks(2)
+        .enumerate()
+        .map(|(index, chunk)| match chunk {
+            [field, value] => format!("{}) {}\n{}) {}", index * 2 + 1, field, index * 2 + 2, value),
+            [field] => format!("{}) {}", index * 2 + 1, field),
+            _ => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_redis_list, format_redis_pairs};
+
+    #[test]
+    fn redis_raw_formatters_show_returned_data() {
+        assert_eq!(
+            format_redis_list(&["session:1".into(), "session:2".into()]),
+            "1) session:1\n2) session:2"
+        );
+        assert_eq!(
+            format_redis_pairs(&["sku".into(), "luna-lamp".into()]),
+            "1) sku\n2) luna-lamp"
+        );
     }
 }

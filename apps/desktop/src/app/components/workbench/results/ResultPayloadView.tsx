@@ -108,6 +108,47 @@ export function ResultPayloadView({
     return <GraphTree payload={payload} />
   }
 
+  if (payload.renderer === 'chart') {
+    return <ChartResultView payload={payload} />
+  }
+
+  if (payload.renderer === 'metrics') {
+    return (
+      <DataGridView
+        connection={connection}
+        editContext={editContext}
+        columns={['metric', 'value', 'unit', 'labels']}
+        rows={payload.metrics.map((metric) => [
+          metric.name,
+          String(metric.value),
+          metric.unit ?? '',
+          metric.labels ? JSON.stringify(metric.labels) : '',
+        ])}
+        onExecuteDataEdit={onExecuteDataEdit}
+      />
+    )
+  }
+
+  if (payload.renderer === 'series') {
+    return (
+      <DataGridView
+        connection={connection}
+        editContext={editContext}
+        columns={['series', 'timestamp', 'value', 'unit', 'labels']}
+        rows={payload.series.flatMap((series) =>
+          series.points.map((point) => [
+            series.name,
+            point.timestamp,
+            String(point.value),
+            series.unit ?? '',
+            point.labels ? JSON.stringify(point.labels) : '',
+          ]),
+        )}
+        onExecuteDataEdit={onExecuteDataEdit}
+      />
+    )
+  }
+
   if (payload.renderer === 'schema') {
     return (
       <div className="details-grid">
@@ -122,6 +163,39 @@ export function ResultPayloadView({
   }
 
   return <RawResultView text={payload.renderer === 'raw' ? payload.text : JSON.stringify(payload, null, 2)} />
+}
+
+function ChartResultView({ payload }: { payload: Extract<ResultPayload, { renderer: 'chart' }> }) {
+  const points = payload.series.flatMap((series) => series.points)
+  const max = Math.max(...points.map((point) => point.y), 1)
+  const min = Math.min(...points.map((point) => point.y), 0)
+  const span = Math.max(max - min, 1)
+
+  return (
+    <div className="result-chart-view" aria-label={`${payload.chartType} chart`}>
+      {payload.series.map((series) => (
+        <section key={series.name} className="result-chart-series">
+          <header>
+            <strong>{series.name}</strong>
+            <span>{payload.yAxis ?? 'Value'}</span>
+          </header>
+          <div className="result-bar-chart" aria-hidden="true">
+            {series.points.slice(0, 48).map((point, index) => {
+              const height = Math.max(3, ((point.y - min) / span) * 100)
+              return (
+                <span
+                  key={`${String(point.x)}-${index}`}
+                  className="result-bar-chart-item"
+                  style={{ height: `${height}%` }}
+                  title={`${String(point.x)}: ${point.y}`}
+                />
+              )
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
 }
 
 

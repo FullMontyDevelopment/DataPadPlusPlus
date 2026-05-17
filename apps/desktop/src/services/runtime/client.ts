@@ -4,6 +4,7 @@ import { clientExecution } from './client-execution'
 import { clientLibrary } from './client-library'
 import { clientSavedWork } from './client-saved-work'
 import { clientTabs } from './client-tabs'
+import { clientTests } from './client-tests'
 import { clientWorkspace } from './client-workspace'
 
 export const desktopClient = {
@@ -14,4 +15,5 @@ export const desktopClient = {
   ...clientSavedWork,
   ...clientAdapters,
   ...clientExecution,
+  ...clientTests,
 }

@@ -27,6 +27,7 @@ export type UiActivity =
   | 'environments'
   | 'explorer'
   | 'library'
+  | 'tests'
   | 'settings'
 
 export type SidebarPane =
@@ -34,6 +35,7 @@ export type SidebarPane =
   | 'environments'
   | 'explorer'
   | 'library'
+  | 'tests'
 
 export type BottomPanelTab = 'results' | 'messages' | 'history' | 'details'
 

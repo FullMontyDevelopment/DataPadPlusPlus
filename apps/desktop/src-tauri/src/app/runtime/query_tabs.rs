@@ -149,6 +149,9 @@ pub(super) fn build_query_tab(
         query_text: default_query_text(connection),
         scoped_target: None,
         builder_state: None,
+        metrics_state: None,
+        test_suite: None,
+        test_run: None,
         status: "idle".into(),
         dirty,
         last_run_at: None,
@@ -183,6 +186,48 @@ pub(super) fn build_explorer_tab(
         query_text: String::new(),
         scoped_target: None,
         builder_state: None,
+        metrics_state: None,
+        test_suite: None,
+        test_run: None,
+        status: "idle".into(),
+        dirty: false,
+        last_run_at: None,
+        result: None,
+        history: Vec::new(),
+        error: None,
+    }
+}
+
+pub(super) fn build_metrics_tab(
+    snapshot: &WorkspaceSnapshot,
+    connection: &ConnectionProfile,
+    environment_id: String,
+) -> QueryTabState {
+    let title = unique_query_tab_title(snapshot, &format!("Metrics - {}", connection.name));
+    let metrics_environment_id = environment_id.clone();
+
+    QueryTabState {
+        id: generate_id("metrics-tab"),
+        title,
+        tab_kind: Some("metrics".into()),
+        connection_id: connection.id.clone(),
+        environment_id,
+        family: connection.family.clone(),
+        language: "json".into(),
+        pinned: None,
+        save_target: None,
+        saved_query_id: None,
+        editor_label: "Metrics".into(),
+        query_text: String::new(),
+        scoped_target: None,
+        builder_state: None,
+        metrics_state: Some(json!({
+            "connectionId": connection.id.clone(),
+            "environmentId": metrics_environment_id,
+            "warnings": []
+        })),
+        test_suite: None,
+        test_run: None,
         status: "idle".into(),
         dirty: false,
         last_run_at: None,
@@ -206,6 +251,8 @@ pub(super) fn build_scoped_query_tab(
             limit,
             connection.database.as_deref().map(str::trim),
         )
+    } else if builder_kind.as_deref() == Some("redis-key-browser") {
+        redis_key_browser_query_text(&redis_pattern_from_target(&request.target), 100)
     } else {
         request
             .target
@@ -213,11 +260,20 @@ pub(super) fn build_scoped_query_tab(
             .clone()
             .unwrap_or_else(|| default_query_text(connection))
     };
-    let builder_state = builder_kind
-        .filter(|kind| kind == "mongo-find")
-        .map(|_| mongo_find_builder_state(&target_label, &query_text, limit));
-    let title =
-        scoped_query_tab_title(snapshot, connection, &target_label, builder_state.is_some());
+    let builder_state = match builder_kind.as_deref() {
+        Some("mongo-find") => Some(mongo_find_builder_state(&target_label, &query_text, limit)),
+        Some("redis-key-browser") => Some(redis_key_browser_builder_state(
+            &redis_pattern_from_target(&request.target),
+            &query_text,
+        )),
+        _ => None,
+    };
+    let title = scoped_query_tab_title(
+        snapshot,
+        connection,
+        &target_label,
+        builder_kind.as_deref() == Some("mongo-find"),
+    );
     let environment_id = request
         .environment_id
         .or_else(|| connection.environment_ids.first().cloned())
@@ -238,6 +294,9 @@ pub(super) fn build_scoped_query_tab(
         query_text,
         scoped_target: Some(request.target),
         builder_state,
+        metrics_state: None,
+        test_suite: None,
+        test_run: None,
         status: "idle".into(),
         dirty: true,
         last_run_at: None,
@@ -253,6 +312,10 @@ fn scoped_builder_kind(
 ) -> Option<String> {
     if connection.engine == "mongodb" && target.preferred_builder.as_deref() == Some("mongo-find") {
         Some("mongo-find".into())
+    } else if matches!(connection.engine.as_str(), "redis" | "valkey")
+        && target.preferred_builder.as_deref() == Some("redis-key-browser")
+    {
+        Some("redis-key-browser".into())
     } else {
         None
     }
@@ -343,4 +406,52 @@ fn mongo_find_builder_state(collection: &str, query_text: &str, limit: u32) -> s
         "limit": limit,
         "lastAppliedQueryText": query_text,
     })
+}
+
+fn redis_key_browser_query_text(pattern: &str, count: u32) -> String {
+    serde_json::to_string_pretty(&json!({
+        "mode": "redis-key-browser",
+        "pattern": pattern,
+        "type": "all",
+        "count": count,
+    }))
+    .unwrap_or_else(|_| {
+        format!(
+            "{{\n  \"mode\": \"redis-key-browser\",\n  \"pattern\": \"{pattern}\",\n  \"type\": \"all\",\n  \"count\": {count}\n}}"
+        )
+    })
+}
+
+fn redis_key_browser_builder_state(pattern: &str, query_text: &str) -> serde_json::Value {
+    json!({
+        "kind": "redis-key-browser",
+        "pattern": pattern,
+        "typeFilter": "all",
+        "cursor": "0",
+        "scanCount": 100,
+        "pageSize": 100,
+        "scannedCount": 0,
+        "expandedPrefixes": [],
+        "visibleColumns": ["ttl", "memory", "length"],
+        "viewMode": "tree",
+        "lastAppliedQueryText": query_text,
+    })
+}
+
+fn redis_pattern_from_target(target: &ScopedQueryTarget) -> String {
+    let scoped_prefix = target
+        .scope
+        .as_deref()
+        .and_then(|scope| scope.strip_prefix("prefix:"));
+    let candidate = scoped_prefix.unwrap_or(target.label.as_str()).trim();
+
+    if candidate.is_empty() {
+        "*".into()
+    } else if candidate.contains('*') {
+        candidate.into()
+    } else if candidate.ends_with(':') {
+        format!("{candidate}*")
+    } else {
+        candidate.into()
+    }
 }

@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use serde_json::json;
+
 use super::{timestamp_now, ManagedAppState};
 use crate::{
     adapters,
@@ -14,6 +16,7 @@ use crate::{
             OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest,
             PermissionInspectionResponse, QueryHistoryEntry, RedisKeyInspectRequest,
             RedisKeyScanRequest, RedisKeyScanResponse, StructureRequest, StructureResponse,
+            UserFacingError,
         },
     },
 };
@@ -261,6 +264,74 @@ impl ManagedAppState {
             environment_id: request.environment_id,
             diagnostics,
         })
+    }
+
+    pub async fn refresh_metrics_tab(
+        &mut self,
+        tab_id: &str,
+    ) -> Result<crate::domain::models::BootstrapPayload, CommandError> {
+        self.ensure_unlocked()?;
+        let tab_index = self
+            .snapshot
+            .tabs
+            .iter()
+            .position(|item| item.id == tab_id)
+            .ok_or_else(|| CommandError::new("tab-missing", "Metrics tab was not found."))?;
+        let tab = self.snapshot.tabs[tab_index].clone();
+
+        if tab.tab_kind.as_deref() != Some("metrics") {
+            return Err(CommandError::new(
+                "tab-kind-invalid",
+                "Only Metrics tabs can refresh connection metrics.",
+            ));
+        }
+
+        let profile = self.connection_by_id(&tab.connection_id)?;
+        let (resolved, _, _) = self.resolve_connection_profile(&profile, &tab.environment_id)?;
+        let refreshed_at = timestamp_now();
+        let diagnostics_result = adapters::collect_diagnostics(&resolved, Some("connection")).await;
+
+        {
+            let tab = &mut self.snapshot.tabs[tab_index];
+            tab.last_run_at = Some(refreshed_at.clone());
+            tab.dirty = false;
+            tab.result = None;
+            match diagnostics_result {
+                Ok(diagnostics) => {
+                    let warnings = diagnostics.warnings.clone();
+                    tab.status = "success".into();
+                    tab.error = None;
+                    tab.metrics_state = Some(json!({
+                        "connectionId": tab.connection_id.clone(),
+                        "environmentId": tab.environment_id.clone(),
+                        "lastRefreshedAt": refreshed_at,
+                        "diagnostics": diagnostics,
+                        "warnings": warnings,
+                    }));
+                }
+                Err(error) => {
+                    tab.status = "error".into();
+                    tab.error = Some(UserFacingError {
+                        code: error.code.clone(),
+                        message: error.message.clone(),
+                    });
+                    tab.metrics_state = Some(json!({
+                        "connectionId": tab.connection_id.clone(),
+                        "environmentId": tab.environment_id.clone(),
+                        "lastRefreshedAt": refreshed_at,
+                        "warnings": [error.message],
+                    }));
+                }
+            }
+        }
+
+        self.snapshot.ui.active_tab_id = tab_id.into();
+        self.snapshot.ui.active_connection_id = tab.connection_id;
+        self.snapshot.ui.active_environment_id = tab.environment_id;
+        self.snapshot.ui.right_drawer = "none".into();
+        self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
     }
 }
 

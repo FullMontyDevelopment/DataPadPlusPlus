@@ -20,10 +20,11 @@ const MAX_SIDEBAR_WIDTH = 420
 const MIN_RIGHT_DRAWER_WIDTH = 320
 const DEFAULT_RIGHT_DRAWER_WIDTH = 360
 const MAX_RIGHT_DRAWER_WIDTH = 560
-const WORKSPACE_SCHEMA_VERSION = 7
+const WORKSPACE_SCHEMA_VERSION = 8
 const DEFAULT_LIBRARY_ROOTS = [
   ['library-root-queries', 'Queries'],
   ['library-root-scripts', 'Scripts'],
+  ['library-root-tests', 'Tests'],
   ['library-root-snippets', 'Snippets'],
   ['library-root-notes', 'Notes'],
 ] as const
@@ -85,7 +86,8 @@ function isSidebarPane(value: unknown): value is UiState['activeSidebarPane'] {
     value === 'connections' ||
     value === 'environments' ||
     value === 'explorer' ||
-    value === 'library'
+    value === 'library' ||
+    value === 'tests'
   )
 }
 

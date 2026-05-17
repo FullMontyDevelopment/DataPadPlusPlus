@@ -14,6 +14,7 @@ use crate::domain::{
 const ROOT_FOLDERS: &[(&str, &str)] = &[
     ("library-root-queries", "Queries"),
     ("library-root-scripts", "Scripts"),
+    ("library-root-tests", "Tests"),
     ("library-root-snippets", "Snippets"),
     ("library-root-notes", "Notes"),
 ];
@@ -85,6 +86,7 @@ fn ensure_default_library_folders(nodes: &mut Vec<LibraryNode>, created_at: &str
                 language: None,
                 query_text: None,
                 script_text: None,
+                test_suite: None,
                 snapshot_result_id: None,
             });
         }
@@ -122,6 +124,7 @@ fn migrate_saved_work(
             language: item.language.clone(),
             query_text: item.query_text.clone(),
             script_text: None,
+            test_suite: None,
             snapshot_result_id: item.snapshot_result_id.clone(),
         });
     }
@@ -179,6 +182,7 @@ fn ensure_legacy_folder(
             language: None,
             query_text: None,
             script_text: None,
+            test_suite: None,
             snapshot_result_id: None,
         });
         parent_id = Some(id);
@@ -312,6 +316,7 @@ impl ManagedAppState {
             language: None,
             query_text: None,
             script_text: None,
+            test_suite: None,
             snapshot_result_id: None,
         });
 
@@ -497,7 +502,7 @@ impl ManagedAppState {
             .folder_id
             .unwrap_or_else(|| "library-root-queries".into());
         let connection = self.connection_by_id(&tab.connection_id)?;
-        let query_text = if kind == "script" {
+        let query_text = if matches!(kind.as_str(), "script" | "test-suite") {
             None
         } else {
             Some(tab.query_text.clone())
@@ -523,6 +528,7 @@ impl ManagedAppState {
             language: Some(tab.language.clone()),
             query_text,
             script_text,
+            test_suite: tab.test_suite.clone(),
             snapshot_result_id: None,
         };
 
@@ -628,10 +634,15 @@ impl ManagedAppState {
             .query_text
             .clone()
             .or(item.script_text.clone())
+            .or_else(|| {
+                item.test_suite
+                    .as_ref()
+                    .and_then(|suite| serde_json::to_string_pretty(suite).ok())
+            })
             .ok_or_else(|| {
                 CommandError::new(
                     "library-item-not-openable",
-                    "Library item has no query text.",
+                    "Library item has no query text or test suite definition.",
                 )
             })?;
         let opened_at = timestamp_now();
@@ -664,7 +675,11 @@ impl ManagedAppState {
         let tab = QueryTabState {
             id: generate_id("tab"),
             title: item.name.clone(),
-            tab_kind: Some("query".into()),
+            tab_kind: Some(if item.kind == "test-suite" {
+                "test-suite".into()
+            } else {
+                "query".into()
+            }),
             connection_id: connection.id.clone(),
             environment_id,
             family: connection.family.clone(),
@@ -683,6 +698,9 @@ impl ManagedAppState {
             query_text,
             scoped_target: None,
             builder_state: None,
+            metrics_state: None,
+            test_suite: item.test_suite.clone(),
+            test_run: None,
             status: "idle".into(),
             dirty: false,
             last_run_at: None,
@@ -796,6 +814,7 @@ mod tests {
             language: None,
             query_text: None,
             script_text: None,
+            test_suite: None,
             snapshot_result_id: None,
         }
     }

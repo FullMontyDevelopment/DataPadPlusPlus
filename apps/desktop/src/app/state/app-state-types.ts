@@ -1,9 +1,11 @@
 import type { Dispatch, MutableRefObject } from 'react'
 import type {
   BootstrapPayload,
+  CancelTestRunRequest,
   ConnectionProfile,
   ConnectionTestResult,
   CreateScopedQueryTabRequest,
+  CreateTestSuiteTabRequest,
   DataEditExecutionRequest,
   DataEditExecutionResponse,
   DataEditPlanRequest,
@@ -12,6 +14,8 @@ import type {
   EnvironmentProfile,
   ExecutionRequest,
   ExecutionResponse,
+  ExecuteTestSuiteRequest,
+  ExecuteTestSuiteResponse,
   ExportBundle,
   ExplorerInspectResponse,
   ExplorerRequest,
@@ -39,6 +43,7 @@ import type {
   SaveQueryTabToLocalFileRequest,
   StructureRequest,
   StructureResponse,
+  UpdateTestSuiteTabRequest,
   UpdateQueryBuilderStateRequest,
   UpdateUiStateRequest,
   WorkspaceSnapshot,
@@ -113,12 +118,16 @@ export interface Actions {
   saveEnvironment(profile: EnvironmentProfile): Promise<void>
   createTab(connectionId: string): Promise<void>
   createExplorerTab(connectionId: string): Promise<void>
+  createMetricsTab(connectionId: string, environmentId?: string): Promise<void>
+  refreshMetricsTab(tabId: string): Promise<void>
+  createTestSuiteTab(request: CreateTestSuiteTabRequest): Promise<void>
   createScopedTab(request: CreateScopedQueryTabRequest): Promise<void>
   closeTab(tabId: string): Promise<void>
   reopenClosedTab(closedTabId: string): Promise<void>
   reorderTabs(orderedTabIds: string[]): Promise<void>
   updateQuery(tabId: string, queryText: string): Promise<void>
   updateQueryBuilderState(request: UpdateQueryBuilderStateRequest): Promise<void>
+  updateTestSuiteTab(request: UpdateTestSuiteTabRequest): Promise<void>
   renameTab(tabId: string, title: string): Promise<void>
   saveCurrentQuery(tabId: string): Promise<void>
   saveAndCloseTab(tabId: string): Promise<void>
@@ -150,6 +159,10 @@ export interface Actions {
     confirmedGuardrailId?: string,
     overrideQueryText?: string,
   ): Promise<void>
+  executeTestSuite(request: ExecuteTestSuiteRequest): Promise<ExecuteTestSuiteResponse | undefined>
+  cancelTestRun(
+    request: CancelTestRunRequest,
+  ): Promise<{ ok: boolean; supported: boolean; message: string } | undefined>
   fetchResultPage(tabId: string, renderer?: string): Promise<void>
   cancelExecution(executionId: string, tabId?: string): Promise<void>
   pickLocalDatabaseFile(request: LocalDatabasePickRequest): Promise<LocalDatabasePickResult>

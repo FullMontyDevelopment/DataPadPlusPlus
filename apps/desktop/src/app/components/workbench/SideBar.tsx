@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type {
   ClosedQueryTabSnapshot,
+  AdapterManifest,
   ConnectionGroupMode,
   ConnectionProfile,
   EnvironmentProfile,
@@ -14,11 +15,13 @@ import { connectionGroupLabel } from './SideBar.helpers'
 import { EnvironmentsPane } from './SideBar.environments-pane'
 import { ExplorerPane } from './SideBar.explorer-pane'
 import { LibraryPane } from './SideBar.library-pane'
+import { TestsPane } from './SideBar.tests-pane'
 
 interface SideBarProps {
   ui: UiState
   width: number
   connections: ConnectionProfile[]
+  adapterManifests: AdapterManifest[]
   environments: EnvironmentProfile[]
   libraryNodes: LibraryNode[]
   closedTabs: ClosedQueryTabSnapshot[]
@@ -37,10 +40,13 @@ interface SideBarProps {
   onDuplicateConnection(connectionId: string): void
   onDeleteConnection(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
+  onOpenConnectionMetrics(connectionId: string): void
   onOpenConnectionDrawer(connectionId: string): void
   onLoadExplorerScope(connectionId: string, scope?: string): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onCreateTab(connectionId?: string): void
+  onCreateTestSuite(connectionId?: string): void
+  onOpenTestSuiteTemplate(connectionId: string, templateId: string): void
   onSaveCurrentQuery(): void
   onCreateLibraryFolder(parentId?: string): void
   onDeleteLibraryNode(nodeId: string): void
@@ -60,6 +66,7 @@ export function SideBar({
   ui,
   width,
   connections,
+  adapterManifests,
   environments,
   libraryNodes,
   closedTabs,
@@ -78,10 +85,13 @@ export function SideBar({
   onDuplicateConnection,
   onDeleteConnection,
   onOpenConnectionExplorer,
+  onOpenConnectionMetrics,
   onOpenConnectionDrawer,
   onLoadExplorerScope,
   onOpenScopedQuery,
   onCreateTab,
+  onCreateTestSuite,
+  onOpenTestSuiteTemplate,
   onSaveCurrentQuery,
   onCreateLibraryFolder,
   onDeleteLibraryNode,
@@ -169,6 +179,7 @@ export function SideBar({
       {ui.activeSidebarPane === 'connections' ? (
         <ConnectionsPane
           activeConnectionId={activeConnectionId}
+          adapterManifests={adapterManifests}
           connectionFilter={connectionFilter}
           connectionGroupMode={connectionGroupMode}
           connectionGroups={connectionGroups}
@@ -183,6 +194,7 @@ export function SideBar({
           onDeleteConnection={onDeleteConnection}
           onDuplicateConnection={onDuplicateConnection}
           onOpenConnectionExplorer={onOpenConnectionExplorer}
+          onOpenConnectionMetrics={onOpenConnectionMetrics}
           onOpenConnectionDrawer={onOpenConnectionDrawer}
           onLoadExplorerScope={onLoadExplorerScope}
           onOpenScopedQuery={onOpenScopedQuery}
@@ -235,6 +247,18 @@ export function SideBar({
           onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
           onSaveCurrentQuery={onSaveCurrentQuery}
           onLibraryFilterChange={setLibraryFilter}
+        />
+      ) : null}
+
+      {ui.activeSidebarPane === 'tests' ? (
+        <TestsPane
+          activeConnectionId={activeConnectionId}
+          connections={connections}
+          environments={environments}
+          libraryNodes={libraryNodes}
+          onCreateTestSuite={onCreateTestSuite}
+          onOpenLibraryItem={onOpenLibraryItem}
+          onOpenTemplate={onOpenTestSuiteTemplate}
         />
       ) : null}
     </aside>

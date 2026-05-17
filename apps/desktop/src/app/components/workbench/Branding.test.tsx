@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ActivityBar } from './ActivityBar'
 import { BootSurface, WelcomeSurface } from './BootSurfaces'
@@ -44,6 +44,25 @@ describe('workbench branding', () => {
     )
 
     expect(screen.getByLabelText('Activity bar')).toBeInTheDocument()
+    expect(screen.getByLabelText('Tests view')).toBeInTheDocument()
     expect(container.querySelector('img[src="/icon.png"]')).not.toBeNull()
+  })
+
+  it('selects the tests activity from the activity bar', () => {
+    const onSelectActivity = vi.fn()
+    render(
+      <ActivityBar
+        activeActivity="connections"
+        sidebarCollapsed={false}
+        theme="dark"
+        onToggleSidebar={vi.fn()}
+        onSelectActivity={onSelectActivity}
+        onToggleTheme={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByLabelText('Tests view'))
+
+    expect(onSelectActivity).toHaveBeenCalledWith('tests')
   })
 })

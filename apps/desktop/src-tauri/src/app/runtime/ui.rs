@@ -7,6 +7,7 @@ pub(super) fn is_activity(value: &str) -> bool {
             | "environments"
             | "explorer"
             | "library"
+            | "tests"
             | "saved-work"
             | "search"
             | "settings"
@@ -16,7 +17,7 @@ pub(super) fn is_activity(value: &str) -> bool {
 pub(super) fn is_sidebar_pane(value: &str) -> bool {
     matches!(
         value,
-        "connections" | "environments" | "explorer" | "library" | "saved-work" | "search"
+        "connections" | "environments" | "explorer" | "library" | "tests" | "saved-work" | "search"
     )
 }
 
@@ -154,5 +155,16 @@ pub(super) fn normalize_ui_state(snapshot: &WorkspaceSnapshot) -> UiState {
             "none".into()
         },
         right_drawer_width: clamp_right_drawer_width(snapshot.ui.right_drawer_width),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_activity, is_sidebar_pane};
+
+    #[test]
+    fn tests_activity_and_sidebar_pane_are_valid() {
+        assert!(is_activity("tests"));
+        assert!(is_sidebar_pane("tests"));
     }
 }

@@ -9,6 +9,7 @@ import {
   managementActionsForNode,
   normalizeExplorerKind,
   placementForExplorerNode,
+  redisKeyBrowserQueryTemplate,
   sqlObjectQueryTemplate,
   type ConnectionTreeAction,
 } from './SideBar.datastore-tree-registry'
@@ -112,6 +113,10 @@ function explorerNodeToConnectionTreeNode(
   node: ExplorerNode,
   normalizedKind = normalizeExplorerKind(connection, node.kind),
 ): ConnectionTreeNode {
+  const isMongoCollection = connection.engine === 'mongodb' && normalizedKind === 'collection'
+  const isRedisPrefix = isRedisLikeConnection(connection) && normalizedKind === 'prefix'
+  const redisPattern = isRedisPrefix ? redisPatternFromExplorerNode(node) : undefined
+
   return {
     id: node.id,
     label: node.label,
@@ -120,12 +125,16 @@ function explorerNodeToConnectionTreeNode(
     scope: node.scope,
     refreshScope: node.scope,
     path: node.path,
-    queryTemplate: node.queryTemplate ?? fallbackExplorerQueryTemplate(connection, node),
-    queryable: isExplorerNodeQueryable(connection, node),
+    queryTemplate:
+      redisPattern !== undefined
+        ? redisKeyBrowserQueryTemplate(redisPattern)
+        : (node.queryTemplate ?? fallbackExplorerQueryTemplate(connection, node)),
+    queryable: isRedisPrefix || isExplorerNodeQueryable(connection, node),
     expandable: node.expandable,
-    builderKind:
-      connection.engine === 'mongodb' && node.kind === 'collection'
-        ? 'mongo-find'
+    builderKind: isMongoCollection
+      ? 'mongo-find'
+      : isRedisPrefix
+        ? 'redis-key-browser'
         : undefined,
   }
 }
@@ -197,6 +206,27 @@ function fallbackExplorerQueryTemplate(
   return undefined
 }
 
+function isRedisLikeConnection(connection: ConnectionProfile) {
+  return connection.engine === 'redis' || connection.engine === 'valkey'
+}
+
+function redisPatternFromExplorerNode(node: ExplorerNode) {
+  const scopedPrefix = node.scope?.startsWith('prefix:')
+    ? node.scope.replace('prefix:', '')
+    : undefined
+  const pattern = scopedPrefix || node.label
+
+  if (pattern.includes('*')) {
+    return pattern
+  }
+
+  if (pattern.endsWith(':')) {
+    return `${pattern}*`
+  }
+
+  return pattern
+}
+
 function sqlObjectPartsFromExplorerNode(
   connection: ConnectionProfile,
   node: ExplorerNode,
@@ -219,8 +249,7 @@ function isExplorerNodeQueryable(connection: ConnectionProfile, node: ExplorerNo
   const kind = normalizeExplorerKind(connection, node.kind)
 
   return Boolean(
-    node.queryTemplate ||
-      ['collection', 'table', 'hypertable', 'view', 'materialized-view'].includes(kind) ||
+    ['collection', 'table', 'hypertable', 'view', 'materialized-view'].includes(kind) ||
       (['elasticsearch', 'opensearch'].includes(connection.engine) &&
         ['index', 'data-stream'].includes(kind)) ||
       (connection.engine === 'dynamodb' && kind === 'table') ||
@@ -317,8 +346,8 @@ function keyValueConnectionTree(connection: ConnectionProfile): ConnectionTreeNo
   return [
     branch('keyspaces', 'Key Spaces', 'keyspaces', 'Logical key groups and modules', [
       branch('prefixes', 'Prefixes', 'prefixes', 'SCAN-friendly key prefixes', [
-        leaf('prefix-session', 'session:*', 'prefix', 'hashes'),
-        leaf('prefix-cache', 'cache:*', 'prefix', 'strings'),
+        redisPrefixLeaf(connection, 'session:*', 'hashes'),
+        redisPrefixLeaf(connection, 'cache:*', 'strings'),
       ]),
       branch('streams', 'Streams', 'streams', 'Append-only event streams', [
         leaf('stream-orders', 'orders.events', 'stream', 'sample stream'),
@@ -328,6 +357,18 @@ function keyValueConnectionTree(connection: ConnectionProfile): ConnectionTreeNo
       ]),
     ]),
   ]
+}
+
+function redisPrefixLeaf(connection: ConnectionProfile, pattern: string, detail: string) {
+  const scopePrefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern
+
+  return leaf(`prefix-${pattern.replace(/[^a-z0-9]+/gi, '-')}`, pattern, 'prefix', detail, {
+    path: [connection.name, 'Key Prefixes'],
+    scope: `prefix:${scopePrefix}`,
+    queryable: true,
+    builderKind: 'redis-key-browser',
+    queryTemplate: redisKeyBrowserQueryTemplate(pattern),
+  })
 }
 
 function graphConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
