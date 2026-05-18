@@ -25,8 +25,8 @@ describe('browser test-suite runtime', () => {
     })
     expect(testTab?.title).toMatch(/\.datapad-test\.json$/)
     expect(testTab?.testSuite?.engine).toBe('mongodb')
-    expect(opened.ui.activeActivity).toBe('tests')
-    expect(opened.ui.activeSidebarPane).toBe('tests')
+    expect(opened.ui.activeActivity).toBe('library')
+    expect(opened.ui.activeSidebarPane).toBe('library')
     expect(opened.ui.rightDrawer).toBe('none')
 
     const reopened = createTestSuiteTabInSnapshot(opened, {

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   ClosedQueryTabSnapshot,
   AdapterManifest,
@@ -9,17 +9,15 @@ import type {
   LibraryNode,
   ScopedQueryTarget,
   UiState,
+  WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
-import { ConnectionsPane } from './SideBar.connections-pane'
-import { connectionGroupLabel } from './SideBar.helpers'
-import { EnvironmentsPane } from './SideBar.environments-pane'
 import { ExplorerPane } from './SideBar.explorer-pane'
 import { LibraryPane } from './SideBar.library-pane'
-import { TestsPane } from './SideBar.tests-pane'
 
 interface SideBarProps {
   ui: UiState
   width: number
+  theme: WorkspaceSnapshot['preferences']['theme']
   connections: ConnectionProfile[]
   adapterManifests: AdapterManifest[]
   environments: EnvironmentProfile[]
@@ -32,9 +30,14 @@ interface SideBarProps {
   activeConnectionId: string
   activeEnvironmentId: string
   onSelectConnection(connectionId: string): void
+  onOpenSettings(): void
+  onToggleTheme(): void
   onSelectEnvironment(environmentId: string): void
-  onCreateConnection(): void
+  onCreateConnection(parentId?: string): void
   onCreateEnvironment(): void
+  onCloneEnvironment(environmentId: string): void
+  onEditEnvironment(environmentId: string): void
+  onDeleteEnvironment(environmentId: string): void
   onConnectionGroupModeChange(value: ConnectionGroupMode): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
   onDuplicateConnection(connectionId: string): void
@@ -42,6 +45,7 @@ interface SideBarProps {
   onOpenConnectionExplorer(connectionId: string): void
   onOpenConnectionMetrics(connectionId: string): void
   onOpenConnectionDrawer(connectionId: string): void
+  onTestConnection(connectionId: string): void
   onLoadExplorerScope(connectionId: string, scope?: string): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onCreateTab(connectionId?: string): void
@@ -60,11 +64,13 @@ interface SideBarProps {
   onSelectExplorerNode(node: ExplorerNode): void
   onInspectExplorerNode(node: ExplorerNode): void
   onResize(width: number): void
+  onCollapseSidebar(): void
 }
 
 export function SideBar({
   ui,
   width,
+  theme,
   connections,
   adapterManifests,
   environments,
@@ -77,21 +83,25 @@ export function SideBar({
   activeConnectionId,
   activeEnvironmentId,
   onSelectConnection,
+  onOpenSettings,
+  onToggleTheme,
   onSelectEnvironment,
   onCreateConnection,
   onCreateEnvironment,
-  onConnectionGroupModeChange,
+  onCloneEnvironment,
+  onEditEnvironment,
+  onDeleteEnvironment,
   onSidebarSectionExpandedChange,
   onDuplicateConnection,
   onDeleteConnection,
   onOpenConnectionExplorer,
   onOpenConnectionMetrics,
   onOpenConnectionDrawer,
+  onTestConnection,
   onLoadExplorerScope,
   onOpenScopedQuery,
   onCreateTab,
   onCreateTestSuite,
-  onOpenTestSuiteTemplate,
   onSaveCurrentQuery,
   onCreateLibraryFolder,
   onDeleteLibraryNode,
@@ -105,39 +115,66 @@ export function SideBar({
   onSelectExplorerNode,
   onInspectExplorerNode,
   onResize,
+  onCollapseSidebar,
 }: SideBarProps) {
-  const [connectionFilter, setConnectionFilter] = useState('')
-  const connectionGroupMode = ui.connectionGroupMode ?? 'none'
-  const [environmentFilter, setEnvironmentFilter] = useState('')
   const [libraryFilter, setLibraryFilter] = useState('')
   const [isResizing, setIsResizing] = useState(false)
   const lastPointerX = useRef(0)
+  const resizeFrame = useRef<number | undefined>(undefined)
+  const draftWidth = useRef(width)
+  const workbenchRef = useRef<HTMLElement | null>(null)
+  const isResizingRef = useRef(false)
   const sidebarSectionStates = ui.sidebarSectionStates ?? {}
-  const connectionGroups = useMemo(() => {
-    const filtered = connections.filter((connection) => {
-      const haystack = `${connection.name} ${connection.engine} ${connection.group ?? ''} ${connection.tags.join(' ')}`.toLowerCase()
-      return haystack.includes(connectionFilter.toLowerCase())
-    })
+  const activePane =
+    ui.activeSidebarPane === 'connections' ||
+    ui.activeSidebarPane === 'tests' ||
+    ui.activeSidebarPane === 'environments'
+      ? 'library'
+      : ui.activeSidebarPane
+  const applyDraftWidth = (nextWidth: number) => {
+    const clampedWidth = clampSidebarWidth(nextWidth)
+    draftWidth.current = clampedWidth
+    workbenchRef.current?.style.setProperty('--sidebar-width', `${clampedWidth}px`)
+  }
+  const scheduleDraftWidth = (nextWidth: number) => {
+    draftWidth.current = clampSidebarWidth(nextWidth)
+    if (resizeFrame.current !== undefined) {
+      return
+    }
 
-    return filtered.reduce<Record<string, ConnectionProfile[]>>((accumulator, connection) => {
-      const group = connectionGroupLabel(connection, connectionGroupMode, environments)
-      accumulator[group] ??= []
-      accumulator[group].push(connection)
-      return accumulator
-    }, {})
-  }, [connectionFilter, connectionGroupMode, connections, environments])
-  const filteredEnvironments = useMemo(() => {
-    const filter = environmentFilter.toLowerCase()
-
-    return environments.filter((environment) => {
-      const haystack =
-        `${environment.label} ${environment.risk} ${Object.keys(environment.variables).join(' ')}`.toLowerCase()
-      return haystack.includes(filter)
+    resizeFrame.current = window.requestAnimationFrame(() => {
+      resizeFrame.current = undefined
+      applyDraftWidth(draftWidth.current)
     })
-  }, [environmentFilter, environments])
+  }
+  const stopResizing = () => {
+    if (!isResizingRef.current) {
+      return
+    }
+
+    if (resizeFrame.current !== undefined) {
+      window.cancelAnimationFrame(resizeFrame.current)
+      resizeFrame.current = undefined
+      applyDraftWidth(draftWidth.current)
+    }
+
+    document.body.classList.remove('is-sidebar-resizing')
+    isResizingRef.current = false
+    setIsResizing(false)
+    onResize(draftWidth.current)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (resizeFrame.current !== undefined) {
+        window.cancelAnimationFrame(resizeFrame.current)
+      }
+      document.body.classList.remove('is-sidebar-resizing')
+    }
+  }, [])
 
   return (
-    <aside className="workbench-sidebar" aria-label={`${ui.activeSidebarPane} sidebar`}>
+    <aside className="workbench-sidebar" aria-label={`${activePane} sidebar`}>
       <div
         role="separator"
         tabIndex={0}
@@ -149,20 +186,34 @@ export function SideBar({
         className={`pane-resize-handle pane-resize-handle--sidebar${isResizing ? ' is-active' : ''}`}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId)
+          workbenchRef.current = event.currentTarget.closest('.ads-workbench')
           lastPointerX.current = event.clientX
+          draftWidth.current = clampSidebarWidth(width)
+          isResizingRef.current = true
+          document.body.classList.add('is-sidebar-resizing')
           setIsResizing(true)
         }}
         onPointerMove={(event) => {
-          if (!isResizing) {
+          if (!isResizingRef.current) {
             return
           }
 
           const delta = event.clientX - lastPointerX.current
           lastPointerX.current = event.clientX
-          onResize(width + delta)
+          scheduleDraftWidth(draftWidth.current + delta)
         }}
-        onPointerUp={() => setIsResizing(false)}
-        onPointerCancel={() => setIsResizing(false)}
+        onPointerUp={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          }
+          stopResizing()
+        }}
+        onPointerCancel={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          }
+          stopResizing()
+        }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowLeft') {
             event.preventDefault()
@@ -176,45 +227,7 @@ export function SideBar({
         }}
       />
 
-      {ui.activeSidebarPane === 'connections' ? (
-        <ConnectionsPane
-          activeConnectionId={activeConnectionId}
-          adapterManifests={adapterManifests}
-          connectionFilter={connectionFilter}
-          connectionGroupMode={connectionGroupMode}
-          connectionGroups={connectionGroups}
-          environments={environments}
-          explorerNodes={connectionExplorerItems}
-          explorerStatus={explorerStatus}
-          sectionStates={sidebarSectionStates}
-          onConnectionFilterChange={setConnectionFilter}
-          onConnectionGroupModeChange={onConnectionGroupModeChange}
-          onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
-          onCreateConnection={onCreateConnection}
-          onDeleteConnection={onDeleteConnection}
-          onDuplicateConnection={onDuplicateConnection}
-          onOpenConnectionExplorer={onOpenConnectionExplorer}
-          onOpenConnectionMetrics={onOpenConnectionMetrics}
-          onOpenConnectionDrawer={onOpenConnectionDrawer}
-          onLoadExplorerScope={onLoadExplorerScope}
-          onOpenScopedQuery={onOpenScopedQuery}
-          onCreateTab={onCreateTab}
-          onSelectConnection={onSelectConnection}
-        />
-      ) : null}
-
-      {ui.activeSidebarPane === 'environments' ? (
-        <EnvironmentsPane
-          activeEnvironmentId={activeEnvironmentId}
-          environmentFilter={environmentFilter}
-          environments={filteredEnvironments}
-          onCreateEnvironment={onCreateEnvironment}
-          onEnvironmentFilterChange={setEnvironmentFilter}
-          onSelectEnvironment={onSelectEnvironment}
-        />
-      ) : null}
-
-      {ui.activeSidebarPane === 'explorer' ? (
+      {activePane === 'explorer' ? (
         <ExplorerPane
           activeConnection={connections.find((connection) => connection.id === activeConnectionId)}
           activeEnvironment={environments.find((environment) => environment.id === activeEnvironmentId)}
@@ -230,38 +243,57 @@ export function SideBar({
         />
       ) : null}
 
-      {ui.activeSidebarPane === 'library' ? (
+      {activePane === 'library' ? (
         <LibraryPane
+          activeConnectionId={activeConnectionId}
+          activeEnvironmentId={activeEnvironmentId}
+          adapterManifests={adapterManifests}
           closedTabs={closedTabs}
+          connectionExplorerItems={connectionExplorerItems}
+          connections={connections}
           environments={environments}
+          explorerStatus={explorerStatus}
           libraryFilter={libraryFilter}
           libraryNodes={libraryNodes}
           sectionStates={sidebarSectionStates}
+          theme={theme}
+          onCloneEnvironment={onCloneEnvironment}
+          onCreateConnection={onCreateConnection}
+          onCreateEnvironment={onCreateEnvironment}
           onCreateFolder={onCreateLibraryFolder}
+          onCreateTab={onCreateTab}
+          onCreateTestSuite={onCreateTestSuite}
+          onDeleteConnection={onDeleteConnection}
+          onDeleteEnvironment={onDeleteEnvironment}
           onDeleteNode={onDeleteLibraryNode}
+          onDuplicateConnection={onDuplicateConnection}
+          onEditEnvironment={onEditEnvironment}
           onMoveNode={onMoveLibraryNode}
+          onLoadExplorerScope={onLoadExplorerScope}
+          onOpenConnectionDrawer={onOpenConnectionDrawer}
+          onOpenConnectionExplorer={onOpenConnectionExplorer}
+          onOpenConnectionMetrics={onOpenConnectionMetrics}
+          onOpenSettings={onOpenSettings}
+          onOpenScopedQuery={onOpenScopedQuery}
           onOpenLibraryItem={onOpenLibraryItem}
           onRenameNode={onRenameLibraryNode}
           onSetNodeEnvironment={onSetLibraryNodeEnvironment}
           onReopenClosedTab={onReopenClosedTab}
+          onSelectConnection={onSelectConnection}
+          onSelectEnvironment={onSelectEnvironment}
           onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
           onSaveCurrentQuery={onSaveCurrentQuery}
           onLibraryFilterChange={setLibraryFilter}
-        />
-      ) : null}
-
-      {ui.activeSidebarPane === 'tests' ? (
-        <TestsPane
-          activeConnectionId={activeConnectionId}
-          connections={connections}
-          environments={environments}
-          libraryNodes={libraryNodes}
-          onCreateTestSuite={onCreateTestSuite}
-          onOpenLibraryItem={onOpenLibraryItem}
-          onOpenTemplate={onOpenTestSuiteTemplate}
+          onCollapseSidebar={onCollapseSidebar}
+          onTestConnection={onTestConnection}
+          onToggleTheme={onToggleTheme}
         />
       ) : null}
     </aside>
   )
+}
+
+function clampSidebarWidth(value: number) {
+  return Math.min(420, Math.max(220, Math.round(value)))
 }
 

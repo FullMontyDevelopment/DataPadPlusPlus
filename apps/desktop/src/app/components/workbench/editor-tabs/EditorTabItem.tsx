@@ -87,6 +87,8 @@ export function EditorTabItem({
   }`
   const dropBefore = dropTarget?.tabId === tab.id && dropTarget.placement === 'before'
   const dropAfter = dropTarget?.tabId === tab.id && dropTarget.placement === 'after'
+  const tabRunning = tab.status === 'queued' || tab.status === 'running'
+  const tabFailed = tab.status === 'error' || tab.status === 'blocked'
 
   return (
     <div
@@ -95,7 +97,7 @@ export function EditorTabItem({
       tabIndex={0}
       aria-selected={active}
       draggable={!editing}
-      className={`editor-tab${active ? ' is-active' : ''}${active && environment ? ' has-environment-color' : ''}${draggingTabId === tab.id ? ' is-dragging' : ''}${dropBefore ? ' is-drop-before' : ''}${dropAfter ? ' is-drop-after' : ''}`}
+      className={`editor-tab${active ? ' is-active' : ''}${active && environment ? ' has-environment-color' : ''}${draggingTabId === tab.id ? ' is-dragging' : ''}${dropBefore ? ' is-drop-before' : ''}${dropAfter ? ' is-drop-after' : ''}${tabRunning ? ' is-running' : ''}${tabFailed ? ' is-error' : ''}`}
       style={tabStyle}
       title={tooltip}
       onClick={() => onSelectTab(tab.id)}

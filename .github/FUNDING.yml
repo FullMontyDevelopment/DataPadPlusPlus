@@ -1,0 +1,6 @@
+# GitHub reads this file to show the Sponsor button on the repository.
+# If GitHub Sponsors is not enabled for the organization yet, enable it at:
+# https://github.com/sponsors/accounts
+github: [FullMontyDevelopment]
+custom:
+  - "https://github.com/sponsors/FullMontyDevelopment"

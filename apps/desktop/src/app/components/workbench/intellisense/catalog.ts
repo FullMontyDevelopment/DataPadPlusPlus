@@ -7,13 +7,24 @@ import type {
   CompletionSchema,
 } from './types'
 
+interface SqlNameParts {
+  schema?: string
+  objectName?: string
+}
+
 const OBJECT_KINDS = new Set([
   'table',
+  'base-table',
   'view',
   'collection',
   'index',
   'data-stream',
   'materialized-view',
+  'stored-procedure',
+  'procedure',
+  'function',
+  'sequence',
+  'type',
   'prefix',
   'key',
   'hash',
@@ -37,29 +48,35 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
       sources.add('explorer')
     }
 
-    if (SCHEMA_KINDS.has(node.kind)) {
+    const kind = normalizeCatalogKind(node.kind)
+
+    if (SCHEMA_KINDS.has(kind)) {
       addSchema(schemas, {
         name: node.label,
         detail: node.detail,
       })
     }
 
-    if (OBJECT_KINDS.has(node.kind)) {
+    if (OBJECT_KINDS.has(kind)) {
+      const objectParts = completionObjectPartsFromExplorerNode(input.connection, node, kind)
+
       addObject(objects, {
-        name: node.label,
-        kind: node.kind,
-        schema: schemaFromPath(node.path),
+        name: objectParts.objectName ?? node.label,
+        kind,
+        schema: objectParts.schema,
         path: node.path,
         detail: node.detail,
       })
     }
 
-    if (node.kind === 'column' || node.kind === 'field') {
+    if (kind === 'column' || kind === 'field') {
+      const objectParts = completionObjectPartsFromExplorerNode(input.connection, node, kind)
+
       addField(fields, {
         name: node.label,
         dataType: node.detail.split('/')[0]?.trim(),
-        objectName: node.path?.at(-1),
-        schema: schemaFromPath(node.path),
+        objectName: objectParts.objectName,
+        schema: objectParts.schema,
         detail: node.detail,
       })
     }
@@ -84,10 +101,12 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
     }
 
     for (const node of input.structure.nodes) {
-      if (OBJECT_KINDS.has(node.kind) || node.fields?.length) {
+      const kind = normalizeCatalogKind(node.kind)
+
+      if (OBJECT_KINDS.has(kind) || node.fields?.length) {
         addObject(objects, {
           name: node.label,
-          kind: node.kind,
+          kind,
           schema: node.groupId,
           detail: node.detail,
         })
@@ -272,18 +291,179 @@ function valueTypeLabel(value: unknown) {
   return typeof value
 }
 
-function schemaFromPath(path?: string[]) {
-  if (!path || path.length < 2) {
-    return undefined
-  }
-
-  return path.at(-2)
-}
-
 function byName<T extends { name: string }>(left: T, right: T) {
   return left.name.localeCompare(right.name)
 }
 
 function byField(left: CompletionField, right: CompletionField) {
   return (left.path ?? left.name).localeCompare(right.path ?? right.name)
+}
+
+function normalizeCatalogKind(kind: string) {
+  const normalized = kind.trim().toLowerCase().replace(/_/g, '-')
+
+  if (normalized === 'base table' || normalized === 'base-table') {
+    return 'table'
+  }
+
+  if (normalized === 'materialized view') {
+    return 'materialized-view'
+  }
+
+  if (normalized === 'stored procedure') {
+    return 'stored-procedure'
+  }
+
+  if (normalized === 'data stream') {
+    return 'data-stream'
+  }
+
+  return normalized
+}
+
+function completionObjectPartsFromExplorerNode(
+  connection: CompletionCatalogInput['connection'],
+  node: CompletionCatalogInput['explorerNodes'][number],
+  kind: string,
+) {
+  if (connection?.family !== 'sql' && connection?.family !== 'embedded-olap') {
+    return {
+      schema: schemaFromExplorerPath(connection, node.path),
+      objectName: node.label,
+    }
+  }
+
+  const scopeParts = sqlNamePartsFromScope(node.scope)
+  const labelParts = splitQualifiedName(node.label)
+  const idParts = splitQualifiedName(node.id)
+  const pathParts = sqlNamePartsFromPath(connection, node.path)
+  const schema = scopeParts.schema ?? pathParts.schema ?? labelParts.schema ?? idParts.schema
+  const objectName =
+    scopeParts.objectName ??
+    (isSqlChildKind(kind) ? pathParts.objectName : undefined) ??
+    labelParts.objectName ??
+    (idParts.schema ? idParts.objectName : undefined) ??
+    node.label
+
+  return { schema, objectName }
+}
+
+function schemaFromExplorerPath(
+  connection: CompletionCatalogInput['connection'],
+  path?: string[],
+) {
+  const cleanPath = cleanExplorerPath(connection, path)
+  const categoryFreePath = cleanPath.filter((segment) => !isMetadataCategory(segment))
+
+  if (categoryFreePath.length === 0) {
+    return undefined
+  }
+
+  return categoryFreePath.length > 1 ? categoryFreePath.at(-2) : categoryFreePath[0]
+}
+
+function sqlNamePartsFromPath(
+  connection: CompletionCatalogInput['connection'],
+  path?: string[],
+): SqlNameParts {
+  const cleanPath = cleanExplorerPath(connection, path)
+  const categoryFreePath = cleanPath.filter((segment) => !isMetadataCategory(segment))
+
+  if (categoryFreePath.length === 0) {
+    return {}
+  }
+
+  if (categoryFreePath.length === 1) {
+    const qualified = splitQualifiedName(categoryFreePath[0])
+    return qualified.schema
+      ? qualified
+      : { schema: categoryFreePath[0] }
+  }
+
+  return {
+    schema: categoryFreePath[0],
+    objectName: categoryFreePath.at(-1),
+  }
+}
+
+function cleanExplorerPath(
+  connection: CompletionCatalogInput['connection'],
+  path?: string[],
+) {
+  const segments = (path ?? []).filter(Boolean)
+  const rootLabels = new Set([
+    connection?.name,
+    connection?.engine,
+    'PostgreSQL',
+    'CockroachDB',
+    'TimescaleDB',
+    'SQL Server',
+    'MySQL',
+    'MariaDB',
+    'SQLite',
+  ].filter(Boolean) as string[])
+
+  if (segments[0] && rootLabels.has(segments[0])) {
+    return segments.slice(1)
+  }
+
+  return segments
+}
+
+function sqlNamePartsFromScope(scope?: string): SqlNameParts {
+  const name = scope?.split(':').slice(1).join(':')
+
+  if (!name) {
+    return {}
+  }
+
+  return splitQualifiedName(name)
+}
+
+function splitQualifiedName(value: string | undefined): SqlNameParts {
+  const clean = value?.replaceAll('[', '').replaceAll(']', '').replaceAll('"', '').trim()
+
+  if (!clean?.includes('.')) {
+    return clean ? { objectName: clean } : {}
+  }
+
+  const parts = clean.split('.').filter(Boolean)
+
+  return {
+    schema: parts.length > 1 ? parts.at(-2) : undefined,
+    objectName: parts.at(-1),
+  }
+}
+
+function isSqlChildKind(kind: string) {
+  return ['column', 'field', 'index', 'constraint', 'trigger'].includes(kind)
+}
+
+const METADATA_CATEGORIES = new Set(
+  [
+    'schemas',
+    'user schemas',
+    'system schemas',
+    'tables',
+    'system tables',
+    'views',
+    'materialized views',
+    'stored procedures',
+    'procedures',
+    'programmability',
+    'functions',
+    'sequences',
+    'types',
+    'extensions',
+    'columns',
+    'indexes',
+    'constraints',
+    'triggers',
+    'security',
+    'diagnostics',
+  ].map((label) => label.toLowerCase()),
+)
+
+function isMetadataCategory(label: string | undefined) {
+  return Boolean(label && METADATA_CATEGORIES.has(label.toLowerCase()))
 }

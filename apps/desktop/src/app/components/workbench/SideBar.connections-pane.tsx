@@ -193,6 +193,8 @@ export function ConnectionsPane({
                 )
                 const environmentStyle = environmentAccentVariables(environment)
                 const expanded = Boolean(expandedConnections[connection.id])
+                const isLoadingMetadata =
+                  connection.id === activeConnectionId && explorerStatus === 'loading'
 
                 return (
                   <div key={connection.id} className="connection-tree-block">
@@ -245,6 +247,14 @@ export function ConnectionsPane({
                         </span>
                       </span>
                       <span className="tree-item-flags">
+                        {isLoadingMetadata ? (
+                          <span
+                            className="connection-metadata-spinner"
+                            role="status"
+                            aria-label={`Loading metadata for ${connection.name}`}
+                            title="Loading metadata"
+                          />
+                        ) : null}
                         {connection.favorite ? (
                           <FavoriteIcon className="tree-flag-icon" aria-label="Favorite" />
                         ) : null}

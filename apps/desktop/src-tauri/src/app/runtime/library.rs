@@ -33,11 +33,30 @@ pub(super) fn ensure_library_nodes(snapshot: &mut WorkspaceSnapshot) {
 
     for tab in &mut snapshot.tabs {
         migrate_tab_save_target(tab);
+        normalize_query_view_mode(&mut tab.query_view_mode);
     }
 
     for closed_tab in &mut snapshot.closed_tabs {
         migrate_tab_save_target(&mut closed_tab.tab);
+        normalize_query_view_mode(&mut closed_tab.tab.query_view_mode);
     }
+
+    for node in &mut snapshot.library_nodes {
+        normalize_query_view_mode(&mut node.query_view_mode);
+        if node.kind == "script" && node.query_view_mode.is_none() {
+            node.query_view_mode = Some("script".into());
+        }
+    }
+
+    ensure_connection_library_nodes(snapshot);
+}
+
+fn normalize_query_view_mode(query_view_mode: &mut Option<String>) {
+    *query_view_mode = match query_view_mode.as_deref() {
+        Some("builder" | "raw" | "script") => query_view_mode.clone(),
+        Some("both") => Some("builder".into()),
+        _ => None,
+    };
 }
 
 pub(super) fn library_nodes_are_empty_scaffold(nodes: &[LibraryNode]) -> bool {
@@ -85,6 +104,8 @@ fn ensure_default_library_folders(nodes: &mut Vec<LibraryNode>, created_at: &str
                 environment_id: None,
                 language: None,
                 query_text: None,
+                query_view_mode: None,
+                builder_state: None,
                 script_text: None,
                 test_suite: None,
                 snapshot_result_id: None,
@@ -123,6 +144,8 @@ fn migrate_saved_work(
             environment_id: item.environment_id.clone(),
             language: item.language.clone(),
             query_text: item.query_text.clone(),
+            query_view_mode: None,
+            builder_state: None,
             script_text: None,
             test_suite: None,
             snapshot_result_id: item.snapshot_result_id.clone(),
@@ -181,6 +204,8 @@ fn ensure_legacy_folder(
             environment_id: None,
             language: None,
             query_text: None,
+            query_view_mode: None,
+            builder_state: None,
             script_text: None,
             test_suite: None,
             snapshot_result_id: None,
@@ -284,6 +309,126 @@ fn unlink_deleted_library_items(snapshot: &mut WorkspaceSnapshot, deleted_ids: &
     }
 }
 
+pub(super) fn connection_library_node_id(connection_id: &str) -> String {
+    format!("library-connection-{connection_id}")
+}
+
+pub(super) fn ensure_connection_library_nodes(snapshot: &mut WorkspaceSnapshot) {
+    let now = timestamp_now();
+    let connections = snapshot.connections.clone();
+
+    for connection in connections {
+        if let Some(node) = snapshot.library_nodes.iter_mut().find(|node| {
+            node.kind == "connection"
+                && node.connection_id.as_deref() == Some(connection.id.as_str())
+        }) {
+            node.name = connection.name.clone();
+            node.summary = Some(format!("{} / connection", connection.engine));
+            node.updated_at = now.clone();
+            continue;
+        }
+
+        snapshot.library_nodes.push(LibraryNode {
+            id: connection_library_node_id(&connection.id),
+            kind: "connection".into(),
+            parent_id: None,
+            name: connection.name,
+            summary: Some(format!("{} / connection", connection.engine)),
+            tags: connection.tags,
+            favorite: None,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            last_opened_at: None,
+            connection_id: Some(connection.id),
+            environment_id: None,
+            language: None,
+            query_text: None,
+            query_view_mode: None,
+            builder_state: None,
+            script_text: None,
+            test_suite: None,
+            snapshot_result_id: None,
+        });
+    }
+}
+
+pub(super) fn remove_connection_library_nodes(
+    snapshot: &mut WorkspaceSnapshot,
+    connection_id: &str,
+) {
+    snapshot.library_nodes.retain(|node| {
+        !(node.kind == "connection" && node.connection_id.as_deref() == Some(connection_id))
+    });
+
+    for node in &mut snapshot.library_nodes {
+        if node.kind != "connection" && node.connection_id.as_deref() == Some(connection_id) {
+            node.connection_id = None;
+        }
+    }
+}
+
+pub(super) fn default_library_folder_for_connection(
+    snapshot: &WorkspaceSnapshot,
+    connection_id: &str,
+) -> String {
+    snapshot
+        .library_nodes
+        .iter()
+        .find(|node| {
+            node.kind == "connection" && node.connection_id.as_deref() == Some(connection_id)
+        })
+        .and_then(|node| node.parent_id.clone())
+        .unwrap_or_else(|| "library-root-queries".into())
+}
+
+pub(super) fn effective_connection_environment_id(
+    snapshot: &WorkspaceSnapshot,
+    connection_id: &str,
+    preferred_environment_id: Option<String>,
+) -> String {
+    if let Some(environment_id) = preferred_environment_id.filter(|environment_id| {
+        snapshot
+            .environments
+            .iter()
+            .any(|environment| environment.id == *environment_id)
+    }) {
+        return environment_id;
+    }
+
+    let library_environment_id = snapshot
+        .library_nodes
+        .iter()
+        .find(|node| {
+            node.kind == "connection" && node.connection_id.as_deref() == Some(connection_id)
+        })
+        .and_then(|node| {
+            effective_library_environment_id_for_nodes(&snapshot.library_nodes, &node.id)
+        });
+
+    library_environment_id
+        .or_else(|| {
+            snapshot
+                .connections
+                .iter()
+                .find(|connection| connection.id == connection_id)
+                .and_then(|connection| connection.environment_ids.first().cloned())
+        })
+        .or_else(|| {
+            if snapshot.ui.active_environment_id.is_empty() {
+                None
+            } else {
+                Some(snapshot.ui.active_environment_id.clone())
+            }
+        })
+        .or_else(|| {
+            snapshot
+                .environments
+                .first()
+                .map(|environment| environment.id.clone())
+        })
+        .unwrap_or_else(|| "env-dev".into())
+}
+
 impl ManagedAppState {
     pub fn create_library_folder(
         &mut self,
@@ -315,6 +460,8 @@ impl ManagedAppState {
             environment_id: request.environment_id,
             language: None,
             query_text: None,
+            query_view_mode: None,
+            builder_state: None,
             script_text: None,
             test_suite: None,
             snapshot_result_id: None,
@@ -370,6 +517,7 @@ impl ManagedAppState {
         request: LibraryMoveNodeRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        ensure_connection_library_nodes(&mut self.snapshot);
         folder_or_error(&self.snapshot, request.parent_id.as_deref())?;
         let deleted = collect_descendants(&self.snapshot, &request.node_id);
         if request
@@ -498,20 +646,19 @@ impl ManagedAppState {
             .unwrap_or_else(|| generate_id("library-item"));
         let now = timestamp_now();
         let kind = request.kind.unwrap_or_else(|| "query".into());
-        let folder_id = request
-            .folder_id
-            .unwrap_or_else(|| "library-root-queries".into());
+        let folder_id = request.folder_id.unwrap_or_else(|| {
+            default_library_folder_for_connection(&self.snapshot, &tab.connection_id)
+        });
         let connection = self.connection_by_id(&tab.connection_id)?;
         let query_text = if matches!(kind.as_str(), "script" | "test-suite") {
             None
         } else {
             Some(tab.query_text.clone())
         };
-        let script_text = if kind == "script" {
-            Some(tab.query_text.clone())
-        } else {
-            None
-        };
+        let script_text = tab
+            .script_text
+            .clone()
+            .or_else(|| (kind == "script").then(|| tab.query_text.clone()));
         let node = LibraryNode {
             id: item_id.clone(),
             kind,
@@ -527,6 +674,8 @@ impl ManagedAppState {
             environment_id: request.environment_id,
             language: Some(tab.language.clone()),
             query_text,
+            query_view_mode: tab.query_view_mode.clone().or_else(|| Some("raw".into())),
+            builder_state: tab.builder_state.clone(),
             script_text,
             test_suite: tab.test_suite.clone(),
             snapshot_result_id: None,
@@ -696,8 +845,16 @@ impl ManagedAppState {
             saved_query_id: Some(item.id.clone()),
             editor_label: super::query_tabs::editor_label_for_connection(&connection),
             query_text,
+            query_view_mode: item.query_view_mode.clone().or_else(|| {
+                if item.kind == "script" {
+                    Some("script".into())
+                } else {
+                    Some(super::query_tabs::default_query_view_mode(&connection))
+                }
+            }),
+            script_text: item.script_text.clone(),
             scoped_target: None,
-            builder_state: None,
+            builder_state: item.builder_state.clone(),
             metrics_state: None,
             test_suite: item.test_suite.clone(),
             test_run: None,
@@ -813,6 +970,8 @@ mod tests {
             environment_id: environment_id.map(str::to_string),
             language: None,
             query_text: None,
+            query_view_mode: None,
+            builder_state: None,
             script_text: None,
             test_suite: None,
             snapshot_result_id: None,

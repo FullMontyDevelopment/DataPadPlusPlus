@@ -5,6 +5,7 @@ import type {
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
+import { defaultLibraryFolderForConnection } from '../../services/runtime/library-connection-helpers'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
 import type { Actions, AppActionContext } from './app-state-types'
 
@@ -164,9 +165,9 @@ export function useQueryTabActions({
   )
 
   const updateQuery = useCallback<Actions['updateQuery']>(
-    async (tabId, queryText) => {
+    async (tabId, queryText, queryViewMode) => {
       try {
-        applyPayload(await desktopClient.updateQueryTab(tabId, queryText))
+        applyPayload(await desktopClient.updateQueryTab(tabId, queryText, queryViewMode))
       } catch (error) {
         handleError(error)
       }
@@ -239,7 +240,7 @@ export function useQueryTabActions({
               tab.saveTarget?.kind === 'library'
                 ? tab.saveTarget.libraryItemId
                 : tab.savedQueryId,
-            folderId: defaultLibraryFolderForTab(tab),
+            folderId: defaultLibraryFolderForTab(state.payload.snapshot, tab),
             name: tab.title,
             kind: inferLibraryItemKind(state.payload.snapshot, tab),
             tags: [],
@@ -280,7 +281,7 @@ export function useQueryTabActions({
               tab.saveTarget?.kind === 'library'
                 ? tab.saveTarget.libraryItemId
                 : tab.savedQueryId,
-            folderId: defaultLibraryFolderForTab(tab),
+            folderId: defaultLibraryFolderForTab(state.payload.snapshot, tab),
             name: tab.title,
             kind: inferLibraryItemKind(state.payload.snapshot, tab),
             tags: [],
@@ -482,7 +483,11 @@ function inferLibraryItemKind(
     tab.saveTarget?.kind === 'library' ? tab.saveTarget.libraryItemId : tab.savedQueryId
   const existingNode = snapshot.libraryNodes.find((node) => node.id === existingItemId)
 
-  if (existingNode?.kind && existingNode.kind !== 'folder') {
+  if (
+    existingNode?.kind &&
+    existingNode.kind !== 'folder' &&
+    existingNode.kind !== 'connection'
+  ) {
     return existingNode.kind
   }
 
@@ -497,8 +502,6 @@ function inferLibraryItemKind(
   return 'query'
 }
 
-function defaultLibraryFolderForTab(tab: QueryTabState) {
-  return tab.tabKind === 'test-suite' || tab.testSuite
-    ? 'library-root-tests'
-    : 'library-root-queries'
+function defaultLibraryFolderForTab(snapshot: WorkspaceSnapshot, tab: QueryTabState) {
+  return defaultLibraryFolderForConnection(snapshot, tab.connectionId)
 }

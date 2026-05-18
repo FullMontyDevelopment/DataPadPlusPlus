@@ -1,40 +1,84 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type {
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
+import type {
+  AdapterManifest,
   ClosedQueryTabSnapshot,
+  ConnectionProfile,
   EnvironmentProfile,
+  ExplorerNode,
   LibraryNode,
+  ScopedQueryTarget,
+  WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
+import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
-  CloseIcon,
   DatabaseIcon,
   EnvironmentsIcon,
   ExplorerIcon,
+  ArrowLeftIcon,
+  LightThemeIcon,
+  MoreIcon,
   PlayIcon,
   PlusIcon,
+  QueryIcon,
   RenameIcon,
+  SettingsIcon,
+  ThemeIcon,
   TrashIcon,
 } from './icons'
+import { ConnectionObjectTree } from './SideBar.connection-object-tree'
 import { sidebarSectionId } from './SideBar.helpers'
+import { EngineIcon } from './SideBar.node-icons'
 
 interface LibraryPaneProps {
+  activeConnectionId?: string
+  activeEnvironmentId?: string
+  adapterManifests?: AdapterManifest[]
   closedTabs: ClosedQueryTabSnapshot[]
+  connectionExplorerItems?: ExplorerNode[]
+  connections?: ConnectionProfile[]
   environments: EnvironmentProfile[]
+  explorerStatus?: 'idle' | 'loading' | 'ready'
   libraryFilter: string
   libraryNodes: LibraryNode[]
   sectionStates: Record<string, boolean>
+  theme?: WorkspaceSnapshot['preferences']['theme']
+  onCloneEnvironment?(environmentId: string): void
+  onCollapseSidebar?(): void
+  onCreateConnection?(parentId?: string): void
+  onCreateEnvironment?(): void
   onCreateFolder(parentId?: string): void
+  onCreateTab?(connectionId?: string): void
+  onCreateTestSuite?(connectionId?: string): void
   onDeleteNode(nodeId: string): void
+  onDeleteConnection?(connectionId: string): void
+  onDeleteEnvironment?(environmentId: string): void
+  onDuplicateConnection?(connectionId: string): void
+  onEditEnvironment?(environmentId: string): void
   onLibraryFilterChange(value: string): void
+  onLoadExplorerScope?(connectionId: string, scope?: string): void
   onMoveNode(nodeId: string, parentId?: string): void
+  onOpenConnectionDrawer?(connectionId: string): void
+  onOpenConnectionExplorer?(connectionId: string): void
+  onOpenConnectionMetrics?(connectionId: string): void
+  onOpenSettings?(): void
+  onOpenScopedQuery?(connectionId: string, target: ScopedQueryTarget): void
   onOpenLibraryItem(nodeId: string): void
   onRenameNode(nodeId: string, name: string): void
   onReopenClosedTab(closedTabId: string): void
   onSaveCurrentQuery(): void
+  onSelectConnection?(connectionId: string): void
+  onSelectEnvironment?(environmentId: string): void
   onSetNodeEnvironment(nodeId: string, environmentId?: string): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
+  onTestConnection?(connectionId: string): void
+  onToggleTheme?(): void
 }
 
 interface TreeNode {
@@ -44,6 +88,12 @@ interface TreeNode {
 
 interface LibraryContextMenuState {
   node: LibraryNode
+  x: number
+  y: number
+}
+
+interface EnvironmentContextMenuState {
+  environment: EnvironmentProfile
   x: number
   y: number
 }
@@ -69,28 +119,61 @@ interface LibraryEnvironmentState {
 
 const POINTER_DRAG_THRESHOLD = 4
 const RECENTS_SECTION_ID = 'library:recents'
+const ENVIRONMENTS_SECTION_ID = 'library:environments'
 const DEFAULT_RECENTS_HEIGHT = 180
 const MIN_RECENTS_HEIGHT = 92
 const MAX_RECENTS_HEIGHT = 360
 
+function noop() {
+  // Optional Library pane callbacks are supplied by the full app shell.
+}
+
 export function LibraryPane({
+  activeConnectionId = '',
+  activeEnvironmentId = '',
+  adapterManifests = [],
   closedTabs,
+  connectionExplorerItems = [],
+  connections = [],
   environments,
+  explorerStatus = 'idle',
   libraryFilter,
   libraryNodes,
   sectionStates,
+  theme = 'dark',
+  onCloneEnvironment = noop,
+  onCollapseSidebar = noop,
+  onCreateConnection = noop,
+  onCreateEnvironment = noop,
   onCreateFolder,
+  onCreateTab = noop,
+  onCreateTestSuite = noop,
+  onDeleteConnection = noop,
+  onDeleteEnvironment = noop,
   onDeleteNode,
+  onDuplicateConnection = noop,
+  onEditEnvironment = noop,
   onLibraryFilterChange,
+  onLoadExplorerScope = noop,
   onMoveNode,
+  onOpenConnectionDrawer = noop,
+  onOpenConnectionExplorer = noop,
+  onOpenConnectionMetrics = noop,
+  onOpenSettings = noop,
+  onOpenScopedQuery = noop,
   onOpenLibraryItem,
   onRenameNode,
   onReopenClosedTab,
   onSaveCurrentQuery,
+  onSelectConnection = noop,
+  onSelectEnvironment = noop,
   onSetNodeEnvironment,
   onSidebarSectionExpandedChange,
+  onTestConnection = noop,
+  onToggleTheme = noop,
 }: LibraryPaneProps) {
   const [contextMenu, setContextMenu] = useState<LibraryContextMenuState>()
+  const [environmentMenu, setEnvironmentMenu] = useState<EnvironmentContextMenuState>()
   const [draggedNodeId, setDraggedNodeId] = useState<string>()
   const pointerDragRef = useRef<LibraryPointerDragState | undefined>(undefined)
   const suppressOpenClickNodeIdRef = useRef<string | undefined>(undefined)
@@ -108,13 +191,22 @@ export function LibraryPane({
   const recentLibraryItems = useMemo(() => recentLibraryNodes(libraryNodes), [libraryNodes])
   const recentsCount = recentLibraryItems.length + closedTabs.length
   const recentsExpanded = sectionStates[RECENTS_SECTION_ID] ?? true
+  const environmentsExpanded = sectionStates[ENVIRONMENTS_SECTION_ID] ?? true
+  const ThemeGlyph = theme === 'dark' ? LightThemeIcon : ThemeIcon
+  const connectionById = useMemo(
+    () => new Map(connections.map((connection) => [connection.id, connection])),
+    [connections],
+  )
 
   useEffect(() => {
-    if (!contextMenu) {
+    if (!contextMenu && !environmentMenu) {
       return undefined
     }
 
-    const close = () => setContextMenu(undefined)
+    const close = () => {
+      setContextMenu(undefined)
+      setEnvironmentMenu(undefined)
+    }
     window.addEventListener('pointerdown', close)
     window.addEventListener('keydown', close)
     window.addEventListener('resize', close)
@@ -123,7 +215,7 @@ export function LibraryPane({
       window.removeEventListener('keydown', close)
       window.removeEventListener('resize', close)
     }
-  }, [contextMenu])
+  }, [contextMenu, environmentMenu])
 
   const renameNode = (node: LibraryNode) => {
     const name = window.prompt(`Rename ${node.name}`, node.name)
@@ -136,6 +228,30 @@ export function LibraryPane({
     const suffix = node.kind === 'folder' ? ' and everything inside it' : ''
     if (window.confirm(`Delete ${node.name}${suffix}?`)) {
       onDeleteNode(node.id)
+    }
+  }
+
+  const openEnvironmentMenu = (
+    environment: EnvironmentProfile,
+    event: ReactPointerEvent<HTMLElement> | ReactMouseEvent<HTMLElement>,
+  ) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setContextMenu(undefined)
+    setEnvironmentMenu({ environment, x: event.clientX, y: event.clientY })
+  }
+
+  const deleteEnvironment = (environment: EnvironmentProfile) => {
+    if (environments.length <= 1) {
+      return
+    }
+
+    if (
+      window.confirm(
+        `Delete environment ${environment.label}? Connections, tabs, and Library items using it will fall back to another environment or inherit from their parent.`,
+      )
+    ) {
+      onDeleteEnvironment(environment.id)
     }
   }
 
@@ -241,12 +357,42 @@ export function LibraryPane({
     setRecentsHeight(clamped)
     window.localStorage.setItem('datapadplusplus.library.recentsHeight', String(clamped))
   }
+  const contextMenuConnection = contextMenu?.node.kind === 'connection' && contextMenu.node.connectionId
+    ? connectionById.get(contextMenu.node.connectionId)
+    : undefined
+  const contextMenuAdapter = contextMenuConnection
+    ? adapterManifests.find((manifest) => manifest.engine === contextMenuConnection.engine)
+    : undefined
+  const contextMenuCapabilities = new Set([
+    ...(contextMenuAdapter?.capabilities ?? []),
+    ...(contextMenuConnection
+      ? datastoreBacklogByEngine(contextMenuConnection.engine)?.capabilities ?? []
+      : []),
+  ])
+  const contextMenuSupportsMetrics = contextMenuCapabilities.has('supports_metrics_collection')
 
   return (
     <>
-      <div className="sidebar-header">
-        <h1>Library</h1>
-        <div className="sidebar-actions">
+      <div className="sidebar-header sidebar-header--toolbar-only">
+        <div className="sidebar-actions" role="toolbar" aria-label="Library actions">
+          <button
+            type="button"
+            className="sidebar-icon-button"
+            aria-label="Collapse Library"
+            title="Collapse Library"
+            onClick={onCollapseSidebar}
+          >
+            <ArrowLeftIcon className="sidebar-icon" />
+          </button>
+          <button
+            type="button"
+            className="sidebar-icon-button"
+            aria-label="New datastore connection"
+            title="New Connection"
+            onClick={() => onCreateConnection()}
+          >
+            <DatabaseIcon className="sidebar-icon" />
+          </button>
           <button
             type="button"
             className="sidebar-icon-button"
@@ -265,14 +411,36 @@ export function LibraryPane({
           >
             <PlusIcon className="sidebar-icon" />
           </button>
+          <button
+            type="button"
+            className="sidebar-icon-button"
+            aria-label="Open settings"
+            title="Open settings, diagnostics, import/export, and support information."
+            onClick={onOpenSettings}
+          >
+            <SettingsIcon className="sidebar-icon" />
+          </button>
+          <button
+            type="button"
+            className="sidebar-icon-button"
+            aria-label="Toggle theme"
+            title={
+              theme === 'dark'
+                ? 'Switch to light theme for the desktop workspace.'
+                : 'Switch to dark theme for the desktop workspace.'
+            }
+            onClick={onToggleTheme}
+          >
+            <ThemeGlyph className="sidebar-icon" />
+          </button>
         </div>
       </div>
 
       <label className="sidebar-search">
-        <span className="sr-only">Search library</span>
+        <span className="sr-only">Search</span>
         <input
           type="search"
-          placeholder="Search library"
+          placeholder="Search"
           value={libraryFilter}
           onChange={(event) => onLibraryFilterChange(event.target.value)}
         />
@@ -306,23 +474,39 @@ export function LibraryPane({
             {tree.map((item) => (
               <LibraryTreeItem
                 key={item.node.id}
+                activeConnectionId={activeConnectionId}
+                connectionExplorerItems={connectionExplorerItems}
+                connections={connections}
                 item={item}
                 environments={environments}
+                explorerStatus={explorerStatus}
                 libraryNodes={libraryNodes}
                 draggedNodeId={draggedNodeId}
                 folderDropTargetId={folderDropTargetId}
                 sectionStates={sectionStates}
                 depth={0}
                 onContextMenu={setContextMenu}
+                onCreateConnection={onCreateConnection}
                 onCreateFolder={onCreateFolder}
+                onCreateTab={onCreateTab}
+                onCreateTestSuite={onCreateTestSuite}
+                onDeleteConnection={onDeleteConnection}
                 onDeleteNode={deleteNode}
+                onDuplicateConnection={onDuplicateConnection}
                 onBeginPointerDrag={beginPointerDrag}
                 onClearDrag={clearDrag}
                 onFinishPointerDrag={finishPointerDrag}
+                onLoadExplorerScope={onLoadExplorerScope}
+                onOpenConnectionDrawer={onOpenConnectionDrawer}
+                onOpenConnectionExplorer={onOpenConnectionExplorer}
+                onOpenConnectionMetrics={onOpenConnectionMetrics}
+                onOpenScopedQuery={onOpenScopedQuery}
                 onOpenLibraryItem={onOpenLibraryItem}
                 onPointerDragMove={updatePointerDrag}
                 onRenameNode={renameNode}
+                onSelectConnection={onSelectConnection}
                 onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
+                onTestConnection={onTestConnection}
                 shouldSuppressOpenClick={shouldSuppressOpenClick}
               />
             ))}
@@ -451,16 +635,305 @@ export function LibraryPane({
             ) : null}
           </section>
         ) : null}
+
+        <section
+          className={`library-environments-panel sidebar-section${
+            environmentsExpanded ? ' is-expanded' : ' is-collapsed'
+          }`}
+        >
+          <button
+            type="button"
+            className="sidebar-section-header sidebar-section-header--button"
+            aria-label={`${environmentsExpanded ? 'Collapse' : 'Expand'} Environments section (${environments.length})`}
+            aria-expanded={environmentsExpanded}
+            aria-controls="library-environments-body"
+            onClick={() =>
+              onSidebarSectionExpandedChange(ENVIRONMENTS_SECTION_ID, !environmentsExpanded)
+            }
+          >
+            <span className="sidebar-section-title">
+              {environmentsExpanded ? (
+                <ChevronDownIcon className="sidebar-section-chevron" />
+              ) : (
+                <ChevronRightIcon className="sidebar-section-chevron" />
+              )}
+              <span>Environments</span>
+            </span>
+            <span>{environments.length}</span>
+          </button>
+
+          {environmentsExpanded ? (
+            <div id="library-environments-body" className="library-environments-body">
+              {environments.map((environment) => (
+                <div
+                  key={environment.id}
+                  className={`library-environment-row${
+                    environment.id === activeEnvironmentId ? ' is-active' : ''
+                  }`}
+                  onContextMenu={(event) => openEnvironmentMenu(environment, event)}
+                >
+                  <button
+                    type="button"
+                    className="library-environment-main"
+                    onClick={() => onSelectEnvironment(environment.id)}
+                    title={`Use ${environment.label} as the active environment.`}
+                  >
+                    <span
+                      className="library-env-swatch"
+                      style={libraryEnvironmentStyle(environment)}
+                    />
+                    <span>
+                      <strong>{environment.label}</strong>
+                      <small>{environment.risk}</small>
+                    </span>
+                  </button>
+                  <span className="saved-work-actions">
+                    <button
+                      type="button"
+                      className="sidebar-icon-button sidebar-icon-button--inline"
+                      aria-label={`Environment actions for ${environment.label}`}
+                      title={`Manage ${environment.label}.`}
+                      onClick={(event) => openEnvironmentMenu(environment, event)}
+                    >
+                      <MoreIcon className="sidebar-icon" />
+                    </button>
+                  </span>
+                </div>
+              ))}
+
+              <button
+                type="button"
+                className="sidebar-empty-action library-environment-add"
+                onClick={onCreateEnvironment}
+              >
+                New Environment
+              </button>
+            </div>
+          ) : null}
+        </section>
       </div>
+
+      {environmentMenu ? (
+        <div
+          className="connection-context-menu"
+          role="menu"
+          aria-label={`Environment options for ${environmentMenu.environment.label}`}
+          style={{ left: environmentMenu.x, top: environmentMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="connection-context-menu-item"
+            role="menuitem"
+            aria-label={`Use environment ${environmentMenu.environment.label}`}
+            onClick={() => {
+              onSelectEnvironment(environmentMenu.environment.id)
+              setEnvironmentMenu(undefined)
+            }}
+          >
+            <EnvironmentsIcon className="connection-context-menu-icon" />
+            <span>Use Environment</span>
+          </button>
+          <button
+            type="button"
+            className="connection-context-menu-item"
+            role="menuitem"
+            aria-label={`Edit environment ${environmentMenu.environment.label}`}
+            onClick={() => {
+              onEditEnvironment(environmentMenu.environment.id)
+              setEnvironmentMenu(undefined)
+            }}
+          >
+            <RenameIcon className="connection-context-menu-icon" />
+            <span>Edit</span>
+          </button>
+          <button
+            type="button"
+            className="connection-context-menu-item"
+            role="menuitem"
+            aria-label={`Clone environment ${environmentMenu.environment.label}`}
+            onClick={() => {
+              onCloneEnvironment(environmentMenu.environment.id)
+              setEnvironmentMenu(undefined)
+            }}
+          >
+            <PlusIcon className="connection-context-menu-icon" />
+            <span>Clone</span>
+          </button>
+          <div className="connection-context-menu-separator" role="separator" />
+          <button
+            type="button"
+            className="connection-context-menu-item connection-context-menu-item--danger"
+            role="menuitem"
+            aria-label={`Delete environment ${environmentMenu.environment.label}`}
+            disabled={environments.length <= 1}
+            title={
+              environments.length <= 1
+                ? 'At least one environment is required.'
+                : `Delete ${environmentMenu.environment.label}.`
+            }
+            onClick={() => {
+              deleteEnvironment(environmentMenu.environment)
+              setEnvironmentMenu(undefined)
+            }}
+          >
+            <TrashIcon className="connection-context-menu-icon" />
+            <span>Delete</span>
+          </button>
+        </div>
+      ) : null}
 
       {contextMenu ? (
         <div
           className="connection-context-menu"
           role="menu"
+          aria-label={
+            contextMenuConnection
+              ? `Connection options for ${contextMenuConnection.name}`
+              : `Library options for ${contextMenu.node.name}`
+          }
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onPointerDown={(event) => event.stopPropagation()}
         >
-          {contextMenu.node.kind !== 'folder' ? (
+          {contextMenuConnection ? (
+            <>
+              <button
+                type="button"
+                className="connection-context-menu-item"
+                role="menuitem"
+                aria-label={`New Query for ${contextMenuConnection.name}`}
+                onClick={() => {
+                  onCreateTab(contextMenuConnection.id)
+                  setContextMenu(undefined)
+                }}
+              >
+                <PlayIcon className="connection-context-menu-icon" />
+                <span>New Query</span>
+              </button>
+              <button
+                type="button"
+                className="connection-context-menu-item"
+                role="menuitem"
+                aria-label={`New Test Suite for ${contextMenuConnection.name}`}
+                onClick={() => {
+                  onCreateTestSuite(contextMenuConnection.id)
+                  setContextMenu(undefined)
+                }}
+              >
+                <PlayIcon className="connection-context-menu-icon" />
+                <span>New Test Suite</span>
+              </button>
+              <button
+                type="button"
+                className="connection-context-menu-item"
+                role="menuitem"
+                aria-label={`Open Explorer for ${contextMenuConnection.name}`}
+                onClick={() => {
+                  onOpenConnectionExplorer(contextMenuConnection.id)
+                  setContextMenu(undefined)
+                }}
+              >
+                <ExplorerIcon className="connection-context-menu-icon" />
+                <span>Open Explorer</span>
+              </button>
+              {contextMenuSupportsMetrics ? (
+                <button
+                  type="button"
+                  className="connection-context-menu-item"
+                  role="menuitem"
+                  aria-label={`Open Metrics for ${contextMenuConnection.name}`}
+                  onClick={() => {
+                    onOpenConnectionMetrics(contextMenuConnection.id)
+                    setContextMenu(undefined)
+                  }}
+                >
+                  <DatabaseIcon className="connection-context-menu-icon" />
+                  <span>Metrics</span>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="connection-context-menu-item"
+                role="menuitem"
+                aria-label={`Test connection ${contextMenuConnection.name}`}
+                onClick={() => {
+                  onTestConnection(contextMenuConnection.id)
+                  setContextMenu(undefined)
+                }}
+              >
+                <DatabaseIcon className="connection-context-menu-icon" />
+                <span>Test Connection</span>
+              </button>
+              <button
+                type="button"
+                className="connection-context-menu-item"
+                role="menuitem"
+                aria-label={`Edit connection ${contextMenuConnection.name}`}
+                onClick={() => {
+                  onOpenConnectionDrawer(contextMenuConnection.id)
+                  setContextMenu(undefined)
+                }}
+              >
+                <RenameIcon className="connection-context-menu-icon" />
+                <span>Edit Connection</span>
+              </button>
+              <button
+                type="button"
+                className="connection-context-menu-item"
+                role="menuitem"
+                aria-label={`Duplicate connection ${contextMenuConnection.name}`}
+                onClick={() => {
+                  onDuplicateConnection(contextMenuConnection.id)
+                  setContextMenu(undefined)
+                }}
+              >
+                <PlusIcon className="connection-context-menu-icon" />
+                <span>Duplicate</span>
+              </button>
+              <div className="connection-context-menu-separator" role="separator" />
+            </>
+          ) : null}
+          {contextMenu.node.kind === 'folder' ? (
+            <>
+              <button
+                type="button"
+                className="connection-context-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  onCreateConnection(contextMenu.node.id)
+                  setContextMenu(undefined)
+                }}
+              >
+                <DatabaseIcon className="connection-context-menu-icon" />
+                <span>New Connection</span>
+              </button>
+              <button
+                type="button"
+                className="connection-context-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  onCreateTab(activeConnectionId)
+                  setContextMenu(undefined)
+                }}
+              >
+                <PlayIcon className="connection-context-menu-icon" />
+                <span>New Query</span>
+              </button>
+              <button
+                type="button"
+                className="connection-context-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  onCreateTestSuite(activeConnectionId)
+                  setContextMenu(undefined)
+                }}
+              >
+                <PlayIcon className="connection-context-menu-icon" />
+                <span>New Test Suite</span>
+              </button>
+            </>
+          ) : null}
+          {contextMenu.node.kind !== 'folder' && !contextMenuConnection ? (
             <button
               type="button"
               className="connection-context-menu-item"
@@ -490,18 +963,20 @@ export function LibraryPane({
             <PlusIcon className="connection-context-menu-icon" />
             <span>New Folder</span>
           </button>
-          <button
-            type="button"
-            className="connection-context-menu-item"
-            role="menuitem"
-            onClick={() => {
-              renameNode(contextMenu.node)
-              setContextMenu(undefined)
-            }}
-          >
-            <RenameIcon className="connection-context-menu-icon" />
-            <span>Rename</span>
-          </button>
+          {!contextMenuConnection ? (
+            <button
+              type="button"
+              className="connection-context-menu-item"
+              role="menuitem"
+              onClick={() => {
+                renameNode(contextMenu.node)
+                setContextMenu(undefined)
+              }}
+            >
+              <RenameIcon className="connection-context-menu-icon" />
+              <span>Rename</span>
+            </button>
+          ) : null}
           <button
             type="button"
             className="connection-context-menu-item"
@@ -552,13 +1027,22 @@ export function LibraryPane({
             type="button"
             className="connection-context-menu-item connection-context-menu-item--danger"
             role="menuitem"
+            aria-label={
+              contextMenuConnection
+                ? `Delete connection ${contextMenuConnection.name}`
+                : `Delete ${contextMenu.node.name}`
+            }
             onClick={() => {
-              deleteNode(contextMenu.node)
+              if (contextMenuConnection) {
+                onDeleteConnection(contextMenuConnection.id)
+              } else {
+                deleteNode(contextMenu.node)
+              }
               setContextMenu(undefined)
             }}
           >
             <TrashIcon className="connection-context-menu-icon" />
-            <span>Delete</span>
+            <span>{contextMenuConnection ? 'Delete Connection' : 'Delete'}</span>
           </button>
         </div>
       ) : null}
@@ -567,50 +1051,91 @@ export function LibraryPane({
 }
 
 function LibraryTreeItem({
+  activeConnectionId,
+  connectionExplorerItems,
+  connections,
   item,
   environments,
+  explorerStatus,
   libraryNodes,
   draggedNodeId,
   folderDropTargetId,
   sectionStates,
   depth,
   onContextMenu,
+  onCreateConnection,
   onCreateFolder,
+  onCreateTab,
+  onCreateTestSuite,
+  onDeleteConnection,
   onDeleteNode,
+  onDuplicateConnection,
   onBeginPointerDrag,
   onClearDrag,
   onFinishPointerDrag,
+  onLoadExplorerScope,
+  onOpenConnectionDrawer,
+  onOpenConnectionExplorer,
+  onOpenConnectionMetrics,
+  onOpenScopedQuery,
   onOpenLibraryItem,
   onPointerDragMove,
   onRenameNode,
+  onSelectConnection,
   onSidebarSectionExpandedChange,
+  onTestConnection,
   shouldSuppressOpenClick,
 }: {
+  activeConnectionId: string
+  connectionExplorerItems: ExplorerNode[]
+  connections: ConnectionProfile[]
   item: TreeNode
   environments: EnvironmentProfile[]
+  explorerStatus: 'idle' | 'loading' | 'ready'
   libraryNodes: LibraryNode[]
   draggedNodeId?: string
   folderDropTargetId?: string
   sectionStates: Record<string, boolean>
   depth: number
   onContextMenu(state: LibraryContextMenuState): void
+  onCreateConnection(parentId?: string): void
   onCreateFolder(parentId?: string): void
+  onCreateTab(connectionId?: string): void
+  onCreateTestSuite(connectionId?: string): void
+  onDeleteConnection(connectionId: string): void
   onDeleteNode(node: LibraryNode): void
+  onDuplicateConnection(connectionId: string): void
   onBeginPointerDrag(nodeId: string, event: ReactPointerEvent<HTMLElement>): void
   onClearDrag(): void
   onFinishPointerDrag(event: ReactPointerEvent<HTMLElement>): void
+  onLoadExplorerScope(connectionId: string, scope?: string): void
+  onOpenConnectionDrawer(connectionId: string): void
+  onOpenConnectionExplorer(connectionId: string): void
+  onOpenConnectionMetrics(connectionId: string): void
+  onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onOpenLibraryItem(nodeId: string): void
   onPointerDragMove(event: ReactPointerEvent<HTMLElement>): void
   onRenameNode(node: LibraryNode): void
+  onSelectConnection(connectionId: string): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
+  onTestConnection(connectionId: string): void
   shouldSuppressOpenClick(nodeId: string): boolean
 }) {
   const { node, children } = item
   const isFolder = node.kind === 'folder'
+  const connection = node.kind === 'connection' && node.connectionId
+    ? connections.find((candidate) => candidate.id === node.connectionId)
+    : undefined
+  const isConnection = Boolean(connection)
+  const isContainer = isFolder || isConnection
   const sectionId = sidebarSectionId('library', 'node', node.id)
-  const expanded = sectionStates[sectionId] ?? depth === 0
+  const [optimisticExpanded, setOptimisticExpanded] = useState<boolean>()
+  const expanded = optimisticExpanded ?? sectionStates[sectionId] ?? (isFolder && depth === 0)
   const environmentState = effectiveEnvironmentForNode(node, libraryNodes, environments)
   const environment = environmentState?.environment
+  const isLoadingMetadata = Boolean(
+    connection && connection.id === activeConnectionId && explorerStatus === 'loading',
+  )
   const canDropOnFolder =
     isFolder && Boolean(draggedNodeId) && canMoveLibraryNode(libraryNodes, draggedNodeId, node.id)
 
@@ -620,7 +1145,12 @@ function LibraryTreeItem({
         canDropOnFolder && folderDropTargetId === node.id ? ' is-folder-drop-target' : ''
       }`}
       role="treeitem"
-      aria-expanded={isFolder ? expanded : undefined}
+      aria-expanded={isContainer ? expanded : undefined}
+      onDoubleClick={() => {
+        if (connection) {
+          onOpenConnectionExplorer(connection.id)
+        }
+      }}
       onContextMenu={(event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -638,12 +1168,22 @@ function LibraryTreeItem({
           ...libraryEnvironmentStyle(environment),
         }}
       >
-        {isFolder ? (
+        {isContainer ? (
           <button
             type="button"
             className="sidebar-icon-button sidebar-icon-button--inline"
-            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.name}`}
-            onClick={() => onSidebarSectionExpandedChange(sectionId, !expanded)}
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${
+              connection ? `connection ${node.name}` : node.name
+            }`}
+            onClick={() => {
+              const nextExpanded = !expanded
+              setOptimisticExpanded(nextExpanded)
+              onSidebarSectionExpandedChange(sectionId, nextExpanded)
+              if (connection && nextExpanded) {
+                onSelectConnection(connection.id)
+                onLoadExplorerScope(connection.id)
+              }
+            }}
           >
             {expanded ? (
               <ChevronDownIcon className="sidebar-icon" />
@@ -663,9 +1203,22 @@ function LibraryTreeItem({
           onPointerCancel={() => {
             onClearDrag()
           }}
-          onDoubleClick={() => onRenameNode(node)}
+          onDoubleClick={() => {
+            if (connection) {
+              onOpenConnectionExplorer(connection.id)
+              return
+            }
+            onRenameNode(node)
+          }}
           onClick={() => {
             if (shouldSuppressOpenClick(node.id)) {
+              return
+            }
+            if (connection) {
+              onSelectConnection(connection.id)
+              if (expanded) {
+                onLoadExplorerScope(connection.id)
+              }
               return
             }
             if (!isFolder) {
@@ -673,68 +1226,104 @@ function LibraryTreeItem({
             }
           }}
         >
-          <span className={`library-node-icon library-node-icon--${node.kind}`} />
+          {connection ? (
+            <span className="library-node-icon library-node-icon--connection">
+              <EngineIcon connection={connection} />
+            </span>
+          ) : (
+            <span
+              aria-hidden="true"
+              className={`library-node-icon library-node-icon--${node.kind}`}
+            >
+              {node.kind === 'query' ? (
+                <QueryIcon className="library-node-kind-icon" />
+              ) : null}
+            </span>
+          )}
           <span>{node.name}</span>
         </button>
-        {environmentState ? (
-          <span
-            className={`library-env-badge is-${environmentState.source}`}
-            title={environmentBadgeTitle(environmentState)}
+        <span className="library-tree-meta">
+          {isLoadingMetadata && connection ? (
+            <span
+              className="connection-metadata-spinner"
+              role="status"
+              aria-label={`Loading metadata for ${connection.name}`}
+              title="Loading metadata"
+            />
+          ) : null}
+          {environmentState ? (
+            <span
+              className={`library-env-badge is-${environmentState.source}`}
+              title={environmentBadgeTitle(environmentState)}
           >
             {environmentState.environment.label}
           </span>
         ) : null}
-        <span className="saved-work-actions">
-          {isFolder ? (
-            <button
-              type="button"
-              className="sidebar-icon-button sidebar-icon-button--inline"
-              aria-label={`Create folder in ${node.name}`}
-              onClick={() => onCreateFolder(node.id)}
-            >
-              <PlusIcon className="sidebar-icon" />
-            </button>
-          ) : null}
           <button
             type="button"
-            className="sidebar-icon-button sidebar-icon-button--inline"
-            aria-label={`Rename ${node.name}`}
-            onClick={() => onRenameNode(node)}
+            className="sidebar-icon-button sidebar-icon-button--inline library-row-menu-button"
+            aria-label={`Open actions for ${node.name}`}
+            title={`Open actions for ${node.name}`}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              onContextMenu({ node, x: event.clientX, y: event.clientY })
+            }}
           >
-            <RenameIcon className="sidebar-icon" />
-          </button>
-          <button
-            type="button"
-            className="sidebar-icon-button sidebar-icon-button--inline"
-            aria-label={`Delete ${node.name}`}
-            onClick={() => onDeleteNode(node)}
-          >
-            <CloseIcon className="sidebar-icon" />
+            <MoreIcon className="sidebar-icon" />
           </button>
         </span>
       </div>
+      {connection && expanded ? (
+        <ConnectionObjectTree
+          connection={connection}
+          environment={environment}
+          explorerNodes={
+            connection.id === activeConnectionId ? connectionExplorerItems : undefined
+          }
+          explorerStatus={explorerStatus}
+          onLoadExplorerScope={onLoadExplorerScope}
+          onOpenScopedQuery={onOpenScopedQuery}
+        />
+      ) : null}
       {isFolder && expanded && children.length > 0 ? (
         <div role="group">
           {children.map((child) => (
             <LibraryTreeItem
               key={child.node.id}
+              activeConnectionId={activeConnectionId}
+              connectionExplorerItems={connectionExplorerItems}
+              connections={connections}
               item={child}
               environments={environments}
+              explorerStatus={explorerStatus}
               libraryNodes={libraryNodes}
               draggedNodeId={draggedNodeId}
               folderDropTargetId={folderDropTargetId}
               sectionStates={sectionStates}
               depth={depth + 1}
               onContextMenu={onContextMenu}
+              onCreateConnection={onCreateConnection}
               onCreateFolder={onCreateFolder}
+              onCreateTab={onCreateTab}
+              onCreateTestSuite={onCreateTestSuite}
+              onDeleteConnection={onDeleteConnection}
               onDeleteNode={onDeleteNode}
+              onDuplicateConnection={onDuplicateConnection}
               onBeginPointerDrag={onBeginPointerDrag}
               onClearDrag={onClearDrag}
               onFinishPointerDrag={onFinishPointerDrag}
+              onLoadExplorerScope={onLoadExplorerScope}
+              onOpenConnectionDrawer={onOpenConnectionDrawer}
+              onOpenConnectionExplorer={onOpenConnectionExplorer}
+              onOpenConnectionMetrics={onOpenConnectionMetrics}
+              onOpenScopedQuery={onOpenScopedQuery}
               onOpenLibraryItem={onOpenLibraryItem}
               onPointerDragMove={onPointerDragMove}
               onRenameNode={onRenameNode}
+              onSelectConnection={onSelectConnection}
               onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
+              onTestConnection={onTestConnection}
               shouldSuppressOpenClick={shouldSuppressOpenClick}
             />
           ))}

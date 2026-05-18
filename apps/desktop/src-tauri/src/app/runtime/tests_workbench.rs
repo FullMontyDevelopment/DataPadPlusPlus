@@ -1,6 +1,8 @@
 use serde_json::{json, Value};
 
-use super::{generate_id, timestamp_now, ManagedAppState};
+use super::{
+    generate_id, library::effective_connection_environment_id, timestamp_now, ManagedAppState,
+};
 use crate::domain::{
     error::CommandError,
     models::{
@@ -221,6 +223,8 @@ impl ManagedAppState {
             self.snapshot.ui.active_tab_id = existing.id.clone();
             self.snapshot.ui.active_connection_id = existing.connection_id.clone();
             self.snapshot.ui.active_environment_id = existing.environment_id.clone();
+            self.snapshot.ui.active_activity = "library".into();
+            self.snapshot.ui.active_sidebar_pane = "library".into();
             self.persist()?;
             return Ok(self.bootstrap_payload());
         }
@@ -232,8 +236,16 @@ impl ManagedAppState {
                     .and_then(Value::as_str)
                     .map(str::to_string)
             })
-            .or_else(|| connection.environment_ids.first().cloned())
-            .unwrap_or_else(|| self.snapshot.ui.active_environment_id.clone());
+            .map(|environment_id| {
+                effective_connection_environment_id(
+                    &self.snapshot,
+                    &connection.id,
+                    Some(environment_id),
+                )
+            })
+            .unwrap_or_else(|| {
+                effective_connection_environment_id(&self.snapshot, &connection.id, None)
+            });
         let suite = with_connection_context(suite, &connection, &environment_id);
         let title = unique_test_tab_title(
             &self.snapshot,
@@ -255,6 +267,8 @@ impl ManagedAppState {
             saved_query_id: None,
             editor_label: format!("{} tests", connection.name),
             query_text: serde_json::to_string_pretty(&suite)?,
+            query_view_mode: Some("raw".into()),
+            script_text: None,
             scoped_target: None,
             builder_state: None,
             metrics_state: None,
@@ -272,8 +286,8 @@ impl ManagedAppState {
         self.snapshot.ui.active_tab_id = tab.id.clone();
         self.snapshot.ui.active_connection_id = connection.id.clone();
         self.snapshot.ui.active_environment_id = tab.environment_id.clone();
-        self.snapshot.ui.active_activity = "tests".into();
-        self.snapshot.ui.active_sidebar_pane = "tests".into();
+        self.snapshot.ui.active_activity = "library".into();
+        self.snapshot.ui.active_sidebar_pane = "library".into();
         self.snapshot.ui.right_drawer = "none".into();
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;

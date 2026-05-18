@@ -55,14 +55,12 @@ export function ResultPayloadView({
   if (payload.renderer === 'document') {
     return (
       <DocumentResultsView
-        key={documentPayloadKey(payload.documents)}
         connection={connection}
         editContext={editContext}
-        documents={sliceItems(payload.documents, pageIndex, pageSize)}
+        documents={payload.documents}
         footerControls={documentFooterControls}
         resultDurationMs={resultDurationMs}
         resultSummary={resultSummary}
-        totalDocumentCount={payload.documents.length}
         onExecuteDataEdit={onExecuteDataEdit}
       />
     )
@@ -220,15 +218,6 @@ function sliceItems<T>(items: T[], pageIndex: number, pageSize: number | undefin
 
   const start = Math.max(0, pageIndex) * pageSize
   return items.slice(start, start + pageSize)
-}
-
-function documentPayloadKey(documents: Array<Record<string, unknown>>) {
-  return documents
-    .map((document, index) => {
-      const id = document._id ?? document.id ?? document.key
-      return `${index}:${typeof id === 'string' || typeof id === 'number' ? id : Object.keys(document).join(',')}`
-    })
-    .join('|')
 }
 
 function keyValuePayloadKey(entries: Record<string, string>, key?: string) {

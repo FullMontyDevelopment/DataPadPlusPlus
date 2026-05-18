@@ -1,4 +1,4 @@
-import type { ConnectionProfile, QueryTabState } from '@datapadplusplus/shared-types'
+import type { ConnectionProfile, QueryTabState, QueryViewMode } from '@datapadplusplus/shared-types'
 import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 
 export function createId(prefix: string) {
@@ -150,6 +150,29 @@ export function defaultQueryTextForConnection(connection: ConnectionProfile) {
     default:
       return ''
   }
+}
+
+export function defaultQueryViewModeForConnection(connection: ConnectionProfile): QueryViewMode {
+  switch (connection.engine) {
+    case 'mongodb':
+    case 'redis':
+    case 'valkey':
+    case 'dynamodb':
+    case 'cassandra':
+    case 'elasticsearch':
+    case 'opensearch':
+      return 'builder'
+    default:
+      return 'raw'
+  }
+}
+
+export function defaultScriptTextForConnection(connection: ConnectionProfile) {
+  if (connection.engine === 'mongodb') {
+    return 'db.products.find({}).limit(20)'
+  }
+
+  return undefined
 }
 
 export function defaultRowLimitForConnection(connection: ConnectionProfile) {

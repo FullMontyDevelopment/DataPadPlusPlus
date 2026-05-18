@@ -231,7 +231,7 @@ function rowForValue(
   }
 }
 
-function documentRootLabel(document: Record<string, unknown>, index: number) {
+export function documentRootLabel(document: Record<string, unknown>, index: number) {
   if (Object.hasOwn(document, '_id')) {
     return rootIdentityLabel(document._id)
   }
@@ -266,7 +266,7 @@ function rootIdentityLabel(value: unknown) {
   return String(value)
 }
 
-function pathToFieldPath(path: Array<string | number>) {
+export function pathToFieldPath(path: Array<string | number>) {
   return path
     .map((item) => (typeof item === 'number' ? `[${item}]` : item))
     .reduce((current, item) => {
@@ -278,11 +278,11 @@ function pathToFieldPath(path: Array<string | number>) {
     }, '')
 }
 
-function isExpandableValue(value: unknown): value is Array<unknown> | Record<string, unknown> {
+export function isExpandableValue(value: unknown): value is Array<unknown> | Record<string, unknown> {
   return typeof value === 'object' && value !== null && Object.keys(value).length > 0
 }
 
-function valueEntries(value: Array<unknown> | Record<string, unknown>): Array<[string, unknown]> {
+export function valueEntries(value: Array<unknown> | Record<string, unknown>): Array<[string, unknown]> {
   return Array.isArray(value)
     ? value.map((item, index) => [`[${index}]`, item])
     : Object.entries(value)
@@ -304,7 +304,7 @@ function valueType(value: unknown): DocumentValueType {
   return typeof value as DocumentValueType
 }
 
-function compactValue(value: unknown) {
+export function compactValue(value: unknown) {
   if (value === null) {
     return 'null'
   }
@@ -324,7 +324,7 @@ function compactValue(value: unknown) {
   return String(value)
 }
 
-function valueAtPath(value: unknown, path: Array<string | number>) {
+export function valueAtPath(value: unknown, path: Array<string | number>) {
   return path.reduce<unknown>((current, key) => {
     if (current === null || current === undefined) {
       return undefined

@@ -63,6 +63,8 @@ fn execution_request(
         environment_id: environment_id.to_string(),
         language: language.to_string(),
         query_text: query_text.to_string(),
+        execution_input_mode: None,
+        script_text: None,
         selected_text: None,
         mode: Some("full".into()),
         row_limit: Some(25),
@@ -98,7 +100,11 @@ fn resolved_connection(engine: &str, family: &str) -> ResolvedConnectionProfile 
         family: family.into(),
         host: "127.0.0.1".into(),
         port: None,
-        database: Some("datapadplusplus".into()),
+        database: Some(if family == "keyvalue" {
+            "0".into()
+        } else {
+            "datapadplusplus".into()
+        }),
         username: Some("datapadplusplus".into()),
         password: Some("datapadplusplus".into()),
         connection_string: None,
@@ -556,6 +562,10 @@ async fn concrete_preview_adapters_surface_contract_without_live_fixture(
         let permissions = adapters::inspect_permissions(&connection).await?;
         assert_eq!(permissions.engine, engine);
         assert!(!permissions.unavailable_actions.is_empty());
+
+        if engine == "valkey" && !fixture_profile_enabled("cache") {
+            continue;
+        }
 
         let diagnostics = adapters::collect_diagnostics(&connection, None).await?;
         assert_eq!(diagnostics.engine, engine);

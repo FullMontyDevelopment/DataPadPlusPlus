@@ -190,4 +190,10 @@ Start with the [Development Guide](docs/contributing/development.md).
 
 ## License
 
-No license file has been added yet. Until a license is published, all rights are reserved by the repository owner.
+DataPad++ is source-available under the [DataPad++ Free Use License 1.0](LICENSE).
+
+That means DataPad++ is free to use for personal, educational, nonprofit, government, internal business, and commercial work. Companies may use the official application internally without buying a license.
+
+The license does not allow redistribution, selling, white-labeling, rebranding, bundling, hosted/managed-service use, publishing modified builds, or using the source code/assets to build a competing or substitute product without a separate written license. See [Commercial And Corporate Use](COMMERCIAL-LICENSE.md) for the practical summary.
+
+Sponsorships and donations are welcome and help support development, but they are not required for ordinary internal use.

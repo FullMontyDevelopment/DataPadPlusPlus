@@ -77,6 +77,8 @@ mod tests {
             environment_id: "env".into(),
             language: "snowflake-sql".into(),
             query_text: "select 1".into(),
+            execution_input_mode: None,
+            script_text: None,
             selected_text: None,
             mode: Some("full".into()),
             row_limit: Some(99_999),

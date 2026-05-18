@@ -152,6 +152,12 @@ impl ManagedAppState {
             saved_query_id: Some(item.id.clone()),
             editor_label: editor_label_for_connection(&connection),
             query_text,
+            query_view_mode: if item.kind == "script" {
+                Some("script".into())
+            } else {
+                Some(super::query_tabs::default_query_view_mode(&connection))
+            },
+            script_text: None,
             scoped_target: None,
             builder_state: None,
             metrics_state: None,

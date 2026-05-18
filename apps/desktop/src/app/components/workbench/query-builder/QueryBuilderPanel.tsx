@@ -231,6 +231,16 @@ function MongoFindBuilder({
             ))}
           </select>
         </label>
+        <label className="query-builder-field query-builder-field--number">
+          <span>Fetch size</span>
+          <input
+            aria-label="Fetch size"
+            min={1}
+            type="number"
+            value={draft.limit ?? 20}
+            onChange={(event) => updateDraft({ limit: positiveInteger(event.target.value, 20) })}
+          />
+        </label>
       </div>
 
       <MongoFilterBuilderSection
@@ -254,4 +264,9 @@ function MongoFindBuilder({
 
 function uniqueValues(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
+}
+
+function positiveInteger(value: string, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
 }

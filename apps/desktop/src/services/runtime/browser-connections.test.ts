@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createSeedSnapshot } from '../../test/fixtures/seed-workspace'
-import { setActiveConnection } from './browser-connections'
+import { deleteEnvironment, setActiveConnection } from './browser-connections'
 
 describe('browser connection runtime', () => {
   it('selects a connection without creating a query tab when none exists', () => {
@@ -17,5 +17,52 @@ describe('browser connection runtime', () => {
     expect(next.ui.activeConnectionId).toBe('conn-analytics')
     expect(next.ui.activeEnvironmentId).toBe('env-dev')
     expect(next.ui.activeTabId).toBe('')
+  })
+
+  it('deletes an environment and moves references to a fallback environment', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-orders')
+
+    snapshot.ui.activeEnvironmentId = 'env-prod'
+    snapshot.libraryNodes = [
+      {
+        id: 'library-query-orders-audit',
+        kind: 'query',
+        name: 'Orders audit',
+        tags: [],
+        createdAt: '2026-05-14T00:00:00.000Z',
+        updatedAt: '2026-05-14T00:00:00.000Z',
+        environmentId: 'env-prod',
+        language: 'sql',
+        queryText: 'select 1;',
+      },
+    ]
+    if (connection) {
+      connection.environmentIds = ['env-prod']
+    }
+    const firstTab = snapshot.tabs[0]
+    expect(firstTab).toBeDefined()
+    firstTab!.environmentId = 'env-prod'
+
+    const next = deleteEnvironment(snapshot, 'env-prod')
+
+    expect(next.environments.some((environment) => environment.id === 'env-prod')).toBe(false)
+    expect(next.ui.activeEnvironmentId).not.toBe('env-prod')
+    expect(next.connections.find((item) => item.id === 'conn-orders')?.environmentIds).not.toContain(
+      'env-prod',
+    )
+    expect(next.tabs[0]?.environmentId).not.toBe('env-prod')
+    expect(next.libraryNodes.find((item) => item.id === 'library-query-orders-audit')?.environmentId).toBeUndefined()
+  })
+
+  it('keeps at least one environment', () => {
+    const snapshot = createSeedSnapshot()
+    const firstEnvironment = snapshot.environments[0]
+    expect(firstEnvironment).toBeDefined()
+    snapshot.environments = [firstEnvironment!]
+
+    expect(() => deleteEnvironment(snapshot, firstEnvironment!.id)).toThrow(
+      'At least one environment is required.',
+    )
   })
 })

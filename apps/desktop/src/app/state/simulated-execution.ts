@@ -35,9 +35,12 @@ export function simulateExecution(
   let defaultRenderer: ExecutionResultEnvelope['defaultRenderer']
 
   if (connection.family === 'document') {
-    payloads = documentPayloads()
-    summary = '2 documents returned from MongoDB adapter preview.'
-    rendererModes = ['document', 'json', 'table']
+    payloads = documentPayloads(tab.queryViewMode === 'script')
+    summary =
+      tab.queryViewMode === 'script'
+        ? '2 documents returned from MongoDB script preview.'
+        : '2 documents returned from MongoDB adapter preview.'
+    rendererModes = ['document', 'json', 'raw', 'table']
     defaultRenderer = 'document'
   } else if (connection.family === 'keyvalue') {
     payloads = keyValuePayloads(executedAt)
@@ -104,31 +107,49 @@ export function simulateExecution(
   }
 }
 
-function documentPayloads(): ResultPayload[] {
+function documentPayloads(isScript = false): ResultPayload[] {
+  const documents = [
+    {
+      _id: 'itm-2048',
+      sku: 'luna-lamp',
+      inventory: { reserved: 4, available: 18 },
+      channels: ['web', 'store', 'partner'],
+    },
+    {
+      _id: 'itm-2049',
+      sku: 'aurora-desk',
+      inventory: { reserved: 1, available: 8 },
+      channels: ['web'],
+    },
+  ]
+
   return [
     {
       renderer: 'document',
-      documents: [
-        {
-          _id: 'itm-2048',
-          sku: 'luna-lamp',
-          inventory: { reserved: 4, available: 18 },
-          channels: ['web', 'store', 'partner'],
-        },
-        {
-          _id: 'itm-2049',
-          sku: 'aurora-desk',
-          inventory: { reserved: 1, available: 8 },
-          channels: ['web'],
-        },
-      ],
+      documents,
     },
     {
       renderer: 'json',
-      value: {
-        status: 'ok',
-        sampleCount: 2,
-      },
+      value: isScript
+        ? {
+            statements: [
+              {
+                statement: 1,
+                operation: 'find',
+                collection: 'products',
+                documents,
+              },
+            ],
+            documents,
+          }
+        : {
+            status: 'ok',
+            sampleCount: 2,
+          },
+    },
+    {
+      renderer: 'raw',
+      text: JSON.stringify(isScript ? { statements: 1, documents } : documents, null, 2),
     },
   ]
 }

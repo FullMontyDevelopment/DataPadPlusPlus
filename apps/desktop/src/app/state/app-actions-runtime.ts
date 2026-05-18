@@ -130,7 +130,7 @@ export function useRuntimeActions({
     async (request) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        dispatch({ type: 'EXECUTION_LOADING' })
+        dispatch({ type: 'EXECUTION_LOADING', tabId: request.tabId })
         const execution = await desktopClient.inspectRedisKey(request)
         dispatch({
           type: 'EXECUTION_READY',
@@ -145,6 +145,11 @@ export function useRuntimeActions({
           },
         })
       } catch (error) {
+        dispatch({
+          type: 'EXECUTION_FAILED',
+          tabId: request.tabId,
+          message: toUserMessage(error, 'Unable to inspect Redis key.'),
+        })
         handleError(error)
       }
     },
@@ -152,7 +157,14 @@ export function useRuntimeActions({
   )
 
   const executeQuery = useCallback<Actions['executeQuery']>(
-    async (tabId, mode = 'full', confirmedGuardrailId, overrideQueryText) => {
+    async (
+      tabId,
+      mode = 'full',
+      confirmedGuardrailId,
+      overrideQueryText,
+      executionInputMode,
+      scriptText,
+    ) => {
       try {
         const latest = stateRef.current
 
@@ -174,15 +186,22 @@ export function useRuntimeActions({
           environmentId: tab.environmentId,
           language: tab.language,
           queryText: overrideQueryText ?? tab.queryText,
+          executionInputMode,
+          scriptText,
           mode,
           rowLimit: 500,
           confirmedGuardrailId,
         }
 
-        dispatch({ type: 'EXECUTION_LOADING' })
+        dispatch({ type: 'EXECUTION_LOADING', tabId })
         const execution = await desktopClient.executeQuery(executionRequest)
         dispatch({ type: 'EXECUTION_READY', execution, request: executionRequest })
       } catch (error) {
+        dispatch({
+          type: 'EXECUTION_FAILED',
+          tabId,
+          message: toUserMessage(error, 'Query execution failed.'),
+        })
         handleError(error)
       }
     },
@@ -193,11 +212,16 @@ export function useRuntimeActions({
     async (request) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        dispatch({ type: 'EXECUTION_LOADING' })
+        dispatch({ type: 'EXECUTION_LOADING', tabId: request.tabId })
         const response = await desktopClient.executeTestSuite(request)
         dispatch({ type: 'COMMAND_SUCCESS', payload: await desktopClient.bootstrapApp() })
         return response
       } catch (error) {
+        dispatch({
+          type: 'EXECUTION_FAILED',
+          tabId: request.tabId,
+          message: toUserMessage(error, 'Test suite execution failed.'),
+        })
         handleError(error)
         return undefined
       }

@@ -11,6 +11,8 @@ describe('ConnectionObjectTree', () => {
     render(
       <ConnectionObjectTree
         connection={mongoConnection()}
+        explorerNodes={mongoExplorerNodes()}
+        explorerStatus="ready"
         onOpenScopedQuery={onOpenScopedQuery}
       />,
     )
@@ -43,6 +45,8 @@ describe('ConnectionObjectTree', () => {
     render(
       <ConnectionObjectTree
         connection={mongoConnection()}
+        explorerNodes={mongoExplorerNodes()}
+        explorerStatus="ready"
         onOpenScopedQuery={onOpenScopedQuery}
       />,
     )
@@ -73,7 +77,7 @@ describe('ConnectionObjectTree', () => {
             id: 'prefix-perf',
             label: 'perf:*',
             kind: 'prefix',
-            detail: '51 sampled key(s)',
+            detail: '51 key(s)',
             family: 'keyvalue',
             path: ['Fixture Redis'],
             scope: 'prefix:perf:',
@@ -167,7 +171,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('Schemas')
+    expandTreeItem('User Schemas')
     expandTreeItem('public')
     expandTreeItem('Tables')
 
@@ -198,7 +202,7 @@ describe('ConnectionObjectTree', () => {
     const menu = screen.getByRole('menu', { name: 'Object options for Indexes' })
 
     expect(within(menu).queryByRole('menuitem', { name: 'Open Query' })).not.toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: 'Expand' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Refresh indexes' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Copy Name' })).toBeInTheDocument()
   })
 
@@ -207,6 +211,8 @@ describe('ConnectionObjectTree', () => {
       <ConnectionObjectTree
         connection={mongoConnection()}
         environment={localEnvironment()}
+        explorerNodes={mongoExplorerNodes()}
+        explorerStatus="ready"
         onOpenScopedQuery={vi.fn()}
       />,
     )
@@ -215,7 +221,7 @@ describe('ConnectionObjectTree', () => {
 
     expect(databasesRow).toHaveClass('has-environment-accent')
     expect(databasesRow.getAttribute('style')).toContain('--connection-env-color')
-    expect(databasesRow.querySelector('.tree-node-datastore-icon')).not.toBeNull()
+    expect(databasesRow.querySelector('.tree-kind-icon--database')).not.toBeNull()
 
     expandTreeItem('Databases')
     expandTreeItem('catalog')
@@ -224,7 +230,46 @@ describe('ConnectionObjectTree', () => {
     const productsRow = treeItemForLabel('products')
 
     expect(productsRow).toHaveClass('has-environment-accent')
-    expect(productsRow.querySelector('.tree-icon')).not.toBeNull()
+    expect(productsRow.querySelector('.tree-kind-icon--collection')).not.toBeNull()
+  })
+
+  it('uses distinct icons for common SQL object kinds', () => {
+    render(
+      <ConnectionObjectTree
+        connection={postgresConnection()}
+        nodes={[
+          {
+            id: 'schema-public',
+            label: 'public',
+            kind: 'schema',
+            children: [
+              { id: 'table-accounts', label: 'accounts', kind: 'table' },
+              { id: 'view-active', label: 'active_accounts', kind: 'view' },
+              { id: 'proc-refresh', label: 'refresh_accounts', kind: 'stored-procedure' },
+              { id: 'fn-score', label: 'account_score', kind: 'function' },
+              { id: 'ix-accounts', label: 'ix_accounts_status', kind: 'index' },
+            ],
+          },
+        ]}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('public')
+
+    expect(treeItemForLabel('accounts').querySelector('.tree-kind-icon--table')).not.toBeNull()
+    expect(
+      treeItemForLabel('active_accounts').querySelector('.tree-kind-icon--view'),
+    ).not.toBeNull()
+    expect(
+      treeItemForLabel('refresh_accounts').querySelector('.tree-kind-icon--procedure'),
+    ).not.toBeNull()
+    expect(
+      treeItemForLabel('account_score').querySelector('.tree-kind-icon--function'),
+    ).not.toBeNull()
+    expect(
+      treeItemForLabel('ix_accounts_status').querySelector('.tree-kind-icon--index'),
+    ).not.toBeNull()
   })
 
   it('loads large child collections in batches of 100', () => {
@@ -274,7 +319,7 @@ describe('ConnectionObjectTree', () => {
             id: 'customers',
             label: 'customers',
             kind: 'collection',
-            detail: 'Documents, indexes, and samples',
+            detail: 'Documents, validators, and indexes',
             family: 'document',
             path: ['Fixture MongoDB'],
             scope: 'collection:customers',
@@ -363,6 +408,22 @@ function mongoConnection(): ConnectionProfile {
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }
+}
+
+function mongoExplorerNodes() {
+  return [
+    {
+      id: 'collection-products',
+      label: 'products',
+      kind: 'collection',
+      detail: 'Documents, validators, and indexes',
+      family: 'document',
+      path: ['Fixture MongoDB'],
+      scope: 'collection:products',
+      queryTemplate: '{ "collection": "products", "filter": {} }',
+      expandable: true,
+    },
+  ] satisfies Parameters<typeof ConnectionObjectTree>[0]['explorerNodes']
 }
 
 function redisConnection(): ConnectionProfile {

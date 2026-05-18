@@ -62,6 +62,53 @@ export function applyExecutionToPayload(
   return next
 }
 
+export function markTabExecutionLoading(
+  payload: BootstrapPayload | undefined,
+  tabId: string | undefined,
+): BootstrapPayload | undefined {
+  if (!payload || !tabId) {
+    return payload
+  }
+
+  const next = clonePayload(payload)
+  const tab = next.snapshot.tabs.find((item) => item.id === tabId)
+
+  if (!tab) {
+    return payload
+  }
+
+  tab.status = 'running'
+  tab.error = undefined
+  next.snapshot.ui.activeTabId = tab.id
+  next.snapshot.updatedAt = new Date().toISOString()
+  return next
+}
+
+export function markTabExecutionFailed(
+  payload: BootstrapPayload | undefined,
+  tabId: string | undefined,
+  message: string,
+): BootstrapPayload | undefined {
+  if (!payload || !tabId) {
+    return payload
+  }
+
+  const next = clonePayload(payload)
+  const tab = next.snapshot.tabs.find((item) => item.id === tabId)
+
+  if (!tab) {
+    return payload
+  }
+
+  tab.status = 'error'
+  tab.error = {
+    code: 'execution-error',
+    message,
+  }
+  next.snapshot.updatedAt = new Date().toISOString()
+  return next
+}
+
 export function applyResultPageToPayload(
   payload: BootstrapPayload | undefined,
   page: ResultPageResponse,

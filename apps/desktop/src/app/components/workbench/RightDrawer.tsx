@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ComponentType, SVGProps } from 'react'
 import type {
   AppHealth,
@@ -83,6 +83,54 @@ export function RightDrawer({
 }: RightDrawerProps) {
   const [isResizing, setIsResizing] = useState(false)
   const lastPointerX = useRef(0)
+  const resizeFrame = useRef<number | undefined>(undefined)
+  const draftWidth = useRef(width)
+  const workbenchRef = useRef<HTMLElement | null>(null)
+  const isResizingRef = useRef(false)
+
+  const applyDraftWidth = (nextWidth: number) => {
+    const clampedWidth = clampDrawerWidth(nextWidth)
+    draftWidth.current = clampedWidth
+    workbenchRef.current?.style.setProperty('--drawer-width', `${clampedWidth}px`)
+  }
+
+  const scheduleDraftWidth = (nextWidth: number) => {
+    draftWidth.current = clampDrawerWidth(nextWidth)
+    if (resizeFrame.current !== undefined) {
+      return
+    }
+
+    resizeFrame.current = window.requestAnimationFrame(() => {
+      resizeFrame.current = undefined
+      applyDraftWidth(draftWidth.current)
+    })
+  }
+
+  const stopResizing = () => {
+    if (!isResizingRef.current) {
+      return
+    }
+
+    if (resizeFrame.current !== undefined) {
+      window.cancelAnimationFrame(resizeFrame.current)
+      resizeFrame.current = undefined
+      applyDraftWidth(draftWidth.current)
+    }
+
+    document.body.classList.remove('is-right-drawer-resizing')
+    isResizingRef.current = false
+    setIsResizing(false)
+    onResize(draftWidth.current)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (resizeFrame.current !== undefined) {
+        window.cancelAnimationFrame(resizeFrame.current)
+      }
+      document.body.classList.remove('is-right-drawer-resizing')
+    }
+  }, [])
 
   return (
     <aside className="workbench-drawer" aria-label={`${view} drawer`}>
@@ -97,20 +145,34 @@ export function RightDrawer({
         className={`pane-resize-handle pane-resize-handle--drawer${isResizing ? ' is-active' : ''}`}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId)
+          workbenchRef.current = event.currentTarget.closest('.ads-workbench')
           lastPointerX.current = event.clientX
+          draftWidth.current = clampDrawerWidth(width)
+          isResizingRef.current = true
+          document.body.classList.add('is-right-drawer-resizing')
           setIsResizing(true)
         }}
         onPointerMove={(event) => {
-          if (!isResizing) {
+          if (!isResizingRef.current) {
             return
           }
 
           const delta = lastPointerX.current - event.clientX
           lastPointerX.current = event.clientX
-          onResize(width + delta)
+          scheduleDraftWidth(draftWidth.current + delta)
         }}
-        onPointerUp={() => setIsResizing(false)}
-        onPointerCancel={() => setIsResizing(false)}
+        onPointerUp={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          }
+          stopResizing()
+        }}
+        onPointerCancel={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          }
+          stopResizing()
+        }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowLeft') {
             event.preventDefault()
@@ -174,6 +236,10 @@ export function RightDrawer({
       ) : null}
     </aside>
   )
+}
+
+function clampDrawerWidth(value: number) {
+  return Math.min(560, Math.max(320, Math.round(value)))
 }
 
 function DrawerPlaceholder({

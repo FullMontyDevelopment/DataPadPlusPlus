@@ -1,6 +1,12 @@
 import type { BootstrapPayload, ConnectionProfile, ConnectionTestRequest, ConnectionTestResult, EnvironmentProfile, SecretRef } from '@datapadplusplus/shared-types'
 import { resolveEnvironment } from '../../app/state/helpers'
-import { deleteConnection, setActiveConnection, upsertConnection, upsertEnvironment } from './browser-connections'
+import {
+  deleteConnection,
+  deleteEnvironment,
+  setActiveConnection,
+  upsertConnection,
+  upsertEnvironment,
+} from './browser-connections'
 import { buildBrowserPayload, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 
@@ -53,6 +59,16 @@ export const clientConnections = {
     }
 
     const snapshot = upsertEnvironment(loadBrowserSnapshot(), profile)
+    saveBrowserSnapshot(snapshot)
+    return buildBrowserPayload(snapshot)
+  },
+
+  async deleteEnvironment(environmentId: string): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('delete_environment_profile', { environmentId })
+    }
+
+    const snapshot = deleteEnvironment(loadBrowserSnapshot(), environmentId)
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
   },

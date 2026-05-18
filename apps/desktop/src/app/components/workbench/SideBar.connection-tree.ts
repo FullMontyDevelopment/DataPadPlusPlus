@@ -14,6 +14,17 @@ import {
   type ConnectionTreeAction,
 } from './SideBar.datastore-tree-registry'
 
+const SQL_SERVER_SERVER_LEVEL_GROUPS = [
+  'Security',
+  'Server Objects',
+  'Replication',
+  'Always On High Availability',
+  'Management',
+  'SQL Server Agent',
+  'XEvent Profiler',
+  'Integration Services Catalogs',
+]
+
 export interface ConnectionTreeNode {
   id: string
   label: string
@@ -32,7 +43,8 @@ export interface ConnectionTreeNode {
 }
 
 export function buildConnectionObjectTree(connection: ConnectionProfile): ConnectionTreeNode[] {
-  switch (connection.family) {
+  const tree = (() => {
+    switch (connection.family) {
     case 'document':
       return documentConnectionTree(connection)
     case 'keyvalue':
@@ -52,6 +64,10 @@ export function buildConnectionObjectTree(connection: ConnectionProfile): Connec
     default:
       return sqlConnectionTree(connection)
   }
+  })()
+
+  decorateTreeNodes(connection, tree, undefined)
+  return tree
 }
 
 export function buildConnectionObjectTreeFromExplorerNodes(
@@ -116,10 +132,11 @@ function explorerNodeToConnectionTreeNode(
   const isMongoCollection = connection.engine === 'mongodb' && normalizedKind === 'collection'
   const isRedisPrefix = isRedisLikeConnection(connection) && normalizedKind === 'prefix'
   const redisPattern = isRedisPrefix ? redisPatternFromExplorerNode(node) : undefined
+  const label = sqlDisplayLabelForExplorerNode(connection, node, normalizedKind)
 
   return {
     id: node.id,
-    label: node.label,
+    label,
     kind: normalizedKind,
     detail: node.detail,
     scope: node.scope,
@@ -231,18 +248,94 @@ function sqlObjectPartsFromExplorerNode(
   connection: ConnectionProfile,
   node: ExplorerNode,
 ) {
-  const scopedName =
-    node.scope?.startsWith(`${node.kind}:`) ? node.scope.replace(`${node.kind}:`, '') : undefined
-  const [scopedSchema, scopedObjectName] = scopedName?.includes('.')
-    ? scopedName.split('.')
-    : [undefined, scopedName]
+  const scopedName = node.scope?.split(':').slice(1).join(':')
+  const [scopedSchema, scopedObjectName] = splitSqlName(scopedName)
+  const [labelSchema, labelObjectName] = splitSqlName(node.label)
   const normalizedPath =
     node.path?.[0] === connection.name ? node.path.slice(1) : node.path ?? []
+  const pathObject = normalizedPath.find((segment) => splitSqlName(segment)[1])
+  const [pathSchema, pathObjectName] = splitSqlName(pathObject)
+  const categoryFreePath = normalizedPath.filter((segment) => !isSqlTreeCategory(segment))
 
   return {
-    schema: scopedSchema || normalizedPath[0] || defaultSqlSchema(connection),
-    objectName: scopedObjectName || node.label,
+    schema:
+      scopedSchema ||
+      pathSchema ||
+      labelSchema ||
+      (categoryFreePath.length > 1 ? categoryFreePath.at(-2) : categoryFreePath[0]) ||
+      defaultSqlSchema(connection),
+    objectName:
+      scopedObjectName ||
+      pathObjectName ||
+      labelObjectName ||
+      (categoryFreePath.length > 1 ? categoryFreePath.at(-1) : node.label),
   }
+}
+
+function sqlDisplayLabelForExplorerNode(
+  connection: ConnectionProfile,
+  node: ExplorerNode,
+  kind: string,
+) {
+  if (connection.engine !== 'sqlserver') {
+    return node.label
+  }
+
+  if (![
+    'table',
+    'view',
+    'materialized-view',
+    'stored-procedure',
+    'procedure',
+    'function',
+    'sequence',
+    'synonym',
+    'type',
+  ].includes(kind)) {
+    return node.label
+  }
+
+  if (node.label.includes('.')) {
+    return node.label
+  }
+
+  const { schema, objectName } = sqlObjectPartsFromExplorerNode(connection, node)
+  return `${schema}.${objectName}`
+}
+
+function splitSqlName(value: string | undefined) {
+  const parts = value?.split('.').map((part) => part.trim()).filter(Boolean) ?? []
+
+  if (parts.length >= 2) {
+    return [parts[0], parts[1]] as const
+  }
+
+  return [undefined, parts[0]] as const
+}
+
+function isSqlTreeCategory(label: string) {
+  return [
+    'Schemas',
+    'User Schemas',
+    'System Schemas',
+    'Tables',
+    'System Tables',
+    'FileTables',
+    'External Tables',
+    'Graph Tables',
+    'Views',
+    'Materialized Views',
+    'Programmability',
+    'Stored Procedures',
+    'Functions',
+    'Sequences',
+    'Types',
+    'Synonyms',
+    'Columns',
+    'Indexes',
+    'Constraints',
+    'Triggers',
+  ].includes(label)
 }
 
 function isExplorerNodeQueryable(connection: ConnectionProfile, node: ExplorerNode) {
@@ -258,44 +351,109 @@ function isExplorerNodeQueryable(connection: ConnectionProfile, node: ExplorerNo
 }
 
 function sqlConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
+  if (connection.engine === 'sqlserver') {
+    return sqlServerConnectionTree(connection)
+  }
+
   const schema = defaultSqlSchema(connection)
   const supportsStoredRoutines = !['sqlite', 'duckdb'].includes(connection.engine)
-
-  return [
-    branch('schemas', 'Schemas', 'schemas', `${connection.engine} metadata scopes`, [
-      branch(`schema-${schema}`, schema, 'schema', connection.database ?? 'default schema', [
-        branch('tables', 'Tables', 'tables', 'Base tables and table-like relations', [
-          leaf('table-accounts', 'accounts', 'table', 'sample table', {
-            path: [connection.name, schema, 'Tables'],
-            queryable: true,
-            queryTemplate: sqlObjectQueryTemplate(connection, schema, 'accounts'),
-          }),
-          leaf('table-transactions', 'transactions', 'table', 'sample table', {
-            path: [connection.name, schema, 'Tables'],
-            queryable: true,
-            queryTemplate: sqlObjectQueryTemplate(connection, schema, 'transactions'),
-          }),
-        ]),
-        branch('views', 'Views', 'views', 'Saved select projections', [
-          leaf('view-active-accounts', 'active_accounts', 'view', 'sample view', {
-            path: [connection.name, schema, 'Views'],
-            queryable: true,
-            queryTemplate: sqlObjectQueryTemplate(connection, schema, 'active_accounts'),
-          }),
-        ]),
-        supportsStoredRoutines
-          ? branch('stored-procedures', 'Stored Procedures', 'stored-procedures', 'Callable routines', [
-              leaf('procedure-refresh-rollups', 'refresh_rollups', 'stored-procedure', 'sample procedure'),
-            ])
-          : branch('triggers', 'Triggers', 'triggers', 'Local table triggers', [
-              leaf('trigger-audit-updated-at', 'audit_updated_at', 'trigger', 'sample trigger'),
-            ]),
-        branch('indexes', 'Indexes', 'indexes', 'Secondary access paths', [
-          leaf('index-accounts-email', 'accounts_email_idx', 'index', 'sample index'),
-        ]),
+  const userSchema = branch(`schema-${schema}`, schema, 'schema', connection.database ?? 'default schema', [
+    branch('tables', 'Tables', 'tables', 'Base tables and table-like relations', []),
+    branch('views', 'Views', 'views', 'Saved select projections', []),
+    sqlProgrammabilityBranch(supportsStoredRoutines),
+    branch('indexes', 'Indexes', 'indexes', 'Secondary access paths', []),
+    branch('security', 'Security', 'security', 'Schema roles and grants', []),
+  ])
+  const systemSchemaName = systemSqlSchemaForConnection(connection)
+  const roots = [
+    branch('user-schemas', 'User Schemas', 'user-schemas', `${connection.engine} user metadata scopes`, [
+      userSchema,
+    ]),
+    branch('system-schemas', 'System Schemas', 'system-schemas', `${connection.engine} system metadata scopes`, [
+      branch(`schema-${systemSchemaName}`, systemSchemaName, 'schema', 'system schema', [
+        branch('system-tables', 'System Tables', 'system-tables', 'Engine-maintained tables', []),
+        branch('system-views', 'Views', 'views', 'Engine-maintained views', []),
+        branch('system-functions', 'Functions', 'functions', 'Engine-maintained functions', []),
       ]),
     ]),
   ]
+
+  return roots
+}
+
+function sqlServerConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
+  const database = connection.database?.trim() || 'master'
+
+  return [
+    branch('databases', 'Databases', 'databases', 'SQL Server database catalogs', [
+      branch('system-databases', 'System Databases', 'system-databases', 'Engine-maintained databases', []),
+      branch('database-snapshots', 'Database Snapshots', 'database-snapshots', 'Point-in-time database snapshots', []),
+      branch(`database-${database}`, database, 'database', 'user database', [
+        branch('database-diagrams', 'Database Diagrams', 'database-diagrams', 'Database relationship diagrams', []),
+        branch('tables', 'Tables', 'tables', 'Base tables and table-like relations', [
+          branch('system-tables', 'System Tables', 'system-tables', 'Engine-maintained tables', []),
+          branch('filetables', 'FileTables', 'filetables', 'SQL Server file-backed tables', []),
+          branch('external-tables', 'External Tables', 'external-tables', 'Externally stored relational tables', []),
+          branch('graph-tables', 'Graph Tables', 'graph-tables', 'SQL graph node and edge tables', []),
+        ]),
+        branch('views', 'Views', 'views', 'Saved select projections', []),
+        branch('external-resources', 'External Resources', 'external-resources', 'External data access metadata', []),
+        branch('synonyms', 'Synonyms', 'synonyms', 'Object aliases', []),
+        sqlServerProgrammabilityBranch(),
+        branch('service-broker', 'Service Broker', 'service-broker', 'Messaging and queue objects', []),
+        branch('storage', 'Storage', 'storage', 'Files, filegroups, and partitions', []),
+        branch('security', 'Security', 'security', 'Database users, roles, and schemas', [
+          branch('users', 'Users', 'users', 'Database users', []),
+          branch('roles', 'Roles', 'roles', 'Database roles', []),
+          branch('schemas', 'Schemas', 'schemas', 'Database object namespaces', [
+            leaf('schema-dbo', 'dbo', 'schema', 'default user schema', {
+              path: [connection.name, 'Databases', database, 'Security', 'Schemas'],
+              scope: 'schema:dbo',
+            }),
+          ]),
+        ]),
+      ]),
+    ]),
+    ...SQL_SERVER_SERVER_LEVEL_GROUPS.map((label) =>
+      branch(
+        label.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        label,
+        label.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        `SQL Server ${label.toLowerCase()}`,
+        [],
+      ),
+    ),
+  ]
+}
+
+function sqlServerProgrammabilityBranch() {
+  return branch('programmability', 'Programmability', 'programmability', 'Procedures, functions, and programmable objects', [
+    branch('stored-procedures', 'Stored Procedures', 'stored-procedures', 'Callable routines', []),
+    branch('functions', 'Functions', 'functions', 'Scalar and table-valued functions', []),
+    branch('database-triggers', 'Database Triggers', 'database-triggers', 'Database-scoped triggers', []),
+    branch('assemblies', 'Assemblies', 'assemblies', 'CLR assemblies', []),
+    branch('types', 'Types', 'types', 'User-defined types', []),
+    branch('rules', 'Rules', 'rules', 'Legacy rules', []),
+    branch('defaults', 'Defaults', 'defaults', 'Legacy defaults', []),
+    branch('sequences', 'Sequences', 'sequences', 'Generated numeric sequences', []),
+  ])
+}
+
+function sqlProgrammabilityBranch(supportsStoredRoutines: boolean) {
+  const routineChildren = supportsStoredRoutines
+    ? [
+        branch('stored-procedures', 'Stored Procedures', 'stored-procedures', 'Callable routines', []),
+        branch('functions', 'Functions', 'functions', 'Scalar and table-valued functions', []),
+      ]
+    : []
+
+  return branch('programmability', 'Programmability', 'programmability', 'Procedures, functions, and triggers', [
+    ...routineChildren,
+    branch('triggers', 'Triggers', 'triggers', 'Table triggers', []),
+    branch('sequences', 'Sequences', 'sequences', 'Generated numeric sequences', []),
+    branch('types', 'Types', 'types', 'User-defined types', []),
+    branch('synonyms', 'Synonyms', 'synonyms', 'Object aliases', []),
+  ])
 }
 
 function documentConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
@@ -304,38 +462,17 @@ function documentConnectionTree(connection: ConnectionProfile): ConnectionTreeNo
   return [
     branch('databases', 'Databases', 'databases', 'Document database namespaces', [
       branch(`database-${database}`, database, 'database', `${connection.engine} database`, [
-        branch('collections', 'Collections', 'collections', 'Document collections', [
-          documentCollectionLeaf(connection, 'products'),
-          documentCollectionLeaf(connection, 'inventory'),
-          documentCollectionLeaf(connection, 'orders'),
-        ]),
-        branch('indexes', 'Indexes', 'indexes', 'Collection index definitions', [
-          leaf('index-products-sku', 'products.sku_1', 'index', 'sample index'),
-        ]),
+        branch('collections', 'Collections', 'collections', 'Document collections', []),
+        branch('indexes', 'Indexes', 'indexes', 'Collection index definitions', []),
       ]),
     ]),
   ]
 }
 
-function documentCollectionLeaf(connection: ConnectionProfile, collection: string) {
-  const database = connection.database?.trim()
-
-  return leaf(`collection-${collection}`, collection, 'collection', 'sample collection', {
-    path: [connection.name, connection.database ?? 'default', 'Collections'],
-    scope: `collection:${collection}`,
-    queryable: true,
-    builderKind: connection.engine === 'mongodb' ? 'mongo-find' : undefined,
-    queryTemplate: documentFindQueryTemplate(collection, 20, database),
-  })
-}
-
 function keyValueConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
   if (connection.engine === 'memcached') {
     return [
-      branch('namespaces', 'Namespaces', 'namespaces', 'Application key prefixes', [
-        leaf('prefix-session', 'session:*', 'prefix', 'sample prefix'),
-        leaf('prefix-cache', 'cache:*', 'prefix', 'sample prefix'),
-      ]),
+      branch('namespaces', 'Namespaces', 'namespaces', 'Application key prefixes', []),
       branch('diagnostics', 'Diagnostics', 'diagnostics', 'Runtime cache metadata', [
         leaf('stats-slabs', 'slabs', 'metric', 'slab stats'),
         leaf('stats-items', 'items', 'metric', 'item stats'),
@@ -345,30 +482,11 @@ function keyValueConnectionTree(connection: ConnectionProfile): ConnectionTreeNo
 
   return [
     branch('keyspaces', 'Key Spaces', 'keyspaces', 'Logical key groups and modules', [
-      branch('prefixes', 'Prefixes', 'prefixes', 'SCAN-friendly key prefixes', [
-        redisPrefixLeaf(connection, 'session:*', 'hashes'),
-        redisPrefixLeaf(connection, 'cache:*', 'strings'),
-      ]),
-      branch('streams', 'Streams', 'streams', 'Append-only event streams', [
-        leaf('stream-orders', 'orders.events', 'stream', 'sample stream'),
-      ]),
-      branch('sets', 'Sets', 'sets', 'Set and sorted-set keys', [
-        leaf('set-online-users', 'online_users', 'set', 'sample set'),
-      ]),
+      branch('prefixes', 'Prefixes', 'prefixes', 'SCAN-friendly key prefixes', []),
+      branch('streams', 'Streams', 'streams', 'Append-only event streams', []),
+      branch('sets', 'Sets', 'sets', 'Set and sorted-set keys', []),
     ]),
   ]
-}
-
-function redisPrefixLeaf(connection: ConnectionProfile, pattern: string, detail: string) {
-  const scopePrefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern
-
-  return leaf(`prefix-${pattern.replace(/[^a-z0-9]+/gi, '-')}`, pattern, 'prefix', detail, {
-    path: [connection.name, 'Key Prefixes'],
-    scope: `prefix:${scopePrefix}`,
-    queryable: true,
-    builderKind: 'redis-key-browser',
-    queryTemplate: redisKeyBrowserQueryTemplate(pattern),
-  })
 }
 
 function graphConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
@@ -377,16 +495,9 @@ function graphConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[
   return [
     branch('graphs', 'Graphs', 'graphs', 'Graph databases or named graphs', [
       branch(`graph-${database}`, database, 'graph', `${connection.engine} graph`, [
-        branch('node-labels', 'Node Labels', 'node-labels', 'Vertex/node categories', [
-          leaf('label-customer', 'Customer', 'node-label', 'sample label'),
-          leaf('label-order', 'Order', 'node-label', 'sample label'),
-        ]),
-        branch('relationships', 'Relationship Types', 'relationships', 'Edges and relationship types', [
-          leaf('rel-purchased', 'PURCHASED', 'relationship', 'sample relationship'),
-        ]),
-        branch('constraints', 'Indexes & Constraints', 'constraints', 'Graph lookup and uniqueness rules', [
-          leaf('constraint-customer-id', 'Customer.id', 'constraint', 'sample constraint'),
-        ]),
+        branch('node-labels', 'Node Labels', 'node-labels', 'Vertex/node categories', []),
+        branch('relationships', 'Relationship Types', 'relationships', 'Edges and relationship types', []),
+        branch('constraints', 'Indexes & Constraints', 'constraints', 'Graph lookup and uniqueness rules', []),
       ]),
     ]),
   ]
@@ -395,30 +506,17 @@ function graphConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[
 function timeseriesConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
   if (connection.engine === 'prometheus') {
     return [
-      branch('metrics', 'Metrics', 'metrics', 'PromQL metric families', [
-        leaf('metric-up', 'up', 'metric', 'instant/range metric'),
-        leaf('metric-http-duration', 'http_request_duration_seconds', 'metric', 'histogram'),
-      ]),
-      branch('labels', 'Labels', 'labels', 'Metric dimensions', [
-        leaf('label-job', 'job', 'label', 'target label'),
-        leaf('label-instance', 'instance', 'label', 'target label'),
-      ]),
-      branch('rules', 'Rules', 'rules', 'Alerting and recording rules', [
-        leaf('rule-slo-burn', 'slo:burn_rate', 'rule', 'sample recording rule'),
-      ]),
+      branch('metrics', 'Metrics', 'metrics', 'PromQL metric families', []),
+      branch('labels', 'Labels', 'labels', 'Metric dimensions', []),
+      branch('rules', 'Rules', 'rules', 'Alerting and recording rules', []),
     ]
   }
 
   return [
     branch('buckets', 'Buckets', 'buckets', 'Time-series storage scopes', [
       branch('bucket-telemetry', 'telemetry', 'bucket', `${connection.engine} bucket`, [
-        branch('measurements', 'Measurements', 'measurements', 'Series measurement names', [
-          leaf('measurement-cpu', 'cpu_usage', 'measurement', 'sample measurement'),
-          leaf('measurement-memory', 'memory_usage', 'measurement', 'sample measurement'),
-        ]),
-        branch('retention', 'Retention Policies', 'retention-policies', 'Data retention rules', [
-          leaf('retention-thirty-days', '30d', 'retention-policy', 'sample policy'),
-        ]),
+        branch('measurements', 'Measurements', 'measurements', 'Series measurement names', []),
+        branch('retention', 'Retention Policies', 'retention-policies', 'Data retention rules', []),
       ]),
     ]),
   ]
@@ -427,106 +525,27 @@ function timeseriesConnectionTree(connection: ConnectionProfile): ConnectionTree
 function wideColumnConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
   if (connection.engine === 'dynamodb') {
     return [
-      branch('tables', 'Tables', 'tables', 'DynamoDB tables', [
-        branch('table-orders', 'Orders', 'table', 'partition/sort-key table', [
-          branch('indexes', 'Indexes', 'indexes', 'GSI and LSI definitions', [
-            leaf('index-gsi-customer', 'GSI1CustomerOrders', 'index', 'sample GSI'),
-          ]),
-          branch('streams', 'Streams', 'streams', 'Change data capture', [
-            leaf('stream-orders', 'Orders stream', 'stream', 'sample stream'),
-          ]),
-        ], {
-          path: [connection.name, 'Tables'],
-          queryable: true,
-          builderKind: 'dynamodb-key-condition',
-          queryTemplate: dynamoDbQueryTemplate('Orders'),
-        }),
-      ]),
+      branch('tables', 'Tables', 'tables', 'DynamoDB tables', []),
     ]
   }
 
   return [
     branch('keyspaces', 'Keyspaces', 'keyspaces', 'Wide-column namespaces', [
       branch('keyspace-app', 'app', 'keyspace', `${connection.engine} keyspace`, [
-        branch('tables', 'Tables', 'tables', 'Partition-key-first tables', [
-          cassandraTableLeaf(connection, 'app', 'events_by_customer'),
-          cassandraTableLeaf(connection, 'app', 'orders_by_day'),
-        ]),
-        branch('materialized-views', 'Materialized Views', 'materialized-views', 'Derived query tables', [
-          leaf('view-orders-status', 'orders_by_status', 'materialized-view', 'sample view'),
-        ]),
-        branch('indexes', 'Indexes', 'indexes', 'SAI/secondary indexes', [
-          leaf('index-events-type', 'events_type_idx', 'index', 'sample index'),
-        ]),
+        branch('tables', 'Tables', 'tables', 'Partition-key-first tables', []),
+        branch('materialized-views', 'Materialized Views', 'materialized-views', 'Derived query tables', []),
+        branch('indexes', 'Indexes', 'indexes', 'SAI/secondary indexes', []),
       ]),
     ]),
   ]
 }
 
-function cassandraTableLeaf(connection: ConnectionProfile, keyspace: string, table: string) {
-  return leaf(`table-${table}`, table, 'table', 'partition-key table', {
-    path: [connection.name, keyspace, 'Tables'],
-    queryable: true,
-    builderKind: connection.engine === 'cassandra' ? 'cql-partition' : undefined,
-    queryTemplate: `select *\nfrom ${keyspace}.${table}\nwhere customer_id = 'CUSTOMER#123'\nlimit 20;`,
-  })
-}
-
-function dynamoDbQueryTemplate(table: string) {
-  return JSON.stringify(
-    {
-      operation: 'Query',
-      tableName: table,
-      keyConditionExpression: '#pk = :pk',
-      expressionAttributeNames: { '#pk': 'pk' },
-      expressionAttributeValues: { ':pk': { S: 'CUSTOMER#123' } },
-      limit: 20,
-    },
-    null,
-    2,
-  )
-}
-
 function searchConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
   return [
-    branch('indices', 'Indices', 'indices', `${connection.engine} searchable indices`, [
-      searchIndexLeaf(connection, 'products'),
-      searchIndexLeaf(connection, 'events-*'),
-    ]),
-    branch('data-streams', 'Data Streams', 'data-streams', 'Append-oriented streams', [
-      searchIndexLeaf(connection, 'logs-app-default', 'data-stream'),
-    ]),
-    branch('mappings', 'Mappings', 'mappings', 'Field mappings and analyzers', [
-      leaf('mapping-products', 'products mapping', 'mapping', 'sample mapping'),
-    ]),
+    branch('indices', 'Indices', 'indices', `${connection.engine} searchable indices`, []),
+    branch('data-streams', 'Data Streams', 'data-streams', 'Append-oriented streams', []),
+    branch('mappings', 'Mappings', 'mappings', 'Field mappings and analyzers', []),
   ]
-}
-
-function searchIndexLeaf(
-  connection: ConnectionProfile,
-  index: string,
-  kind: 'index' | 'data-stream' = 'index',
-) {
-  return leaf(`${kind}-${index}`, index, kind, kind === 'index' ? 'sample index' : 'sample stream', {
-    path: [connection.name, kind === 'index' ? 'Indices' : 'Data Streams'],
-    queryable: true,
-    builderKind: 'search-dsl',
-    queryTemplate: searchDslQueryTemplate(index),
-  })
-}
-
-function searchDslQueryTemplate(index: string) {
-  return JSON.stringify(
-    {
-      index,
-      body: {
-        query: { match_all: {} },
-        size: 20,
-      },
-    },
-    null,
-    2,
-  )
 }
 
 function analyticsConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
@@ -537,16 +556,9 @@ function analyticsConnectionTree(connection: ConnectionProfile): ConnectionTreeN
   return [
     branch(topKind, topLabel, topKind, 'Analytical object namespaces', [
       branch(`dataset-${dataset}`, dataset, connection.engine === 'bigquery' ? 'dataset' : 'schema', `${connection.engine} namespace`, [
-        branch('tables', 'Tables', 'tables', 'Columnar/warehouse tables', [
-          leaf('table-orders', 'fact_orders', 'table', 'sample table'),
-          leaf('table-customers', 'dim_customers', 'table', 'sample table'),
-        ]),
-        branch('views', 'Views', 'views', 'Saved analytical projections', [
-          leaf('view-daily-sales', 'daily_sales', 'view', 'sample view'),
-        ]),
-        branch('jobs', 'Jobs & Tasks', 'jobs', 'Warehouse jobs, tasks, or scheduled queries', [
-          leaf('job-refresh-rollups', 'refresh_rollups', 'job', 'sample job'),
-        ]),
+        branch('tables', 'Tables', 'tables', 'Columnar/warehouse tables', []),
+        branch('views', 'Views', 'views', 'Saved analytical projections', []),
+        branch('jobs', 'Jobs & Tasks', 'jobs', 'Warehouse jobs, tasks, or scheduled queries', []),
       ]),
     ]),
   ]
@@ -566,6 +578,22 @@ function defaultSqlSchema(connection: ConnectionProfile) {
   }
 
   return 'public'
+}
+
+function systemSqlSchemaForConnection(connection: ConnectionProfile) {
+  if (connection.engine === 'sqlserver') {
+    return 'sys'
+  }
+
+  if (connection.engine === 'mysql' || connection.engine === 'mariadb') {
+    return 'information_schema'
+  }
+
+  if (connection.engine === 'sqlite' || connection.engine === 'duckdb') {
+    return 'temp'
+  }
+
+  return 'pg_catalog'
 }
 
 function branch(

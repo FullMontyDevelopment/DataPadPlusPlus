@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   BottomPanelTab,
   ConnectionProfile,
@@ -23,15 +23,21 @@ import { ResultsView } from './results/ResultsView'
 
 const MIN_BOTTOM_PANEL_HEIGHT = 120
 const MAX_BOTTOM_PANEL_HEIGHT = 900
+const MIN_RESULTS_SIDE_WIDTH = 320
+const MAX_RESULTS_SIDE_WIDTH = 2400
+const MIN_EDITOR_WIDTH_WITH_RIGHT_RESULTS = 120
 const BUTTON_RESIZE_STEP = 96
 const KEYBOARD_RESIZE_STEP = 24
+type ResultsDock = 'bottom' | 'right'
 
 interface BottomPanelProps {
   activeTab?: QueryTabState
   activeConnection?: ConnectionProfile
   activeEnvironment?: EnvironmentProfile
   activePanelTab: BottomPanelTab
+  dock?: ResultsDock
   height: number
+  sideWidth?: number
   activePayload?: ResultPayload
   activeRenderer?: string
   diagnostics?: DiagnosticsReport
@@ -43,7 +49,7 @@ interface BottomPanelProps {
   onSelectPanelTab(tab: BottomPanelTab): void
   onSelectRenderer(renderer: string): void
   onLoadNextPage(): void
-  onResize(nextHeight: number): void
+  onResize(nextSize: number): void
   onClose(): void
   onConfirmExecution(guardrailId: string, mode: ExecutionRequest['mode']): void
   onApplyInspectionTemplate(queryTemplate?: string): void
@@ -60,7 +66,9 @@ export function BottomPanel({
   activeConnection,
   activeEnvironment,
   activePanelTab,
+  dock = 'bottom',
   height,
+  sideWidth = 420,
   activePayload,
   activeRenderer,
   diagnostics,
@@ -94,35 +102,98 @@ export function BottomPanel({
   const messages = activeTab ? buildMessages(activeTab.result, activeTab, lastExecution) : []
   const [isResizing, setIsResizing] = useState(false)
   const isResizingRef = useRef(false)
+  const panelRef = useRef<HTMLElement | null>(null)
+  const resizeHandleRef = useRef<HTMLDivElement | null>(null)
+  const lastPointerX = useRef(0)
   const lastPointerY = useRef(0)
-  const draftHeight = useRef(height)
+  const draftSize = useRef(dock === 'right' ? sideWidth : height)
+  const resizeFrame = useRef<number | undefined>(undefined)
+  const isRightDock = dock === 'right'
+
+  const clampPanelSize = (nextSize: number) =>
+    isRightDock ? clampPanelWidth(nextSize, panelRef.current) : clampPanelHeight(nextSize)
+
+  const applyDraftSize = (nextSize: number) => {
+    const clampedSize = clampPanelSize(nextSize)
+    draftSize.current = clampedSize
+    if (isRightDock) {
+      const workbenchElement = panelRef.current?.closest<HTMLElement>('.ads-workbench')
+
+      if (workbenchElement) {
+        workbenchElement.style.setProperty('--results-side-width', `${clampedSize}px`)
+      } else {
+        panelRef.current?.style.setProperty('width', `${clampedSize}px`)
+      }
+    } else {
+      panelRef.current?.style.setProperty('height', `${clampedSize}px`)
+    }
+    resizeHandleRef.current?.setAttribute('aria-valuenow', String(Math.round(clampedSize)))
+  }
+
+  const scheduleDraftSize = (nextSize: number) => {
+    draftSize.current = clampPanelSize(nextSize)
+    if (resizeFrame.current !== undefined) {
+      return
+    }
+
+    resizeFrame.current = window.requestAnimationFrame(() => {
+      resizeFrame.current = undefined
+      applyDraftSize(draftSize.current)
+    })
+  }
 
   const stopResizing = () => {
+    if (!isResizingRef.current) {
+      return
+    }
+
+    if (resizeFrame.current !== undefined) {
+      window.cancelAnimationFrame(resizeFrame.current)
+      resizeFrame.current = undefined
+      applyDraftSize(draftSize.current)
+    }
+
+    document.body.classList.remove(isRightDock ? 'is-results-side-resizing' : 'is-bottom-panel-resizing')
     isResizingRef.current = false
     setIsResizing(false)
+    onResize(draftSize.current)
   }
+
+  useEffect(() => {
+    return () => {
+      if (resizeFrame.current !== undefined) {
+        window.cancelAnimationFrame(resizeFrame.current)
+      }
+      document.body.classList.remove('is-bottom-panel-resizing')
+      document.body.classList.remove('is-results-side-resizing')
+    }
+  }, [])
 
   return (
     <section
-      className="bottom-panel"
-      style={{ height }}
-      aria-label="Bottom panel"
+      ref={panelRef}
+      className={`bottom-panel bottom-panel--${dock}${isResizing ? ' is-resizing' : ''}`}
+      style={isRightDock ? undefined : { height }}
+      aria-label={isRightDock ? 'Right results panel' : 'Bottom panel'}
     >
       <div
+        ref={resizeHandleRef}
         role="separator"
         tabIndex={0}
-        aria-label="Resize bottom panel"
-        aria-orientation="horizontal"
-        aria-valuemin={MIN_BOTTOM_PANEL_HEIGHT}
-        aria-valuemax={MAX_BOTTOM_PANEL_HEIGHT}
-        aria-valuenow={height}
-        className={`pane-resize-handle pane-resize-handle--bottom${isResizing ? ' is-active' : ''}`}
-        title="Drag to resize the bottom results panel."
+        aria-label={isRightDock ? 'Resize right results panel' : 'Resize bottom panel'}
+        aria-orientation={isRightDock ? 'vertical' : 'horizontal'}
+        aria-valuemin={isRightDock ? MIN_RESULTS_SIDE_WIDTH : MIN_BOTTOM_PANEL_HEIGHT}
+        aria-valuemax={isRightDock ? MAX_RESULTS_SIDE_WIDTH : MAX_BOTTOM_PANEL_HEIGHT}
+        aria-valuenow={isRightDock ? sideWidth : height}
+        className={`pane-resize-handle pane-resize-handle--${isRightDock ? 'results-side' : 'bottom'}${isResizing ? ' is-active' : ''}`}
+        title={`Drag to resize the ${isRightDock ? 'right' : 'bottom'} results panel.`}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId)
+          lastPointerX.current = event.clientX
           lastPointerY.current = event.clientY
-          draftHeight.current = height
+          draftSize.current = clampPanelSize(isRightDock ? sideWidth : height)
           isResizingRef.current = true
+          document.body.classList.add(isRightDock ? 'is-results-side-resizing' : 'is-bottom-panel-resizing')
           setIsResizing(true)
         }}
         onPointerMove={(event) => {
@@ -130,22 +201,44 @@ export function BottomPanel({
             return
           }
 
-          const delta = lastPointerY.current - event.clientY
+          const delta = isRightDock
+            ? lastPointerX.current - event.clientX
+            : lastPointerY.current - event.clientY
+          lastPointerX.current = event.clientX
           lastPointerY.current = event.clientY
-          draftHeight.current += delta
-          onResize(draftHeight.current)
+          scheduleDraftSize(draftSize.current + delta)
         }}
-        onPointerUp={stopResizing}
-        onPointerCancel={stopResizing}
+        onPointerUp={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          }
+          stopResizing()
+        }}
+        onPointerCancel={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          }
+          stopResizing()
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'ArrowUp') {
+          if (!isRightDock && event.key === 'ArrowUp') {
             event.preventDefault()
-            onResize(height + KEYBOARD_RESIZE_STEP)
+            onResize(clampPanelHeight(height + KEYBOARD_RESIZE_STEP))
           }
 
-          if (event.key === 'ArrowDown') {
+          if (!isRightDock && event.key === 'ArrowDown') {
             event.preventDefault()
-            onResize(height - KEYBOARD_RESIZE_STEP)
+            onResize(clampPanelHeight(height - KEYBOARD_RESIZE_STEP))
+          }
+
+          if (isRightDock && event.key === 'ArrowLeft') {
+            event.preventDefault()
+            onResize(clampPanelWidth(sideWidth + KEYBOARD_RESIZE_STEP, panelRef.current))
+          }
+
+          if (isRightDock && event.key === 'ArrowRight') {
+            event.preventDefault()
+            onResize(clampPanelWidth(sideWidth - KEYBOARD_RESIZE_STEP, panelRef.current))
           }
         }}
       />
@@ -185,25 +278,37 @@ export function BottomPanel({
           <button
             type="button"
             className="bottom-panel-icon-button"
-            aria-label="Increase panel height"
-            title="Increase results panel height."
-            onClick={() => onResize(height + BUTTON_RESIZE_STEP)}
+            aria-label={isRightDock ? 'Increase panel width' : 'Increase panel height'}
+            title={`Increase results panel ${isRightDock ? 'width' : 'height'}.`}
+            onClick={() =>
+              onResize(
+                isRightDock
+                  ? clampPanelWidth(sideWidth + BUTTON_RESIZE_STEP, panelRef.current)
+                  : clampPanelHeight(height + BUTTON_RESIZE_STEP),
+              )
+            }
           >
             <ChevronUpPseudo />
           </button>
           <button
             type="button"
             className="bottom-panel-icon-button"
-            aria-label="Decrease panel height"
-            title="Decrease results panel height."
-            onClick={() => onResize(height - BUTTON_RESIZE_STEP)}
+            aria-label={isRightDock ? 'Decrease panel width' : 'Decrease panel height'}
+            title={`Decrease results panel ${isRightDock ? 'width' : 'height'}.`}
+            onClick={() =>
+              onResize(
+                isRightDock
+                  ? clampPanelWidth(sideWidth - BUTTON_RESIZE_STEP, panelRef.current)
+                  : clampPanelHeight(height - BUTTON_RESIZE_STEP),
+              )
+            }
           >
             <ChevronDownIcon className="panel-inline-icon" />
           </button>
           <button
             type="button"
             className="bottom-panel-icon-button"
-            aria-label="Hide bottom panel"
+            aria-label="Hide results panel"
             title="Hide the bottom results panel."
             onClick={onClose}
           >
@@ -272,6 +377,32 @@ function buildMessages(
     ...(result?.notices.map((notice) => notice.message) ?? []),
     ...(lastExecution?.diagnostics ?? []),
   ]
+}
+
+function clampPanelHeight(nextHeight: number) {
+  return Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(MAX_BOTTOM_PANEL_HEIGHT, nextHeight))
+}
+
+function clampPanelWidth(nextWidth: number, panelElement?: HTMLElement | null) {
+  return Math.max(
+    MIN_RESULTS_SIDE_WIDTH,
+    Math.min(getMaxPanelWidth(panelElement), nextWidth),
+  )
+}
+
+function getMaxPanelWidth(panelElement?: HTMLElement | null) {
+  const parentWidth = panelElement?.parentElement?.clientWidth
+  const viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth
+  const availableWidth = parentWidth && parentWidth > 0 ? parentWidth : viewportWidth
+
+  if (!availableWidth || availableWidth <= MIN_RESULTS_SIDE_WIDTH) {
+    return MAX_RESULTS_SIDE_WIDTH
+  }
+
+  return Math.max(
+    MIN_RESULTS_SIDE_WIDTH,
+    Math.min(MAX_RESULTS_SIDE_WIDTH, availableWidth - MIN_EDITOR_WIDTH_WITH_RIGHT_RESULTS),
+  )
 }
 
 function ChevronUpPseudo() {

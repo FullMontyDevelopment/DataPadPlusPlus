@@ -34,16 +34,7 @@ impl ManagedAppState {
         let environment = self.environment_by_id(&request.environment_id)?;
         let (resolved_connection, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        let query_text = if request.mode.as_deref() == Some("selection") {
-            request
-                .selected_text
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or(request.query_text.as_str())
-                .to_string()
-        } else {
-            request.query_text.clone()
-        };
+        let query_text = adapters::selected_query(&request).to_string();
         let mut guardrail = security::evaluate_guardrails(
             &profile,
             &environment,
@@ -66,6 +57,10 @@ impl ManagedAppState {
                 let tab_response = {
                     let tab = &mut self.snapshot.tabs[tab_index];
                     tab.query_text = request.query_text.clone();
+                    if request.execution_input_mode.as_deref() == Some("script") {
+                        tab.script_text = request.script_text.clone();
+                    }
+                    tab.query_view_mode = request.execution_input_mode.clone();
                     tab.status = "blocked".into();
                     tab.last_run_at = Some(executed_at.clone());
                     tab.history.insert(
@@ -157,6 +152,10 @@ impl ManagedAppState {
         let tab_response = {
             let tab = &mut self.snapshot.tabs[tab_index];
             tab.query_text = request.query_text.clone();
+            if request.execution_input_mode.as_deref() == Some("script") {
+                tab.script_text = request.script_text.clone();
+            }
+            tab.query_view_mode = request.execution_input_mode.clone();
             tab.status = status.clone();
             tab.last_run_at = Some(executed_at.clone());
             tab.history.insert(

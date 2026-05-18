@@ -64,8 +64,8 @@ export function createStructureResponseLocally(
       engine: connection.engine,
       summary: 'Preview structure loaded Redis key prefixes.',
       groups: [
-        { id: 'session', label: 'session:*', kind: 'prefix', detail: '2 sampled keys' },
-        { id: 'cache', label: 'cache:*', kind: 'prefix', detail: '2 sampled keys' },
+        { id: 'session', label: 'session:*', kind: 'prefix', detail: 'Key prefix group' },
+        { id: 'cache', label: 'cache:*', kind: 'prefix', detail: 'Key prefix group' },
       ],
       nodes: ['session:9f2d7e1a', 'session:7cc1a6f2', 'cache:products'].map((key) => ({
         id: key,
@@ -80,7 +80,7 @@ export function createStructureResponseLocally(
         ],
       })),
       edges: [],
-      metrics: [{ label: 'Sampled keys', value: '3' }],
+      metrics: [{ label: 'Keys', value: '3' }],
     }
   }
 
@@ -184,5 +184,4 @@ export function fetchResultPageLocally(
     notices: [],
   }
 }
-
 

@@ -18,7 +18,11 @@ export function applyExecutionRequestLocally(
 
   const resolvedEnvironment = resolveEnvironment(next.environments, request.environmentId)
   const queryText =
-    request.mode === 'selection' && request.selectedText
+    request.executionInputMode === 'script'
+      ? request.mode === 'selection' && request.selectedText
+        ? request.selectedText
+        : request.scriptText || request.queryText
+      : request.mode === 'selection' && request.selectedText
       ? request.selectedText
       : request.queryText
   const guardrail = evaluateGuardrails(
@@ -41,6 +45,10 @@ export function applyExecutionRequestLocally(
     if (request.confirmedGuardrailId !== guardrailId) {
       const executionId = request.executionId ?? createId('execution')
       tab.queryText = request.queryText
+      if (request.executionInputMode === 'script') {
+        tab.scriptText = request.scriptText
+      }
+      tab.queryViewMode = request.executionInputMode
       tab.status = 'blocked'
       tab.lastRunAt = new Date().toISOString()
       tab.history.unshift({
@@ -76,6 +84,8 @@ export function applyExecutionRequestLocally(
   const simulated = simulateExecution(connection, environment, resolvedEnvironment, {
     ...tab,
     queryText,
+    queryViewMode: request.executionInputMode ?? tab.queryViewMode,
+    scriptText: request.scriptText ?? tab.scriptText,
   })
 
   let result = guardrail.status === 'block' ? undefined : simulated.result
@@ -105,8 +115,12 @@ export function applyExecutionRequestLocally(
     diagnostics.push(guardrail.reasons[0] ?? 'Confirmation required for this query.')
   }
 
-tab.queryText = request.queryText
-tab.status =
+  tab.queryText = request.queryText
+  if (request.executionInputMode === 'script') {
+    tab.scriptText = request.scriptText
+  }
+  tab.queryViewMode = request.executionInputMode
+  tab.status =
     guardrail.status === 'block'
       ? 'blocked'
       : result

@@ -79,9 +79,9 @@ describe('migrateWorkspaceSnapshot', () => {
 
     const migrated = migrateWorkspaceSnapshot(legacy)
 
-    expect(migrated.schemaVersion).toBe(8)
-    expect(migrated.ui.activeActivity).toBe('connections')
-    expect(migrated.ui.activeSidebarPane).toBe('connections')
+    expect(migrated.schemaVersion).toBe(9)
+    expect(migrated.ui.activeActivity).toBe('library')
+    expect(migrated.ui.activeSidebarPane).toBe('library')
     expect(migrated.ui.sidebarWidth).toBe(280)
     expect(migrated.ui.bottomPanelVisible).toBe(false)
     expect(migrated.ui.activeBottomPanelTab).toBe('results')
@@ -155,6 +155,12 @@ describe('migrateWorkspaceSnapshot', () => {
     } as unknown as typeof snapshot)
 
     expect(migrated.connections[0]?.connectionMode).toBe('connection-string')
+    expect(
+      migrated.libraryNodes.some(
+        (node) =>
+          node.kind === 'connection' && node.connectionId === 'conn-string-profile',
+      ),
+    ).toBe(true)
   })
 
   it('preserves persisted sidebar display state when migrating workspace state', () => {
@@ -231,8 +237,8 @@ describe('normalizeUiState', () => {
       },
     } as unknown as typeof snapshot)
 
-    expect(normalized.activeActivity).toBe('connections')
-    expect(normalized.activeSidebarPane).toBe('connections')
+    expect(normalized.activeActivity).toBe('library')
+    expect(normalized.activeSidebarPane).toBe('library')
     expect(normalized.activeBottomPanelTab).toBe('results')
     expect(normalized.bottomPanelHeight).toBe(260)
     expect(normalized.sidebarWidth).toBe(420)

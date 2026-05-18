@@ -7,11 +7,10 @@ import type {
   LibraryItemKind,
   QueryBuilderState,
   QueryTabState,
+  QueryViewMode,
   ScopedQueryTarget,
-  WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { ActivityBar } from './components/workbench/ActivityBar'
 import {
   CloseSavedTabDialog,
   DeleteConnectionDialog,
@@ -34,31 +33,25 @@ import { QueryBuilderPanel } from './components/workbench/query-builder/QueryBui
 import {
   buildCqlPartitionQueryText,
   isCqlPartitionBuilderState,
-  parseCqlPartitionQueryText,
 } from './components/workbench/query-builder/cql-partition'
 import {
   buildDynamoDbKeyConditionQueryText,
   isDynamoDbKeyConditionBuilderState,
-  parseDynamoDbKeyConditionQueryText,
 } from './components/workbench/query-builder/dynamodb-key-condition'
 import {
   buildMongoFindQueryText,
   isMongoFindBuilderState,
-  parseMongoFindQueryText,
 } from './components/workbench/query-builder/mongo-find'
 import {
   buildSqlSelectQueryText,
   isSqlSelectBuilderState,
-  parseSqlSelectQueryText,
 } from './components/workbench/query-builder/sql-select'
 import {
   buildSearchDslQueryText,
   isSearchDslBuilderState,
-  parseSearchDslQueryText,
 } from './components/workbench/query-builder/search-dsl'
 import {
   isRedisKeyBrowserState,
-  parseRedisKeyBrowserQueryText,
 } from './components/workbench/query-builder/redis-key-browser'
 import {
   isRedisConsoleTab,
@@ -66,13 +59,16 @@ import {
 } from './components/workbench/query-builder/redis-console'
 import { completionProvidersForConnection } from './components/workbench/intellisense/providers'
 import { useQueryIntellisenseCatalog } from './components/workbench/intellisense/useQueryIntellisenseCatalog'
+import { SavedWorkIcon } from './components/workbench/icons'
 import { AppStateProvider, useAppState } from './state/app-state'
+import { connectionLibraryNodeId } from '../services/runtime/library-connection-helpers'
 import { createConnectionProfile, createEnvironmentProfile } from './state/app-state-factories'
 import {
   appendFieldToQueryText,
   builderStateForTab,
   defaultCapabilities,
   deriveCapabilities,
+  defaultScriptTextForConnection,
   queryBuilderObjectOptions,
   resolveThemeMode,
   selectPayload,
@@ -115,16 +111,18 @@ function DesktopWorkspace() {
     renderer?: string
     tabId?: string
   }>({})
-  const [queryWindowMode, setQueryWindowMode] = useState<'both' | 'builder' | 'raw'>(
-    'raw',
-  )
+  const [queryWindowMode, setQueryWindowMode] = useState<QueryViewMode>('raw')
+  const [testWindowMode, setTestWindowMode] = useState<'both' | 'builder' | 'raw'>('both')
   const [connectionDraft, setConnectionDraft] = useState<ConnectionProfile | undefined>()
+  const [connectionDraftParentId, setConnectionDraftParentId] = useState<string | undefined>()
+  const [editingEnvironmentId, setEditingEnvironmentId] = useState<string | undefined>()
   const initializedQueryModeByTabRef = useRef<Record<string, string>>({})
   const builderStateDraftRef = useRef<Record<string, QueryBuilderState>>({})
   const [builderStateDrafts, setBuilderStateDrafts] = useState<
     Record<string, QueryBuilderState>
   >({})
   const queryTextDraftRef = useRef<Record<string, string>>({})
+  const scriptTextDraftRef = useRef<Record<string, string>>({})
   const [pendingTabClose, setPendingTabClose] = useState<
     | {
         tab: QueryTabState
@@ -137,7 +135,6 @@ function DesktopWorkspace() {
     ConnectionProfile | undefined
   >()
   const bottomPanelVisibleRef = useRef(false)
-  const sidebarCollapsedRef = useRef(false)
   useEffect(() => {
     if (!payload) {
       return
@@ -174,11 +171,9 @@ function DesktopWorkspace() {
     snapshot?.environments[0]
   const loadExplorer = actions.loadExplorer
   const activeSidebarPane = snapshot?.ui.activeSidebarPane
-  const sidebarCollapsed = snapshot?.ui.sidebarCollapsed
   useLayoutEffect(() => {
     bottomPanelVisibleRef.current = Boolean(snapshot?.ui.bottomPanelVisible)
-    sidebarCollapsedRef.current = Boolean(sidebarCollapsed)
-  }, [sidebarCollapsed, snapshot?.ui.bottomPanelVisible])
+  }, [snapshot?.ui.bottomPanelVisible])
   const activeConnectionId = activeConnection?.id
   const activeEnvironmentId = activeEnvironment?.id
   const runtimeCapabilities =
@@ -206,22 +201,30 @@ function DesktopWorkspace() {
       : undefined
   const activeBuilderKind = activeBuilderState?.kind
   const hasBuilderQuery = Boolean(activeBuilderState)
-  const activeQueryWindowMode: 'both' | 'builder' | 'raw' = hasBuilderQuery
-    ? queryWindowMode
-    : 'raw'
+  const activeTabSupportsScripting = activeConnection?.engine === 'mongodb'
+  const activeQueryWindowMode: QueryViewMode = hasBuilderQuery
+    ? queryWindowMode === 'script' && !activeTabSupportsScripting
+      ? 'builder'
+      : queryWindowMode
+    : queryWindowMode === 'script' && activeTabSupportsScripting
+      ? 'script'
+      : 'raw'
   const activeTabUsesRedisConsole = isRedisConsoleTab(activeTab)
   const activeRedisConsoleVisible =
     activeTabUsesRedisConsole &&
-    (!isRedisKeyBrowserState(activeBuilderState) || activeQueryWindowMode !== 'builder')
+    activeQueryWindowMode === 'raw'
   const activeRedisConsoleCommand =
     activeTabUsesRedisConsole && activeTab
       ? redisConsoleCommandFromQueryText(activeTab.queryText, activeBuilderState)
       : undefined
   const activeEditorQueryText =
     activeRedisConsoleCommand ??
+    (activeTab && activeQueryWindowMode === 'script'
+      ? activeTab.scriptText ?? (activeConnection ? defaultScriptTextForConnection(activeConnection) : '')
+      : undefined) ??
     (activeTab &&
     activeBuilderState &&
-    activeQueryWindowMode !== 'raw'
+    activeQueryWindowMode === 'builder'
       ? buildQueryTextForBuilderState(activeBuilderState, activeConnection)
       : activeTab?.queryText)
   const intellisenseCatalog = useQueryIntellisenseCatalog({
@@ -278,7 +281,7 @@ function DesktopWorkspace() {
       return undefined
     }
 
-    if (activeQueryWindowMode === 'raw') {
+    if (activeQueryWindowMode !== 'builder') {
       return undefined
     }
 
@@ -318,6 +321,23 @@ function DesktopWorkspace() {
       return
     }
 
+    if (activeQueryWindowMode === 'script') {
+      const scriptText =
+        scriptTextDraftRef.current[activeTab.id] ??
+        activeTab.scriptText ??
+        (activeConnection ? defaultScriptTextForConnection(activeConnection) : '') ??
+        ''
+      void actions.executeQuery(
+        activeTab.id,
+        mode,
+        guardrailId,
+        resolveQueryText(activeTab),
+        'script',
+        scriptText,
+      )
+      return
+    }
+
     const generatedQueryText = resolveBuilderQueryText(activeTab)
     const builderState =
       activeConnection
@@ -334,12 +354,12 @@ function DesktopWorkspace() {
         builderState,
       )
       queryTextDraftRef.current[activeTab.id] = redisCommand
-      void actions.executeQuery(activeTab.id, mode, guardrailId, redisCommand)
+      void actions.executeQuery(activeTab.id, mode, guardrailId, redisCommand, 'raw')
       return
     }
 
     if (!generatedQueryText || !builderState) {
-      void actions.executeQuery(activeTab.id, mode, guardrailId, resolveQueryText(activeTab))
+      void actions.executeQuery(activeTab.id, mode, guardrailId, resolveQueryText(activeTab), 'raw')
       return
     }
 
@@ -350,8 +370,9 @@ function DesktopWorkspace() {
         lastAppliedQueryText: generatedQueryText,
       },
       queryText: generatedQueryText,
+      queryViewMode: 'builder',
     })
-    void actions.executeQuery(activeTab.id, mode, guardrailId, generatedQueryText)
+    void actions.executeQuery(activeTab.id, mode, guardrailId, generatedQueryText, 'builder')
   }, [
     actions,
     activeConnection,
@@ -403,33 +424,75 @@ function DesktopWorkspace() {
       tabId,
       builderState: nextBuilderState,
       queryText: liveQueryText,
+      queryViewMode: 'builder',
     })
   }
 
-  const requestSaveQuery = useCallback(
-    (tabId: string) => {
+  const flushQueryTabDrafts = useCallback(
+    async (tabId: string) => {
       const tab = snapshot?.tabs.find((item) => item.id === tabId)
 
-      if (!tab) {
+      if (!tab || tab.tabKind === 'explorer' || tab.tabKind === 'metrics') {
         return
       }
 
-      if (tab.tabKind === 'explorer') {
+      const connection = snapshot?.connections.find((item) => item.id === tab.connectionId)
+      const builderState = builderStateDraftRef.current[tabId]
+      const draftQueryText = queryTextDraftRef.current[tabId]
+      const draftScriptText = scriptTextDraftRef.current[tabId]
+
+      if (draftScriptText !== undefined) {
+        await actions.updateQuery(tabId, draftScriptText, 'script')
+      }
+
+      if (builderState) {
+        const generatedQueryText =
+          draftQueryText ?? buildQueryTextForBuilderState(builderState, connection)
+
+        await actions.updateQueryBuilderState({
+          tabId,
+          builderState,
+          queryText: generatedQueryText,
+          queryViewMode: 'builder',
+        })
         return
       }
 
-      if (tab.tabKind === 'metrics') {
-        return
+      if (draftQueryText !== undefined && draftQueryText !== tab.queryText) {
+        await actions.updateQuery(tabId, draftQueryText)
       }
-
-      if (tab.saveTarget) {
-        void actions.saveCurrentQuery(tabId)
-        return
-      }
-
-      setPendingSaveTabId(tabId)
     },
-    [actions, snapshot?.tabs],
+    [actions, snapshot?.connections, snapshot?.tabs],
+  )
+
+  const requestSaveQuery = useCallback(
+    (tabId: string) => {
+      void (async () => {
+        const tab = snapshot?.tabs.find((item) => item.id === tabId)
+
+        if (!tab) {
+          return
+        }
+
+        if (tab.tabKind === 'explorer') {
+          return
+        }
+
+        if (tab.tabKind === 'metrics') {
+          return
+        }
+
+        await flushQueryTabDrafts(tabId)
+
+        if (tab.saveTarget) {
+          await actions.saveCurrentQuery(tabId)
+          return
+        }
+
+        setPendingSaveTabId(tabId)
+      })()
+    },
+    [actions, flushQueryTabDrafts, snapshot?.tabs],
   )
 
   useEffect(() => {
@@ -438,23 +501,31 @@ function DesktopWorkspace() {
 
       if (initializedQueryModeByTabRef.current[activeTabId] !== modeKey) {
         initializedQueryModeByTabRef.current[activeTabId] = modeKey
-        setQueryWindowMode('both')
+        setTestWindowMode('both')
       }
     }
   }, [activeTabId, activeTabIsTestSuite])
 
   useEffect(() => {
-    if (!activeTabId || !activeBuilderKind) {
+    if (!activeTabId || !activeTab || activeTabIsTestSuite) {
       return
     }
 
-    if (initializedQueryModeByTabRef.current[activeTabId] === activeBuilderKind) {
+    const modeKey = `${activeBuilderKind ?? 'raw'}:${activeTab.queryViewMode ?? 'default'}`
+
+    if (initializedQueryModeByTabRef.current[activeTabId] === modeKey) {
       return
     }
 
-    initializedQueryModeByTabRef.current[activeTabId] = activeBuilderKind
-    setQueryWindowMode(defaultQueryWindowModeForBuilderKind(activeBuilderKind))
-  }, [activeBuilderKind, activeTabId])
+    initializedQueryModeByTabRef.current[activeTabId] = modeKey
+    setQueryWindowMode(
+      normalizeQueryWindowMode(
+        activeTab.queryViewMode,
+        activeBuilderKind,
+        activeConnection,
+      ),
+    )
+  }, [activeBuilderKind, activeConnection, activeTab, activeTabId, activeTabIsTestSuite])
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -506,16 +577,6 @@ function DesktopWorkspace() {
         return
       }
 
-      if (key === 'b') {
-        event.preventDefault()
-        const sidebarCollapsed = !sidebarCollapsedRef.current
-        sidebarCollapsedRef.current = sidebarCollapsed
-        void actions.updateUiState({
-          sidebarCollapsed,
-        })
-        return
-      }
-
       if (key === 'e' && event.shiftKey) {
         event.preventDefault()
         if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsTestSuite) {
@@ -550,8 +611,7 @@ function DesktopWorkspace() {
     if (
       !activeConnectionId ||
       !activeEnvironmentId ||
-      (activeSidebarPane !== 'explorer' && activeSidebarPane !== 'connections') ||
-      sidebarCollapsed ||
+      (activeSidebarPane !== 'explorer' && activeSidebarPane !== 'library') ||
       explorerStatus === 'loading' ||
       (explorer?.connectionId === activeConnectionId &&
         explorer.environmentId === activeEnvironmentId &&
@@ -572,7 +632,6 @@ function DesktopWorkspace() {
     explorer,
     explorerStatus,
     loadExplorer,
-    sidebarCollapsed,
   ])
 
   useEffect(() => {
@@ -642,7 +701,9 @@ function DesktopWorkspace() {
   const canCancelExecution = Boolean(
     runtimeCapabilities.canCancel && lastExecution?.executionId,
   )
-  const showingEnvironmentWorkspace = snapshot.ui.activeActivity === 'environments'
+  const showingEnvironmentWorkspace = Boolean(
+    editingEnvironmentId && activeEnvironment?.id === editingEnvironmentId,
+  )
   const showingExplorerWorkspace = activeTabIsExplorer
   const showingMetricsWorkspace = activeTabIsMetrics
   const hasWorkbenchMessages = workbenchMessages.length > 0
@@ -662,6 +723,8 @@ function DesktopWorkspace() {
         !showingExplorerWorkspace &&
         !showingMetricsWorkspace &&
         hasActiveQueryContext))
+  const resultsDock = snapshot.ui.resultsDock ?? 'bottom'
+  const resultsDockRight = resultsDock === 'right'
 
   const requestCloseTabQueue = (tabIds: string[]) => {
     const [tabId, ...remainingTabIds] = tabIds
@@ -728,30 +791,14 @@ function DesktopWorkspace() {
     void actions.setLibraryNodeEnvironment({ nodeId, environmentId })
   }
 
-  const setActivity = (activity: WorkspaceSnapshot['ui']['activeActivity']) => {
-    if (activity === 'settings') {
-      void actions.updateUiState({
-        activeActivity: 'settings',
-        sidebarCollapsed: false,
-        rightDrawer: 'diagnostics',
-      })
-      return
-    }
-
-    void actions.updateUiState({
-      activeActivity: activity,
-      activeSidebarPane: activity,
-      sidebarCollapsed: false,
-      rightDrawer: snapshot.ui.rightDrawer === 'diagnostics' ? 'none' : snapshot.ui.rightDrawer,
-    })
-  }
-
   const openConnectionDrawer = () => {
     setConnectionDraft(undefined)
+    setConnectionDraftParentId(undefined)
+    setEditingEnvironmentId(undefined)
     if (snapshot?.ui.activeConnectionId) {
       void actions.updateUiState({
-        activeActivity: 'connections',
-        activeSidebarPane: 'connections',
+        activeActivity: 'library',
+        activeSidebarPane: 'library',
         sidebarCollapsed: false,
         rightDrawer: 'connection',
       })
@@ -760,6 +807,8 @@ function DesktopWorkspace() {
 
   const openConnectionDrawerFor = (connectionId: string) => {
     setConnectionDraft(undefined)
+    setConnectionDraftParentId(undefined)
+    setEditingEnvironmentId(undefined)
     if (connectionId === snapshot?.ui.activeConnectionId) {
       openConnectionDrawer()
       return
@@ -768,8 +817,8 @@ function DesktopWorkspace() {
     void (async () => {
       await actions.selectConnection(connectionId)
       await actions.updateUiState({
-        activeActivity: 'connections',
-        activeSidebarPane: 'connections',
+        activeActivity: 'library',
+        activeSidebarPane: 'library',
         sidebarCollapsed: false,
         rightDrawer: 'connection',
       })
@@ -787,7 +836,8 @@ function DesktopWorkspace() {
   const openDiagnosticsDrawer = () => {
     setConnectionDraft(undefined)
     void actions.updateUiState({
-      activeActivity: 'settings',
+      activeActivity: 'library',
+      activeSidebarPane: 'library',
       rightDrawer: 'diagnostics',
       sidebarCollapsed: false,
     })
@@ -795,11 +845,9 @@ function DesktopWorkspace() {
 
   const closeDrawer = () => {
     setConnectionDraft(undefined)
+    setConnectionDraftParentId(undefined)
     void actions.updateUiState({
-      activeActivity:
-        snapshot.ui.activeActivity === 'settings'
-          ? snapshot.ui.activeSidebarPane
-          : snapshot.ui.activeActivity,
+      activeActivity: snapshot.ui.activeActivity === 'settings' ? 'library' : snapshot.ui.activeActivity,
       rightDrawer: 'none',
     })
   }
@@ -821,10 +869,20 @@ function DesktopWorkspace() {
         }
       }
 
-      await actions.saveConnection(nextProfile, secret)
+      const saved = await actions.saveConnection(nextProfile, secret)
+      if (!saved) {
+        return
+      }
+      if (connectionDraftParentId !== undefined) {
+        await actions.moveLibraryNode({
+          nodeId: connectionLibraryNodeId(nextProfile.id),
+          parentId: connectionDraftParentId,
+        })
+      }
 
       if (connectionDraft?.id === profile.id) {
         setConnectionDraft(undefined)
+        setConnectionDraftParentId(undefined)
       }
     })()
   }
@@ -844,16 +902,27 @@ function DesktopWorkspace() {
 
     void (async () => {
       await actions.saveEnvironment(clone)
+      setEditingEnvironmentId(clone.id)
       await actions.updateUiState({
-        activeActivity: 'environments',
+        activeActivity: 'library',
         activeEnvironmentId: clone.id,
-        activeSidebarPane: 'environments',
+        activeSidebarPane: 'library',
         sidebarCollapsed: false,
       })
     })()
   }
 
-  const openNewConnectionDraft = () => {
+  const deleteEnvironmentProfile = (environmentId: string) => {
+    void (async () => {
+      if (editingEnvironmentId === environmentId) {
+        setEditingEnvironmentId(undefined)
+      }
+      await actions.deleteEnvironment(environmentId)
+    })()
+  }
+
+  const openNewConnectionDraft = (parentId?: string) => {
+    setEditingEnvironmentId(undefined)
     const environmentId =
       snapshot.ui.activeEnvironmentId ||
       activeEnvironment?.id ||
@@ -869,9 +938,10 @@ function DesktopWorkspace() {
             environmentIds: [],
           },
     )
+    setConnectionDraftParentId(parentId)
     void actions.updateUiState({
-      activeActivity: 'connections',
-      activeSidebarPane: 'connections',
+      activeActivity: 'library',
+      activeSidebarPane: 'library',
       sidebarCollapsed: false,
       rightDrawer: 'connection',
     })
@@ -913,11 +983,12 @@ function DesktopWorkspace() {
 
   const openConnectionExplorer = (connectionId: string) => {
     setConnectionDraft(undefined)
+    setEditingEnvironmentId(undefined)
     void (async () => {
       await actions.createExplorerTab(connectionId)
       await actions.updateUiState({
-        activeActivity: 'connections',
-        activeSidebarPane: 'connections',
+        activeActivity: 'library',
+        activeSidebarPane: 'library',
         explorerView: 'structure',
         sidebarCollapsed: false,
         rightDrawer: 'none',
@@ -931,11 +1002,12 @@ function DesktopWorkspace() {
       snapshot.ui.activeEnvironmentId || connection?.environmentIds[0] || activeEnvironment?.id
 
     setConnectionDraft(undefined)
+    setEditingEnvironmentId(undefined)
     void (async () => {
       await actions.createMetricsTab(connectionId, environmentId)
       await actions.updateUiState({
-        activeActivity: 'connections',
-        activeSidebarPane: 'connections',
+        activeActivity: 'library',
+        activeSidebarPane: 'library',
         sidebarCollapsed: false,
         rightDrawer: 'none',
       })
@@ -967,6 +1039,7 @@ function DesktopWorkspace() {
     }
 
     setConnectionDraft(undefined)
+    setEditingEnvironmentId(undefined)
     void (async () => {
       await actions.createTab(connectionId)
       await actions.updateUiState({
@@ -981,6 +1054,7 @@ function DesktopWorkspace() {
       snapshot.connections.find((connection) => connection.id === connectionId)?.environmentIds[0]
 
     setConnectionDraft(undefined)
+    setEditingEnvironmentId(undefined)
     void (async () => {
       await actions.createScopedTab({
         connectionId,
@@ -1007,8 +1081,8 @@ function DesktopWorkspace() {
         templateId,
       })
       await actions.updateUiState({
-        activeActivity: 'tests',
-        activeSidebarPane: 'tests',
+        activeActivity: 'library',
+        activeSidebarPane: 'library',
         bottomPanelVisible: true,
         rightDrawer: 'none',
         sidebarCollapsed: false,
@@ -1032,8 +1106,8 @@ function DesktopWorkspace() {
             const tabId = pendingTabClose.tab.id
             const remainingTabIds = pendingTabClose.remainingTabIds
             setPendingTabClose(undefined)
-            void actions
-              .saveAndCloseTab(tabId)
+            void flushQueryTabDrafts(tabId)
+              .then(() => actions.saveAndCloseTab(tabId))
               .then(() => continuePendingTabClose(remainingTabIds))
           }}
         />
@@ -1047,19 +1121,21 @@ function DesktopWorkspace() {
           onSaveLocal={() => {
             const tabId = pendingSaveTab.id
             setPendingSaveTabId(undefined)
-            void actions.saveQueryTabToLocalFile({ tabId })
+            void flushQueryTabDrafts(tabId).then(() => actions.saveQueryTabToLocalFile({ tabId }))
           }}
           onSaveToLibrary={(request) => {
             const tabId = pendingSaveTab.id
             setPendingSaveTabId(undefined)
-            void actions.saveQueryTabToLibrary({
-              tabId,
-              itemId: request.itemId,
-              folderId: request.folderId,
-              name: request.name,
-              kind: inferLibraryItemKindForTab(pendingSaveTab),
-              tags: [],
-            })
+            void flushQueryTabDrafts(tabId).then(() =>
+              actions.saveQueryTabToLibrary({
+                tabId,
+                itemId: request.itemId,
+                folderId: request.folderId,
+                name: request.name,
+                kind: inferLibraryItemKindForTab(pendingSaveTab),
+                tags: [],
+              }),
+            )
           }}
         />
       ) : null}
@@ -1077,35 +1153,20 @@ function DesktopWorkspace() {
       ) : null}
 
       <div
-        className={`ads-workbench${
-          snapshot.ui.sidebarCollapsed ? ' is-sidebar-collapsed' : ''
-        }`}
+        className={`ads-workbench${snapshot.ui.sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
         style={
           {
             '--sidebar-width': `${snapshot.ui.sidebarWidth}px`,
             '--drawer-width': `${snapshot.ui.rightDrawerWidth}px`,
+            '--results-side-width': `${snapshot.ui.resultsSideWidth ?? 420}px`,
           } as CSSProperties
         }
       >
-        <ActivityBar
-          activeActivity={snapshot.ui.activeActivity}
-          sidebarCollapsed={snapshot.ui.sidebarCollapsed}
-          theme={snapshot.preferences.theme}
-          onToggleSidebar={() =>
-            void actions.updateUiState({
-              sidebarCollapsed: !snapshot.ui.sidebarCollapsed,
-            })
-          }
-          onSelectActivity={setActivity}
-          onToggleTheme={() =>
-            void actions.setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
-          }
-        />
-
         {!snapshot.ui.sidebarCollapsed ? (
           <SideBar
             ui={snapshot.ui}
             width={snapshot.ui.sidebarWidth}
+            theme={snapshot.preferences.theme}
             connections={snapshot.connections}
             adapterManifests={snapshot.adapterManifests}
             environments={snapshot.environments}
@@ -1118,16 +1179,38 @@ function DesktopWorkspace() {
             activeConnectionId={activeConnection?.id ?? ''}
             activeEnvironmentId={activeEnvironment?.id ?? ''}
             onSelectConnection={(connectionId) => void actions.selectConnection(connectionId)}
+            onOpenSettings={openDiagnosticsDrawer}
+            onToggleTheme={() =>
+              void actions.setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+            }
             onSelectEnvironment={(environmentId) =>
               void actions.updateUiState({
                 activeEnvironmentId: environmentId,
-                activeActivity: 'environments',
-                activeSidebarPane: 'environments',
+                activeActivity: 'library',
+                activeSidebarPane: 'library',
                 sidebarCollapsed: false,
               })
             }
             onCreateConnection={openNewConnectionDraft}
             onCreateEnvironment={() => void actions.createEnvironment()}
+            onCloneEnvironment={(environmentId) => {
+              const environment = snapshot.environments.find((item) => item.id === environmentId)
+              if (environment) {
+                cloneEnvironmentProfile(environment)
+              }
+            }}
+            onEditEnvironment={(environmentId) =>
+              void (async () => {
+                setEditingEnvironmentId(environmentId)
+                await actions.updateUiState({
+                  activeEnvironmentId: environmentId,
+                  activeActivity: 'library',
+                  activeSidebarPane: 'library',
+                  sidebarCollapsed: false,
+                })
+              })()
+            }
+            onDeleteEnvironment={deleteEnvironmentProfile}
             onConnectionGroupModeChange={(connectionGroupMode) =>
               void actions.updateUiState({ connectionGroupMode })
             }
@@ -1146,6 +1229,12 @@ function DesktopWorkspace() {
             onOpenConnectionExplorer={openConnectionExplorer}
             onOpenConnectionMetrics={openConnectionMetrics}
             onOpenConnectionDrawer={openConnectionDrawerFor}
+            onTestConnection={(connectionId) => {
+              const connection = snapshot.connections.find((item) => item.id === connectionId)
+              if (connection) {
+                void actions.testConnection(connection, activeEnvironment?.id ?? '', undefined)
+              }
+            }}
             onLoadExplorerScope={loadConnectionExplorerScope}
             onOpenScopedQuery={openScopedQuery}
             onCreateTab={(connectionId) => openQueryTab(connectionId ?? activeConnection?.id)}
@@ -1180,10 +1269,35 @@ function DesktopWorkspace() {
                 sidebarWidth: width,
               })
             }
+            onCollapseSidebar={() =>
+              void actions.updateUiState({
+                sidebarCollapsed: true,
+              })
+            }
           />
         ) : null}
 
-        <div className="workbench-center">
+        {snapshot.ui.sidebarCollapsed ? (
+          <div className="collapsed-library-rail" aria-label="Collapsed Library">
+            <button
+              type="button"
+              className="show-library-button"
+              aria-label="Show Library"
+              title="Show Library"
+              onClick={() =>
+                void actions.updateUiState({
+                  sidebarCollapsed: false,
+                  activeActivity: 'library',
+                  activeSidebarPane: 'library',
+                })
+              }
+            >
+              <SavedWorkIcon className="panel-inline-icon" />
+            </button>
+          </div>
+        ) : null}
+
+        <div className={`workbench-center${resultsDockRight && shouldShowBottomPanel ? ' has-right-results' : ''}`}>
           <main className="editor-workspace">
             {showingEnvironmentWorkspace ? (
               <EnvironmentWorkspace
@@ -1245,9 +1359,9 @@ function DesktopWorkspace() {
                     tab={activeTab}
                     connection={activeConnection}
                     resolvedTheme={resolvedTheme}
-                    testWindowMode={queryWindowMode}
+                    testWindowMode={testWindowMode}
                     executionStatus={executionStatus}
-                    onModeChange={setQueryWindowMode}
+                    onModeChange={setTestWindowMode}
                     onRunSuite={() =>
                       void actions.executeTestSuite({
                         tabId: activeTab.id,
@@ -1281,6 +1395,7 @@ function DesktopWorkspace() {
                       capabilities={runtimeCapabilities}
                       canCancelExecution={canCancelExecution}
                       bottomPanelVisible={snapshot.ui.bottomPanelVisible}
+                      resultsDock={resultsDock}
                       onExecute={() => runCurrentTabQuery()}
                       onExplain={() => runCurrentTabQuery('explain')}
                       onCancel={() =>
@@ -1291,8 +1406,22 @@ function DesktopWorkspace() {
                       onOpenConnectionDrawer={openConnectionDrawer}
                       canToggleBuilderView={hasBuilderQuery}
                       builderKind={activeBuilderKind}
-                      queryWindowMode={queryWindowMode}
-                      onToggleQueryWindowMode={setQueryWindowMode}
+                      queryWindowMode={activeQueryWindowMode}
+                      onToggleQueryWindowMode={(mode) => {
+                        setQueryWindowMode(mode)
+                        if (activeTab) {
+                          const modeText =
+                            mode === 'script'
+                              ? scriptTextDraftRef.current[activeTab.id] ??
+                                activeTab.scriptText ??
+                                (activeConnection
+                                  ? defaultScriptTextForConnection(activeConnection)
+                                  : '') ??
+                                ''
+                              : resolveQueryText(activeTab)
+                          void actions.updateQuery(activeTab.id, modeText, mode)
+                        }
+                      }}
                       executeLabel={activeTabUsesRedisConsole ? 'Run Command' : undefined}
                       executeAriaLabel={
                         activeTabUsesRedisConsole ? 'Run Redis command' : undefined
@@ -1301,13 +1430,19 @@ function DesktopWorkspace() {
                         activeTabUsesRedisConsole
                           ? activeRedisConsoleVisible
                             ? 'Run the current Redis command. Shortcut: Ctrl+Enter.'
-                            : 'Switch to Redis Console or Key Browser + Console to run a command. Use the browser toolbar to scan keys.'
+                            : 'Switch to Redis Console to run a command. Use the browser toolbar to scan keys.'
                           : undefined
                       }
                       executeDisabled={activeTabUsesRedisConsole && !activeRedisConsoleVisible}
                       onToggleBottomPanel={() =>
                         void actions.updateUiState({
                           bottomPanelVisible: !snapshot.ui.bottomPanelVisible,
+                        })
+                      }
+                      onToggleResultsDock={() =>
+                        void actions.updateUiState({
+                          bottomPanelVisible: true,
+                          resultsDock: resultsDockRight ? 'bottom' : 'right',
                         })
                       }
                     />
@@ -1322,7 +1457,7 @@ function DesktopWorkspace() {
                         className={`editor-query-layout query-layout--${activeQueryWindowMode}`}
                         role="presentation"
                       >
-                        {hasBuilderQuery && activeQueryWindowMode !== 'raw' ? (
+                        {hasBuilderQuery && activeQueryWindowMode === 'builder' ? (
                           <QueryBuilderPanel
                             connection={activeConnection}
                             tab={activeTab}
@@ -1335,7 +1470,7 @@ function DesktopWorkspace() {
                             onInspectRedisKey={actions.inspectRedisKey}
                           />
                         ) : null}
-                        {!hasBuilderQuery || activeQueryWindowMode !== 'builder' ? (
+                        {activeQueryWindowMode !== 'builder' ? (
                           activeRedisConsoleVisible ? (
                             <RedisConsoleEditor
                               value={activeEditorQueryText ?? 'PING'}
@@ -1350,6 +1485,21 @@ function DesktopWorkspace() {
                                 void actions.updateQuery(activeTab.id, value)
                               }}
                             />
+                          ) : activeQueryWindowMode === 'script' ? (
+                            <DesktopCodeEditor
+                              value={activeEditorQueryText ?? ''}
+                              language="javascript"
+                              theme={resolvedTheme}
+                              ariaLabel="MongoDB script editor"
+                              completionContext={completionContext}
+                              completionProviders={completionProviders}
+                              onRequestCompletionRefresh={requestIntellisenseRefresh}
+                              onChange={(value) => {
+                                const nextScriptText = value ?? ''
+                                scriptTextDraftRef.current[activeTab.id] = nextScriptText
+                                void actions.updateQuery(activeTab.id, nextScriptText, 'script')
+                              }}
+                            />
                           ) : (
                             <DesktopCodeEditor
                               value={activeEditorQueryText ?? activeTab.queryText}
@@ -1361,22 +1511,7 @@ function DesktopWorkspace() {
                               onChange={(value) => {
                                 const nextQueryText = value ?? ''
                                 queryTextDraftRef.current[activeTab.id] = nextQueryText
-                                if (
-                                  activeBuilderState &&
-                                  activeQueryWindowMode === 'both'
-                                ) {
-                                  const parsedBuilderState = parseBuilderStateFromQueryText(
-                                    nextQueryText,
-                                    activeBuilderState,
-                                    activeConnection,
-                                  )
-
-                                  if (parsedBuilderState) {
-                                    persistBuilderState(activeTab.id, parsedBuilderState)
-                                    return
-                                  }
-                                }
-                                void actions.updateQuery(activeTab.id, nextQueryText)
+                                void actions.updateQuery(activeTab.id, nextQueryText, 'raw')
                               }}
                               onDropField={(fieldPath) => {
                                 const nextQueryText = appendFieldToQueryText(
@@ -1409,7 +1544,9 @@ function DesktopWorkspace() {
               activeConnection={activeConnection}
               activeEnvironment={activeEnvironment}
               activePanelTab={snapshot.ui.activeBottomPanelTab}
+              dock={resultsDock}
               height={snapshot.ui.bottomPanelHeight}
+              sideWidth={snapshot.ui.resultsSideWidth ?? 420}
               activePayload={activePayload}
               activeRenderer={activeRenderer}
               diagnostics={diagnostics}
@@ -1434,10 +1571,12 @@ function DesktopWorkspace() {
                   ? void actions.fetchResultPage(activeTab.id, activeRenderer)
                   : undefined
               }
-              onResize={(nextHeight) =>
-                void actions.updateUiState({
-                  bottomPanelHeight: nextHeight,
-                })
+              onResize={(nextSize) =>
+                void actions.updateUiState(
+                  resultsDockRight
+                    ? { resultsSideWidth: nextSize }
+                    : { bottomPanelHeight: nextSize },
+                )
               }
               onClose={() =>
                 void actions.updateUiState({
@@ -1574,53 +1713,37 @@ function buildQueryTextForBuilderState(
 
 function defaultQueryWindowModeForBuilderKind(
   builderKind: QueryBuilderState['kind'],
-): 'both' | 'builder' | 'raw' {
-  if (builderKind === 'sql-select') {
+): QueryViewMode {
+  return builderKind ? 'builder' : 'raw'
+}
+
+function normalizeQueryWindowMode(
+  queryViewMode: QueryViewMode | 'both' | undefined,
+  builderKind: QueryBuilderState['kind'] | undefined,
+  connection: ConnectionProfile | undefined,
+): QueryViewMode {
+  if (queryViewMode === 'script' && connection?.engine === 'mongodb') {
+    return 'script'
+  }
+
+  if (queryViewMode === 'raw') {
     return 'raw'
   }
 
-  if (builderKind === 'redis-key-browser') {
-    return 'builder'
+  if (queryViewMode === 'builder' || queryViewMode === 'both') {
+    return builderKind ? 'builder' : 'raw'
   }
 
-  return 'both'
-}
-
-function parseBuilderStateFromQueryText(
-  queryText: string,
-  currentBuilderState: QueryBuilderState,
-  connection: ConnectionProfile | undefined,
-) {
-  if (isMongoFindBuilderState(currentBuilderState)) {
-    return parseMongoFindQueryText(queryText)
-  }
-
-  if (connection && isSqlSelectBuilderState(currentBuilderState)) {
-    return parseSqlSelectQueryText(queryText, connection.engine)
-  }
-
-  if (isDynamoDbKeyConditionBuilderState(currentBuilderState)) {
-    return parseDynamoDbKeyConditionQueryText(queryText)
-  }
-
-  if (isCqlPartitionBuilderState(currentBuilderState)) {
-    return parseCqlPartitionQueryText(queryText)
-  }
-
-  if (isSearchDslBuilderState(currentBuilderState)) {
-    return parseSearchDslQueryText(queryText)
-  }
-
-  if (isRedisKeyBrowserState(currentBuilderState)) {
-    return parseRedisKeyBrowserQueryText(queryText)
-  }
-
-  return undefined
+  return builderKind ? defaultQueryWindowModeForBuilderKind(builderKind) : 'raw'
 }
 
 function inferLibraryItemKindForTab(tab: QueryTabState): LibraryItemKind {
   if (tab.tabKind === 'test-suite' || tab.testSuite) {
     return 'test-suite'
+  }
+
+  if (tab.queryViewMode === 'script') {
+    return 'script'
   }
 
   if (/\.(ps1|sh|bash|bat|cmd|js|ts|py)$/i.test(tab.title)) {

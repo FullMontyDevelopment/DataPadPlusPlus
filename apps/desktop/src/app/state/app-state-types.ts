@@ -35,6 +35,7 @@ import type {
   OperationManifestResponse,
   OperationPlanRequest,
   OperationPlanResponse,
+  QueryViewMode,
   RedisKeyInspectRequest,
   RedisKeyScanRequest,
   RedisKeyScanResponse,
@@ -96,7 +97,8 @@ export type AppAction =
   | { type: 'STRUCTURE_LOADING' }
   | { type: 'STRUCTURE_READY'; structure: StructureResponse }
   | { type: 'STRUCTURE_ERROR'; message: string }
-  | { type: 'EXECUTION_LOADING' }
+  | { type: 'EXECUTION_LOADING'; tabId?: string }
+  | { type: 'EXECUTION_FAILED'; tabId?: string; message: string }
   | { type: 'EXECUTION_READY'; execution: ExecutionResponse; request: ExecutionRequest }
   | { type: 'RESULT_PAGE_READY'; page: ResultPageResponse }
   | { type: 'BOOTSTRAP_ERROR'; message: string }
@@ -113,9 +115,10 @@ export interface Actions {
   createConnection(): Promise<void>
   duplicateConnection(connectionId: string): Promise<void>
   deleteConnection(connectionId: string): Promise<void>
-  saveConnection(profile: ConnectionProfile, secret?: string): Promise<void>
+  saveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
   createEnvironment(): Promise<void>
   saveEnvironment(profile: EnvironmentProfile): Promise<void>
+  deleteEnvironment(environmentId: string): Promise<void>
   createTab(connectionId: string): Promise<void>
   createExplorerTab(connectionId: string): Promise<void>
   createMetricsTab(connectionId: string, environmentId?: string): Promise<void>
@@ -125,7 +128,11 @@ export interface Actions {
   closeTab(tabId: string): Promise<void>
   reopenClosedTab(closedTabId: string): Promise<void>
   reorderTabs(orderedTabIds: string[]): Promise<void>
-  updateQuery(tabId: string, queryText: string): Promise<void>
+  updateQuery(
+    tabId: string,
+    queryText: string,
+    queryViewMode?: QueryViewMode,
+  ): Promise<void>
   updateQueryBuilderState(request: UpdateQueryBuilderStateRequest): Promise<void>
   updateTestSuiteTab(request: UpdateTestSuiteTabRequest): Promise<void>
   renameTab(tabId: string, title: string): Promise<void>
@@ -158,6 +165,8 @@ export interface Actions {
     mode?: ExecutionRequest['mode'],
     confirmedGuardrailId?: string,
     overrideQueryText?: string,
+    executionInputMode?: ExecutionRequest['executionInputMode'],
+    scriptText?: string,
   ): Promise<void>
   executeTestSuite(request: ExecuteTestSuiteRequest): Promise<ExecuteTestSuiteResponse | undefined>
   cancelTestRun(

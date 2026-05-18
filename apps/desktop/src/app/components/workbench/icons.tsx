@@ -1,13 +1,20 @@
 import type { ComponentType, SVGProps } from 'react'
 import {
   AlertTriangle,
+  Activity,
   ArrowDownToLine,
   ArrowLeft,
   ArrowRight,
   ArrowUpToLine,
+  Archive,
+  Asterisk,
+  Binary,
   BookMarked,
+  Box,
   Boxes,
   Braces,
+  Brackets,
+  ChartLine,
   ChevronDown,
   ChevronRight,
   CircleStop,
@@ -16,30 +23,51 @@ import {
   Copy,
   Database,
   Download,
+  FileCode2,
+  FileJson,
   FilePlus2,
   FlaskConical,
+  Folder,
   FolderTree,
   Gauge,
+  GitBranch,
+  Hash,
   History,
+  HardDrive,
   KeyRound,
   Layers3,
+  List,
+  LockKeyhole,
+  MemoryStick,
   Moon,
   MoreVertical,
+  Network,
   Palette,
   PanelBottom,
   PencilLine,
   Play,
   RefreshCw,
+  Route,
   Save,
   Search,
   Server,
+  ServerCog,
   Settings,
   ShieldCheck,
+  Shield,
+  Sigma,
+  SquareFunction,
+  SquareStack,
   Star,
   Sun,
   Table2,
   Terminal,
   Trash2,
+  UserRound,
+  View,
+  Waypoints,
+  Webhook,
+  Workflow,
   X,
 } from 'lucide-react'
 import type { LucideProps } from 'lucide-react'
@@ -71,7 +99,46 @@ export const StopIcon = adapt(CircleStop)
 export const RefreshIcon = adapt(RefreshCw)
 export const CloseIcon = adapt(X)
 export const PlusIcon = adapt(FilePlus2)
+export const QueryIcon = adapt(FileCode2)
 export const DatabaseIcon = adapt(Database)
+export const ObjectDatabaseIcon = adapt(Database)
+export const ObjectSchemaIcon = adapt(FolderTree)
+export const ObjectFolderIcon = adapt(Folder)
+export const ObjectTableIcon = adapt(Table2)
+export const ObjectViewIcon = adapt(View)
+export const ObjectColumnIcon = adapt(Columns3)
+export const ObjectIndexIcon = adapt(Hash)
+export const ObjectConstraintIcon = adapt(Shield)
+export const ObjectFunctionIcon = adapt(SquareFunction)
+export const ObjectProcedureIcon = adapt(Workflow)
+export const ObjectTriggerIcon = adapt(Webhook)
+export const ObjectDocumentIcon = adapt(FileJson)
+export const ObjectCollectionIcon = adapt(Braces)
+export const ObjectKeyIcon = adapt(KeyRound)
+export const ObjectPrefixIcon = adapt(Folder)
+export const ObjectHashIcon = adapt(Hash)
+export const ObjectListIcon = adapt(List)
+export const ObjectSetIcon = adapt(SquareStack)
+export const ObjectStreamIcon = adapt(Route)
+export const ObjectSearchIcon = adapt(Search)
+export const ObjectMappingIcon = adapt(Brackets)
+export const ObjectGraphIcon = adapt(Network)
+export const ObjectRelationshipIcon = adapt(GitBranch)
+export const ObjectMetricIcon = adapt(ChartLine)
+export const ObjectSeriesIcon = adapt(Activity)
+export const ObjectBucketIcon = adapt(Archive)
+export const ObjectJobIcon = adapt(Clock)
+export const ObjectRoleIcon = adapt(UserRound)
+export const ObjectSecurityIcon = adapt(LockKeyhole)
+export const ObjectStageIcon = adapt(Box)
+export const ObjectWarehouseIcon = adapt(HardDrive)
+export const ObjectServerIcon = adapt(ServerCog)
+export const ObjectPackageIcon = adapt(Boxes)
+export const ObjectTypeIcon = adapt(Sigma)
+export const ObjectPartitionIcon = adapt(Waypoints)
+export const ObjectBinaryIcon = adapt(Binary)
+export const ObjectMemoryIcon = adapt(MemoryStick)
+export const ObjectGenericIcon = adapt(Asterisk)
 export const WarningIcon = adapt(AlertTriangle)
 export const ArrowLeftIcon = adapt(ArrowLeft)
 export const ArrowRightIcon = adapt(ArrowRight)

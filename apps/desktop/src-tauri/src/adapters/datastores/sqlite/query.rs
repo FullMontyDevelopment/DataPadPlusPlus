@@ -113,6 +113,8 @@ mod tests {
                     environment_id: "env-dev".into(),
                     language: "sql".into(),
                     query_text: "select * from accounts;".into(),
+                    execution_input_mode: None,
+                    script_text: None,
                     selected_text: None,
                     mode: None,
                     row_limit: Some(20),

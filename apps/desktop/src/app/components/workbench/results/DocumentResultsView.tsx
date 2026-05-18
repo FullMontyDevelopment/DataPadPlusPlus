@@ -10,22 +10,27 @@ import type {
 import { ClockIcon } from '../icons'
 import { DocumentContextMenu } from './document-context-menu'
 import type { DocumentEditContext } from './document-edit-context'
+import { DocumentFieldInspector } from './DocumentFieldInspector'
 import {
   buildDocumentEditRequest,
   pathSegments,
   valueTypeName,
 } from './document-edit-requests'
 import { DocumentGridRowView } from './DocumentGridRowView'
+import { DocumentVirtualGridRows } from './DocumentVirtualGridRows'
 import { documentResultBehaviorForConnection } from './datastore-result-behaviors'
 import { editablePermissions } from './document-edit-permissions'
 import {
   buildRows,
   collectExpandableRowIds,
+  coerceValue,
   deleteValueAtPath,
   renameFieldAtPath,
   setValueAtPath,
   type DocumentGridRow,
+  type DocumentValueType,
 } from './document-grid-model'
+import { searchDocumentRows } from './document-grid-search'
 import { copyText } from './payload-export'
 import { formatDurationClock } from './result-runtime'
 
@@ -36,7 +41,6 @@ interface DocumentResultsViewProps {
   footerControls?: ReactNode
   resultDurationMs?: number
   resultSummary?: string
-  totalDocumentCount?: number
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -50,6 +54,8 @@ interface ContextMenuState {
 
 type DocumentEditCell = 'field' | 'type' | 'value'
 
+const DOCUMENT_SEARCH_DEBOUNCE_MS = 180
+
 interface ActiveEditorState {
   rowId: string
   cell: DocumentEditCell
@@ -62,7 +68,6 @@ export function DocumentResultsView({
   footerControls,
   resultDurationMs,
   resultSummary,
-  totalDocumentCount,
   onExecuteDataEdit,
 }: DocumentResultsViewProps) {
   const behavior = documentResultBehaviorForConnection(connection)
@@ -74,16 +79,58 @@ export function DocumentResultsView({
   const [copyMessage, setCopyMessage] = useState('')
   const [contextMenu, setContextMenu] = useState<ContextMenuState>()
   const [activeEditor, setActiveEditor] = useState<ActiveEditorState>()
+  const [searchInput, setSearchInput] = useState('')
+  const [searchText, setSearchText] = useState('')
+  const [inspectorRowId, setInspectorRowId] = useState<string>()
   const draftDocuments = draftState.source === documents ? draftState.documents : documents
   const effectiveActiveEditor = draftState.source === documents ? activeEditor : undefined
   const copyTimer = useRef<number | undefined>(undefined)
-  const rows = useMemo(
-    () => buildRows(draftDocuments, expandedRows),
-    [draftDocuments, expandedRows],
+  const searchPending = searchInput.trim() !== searchText.trim()
+  const searchResult = useMemo(
+    () => searchDocumentRows(draftDocuments, searchText),
+    [draftDocuments, searchText],
   )
+  const hasSearch = searchText.trim().length > 0
+  const effectiveExpandedRows = useMemo(() => {
+    if (!hasSearch) {
+      return expandedRows
+    }
+
+    return new Set([...expandedRows, ...searchResult.expandedRowIds])
+  }, [expandedRows, hasSearch, searchResult.expandedRowIds])
+  const rows = useMemo(
+    () => buildRows(draftDocuments, effectiveExpandedRows),
+    [draftDocuments, effectiveExpandedRows],
+  )
+  const visibleRows = useMemo(
+    () => (hasSearch ? rows.filter((row) => searchResult.visibleRowIds.has(row.id)) : rows),
+    [hasSearch, rows, searchResult.visibleRowIds],
+  )
+  const inspectorVisibleRow = inspectorRowId
+    ? rows.find((row) => row.id === inspectorRowId)
+    : undefined
+  const inspectorFallbackRows = useMemo(
+    () =>
+      inspectorRowId && !inspectorVisibleRow
+        ? buildRows(draftDocuments, new Set(collectExpandableRowIds(draftDocuments)))
+        : [],
+    [draftDocuments, inspectorRowId, inspectorVisibleRow],
+  )
+  const inspectorRow =
+    inspectorVisibleRow ??
+    (inspectorRowId
+      ? inspectorFallbackRows.find((row) => row.id === inspectorRowId)
+      : undefined)
+  const inspectorDocument =
+    inspectorRow && draftDocuments[inspectorRow.documentIndex]
+      ? draftDocuments[inspectorRow.documentIndex]
+      : undefined
+  const inspectorPermissions = inspectorRow
+    ? editablePermissions(inspectorRow, behavior)
+    : undefined
   const documentCountLabel = documentCountText(
     resultSummary,
-    totalDocumentCount ?? draftDocuments.length,
+    draftDocuments.length,
   )
 
   useEffect(() => {
@@ -93,6 +140,14 @@ export function DocumentResultsView({
       }
     }
   }, [])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearchText(searchInput)
+    }, DOCUMENT_SEARCH_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timeout)
+  }, [searchInput])
 
   useEffect(() => {
     if (!contextMenu) {
@@ -292,6 +347,7 @@ export function DocumentResultsView({
     }
 
     stopEditing()
+    setInspectorRowId(undefined)
     applyDocumentEdit(
       row,
       'unset-field',
@@ -308,51 +364,79 @@ export function DocumentResultsView({
     )
   }
 
+  const changeRowType = (row: DocumentGridRow, nextType: DocumentValueType) => {
+    updateRowValue(row, coerceValue(row.value, nextType), 'change-field-type')
+  }
+
+  const renderDocumentRow = (row: DocumentGridRow) => (
+      <DocumentGridRowView
+        key={row.id}
+        row={row}
+        expanded={effectiveExpandedRows.has(row.id)}
+        matched={hasSearch && searchResult.matchedRowIds.has(row.id)}
+        editingCell={
+          effectiveActiveEditor?.rowId === row.id ? effectiveActiveEditor.cell : undefined
+        }
+        onBeginEditing={beginEditing}
+        onCancelScheduledCopy={cancelScheduledCopy}
+        onContextMenu={(selectedRow, x, y) => setContextMenu({ x, y, row: selectedRow })}
+        onRenameField={renameRowField}
+        onScheduleCopyValue={scheduleCopyValue}
+        onStopEditing={stopEditing}
+        onToggleRow={toggleRow}
+        onUpdateValue={updateRowValue}
+      />
+    )
+
   if (documents.length === 0) {
     return <p className="panel-footnote">No documents returned.</p>
   }
 
   return (
     <div className="document-data-grid-shell" aria-label="Document results">
-      <div className="document-data-grid" role="treegrid" aria-label="Document result table">
-        <div className="document-data-grid-row document-data-grid-row--header" role="row">
-          <div className="document-data-grid-cell document-data-grid-cell--id" role="columnheader">
-            key / _id
-          </div>
-          <div className="document-data-grid-cell document-data-grid-cell--type" role="columnheader">
-            type
-          </div>
-          <div className="document-data-grid-cell document-data-grid-cell--value" role="columnheader">
-            value
-          </div>
-        </div>
-        {rows.map((row) => (
-          <DocumentGridRowView
-            key={row.id}
-            row={row}
-            expanded={expandedRows.has(row.id)}
-            editingCell={
-              effectiveActiveEditor?.rowId === row.id ? effectiveActiveEditor.cell : undefined
-            }
-            onBeginEditing={beginEditing}
-            onCancelScheduledCopy={cancelScheduledCopy}
-            onContextMenu={(selectedRow, x, y) => setContextMenu({ x, y, row: selectedRow })}
-            onRenameField={renameRowField}
-            onScheduleCopyValue={scheduleCopyValue}
-            onStopEditing={stopEditing}
-            onToggleRow={toggleRow}
-            onUpdateValue={updateRowValue}
+      <div className="document-data-grid-toolbar">
+        <label className="document-results-search">
+          <span>Search loaded documents</span>
+          <input
+            aria-label="Search loaded documents"
+            placeholder="Search loaded documents"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
           />
-        ))}
+        </label>
+        {searchPending ? (
+          <span className="document-results-search-count">Searching...</span>
+        ) : hasSearch ? (
+          <span className="document-results-search-count">
+            {searchResult.matchCount} match(es)
+          </span>
+        ) : null}
+        <button type="button" className="drawer-button" onClick={expandAll}>
+          Expand All
+        </button>
+        <button type="button" className="drawer-button" onClick={collapseAll}>
+          Collapse All
+        </button>
+      </div>
+      <div className={`document-results-content${inspectorRow && inspectorDocument ? ' has-inspector' : ''}`}>
+        <div className="document-data-grid-frame">
+          <DocumentVirtualGridRows rows={visibleRows} renderRow={renderDocumentRow} />
+          {hasSearch && visibleRows.length === 0 ? (
+            <p className="document-results-empty-search">No loaded documents match this search.</p>
+          ) : null}
+        </div>
+        {inspectorRow && inspectorDocument ? (
+          <DocumentFieldInspector
+            canChangeType={Boolean(inspectorPermissions?.canChangeType)}
+            document={inspectorDocument}
+            row={inspectorRow}
+            onChangeType={changeRowType}
+            onClose={() => setInspectorRowId(undefined)}
+          />
+        ) : null}
       </div>
       <div className="document-data-grid-footer">
         <div className="document-data-grid-footer-left">
-          <button type="button" className="drawer-button" onClick={expandAll}>
-            Expand All
-          </button>
-          <button type="button" className="drawer-button" onClick={collapseAll}>
-            Collapse All
-          </button>
           {footerControls}
           {copyMessage ? <span>{copyMessage}</span> : null}
         </div>
@@ -383,6 +467,7 @@ export function DocumentResultsView({
           onRename={() => {
             beginEditing(contextMenu.row, 'field')
           }}
+          onViewRawJson={() => setInspectorRowId(contextMenu.row.id)}
         />
       ) : null}
     </div>
@@ -390,6 +475,6 @@ export function DocumentResultsView({
 }
 
 function documentCountText(summary: string | undefined, fallbackCount: number) {
-  const count = summary?.match(/^\s*(\d+)/)?.[1] ?? String(fallbackCount)
-  return `${count} documents(s)`
+  const count = fallbackCount || Number(summary?.match(/^\s*(\d+)/)?.[1] ?? 0)
+  return `${count} document(s) loaded`
 }

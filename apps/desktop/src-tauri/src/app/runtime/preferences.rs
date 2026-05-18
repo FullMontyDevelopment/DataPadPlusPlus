@@ -5,9 +5,9 @@ use crate::domain::{
 };
 
 use super::ui::{
-    clamp_bottom_panel_height, clamp_right_drawer_width, clamp_sidebar_width, is_activity,
-    is_bottom_panel_tab, is_connection_group_mode, is_explorer_view, is_right_drawer,
-    is_sidebar_pane,
+    clamp_bottom_panel_height, clamp_results_side_width, clamp_right_drawer_width,
+    clamp_sidebar_width, is_activity, is_bottom_panel_tab, is_connection_group_mode,
+    is_explorer_view, is_results_dock, is_right_drawer, is_sidebar_pane,
 };
 
 impl ManagedAppState {
@@ -35,7 +35,7 @@ impl ManagedAppState {
         }
 
         if let Some(active_activity) = patch.active_activity.filter(|value| is_activity(value)) {
-            self.snapshot.ui.active_activity = active_activity;
+            self.snapshot.ui.active_activity = normalize_primary_sidebar_value(active_activity);
         }
 
         if let Some(sidebar_collapsed) = patch.sidebar_collapsed {
@@ -46,7 +46,8 @@ impl ManagedAppState {
             .active_sidebar_pane
             .filter(|value| is_sidebar_pane(value))
         {
-            self.snapshot.ui.active_sidebar_pane = active_sidebar_pane;
+            self.snapshot.ui.active_sidebar_pane =
+                normalize_primary_sidebar_value(active_sidebar_pane);
         }
 
         if let Some(sidebar_width) = patch.sidebar_width {
@@ -87,6 +88,14 @@ impl ManagedAppState {
             self.snapshot.ui.bottom_panel_height = clamp_bottom_panel_height(bottom_panel_height);
         }
 
+        if let Some(results_dock) = patch.results_dock.filter(|value| is_results_dock(value)) {
+            self.snapshot.ui.results_dock = results_dock;
+        }
+
+        if let Some(results_side_width) = patch.results_side_width {
+            self.snapshot.ui.results_side_width = clamp_results_side_width(results_side_width);
+        }
+
         if let Some(right_drawer) = patch.right_drawer.filter(|value| is_right_drawer(value)) {
             self.snapshot.ui.right_drawer = right_drawer;
         }
@@ -110,5 +119,16 @@ impl ManagedAppState {
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;
         Ok(self.bootstrap_payload())
+    }
+}
+
+fn normalize_primary_sidebar_value(value: String) -> String {
+    if matches!(
+        value.as_str(),
+        "connections" | "environments" | "tests" | "saved-work" | "search"
+    ) {
+        "library".into()
+    } else {
+        value
     }
 }

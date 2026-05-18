@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use super::library::effective_connection_environment_id;
 use super::query_tabs::{
     build_explorer_tab, build_metrics_tab, build_query_tab, build_scoped_query_tab,
     next_query_tab_title, normalize_tab_title, query_tab_title_parts,
@@ -82,7 +83,9 @@ impl ManagedAppState {
             .cloned()
             .ok_or_else(|| CommandError::new("connection-missing", "Connection was not found."))?;
         let title = next_query_tab_title(&self.snapshot, &connection);
-        let tab = build_query_tab(&connection, true, title);
+        let mut tab = build_query_tab(&connection, true, title);
+        tab.environment_id =
+            effective_connection_environment_id(&self.snapshot, &connection.id, None);
         self.snapshot.tabs.push(tab.clone());
         focus_query_tab(&mut self.snapshot.ui, &tab);
         self.snapshot.updated_at = timestamp_now();
@@ -112,8 +115,8 @@ impl ManagedAppState {
             .cloned()
         {
             focus_query_tab(&mut self.snapshot.ui, &existing_tab);
-            self.snapshot.ui.active_activity = "connections".into();
-            self.snapshot.ui.active_sidebar_pane = "connections".into();
+            self.snapshot.ui.active_activity = "library".into();
+            self.snapshot.ui.active_sidebar_pane = "library".into();
             self.snapshot.ui.explorer_view = "structure".into();
             self.snapshot.ui.right_drawer = "none".into();
             self.snapshot.updated_at = timestamp_now();
@@ -125,8 +128,8 @@ impl ManagedAppState {
 
         self.snapshot.tabs.push(tab.clone());
         focus_query_tab(&mut self.snapshot.ui, &tab);
-        self.snapshot.ui.active_activity = "connections".into();
-        self.snapshot.ui.active_sidebar_pane = "connections".into();
+        self.snapshot.ui.active_activity = "library".into();
+        self.snapshot.ui.active_sidebar_pane = "library".into();
         self.snapshot.ui.explorer_view = "structure".into();
         self.snapshot.ui.right_drawer = "none".into();
         self.snapshot.updated_at = timestamp_now();
@@ -146,9 +149,8 @@ impl ManagedAppState {
             .find(|item| item.id == connection_id)
             .cloned()
             .ok_or_else(|| CommandError::new("connection-missing", "Connection was not found."))?;
-        let environment_id = environment_id
-            .or_else(|| connection.environment_ids.first().cloned())
-            .unwrap_or_else(|| "env-dev".into());
+        let environment_id =
+            effective_connection_environment_id(&self.snapshot, &connection.id, environment_id);
 
         if let Some(existing_tab) = self
             .snapshot
@@ -162,8 +164,8 @@ impl ManagedAppState {
             .cloned()
         {
             focus_query_tab(&mut self.snapshot.ui, &existing_tab);
-            self.snapshot.ui.active_activity = "connections".into();
-            self.snapshot.ui.active_sidebar_pane = "connections".into();
+            self.snapshot.ui.active_activity = "library".into();
+            self.snapshot.ui.active_sidebar_pane = "library".into();
             self.snapshot.ui.right_drawer = "none".into();
             self.snapshot.updated_at = timestamp_now();
             self.persist()?;
@@ -174,8 +176,8 @@ impl ManagedAppState {
 
         self.snapshot.tabs.push(tab.clone());
         focus_query_tab(&mut self.snapshot.ui, &tab);
-        self.snapshot.ui.active_activity = "connections".into();
-        self.snapshot.ui.active_sidebar_pane = "connections".into();
+        self.snapshot.ui.active_activity = "library".into();
+        self.snapshot.ui.active_sidebar_pane = "library".into();
         self.snapshot.ui.right_drawer = "none".into();
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;
@@ -210,8 +212,8 @@ impl ManagedAppState {
             .cloned()
         {
             focus_query_tab(&mut self.snapshot.ui, &existing_tab);
-            self.snapshot.ui.active_activity = "connections".into();
-            self.snapshot.ui.active_sidebar_pane = "connections".into();
+            self.snapshot.ui.active_activity = "library".into();
+            self.snapshot.ui.active_sidebar_pane = "library".into();
             self.snapshot.updated_at = timestamp_now();
             self.persist()?;
             return Ok(self.bootstrap_payload());
@@ -221,8 +223,8 @@ impl ManagedAppState {
 
         self.snapshot.tabs.push(tab.clone());
         focus_query_tab(&mut self.snapshot.ui, &tab);
-        self.snapshot.ui.active_activity = "connections".into();
-        self.snapshot.ui.active_sidebar_pane = "connections".into();
+        self.snapshot.ui.active_activity = "library".into();
+        self.snapshot.ui.active_sidebar_pane = "library".into();
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;
         Ok(self.bootstrap_payload())
@@ -325,6 +327,7 @@ impl ManagedAppState {
         &mut self,
         tab_id: &str,
         query_text: &str,
+        query_view_mode: Option<String>,
     ) -> Result<BootstrapPayload, CommandError> {
         let tab = self
             .snapshot
@@ -332,7 +335,14 @@ impl ManagedAppState {
             .iter_mut()
             .find(|item| item.id == tab_id)
             .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
-        tab.query_text = query_text.into();
+        if query_view_mode.as_deref() == Some("script") {
+            tab.script_text = Some(query_text.into());
+        } else {
+            tab.query_text = query_text.into();
+        }
+        if query_view_mode.is_some() {
+            tab.query_view_mode = query_view_mode;
+        }
         tab.dirty = true;
         tab.error = None;
         if tab.result.is_none() {
@@ -358,6 +368,9 @@ impl ManagedAppState {
         tab.builder_state = Some(request.builder_state);
         if let Some(query_text) = request.query_text {
             tab.query_text = query_text;
+        }
+        if let Some(query_view_mode) = request.query_view_mode {
+            tab.query_view_mode = Some(query_view_mode);
         }
         tab.dirty = true;
         tab.error = None;

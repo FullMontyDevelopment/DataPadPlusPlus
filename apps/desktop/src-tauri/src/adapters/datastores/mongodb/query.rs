@@ -12,6 +12,10 @@ pub(super) async fn execute_mongodb_query(
     request: &ExecutionRequest,
     notices: Vec<QueryExecutionNotice>,
 ) -> Result<ExecutionResultEnvelope, CommandError> {
+    if request.execution_input_mode.as_deref() == Some("script") {
+        return super::script::execute_mongodb_script(adapter, connection, request, notices).await;
+    }
+
     let started = Instant::now();
     let client = mongodb_client(connection).await?;
     let mut notices = notices;

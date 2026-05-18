@@ -40,6 +40,10 @@ pub(super) fn is_right_drawer(value: &str) -> bool {
     )
 }
 
+pub(super) fn is_results_dock(value: &str) -> bool {
+    matches!(value, "bottom" | "right")
+}
+
 pub(super) fn clamp_bottom_panel_height(value: u32) -> u32 {
     value.clamp(120, 900)
 }
@@ -50,6 +54,10 @@ pub(super) fn clamp_sidebar_width(value: u32) -> u32 {
 
 pub(super) fn clamp_right_drawer_width(value: u32) -> u32 {
     value.clamp(320, 560)
+}
+
+pub(super) fn clamp_results_side_width(value: u32) -> u32 {
+    value.clamp(320, 2400)
 }
 
 pub(super) fn focus_query_tab(ui: &mut UiState, tab: &QueryTabState) {
@@ -100,19 +108,25 @@ pub(super) fn normalize_ui_state(snapshot: &WorkspaceSnapshot) -> UiState {
                 .cloned()
         })
         .or_else(|| snapshot.environments.first().cloned());
-    let active_activity = if snapshot.ui.active_activity == "saved-work" {
+    let active_activity = if matches!(
+        snapshot.ui.active_activity.as_str(),
+        "connections" | "environments" | "tests" | "saved-work" | "search"
+    ) {
         "library".into()
     } else if is_activity(&snapshot.ui.active_activity) {
         snapshot.ui.active_activity.clone()
     } else {
-        "connections".into()
+        "library".into()
     };
-    let active_sidebar_pane = if snapshot.ui.active_sidebar_pane == "saved-work" {
+    let active_sidebar_pane = if matches!(
+        snapshot.ui.active_sidebar_pane.as_str(),
+        "connections" | "environments" | "tests" | "saved-work" | "search"
+    ) {
         "library".into()
     } else if is_sidebar_pane(&snapshot.ui.active_sidebar_pane) {
         snapshot.ui.active_sidebar_pane.clone()
     } else if active_activity == "settings" {
-        "connections".into()
+        "library".into()
     } else {
         active_activity.clone()
     };
@@ -147,6 +161,12 @@ pub(super) fn normalize_ui_state(snapshot: &WorkspaceSnapshot) -> UiState {
             && (has_active_tab || active_bottom_panel_tab == "messages"),
         active_bottom_panel_tab,
         bottom_panel_height: clamp_bottom_panel_height(snapshot.ui.bottom_panel_height),
+        results_dock: if is_results_dock(&snapshot.ui.results_dock) {
+            snapshot.ui.results_dock.clone()
+        } else {
+            "bottom".into()
+        },
+        results_side_width: clamp_results_side_width(snapshot.ui.results_side_width),
         right_drawer: if snapshot.ui.right_drawer == "inspection" {
             "none".into()
         } else if is_right_drawer(&snapshot.ui.right_drawer) {
@@ -163,7 +183,7 @@ mod tests {
     use super::{is_activity, is_sidebar_pane};
 
     #[test]
-    fn tests_activity_and_sidebar_pane_are_valid() {
+    fn legacy_tests_activity_and_sidebar_pane_are_valid() {
         assert!(is_activity("tests"));
         assert!(is_sidebar_pane("tests"));
     }

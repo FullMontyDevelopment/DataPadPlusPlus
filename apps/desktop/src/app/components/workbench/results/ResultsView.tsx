@@ -15,9 +15,6 @@ import { TestRunResultsView } from './TestRunResultsView'
 import { copyText, exportPayload, payloadToText } from './payload-export'
 import { formatDurationClock } from './result-runtime'
 
-const RESULT_PAGE_SIZES = [10, 20, 50, 100]
-const DEFAULT_RESULT_PAGE_SIZE = 20
-
 interface ResultsViewProps {
   capabilities: ExecutionCapabilities
   connection?: ConnectionProfile
@@ -46,11 +43,6 @@ export function ResultsView({
   onExecuteDataEdit,
 }: ResultsViewProps) {
   const [operationMessage, setOperationMessage] = useState('')
-  const [pagination, setPagination] = useState({
-    pageIndex: 0,
-    pageSize: DEFAULT_RESULT_PAGE_SIZE,
-    resultId: '',
-  })
 
   if (activeTab?.tabKind === 'test-suite') {
     return (
@@ -60,17 +52,7 @@ export function ResultsView({
     )
   }
 
-  const resultId = result?.id ?? ''
-  const usesDocumentPaging = connection?.family === 'document' && payload?.renderer === 'document'
-  const pageSize = pagination.pageSize
-  const pageIndex = usesDocumentPaging && pagination.resultId === resultId ? pagination.pageIndex : 0
-  const itemCount = payloadItemCount(payload)
-  const pageCount = usesDocumentPaging ? Math.max(1, Math.ceil(itemCount / pageSize)) : 1
-  const safePageIndex = Math.min(pageIndex, pageCount - 1)
-  const firstVisibleItem = itemCount === 0 ? 0 : safePageIndex * pageSize + 1
-  const lastVisibleItem = usesDocumentPaging
-    ? Math.min(itemCount, (safePageIndex + 1) * pageSize)
-    : itemCount
+  const usesDocumentPayload = connection?.family === 'document' && payload?.renderer === 'document'
   const footerMessages = [
     result?.summary && payload?.renderer !== 'document' ? result.summary : undefined,
     result?.truncated && !result.pageInfo?.hasMore
@@ -81,76 +63,16 @@ export function ResultsView({
   const runtimeLabel = result && payload?.renderer !== 'document'
     ? formatDurationClock(result.durationMs)
     : ''
-  const documentFooterControls = payload && usesDocumentPaging ? (
+  const documentFooterControls = payload && usesDocumentPayload && result?.pageInfo?.hasMore ? (
     <div className="document-results-footer-controls">
-      <div className="results-pagination-controls results-pagination-controls--compact">
-        <button
-          type="button"
-          className="drawer-button"
-          disabled={safePageIndex <= 0}
-          onClick={() =>
-            setPagination((current) => ({
-              ...current,
-              pageIndex: Math.max(0, safePageIndex - 1),
-              resultId,
-            }))
-          }
-        >
-          Previous
-        </button>
-        <span>
-          {firstVisibleItem}-{lastVisibleItem} of {itemCount}
-        </span>
-        <button
-          type="button"
-          className="drawer-button"
-          disabled={safePageIndex >= pageCount - 1}
-          onClick={() =>
-            setPagination((current) => ({
-              ...current,
-              pageIndex: Math.min(pageCount - 1, safePageIndex + 1),
-              resultId,
-            }))
-          }
-        >
-          Next
-        </button>
-        <label className="results-page-size">
-          <span>Page size</span>
-          <select
-            aria-label="Page size"
-            value={pageSize}
-            onChange={(event) =>
-              setPagination({
-                pageIndex: 0,
-                pageSize: Number(event.target.value),
-                resultId,
-              })
-            }
-          >
-            {RESULT_PAGE_SIZES.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      {result?.pageInfo?.hasMore ? (
-        <>
-          <span className="results-buffered-summary">
-            {result.pageInfo.bufferedRows} buffered
-          </span>
-          <button
-            type="button"
-            className="drawer-button"
-            title="Fetch the next bounded page of results and append it to the buffered view."
-            onClick={onLoadNextPage}
-          >
-            Load More
-          </button>
-        </>
-      ) : null}
+      <button
+        type="button"
+        className="drawer-button"
+        title="Fetch the next chunk of documents and append it to the loaded results."
+        onClick={onLoadNextPage}
+      >
+        Load More
+      </button>
     </div>
   ) : undefined
 
@@ -198,7 +120,7 @@ export function ResultsView({
             className="bottom-panel-icon-button"
             aria-label="Copy result"
             disabled={!payload}
-            title="Copy the currently buffered result payload to the clipboard."
+            title="Copy the current result payload to the clipboard."
             onClick={() => void copyResult()}
           >
             <CopyIcon className="panel-inline-icon" />
@@ -208,7 +130,7 @@ export function ResultsView({
             className="bottom-panel-icon-button"
             aria-label="Export result"
             disabled={!payload}
-            title="Export the currently buffered result payload, not the entire remote result set."
+            title="Export the current result payload."
             onClick={exportResult}
           >
             <DownloadIcon className="panel-inline-icon" />
@@ -227,8 +149,6 @@ export function ResultsView({
               }
             : undefined
         }
-        pageIndex={safePageIndex}
-        pageSize={usesDocumentPaging ? pageSize : undefined}
         payload={payload}
         documentFooterControls={documentFooterControls}
         resultDurationMs={result?.durationMs}
@@ -236,7 +156,7 @@ export function ResultsView({
         onExecuteDataEdit={onExecuteDataEdit}
       />
 
-      {payload && !usesDocumentPaging && result?.pageInfo?.hasMore ? (
+      {payload && !usesDocumentPayload && result?.pageInfo?.hasMore ? (
         <div className="panel-page-row">
           <span>
             Showing {result.pageInfo.bufferedRows} buffered item(s). Copy/export uses the buffered result only.
@@ -265,28 +185,4 @@ export function ResultsView({
       ) : null}
     </div>
   )
-}
-
-function payloadItemCount(payload: ResultPayload | undefined) {
-  if (!payload) {
-    return 0
-  }
-
-  if (payload.renderer === 'table') {
-    return payload.rows.length
-  }
-
-  if (payload.renderer === 'document') {
-    return payload.documents.length
-  }
-
-  if (payload.renderer === 'searchHits') {
-    return payload.hits.length
-  }
-
-  if (payload.renderer === 'keyvalue') {
-    return Object.keys(payload.entries).length
-  }
-
-  return 1
 }

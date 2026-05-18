@@ -23,15 +23,6 @@ export function createExplorerNodes(
           detail: `Index definitions for ${collection}`,
           path: [connection.name, collection],
         },
-        {
-          id: `${collection}:samples`,
-          family: 'document',
-          label: 'Sample documents',
-          kind: 'sample-documents',
-          detail: `Sample documents from ${collection}`,
-          path: [connection.name, collection],
-          queryTemplate: `{\n  "collection": "${collection}",\n  "pipeline": [\n    { "$match": {} },\n    { "$limit": 20 }\n  ]\n}`,
-        },
       ]
     }
 
@@ -122,7 +113,7 @@ export function createExplorerNodes(
         family: 'sql',
         label: 'accounts',
         kind: 'table',
-        detail: 'Open a query to verify this sample table exists.',
+        detail: 'Open a query to verify this table exists.',
         scope: `table:${schema}.accounts`,
         path: [connection.name, schema],
         expandable: true,
@@ -132,7 +123,7 @@ export function createExplorerNodes(
         family: 'sql',
         label: 'transactions',
         kind: 'table',
-        detail: 'Open a query to verify this sample table exists.',
+        detail: 'Open a query to verify this table exists.',
         scope: `table:${schema}.transactions`,
         path: [connection.name, schema],
         expandable: true,
@@ -252,10 +243,7 @@ export function inspectExplorerNodeLocally(
       connection.family === 'document'
         ? {
             collection: request.nodeId,
-            sampleDocuments: [
-              { _id: 'itm-2048', sku: 'luna-lamp', status: 'active' },
-              { _id: 'itm-2049', sku: 'aurora-desk', status: 'active' },
-            ],
+            fields: ['_id', 'sku', 'status'],
           }
         : connection.family === 'keyvalue'
           ? {
@@ -263,7 +251,7 @@ export function inspectExplorerNodeLocally(
               type: 'hash',
               ttl: '23m 11s',
               memoryUsage: '4.8 KB',
-              sample: {
+              preview: {
                 userId: 'a1b2c3',
                 region: 'eu-west-1',
               },
@@ -277,4 +265,3 @@ export function inspectExplorerNodeLocally(
             },
   }
 }
-

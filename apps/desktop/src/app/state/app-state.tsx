@@ -19,6 +19,7 @@ import type { Actions, AppContextValue, StateShape } from './app-state-types'
 export type { WorkbenchMessage, WorkbenchMessageSeverity } from './app-state-types'
 
 const noop = async () => {}
+const noopFalse = async () => false
 
 const defaultActions: Actions = {
   selectConnection: noop,
@@ -27,9 +28,10 @@ const defaultActions: Actions = {
   createConnection: noop,
   duplicateConnection: noop,
   deleteConnection: noop,
-  saveConnection: noop,
+  saveConnection: noopFalse,
   createEnvironment: noop,
   saveEnvironment: noop,
+  deleteEnvironment: noop,
   createTab: noop,
   createExplorerTab: noop,
   createMetricsTab: noop,

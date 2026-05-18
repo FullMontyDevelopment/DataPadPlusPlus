@@ -73,12 +73,15 @@ describe('ResultPayloadView', () => {
         resultSummary="2 document(s) returned from Copy of Fixture MongoDB."
         payload={{
           renderer: 'document',
-          documents: [{ _id: 'account-1', status: 'active' }],
+          documents: [
+            { _id: 'account-1', status: 'active' },
+            { _id: 'account-2', status: 'paused' },
+          ],
         }}
       />,
     )
 
-    expect(screen.getByText('2 documents(s)')).toBeInTheDocument()
+    expect(screen.getByText('2 document(s) loaded')).toBeInTheDocument()
     expect(screen.getByText('00:00:01.234')).toBeInTheDocument()
     expect(screen.queryByText(/returned from Copy of Fixture MongoDB/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/visible row\(s\)/i)).not.toBeInTheDocument()
@@ -100,6 +103,98 @@ describe('ResultPayloadView', () => {
 
     await waitFor(() => {
       expect(writeTextSpy).toHaveBeenCalledWith('active')
+    })
+  })
+
+  it('filters loaded documents locally without rerunning or paging', async () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'document',
+          documents: [
+            {
+              _id: 'account-1',
+              profile: { name: 'Avery', plan: 'Team' },
+            },
+            {
+              _id: 'account-2',
+              profile: { name: 'Blake', plan: 'Solo' },
+            },
+          ],
+        }}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Search loaded documents'), {
+      target: { value: 'avery' },
+    })
+
+    expect(screen.getByText('Searching...')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('2 match(es)')).toBeInTheDocument()
+    })
+    expect(screen.getByText('account-1')).toBeInTheDocument()
+    expect(screen.getByText('profile')).toBeInTheDocument()
+    expect(screen.getByText('name')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Avery' })).toBeInTheDocument()
+    expect(screen.queryByText('account-2')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Search loaded documents'), {
+      target: { value: '' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('account-2')).toBeInTheDocument()
+    })
+  })
+
+  it('opens a raw JSON side inspector from the document context menu', async () => {
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        payload={{
+          renderer: 'document',
+          documents: [
+            {
+              _id: 'account-1',
+              status: 'active',
+              count: 7,
+            },
+          ],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'View Raw JSON' }))
+
+    const inspector = screen.getByRole('complementary', {
+      name: 'Document field raw JSON inspector',
+    })
+    expect(inspector).toBeInTheDocument()
+    expect(within(inspector).getByText('status')).toBeInTheDocument()
+    expect(within(inspector).getByLabelText('Selected field raw JSON')).toHaveTextContent('"active"')
+
+    fireEvent.change(screen.getByLabelText('Search raw JSON'), {
+      target: { value: 'active' },
+    })
+
+    expect(within(inspector).getByText('1/1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Raw JSON' }))
+    await waitFor(() => {
+      expect(writeTextSpy).toHaveBeenCalledWith('"active"')
+    })
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: '7' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'View Raw JSON' }))
+    fireEvent.change(screen.getByLabelText('Change inspected field type count'), {
+      target: { value: 'string' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Selected field raw JSON')).toHaveTextContent('"7"')
     })
   })
 

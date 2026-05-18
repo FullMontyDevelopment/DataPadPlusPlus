@@ -9,7 +9,7 @@ import type {
 import { DATAPADPLUSPLUS_ADAPTER_MANIFESTS } from '@datapadplusplus/shared-types'
 import { buildDiagnosticsReport, resolveEnvironment } from '../state/helpers'
 
-export const EMPTY_WORKSPACE_SCHEMA_VERSION = 8
+export const EMPTY_WORKSPACE_SCHEMA_VERSION = 9
 
 export const adapterManifests: AdapterManifest[] = DATAPADPLUSPLUS_ADAPTER_MANIFESTS
 
@@ -92,13 +92,15 @@ export function createBlankSnapshot(): WorkspaceSnapshot {
       explorerView: 'structure',
       connectionGroupMode: 'none',
       sidebarSectionStates: {},
-      activeActivity: 'connections',
+      activeActivity: 'library',
       sidebarCollapsed: false,
-      activeSidebarPane: 'connections',
+      activeSidebarPane: 'library',
       sidebarWidth: 280,
       bottomPanelVisible: false,
       activeBottomPanelTab: 'results',
       bottomPanelHeight: 260,
+      resultsDock: 'bottom',
+      resultsSideWidth: 420,
       rightDrawer: 'none',
       rightDrawerWidth: 360,
     },

@@ -1,0 +1,102 @@
+DataPad++ Free Use License 1.0
+
+Copyright (c) 2026 FullMontyDevelopment.
+
+This license is not an open-source license. It is intended to let anyone,
+including companies and other commercial organizations, use DataPad++ for
+free while preserving the copyright holder's exclusive right to distribute,
+commercialize, and publish copies or derivative products.
+
+1. Permission To Use
+
+Subject to the terms below, FullMontyDevelopment grants you a worldwide,
+royalty-free, non-exclusive, non-transferable license to:
+
+- install and run DataPad++;
+- use DataPad++ for personal, educational, nonprofit, government, internal
+  business, and commercial work;
+- make the copies reasonably necessary to download, install, run, back up,
+  and internally evaluate DataPad++;
+- view the source code for audit, evaluation, debugging, learning, and
+  contribution purposes; and
+- submit proposed changes, bug reports, documentation, and other
+  contributions to the upstream DataPad++ project.
+
+2. What This License Does Not Allow
+
+You may not, without a separate written license from FullMontyDevelopment:
+
+- sell, rent, lease, sublicense, or otherwise commercialize DataPad++ itself;
+- redistribute DataPad++ source code, binaries, installers, packages, or
+  modified versions to third parties;
+- publish, mirror, or host copies of DataPad++ outside the official upstream
+  project or release channels;
+- rebrand, white-label, fork, or modify DataPad++ for use as a competing or
+  substitute product;
+- bundle DataPad++ with another product, service, appliance, hosted platform,
+  consulting deliverable, or managed service offering;
+- remove or obscure copyright, license, attribution, sponsorship, or funding
+  notices;
+- use DataPad++ trademarks, logos, or branding except to identify the
+  unmodified application; or
+- circumvent technical protection, update, telemetry opt-in, sponsor, or
+  licensing mechanisms if such mechanisms are later added.
+
+3. Internal Use By Companies
+
+Companies and other commercial organizations may use DataPad++ internally for
+free. Internal use includes using the official application to connect to,
+query, inspect, test, and manage datastores owned or operated by that
+organization.
+
+Internal use does not include distributing DataPad++ to customers, clients,
+contractors as a deliverable, affiliates as a product, or the public. If you
+need redistribution, bundling, managed-service, white-label, OEM, or other
+commercial rights, contact FullMontyDevelopment for a separate written
+license.
+
+4. Contributions
+
+If you submit a contribution to DataPad++, you grant FullMontyDevelopment a
+worldwide, perpetual, irrevocable, royalty-free license to use, copy, modify,
+publish, distribute, sublicense, and relicense that contribution as part of
+DataPad++ or related offerings.
+
+You represent that you have the right to submit the contribution and that it
+does not intentionally include code or content that is incompatible with this
+project's licensing.
+
+5. Third-Party Components
+
+DataPad++ may include third-party components that are licensed under their own
+terms. Those third-party license terms continue to apply to their respective
+components. This license applies only to DataPad++ code and assets owned by
+FullMontyDevelopment unless stated otherwise.
+
+6. No Warranty
+
+DataPad++ is provided "as is" and "as available", without warranties or
+conditions of any kind, express or implied, including warranties of
+merchantability, fitness for a particular purpose, title, and non-infringement.
+You are responsible for deciding whether DataPad++ is suitable for your use.
+
+7. Limitation Of Liability
+
+To the maximum extent permitted by law, FullMontyDevelopment will not be liable
+for any indirect, incidental, special, consequential, punitive, exemplary, or
+similar damages, or for lost profits, lost revenue, lost data, business
+interruption, or procurement of substitute services, arising out of or related
+to DataPad++ or this license.
+
+8. Termination
+
+If you violate this license, your rights under it terminate automatically.
+FullMontyDevelopment may reinstate your rights in writing or by publishing a
+new license that grants you rights again.
+
+9. Other Rights
+
+All rights not expressly granted by this license are reserved by
+FullMontyDevelopment. This license does not transfer ownership of DataPad++,
+its source code, trademarks, logos, branding, or other intellectual property.
+

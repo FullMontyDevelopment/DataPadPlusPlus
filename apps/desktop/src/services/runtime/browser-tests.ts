@@ -22,6 +22,7 @@ import {
   languageForConnection,
 } from '../../app/state/helpers'
 import { cloneSnapshot, findConnection, findEnvironment, findTab } from './browser-store'
+import { effectiveConnectionEnvironmentId } from './library-connection-helpers'
 
 export function createTestSuiteTabInSnapshot(
   snapshot: WorkspaceSnapshot,
@@ -57,9 +58,7 @@ export function createTestSuiteTabInSnapshot(
   const environmentId =
     request.environmentId ??
     suite.environmentId ??
-    connection.environmentIds[0] ??
-    next.environments[0]?.id ??
-    next.ui.activeEnvironmentId
+    effectiveConnectionEnvironmentId(next, connection)
   const tab: QueryTabState = {
     id: createId('test-tab'),
     title: uniqueTestTabTitle(next, suite.name),
@@ -80,8 +79,8 @@ export function createTestSuiteTabInSnapshot(
   next.ui.activeTabId = tab.id
   next.ui.activeConnectionId = tab.connectionId
   next.ui.activeEnvironmentId = tab.environmentId
-  next.ui.activeActivity = 'tests'
-  next.ui.activeSidebarPane = 'tests'
+  next.ui.activeActivity = 'library'
+  next.ui.activeSidebarPane = 'library'
   next.ui.rightDrawer = 'none'
   next.updatedAt = new Date().toISOString()
   return next

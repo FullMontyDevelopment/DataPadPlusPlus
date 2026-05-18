@@ -11,6 +11,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CopyIcon,
+  MoreIcon,
   PlayIcon,
   RefreshIcon,
 } from './icons'
@@ -320,6 +321,15 @@ function ConnectionObjectTreeNode({
             Query
           </button>
         ) : null}
+        <button
+          type="button"
+          className="tree-item-action-menu"
+          aria-label={`Object actions for ${node.label}`}
+          title={`Object actions for ${node.label}`}
+          onClick={(event) => openObjectMenuFromButton(event, node, nodeKey, onContextMenu)}
+        >
+          <MoreIcon className="tree-icon" />
+        </button>
       </div>
 
       {expanded
@@ -384,6 +394,17 @@ function ConnectionObjectTreeNode({
       ) : null}
     </>
   )
+}
+
+function openObjectMenuFromButton(
+  event: MouseEvent<HTMLElement>,
+  node: ConnectionTreeNode,
+  nodeKey: string,
+  onContextMenu: (event: MouseEvent<HTMLElement>, node: ConnectionTreeNode, nodeKey: string) => void,
+) {
+  event.preventDefault()
+  event.stopPropagation()
+  onContextMenu(event, node, nodeKey)
 }
 
 function ConnectionObjectContextMenu({

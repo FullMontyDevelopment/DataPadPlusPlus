@@ -12,6 +12,11 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { createId, editorLabelForConnection, languageForConnection } from '../../app/state/helpers'
 import { cloneSnapshot } from './browser-store'
+import {
+  defaultLibraryFolderForConnection,
+  effectiveConnectionEnvironmentId,
+  ensureConnectionLibraryNodes,
+} from './library-connection-helpers'
 
 export function createLibraryFolder(
   snapshot: WorkspaceSnapshot,
@@ -67,6 +72,7 @@ export function moveLibraryNode(
   request: LibraryMoveNodeRequest,
 ) {
   const next = cloneSnapshot(snapshot)
+  ensureConnectionLibraryNodes(next)
   const node = next.libraryNodes.find((item) => item.id === request.nodeId)
   const descendantIds = collectDescendantIds(next.libraryNodes, request.nodeId)
 
@@ -156,7 +162,7 @@ export function saveQueryTabToLibrary(
   const node: LibraryNode = {
     id: itemId,
     kind,
-    parentId: request.folderId ?? 'library-root-queries',
+    parentId: request.folderId ?? defaultLibraryFolderForConnection(next, tab.connectionId),
     name,
     summary: connectionSummary(next, tab),
     tags: request.tags ?? [],
@@ -166,7 +172,9 @@ export function saveQueryTabToLibrary(
     environmentId: request.environmentId,
     language: tab.language,
     queryText: kind === 'script' || kind === 'test-suite' ? undefined : tab.queryText,
-    scriptText: kind === 'script' ? tab.queryText : undefined,
+    queryViewMode: tab.queryViewMode,
+    builderState: tab.builderState,
+    scriptText: tab.scriptText ?? (kind === 'script' ? tab.queryText : undefined),
     testSuite: kind === 'test-suite' ? tab.testSuite : undefined,
   }
   const existingIndex = next.libraryNodes.findIndex((item) => item.id === itemId)
@@ -221,7 +229,7 @@ export function openLibraryItem(snapshot: WorkspaceSnapshot, libraryItemId: stri
     item?.scriptText ??
     (item?.testSuite ? JSON.stringify(item.testSuite, null, 2) : undefined)
 
-  if (!item || item.kind === 'folder' || !queryText) {
+  if (!item || item.kind === 'folder' || item.kind === 'connection' || !queryText) {
     return next
   }
 
@@ -253,12 +261,14 @@ export function openLibraryItem(snapshot: WorkspaceSnapshot, libraryItemId: stri
     connectionId: connection.id,
     environmentId:
       effectiveLibraryEnvironmentId(next.libraryNodes, item.id) ??
-      connection.environmentIds[0] ??
-      next.ui.activeEnvironmentId,
+      effectiveConnectionEnvironmentId(next, connection),
     family: connection.family,
     language: item.language ?? languageForConnection(connection),
     editorLabel: editorLabelForConnection(connection),
     queryText,
+    queryViewMode: item.queryViewMode ?? (item.kind === 'script' ? 'script' : undefined),
+    scriptText: item.scriptText,
+    builderState: item.builderState,
     testSuite: item.testSuite,
     status: 'idle',
     dirty: false,

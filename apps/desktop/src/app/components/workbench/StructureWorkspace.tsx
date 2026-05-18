@@ -80,7 +80,7 @@ export function StructureWorkspace({
             type="button"
             className="toolbar-action"
             disabled={!activeConnection || !activeEnvironment || status === 'loading'}
-            title="Reload the visual structure map using safe bounded metadata sampling."
+            title="Reload the visual structure map using safe bounded metadata limits."
             onClick={onRefresh}
           >
             <RefreshIcon className="toolbar-icon" />
@@ -128,7 +128,7 @@ export function StructureWorkspace({
             <div className="structure-empty">
               <ExplorerIcon className="empty-icon" />
               <h2>Loading structure...</h2>
-              <p>Metadata is being sampled with safe limits.</p>
+              <p>Metadata is loading with safe limits.</p>
             </div>
           ) : filteredNodes.length === 0 ? (
             <div className="structure-empty">
@@ -161,7 +161,7 @@ export function StructureWorkspace({
                               key={node.id}
                               type="button"
                               className={`structure-node${selectedNode?.id === node.id ? ' is-active' : ''}`}
-                              title={`${node.label}: inspect fields, metrics, and sampled relationships.`}
+                              title={`${node.label}: inspect fields, metrics, and relationships.`}
                               onClick={() => {
                                 setSelectedNodeId(node.id)
                               }}
@@ -243,7 +243,7 @@ export function StructureWorkspace({
                       {(structure?.edges ?? []).filter(
                         (edge) => edge.from === selectedNode.id || edge.to === selectedNode.id,
                       ).length === 0 ? (
-                        <p className="panel-footnote">No relationships sampled.</p>
+                        <p className="panel-footnote">No relationships found.</p>
                       ) : (
                         <ul className="messages-list">
                           {(structure?.edges ?? [])

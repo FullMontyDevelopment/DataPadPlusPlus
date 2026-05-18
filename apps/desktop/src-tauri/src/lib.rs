@@ -108,6 +108,7 @@ pub fn run() {
             commands::workspace::create_scoped_query_tab,
             commands::workspace::create_test_suite_tab,
             commands::workspace::delete_connection_profile,
+            commands::workspace::delete_environment_profile,
             commands::workspace::delete_library_node,
             commands::workspace::delete_saved_work_item,
             commands::workspace::execute_data_edit,

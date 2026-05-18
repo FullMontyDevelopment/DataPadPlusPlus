@@ -14,6 +14,7 @@ const TYPE_OPTIONS: DocumentValueType[] = ['string', 'number', 'boolean', 'null'
 interface DocumentGridRowViewProps {
   editingCell?: 'field' | 'type' | 'value'
   expanded: boolean
+  matched?: boolean
   row: DocumentGridRow
   onBeginEditing(row: DocumentGridRow, cell: 'field' | 'type' | 'value'): void
   onCancelScheduledCopy(): void
@@ -28,6 +29,7 @@ interface DocumentGridRowViewProps {
 export function DocumentGridRowView({
   editingCell,
   expanded,
+  matched = false,
   row,
   onBeginEditing,
   onCancelScheduledCopy,
@@ -62,7 +64,7 @@ export function DocumentGridRowView({
 
   return (
     <div
-      className="document-data-grid-row"
+      className={`document-data-grid-row${matched ? ' is-search-match' : ''}`}
       role="row"
       aria-level={row.depth + 1}
       aria-expanded={row.expandable ? expanded : undefined}

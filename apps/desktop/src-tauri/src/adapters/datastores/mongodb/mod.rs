@@ -8,6 +8,7 @@ mod explorer;
 mod metadata;
 mod paging;
 mod query;
+mod script;
 
 pub(crate) use metadata::load_mongodb_structure;
 pub(crate) use paging::fetch_mongodb_page;

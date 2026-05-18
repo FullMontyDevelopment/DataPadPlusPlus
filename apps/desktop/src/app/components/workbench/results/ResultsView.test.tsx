@@ -4,12 +4,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { ResultsView } from './ResultsView'
 
 describe('ResultsView', () => {
-  it('paginates document results with a default page size of 20', () => {
+  it('shows loaded document results without local page controls', () => {
     const documents = Array.from({ length: 25 }, (_item, index) => ({
       _id: `document-${index + 1}`,
       status: 'active',
     }))
-    const result = resultEnvelope(documents)
+    const onLoadNextPage = vi.fn()
+    const result = resultEnvelope(documents, true)
 
     const { container } = render(
       <ResultsView
@@ -24,7 +25,7 @@ describe('ResultsView', () => {
         payload={result.payloads[0]}
         renderer="document"
         result={result}
-        onLoadNextPage={vi.fn()}
+        onLoadNextPage={onLoadNextPage}
         onSelectRenderer={vi.fn()}
       />,
     )
@@ -33,22 +34,16 @@ describe('ResultsView', () => {
 
     expect(footer).not.toBeNull()
     expect(container.querySelector('.panel-page-row')).toBeNull()
-    expect(screen.getByLabelText('Page size')).toHaveValue('20')
+    expect(screen.queryByLabelText('Page size')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Previous' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Expand All' })).toBeInTheDocument()
-    expect(screen.getByText('1-20 of 25')).toBeInTheDocument()
+    expect(screen.getByText('25 document(s) loaded')).toBeInTheDocument()
     expect(screen.getByText('document-1')).toBeInTheDocument()
-    expect(screen.queryByText('document-21')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-
-    expect(screen.getByText('21-25 of 25')).toBeInTheDocument()
     expect(screen.getByText('document-21')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Page size'), {
-      target: { value: '10' },
-    })
-
-    expect(screen.getByText('1-10 of 25')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Load More' }))
+    expect(onLoadNextPage).toHaveBeenCalledOnce()
   })
 
   it('does not locally paginate non-document table results', () => {
@@ -102,7 +97,10 @@ describe('ResultsView', () => {
   })
 })
 
-function resultEnvelope(documents: Array<Record<string, unknown>>): ExecutionResultEnvelope {
+function resultEnvelope(
+  documents: Array<Record<string, unknown>>,
+  hasMore = false,
+): ExecutionResultEnvelope {
   return {
     id: 'result-documents',
     engine: 'mongodb',
@@ -118,6 +116,13 @@ function resultEnvelope(documents: Array<Record<string, unknown>>): ExecutionRes
     notices: [],
     executedAt: '2026-01-01T00:00:00.000Z',
     durationMs: 12,
+    pageInfo: {
+      bufferedRows: documents.length,
+      hasMore,
+      nextCursor: hasMore ? 'next' : undefined,
+      pageIndex: 0,
+      pageSize: 20,
+    },
   }
 }
 

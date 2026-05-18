@@ -1,4 +1,8 @@
 use super::environments::{build_resolution_warnings, has_unresolved_tokens, interpolate_value};
+use super::library::{
+    effective_connection_environment_id, ensure_connection_library_nodes,
+    remove_connection_library_nodes,
+};
 use super::query_tabs::{build_query_tab, next_query_tab_title};
 use super::{timestamp_now, ManagedAppState};
 use crate::{
@@ -36,11 +40,7 @@ impl ManagedAppState {
             .as_ref()
             .map(|tab| tab.environment_id.clone())
             .unwrap_or_else(|| {
-                connection
-                    .environment_ids
-                    .first()
-                    .cloned()
-                    .unwrap_or_default()
+                effective_connection_environment_id(&self.snapshot, &connection.id, None)
             });
 
         self.snapshot.ui.active_connection_id = connection.id;
@@ -66,6 +66,7 @@ impl ManagedAppState {
             self.snapshot.connections.push(profile);
         }
 
+        ensure_connection_library_nodes(&mut self.snapshot);
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;
         Ok(self.bootstrap_payload())
@@ -96,6 +97,7 @@ impl ManagedAppState {
         self.snapshot
             .tabs
             .retain(|tab| tab.connection_id != connection_id);
+        remove_connection_library_nodes(&mut self.snapshot, connection_id);
 
         if self.snapshot.tabs.is_empty() {
             if let Some(connection) = self.snapshot.connections.first().cloned() {
@@ -145,6 +147,95 @@ impl ManagedAppState {
         }
 
         self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
+    pub fn delete_environment(
+        &mut self,
+        environment_id: &str,
+    ) -> Result<BootstrapPayload, CommandError> {
+        self.ensure_unlocked()?;
+
+        if !self
+            .snapshot
+            .environments
+            .iter()
+            .any(|environment| environment.id == environment_id)
+        {
+            return Err(CommandError::new(
+                "environment-missing",
+                "Environment was not found.",
+            ));
+        }
+
+        if self.snapshot.environments.len() <= 1 {
+            return Err(CommandError::new(
+                "environment-required",
+                "At least one environment is required.",
+            ));
+        }
+
+        let updated_at = timestamp_now();
+        let fallback_environment_id = self
+            .snapshot
+            .environments
+            .iter()
+            .find(|environment| environment.id != environment_id)
+            .map(|environment| environment.id.clone())
+            .unwrap_or_default();
+
+        self.snapshot
+            .environments
+            .retain(|environment| environment.id != environment_id);
+        for environment in &mut self.snapshot.environments {
+            if environment.inherits_from.as_deref() == Some(environment_id) {
+                environment.inherits_from = None;
+                environment.updated_at = updated_at.clone();
+            }
+        }
+
+        for connection in &mut self.snapshot.connections {
+            connection.environment_ids.retain(|id| id != environment_id);
+            if connection.environment_ids.is_empty() && !fallback_environment_id.is_empty() {
+                connection
+                    .environment_ids
+                    .push(fallback_environment_id.clone());
+            }
+            connection.updated_at = updated_at.clone();
+        }
+
+        for tab in &mut self.snapshot.tabs {
+            if tab.environment_id == environment_id {
+                tab.environment_id = fallback_environment_id.clone();
+            }
+        }
+
+        for closed_tab in &mut self.snapshot.closed_tabs {
+            if closed_tab.tab.environment_id == environment_id {
+                closed_tab.tab.environment_id = fallback_environment_id.clone();
+            }
+        }
+
+        for node in &mut self.snapshot.library_nodes {
+            if node.environment_id.as_deref() == Some(environment_id) {
+                node.environment_id = None;
+                node.updated_at = updated_at.clone();
+            }
+        }
+
+        for item in &mut self.snapshot.saved_work {
+            if item.environment_id.as_deref() == Some(environment_id) {
+                item.environment_id = None;
+                item.updated_at = updated_at.clone();
+            }
+        }
+
+        if self.snapshot.ui.active_environment_id == environment_id {
+            self.snapshot.ui.active_environment_id = fallback_environment_id;
+        }
+
+        self.snapshot.updated_at = updated_at;
         self.persist()?;
         Ok(self.bootstrap_payload())
     }

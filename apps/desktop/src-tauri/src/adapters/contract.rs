@@ -236,6 +236,8 @@ pub trait DatastoreAdapter: Send + Sync {
                 environment_id: request.environment_id.clone(),
                 language: plan.request_language.clone(),
                 query_text: plan.generated_request.clone(),
+                execution_input_mode: None,
+                script_text: None,
                 selected_text: None,
                 mode: if request.operation_id.ends_with("query.explain") {
                     Some("explain".into())

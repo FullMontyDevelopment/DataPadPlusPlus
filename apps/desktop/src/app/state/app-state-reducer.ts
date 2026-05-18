@@ -3,6 +3,8 @@ import {
   applyExecutionToPayload,
   applyResultPageToPayload,
   createWorkbenchMessage,
+  markTabExecutionFailed,
+  markTabExecutionLoading,
   mergeExplorerResponse,
   openMessagesPayload,
 } from './app-state-reducer-helpers'
@@ -100,6 +102,13 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
       return {
         ...state,
         executionStatus: 'loading',
+        payload: markTabExecutionLoading(state.payload, action.tabId),
+      }
+    case 'EXECUTION_FAILED':
+      return {
+        ...state,
+        executionStatus: state.executionStatus === 'loading' ? 'idle' : state.executionStatus,
+        payload: markTabExecutionFailed(state.payload, action.tabId, action.message),
       }
     case 'EXECUTION_READY':
       return {

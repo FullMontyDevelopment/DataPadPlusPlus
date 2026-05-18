@@ -1,4 +1,4 @@
-import type { BootstrapPayload, CreateScopedQueryTabRequest, QueryTabReorderRequest, UpdateQueryBuilderStateRequest } from '@datapadplusplus/shared-types'
+import type { BootstrapPayload, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateQueryBuilderStateRequest } from '@datapadplusplus/shared-types'
 import { closeQueryTab, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, upsertTab } from './browser-tabs'
 import { collectDiagnosticsLocally } from './browser-operation-inspection'
 import { buildBrowserPayload, cloneSnapshot, findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
@@ -203,16 +203,31 @@ export const clientTabs = {
     return buildBrowserPayload(snapshot)
   },
 
-  async updateQueryTab(tabId: string, queryText: string): Promise<BootstrapPayload> {
+  async updateQueryTab(
+    tabId: string,
+    queryText: string,
+    queryViewMode?: QueryViewMode,
+  ): Promise<BootstrapPayload> {
     if (isTauriRuntime()) {
-      return invokeDesktop<BootstrapPayload>('update_query_tab', { tabId, queryText })
+      return invokeDesktop<BootstrapPayload>('update_query_tab', {
+        tabId,
+        queryText,
+        queryViewMode,
+      })
     }
 
     const next = cloneSnapshot(loadBrowserSnapshot())
     const tab = findTab(next, tabId)
 
     if (tab) {
-      tab.queryText = queryText
+      if (queryViewMode === 'script') {
+        tab.scriptText = queryText
+      } else {
+        tab.queryText = queryText
+      }
+      if (queryViewMode) {
+        tab.queryViewMode = queryViewMode
+      }
       tab.dirty = true
       tab.error = undefined
       if (!tab.result) {
@@ -240,6 +255,9 @@ export const clientTabs = {
       tab.builderState = request.builderState
       if (request.queryText !== undefined) {
         tab.queryText = request.queryText
+      }
+      if (request.queryViewMode) {
+        tab.queryViewMode = request.queryViewMode
       }
       tab.dirty = true
       tab.error = undefined

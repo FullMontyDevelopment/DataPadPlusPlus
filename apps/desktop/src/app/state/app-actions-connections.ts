@@ -18,6 +18,7 @@ type ConnectionActions = Pick<
   | 'saveConnection'
   | 'createEnvironment'
   | 'saveEnvironment'
+  | 'deleteEnvironment'
 >
 
 export function useConnectionActions({
@@ -71,8 +72,8 @@ export function useConnectionActions({
         await desktopClient.createQueryTab(profile.id)
         applyPayload(
           await desktopClient.updateUiState({
-            activeActivity: 'connections',
-            activeSidebarPane: 'connections',
+            activeActivity: 'library',
+            activeSidebarPane: 'library',
             rightDrawer: 'connection',
           }),
         )
@@ -107,8 +108,8 @@ export function useConnectionActions({
         await desktopClient.createQueryTab(profile.id)
         applyPayload(
           await desktopClient.updateUiState({
-            activeActivity: 'connections',
-            activeSidebarPane: 'connections',
+            activeActivity: 'library',
+            activeSidebarPane: 'library',
             rightDrawer: 'connection',
           }),
         )
@@ -152,8 +153,10 @@ export function useConnectionActions({
 
         await desktopClient.upsertConnection(nextProfile)
         applyPayload(await desktopClient.updateUiState({ rightDrawer: 'none' }))
+        return true
       } catch (error) {
         handleError(error)
+        return false
       }
     },
     [applyPayload, handleError, state.payload],
@@ -175,8 +178,8 @@ export function useConnectionActions({
         applyPayload(
           await desktopClient.updateUiState({
             activeEnvironmentId: environment.id,
-            activeActivity: 'environments',
-            activeSidebarPane: 'environments',
+            activeActivity: 'library',
+            activeSidebarPane: 'library',
             sidebarCollapsed: false,
           }),
         )
@@ -190,12 +193,25 @@ export function useConnectionActions({
   const saveEnvironment = useCallback<Actions['saveEnvironment']>(
     async (profile) => {
       try {
+        ensureWorkspaceUnlocked(state.payload)
         applyPayload(await desktopClient.upsertEnvironment(profile))
       } catch (error) {
         handleError(error)
       }
     },
-    [applyPayload, handleError],
+    [applyPayload, handleError, state.payload],
+  )
+
+  const deleteEnvironment = useCallback<Actions['deleteEnvironment']>(
+    async (environmentId) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.deleteEnvironment(environmentId))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError, state.payload],
   )
 
   return useMemo(
@@ -208,10 +224,12 @@ export function useConnectionActions({
       saveConnection,
       createEnvironment,
       saveEnvironment,
+      deleteEnvironment,
     }),
     [
       createConnection,
       createEnvironment,
+      deleteEnvironment,
       deleteConnection,
       duplicateConnection,
       saveConnection,

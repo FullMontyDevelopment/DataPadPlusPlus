@@ -1,12 +1,274 @@
+import type { ComponentType, SVGProps } from 'react'
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import {
-  DatabaseIcon,
   ExplorerIcon,
-  JsonIcon,
-  KeyValueIcon,
-  TableIcon,
+  ObjectBinaryIcon,
+  ObjectBucketIcon,
+  ObjectCollectionIcon,
+  ObjectColumnIcon,
+  ObjectConstraintIcon,
+  ObjectDatabaseIcon,
+  ObjectDocumentIcon,
+  ObjectFolderIcon,
+  ObjectFunctionIcon,
+  ObjectGenericIcon,
+  ObjectGraphIcon,
+  ObjectHashIcon,
+  ObjectIndexIcon,
+  ObjectJobIcon,
+  ObjectKeyIcon,
+  ObjectListIcon,
+  ObjectMappingIcon,
+  ObjectMemoryIcon,
+  ObjectMetricIcon,
+  ObjectPackageIcon,
+  ObjectPartitionIcon,
+  ObjectPrefixIcon,
+  ObjectProcedureIcon,
+  ObjectRelationshipIcon,
+  ObjectRoleIcon,
+  ObjectSchemaIcon,
+  ObjectSearchIcon,
+  ObjectSecurityIcon,
+  ObjectSeriesIcon,
+  ObjectServerIcon,
+  ObjectSetIcon,
+  ObjectStageIcon,
+  ObjectStreamIcon,
+  ObjectTableIcon,
+  ObjectTriggerIcon,
+  ObjectTypeIcon,
+  ObjectViewIcon,
+  ObjectWarehouseIcon,
 } from './icons'
 import { DatastoreIcon } from './DatastoreIcon'
+
+type IconComponent = ComponentType<SVGProps<SVGSVGElement>>
+
+interface IconDescriptor {
+  Icon: IconComponent
+  tone: string
+}
+
+const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
+  [
+    [
+      'catalog',
+      'catalogs',
+      'database',
+      'databases',
+      'dataset',
+      'datasets',
+      'db',
+      'dbs',
+      'keyspace',
+      'keyspaces',
+      'namespace',
+      'namespaces',
+    ],
+    { Icon: ObjectDatabaseIcon, tone: 'database' },
+  ],
+  [
+    ['schema', 'schemas', 'system-schemas', 'user-schemas'],
+    { Icon: ObjectSchemaIcon, tone: 'schema' },
+  ],
+  [
+    ['bucket', 'buckets'],
+    { Icon: ObjectBucketIcon, tone: 'bucket' },
+  ],
+  [
+    ['folder', 'folders', 'group', 'groups', 'category', 'categories'],
+    { Icon: ObjectFolderIcon, tone: 'folder' },
+  ],
+  [
+    [
+      'base-table',
+      'base-tables',
+      'external-table',
+      'external-tables',
+      'filetable',
+      'filetables',
+      'graph-table',
+      'graph-tables',
+      'hypertable',
+      'hypertables',
+      'materialized-view-table',
+      'system-table',
+      'system-tables',
+      'table',
+      'tables',
+      'wide-table',
+      'wide-tables',
+    ],
+    { Icon: ObjectTableIcon, tone: 'table' },
+  ],
+  [
+    ['view', 'views', 'materialized-view', 'materialized-views'],
+    { Icon: ObjectViewIcon, tone: 'view' },
+  ],
+  [
+    ['column', 'columns', 'field', 'fields', 'attribute', 'attributes', 'property', 'properties'],
+    { Icon: ObjectColumnIcon, tone: 'column' },
+  ],
+  [
+    [
+      'gsi',
+      'gsis',
+      'index',
+      'indexes',
+      'indices',
+      'inverted-index',
+      'inverted-indexes',
+      'lsi',
+      'lsis',
+      'materialized-index',
+      'search-index',
+      'search-indexes',
+      'secondary-index',
+      'secondary-indexes',
+    ],
+    { Icon: ObjectIndexIcon, tone: 'index' },
+  ],
+  [
+    [
+      'check-constraint',
+      'constraint',
+      'constraints',
+      'foreign-key',
+      'foreign-keys',
+      'primary-key',
+      'primary-keys',
+      'unique-constraint',
+      'unique-constraints',
+    ],
+    { Icon: ObjectConstraintIcon, tone: 'constraint' },
+  ],
+  [
+    ['function', 'functions', 'scalar-function', 'scalar-functions', 'table-valued-function', 'table-valued-functions'],
+    { Icon: ObjectFunctionIcon, tone: 'function' },
+  ],
+  [
+    ['package', 'packages', 'program', 'programmability', 'routine', 'routines'],
+    { Icon: ObjectPackageIcon, tone: 'package' },
+  ],
+  [
+    [
+      'procedure',
+      'procedures',
+      'stored-procedure',
+      'stored-procedures',
+      'storedprocedure',
+      'storedprocedures',
+    ],
+    { Icon: ObjectProcedureIcon, tone: 'procedure' },
+  ],
+  [
+    ['trigger', 'triggers'],
+    { Icon: ObjectTriggerIcon, tone: 'trigger' },
+  ],
+  [
+    ['collection', 'collections'],
+    { Icon: ObjectCollectionIcon, tone: 'collection' },
+  ],
+  [
+    ['document', 'documents', 'sample-document', 'sample-documents'],
+    { Icon: ObjectDocumentIcon, tone: 'document' },
+  ],
+  [
+    ['data-stream', 'data-streams', 'stream', 'streams'],
+    { Icon: ObjectStreamIcon, tone: 'stream' },
+  ],
+  [
+    ['mapping', 'mappings'],
+    { Icon: ObjectMappingIcon, tone: 'mapping' },
+  ],
+  [
+    ['hash', 'hashes'],
+    { Icon: ObjectHashIcon, tone: 'hash' },
+  ],
+  [
+    ['key', 'keys', 'string', 'strings'],
+    { Icon: ObjectKeyIcon, tone: 'key' },
+  ],
+  [
+    ['prefix', 'prefixes', 'key-prefix', 'key-prefixes'],
+    { Icon: ObjectPrefixIcon, tone: 'prefix' },
+  ],
+  [
+    ['list', 'lists', 'queue', 'queues'],
+    { Icon: ObjectListIcon, tone: 'list' },
+  ],
+  [
+    ['set', 'sets', 'sorted-set', 'sorted-sets', 'zset', 'zsets'],
+    { Icon: ObjectSetIcon, tone: 'set' },
+  ],
+  [
+    ['graph', 'graphs'],
+    { Icon: ObjectGraphIcon, tone: 'graph' },
+  ],
+  [
+    ['edge', 'edges', 'relationship', 'relationships'],
+    { Icon: ObjectRelationshipIcon, tone: 'relationship' },
+  ],
+  [
+    ['metric', 'metrics', 'measurement', 'measurements', 'series'],
+    { Icon: ObjectMetricIcon, tone: 'metric' },
+  ],
+  [
+    ['alert', 'alerts', 'rule', 'rules', 'target', 'targets', 'task', 'tasks'],
+    { Icon: ObjectSeriesIcon, tone: 'series' },
+  ],
+  [
+    ['job', 'jobs', 'query-history', 'history', 'session', 'sessions'],
+    { Icon: ObjectJobIcon, tone: 'job' },
+  ],
+  [
+    ['login', 'logins', 'role', 'roles', 'user', 'users'],
+    { Icon: ObjectRoleIcon, tone: 'role' },
+  ],
+  [
+    ['credential', 'credentials', 'permission', 'permissions', 'security'],
+    { Icon: ObjectSecurityIcon, tone: 'security' },
+  ],
+  [
+    ['stage', 'stages', 'storage', 'snapshot', 'snapshots', 'backup', 'backups'],
+    { Icon: ObjectStageIcon, tone: 'stage' },
+  ],
+  [
+    ['warehouse', 'warehouses', 'cluster', 'clusters'],
+    { Icon: ObjectWarehouseIcon, tone: 'warehouse' },
+  ],
+  [
+    ['server', 'servers', 'server-object', 'server-objects', 'node', 'nodes'],
+    { Icon: ObjectServerIcon, tone: 'server' },
+  ],
+  [
+    ['type', 'types', 'udt', 'udts'],
+    { Icon: ObjectTypeIcon, tone: 'type' },
+  ],
+  [
+    ['chunk', 'chunks', 'partition', 'partitions', 'range', 'ranges', 'region', 'regions'],
+    { Icon: ObjectPartitionIcon, tone: 'partition' },
+  ],
+  [
+    ['binary', 'blob', 'blobs', 'file', 'files'],
+    { Icon: ObjectBinaryIcon, tone: 'binary' },
+  ],
+  [
+    ['cache', 'caches', 'memory', 'slab', 'slabs'],
+    { Icon: ObjectMemoryIcon, tone: 'memory' },
+  ],
+  [
+    ['index-template', 'index-templates', 'indices-root', 'search'],
+    { Icon: ObjectSearchIcon, tone: 'search' },
+  ],
+]
+
+const KIND_ICON_LOOKUP = new Map(
+  KIND_ICON_GROUPS.flatMap(([kinds, descriptor]) =>
+    kinds.map((kind) => [kind, descriptor] as const),
+  ),
+)
 
 export function EngineIcon({ connection }: { connection: ConnectionProfile }) {
   return (
@@ -18,112 +280,70 @@ export function EngineIcon({ connection }: { connection: ConnectionProfile }) {
   )
 }
 
-export function ExplorerNodeIcon({
-  connection,
-  kind,
-}: {
-  connection?: ConnectionProfile
-  kind: string
-}) {
-  if (
-    connection &&
-    [
-      'bucket',
-      'database',
-      'databases',
-      'dataset',
-      'datasets',
-      'graph',
-      'graphs',
-      'keyspace',
-      'keyspaces',
-      'namespace',
-      'namespaces',
-      'schema',
-      'schemas',
-    ].includes(kind)
-  ) {
-    return (
-      <DatastoreIcon
-        className="tree-node-datastore-icon"
-        decorative
-        engine={connection.engine}
-      />
-    )
+export function ExplorerNodeIcon({ kind }: { connection?: ConnectionProfile; kind: string }) {
+  const descriptor = iconDescriptorForKind(kind)
+  const Icon = descriptor.Icon
+
+  return (
+    <Icon
+      className={`tree-icon tree-kind-icon tree-kind-icon--${descriptor.tone}`}
+    />
+  )
+}
+
+function iconDescriptorForKind(kind: string): IconDescriptor {
+  return KIND_ICON_LOOKUP.get(normalizeObjectKind(kind)) ?? {
+    Icon: fallbackIconForKind(kind),
+    tone: 'generic',
+  }
+}
+
+function fallbackIconForKind(kind: string) {
+  const normalized = normalizeObjectKind(kind)
+
+  if (normalized.includes('table')) {
+    return ObjectTableIcon
   }
 
-  if (
-    [
-      'bucket',
-      'database',
-      'databases',
-      'dataset',
-      'datasets',
-      'graph',
-      'graphs',
-      'keyspace',
-      'keyspaces',
-      'namespace',
-      'namespaces',
-      'schema',
-      'schemas',
-    ].includes(kind)
-  ) {
-    return <DatabaseIcon className="tree-icon" />
+  if (normalized.includes('index')) {
+    return ObjectIndexIcon
   }
 
-  if (
-    [
-      'column',
-      'constraint',
-      'index',
-      'indexes',
-      'job',
-      'jobs',
-      'materialized-view',
-      'materialized-views',
-      'stored-procedure',
-      'stored-procedures',
-      'table',
-      'tables',
-      'trigger',
-      'triggers',
-      'view',
-      'views',
-    ].includes(kind)
-  ) {
-    return <TableIcon className="tree-icon" />
+  if (normalized.includes('view')) {
+    return ObjectViewIcon
   }
 
-  if (
-    [
-      'collection',
-      'collections',
-      'data-stream',
-      'data-streams',
-      'mapping',
-      'mappings',
-      'sample-documents',
-    ].includes(kind)
-  ) {
-    return <JsonIcon className="tree-icon" />
+  if (normalized.includes('function')) {
+    return ObjectFunctionIcon
   }
 
-  if (
-    [
-      'hash',
-      'keyspaces',
-      'prefix',
-      'prefixes',
-      'set',
-      'sets',
-      'stream',
-      'streams',
-      'string',
-    ].includes(kind)
-  ) {
-    return <KeyValueIcon className="tree-icon" />
+  if (normalized.includes('procedure') || normalized.includes('routine')) {
+    return ObjectProcedureIcon
   }
 
-  return <ExplorerIcon className="tree-icon" />
+  if (normalized.includes('collection')) {
+    return ObjectCollectionIcon
+  }
+
+  if (normalized.includes('stream')) {
+    return ObjectStreamIcon
+  }
+
+  if (normalized.includes('key')) {
+    return ObjectKeyIcon
+  }
+
+  if (normalized.includes('graph')) {
+    return ObjectGraphIcon
+  }
+
+  if (normalized.includes('database') || normalized.includes('schema')) {
+    return ObjectDatabaseIcon
+  }
+
+  return normalized ? ObjectGenericIcon : ExplorerIcon
+}
+
+function normalizeObjectKind(kind: string) {
+  return kind.trim().toLowerCase().replace(/[_\s]+/g, '-')
 }

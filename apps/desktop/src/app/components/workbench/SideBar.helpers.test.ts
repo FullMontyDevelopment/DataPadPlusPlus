@@ -15,62 +15,59 @@ import {
 import type { ConnectionTreeNode } from './SideBar.helpers'
 
 describe('sidebar connection tree helpers', () => {
-  it('builds SQL object nodes with scoped select templates', () => {
+  it('builds SQL structural folders without invented table leaves', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-analytics')
 
     expect(connection).toBeDefined()
 
     const tree = buildConnectionObjectTree(connection!)
-    const accounts = findNode(tree, 'table-accounts')
 
-    expect(accounts).toMatchObject({
-      kind: 'table',
-      label: 'accounts',
-      queryable: true,
-      queryTemplate: 'select * from public.accounts limit 100;',
+    expect(findNode(tree, 'user-schemas')).toMatchObject({ label: 'User Schemas' })
+    expect(findNode(tree, 'schema-public')).toMatchObject({
+      kind: 'schema',
+      label: 'public',
     })
+    expect(findNode(tree, 'tables')).toMatchObject({ label: 'Tables' })
+    expect(findNode(tree, 'table-accounts')).toBeUndefined()
   })
 
-  it('builds SQL Server table templates using T-SQL top syntax', () => {
+  it('builds SQL Server structural folders without invented table leaves', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-orders')
 
     const tree = buildConnectionObjectTree(connection!)
-    const accounts = findNode(tree, 'table-accounts')
 
-    expect(accounts?.queryTemplate).toBe('select top 100 * from dbo.accounts;')
+    expect(findNode(tree, 'databases')).toMatchObject({ label: 'Databases' })
+    expect(findNode(tree, 'database-orders')).toMatchObject({ label: 'orders' })
+    expect(findNode(tree, 'tables')).toMatchObject({ label: 'Tables' })
+    expect(findNode(tree, 'table-dbo-accounts')).toBeUndefined()
   })
 
-  it('builds SQLite table templates with the main schema', () => {
+  it('builds SQLite structural folders with the main schema', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-local-sqlite')
 
     const tree = buildConnectionObjectTree(connection!)
-    const accounts = findNode(tree, 'table-accounts')
 
-    expect(accounts?.queryTemplate).toBe('select * from [main].[accounts] limit 100;')
+    expect(findNode(tree, 'schema-main')).toMatchObject({
+      label: 'main',
+      kind: 'schema',
+    })
+    expect(findNode(tree, 'tables')).toMatchObject({ label: 'Tables' })
+    expect(findNode(tree, 'table-accounts')).toBeUndefined()
   })
 
-  it('marks Mongo collection nodes as builder-capable scoped targets', () => {
+  it('builds Mongo structural folders without invented collection leaves', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')
 
     const tree = buildConnectionObjectTree(connection!)
-    const products = findNode(tree, 'collection-products')
 
-    expect(products).toMatchObject({
-      kind: 'collection',
-      scope: 'collection:products',
-      builderKind: 'mongo-find',
-    })
-    expect(isScopedQueryable(products!)).toBe(true)
-    expect(connectionTreeNodeTarget(products!)).toMatchObject({
-      kind: 'collection',
-      label: 'products',
-      preferredBuilder: 'mongo-find',
-      queryTemplate: expect.stringContaining('"collection": "products"'),
-    })
+    expect(findNode(tree, 'databases')).toMatchObject({ label: 'Databases' })
+    expect(findNode(tree, 'database-catalog')).toMatchObject({ label: 'catalog' })
+    expect(findNode(tree, 'collections')).toMatchObject({ label: 'Collections' })
+    expect(findNode(tree, 'collection-products')).toBeUndefined()
   })
 
   it('derives stable section ids and group labels', () => {
@@ -105,7 +102,7 @@ describe('sidebar connection tree helpers', () => {
       id: 'collection-products',
       label: 'products',
       kind: 'collection',
-      detail: 'sample collection',
+      detail: 'collection',
       family: 'document',
       path: ['catalog', 'products'],
       scope: 'collection:products',
@@ -127,7 +124,7 @@ describe('sidebar connection tree helpers', () => {
       id: 'prefix-perf',
       label: 'perf:*',
       kind: 'prefix',
-      detail: '51 sampled key(s)',
+      detail: '51 key(s)',
       family: 'keyvalue',
       path: ['Session Redis'],
       scope: 'prefix:perf:',
@@ -153,7 +150,7 @@ describe('sidebar connection tree helpers', () => {
         id: 'prefix-perf',
         label: 'perf:*',
         kind: 'prefix',
-        detail: '51 sampled key(s)',
+        detail: '51 key(s)',
         family: 'keyvalue',
         path: [connection.name],
         scope: 'prefix:perf:',
@@ -268,13 +265,13 @@ describe('sidebar connection tree helpers', () => {
       },
     ])
 
-    expect(tree[0]).toMatchObject({ label: 'Schemas' })
+    expect(tree[0]).toMatchObject({ label: 'User Schemas' })
     expect(findNode(tree, 'schema-public')).toMatchObject({
       label: 'public',
       kind: 'schema',
       expandable: true,
     })
-    expect(findNode(tree, 'category:conn-analytics:Schemas/public/Tables')).toMatchObject({
+    expect(findNode(tree, 'category:conn-analytics:User Schemas/public/Tables')).toMatchObject({
       label: 'Tables',
     })
     expect(findNode(tree, 'public.accounts')).toMatchObject({
@@ -285,6 +282,152 @@ describe('sidebar connection tree helpers', () => {
     expect(findNode(tree, 'public.active_accounts')).toMatchObject({
       label: 'active_accounts',
       kind: 'view',
+    })
+  })
+
+  it('separates SQL system schemas and exposes management actions on object folders', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-analytics')!
+    const tree = buildConnectionObjectTreeFromExplorerNodes(connection, [
+      {
+        id: 'schema-public',
+        label: 'public',
+        kind: 'schema',
+        family: 'sql',
+        path: [connection.name],
+        scope: 'schema:public',
+        detail: 'schema',
+        expandable: true,
+      },
+      {
+        id: 'schema-pg-catalog',
+        label: 'pg_catalog',
+        kind: 'schema',
+        family: 'sql',
+        path: [connection.name],
+        scope: 'schema:pg_catalog',
+        detail: 'schema',
+        expandable: true,
+      },
+      {
+        id: 'pg_catalog.pg_class',
+        label: 'pg_class',
+        kind: 'BASE TABLE',
+        family: 'sql',
+        path: [connection.name, 'pg_catalog'],
+        scope: 'table:pg_catalog.pg_class',
+        detail: 'system table',
+      },
+    ])
+
+    expect(findNode(tree, 'category:conn-analytics:User Schemas')).toMatchObject({
+      label: 'User Schemas',
+    })
+    expect(findNode(tree, 'category:conn-analytics:System Schemas')).toMatchObject({
+      label: 'System Schemas',
+    })
+    expect(findNode(tree, 'category:conn-analytics:System Schemas/pg_catalog/System Tables')).toMatchObject({
+      label: 'System Tables',
+    })
+  })
+
+  it('adds SQL Server-style programmability folders with create procedure actions', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-orders')!
+    const tree = buildConnectionObjectTree(connection)
+    const databases = findNode(tree, 'databases')
+    const database = findNode(tree, 'database-orders')
+    const tables = findNode(tree, 'tables')
+    const storedProcedures = findNode(tree, 'stored-procedures')
+
+    expect(databases).toMatchObject({ label: 'Databases' })
+    expect(database).toMatchObject({ label: 'orders', kind: 'database' })
+    expect(tables).toMatchObject({ label: 'Tables', kind: 'tables' })
+    expect(findNode(tree, 'system-tables')).toMatchObject({ label: 'System Tables' })
+    expect(findNode(tree, 'filetables')).toMatchObject({ label: 'FileTables' })
+    expect(findNode(tree, 'external-tables')).toMatchObject({ label: 'External Tables' })
+    expect(findNode(tree, 'graph-tables')).toMatchObject({ label: 'Graph Tables' })
+    expect(storedProcedures).toMatchObject({
+      label: 'Stored Procedures',
+      kind: 'stored-procedures',
+    })
+    expect(storedProcedures?.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Create Stored Procedure...',
+          queryTemplate: expect.stringContaining('create procedure'),
+        }),
+      ]),
+    )
+    expect(findNode(tree, 'server-objects')).toMatchObject({ label: 'Server Objects' })
+  })
+
+  it('organizes live SQL Server metadata into SSMS-style database folders', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-orders')!
+    const tree = buildConnectionObjectTreeFromExplorerNodes(connection, [
+      {
+        id: 'dbo.accounts',
+        label: 'accounts',
+        kind: 'BASE TABLE',
+        family: 'sql',
+        path: [connection.name, 'dbo'],
+        scope: 'table:dbo.accounts',
+        detail: 'table',
+      },
+      {
+        id: 'dbo.active_accounts',
+        label: 'active_accounts',
+        kind: 'view',
+        family: 'sql',
+        path: [connection.name, 'dbo'],
+        scope: 'view:dbo.active_accounts',
+        detail: 'view',
+      },
+      {
+        id: 'dbo.refresh_rollups',
+        label: 'refresh_rollups',
+        kind: 'stored procedure',
+        family: 'sql',
+        path: [connection.name, 'dbo'],
+        scope: 'procedure:dbo.refresh_rollups',
+        detail: 'stored procedure',
+      },
+      {
+        id: 'dbo.calculate_total',
+        label: 'calculate_total',
+        kind: 'function',
+        family: 'sql',
+        path: [connection.name, 'dbo'],
+        scope: 'function:dbo.calculate_total',
+        detail: 'function',
+      },
+    ])
+
+    expect(findNode(tree, 'category:conn-orders:Databases/orders/Tables')).toMatchObject({
+      label: 'Tables',
+    })
+    expect(findNode(tree, 'dbo.accounts')).toMatchObject({
+      label: 'dbo.accounts',
+      kind: 'table',
+      queryTemplate: 'select top 100 * from dbo.accounts;',
+    })
+    expect(findNode(tree, 'category:conn-orders:Databases/orders/Views')).toMatchObject({
+      label: 'Views',
+    })
+    expect(findNode(tree, 'dbo.active_accounts')).toMatchObject({
+      label: 'dbo.active_accounts',
+      kind: 'view',
+    })
+    expect(findNode(tree, 'category:conn-orders:Databases/orders/Programmability/Stored Procedures')).toMatchObject({
+      label: 'Stored Procedures',
+    })
+    expect(findNode(tree, 'dbo.refresh_rollups')).toMatchObject({
+      label: 'dbo.refresh_rollups',
+      kind: 'stored-procedure',
+    })
+    expect(findNode(tree, 'category:conn-orders:Databases/orders/Programmability/Functions')).toMatchObject({
+      label: 'Functions',
     })
   })
 })

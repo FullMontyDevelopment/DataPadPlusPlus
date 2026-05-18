@@ -39,6 +39,23 @@ pub(crate) fn execute_mode(request: &ExecutionRequest) -> &str {
 }
 
 pub(crate) fn selected_query(request: &ExecutionRequest) -> &str {
+    if request.execution_input_mode.as_deref() == Some("script") {
+        if execute_mode(request) == "selection" {
+            return request
+                .selected_text
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .or(request.script_text.as_deref())
+                .unwrap_or(request.query_text.as_str());
+        }
+
+        return request
+            .script_text
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(request.query_text.as_str());
+    }
+
     if execute_mode(request) == "selection" {
         request
             .selected_text

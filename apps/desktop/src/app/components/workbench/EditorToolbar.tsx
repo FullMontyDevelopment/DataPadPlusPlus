@@ -1,6 +1,7 @@
 import type {
   ExecutionCapabilities,
   QueryBuilderState,
+  QueryViewMode,
 } from '@datapadplusplus/shared-types'
 import {
   ExplainIcon,
@@ -15,22 +16,24 @@ import {
   KeyValueIcon,
 } from './icons'
 
-type QueryWindowMode = 'both' | 'builder' | 'raw'
+type ResultsDock = 'bottom' | 'right'
 
 interface EditorToolbarProps {
   executionStatus: 'idle' | 'loading' | 'ready'
   capabilities: ExecutionCapabilities
   canCancelExecution: boolean
   bottomPanelVisible: boolean
+  resultsDock?: ResultsDock
   onExecute(): void
   onExplain(): void
   onCancel(): void
   onOpenConnectionDrawer(): void
   onToggleBottomPanel(): void
+  onToggleResultsDock?(): void
   canToggleBuilderView: boolean
   builderKind?: QueryBuilderState['kind']
-  queryWindowMode: QueryWindowMode
-  onToggleQueryWindowMode(mode: QueryWindowMode): void
+  queryWindowMode: QueryViewMode
+  onToggleQueryWindowMode(mode: QueryViewMode): void
   executeLabel?: string
   executeAriaLabel?: string
   executeTitle?: string
@@ -42,11 +45,13 @@ export function EditorToolbar({
   capabilities,
   canCancelExecution,
   bottomPanelVisible,
+  resultsDock = 'bottom',
   onExecute,
   onExplain,
   onCancel,
   onOpenConnectionDrawer,
   onToggleBottomPanel,
+  onToggleResultsDock = noop,
   canToggleBuilderView,
   builderKind,
   queryWindowMode,
@@ -57,20 +62,20 @@ export function EditorToolbar({
   executeDisabled = false,
 }: EditorToolbarProps) {
   const queryWindowModeButtonLabels: Record<
-    QueryWindowMode,
+    QueryViewMode,
     { icon: typeof PlayIcon; text: string }
   > = {
-    both: { icon: ColumnIcon, text: 'Show builder and raw' },
-    builder: { icon: JsonIcon, text: 'Show builder only' },
-    raw: { icon: TableIcon, text: 'Show raw query only' },
+    builder: { icon: JsonIcon, text: 'Query Builder' },
+    raw: { icon: TableIcon, text: 'Raw' },
+    script: { icon: ConsoleIcon, text: 'Scripting' },
   }
   const redisModeButtonLabels: Record<
-    QueryWindowMode,
+    QueryViewMode,
     { icon: typeof PlayIcon; text: string }
   > = {
-    both: { icon: ColumnIcon, text: 'Show key browser and console' },
-    builder: { icon: KeyValueIcon, text: 'Show key browser' },
-    raw: { icon: ConsoleIcon, text: 'Show Redis console' },
+    builder: { icon: KeyValueIcon, text: 'Key Browser' },
+    raw: { icon: ConsoleIcon, text: 'Redis Console' },
+    script: { icon: ConsoleIcon, text: 'Scripting' },
   }
   const modeLabels =
     builderKind === 'redis-key-browser'
@@ -125,13 +130,7 @@ export function EditorToolbar({
 
       {canToggleBuilderView ? (
         <div className="toolbar-group toolbar-group--query-layout" aria-label="Query window mode">
-          {(
-            [
-              { mode: 'both' },
-              { mode: 'builder' },
-              { mode: 'raw' },
-            ] as const
-          ).map(({ mode }) => {
+          {queryWindowModesForBuilder(builderKind).map((mode) => {
             const label = modeLabels[mode].text
             const Icon = modeLabels[mode].icon
 
@@ -171,12 +170,33 @@ export function EditorToolbar({
       <button
         type="button"
         className={`toolbar-icon-action${bottomPanelVisible ? ' is-active' : ''}`}
-        aria-label="Toggle results panel"
+        aria-label={bottomPanelVisible ? 'Toggle results panel' : 'Show results panel'}
         title="Show or hide the Results, Messages, and Details panel. Shortcut: Ctrl+J."
         onClick={onToggleBottomPanel}
       >
         <PanelIcon className="toolbar-icon" />
       </button>
+      <button
+        type="button"
+        className={`toolbar-icon-action${resultsDock === 'right' ? ' is-active' : ''}`}
+        aria-label={resultsDock === 'right' ? 'Dock results to bottom' : 'Dock results to right'}
+        title={resultsDock === 'right' ? 'Dock Results below the editor.' : 'Dock Results beside the editor.'}
+        onClick={onToggleResultsDock}
+      >
+        <ColumnIcon className="toolbar-icon" />
+      </button>
     </div>
   )
+}
+
+function noop() {
+  // Optional in focused unit tests and non-query workspaces.
+}
+
+function queryWindowModesForBuilder(builderKind?: QueryBuilderState['kind']): QueryViewMode[] {
+  if (builderKind === 'mongo-find') {
+    return ['builder', 'raw', 'script']
+  }
+
+  return ['builder', 'raw']
 }

@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import type {
   ClosedQueryTabSnapshot,
+  ConnectionProfile,
   EnvironmentProfile,
   LibraryNode,
 } from '@datapadplusplus/shared-types'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LibraryPane } from './SideBar.library-pane'
 
 const nodes: LibraryNode[] = [
@@ -20,6 +21,10 @@ describe('LibraryPane', () => {
     window.localStorage.removeItem('datapadplusplus.library.recentsHeight')
   })
 
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('moves files and folders to folders or back to root with drag and drop', () => {
     const onMoveNode = vi.fn()
     renderLibraryPane(onMoveNode)
@@ -30,6 +35,27 @@ describe('LibraryPane', () => {
     onMoveNode.mockClear()
     pointerMoveNode('Reports', 'Move library item to root')
     expect(onMoveNode).toHaveBeenCalledWith('folder-reports', undefined)
+  })
+
+  it('shows saved query items with a query icon instead of the generic dot', () => {
+    renderLibraryPane(vi.fn())
+
+    const queryRow = treeRowForLabel('Orders query')
+
+    expect(queryRow.querySelector('.library-node-icon--query svg')).toBeInTheDocument()
+  })
+
+  it('shows a compact loading indicator on the active connection while metadata loads', () => {
+    renderLibraryPane(vi.fn(), {
+      activeConnectionId: 'connection-postgres',
+      connections: [connection()],
+      explorerStatus: 'loading',
+      libraryNodes: [connectionNode('library-connection-postgres', 'Fixture PostgreSQL', 'connection-postgres')],
+    })
+
+    expect(
+      screen.getByRole('status', { name: 'Loading metadata for Fixture PostgreSQL' }),
+    ).toBeInTheDocument()
   })
 
   it('moves items to root when dropped on empty library tree space', () => {
@@ -129,6 +155,25 @@ describe('LibraryPane', () => {
     )
   })
 
+  it('keeps environment badges and ellipsis actions in the right aligned lane', () => {
+    renderLibraryPane(vi.fn(), {
+      environments,
+      libraryNodes: [
+        folder('folder-top', 'Top', undefined, 'env-dev'),
+        item('item-top', 'Top query', 'folder-top'),
+      ],
+    })
+
+    const topRow = treeRowForLabel('Top')
+    const queryRow = treeRowForLabel('Top query')
+
+    expect(topRow.querySelector('.library-tree-meta .library-env-badge')).toHaveTextContent('Dev')
+    expect(topRow.querySelector('.library-tree-meta .library-row-menu-button')).toBeInTheDocument()
+    expect(queryRow.querySelector('.library-tree-meta .library-env-badge')).toHaveTextContent('Dev')
+    expect(queryRow.querySelector('.library-tree-meta .library-row-menu-button')).toBeInTheDocument()
+    expect(queryRow.querySelector('.saved-work-actions')).not.toBeInTheDocument()
+  })
+
   it('assigns and clears environments from the context menu', () => {
     const onSetEnvironment = vi.fn()
     renderLibraryPane(vi.fn(), {
@@ -150,35 +195,114 @@ describe('LibraryPane', () => {
 
     expect(onSetEnvironment).toHaveBeenCalledWith('item-orders', undefined)
   })
+
+  it('manages environments from the row actions menu', () => {
+    const onSelectEnvironment = vi.fn()
+    const onEditEnvironment = vi.fn()
+    const onCloneEnvironment = vi.fn()
+    const onDeleteEnvironment = vi.fn()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderLibraryPane(vi.fn(), {
+      environments,
+      onCloneEnvironment,
+      onDeleteEnvironment,
+      onEditEnvironment,
+      onSelectEnvironment,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Environment actions for Prod' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Use environment Prod' }))
+    expect(onSelectEnvironment).toHaveBeenCalledWith('env-prod')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Environment actions for Prod' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit environment Prod' }))
+    expect(onEditEnvironment).toHaveBeenCalledWith('env-prod')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Environment actions for Prod' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Clone environment Prod' }))
+    expect(onCloneEnvironment).toHaveBeenCalledWith('env-prod')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Environment actions for Prod' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete environment Prod' }))
+    expect(onDeleteEnvironment).toHaveBeenCalledWith('env-prod')
+  })
+
+  it('exposes connection, settings, and theme controls from the Library toolbar', () => {
+    const onCreateConnection = vi.fn()
+    const onOpenSettings = vi.fn()
+    const onToggleTheme = vi.fn()
+
+    renderLibraryPane(vi.fn(), {
+      onCreateConnection,
+      onOpenSettings,
+      onToggleTheme,
+      theme: 'light',
+    })
+
+    expect(screen.queryByLabelText('Activity bar')).not.toBeInTheDocument()
+    expect(screen.getByRole('toolbar', { name: 'Library actions' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: 'Library' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('New datastore connection'))
+    fireEvent.click(screen.getByLabelText('Open settings'))
+    fireEvent.click(screen.getByLabelText('Toggle theme'))
+
+    expect(onCreateConnection).toHaveBeenCalledTimes(1)
+    expect(onOpenSettings).toHaveBeenCalledTimes(1)
+    expect(onToggleTheme).toHaveBeenCalledTimes(1)
+  })
 })
 
 function renderLibraryPane(
   onMoveNode: (nodeId: string, parentId?: string) => void,
   overrides: Partial<{
     closedTabs: ClosedQueryTabSnapshot[]
+    activeConnectionId: string
+    connections: ConnectionProfile[]
     environments: EnvironmentProfile[]
+    explorerStatus: 'idle' | 'loading' | 'ready'
     libraryNodes: LibraryNode[]
+    onCreateConnection: () => void
+    onCloneEnvironment: (environmentId: string) => void
+    onDeleteEnvironment: (environmentId: string) => void
+    onEditEnvironment: (environmentId: string) => void
+    onOpenSettings: () => void
+    onSelectEnvironment: (environmentId: string) => void
     onSetEnvironment: (nodeId: string, environmentId?: string) => void
+    onToggleTheme: () => void
     sectionStates: Record<string, boolean>
+    theme: 'system' | 'dark' | 'light'
   }> = {},
 ) {
   return render(
     <LibraryPane
+      activeConnectionId={overrides.activeConnectionId ?? ''}
       closedTabs={overrides.closedTabs ?? []}
+      connections={overrides.connections ?? []}
       environments={overrides.environments ?? []}
+      explorerStatus={overrides.explorerStatus ?? 'idle'}
       libraryFilter=""
       libraryNodes={overrides.libraryNodes ?? nodes}
       sectionStates={overrides.sectionStates ?? {}}
+      theme={overrides.theme ?? 'dark'}
+      onCreateConnection={overrides.onCreateConnection ?? vi.fn()}
+      onCloneEnvironment={overrides.onCloneEnvironment ?? vi.fn()}
       onCreateFolder={vi.fn()}
+      onDeleteEnvironment={overrides.onDeleteEnvironment ?? vi.fn()}
       onDeleteNode={vi.fn()}
+      onEditEnvironment={overrides.onEditEnvironment ?? vi.fn()}
       onLibraryFilterChange={vi.fn()}
       onMoveNode={onMoveNode}
+      onOpenSettings={overrides.onOpenSettings ?? vi.fn()}
       onOpenLibraryItem={vi.fn()}
       onRenameNode={vi.fn()}
       onReopenClosedTab={vi.fn()}
       onSaveCurrentQuery={vi.fn()}
+      onSelectEnvironment={overrides.onSelectEnvironment ?? vi.fn()}
       onSetNodeEnvironment={overrides.onSetEnvironment ?? vi.fn()}
       onSidebarSectionExpandedChange={vi.fn()}
+      onToggleTheme={overrides.onToggleTheme ?? vi.fn()}
     />,
   )
 }
@@ -311,6 +435,38 @@ function item(id: string, name: string, parentId?: string): LibraryNode {
     updatedAt: '2026-05-14T00:00:00.000Z',
     queryText: 'select 1;',
     language: 'sql',
+  }
+}
+
+function connectionNode(id: string, name: string, connectionId: string): LibraryNode {
+  return {
+    id,
+    kind: 'connection',
+    name,
+    connectionId,
+    tags: [],
+    createdAt: '2026-05-14T00:00:00.000Z',
+    updatedAt: '2026-05-14T00:00:00.000Z',
+  }
+}
+
+function connection(): ConnectionProfile {
+  return {
+    id: 'connection-postgres',
+    name: 'Fixture PostgreSQL',
+    engine: 'postgresql',
+    family: 'sql',
+    host: 'localhost',
+    port: 5432,
+    database: 'datapadplusplus',
+    environmentIds: [],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'postgresql',
+    auth: {},
+    createdAt: '2026-05-14T00:00:00.000Z',
+    updatedAt: '2026-05-14T00:00:00.000Z',
   }
 }
 

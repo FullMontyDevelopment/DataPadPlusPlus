@@ -1,6 +1,7 @@
 import type {
   BottomPanelTab,
   ConnectionGroupMode,
+  ResultsDock,
   RightDrawerView,
   SidebarPane,
   UiActivity,
@@ -18,6 +19,7 @@ import type {
   QueryBuilderKind,
   QueryBuilderState,
   QueryLanguage,
+  QueryViewMode,
   ScopedQueryTarget,
   QueryTabState,
   ResultPageInfo,
@@ -415,6 +417,8 @@ export interface ExecutionRequest {
   environmentId: string
   language: QueryLanguage
   queryText: string
+  executionInputMode?: QueryViewMode
+  scriptText?: string
   selectedText?: string
   mode?: QueryExecutionMode
   rowLimit?: number
@@ -553,6 +557,13 @@ export interface UpdateQueryBuilderStateRequest {
   tabId: string
   builderState: QueryBuilderState
   queryText?: string
+  queryViewMode?: QueryViewMode
+}
+
+export interface UpdateQueryTabRequest {
+  tabId: string
+  queryText: string
+  queryViewMode?: QueryViewMode
 }
 
 export type LocalDatabaseCreateMode = 'empty' | 'starter'
@@ -596,6 +607,8 @@ export interface UpdateUiStateRequest {
   bottomPanelVisible?: boolean
   activeBottomPanelTab?: BottomPanelTab
   bottomPanelHeight?: number
+  resultsDock?: ResultsDock
+  resultsSideWidth?: number
   rightDrawer?: RightDrawerView
   rightDrawerWidth?: number
 }

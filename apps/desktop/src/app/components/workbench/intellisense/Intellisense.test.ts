@@ -90,6 +90,50 @@ describe('query intellisense', () => {
     )
   })
 
+  it('maps SQL explorer category paths to real schemas, objects, and columns', () => {
+    const connection = connectionProfile('postgresql', 'sql')
+    const catalog = buildCompletionCatalog({
+      connection,
+      environment,
+      explorerNodes: [
+        explorerNode('schema-public', 'public', 'schema', [connection.name]),
+        explorerNode('public.accounts', 'accounts', 'BASE TABLE', [
+          connection.name,
+          'public',
+        ]),
+        explorerNode('public.accounts.name', 'name', 'column', [
+          connection.name,
+          'User Schemas',
+          'public',
+          'Tables',
+          'accounts',
+        ]),
+      ],
+    })
+    const provider = completionProvidersForConnection(connection, 'sql')[0]
+    const suggestions =
+      provider?.buildItems(
+        completionContext(connection, 'select a. from public.accounts a', catalog),
+      ) ?? []
+
+    expect(catalog.objects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'accounts', kind: 'table', schema: 'public' }),
+      ]),
+    )
+    expect(catalog.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'name', objectName: 'accounts', schema: 'public' }),
+      ]),
+    )
+    expect(suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'public.accounts', insertText: 'public.accounts' }),
+        expect.objectContaining({ label: 'name', kind: 'field' }),
+      ]),
+    )
+  })
+
   it('suggests MongoDB collections, JSON keys, operators, and document field paths', () => {
     const connection = connectionProfile('mongodb', 'document')
     const provider = completionProvidersForConnection(connection, 'json')[0]

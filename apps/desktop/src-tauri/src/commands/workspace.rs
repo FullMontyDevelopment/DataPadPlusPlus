@@ -101,6 +101,15 @@ pub fn upsert_environment_profile(
 }
 
 #[tauri::command]
+pub fn delete_environment_profile(
+    state: State<'_, SharedAppState>,
+    environment_id: String,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = state.lock().unwrap();
+    state.delete_environment(&environment_id)
+}
+
+#[tauri::command]
 pub fn create_query_tab(
     state: State<'_, SharedAppState>,
     connection_id: String,
@@ -196,9 +205,10 @@ pub fn update_query_tab(
     state: State<'_, SharedAppState>,
     tab_id: String,
     query_text: String,
+    query_view_mode: Option<String>,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = state.lock().unwrap();
-    state.update_query_tab(&tab_id, &query_text)
+    state.update_query_tab(&tab_id, &query_text, query_view_mode)
 }
 
 #[tauri::command]

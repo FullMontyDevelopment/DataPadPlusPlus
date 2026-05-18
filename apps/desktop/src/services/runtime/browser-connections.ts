@@ -1,6 +1,11 @@
 import type { ConnectionProfile, EnvironmentProfile, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { cloneSnapshot } from './browser-store'
 import { createQueryTabForConnection } from './browser-tabs'
+import {
+  effectiveConnectionEnvironmentId,
+  ensureConnectionLibraryNodes,
+  removeConnectionLibraryNodes,
+} from './library-connection-helpers'
 
 export function setActiveConnection(
   snapshot: WorkspaceSnapshot,
@@ -18,7 +23,7 @@ export function setActiveConnection(
 
   next.ui.activeConnectionId = connection.id
   next.ui.activeEnvironmentId =
-    tab?.environmentId ?? connection.environmentIds[0] ?? next.ui.activeEnvironmentId
+    tab?.environmentId ?? effectiveConnectionEnvironmentId(next, connection)
   next.ui.activeTabId = tab?.id ?? ''
   next.updatedAt = new Date().toISOString()
   return next
@@ -39,6 +44,7 @@ export function upsertConnection(
     next.connections.push(profile)
   }
 
+  ensureConnectionLibraryNodes(next)
   next.updatedAt = new Date().toISOString()
   return next
 }
@@ -53,6 +59,7 @@ export function deleteConnection(
 
   next.connections = next.connections.filter((connection) => connection.id !== connectionId)
   next.tabs = next.tabs.filter((tab) => tab.connectionId !== connectionId)
+  removeConnectionLibraryNodes(next, connectionId)
 
   if (next.tabs.length === 0 && next.connections[0]) {
     const connection = next.connections[0]
@@ -97,3 +104,64 @@ export function upsertEnvironment(
   return next
 }
 
+export function deleteEnvironment(
+  snapshot: WorkspaceSnapshot,
+  environmentId: string,
+): WorkspaceSnapshot {
+  const next = cloneSnapshot(snapshot)
+  const deleted = next.environments.some((environment) => environment.id === environmentId)
+
+  if (!deleted) {
+    throw new Error('Environment was not found.')
+  }
+
+  if (next.environments.length <= 1) {
+    throw new Error('At least one environment is required.')
+  }
+
+  next.environments = next.environments
+    .filter((environment) => environment.id !== environmentId)
+    .map((environment) =>
+      environment.inheritsFrom === environmentId
+        ? { ...environment, inheritsFrom: undefined, updatedAt: new Date().toISOString() }
+        : environment,
+    )
+
+  const fallbackEnvironmentId =
+    next.environments.find((environment) => environment.id !== environmentId)?.id ?? ''
+
+  next.connections = next.connections.map((connection) => {
+    const environmentIds = connection.environmentIds.filter((id) => id !== environmentId)
+    return {
+      ...connection,
+      environmentIds: environmentIds.length > 0 ? environmentIds : [fallbackEnvironmentId],
+      updatedAt: new Date().toISOString(),
+    }
+  })
+
+  next.tabs = next.tabs.map((tab) =>
+    tab.environmentId === environmentId
+      ? { ...tab, environmentId: fallbackEnvironmentId }
+      : tab,
+  )
+  next.closedTabs = next.closedTabs.map((tab) =>
+    tab.environmentId === environmentId ? { ...tab, environmentId: fallbackEnvironmentId } : tab,
+  )
+  next.libraryNodes = next.libraryNodes.map((node) =>
+    node.environmentId === environmentId
+      ? { ...node, environmentId: undefined, updatedAt: new Date().toISOString() }
+      : node,
+  )
+  next.savedWork = next.savedWork.map((item) =>
+    item.environmentId === environmentId
+      ? { ...item, environmentId: undefined, updatedAt: new Date().toISOString() }
+      : item,
+  )
+
+  if (next.ui.activeEnvironmentId === environmentId) {
+    next.ui.activeEnvironmentId = fallbackEnvironmentId
+  }
+
+  next.updatedAt = new Date().toISOString()
+  return next
+}

@@ -24,6 +24,7 @@ describe('QueryBuilderPanel', () => {
     expect(screen.queryByText('Mongo Find Builder')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'products' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('Collection')).toHaveValue('products')
+    expect(screen.getByLabelText('Fetch size')).toHaveValue(20)
     expect(screen.queryByLabelText('Filter group logic Group 1')).not.toBeInTheDocument()
 
     dropField(section('Filters'), 'profile.status')

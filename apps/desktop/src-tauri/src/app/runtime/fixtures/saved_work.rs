@@ -66,6 +66,8 @@ pub(super) fn fixture_closed_tabs(
             saved_query_id: None,
             editor_label: editor_label_for_connection(connection),
             query_text: "select count(*) as table_count from observability.table_health;".into(),
+            query_view_mode: Some("raw".into()),
+            script_text: None,
             scoped_target: None,
             builder_state: None,
             metrics_state: None,

@@ -1,6 +1,7 @@
 import type { ConnectionProfile, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
-import { createId, defaultQueryTextForConnection, editorLabelForConnection, languageForConnection } from '../../app/state/helpers'
+import { createId, defaultQueryTextForConnection, defaultQueryViewModeForConnection, defaultScriptTextForConnection, editorLabelForConnection, languageForConnection } from '../../app/state/helpers'
 import { cloneSnapshot, findTab } from './browser-store'
+import { effectiveConnectionEnvironmentId } from './library-connection-helpers'
 
 const MAX_CLOSED_TABS = 25
 
@@ -14,11 +15,13 @@ export function createQueryTabForConnection(
     title: defaultQueryTabTitle(snapshot, connection),
     tabKind: 'query',
     connectionId: connection.id,
-    environmentId: connection.environmentIds[0] ?? snapshot.environments[0]?.id ?? 'env-dev',
+    environmentId: effectiveConnectionEnvironmentId(snapshot, connection),
     family: connection.family,
     language: languageForConnection(connection),
     editorLabel: editorLabelForConnection(connection),
     queryText: defaultQueryTextForConnection(connection),
+    queryViewMode: defaultQueryViewModeForConnection(connection),
+    scriptText: defaultScriptTextForConnection(connection),
     status: 'idle',
     dirty,
     history: [],
@@ -42,8 +45,8 @@ export function createExplorerTabInSnapshot(
 
   if (existingExplorerTab) {
     const focused = upsertTab(next, existingExplorerTab)
-    focused.ui.activeActivity = 'connections'
-    focused.ui.activeSidebarPane = 'connections'
+    focused.ui.activeActivity = 'library'
+    focused.ui.activeSidebarPane = 'library'
     focused.ui.explorerView = 'structure'
     focused.ui.rightDrawer = 'none'
     return focused
@@ -54,19 +57,21 @@ export function createExplorerTabInSnapshot(
     title: uniqueExplorerTabTitle(next, connection),
     tabKind: 'explorer',
     connectionId: connection.id,
-    environmentId: connection.environmentIds[0] ?? next.environments[0]?.id ?? 'env-dev',
+    environmentId: effectiveConnectionEnvironmentId(next, connection),
     family: connection.family,
     language: 'text',
     editorLabel: 'Explorer',
     queryText: '',
+    queryViewMode: undefined,
+    scriptText: undefined,
     status: 'idle',
     dirty: false,
     history: [],
   }
 
   const focused = upsertTab(next, tab)
-  focused.ui.activeActivity = 'connections'
-  focused.ui.activeSidebarPane = 'connections'
+  focused.ui.activeActivity = 'library'
+  focused.ui.activeSidebarPane = 'library'
   focused.ui.explorerView = 'structure'
   focused.ui.rightDrawer = 'none'
   return focused
@@ -85,7 +90,7 @@ export function createMetricsTabInSnapshot(
   }
 
   const resolvedEnvironmentId =
-    environmentId ?? connection.environmentIds[0] ?? next.environments[0]?.id ?? 'env-dev'
+    effectiveConnectionEnvironmentId(next, connection, environmentId)
   const existingMetricsTab = next.tabs.find(
     (tab) =>
       tab.connectionId === connection.id &&
@@ -95,8 +100,8 @@ export function createMetricsTabInSnapshot(
 
   if (existingMetricsTab) {
     const focused = upsertTab(next, existingMetricsTab)
-    focused.ui.activeActivity = 'connections'
-    focused.ui.activeSidebarPane = 'connections'
+    focused.ui.activeActivity = 'library'
+    focused.ui.activeSidebarPane = 'library'
     focused.ui.rightDrawer = 'none'
     return focused
   }
@@ -111,6 +116,8 @@ export function createMetricsTabInSnapshot(
     language: 'json',
     editorLabel: 'Metrics',
     queryText: '',
+    queryViewMode: undefined,
+    scriptText: undefined,
     metricsState: {
       connectionId: connection.id,
       environmentId: resolvedEnvironmentId,
@@ -122,8 +129,8 @@ export function createMetricsTabInSnapshot(
   }
 
   const focused = upsertTab(next, tab)
-  focused.ui.activeActivity = 'connections'
-  focused.ui.activeSidebarPane = 'connections'
+  focused.ui.activeActivity = 'library'
+  focused.ui.activeSidebarPane = 'library'
   focused.ui.rightDrawer = 'none'
   return focused
 }
@@ -162,7 +169,7 @@ export function createScopedQueryTabInSnapshot(
 
   const queryText =
     builderKind === 'mongo-find'
-      ? mongoFindQueryText(targetLabel, 50, connection.database)
+      ? mongoFindQueryText(targetLabel, 20, connection.database)
       : builderKind === 'redis-key-browser'
         ? redisKeyBrowserQueryText(redisPatternFromTarget(request.target))
       : (request.target.queryTemplate ?? defaultQueryTextForConnection(connection))
@@ -172,11 +179,16 @@ export function createScopedQueryTabInSnapshot(
     tabKind: 'query',
     connectionId: connection.id,
     environmentId:
-      request.environmentId ?? connection.environmentIds[0] ?? next.environments[0]?.id ?? 'env-dev',
+      effectiveConnectionEnvironmentId(next, connection, request.environmentId),
     family: connection.family,
     language: languageForConnection(connection),
     editorLabel: editorLabelForConnection(connection),
     queryText,
+    queryViewMode: builderKind ? 'builder' : defaultQueryViewModeForConnection(connection),
+    scriptText:
+      connection.engine === 'mongodb' && builderKind === 'mongo-find'
+        ? `db.${targetLabel}.find({}).limit(20)`
+        : defaultScriptTextForConnection(connection),
     scopedTarget: request.target,
     builderState:
       builderKind === 'mongo-find'
@@ -188,7 +200,7 @@ export function createScopedQueryTabInSnapshot(
             projectionFields: [],
             sort: [],
             skip: 0,
-            limit: 50,
+            limit: 20,
             lastAppliedQueryText: queryText,
           }
         : builderKind === 'redis-key-browser'
@@ -401,6 +413,8 @@ export function upsertTab(snapshot: WorkspaceSnapshot, tab: QueryTabState): Work
   next.ui.activeConnectionId = tab.connectionId
   next.ui.activeEnvironmentId = tab.environmentId
   next.ui.activeTabId = tab.id
+  next.ui.activeActivity = 'library'
+  next.ui.activeSidebarPane = 'library'
   next.ui.rightDrawer = 'none'
   next.updatedAt = new Date().toISOString()
   return next

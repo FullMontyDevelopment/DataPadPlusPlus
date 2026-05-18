@@ -13,6 +13,7 @@ interface DocumentContextMenuProps {
   onDelete(): void
   onEditValue(): void
   onRename(): void
+  onViewRawJson(): void
   row: DocumentGridRow
   x: number
   y: number
@@ -27,6 +28,7 @@ export function DocumentContextMenu({
   onDelete,
   onEditValue,
   onRename,
+  onViewRawJson,
   row,
   x,
   y,
@@ -55,6 +57,9 @@ export function DocumentContextMenu({
           Copy Document JSON
         </button>
       ) : null}
+      <button type="button" role="menuitem" onClick={() => { onViewRawJson(); onClose() }}>
+        View Raw JSON
+      </button>
       {behavior.contextActions.renameField && permissions.canEditField ? (
         <button type="button" role="menuitem" onClick={() => { onRename(); onClose() }}>
           Rename Field

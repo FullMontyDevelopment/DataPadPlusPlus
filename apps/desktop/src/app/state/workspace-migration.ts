@@ -20,7 +20,10 @@ const MAX_SIDEBAR_WIDTH = 420
 const MIN_RIGHT_DRAWER_WIDTH = 320
 const DEFAULT_RIGHT_DRAWER_WIDTH = 360
 const MAX_RIGHT_DRAWER_WIDTH = 560
-const WORKSPACE_SCHEMA_VERSION = 8
+const MIN_RESULTS_SIDE_WIDTH = 320
+const DEFAULT_RESULTS_SIDE_WIDTH = 420
+const MAX_RESULTS_SIDE_WIDTH = 2400
+const WORKSPACE_SCHEMA_VERSION = 9
 const DEFAULT_LIBRARY_ROOTS = [
   ['library-root-queries', 'Queries'],
   ['library-root-scripts', 'Scripts'],
@@ -81,6 +84,21 @@ function clampRightDrawerWidth(value: unknown) {
   )
 }
 
+function clampResultsSideWidth(value: unknown) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return DEFAULT_RESULTS_SIDE_WIDTH
+  }
+
+  return Math.min(
+    MAX_RESULTS_SIDE_WIDTH,
+    Math.max(MIN_RESULTS_SIDE_WIDTH, Math.round(value)),
+  )
+}
+
+function isResultsDock(value: unknown): value is UiState['resultsDock'] {
+  return value === 'bottom' || value === 'right'
+}
+
 function isSidebarPane(value: unknown): value is UiState['activeSidebarPane'] {
   return (
     value === 'connections' ||
@@ -97,6 +115,18 @@ function isActivity(value: unknown): value is UiState['activeActivity'] {
 
 function isBottomPanelTab(value: unknown): value is UiState['activeBottomPanelTab'] {
   return value === 'results' || value === 'messages' || value === 'history' || value === 'details'
+}
+
+function normalizeQueryViewMode(value: unknown) {
+  if (value === 'builder' || value === 'raw' || value === 'script') {
+    return value
+  }
+
+  if (value === 'both') {
+    return 'builder'
+  }
+
+  return undefined
 }
 
 function isRightDrawer(value: unknown): value is UiState['rightDrawer'] {
@@ -150,24 +180,11 @@ export function normalizeUiState(snapshot: WorkspaceSnapshot): UiState {
     firstEnvironment
   const legacyActiveActivity = legacyUi?.activeActivity as string | undefined
   const legacyActiveSidebarPane = legacyUi?.activeSidebarPane as string | undefined
-  const activeActivity =
-    legacyActiveActivity === 'saved-work'
-      ? 'library'
-      : legacyActiveActivity === 'search'
-        ? 'library'
-      : isActivity(legacyActiveActivity)
-        ? legacyActiveActivity
-        : 'connections'
-  const activeSidebarPane =
-    legacyActiveSidebarPane === 'saved-work'
-      ? 'library'
-      : legacyActiveSidebarPane === 'search'
-        ? 'library'
-      : isSidebarPane(legacyActiveSidebarPane)
-        ? legacyActiveSidebarPane
-        : activeActivity === 'settings'
-          ? 'connections'
-          : activeActivity
+  const activeActivity = normalizeActivity(legacyActiveActivity)
+  const activeSidebarPane = normalizeSidebarPane(
+    legacyActiveSidebarPane,
+    activeActivity === 'settings' ? 'library' : activeActivity,
+  )
   const activeBottomPanelTab = isBottomPanelTab(legacyUi?.activeBottomPanelTab)
     ? legacyUi.activeBottomPanelTab
     : 'results'
@@ -198,6 +215,8 @@ export function normalizeUiState(snapshot: WorkspaceSnapshot): UiState {
       (typeof legacyUi?.bottomPanelVisible === 'boolean' ? legacyUi.bottomPanelVisible : false),
     activeBottomPanelTab,
     bottomPanelHeight: clampBottomPanelHeight(legacyUi?.bottomPanelHeight),
+    resultsDock: isResultsDock(legacyUi?.resultsDock) ? legacyUi.resultsDock : 'bottom',
+    resultsSideWidth: clampResultsSideWidth(legacyUi?.resultsSideWidth),
     rightDrawer,
     rightDrawerWidth: clampRightDrawerWidth(legacyUi?.rightDrawerWidth),
   }
@@ -215,6 +234,7 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   stripDemoRecords(next)
   migrateConnectionModes(next.connections)
   next.libraryNodes = migrateLibraryNodes(next.libraryNodes, next.savedWork)
+  ensureConnectionLibraryNodes(next.libraryNodes, next.connections)
   migrateTabKinds(next.tabs)
   migrateTabKinds(next.closedTabs)
   migrateTabSaveTargets(next.tabs)
@@ -233,10 +253,57 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   return next
 }
 
+function normalizeActivity(value: string | undefined): UiState['activeActivity'] {
+  if (value === 'settings') {
+    return 'settings'
+  }
+
+  if (value === 'explorer') {
+    return 'explorer'
+  }
+
+  if (value === 'library' || value === 'saved-work' || value === 'search') {
+    return 'library'
+  }
+
+  if (value === 'connections' || value === 'tests' || value === 'environments') {
+    return 'library'
+  }
+
+  return isActivity(value) ? value : 'library'
+}
+
+function normalizeSidebarPane(
+  value: string | undefined,
+  fallback: UiState['activeSidebarPane'],
+): UiState['activeSidebarPane'] {
+  if (value === 'explorer') {
+    return 'explorer'
+  }
+
+  if (
+    value === 'library' ||
+    value === 'saved-work' ||
+    value === 'search' ||
+    value === 'connections' ||
+    value === 'tests' ||
+    value === 'environments'
+  ) {
+    return 'library'
+  }
+
+  return isSidebarPane(value) ? value : fallback
+}
+
 function migrateTabKinds(tabs: QueryTabState[]) {
   tabs.forEach((tab) => {
     if (!tab.tabKind) {
       tab.tabKind = 'query'
+    }
+
+    const queryViewMode = normalizeQueryViewMode(tab.queryViewMode)
+    if (queryViewMode) {
+      tab.queryViewMode = queryViewMode
     }
   })
 }
@@ -306,8 +373,16 @@ function migrateLibraryNodes(
       environmentId: item.environmentId,
       language: item.language,
       queryText: item.queryText,
+      queryViewMode: item.kind === 'script' ? 'script' : undefined,
       snapshotResultId: item.snapshotResultId,
     })
+  })
+
+  nodes.forEach((node) => {
+    const queryViewMode = normalizeQueryViewMode(node.queryViewMode)
+    if (queryViewMode) {
+      node.queryViewMode = queryViewMode
+    }
   })
 
   return nodes
@@ -326,6 +401,37 @@ function ensureDefaultLibraryFolders(nodes: LibraryNode[], timestamp: string) {
         summary: 'Workspace library folder.',
       })
     }
+  })
+}
+
+function ensureConnectionLibraryNodes(
+  nodes: LibraryNode[],
+  connections: ConnectionProfile[],
+) {
+  const timestamp = new Date().toISOString()
+
+  connections.forEach((connection) => {
+    const existing = nodes.find(
+      (node) => node.kind === 'connection' && node.connectionId === connection.id,
+    )
+
+    if (existing) {
+      existing.name = connection.name
+      existing.summary = `${connection.engine} / connection`
+      existing.updatedAt ||= timestamp
+      return
+    }
+
+    nodes.push({
+      id: `library-connection-${connection.id}`,
+      kind: 'connection',
+      name: connection.name,
+      summary: `${connection.engine} / connection`,
+      tags: connection.tags ?? [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      connectionId: connection.id,
+    })
   })
 }
 

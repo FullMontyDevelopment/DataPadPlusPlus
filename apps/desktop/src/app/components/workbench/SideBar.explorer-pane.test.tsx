@@ -30,7 +30,7 @@ describe('ExplorerPane', () => {
 
     expect(schemaRow).toHaveClass('has-environment-accent')
     expect(schemaRow.getAttribute('style')).toContain('--connection-env-color')
-    expect(schemaRow.querySelector('.tree-node-datastore-icon')).not.toBeNull()
+    expect(schemaRow.querySelector('.tree-kind-icon')).not.toBeNull()
     expect(tableRow.querySelector('.tree-icon')).not.toBeNull()
   })
 

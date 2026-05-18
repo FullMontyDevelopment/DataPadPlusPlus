@@ -53,6 +53,8 @@ export type QueryExecutionState =
   | 'error'
   | 'blocked'
 
+export type QueryViewMode = 'builder' | 'raw' | 'script'
+
 export type SavedWorkItemKind =
   | 'query'
   | 'script'
@@ -65,7 +67,7 @@ export type SavedWorkItemKind =
   | 'note'
 
 export type LibraryItemKind = SavedWorkItemKind
-export type LibraryNodeKind = 'folder' | LibraryItemKind
+export type LibraryNodeKind = 'folder' | 'connection' | LibraryItemKind
 
 export type QuerySaveTarget =
   | { kind: 'library'; libraryItemId: string }
@@ -735,6 +737,8 @@ export interface UserFacingError {
 export interface QueryTabState extends QueryTabDefinition {
   editorLabel: string
   queryText: string
+  queryViewMode?: QueryViewMode
+  scriptText?: string
   scopedTarget?: ScopedQueryTarget
   builderState?: QueryBuilderState
   metricsState?: MetricsTabState
@@ -786,6 +790,8 @@ export interface LibraryNode {
   environmentId?: string
   language?: QueryLanguage
   queryText?: string
+  queryViewMode?: QueryViewMode
+  builderState?: QueryBuilderState
   scriptText?: string
   testSuite?: DatastoreTestSuiteDefinition
   snapshotResultId?: string

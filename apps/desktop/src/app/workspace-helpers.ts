@@ -36,8 +36,11 @@ import {
 } from './components/workbench/query-builder/redis-key-browser'
 import {
   defaultRowLimitForConnection,
+  defaultScriptTextForConnection,
   editorLanguageForConnection,
 } from './state/helpers'
+
+export { defaultScriptTextForConnection }
 
 export function resolveThemeMode(theme: WorkspaceSnapshot['preferences']['theme']) {
   if (theme === 'system') {

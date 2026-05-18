@@ -36,11 +36,40 @@ describe('EditorToolbar', () => {
     expect(screen.getByRole('button', { name: 'Run Redis command' })).toHaveTextContent(
       'Run Command',
     )
-    expect(screen.getByLabelText('Show key browser and console')).toBeInTheDocument()
-    expect(screen.getByLabelText('Show key browser')).toBeInTheDocument()
-    expect(screen.getByLabelText('Show Redis console')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Show key browser and console')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Key Browser')).toBeInTheDocument()
+    expect(screen.getByLabelText('Redis Console')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByLabelText('Show key browser'))
+    fireEvent.click(screen.getByLabelText('Key Browser'))
     expect(onToggleQueryWindowMode).toHaveBeenCalledWith('builder')
+  })
+
+  it('shows Mongo builder, raw, and scripting modes without side-by-side', () => {
+    const onToggleQueryWindowMode = vi.fn()
+    render(
+      <EditorToolbar
+        executionStatus="idle"
+        capabilities={baseCapabilities}
+        canCancelExecution={false}
+        bottomPanelVisible={false}
+        canToggleBuilderView
+        builderKind="mongo-find"
+        queryWindowMode="builder"
+        onExecute={vi.fn()}
+        onExplain={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenConnectionDrawer={vi.fn()}
+        onToggleBottomPanel={vi.fn()}
+        onToggleQueryWindowMode={onToggleQueryWindowMode}
+      />,
+    )
+
+    expect(screen.getByLabelText('Query Builder')).toBeInTheDocument()
+    expect(screen.getByLabelText('Raw')).toBeInTheDocument()
+    expect(screen.getByLabelText('Scripting')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Show builder and raw')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Scripting'))
+    expect(onToggleQueryWindowMode).toHaveBeenCalledWith('script')
   })
 })

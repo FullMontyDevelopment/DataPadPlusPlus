@@ -200,6 +200,10 @@ pub struct QueryTabState {
     pub editor_label: String,
     pub query_text: String,
     #[serde(default)]
+    pub query_view_mode: Option<String>,
+    #[serde(default)]
+    pub script_text: Option<String>,
+    #[serde(default)]
     pub scoped_target: Option<ScopedQueryTarget>,
     #[serde(default)]
     pub builder_state: Option<Value>,
@@ -264,6 +268,10 @@ pub struct LibraryNode {
     pub environment_id: Option<String>,
     pub language: Option<String>,
     pub query_text: Option<String>,
+    #[serde(default)]
+    pub query_view_mode: Option<String>,
+    #[serde(default)]
+    pub builder_state: Option<Value>,
     pub script_text: Option<String>,
     #[serde(default)]
     pub test_suite: Option<Value>,
@@ -731,6 +739,8 @@ pub struct UiState {
     pub bottom_panel_visible: bool,
     pub active_bottom_panel_tab: String,
     pub bottom_panel_height: u32,
+    pub results_dock: String,
+    pub results_side_width: u32,
     pub right_drawer: String,
     pub right_drawer_width: u32,
 }
@@ -756,6 +766,8 @@ impl Default for UiState {
             bottom_panel_visible: false,
             active_bottom_panel_tab: "results".into(),
             bottom_panel_height: 260,
+            results_dock: "bottom".into(),
+            results_side_width: 420,
             right_drawer: "none".into(),
             right_drawer_width: 360,
         }
@@ -913,6 +925,8 @@ pub struct ExecutionRequest {
     pub environment_id: String,
     pub language: String,
     pub query_text: String,
+    pub execution_input_mode: Option<String>,
+    pub script_text: Option<String>,
     pub selected_text: Option<String>,
     pub mode: Option<String>,
     pub row_limit: Option<u32>,
@@ -1052,6 +1066,8 @@ pub struct UpdateQueryBuilderStateRequest {
     pub tab_id: String,
     pub builder_state: Value,
     pub query_text: Option<String>,
+    #[serde(default)]
+    pub query_view_mode: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1199,6 +1215,8 @@ pub struct UpdateUiStateRequest {
     pub bottom_panel_visible: Option<bool>,
     pub active_bottom_panel_tab: Option<String>,
     pub bottom_panel_height: Option<u32>,
+    pub results_dock: Option<String>,
+    pub results_side_width: Option<u32>,
     pub right_drawer: Option<String>,
     pub right_drawer_width: Option<u32>,
 }

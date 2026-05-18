@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::generate_id;
+use super::{generate_id, library::effective_connection_environment_id};
 use crate::domain::models::{
     ConnectionProfile, CreateScopedQueryTabRequest, QueryTabState, SavedWorkItem,
     ScopedQueryTarget, WorkspaceSnapshot,
@@ -9,7 +9,7 @@ use crate::domain::models::{
 pub(super) fn default_query_text(connection: &ConnectionProfile) -> String {
     match connection.engine.as_str() {
         "mongodb" | "litedb" => {
-            "{\n  \"collection\": \"products\",\n  \"filter\": {},\n  \"limit\": 50\n}".into()
+            "{\n  \"collection\": \"products\",\n  \"filter\": {},\n  \"limit\": 20\n}".into()
         }
         "dynamodb" => "{\n  \"operation\": \"Query\",\n  \"tableName\": \"Orders\",\n  \"keyConditionExpression\": \"#pk = :pk\",\n  \"expressionAttributeNames\": { \"#pk\": \"pk\" },\n  \"expressionAttributeValues\": { \":pk\": { \"S\": \"CUSTOMER#123\" } },\n  \"limit\": 25\n}".into(),
         "cosmosdb" => "select top 50 * from c".into(),
@@ -71,6 +71,22 @@ pub(super) fn editor_label_for_connection(connection: &ConnectionProfile) -> Str
         "clickhouse-sql" => "ClickHouse SQL editor".into(),
         "cql" => "CQL editor".into(),
         _ => "SQL editor".into(),
+    }
+}
+
+pub(super) fn default_query_view_mode(connection: &ConnectionProfile) -> String {
+    match connection.engine.as_str() {
+        "mongodb" | "redis" | "valkey" | "dynamodb" | "cassandra" | "elasticsearch"
+        | "opensearch" => "builder".into(),
+        _ => "raw".into(),
+    }
+}
+
+pub(super) fn default_script_text(connection: &ConnectionProfile) -> Option<String> {
+    if connection.engine == "mongodb" {
+        Some("db.products.find({}).limit(20)".into())
+    } else {
+        None
     }
 }
 
@@ -147,6 +163,8 @@ pub(super) fn build_query_tab(
         saved_query_id: None,
         editor_label: editor_label_for_connection(connection),
         query_text: default_query_text(connection),
+        query_view_mode: Some(default_query_view_mode(connection)),
+        script_text: default_script_text(connection),
         scoped_target: None,
         builder_state: None,
         metrics_state: None,
@@ -172,11 +190,7 @@ pub(super) fn build_explorer_tab(
         title,
         tab_kind: Some("explorer".into()),
         connection_id: connection.id.clone(),
-        environment_id: connection
-            .environment_ids
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "env-dev".into()),
+        environment_id: effective_connection_environment_id(snapshot, &connection.id, None),
         family: connection.family.clone(),
         language: "text".into(),
         pinned: None,
@@ -184,6 +198,8 @@ pub(super) fn build_explorer_tab(
         saved_query_id: None,
         editor_label: "Explorer".into(),
         query_text: String::new(),
+        query_view_mode: None,
+        script_text: None,
         scoped_target: None,
         builder_state: None,
         metrics_state: None,
@@ -219,6 +235,8 @@ pub(super) fn build_metrics_tab(
         saved_query_id: None,
         editor_label: "Metrics".into(),
         query_text: String::new(),
+        query_view_mode: None,
+        script_text: None,
         scoped_target: None,
         builder_state: None,
         metrics_state: Some(json!({
@@ -244,7 +262,7 @@ pub(super) fn build_scoped_query_tab(
 ) -> QueryTabState {
     let builder_kind = scoped_builder_kind(connection, &request.target);
     let target_label = normalized_target_label(&request.target.label);
-    let limit = 50;
+    let limit = 20;
     let query_text = if builder_kind.as_deref() == Some("mongo-find") {
         mongo_find_query_text(
             &target_label,
@@ -274,10 +292,8 @@ pub(super) fn build_scoped_query_tab(
         &target_label,
         builder_kind.as_deref() == Some("mongo-find"),
     );
-    let environment_id = request
-        .environment_id
-        .or_else(|| connection.environment_ids.first().cloned())
-        .unwrap_or_else(|| "env-dev".into());
+    let environment_id =
+        effective_connection_environment_id(snapshot, &connection.id, request.environment_id);
 
     QueryTabState {
         id: generate_id("tab"),
@@ -292,6 +308,14 @@ pub(super) fn build_scoped_query_tab(
         saved_query_id: None,
         editor_label: editor_label_for_connection(connection),
         query_text,
+        query_view_mode: builder_kind.as_ref().map(|_| "builder".into()),
+        script_text: default_script_text(connection).map(|text| {
+            if connection.engine == "mongodb" && builder_kind.as_deref() == Some("mongo-find") {
+                format!("db.{target_label}.find({{}}).limit({limit})")
+            } else {
+                text
+            }
+        }),
         scoped_target: Some(request.target),
         builder_state,
         metrics_state: None,

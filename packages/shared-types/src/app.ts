@@ -38,6 +38,7 @@ export type SidebarPane =
   | 'tests'
 
 export type BottomPanelTab = 'results' | 'messages' | 'history' | 'details'
+export type ResultsDock = 'bottom' | 'right'
 
 export type RightDrawerView =
   | 'none'
@@ -62,6 +63,8 @@ export interface UiState {
   bottomPanelVisible: boolean
   activeBottomPanelTab: BottomPanelTab
   bottomPanelHeight: number
+  resultsDock: ResultsDock
+  resultsSideWidth: number
   rightDrawer: RightDrawerView
   rightDrawerWidth: number
 }

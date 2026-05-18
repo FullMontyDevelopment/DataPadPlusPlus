@@ -4,7 +4,13 @@ import type {
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { describe, expect, it } from 'vitest'
-import { openLibraryItem, setLibraryNodeEnvironment } from './browser-library'
+import {
+  moveLibraryNode,
+  openLibraryItem,
+  saveQueryTabToLibrary,
+  setLibraryNodeEnvironment,
+} from './browser-library'
+import { connectionLibraryNodeId } from './library-connection-helpers'
 
 describe('browser Library runtime', () => {
   it('selects an already-open library item instead of opening a duplicate tab', () => {
@@ -118,6 +124,95 @@ describe('browser Library runtime', () => {
 
     expect(next.tabs[0]?.environmentId).toBe('environment-2')
   })
+
+  it('saves and reopens query builder filters with Library queries', () => {
+    const snapshot = workspaceSnapshot()
+    const builderState = {
+      kind: 'mongo-find' as const,
+      collection: 'products',
+      filters: [
+        {
+          id: 'filter-status',
+          field: 'status',
+          operator: 'eq' as const,
+          value: 'active',
+          valueType: 'string' as const,
+        },
+      ],
+      projectionMode: 'all' as const,
+      projectionFields: [],
+      sort: [],
+      limit: 20,
+      lastAppliedQueryText:
+        '{\n  "collection": "products",\n  "filter": {\n    "status": "active"\n  },\n  "limit": 20\n}',
+    }
+
+    snapshot.connections[0] = {
+      ...snapshot.connections[0]!,
+      engine: 'mongodb',
+      family: 'document',
+    }
+    snapshot.tabs[0] = {
+      ...snapshot.tabs[0]!,
+      family: 'document',
+      language: 'mongodb',
+      queryText: builderState.lastAppliedQueryText,
+      builderState,
+      dirty: true,
+    }
+
+    const saved = saveQueryTabToLibrary(snapshot, {
+      tabId: 'tab-existing',
+      itemId: 'library-query-1',
+      name: 'Products active',
+      kind: 'query',
+      tags: [],
+    })
+
+    expect(saved.libraryNodes[0]).toMatchObject({
+      builderState: expect.objectContaining({
+        kind: 'mongo-find',
+        filters: [expect.objectContaining({ field: 'status', value: 'active' })],
+      }),
+    })
+
+    saved.tabs = []
+    const reopened = openLibraryItem(saved, 'library-query-1')
+
+    expect(reopened.tabs[0]?.builderState).toMatchObject({
+      kind: 'mongo-find',
+      filters: [expect.objectContaining({ field: 'status', value: 'active' })],
+    })
+  })
+
+  it('repairs connection library nodes before moving a newly saved connection into a folder', () => {
+    const snapshot = workspaceSnapshot()
+    snapshot.libraryNodes = [
+      {
+        id: 'folder-data-team',
+        kind: 'folder',
+        name: 'Data Team',
+        tags: [],
+        createdAt: '2026-05-14T00:00:00.000Z',
+        updatedAt: '2026-05-14T00:00:00.000Z',
+      },
+    ]
+
+    const next = moveLibraryNode(snapshot, {
+      nodeId: connectionLibraryNodeId('connection-1'),
+      parentId: 'folder-data-team',
+    })
+
+    expect(
+      next.libraryNodes.find(
+        (node) => node.kind === 'connection' && node.connectionId === 'connection-1',
+      ),
+    ).toMatchObject({
+      id: connectionLibraryNodeId('connection-1'),
+      parentId: 'folder-data-team',
+      name: 'Fixture PostgreSQL',
+    })
+  })
 })
 
 function workspaceSnapshot(): WorkspaceSnapshot {
@@ -201,6 +296,8 @@ function workspaceSnapshot(): WorkspaceSnapshot {
       bottomPanelVisible: true,
       activeBottomPanelTab: 'results',
       bottomPanelHeight: 260,
+      resultsDock: 'bottom',
+      resultsSideWidth: 420,
       rightDrawer: 'none',
       rightDrawerWidth: 360,
     },
