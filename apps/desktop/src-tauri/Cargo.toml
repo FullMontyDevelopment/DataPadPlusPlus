@@ -1,6 +1,6 @@
 [package]
 name = "datapadplusplus-desktop"
-version = "0.1.6"
+version = "0.1.7"
 description = "DataPad++ desktop shell"
 license-file = "../../../LICENSE"
 edition = "2021"
