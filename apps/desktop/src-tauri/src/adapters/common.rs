@@ -18,6 +18,7 @@ mod paging;
 mod payloads;
 mod results;
 mod structure;
+mod tree_manifest;
 
 pub(crate) use capabilities::*;
 pub(crate) use operations::*;

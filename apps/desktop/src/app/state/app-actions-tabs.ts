@@ -16,6 +16,8 @@ type QueryTabActions = Pick<
   | 'createExplorerTab'
   | 'createMetricsTab'
   | 'refreshMetricsTab'
+  | 'createObjectViewTab'
+  | 'refreshObjectViewTab'
   | 'createTestSuiteTab'
   | 'createScopedTab'
   | 'closeTab'
@@ -102,6 +104,40 @@ export function useQueryTabActions({
     async (tabId) => {
       try {
         applyPayload(await desktopClient.refreshMetricsTab(tabId))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
+  const createObjectViewTab = useCallback<Actions['createObjectViewTab']>(
+    async (request) => {
+      try {
+        const payload = await desktopClient.createObjectViewTab(request)
+        const activeObjectViewTab = payload.snapshot.tabs.find(
+          (tab) =>
+            tab.id === payload.snapshot.ui.activeTabId &&
+            tab.tabKind === 'object-view',
+        )
+        applyPayload(payload)
+
+        if (!activeObjectViewTab) {
+          return
+        }
+
+        applyPayload(await desktopClient.refreshObjectViewTab(activeObjectViewTab.id))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
+  const refreshObjectViewTab = useCallback<Actions['refreshObjectViewTab']>(
+    async (tabId) => {
+      try {
+        applyPayload(await desktopClient.refreshObjectViewTab(tabId))
       } catch (error) {
         handleError(error)
       }
@@ -220,7 +256,7 @@ export function useQueryTabActions({
         if (!tab) {
           throw new Error('The active query tab cannot be saved yet.')
         }
-        if (tab.tabKind === 'explorer' || tab.tabKind === 'metrics') {
+        if (tab.tabKind === 'explorer' || tab.tabKind === 'metrics' || tab.tabKind === 'object-view') {
           return
         }
         if (tab.saveTarget?.kind === 'local-file') {
@@ -265,7 +301,7 @@ export function useQueryTabActions({
         if (!tab) {
           throw new Error('The active query tab cannot be saved yet.')
         }
-        if (tab.tabKind === 'explorer' || tab.tabKind === 'metrics') {
+        if (tab.tabKind === 'explorer' || tab.tabKind === 'metrics' || tab.tabKind === 'object-view') {
           applyPayload(await desktopClient.closeQueryTab(tabId))
           return
         }
@@ -421,7 +457,9 @@ export function useQueryTabActions({
       createTab,
       createExplorerTab,
       createMetricsTab,
+      createObjectViewTab,
       refreshMetricsTab,
+      refreshObjectViewTab,
       createTestSuiteTab,
       createScopedTab,
       closeTab,
@@ -449,6 +487,7 @@ export function useQueryTabActions({
       createLibraryFolder,
       createExplorerTab,
       createMetricsTab,
+      createObjectViewTab,
       createTestSuiteTab,
       createScopedTab,
       createTab,
@@ -462,6 +501,7 @@ export function useQueryTabActions({
       reorderTabs,
       reopenClosedTab,
       refreshMetricsTab,
+      refreshObjectViewTab,
       saveAndCloseTab,
       saveCurrentQuery,
       saveQueryTabToLibrary,

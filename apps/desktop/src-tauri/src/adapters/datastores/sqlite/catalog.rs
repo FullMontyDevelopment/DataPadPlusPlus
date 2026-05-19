@@ -14,6 +14,12 @@ pub(super) fn sqlite_manifest() -> AdapterManifest {
             "supports_local_database_creation",
             "supports_metrics_collection",
             "supports_structure_visualization",
+            "supports_explain_plan",
+            "supports_index_management",
+            "supports_import_export",
+            "supports_backup_restore",
+            "supports_plan_visualization",
+            "supports_permission_inspection",
         ],
     );
     manifest.local_database = Some(LocalDatabaseManifest {

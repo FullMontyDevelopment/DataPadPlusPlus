@@ -21,6 +21,11 @@ import {
   isMongoFindBuilderState,
 } from './components/workbench/query-builder/mongo-find'
 import {
+  createDefaultMongoAggregationBuilderState,
+  isMongoAggregationBuilderState,
+  parseMongoAggregationQueryText,
+} from './components/workbench/query-builder/mongo-aggregation'
+import {
   isSqlSelectBuilderState,
   parseSqlSelectQueryText,
 } from './components/workbench/query-builder/sql-select'
@@ -58,12 +63,25 @@ export function builderStateForTab(
   const draftState = draftStates[tab.id]
 
   if (connection.engine === 'mongodb') {
+    if (isMongoAggregationBuilderState(draftState)) {
+      return draftState
+    }
+
     if (isMongoFindBuilderState(draftState)) {
       return draftState
     }
 
+    if (isMongoAggregationBuilderState(tab.builderState)) {
+      return tab.builderState
+    }
+
     if (isMongoFindBuilderState(tab.builderState)) {
       return tab.builderState
+    }
+
+    const aggregation = parseMongoAggregationQueryText(tab.queryText)
+    if (aggregation) {
+      return aggregation
     }
 
     return createDefaultMongoFindBuilderState(
@@ -185,7 +203,7 @@ export function queryBuilderObjectOptions(
   }
 
   const explorerCollections = explorerItems
-    .filter((node) => node.kind === 'collection')
+    .filter((node) => ['collection', 'view', 'gridfs-collection'].includes(node.kind))
     .map((node) => node.label)
 
   return Array.from(new Set([...explorerCollections, 'products', 'inventory', 'orders']))
@@ -254,6 +272,8 @@ export function appendFieldToQueryText(queryText: string, fieldPath: string) {
 
   return `${queryText.trimEnd()}\n${trimmedField}`
 }
+
+export { createDefaultMongoAggregationBuilderState, isMongoAggregationBuilderState }
 
 function mongoCollectionFromQueryText(queryText: string) {
   try {

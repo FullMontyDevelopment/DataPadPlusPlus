@@ -12,21 +12,22 @@ use crate::{
         models::{
             AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, BootstrapPayload,
             CancelExecutionRequest, CancelExecutionResult, CancelTestRunRequest, ConnectionProfile,
-            ConnectionTestRequest, ConnectionTestResult, CreateScopedQueryTabRequest,
-            CreateTestSuiteTabRequest, DataEditExecutionRequest, DataEditExecutionResponse,
-            DataEditPlanRequest, DataEditPlanResponse, DatastoreExperienceResponse,
-            EnvironmentProfile, ExecuteTestSuiteRequest, ExecuteTestSuiteResponse,
-            ExecutionRequest, ExecutionResponse, ExplorerInspectRequest, ExplorerInspectResponse,
-            ExplorerRequest, ExplorerResponse, ExportBundle, LibraryCreateFolderRequest,
-            LibraryDeleteNodeRequest, LibraryMoveNodeRequest, LibraryRenameNodeRequest,
-            LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest, LocalDatabaseCreateResult,
-            LocalDatabasePickRequest, LocalDatabasePickResult, OpenTestSuiteTemplateRequest,
-            OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest,
-            OperationManifestResponse, OperationPlanRequest, OperationPlanResponse,
-            PermissionInspectionRequest, PermissionInspectionResponse, QueryTabReorderRequest,
-            RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest,
-            ResultPageResponse, SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest,
-            SavedWorkItem, StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
+            ConnectionTestRequest, ConnectionTestResult, CreateObjectViewTabRequest,
+            CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, DataEditExecutionRequest,
+            DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse,
+            DatastoreExperienceResponse, EnvironmentProfile, ExecuteTestSuiteRequest,
+            ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse, ExplorerInspectRequest,
+            ExplorerInspectResponse, ExplorerRequest, ExplorerResponse, ExportBundle,
+            LibraryCreateFolderRequest, LibraryDeleteNodeRequest, LibraryMoveNodeRequest,
+            LibraryRenameNodeRequest, LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest,
+            LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult,
+            OpenTestSuiteTemplateRequest, OperationExecutionRequest, OperationExecutionResponse,
+            OperationManifestRequest, OperationManifestResponse, OperationPlanRequest,
+            OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse,
+            QueryTabReorderRequest, RedisKeyInspectRequest, RedisKeyScanRequest,
+            RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
+            SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
+            StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
             UpdateTestSuiteTabRequest, UpdateUiStateRequest,
         },
     },
@@ -135,6 +136,15 @@ pub fn create_metrics_tab(
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = state.lock().unwrap();
     state.create_metrics_tab(&connection_id, environment_id)
+}
+
+#[tauri::command]
+pub fn create_object_view_tab(
+    state: State<'_, SharedAppState>,
+    request: CreateObjectViewTabRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = state.lock().unwrap();
+    state.create_object_view_tab(request)
 }
 
 #[tauri::command]
@@ -510,6 +520,17 @@ pub async fn refresh_metrics_tab(
 ) -> Result<BootstrapPayload, CommandError> {
     let mut runtime = clone_runtime(&state);
     let response = runtime.refresh_metrics_tab(&tab_id).await?;
+    replace_runtime(&state, runtime);
+    Ok(response)
+}
+
+#[tauri::command]
+pub async fn refresh_object_view_tab(
+    state: State<'_, SharedAppState>,
+    tab_id: String,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut runtime = clone_runtime(&state);
+    let response = runtime.refresh_object_view_tab(&tab_id).await?;
     replace_runtime(&state, runtime);
     Ok(response)
 }

@@ -29,6 +29,8 @@ const CATEGORY_DETAILS: Record<string, string> = {
   'FileTables': 'SQL Server file-backed tables',
   'External Tables': 'Externally stored relational tables',
   'Graph Tables': 'SQL graph node and edge tables',
+  'Node Tables': 'SQL graph node tables',
+  'Edge Tables': 'SQL graph edge tables',
   Hypertables: 'Time-series hypertables',
   Views: 'Saved query projections',
   'Materialized Views': 'Persisted query projections',
@@ -36,20 +38,49 @@ const CATEGORY_DETAILS: Record<string, string> = {
   'Stored Procedures': 'Callable stored routines',
   Programmability: 'Procedures, functions, triggers, and programmable objects',
   Functions: 'Callable scalar or table routines',
+  'Scalar-valued Functions': 'Scalar T-SQL functions',
+  'Table-valued Functions': 'Inline and multi-statement table-valued functions',
+  'Aggregate Functions': 'CLR aggregate functions',
+  'CLR Functions': 'CLR-backed functions',
   'Database Triggers': 'Database-scoped trigger routines',
   Assemblies: 'CLR assemblies and related programmable objects',
   Synonyms: 'Aliases for database objects',
   Sequences: 'Generated numeric sequences',
   Types: 'User-defined types',
+  'XML Schemas': 'XML schema collections',
+  'Full-Text Search': 'Full-text catalogs and indexes',
+  'Main Database': 'SQLite main database file',
+  'Attached Databases': 'SQLite attached database files',
+  Pragmas: 'SQLite PRAGMA configuration and checks',
+  Schema: 'SQLite schema definitions',
+  'Virtual Tables': 'SQLite extension-backed virtual tables',
+  'FTS Tables': 'SQLite full-text search virtual tables',
+  'RTree Tables': 'SQLite RTree virtual tables',
+  'Generated Columns': 'SQLite generated and hidden columns',
+  'Foreign Keys': 'Foreign key relationships',
+  Statistics: 'Object statistics and storage hints',
+  DDL: 'Object definition SQL',
   Users: 'Database users',
   Roles: 'Database roles',
+  Certificates: 'Database certificates',
+  'Symmetric Keys': 'Database symmetric keys',
+  'Asymmetric Keys': 'Database asymmetric keys',
+  Credentials: 'Scoped credentials',
+  Audits: 'Database audit specifications',
   Extensions: 'Installed database extensions',
   Columns: 'Object fields and data types',
   Indexes: 'Access paths and constraints',
   Constraints: 'Rules and relational constraints',
   Triggers: 'Event-driven object routines',
   Collections: 'Document collections',
+  Documents: 'Collection document query surface',
+  'Schema Preview': 'Inferred document fields and BSON types',
   Validators: 'Collection validation rules',
+  'Validation Rules': 'Collection validation rules',
+  Aggregations: 'Aggregation pipelines and templates',
+  GridFS: 'GridFS file and chunk collections',
+  Pipeline: 'View backing aggregation pipeline',
+  'Sample Results': 'View sample query results',
   'Key Prefixes': 'SCAN-friendly key groups',
   Keys: 'Individual cache keys',
   Streams: 'Append-only event streams',
@@ -84,18 +115,69 @@ const CATEGORY_DETAILS: Record<string, string> = {
   Jobs: 'Query and task history',
   Security: 'Roles, grants, ACLs, and permissions',
   Storage: 'Files, filegroups, partitions, and storage metadata',
+  Filegroups: 'Database filegroups',
+  Files: 'Database files',
+  'Partition Schemes': 'Partition schemes',
+  'Partition Functions': 'Partition functions',
+  'Query Store': 'Runtime stats, plans, and regressed queries',
+  CDC: 'Change Data Capture objects',
+  'Change Tracking': 'Change tracking objects and settings',
   'Service Broker': 'SQL Server messaging objects',
+  'Linked Servers': 'Remote server definitions and providers',
   'Server Objects': 'Linked servers, endpoints, and server-level objects',
   Replication: 'Replication publications and subscriptions',
+  'Availability Groups': 'Always On availability groups and replicas',
   'Always On High Availability': 'Availability groups and replicas',
   Management: 'Maintenance, policy, and data collection tooling',
   'SQL Server Agent': 'Jobs, alerts, and operators',
+  Agent: 'Jobs, schedules, alerts, operators, and proxies',
+  Schedules: 'Agent schedules',
+  Operators: 'Agent operators',
+  Proxies: 'Agent proxies',
+  'Extended Events': 'Extended Events sessions and traces',
   'XEvent Profiler': 'Extended Events sessions and traces',
   'Integration Services Catalogs': 'SSIS package catalogs',
+  'Analysis Services': 'SSAS endpoints and model metadata',
+  'Reporting Services': 'SSRS catalog metadata',
   Diagnostics: 'Health and performance metadata',
+  Containers: 'Oracle CDB/PDB containers',
+  Performance: 'Sessions, waits, SQL Monitor, AWR, and ASH',
+  Scheduler: 'Jobs, programs, chains, and windows',
+  Queues: 'Advanced Queuing objects',
+  'Data Guard': 'Standby and protection status',
+  RAC: 'Oracle Real Application Clusters metadata',
+  Flashback: 'Restore points and flashback metadata',
+  Packages: 'PL/SQL package specs and bodies',
+  Spec: 'Package specification',
+  Body: 'Package body',
+  Dependencies: 'Dependent and referenced objects',
+  'Compilation Errors': 'Compilation and validation errors',
+  Procedures: 'PL/SQL procedures',
+  'Java Sources': 'Java stored source objects',
+  'JSON Collections': 'Oracle JSON collection-style objects',
+  'XML DB': 'Oracle XML DB resources',
+  'Database Links': 'Remote database links',
+  Profiles: 'Password and resource profiles',
+  Privileges: 'System and object privileges',
+  Tablespaces: 'Oracle tablespace storage',
+  'Data Files': 'Oracle data file metadata',
+  Segments: 'Segment sizes and owners',
+  Quotas: 'Tablespace quotas',
+  'Top SQL': 'High-activity SQL statements',
+  'AWR / ASH': 'AWR and ASH diagnostic views',
+  'SQL Monitor': 'SQL Monitor reports',
+  'Invalid Objects': 'Objects with invalid compilation status',
 }
 
-const SQL_TABLE_KINDS = new Set(['table', 'foreign-table', 'partitioned-table'])
+const SQL_TABLE_KINDS = new Set([
+  'table',
+  'foreign-table',
+  'partitioned-table',
+  'strict-table',
+  'virtual-table',
+  'fts-table',
+  'rtree-table',
+])
 const SQL_VIEW_KINDS = new Set(['view'])
 const SQL_MATERIALIZED_VIEW_KINDS = new Set(['materialized-view', 'materialized view'])
 const SQL_SCHEMA_ROOTS = new Set(['Schemas', 'User Schemas', 'System Schemas'])
@@ -105,6 +187,8 @@ const SQL_TABLE_CONTAINER_LABELS = new Set([
   'External Tables',
   'FileTables',
   'Graph Tables',
+  'Node Tables',
+  'Edge Tables',
   'Hypertables',
 ])
 
@@ -126,6 +210,10 @@ export function normalizeExplorerKind(
     return 'materialized-view'
   }
 
+  if (normalized === 'system-database') {
+    return 'database'
+  }
+
   if (normalized === 'data stream') {
     return 'data-stream'
   }
@@ -136,6 +224,18 @@ export function normalizeExplorerKind(
 
   if (normalized === 'indexes') {
     return 'indexes'
+  }
+
+  if (normalized === 'schema-preview') {
+    return 'schema-preview'
+  }
+
+  if (normalized === 'validation-rules' || normalized === 'validators') {
+    return 'validation-rules'
+  }
+
+  if (normalized === 'gridfs-collection') {
+    return 'gridfs-collection'
   }
 
   return normalized
@@ -170,11 +270,30 @@ export function branchNodeForPath(
   }
 
   if (parentLabel === 'Collections') {
+    const database = documentDatabaseFromPlacementPath(connection, path)
     node.kind = 'collection'
-    node.scope = `collection:${label}`
+    node.scope = `collection:${database}:${label}`
     node.queryable = true
     node.builderKind = connection.engine === 'mongodb' ? 'mongo-find' : undefined
-    node.queryTemplate = documentFindQueryTemplate(label, 20, connection.database?.trim())
+    node.queryTemplate = documentFindQueryTemplate(label, 20, database)
+  }
+
+  if (connection.engine === 'mongodb' && parentLabel === 'Views') {
+    const database = documentDatabaseFromPlacementPath(connection, path)
+    node.kind = 'view'
+    node.scope = `view:${database}:${label}`
+    node.expandable = true
+    node.queryable = false
+    node.queryTemplate = documentFindQueryTemplate(label, 20, database)
+  }
+
+  if (connection.engine === 'mongodb' && parentLabel === 'GridFS') {
+    const database = documentDatabaseFromPlacementPath(connection, path)
+    node.kind = 'gridfs-collection'
+    node.scope = `collection:${database}:${label}`
+    node.queryable = true
+    node.builderKind = 'mongo-find'
+    node.queryTemplate = documentFindQueryTemplate(label, 20, database)
   }
 
   if (parentLabel && SQL_TABLE_CONTAINER_LABELS.has(parentLabel) && !isCategoryLabel(label)) {
@@ -243,6 +362,10 @@ export function sqlObjectQueryTemplate(
     return `select * from [${schema}].[${objectName}] limit 100;`
   }
 
+  if (connection.engine === 'oracle') {
+    return `select * from ${qualifySqlName(connection, schema, objectName)} where rownum <= 100;`
+  }
+
   if (connection.engine === 'duckdb') {
     return `select * from ${objectName} limit 100;`
   }
@@ -302,7 +425,7 @@ function categoryPathForNode(
   connection: ConnectionProfile,
   node: ExplorerNode,
   kind: string,
-) {
+): string[] {
   const normalizedPath = cleanExplorerPath(connection, node.path)
 
   switch (connection.family) {
@@ -333,8 +456,16 @@ function sqlPlacement(
   kind: string,
   normalizedPath: string[],
 ) {
+  if (connection.engine === 'oracle' && normalizedPath.length > 0) {
+    return normalizedPath
+  }
+
   if (connection.engine === 'sqlserver') {
     return sqlServerPlacement(connection, node, kind, normalizedPath)
+  }
+
+  if (connection.engine === 'sqlite') {
+    return sqlitePlacement(connection, node, kind, normalizedPath)
   }
 
   if (kind === 'schema' && !isSqlSystemSchema(connection, node.label)) {
@@ -393,6 +524,72 @@ function sqlPlacement(
   }
 
   return [schemaRoot, schema, category]
+}
+
+function sqlitePlacement(
+  connection: ConnectionProfile,
+  node: ExplorerNode,
+  kind: string,
+  normalizedPath: string[],
+) {
+  if (normalizedPath.length > 0) {
+    return normalizedPath
+  }
+
+  if (kind === 'database') {
+    return node.label === 'Main Database' || node.label === 'main'
+      ? ['Main Database']
+      : ['Attached Databases']
+  }
+
+  if (kind === 'pragma') {
+    return ['Main Database', 'Pragmas']
+  }
+
+  const objectParts = sqlObjectPartsFromExplorerNode(connection, node, normalizedPath)
+  const table = objectParts.table || objectParts.objectName || node.label
+
+  if (kind === 'column' || kind === 'generated-column') {
+    return ['Main Database', 'Tables', table, 'Columns']
+  }
+
+  if (kind === 'foreign-key') {
+    return ['Main Database', 'Tables', table, 'Foreign Keys']
+  }
+
+  if (kind === 'constraint') {
+    return ['Main Database', 'Tables', table, 'Constraints']
+  }
+
+  if (kind === 'index') {
+    return objectParts.table
+      ? ['Main Database', 'Tables', table, 'Indexes']
+      : ['Main Database', 'Indexes']
+  }
+
+  if (kind === 'trigger') {
+    return objectParts.table
+      ? ['Main Database', 'Tables', table, 'Triggers']
+      : ['Main Database', 'Triggers']
+  }
+
+  if (kind === 'view') {
+    return ['Main Database', 'Views']
+  }
+
+  if (kind === 'virtual-table') {
+    return ['Main Database', 'Virtual Tables']
+  }
+
+  if (kind === 'fts-table') {
+    return ['Main Database', 'FTS Tables']
+  }
+
+  if (kind === 'rtree-table') {
+    return ['Main Database', 'RTree Tables']
+  }
+
+  return ['Main Database', sqlCategoryForKind(connection, kind, node.label, objectParts.schema)]
 }
 
 function sqlServerPlacement(
@@ -493,6 +690,10 @@ function documentPlacement(
   kind: string,
   normalizedPath: string[],
 ) {
+  if (connection.engine === 'mongodb') {
+    return mongoPlacement(connection, node, kind, normalizedPath)
+  }
+
   const database =
     kind === 'database'
       ? undefined
@@ -514,6 +715,62 @@ function documentPlacement(
   }
 
   return ['Databases', database ?? defaultDocumentDatabase(connection)].filter(Boolean)
+}
+
+function mongoPlacement(
+  connection: ConnectionProfile,
+  node: ExplorerNode,
+  kind: string,
+  normalizedPath: string[],
+): string[] {
+  if (kind === 'database') {
+    return normalizedPath[0] === 'System Databases' ? ['System Databases'] : []
+  }
+
+  if (normalizedPath.length) {
+    return normalizedPath
+  }
+
+  const database = databaseFromDocumentPath(connection, node, normalizedPath)
+  const collection = collectionFromDocumentNode(connection, node, normalizedPath)
+
+  if (kind === 'collection') {
+    return [database, 'Collections'].filter(Boolean) as string[]
+  }
+
+  if (kind === 'view') {
+    return [database, 'Views'].filter(Boolean) as string[]
+  }
+
+  if (kind === 'gridfs-collection') {
+    return [database, 'GridFS'].filter(Boolean) as string[]
+  }
+
+  if (['documents', 'schema-preview', 'indexes', 'validation-rules', 'aggregations'].includes(kind)) {
+    return [database, 'Collections', collection].filter(Boolean) as string[]
+  }
+
+  if (['pipeline', 'sample-results'].includes(kind)) {
+    return [database, 'Views', collection].filter(Boolean) as string[]
+  }
+
+  if (kind === 'user' || kind === 'users') {
+    return [database, 'Users'].filter(Boolean) as string[]
+  }
+
+  if (kind === 'role' || kind === 'roles') {
+    return [database, 'Roles'].filter(Boolean) as string[]
+  }
+
+  if (kind === 'permission') {
+    return normalizedPath.length ? normalizedPath : compactPath(database)
+  }
+
+  return compactPath(database ?? defaultDocumentDatabase(connection))
+}
+
+function compactPath(...segments: Array<string | undefined>) {
+  return segments.filter((segment): segment is string => Boolean(segment))
 }
 
 function keyValuePlacement(kind: string, normalizedPath: string[]) {
@@ -734,7 +991,10 @@ function sqlCategoryForKind(
     return 'Materialized Views'
   }
   if (kind === 'stored-procedure' || kind === 'procedure') {
-    return 'Stored Procedures'
+    return connection.engine === 'oracle' ? 'Procedures' : 'Stored Procedures'
+  }
+  if (kind === 'package' || kind === 'packages') {
+    return 'Packages'
   }
   if (kind === 'function') {
     return 'Functions'
@@ -810,7 +1070,7 @@ function sqlServerQualifiedDisplayName(schema: string | undefined, objectName: s
 }
 
 function isSqlProgrammabilityCategory(category: string) {
-  return ['Stored Procedures', 'Functions', 'Sequences', 'Types', 'Synonyms'].includes(category)
+  return ['Stored Procedures', 'Procedures', 'Functions', 'Sequences', 'Types', 'Synonyms', 'Packages'].includes(category)
 }
 
 function dynamoCategoryForKind(kind: string) {
@@ -878,9 +1138,15 @@ function sqlActions(
     )
   }
 
-  if (canCreateInSchema && (kind === 'programmability' || kind === 'stored-procedures')) {
+  if (canCreateInSchema && (kind === 'programmability' || kind === 'stored-procedures' || kind === 'procedures')) {
     actions.push(
-      templateAction('create-procedure', 'Create Stored Procedure...', sqlCreateStoredProcedureTemplate(connection, schema)),
+      templateAction('create-procedure', connection.engine === 'oracle' ? 'Create Procedure...' : 'Create Stored Procedure...', sqlCreateStoredProcedureTemplate(connection, schema)),
+    )
+  }
+
+  if (canCreateInSchema && (kind === 'programmability' || kind === 'packages')) {
+    actions.push(
+      templateAction('create-package', 'Create Package...', sqlCreatePackageTemplate(connection, schema)),
     )
   }
 
@@ -898,7 +1164,7 @@ function sqlActions(
 
   if (canCreateInSchema && kind === 'indexes') {
     actions.push(
-      templateAction('create-index', 'Create Index...', `create index idx_new_table_new_column on ${qualifySqlName(connection, schema, 'table_name')} (column_name);`),
+      templateAction('create-index', 'Create Index...', sqlCreateIndexTemplate(connection, schema)),
     )
   }
 
@@ -918,9 +1184,9 @@ function sqlActions(
     actions.push(
       templateAction('view-columns', 'View Columns', sqlColumnsQuery(connection, schema, objectName || node.label)),
       templateAction('view-indexes', 'View Indexes', sqlIndexesQuery(connection, schema, objectName || node.label)),
-      templateAction('add-column', 'Add Column...', `alter table ${qualified} add column new_column text;`),
+      templateAction('add-column', 'Add Column...', sqlAddColumnTemplate(connection, qualified)),
       templateAction('create-index', 'Create Index...', `create index idx_${objectName || node.label}_new_column on ${qualified} (new_column);`),
-      templateAction('drop-table', 'Drop Table...', `-- Review before running.\ndrop table ${qualified};`, true),
+      templateAction('drop-table', 'Drop Table...', sqlDropTableTemplate(connection, qualified), true),
     )
   }
 
@@ -941,9 +1207,17 @@ function sqlActions(
 
   if (kind === 'function') {
     actions.push(
-      templateAction('select-function', 'Select Function', `select * from ${qualified}();`),
+      templateAction('select-function', 'Select Function', sqlSelectFunctionTemplate(connection, qualified)),
       templateAction('alter-function', 'Alter Function...', sqlCreateFunctionTemplate(connection, schema, targetObjectName)),
       templateAction('drop-function', 'Drop Function...', `-- Review before running.\ndrop function ${qualified};`, true),
+    )
+  }
+
+  if (kind === 'package') {
+    actions.push(
+      templateAction('view-package-errors', 'View Compilation Errors', sqlPackageErrorsQuery(connection, schema, targetObjectName)),
+      templateAction('compile-package', 'Compile Package...', `alter package ${qualified} compile;\nalter package ${qualified} compile body;`),
+      templateAction('drop-package', 'Drop Package...', `-- Review before running.\ndrop package ${qualified};`, true),
     )
   }
 
@@ -957,7 +1231,7 @@ function sqlActions(
   if (kind === 'column') {
     actions.push(
       templateAction('rename-column', 'Rename Column...', `alter table ${qualifySqlName(connection, schema, targetObjectName)} rename column ${node.label} to new_${node.label};`),
-      templateAction('drop-column', 'Drop Column...', `-- Review before running.\nalter table ${qualifySqlName(connection, schema, targetObjectName)} drop column ${node.label};`, true),
+      templateAction('drop-column', 'Drop Column...', sqlDropColumnTemplate(connection, qualifySqlName(connection, schema, targetObjectName), node.label), true),
     )
   }
 
@@ -969,6 +1243,10 @@ function documentActions(
   node: ConnectionTreeNode,
   kind: string,
 ): ConnectionTreeAction[] {
+  if (connection.engine === 'mongodb') {
+    return mongoActions(connection, node, kind)
+  }
+
   if (kind !== 'collection') {
     if (kind === 'index' || kind === 'indexes') {
       return [
@@ -987,6 +1265,97 @@ function documentActions(
     templateAction('rename-collection', 'Rename Collection...', mongoCommandTemplate(connection, node, { renameCollection: collection, to: `${collection}_new` })),
     templateAction('drop-collection', 'Drop Collection...', mongoCommandTemplate(connection, node, { drop: collection }), true),
   ]
+}
+
+function mongoActions(
+  connection: ConnectionProfile,
+  node: ConnectionTreeNode,
+  kind: string,
+): ConnectionTreeAction[] {
+  const target = mongoTreeTarget(connection, node)
+  const database = target.database
+  const collection = target.collection ?? node.label
+
+  if (kind === 'collections') {
+    return [
+      templateAction('create-collection', 'Create Collection...', mongoCommandTemplateForDatabase(database, {
+        create: 'new_collection',
+      })),
+    ]
+  }
+
+  if (kind === 'collection' || kind === 'gridfs-collection') {
+    return [
+      templateAction('open-documents', 'Open Documents', documentFindQueryTemplate(collection, 20, database)),
+      templateAction('aggregation', 'Open Aggregation Pipeline', mongoAggregationTemplate(database, collection)),
+      templateAction('create-index', 'Create Index...', mongoCommandTemplateForDatabase(database, { createIndexes: collection, indexes: [{ key: { field: 1 }, name: 'field_1' }] })),
+      templateAction('update-validator', 'Update Validation Rules...', mongoCommandTemplateForDatabase(database, { collMod: collection, validator: {} })),
+      templateAction('rename-collection', 'Rename Collection...', mongoCommandTemplateForDatabase(database, { renameCollection: `${database}.${collection}`, to: `${database}.${collection}_new` })),
+      templateAction('drop-collection', 'Drop Collection...', mongoCommandTemplateForDatabase(database, { drop: collection }), true),
+    ]
+  }
+
+  if (kind === 'documents' || kind === 'sample-results') {
+    return [
+      templateAction('open-documents', 'Open Query', documentFindQueryTemplate(collection, 20, database)),
+    ]
+  }
+
+  if (kind === 'schema-preview') {
+    return [
+      templateAction('sample-schema', 'Sample Schema Preview', documentFindQueryTemplate(collection, 20, database)),
+    ]
+  }
+
+  if (kind === 'indexes') {
+    return [
+      templateAction('create-index', 'Create Index...', mongoCommandTemplateForDatabase(database, { createIndexes: collection, indexes: [{ key: { field: 1 }, name: 'field_1' }] })),
+      templateAction('list-indexes', 'List Indexes', mongoCommandTemplateForDatabase(database, { listIndexes: collection })),
+    ]
+  }
+
+  if (kind === 'index') {
+    return [
+      templateAction('drop-index', 'Drop Index...', mongoCommandTemplateForDatabase(database, { dropIndexes: collection, index: node.label }), true),
+    ]
+  }
+
+  if (kind === 'validation-rules') {
+    return [
+      templateAction('update-validator', 'Update Validation Rules...', mongoCommandTemplateForDatabase(database, { collMod: collection, validator: {} })),
+    ]
+  }
+
+  if (kind === 'aggregations') {
+    return [
+      templateAction('open-aggregation', 'Open Aggregation Builder', mongoAggregationTemplate(database, collection)),
+    ]
+  }
+
+  if (kind === 'view') {
+    return [
+      templateAction('sample-view', 'Sample Results', documentFindQueryTemplate(collection, 20, database)),
+      templateAction('drop-view', 'Drop View...', mongoCommandTemplateForDatabase(database, { drop: collection }), true),
+    ]
+  }
+
+  if (kind === 'pipeline') {
+    return [
+      templateAction('sample-view', 'Sample Results', documentFindQueryTemplate(collection, 20, database)),
+    ]
+  }
+
+  if (kind === 'views') {
+    return [
+      templateAction('create-view', 'Create View...', mongoCommandTemplateForDatabase(database, {
+        create: 'new_view',
+        viewOn: 'source_collection',
+        pipeline: [{ $match: {} }],
+      })),
+    ]
+  }
+
+  return []
 }
 
 function keyValueActions(node: ConnectionTreeNode, kind: string): ConnectionTreeAction[] {
@@ -1110,6 +1479,7 @@ function cleanExplorerPath(connection: ConnectionProfile, path: string[] | undef
     'OpenSearch',
     'Prometheus',
     'InfluxDB',
+    'Oracle',
     'JanusGraph',
     'ArangoDB',
     'Cosmos DB',
@@ -1166,6 +1536,10 @@ function defaultSqlSchema(connection: ConnectionProfile) {
     return 'dbo'
   }
 
+  if (connection.engine === 'oracle') {
+    return connection.auth.username?.trim().toUpperCase() || 'APP'
+  }
+
   return 'public'
 }
 
@@ -1211,6 +1585,21 @@ function isSqlSystemSchema(connection: ConnectionProfile, schema: string | undef
 
   if (connection.engine === 'sqlserver') {
     return name === 'sys' || name === 'information_schema'
+  }
+
+  if (connection.engine === 'oracle') {
+    return [
+      'sys',
+      'system',
+      'xdb',
+      'ctxsys',
+      'mdsys',
+      'ordsys',
+      'outln',
+      'dbsnmp',
+      'sysman',
+      'wmsys',
+    ].includes(name) || name.startsWith('apex_')
   }
 
   if (connection.engine === 'sqlite' || connection.engine === 'duckdb') {
@@ -1353,6 +1742,31 @@ function databaseFromDocumentPath(
   return defaultDocumentDatabase(connection)
 }
 
+function documentDatabaseFromPlacementPath(connection: ConnectionProfile, path: string[]) {
+  const systemDatabaseIndex = path.indexOf('System Databases')
+  if (systemDatabaseIndex >= 0 && path[systemDatabaseIndex + 1]) {
+    return path[systemDatabaseIndex + 1]
+  }
+
+  const collectionsIndex = path.indexOf('Collections')
+  if (collectionsIndex > 0) {
+    return path[collectionsIndex - 1]
+  }
+
+  const viewsIndex = path.indexOf('Views')
+  if (viewsIndex > 0) {
+    return path[viewsIndex - 1]
+  }
+
+  const gridFsIndex = path.indexOf('GridFS')
+  if (gridFsIndex > 0) {
+    return path[gridFsIndex - 1]
+  }
+
+  const firstNonCategory = path.find((segment) => !isCategoryLabel(segment))
+  return firstNonCategory ?? defaultDocumentDatabase(connection)
+}
+
 function defaultDocumentDatabase(connection: ConnectionProfile) {
   return connection.database || (connection.engine === 'litedb' ? 'local file' : 'default')
 }
@@ -1425,12 +1839,20 @@ function qualifySqlName(connection: ConnectionProfile, schema: string, objectNam
     return `[${schema}].[${objectName}]`
   }
 
+  if (connection.engine === 'oracle') {
+    return `"${schema.replace(/"/g, '""')}"."${objectName.replace(/"/g, '""')}"`
+  }
+
   return `${schema}.${objectName}`
 }
 
 function sqlColumnsQuery(connection: ConnectionProfile, schema: string, table: string) {
   if (connection.engine === 'sqlite') {
     return `pragma table_info(${table});`
+  }
+
+  if (connection.engine === 'oracle') {
+    return `select column_name, data_type, nullable, data_default\nfrom all_tab_columns\nwhere owner = '${schema}' and table_name = '${table}'\norder by column_id;`
   }
 
   return `select column_name, data_type, is_nullable\nfrom information_schema.columns\nwhere table_schema = '${schema}' and table_name = '${table}'\norder by ordinal_position;`
@@ -1445,12 +1867,20 @@ function sqlIndexesQuery(connection: ConnectionProfile, schema: string, table: s
     return `select i.name, i.type_desc, i.is_unique\nfrom sys.indexes i\njoin sys.objects o on i.object_id = o.object_id\njoin sys.schemas s on o.schema_id = s.schema_id\nwhere s.name = '${schema}' and o.name = '${table}';`
   }
 
+  if (connection.engine === 'oracle') {
+    return `select index_name, uniqueness, status, visibility\nfrom all_indexes\nwhere owner = '${schema}' and table_name = '${table}'\norder by index_name;`
+  }
+
   return `select indexname, indexdef\nfrom pg_indexes\nwhere schemaname = '${schema}' and tablename = '${table}';`
 }
 
 function sqlViewDefinitionQuery(connection: ConnectionProfile, schema: string, view: string) {
   if (connection.engine === 'sqlite') {
     return `select sql from sqlite_master where type in ('view', 'table') and name = '${view}';`
+  }
+
+  if (connection.engine === 'oracle') {
+    return `select text\nfrom all_views\nwhere owner = '${schema}' and view_name = '${view}';`
   }
 
   return `select view_definition\nfrom information_schema.views\nwhere table_schema = '${schema}' and table_name = '${view}';`
@@ -1465,7 +1895,43 @@ function sqlRebuildIndexQuery(connection: ConnectionProfile, indexName: string) 
     return `reindex ${indexName};`
   }
 
+  if (connection.engine === 'oracle') {
+    return `alter index ${indexName} rebuild;`
+  }
+
   return `reindex index ${indexName};`
+}
+
+function sqlCreateIndexTemplate(connection: ConnectionProfile, schema: string) {
+  if (connection.engine === 'oracle') {
+    return `create index ${qualifySqlName(connection, schema, 'idx_table_name_column_name')}\non ${qualifySqlName(connection, schema, 'table_name')} (column_name);`
+  }
+
+  return `create index idx_new_table_new_column on ${qualifySqlName(connection, schema, 'table_name')} (column_name);`
+}
+
+function sqlAddColumnTemplate(connection: ConnectionProfile, qualified: string) {
+  if (connection.engine === 'oracle') {
+    return `alter table ${qualified} add (new_column varchar2(255));`
+  }
+
+  return `alter table ${qualified} add column new_column text;`
+}
+
+function sqlDropColumnTemplate(connection: ConnectionProfile, qualified: string, column: string) {
+  if (connection.engine === 'oracle') {
+    return `-- Review before running.\nalter table ${qualified} drop column ${column};`
+  }
+
+  return `-- Review before running.\nalter table ${qualified} drop column ${column};`
+}
+
+function sqlDropTableTemplate(connection: ConnectionProfile, qualified: string) {
+  if (connection.engine === 'oracle') {
+    return `-- Review before running.\ndrop table ${qualified} purge;`
+  }
+
+  return `-- Review before running.\ndrop table ${qualified};`
 }
 
 function sqlCreateStoredProcedureTemplate(
@@ -1505,6 +1971,10 @@ function sqlCreateFunctionTemplate(
     return `create function ${qualified}()\nreturns int deterministic\nreturn 1;`
   }
 
+  if (connection.engine === 'oracle') {
+    return `create or replace function ${qualified}\nreturn number\nas\nbegin\n  return 1;\nend;`
+  }
+
   return `create or replace function ${qualified}()\nreturns integer\nlanguage sql\nas $$\n  select 1;\n$$;`
 }
 
@@ -1519,6 +1989,10 @@ function sqlCreateTriggerTemplate(connection: ConnectionProfile, schema: string)
     return `create trigger ${qualifySqlName(connection, schema, 'new_trigger')}\nbefore insert on ${tableName}\nfor each row\nbegin\n  set new.created_at = coalesce(new.created_at, current_timestamp);\nend;`
   }
 
+  if (connection.engine === 'oracle') {
+    return `create or replace trigger ${qualifySqlName(connection, schema, 'new_trigger')}\nbefore insert on ${tableName}\nfor each row\nbegin\n  null;\nend;`
+  }
+
   return `create trigger new_trigger\nbefore insert on ${tableName}\nfor each row\nexecute function ${qualifySqlName(connection, schema, 'trigger_function')}();`
 }
 
@@ -1531,7 +2005,36 @@ function sqlCreateTypeTemplate(connection: ConnectionProfile, schema: string) {
     return `-- ${connection.engine} does not expose standalone user-defined types like PostgreSQL.\n-- Use enum/check constraints or table definitions instead.`
   }
 
+  if (connection.engine === 'oracle') {
+    return `create or replace type ${qualifySqlName(connection, schema, 'new_object_type')} as object (\n  id number,\n  name varchar2(255)\n);`
+  }
+
   return `create type ${qualifySqlName(connection, schema, 'new_status')} as enum ('active', 'inactive');`
+}
+
+function sqlCreatePackageTemplate(connection: ConnectionProfile, schema: string) {
+  if (connection.engine !== 'oracle') {
+    return sqlCreateStoredProcedureTemplate(connection, schema)
+  }
+
+  const qualified = qualifySqlName(connection, schema, 'new_package')
+  return `create or replace package ${qualified} as\n  function ping return varchar2;\nend;\n/\ncreate or replace package body ${qualified} as\n  function ping return varchar2 as\n  begin\n    return 'pong';\n  end;\nend;\n/`
+}
+
+function sqlSelectFunctionTemplate(connection: ConnectionProfile, qualified: string) {
+  if (connection.engine === 'oracle') {
+    return `select ${qualified}() as value from dual;`
+  }
+
+  return `select * from ${qualified}();`
+}
+
+function sqlPackageErrorsQuery(connection: ConnectionProfile, schema: string, packageName: string) {
+  if (connection.engine === 'oracle') {
+    return `select name, type, line, position, text\nfrom all_errors\nwhere owner = '${schema}' and name = '${packageName}'\norder by sequence;`
+  }
+
+  return `select 1;`
 }
 
 function sqlExecuteStoredProcedureTemplate(connection: ConnectionProfile, qualified: string) {
@@ -1567,13 +2070,61 @@ function mongoCommandTemplate(
   node: ConnectionTreeNode,
   command: Record<string, unknown>,
 ) {
+  return mongoCommandTemplateForDatabase(connection.database, {
+    ...command,
+    target: node.label,
+  })
+}
+
+function mongoCommandTemplateForDatabase(
+  database: string | undefined,
+  command: Record<string, unknown>,
+) {
   return JSON.stringify(
     {
-      ...(connection.database ? { database: connection.database } : {}),
+      ...(database ? { database } : {}),
       command,
-      target: node.label,
     },
     null,
     2,
   )
+}
+
+function mongoAggregationTemplate(database: string | undefined, collection: string) {
+  return JSON.stringify(
+    {
+      ...(database ? { database } : {}),
+      collection,
+      pipeline: [{ $match: {} }, { $limit: 20 }],
+    },
+    null,
+    2,
+  )
+}
+
+function mongoTreeTarget(connection: ConnectionProfile, node: ConnectionTreeNode) {
+  const path = node.path ?? []
+  const scope = node.scope ?? ''
+  const scopeParts = scope.split(':').filter(Boolean)
+  const scopedDatabase =
+    scopeParts.length >= 3 ? scopeParts[1] : scopeParts[0] === 'database' ? scopeParts[1] : undefined
+  const scopedCollection =
+    scopeParts.length >= 3 ? scopeParts.slice(2).join(':') : undefined
+  const collectionIndex = path.indexOf('Collections')
+  const viewsIndex = path.indexOf('Views')
+  const gridFsIndex = path.indexOf('GridFS')
+  const objectIndex = [collectionIndex, viewsIndex, gridFsIndex].find((index) => index >= 0)
+  const databaseFromPath =
+    objectIndex !== undefined && objectIndex > 0
+      ? path[objectIndex - 1]
+      : path.find((segment) => !isCategoryLabel(segment))
+  const collectionFromPath =
+    objectIndex !== undefined && objectIndex >= 0
+      ? path[objectIndex + 1]
+      : undefined
+
+  return {
+    database: scopedDatabase ?? databaseFromPath ?? connection.database,
+    collection: scopedCollection ?? collectionFromPath,
+  }
 }

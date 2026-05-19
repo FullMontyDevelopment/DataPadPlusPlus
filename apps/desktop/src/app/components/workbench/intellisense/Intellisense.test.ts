@@ -160,7 +160,7 @@ describe('query intellisense', () => {
     )
   })
 
-  it('suggests Redis commands, sampled keys, and prefixes', () => {
+  it('suggests Redis commands, known keys, and namespace prefixes', () => {
     const connection = connectionProfile('redis', 'keyvalue')
     const provider = completionProvidersForConnection(connection, 'plaintext')[0]
     const suggestions = provider?.buildItems(

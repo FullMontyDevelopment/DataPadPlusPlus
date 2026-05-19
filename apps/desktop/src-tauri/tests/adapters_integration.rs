@@ -108,6 +108,10 @@ fn resolved_connection(engine: &str, family: &str) -> ResolvedConnectionProfile 
         username: Some("datapadplusplus".into()),
         password: Some("datapadplusplus".into()),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: true,
     }
 }
@@ -365,6 +369,10 @@ fn core_popular_engines_have_datastore_experience_manifests() {
 #[tokio::test]
 async fn data_edit_plans_are_guarded_and_engine_specific() -> Result<(), CommandError> {
     let connection = ResolvedConnectionProfile {
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: true,
         ..resolved_connection("mongodb", "document")
     };
@@ -611,7 +619,12 @@ async fn preview_adapters_fail_safely_before_network_for_invalid_or_risky_comman
 
     let redis_unsupported_result = adapters::execute(
         &redis,
-        &execution_request(&redis.id, "env-dev", "redis", "EVAL return 1 0"),
+        &execution_request(
+            &redis.id,
+            "env-dev",
+            "redis",
+            "GEOSEARCH sample FROMLONLAT 0 0 BYRADIUS 1 km",
+        ),
         Vec::new(),
     )
     .await;
@@ -731,6 +744,10 @@ async fn postgres_adapter_fixture_roundtrip() -> Result<(), CommandError> {
             "datapadplusplus",
         )),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
 
@@ -862,6 +879,10 @@ async fn sqlserver_adapter_fixture_roundtrip() -> Result<(), CommandError> {
             "DataPadPlusPlus_pwd_123",
         )),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
 
@@ -938,6 +959,10 @@ async fn mysql_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         username: Some(env_or("DATAPADPLUSPLUS_MYSQL_USER", "datapadplusplus")),
         password: Some(env_or("DATAPADPLUSPLUS_MYSQL_PASSWORD", "datapadplusplus")),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
 
@@ -1043,6 +1068,10 @@ async fn sqlite_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         username: None,
         password: None,
         connection_string: Some(sqlite_url),
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
 
@@ -1225,6 +1254,10 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
             "datapadplusplus",
         )),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
 
@@ -1397,6 +1430,10 @@ async fn redis_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         username: None,
         password: None,
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
 
@@ -1546,6 +1583,10 @@ async fn cache_profile_fixture_roundtrips() -> Result<(), CommandError> {
             username: None,
             password: None,
             connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
             read_only: false,
         };
 
@@ -1613,6 +1654,10 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         username: Some("datapadplusplus".into()),
         password: Some("datapadplusplus".into()),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let mariadb_result = adapters::execute(
@@ -1664,6 +1709,10 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         username: Some("datapadplusplus".into()),
         password: Some("datapadplusplus".into()),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let test_result = adapters::test_connection(&timescale, Vec::new()).await?;
@@ -1693,6 +1742,10 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         username: Some("root".into()),
         password: Some(String::new()),
         connection_string: Some("postgres://root@127.0.0.1:26257/datapadplusplus".into()),
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let cockroach_result = adapters::execute(
@@ -1729,6 +1782,10 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         username: Some("datapadplusplus".into()),
         password: Some("datapadplusplus".into()),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let clickhouse_result = adapters::execute(
@@ -1756,6 +1813,10 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         username: None,
         password: None,
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let influx_result = adapters::execute(
@@ -1783,6 +1844,10 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         username: None,
         password: None,
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let prom_result = adapters::execute(
@@ -1815,6 +1880,10 @@ async fn search_profile_fixture_roundtrips() -> Result<(), CommandError> {
             username: None,
             password: None,
             connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
             read_only: false,
         };
         let result = adapters::execute(
@@ -1852,6 +1921,10 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
         username: Some("neo4j".into()),
         password: Some("datapadplusplus".into()),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let neo4j_result = adapters::execute(
@@ -1879,6 +1952,10 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
         username: Some("root".into()),
         password: Some("datapadplusplus".into()),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let arango_result = adapters::execute(
@@ -1915,6 +1992,10 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         username: None,
         password: None,
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let dynamodb_result = adapters::execute(
@@ -1974,6 +2055,10 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         username: Some("datapadplusplus-project".into()),
         password: Some("fixture-token".into()),
         connection_string: Some("http://127.0.0.1:19050".into()),
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let bigquery_result = adapters::execute(
@@ -1999,6 +2084,10 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         username: Some("PUBLIC".into()),
         password: Some("fixture-token".into()),
         connection_string: Some("http://127.0.0.1:19060".into()),
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let snowflake_result = adapters::execute(
@@ -2021,6 +2110,10 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         username: None,
         password: Some("fixture-token".into()),
         connection_string: Some("http://127.0.0.1:19070".into()),
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let cosmos_result = adapters::execute(
@@ -2048,6 +2141,10 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         username: None,
         password: None,
         connection_string: Some("http://127.0.0.1:19080".into()),
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     };
     let neptune_result = adapters::execute(

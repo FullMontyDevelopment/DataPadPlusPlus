@@ -4,7 +4,7 @@ use redis::Value as RedisValue;
 use serde_json::{json, Map, Value as JsonValue};
 
 use super::super::super::*;
-use super::connection::redis_connection;
+use super::connection::{configured_database_index, redis_connection, select_redis_database};
 
 const DEFAULT_SCAN_COUNT: u32 = 100;
 const DEFAULT_KEY_SAMPLE_SIZE: u32 = 200;
@@ -15,6 +15,10 @@ pub(crate) async fn scan_redis_keys(
     request: &RedisKeyScanRequest,
 ) -> Result<RedisKeyScanResponse, CommandError> {
     let mut redis = redis_connection(connection).await?;
+    let database_index = request
+        .database_index
+        .or_else(|| configured_database_index(connection));
+    select_redis_database(&mut redis, database_index).await?;
     let pattern = request
         .pattern
         .as_deref()
@@ -64,15 +68,19 @@ pub(crate) async fn scan_redis_keys(
                 break;
             }
 
-            let summary = key_summary(&mut redis, &key)
-                .await
-                .unwrap_or_else(|_| RedisKeySummary {
-                    key: key.clone(),
-                    key_type: "unknown".into(),
-                    ..Default::default()
-                });
+            let mut summary =
+                key_summary(&mut redis, &key)
+                    .await
+                    .unwrap_or_else(|_| RedisKeySummary {
+                        key: key.clone(),
+                        key_type: "unknown".into(),
+                        ..Default::default()
+                    });
+            summary.database_index = database_index;
 
-            if type_filter == "all" || redis_type_matches(&summary.key_type, &type_filter) {
+            if (type_filter == "all" || redis_type_matches(&summary.key_type, &type_filter))
+                && summary_matches_filters(&summary, request.filters.as_ref())
+            {
                 keys.push(summary);
             }
         }
@@ -87,6 +95,7 @@ pub(crate) async fn scan_redis_keys(
     Ok(RedisKeyScanResponse {
         connection_id: request.connection_id.clone(),
         environment_id: request.environment_id.clone(),
+        database_index,
         cursor: request.cursor.clone().unwrap_or_else(|| "0".into()),
         next_cursor: (cursor != 0).then(|| cursor.to_string()),
         scanned_count,
@@ -103,6 +112,7 @@ pub(crate) async fn inspect_redis_key(
 ) -> Result<ExecutionResultEnvelope, CommandError> {
     let started = Instant::now();
     let mut redis = redis_connection(connection).await?;
+    select_redis_database(&mut redis, configured_database_index(connection)).await?;
     let key = request.key.trim();
 
     if key.is_empty() || key.contains('*') {
@@ -137,7 +147,12 @@ pub(crate) async fn inspect_redis_key(
             "key": key,
             "type": summary.key_type,
             "ttl": summary.ttl_label,
+            "ttlSeconds": summary.ttl_seconds,
             "memory": summary.memory_usage_label,
+            "memoryUsageBytes": summary.memory_usage_bytes,
+            "encoding": summary.encoding,
+            "idleSeconds": summary.idle_seconds,
+            "referenceCount": summary.reference_count,
             "sampleSize": sample_size,
         },
         "supports": supports_for_type(&summary.key_type),
@@ -214,6 +229,18 @@ async fn key_summary(
         .query_async::<String>(redis)
         .await
         .ok();
+    let idle_seconds = redis::cmd("OBJECT")
+        .arg("IDLETIME")
+        .arg(key)
+        .query_async::<u64>(redis)
+        .await
+        .ok();
+    let reference_count = redis::cmd("OBJECT")
+        .arg("REFCOUNT")
+        .arg(key)
+        .query_async::<u64>(redis)
+        .await
+        .ok();
     let length = key_length(redis, key, &normalized_type).await.ok();
 
     Ok(RedisKeySummary {
@@ -225,6 +252,9 @@ async fn key_summary(
         memory_usage_label: memory_usage_bytes.map(format_bytes),
         length,
         encoding,
+        idle_seconds,
+        reference_count,
+        database_index: None,
     })
 }
 
@@ -633,6 +663,35 @@ fn normalize_redis_type(value: &str) -> String {
 
 fn redis_type_matches(redis_type: &str, type_filter: &str) -> bool {
     normalize_redis_type(redis_type) == normalize_requested_type(type_filter)
+}
+
+fn summary_matches_filters(summary: &RedisKeySummary, filters: Option<&JsonValue>) -> bool {
+    let Some(filters) = filters.and_then(JsonValue::as_object) else {
+        return true;
+    };
+
+    if let Some(ttl_filter) = filters.get("ttl").and_then(JsonValue::as_str) {
+        let ttl = summary.ttl_seconds.unwrap_or(-2);
+        match ttl_filter {
+            "expiring" if ttl < 0 => return false,
+            "persistent" if ttl != -1 => return false,
+            _ => {}
+        }
+    }
+
+    if let Some(min_bytes) = filters.get("minBytes").and_then(JsonValue::as_u64) {
+        if summary.memory_usage_bytes.unwrap_or(0) < min_bytes {
+            return false;
+        }
+    }
+
+    if let Some(max_bytes) = filters.get("maxBytes").and_then(JsonValue::as_u64) {
+        if summary.memory_usage_bytes.unwrap_or(0) > max_bytes {
+            return false;
+        }
+    }
+
+    true
 }
 
 fn ttl_label(ttl_seconds: i64) -> String {

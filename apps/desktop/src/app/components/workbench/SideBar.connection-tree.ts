@@ -1,5 +1,8 @@
 import type {
+  AdapterManifest,
   ConnectionProfile,
+  DatastoreTreeManifest,
+  DatastoreTreeNodeManifest,
   ExplorerNode,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -42,7 +45,16 @@ export interface ConnectionTreeNode {
   children?: ConnectionTreeNode[]
 }
 
-export function buildConnectionObjectTree(connection: ConnectionProfile): ConnectionTreeNode[] {
+export function buildConnectionObjectTree(
+  connection: ConnectionProfile,
+  adapterManifest?: AdapterManifest,
+): ConnectionTreeNode[] {
+  if (adapterManifest?.tree) {
+    const tree = buildConnectionObjectTreeFromManifest(connection, adapterManifest.tree)
+    decorateTreeNodes(connection, tree, undefined)
+    return tree
+  }
+
   const tree = (() => {
     switch (connection.family) {
     case 'document':
@@ -68,6 +80,79 @@ export function buildConnectionObjectTree(connection: ConnectionProfile): Connec
 
   decorateTreeNodes(connection, tree, undefined)
   return tree
+}
+
+function buildConnectionObjectTreeFromManifest(
+  connection: ConnectionProfile,
+  treeManifest: DatastoreTreeManifest,
+): ConnectionTreeNode[] {
+  return treeManifest.roots.flatMap((node) =>
+    connectionTreeNodeFromManifestNode(connection, node, []),
+  )
+}
+
+function connectionTreeNodeFromManifestNode(
+  connection: ConnectionProfile,
+  manifestNode: DatastoreTreeNodeManifest,
+  parentPath: string[],
+): ConnectionTreeNode[] {
+  if (manifestNode.optionalWhenLiveMetadata) {
+    return []
+  }
+
+  if (manifestNode.hiddenWhenDatabaseSelected && connection.database?.trim()) {
+    return []
+  }
+
+  const label = resolveManifestTreeLabel(connection, manifestNode)
+
+  if (!label) {
+    return []
+  }
+
+  const children = (manifestNode.children ?? []).flatMap((child) =>
+    connectionTreeNodeFromManifestNode(connection, child, [...parentPath, label]),
+  )
+
+  return [
+    {
+      id: `manifest:${connection.id}:${[...parentPath, label, manifestNode.id].join('/')}`,
+      label,
+      kind: normalizeExplorerKind(connection, manifestNode.kind),
+      detail: manifestNode.detail,
+      path: [...parentPath, label],
+      category: true,
+      expandable: children.length > 0,
+      children,
+    },
+  ]
+}
+
+function resolveManifestTreeLabel(
+  connection: ConnectionProfile,
+  manifestNode: DatastoreTreeNodeManifest,
+) {
+  const databasePlaceholder = /\{\{database(?::([^}]+))?\}\}/
+  const databaseMatch = manifestNode.label.match(databasePlaceholder)
+
+  if (!databaseMatch) {
+    return manifestNode.label
+  }
+
+  const database =
+    connection.database?.trim() ||
+    manifestNode.defaultDatabase ||
+    databaseMatch[1]?.trim()
+
+  if (!database && manifestNode.requiresDatabase) {
+    return undefined
+  }
+
+  if (!database) {
+    return manifestNode.label.replace(databasePlaceholder, 'default')
+  }
+
+  return manifestNode.label.replace(databasePlaceholder, database)
 }
 
 export function buildConnectionObjectTreeFromExplorerNodes(
@@ -129,7 +214,11 @@ function explorerNodeToConnectionTreeNode(
   node: ExplorerNode,
   normalizedKind = normalizeExplorerKind(connection, node.kind),
 ): ConnectionTreeNode {
-  const isMongoCollection = connection.engine === 'mongodb' && normalizedKind === 'collection'
+  const isMongoBuilderNode =
+    connection.engine === 'mongodb' &&
+    ['collection', 'documents', 'aggregations', 'sample-results', 'gridfs-collection'].includes(
+      normalizedKind,
+    )
   const isRedisPrefix = isRedisLikeConnection(connection) && normalizedKind === 'prefix'
   const redisPattern = isRedisPrefix ? redisPatternFromExplorerNode(node) : undefined
   const label = sqlDisplayLabelForExplorerNode(connection, node, normalizedKind)
@@ -148,8 +237,10 @@ function explorerNodeToConnectionTreeNode(
         : (node.queryTemplate ?? fallbackExplorerQueryTemplate(connection, node)),
     queryable: isRedisPrefix || isExplorerNodeQueryable(connection, node),
     expandable: node.expandable,
-    builderKind: isMongoCollection
-      ? 'mongo-find'
+    builderKind: isMongoBuilderNode
+      ? normalizedKind === 'aggregations'
+        ? 'mongo-aggregation'
+        : 'mongo-find'
       : isRedisPrefix
         ? 'redis-key-browser'
         : undefined,
@@ -216,7 +307,12 @@ function fallbackExplorerQueryTemplate(
     }
   }
 
-  if (connection.engine === 'mongodb' && node.kind === 'collection') {
+  if (
+    connection.engine === 'mongodb' &&
+    ['collection', 'documents', 'aggregations', 'sample-results', 'gridfs-collection'].includes(
+      kind,
+    )
+  ) {
     return documentFindQueryTemplate(node.label, 20, connection.database?.trim())
   }
 
@@ -341,8 +437,14 @@ function isSqlTreeCategory(label: string) {
 function isExplorerNodeQueryable(connection: ConnectionProfile, node: ExplorerNode) {
   const kind = normalizeExplorerKind(connection, node.kind)
 
+  if (connection.engine === 'mongodb') {
+    return ['collection', 'documents', 'aggregations', 'sample-results', 'gridfs-collection'].includes(
+      kind,
+    )
+  }
+
   return Boolean(
-    ['collection', 'table', 'hypertable', 'view', 'materialized-view'].includes(kind) ||
+    ['table', 'hypertable', 'view', 'materialized-view'].includes(kind) ||
       (['elasticsearch', 'opensearch'].includes(connection.engine) &&
         ['index', 'data-stream'].includes(kind)) ||
       (connection.engine === 'dynamodb' && kind === 'table') ||
@@ -353,6 +455,10 @@ function isExplorerNodeQueryable(connection: ConnectionProfile, node: ExplorerNo
 function sqlConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
   if (connection.engine === 'sqlserver') {
     return sqlServerConnectionTree(connection)
+  }
+
+  if (connection.engine === 'sqlite') {
+    return sqliteConnectionTree()
   }
 
   const schema = defaultSqlSchema(connection)
@@ -379,6 +485,24 @@ function sqlConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] 
   ]
 
   return roots
+}
+
+function sqliteConnectionTree(): ConnectionTreeNode[] {
+  const databaseChildren = [
+    branch('tables', 'Tables', 'tables', 'Base row-store tables', []),
+    branch('views', 'Views', 'views', 'Stored SELECT definitions', []),
+    branch('indexes', 'Indexes', 'indexes', 'Standalone and table indexes', []),
+    branch('triggers', 'Triggers', 'triggers', 'Database and table triggers', []),
+    branch('attached-databases', 'Attached Databases', 'attached-databases', 'Other database files visible to this connection', []),
+    branch('pragmas', 'Pragmas', 'pragmas', 'SQLite PRAGMA configuration and checks', []),
+    branch('schema', 'Schema', 'schema', 'sqlite_schema definitions', []),
+  ]
+
+  return [
+    branch('main-database', 'Main Database', 'database', 'SQLite main database file', databaseChildren),
+    branch('attached-databases-root', 'Attached Databases', 'attached-databases', 'Database files attached to this connection', []),
+    branch('diagnostics', 'Diagnostics', 'diagnostics', 'PRAGMA, explain, integrity, and storage metadata', []),
+  ]
 }
 
 function sqlServerConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
@@ -457,6 +581,30 @@ function sqlProgrammabilityBranch(supportsStoredRoutines: boolean) {
 }
 
 function documentConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
+  if (connection.engine === 'mongodb') {
+    if (!connection.database) {
+      return [
+        branch('databases', 'Databases', 'databases', 'MongoDB database namespaces', []),
+      ]
+    }
+
+    return [
+      branch(
+        `database-${connection.database}`,
+        connection.database,
+        'database',
+        'MongoDB database',
+        [
+          branch('collections', 'Collections', 'collections', 'Document collections', []),
+          branch('views', 'Views', 'views', 'Read-only collection views', []),
+          branch('gridfs', 'GridFS', 'gridfs', 'GridFS files and chunks collections', []),
+          branch('users', 'Users', 'users', 'Database users', []),
+          branch('roles', 'Roles', 'roles', 'Database roles', []),
+        ],
+      ),
+    ]
+  }
+
   const database = connection.database || (connection.engine === 'litedb' ? 'local file' : 'admin')
 
   return [

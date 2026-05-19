@@ -75,6 +75,10 @@ export function createConnectionProfile(
       ...source?.auth,
       secretRef: source?.auth.secretRef,
     },
+    redisOptions: source?.redisOptions ? { ...source.redisOptions } : undefined,
+    sqliteOptions: source?.sqliteOptions ? { ...source.sqliteOptions } : undefined,
+    sqlServerOptions: source?.sqlServerOptions ? { ...source.sqlServerOptions } : undefined,
+    oracleOptions: source?.oracleOptions ? { ...source.oracleOptions } : undefined,
     createdAt: timestamp,
     updatedAt: timestamp,
   }

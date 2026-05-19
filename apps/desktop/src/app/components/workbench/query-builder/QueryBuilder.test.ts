@@ -9,6 +9,11 @@ import {
   createDefaultDynamoDbKeyConditionBuilderState,
   parseDynamoDbKeyConditionQueryText,
 } from './dynamodb-key-condition'
+import {
+  buildMongoAggregationQueryText,
+  createDefaultMongoAggregationBuilderState,
+  parseMongoAggregationQueryText,
+} from './mongo-aggregation'
 import { buildMongoFindQueryText, createDefaultMongoFindBuilderState } from './mongo-find'
 import {
   buildSqlSelectQueryText,
@@ -229,6 +234,76 @@ describe('Mongo query builder', () => {
         { $or: [{ status: 'open' }, { status: 'paused' }] },
         { total: { $gte: 100 } },
       ],
+    })
+  })
+})
+
+describe('Mongo aggregation builder', () => {
+  it('generates aggregate JSON from enabled pipeline stages', () => {
+    const query = JSON.parse(
+      buildMongoAggregationQueryText({
+        kind: 'mongo-aggregation',
+        collection: 'orders',
+        limit: 50,
+        stages: [
+          {
+            id: 'stage-match',
+            enabled: true,
+            stage: '$match',
+            body: '{ "status": "open" }',
+          },
+          {
+            id: 'stage-group',
+            enabled: true,
+            stage: '$group',
+            body: '{ "_id": "$customerId", "total": { "$sum": "$total" } }',
+          },
+          {
+            id: 'stage-disabled',
+            enabled: false,
+            stage: '$sort',
+            body: '{ "total": -1 }',
+          },
+        ],
+      }),
+    )
+
+    expect(query).toEqual({
+      collection: 'orders',
+      operation: 'aggregate',
+      pipeline: [
+        { $match: { status: 'open' } },
+        { $group: { _id: '$customerId', total: { $sum: '$total' } } },
+      ],
+      limit: 50,
+    })
+  })
+
+  it('creates a default aggregate pipeline with a fetch limit', () => {
+    expect(createDefaultMongoAggregationBuilderState('products', 20)).toMatchObject({
+      kind: 'mongo-aggregation',
+      collection: 'products',
+      stages: [{ stage: '$match', body: '{}' }],
+      limit: 20,
+    })
+  })
+
+  it('parses raw aggregate JSON into builder state', () => {
+    expect(
+      parseMongoAggregationQueryText(`{
+        "collection": "orders",
+        "pipeline": [
+          { "$match": { "status": "open" } },
+          { "$limit": 10 }
+        ]
+      }`),
+    ).toMatchObject({
+      kind: 'mongo-aggregation',
+      collection: 'orders',
+      stages: [
+        { stage: '$match', body: '{\n  "status": "open"\n}' },
+      ],
+      limit: 10,
     })
   })
 })

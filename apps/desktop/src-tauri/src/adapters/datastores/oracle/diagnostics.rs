@@ -24,25 +24,50 @@ pub(super) async fn collect_oracle_diagnostics(
             "value": 0,
             "unit": "flag",
             "labels": { "source": "adapter-contract" }
+        },
+        {
+            "name": "oracle.sessions.template_available",
+            "value": 1,
+            "unit": "flag",
+            "labels": { "source": "V$SESSION" }
+        },
+        {
+            "name": "oracle.sql_monitor.template_available",
+            "value": 1,
+            "unit": "flag",
+            "labels": { "source": "V$SQL_MONITOR" }
+        },
+        {
+            "name": "oracle.storage.template_available",
+            "value": 1,
+            "unit": "flag",
+            "labels": { "source": "USER_TABLESPACES/DBA_SEGMENTS" }
         }
     ])));
     diagnostics.profiles.push(payload_profile(
-        "Oracle DBMS_XPLAN and session wait profile placeholders.",
+        "Oracle DBMS_XPLAN, SQL Monitor, AWR/ASH, lock, and wait profile templates.",
         json!({
             "templates": [
                 "EXPLAIN PLAN FOR <query>",
                 "select * from table(dbms_xplan.display)",
-                "select * from v$session where rownum <= 100"
+                "select * from table(dbms_xplan.display_cursor(null, null, 'ALLSTATS LAST'))",
+                "select * from v$sql_monitor where rownum <= 100",
+                "select * from v$session where rownum <= 100",
+                "select * from v$lock where rownum <= 100",
+                "select * from v$active_session_history where rownum <= 100"
             ],
-            "nativeDriver": false
+            "nativeDriver": false,
+            "permissionSensitiveViews": ["V$", "GV$", "DBA_HIST_*"]
         }),
     ));
     diagnostics.query_history.push(payload_json(json!({
         "engine": "oracle",
         "templates": [
             "select * from all_tables where rownum <= 100",
+            "select owner, object_name, object_type, status from all_objects where rownum <= 100",
             "select * from session_privs",
-            "select * from table(dbms_xplan.display)"
+            "select * from table(dbms_xplan.display)",
+            "select tablespace_name, status from user_tablespaces order by tablespace_name"
         ]
     })));
     diagnostics.warnings.push(

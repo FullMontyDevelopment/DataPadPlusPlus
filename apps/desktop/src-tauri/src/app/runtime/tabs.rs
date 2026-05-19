@@ -2,17 +2,17 @@ use std::collections::{HashMap, HashSet};
 
 use super::library::effective_connection_environment_id;
 use super::query_tabs::{
-    build_explorer_tab, build_metrics_tab, build_query_tab, build_scoped_query_tab,
-    next_query_tab_title, normalize_tab_title, query_tab_title_parts,
+    build_explorer_tab, build_metrics_tab, build_object_view_tab, build_query_tab,
+    build_scoped_query_tab, next_query_tab_title, normalize_tab_title, query_tab_title_parts,
 };
 use super::ui::focus_query_tab;
 use super::{generate_id, timestamp_now, ManagedAppState};
 use crate::domain::{
     error::CommandError,
     models::{
-        BootstrapPayload, ClosedQueryTabSnapshot, CreateScopedQueryTabRequest,
-        QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, UpdateQueryBuilderStateRequest,
-        WorkspaceSnapshot,
+        BootstrapPayload, ClosedQueryTabSnapshot, CreateObjectViewTabRequest,
+        CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget,
+        UpdateQueryBuilderStateRequest, WorkspaceSnapshot,
     },
 };
 
@@ -173,6 +173,61 @@ impl ManagedAppState {
         }
 
         let tab = build_metrics_tab(&self.snapshot, &connection, environment_id);
+
+        self.snapshot.tabs.push(tab.clone());
+        focus_query_tab(&mut self.snapshot.ui, &tab);
+        self.snapshot.ui.active_activity = "library".into();
+        self.snapshot.ui.active_sidebar_pane = "library".into();
+        self.snapshot.ui.right_drawer = "none".into();
+        self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
+    pub fn create_object_view_tab(
+        &mut self,
+        request: CreateObjectViewTabRequest,
+    ) -> Result<BootstrapPayload, CommandError> {
+        let connection = self
+            .snapshot
+            .connections
+            .iter()
+            .find(|item| item.id == request.connection_id)
+            .cloned()
+            .ok_or_else(|| CommandError::new("connection-missing", "Connection was not found."))?;
+        let environment_id = effective_connection_environment_id(
+            &self.snapshot,
+            &connection.id,
+            request.environment_id.clone(),
+        );
+
+        if let Some(existing_tab) = self
+            .snapshot
+            .tabs
+            .iter()
+            .find(|tab| {
+                tab.connection_id == connection.id
+                    && tab.environment_id == environment_id
+                    && tab.tab_kind.as_deref() == Some("object-view")
+                    && tab.object_view_state.as_ref().and_then(|state| {
+                        state
+                            .get("nodeId")
+                            .and_then(|node_id| node_id.as_str())
+                            .map(|node_id| node_id == request.node_id)
+                    }) == Some(true)
+            })
+            .cloned()
+        {
+            focus_query_tab(&mut self.snapshot.ui, &existing_tab);
+            self.snapshot.ui.active_activity = "library".into();
+            self.snapshot.ui.active_sidebar_pane = "library".into();
+            self.snapshot.ui.right_drawer = "none".into();
+            self.snapshot.updated_at = timestamp_now();
+            self.persist()?;
+            return Ok(self.bootstrap_payload());
+        }
+
+        let tab = build_object_view_tab(&self.snapshot, &connection, request, environment_id);
 
         self.snapshot.tabs.push(tab.clone());
         focus_query_tab(&mut self.snapshot.ui, &tab);

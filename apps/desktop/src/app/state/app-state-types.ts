@@ -4,6 +4,7 @@ import type {
   CancelTestRunRequest,
   ConnectionProfile,
   ConnectionTestResult,
+  CreateObjectViewTabRequest,
   CreateScopedQueryTabRequest,
   CreateTestSuiteTabRequest,
   DataEditExecutionRequest,
@@ -123,6 +124,8 @@ export interface Actions {
   createExplorerTab(connectionId: string): Promise<void>
   createMetricsTab(connectionId: string, environmentId?: string): Promise<void>
   refreshMetricsTab(tabId: string): Promise<void>
+  createObjectViewTab(request: CreateObjectViewTabRequest): Promise<void>
+  refreshObjectViewTab(tabId: string): Promise<void>
   createTestSuiteTab(request: CreateTestSuiteTabRequest): Promise<void>
   createScopedTab(request: CreateScopedQueryTabRequest): Promise<void>
   closeTab(tabId: string): Promise<void>

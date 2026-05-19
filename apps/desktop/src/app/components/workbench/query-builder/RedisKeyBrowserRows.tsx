@@ -1,7 +1,12 @@
+import { useRef } from 'react'
 import type { CSSProperties } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { TrashIcon } from '../icons'
 import { redisKeyTypeLabel } from './redis-key-browser'
 import type { RedisTreeRow } from './redis-key-browser-tree'
+
+const REDIS_ROW_HEIGHT = 34
+const REDIS_ROW_OVERSCAN = 18
 
 interface RedisKeyBrowserRowsProps {
   rows: RedisTreeRow[]
@@ -20,6 +25,29 @@ export function RedisKeyBrowserRows({
   onSelectKey,
   onDeleteKey,
 }: RedisKeyBrowserRowsProps) {
+  const parentRef = useRef<HTMLDivElement>(null)
+  // Keeps large Redis keyspaces responsive while preserving the native key browser shape.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => REDIS_ROW_HEIGHT,
+    overscan: REDIS_ROW_OVERSCAN,
+  })
+  const virtualItems = virtualizer.getVirtualItems()
+  const renderedRows =
+    virtualItems.length > 0
+      ? virtualItems.map((item) => ({
+          key: item.key,
+          index: item.index,
+          start: item.start,
+        }))
+      : rows.map((_row, index) => ({
+          key: index,
+          index,
+          start: index * REDIS_ROW_HEIGHT,
+        }))
+
   return (
     <div className="redis-browser-table" role="treegrid" aria-rowcount={rows.length}>
       <div className="redis-browser-row redis-browser-row--header" role="row">
@@ -30,25 +58,41 @@ export function RedisKeyBrowserRows({
         <span>Length</span>
         <span />
       </div>
-      <div className="redis-browser-rows">
-        {rows.map((row) =>
-          row.kind === 'prefix' ? (
-            <RedisPrefixRow
-              key={row.id}
-              row={row}
-              expanded={expandedPrefixes.has(row.id)}
-              onTogglePrefix={onTogglePrefix}
-            />
-          ) : (
-            <RedisKeyRow
-              key={row.key.key}
-              row={row}
-              selected={selectedKey === row.key.key}
-              onDeleteKey={onDeleteKey}
-              onSelectKey={onSelectKey}
-            />
-          ),
-        )}
+      <div ref={parentRef} className="redis-browser-rows">
+        <div
+          className="redis-browser-virtual-space"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {renderedRows.map((virtualRow) => {
+            const row = rows[virtualRow.index]
+            if (!row) {
+              return null
+            }
+
+            return (
+              <div
+                key={virtualRow.key}
+                className="redis-browser-virtual-row"
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                {row.kind === 'prefix' ? (
+                  <RedisPrefixRow
+                    row={row}
+                    expanded={expandedPrefixes.has(row.id)}
+                    onTogglePrefix={onTogglePrefix}
+                  />
+                ) : (
+                  <RedisKeyRow
+                    row={row}
+                    selected={selectedKey === row.key.key}
+                    onDeleteKey={onDeleteKey}
+                    onSelectKey={onSelectKey}
+                  />
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

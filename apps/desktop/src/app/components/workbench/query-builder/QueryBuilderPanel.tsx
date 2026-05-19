@@ -20,6 +20,8 @@ import {
   buildMongoFindQueryText,
   isMongoFindBuilderState,
 } from './mongo-find'
+import { MongoAggregationBuilder } from './MongoAggregationBuilder'
+import { isMongoAggregationBuilderState } from './mongo-aggregation'
 import {
   MongoFilterBuilderSection,
   MongoProjectionBuilderSection,
@@ -63,6 +65,18 @@ export function QueryBuilderPanel({
   if (isMongoFindBuilderState(resolvedBuilderState)) {
     return (
       <MongoFindBuilder
+        key={tab.id}
+        tab={tab}
+        builderState={resolvedBuilderState}
+        collectionOptions={collectionOptions}
+        onBuilderStateChange={onBuilderStateChange}
+      />
+    )
+  }
+
+  if (isMongoAggregationBuilderState(resolvedBuilderState)) {
+    return (
+      <MongoAggregationBuilder
         key={tab.id}
         tab={tab}
         builderState={resolvedBuilderState}

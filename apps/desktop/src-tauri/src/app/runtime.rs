@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use tauri::AppHandle;
 
 mod datastore_commands;
+mod environment_guards;
 mod environments;
 mod execution;
 mod fixtures;

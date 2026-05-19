@@ -65,6 +65,8 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
       'keyspaces',
       'namespace',
       'namespaces',
+      'container',
+      'containers',
     ],
     { Icon: ObjectDatabaseIcon, tone: 'database' },
   ],
@@ -92,11 +94,22 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
       'graph-tables',
       'hypertable',
       'hypertables',
+      'node-table',
+      'node-tables',
+      'edge-table',
+      'edge-tables',
       'materialized-view-table',
+      'strict-table',
       'system-table',
       'system-tables',
       'table',
       'tables',
+      'virtual-table',
+      'virtual-tables',
+      'fts-table',
+      'fts-tables',
+      'rtree-table',
+      'rtree-tables',
       'wide-table',
       'wide-tables',
     ],
@@ -107,7 +120,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectViewIcon, tone: 'view' },
   ],
   [
-    ['column', 'columns', 'field', 'fields', 'attribute', 'attributes', 'property', 'properties'],
+    ['column', 'columns', 'generated-column', 'generated-columns', 'field', 'fields', 'attribute', 'attributes', 'property', 'properties'],
     { Icon: ObjectColumnIcon, tone: 'column' },
   ],
   [
@@ -148,7 +161,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectFunctionIcon, tone: 'function' },
   ],
   [
-    ['package', 'packages', 'program', 'programmability', 'routine', 'routines'],
+    ['package', 'packages', 'package-spec', 'package-body', 'program', 'programmability', 'routine', 'routines'],
     { Icon: ObjectPackageIcon, tone: 'package' },
   ],
   [
@@ -171,8 +184,12 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectCollectionIcon, tone: 'collection' },
   ],
   [
-    ['document', 'documents', 'sample-document', 'sample-documents'],
+    ['document', 'documents', 'sample-document', 'sample-documents', 'schema-preview'],
     { Icon: ObjectDocumentIcon, tone: 'document' },
+  ],
+  [
+    ['aggregation', 'aggregations', 'pipeline', 'validation-rules'],
+    { Icon: ObjectPackageIcon, tone: 'package' },
   ],
   [
     ['data-stream', 'data-streams', 'stream', 'streams'],
@@ -195,7 +212,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectPrefixIcon, tone: 'prefix' },
   ],
   [
-    ['list', 'lists', 'queue', 'queues'],
+    ['list', 'lists', 'queue', 'queues', 'queue-table', 'queue-tables'],
     { Icon: ObjectListIcon, tone: 'list' },
   ],
   [
@@ -215,11 +232,11 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectMetricIcon, tone: 'metric' },
   ],
   [
-    ['alert', 'alerts', 'rule', 'rules', 'target', 'targets', 'task', 'tasks'],
+    ['alert', 'alerts', 'rule', 'rules', 'target', 'targets', 'task', 'tasks', 'scheduler', 'program', 'programs', 'chain', 'chains', 'window', 'windows'],
     { Icon: ObjectSeriesIcon, tone: 'series' },
   ],
   [
-    ['job', 'jobs', 'query-history', 'history', 'session', 'sessions'],
+    ['job', 'jobs', 'query-history', 'history', 'session', 'sessions', 'wait', 'waits', 'lock', 'locks', 'sql-monitor', 'execution-plan', 'query-plan', 'query-store', 'invalid-object', 'invalid-objects'],
     { Icon: ObjectJobIcon, tone: 'job' },
   ],
   [
@@ -227,19 +244,19 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectRoleIcon, tone: 'role' },
   ],
   [
-    ['credential', 'credentials', 'permission', 'permissions', 'security'],
+    ['credential', 'credentials', 'permission', 'permissions', 'privilege', 'privileges', 'profile', 'profiles', 'security', 'certificate', 'certificates', 'symmetric-key', 'symmetric-keys', 'asymmetric-key', 'asymmetric-keys', 'audit', 'audits'],
     { Icon: ObjectSecurityIcon, tone: 'security' },
   ],
   [
-    ['stage', 'stages', 'storage', 'snapshot', 'snapshots', 'backup', 'backups'],
+    ['stage', 'stages', 'storage', 'snapshot', 'snapshots', 'backup', 'backups', 'tablespace', 'tablespaces', 'data-file', 'data-files', 'segment', 'segments', 'quota', 'quotas', 'flashback', 'restore-point', 'restore-points', 'recycle-bin', 'filegroup', 'filegroups', 'partition-scheme', 'partition-schemes', 'partition-function', 'partition-functions'],
     { Icon: ObjectStageIcon, tone: 'stage' },
   ],
   [
-    ['warehouse', 'warehouses', 'cluster', 'clusters'],
+    ['warehouse', 'warehouses', 'cluster', 'clusters', 'rac', 'instance', 'instances', 'service', 'services', 'availability-group', 'availability-groups', 'always-on-high-availability'],
     { Icon: ObjectWarehouseIcon, tone: 'warehouse' },
   ],
   [
-    ['server', 'servers', 'server-object', 'server-objects', 'node', 'nodes'],
+    ['server', 'servers', 'server-object', 'server-objects', 'linked-server', 'linked-servers', 'node', 'nodes'],
     { Icon: ObjectServerIcon, tone: 'server' },
   ],
   [
@@ -251,11 +268,11 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectPartitionIcon, tone: 'partition' },
   ],
   [
-    ['binary', 'blob', 'blobs', 'file', 'files'],
+    ['binary', 'blob', 'blobs', 'file', 'files', 'gridfs', 'gridfs-collection', 'xml-db', 'java-source', 'java-sources', 'attached-database', 'attached-databases'],
     { Icon: ObjectBinaryIcon, tone: 'binary' },
   ],
   [
-    ['cache', 'caches', 'memory', 'slab', 'slabs'],
+    ['cache', 'caches', 'memory', 'pragma', 'pragmas', 'slab', 'slabs'],
     { Icon: ObjectMemoryIcon, tone: 'memory' },
   ],
   [

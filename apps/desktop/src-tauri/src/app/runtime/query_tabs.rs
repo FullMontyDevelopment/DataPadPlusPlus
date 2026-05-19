@@ -2,8 +2,8 @@ use serde_json::json;
 
 use super::{generate_id, library::effective_connection_environment_id};
 use crate::domain::models::{
-    ConnectionProfile, CreateScopedQueryTabRequest, QueryTabState, SavedWorkItem,
-    ScopedQueryTarget, WorkspaceSnapshot,
+    ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabState,
+    SavedWorkItem, ScopedQueryTarget, WorkspaceSnapshot,
 };
 
 pub(super) fn default_query_text(connection: &ConnectionProfile) -> String {
@@ -168,6 +168,7 @@ pub(super) fn build_query_tab(
         scoped_target: None,
         builder_state: None,
         metrics_state: None,
+        object_view_state: None,
         test_suite: None,
         test_run: None,
         status: "idle".into(),
@@ -203,6 +204,7 @@ pub(super) fn build_explorer_tab(
         scoped_target: None,
         builder_state: None,
         metrics_state: None,
+        object_view_state: None,
         test_suite: None,
         test_run: None,
         status: "idle".into(),
@@ -244,6 +246,53 @@ pub(super) fn build_metrics_tab(
             "environmentId": metrics_environment_id,
             "warnings": []
         })),
+        object_view_state: None,
+        test_suite: None,
+        test_run: None,
+        status: "idle".into(),
+        dirty: false,
+        last_run_at: None,
+        result: None,
+        history: Vec::new(),
+        error: None,
+    }
+}
+
+pub(super) fn build_object_view_tab(
+    snapshot: &WorkspaceSnapshot,
+    connection: &ConnectionProfile,
+    request: CreateObjectViewTabRequest,
+    environment_id: String,
+) -> QueryTabState {
+    let title = unique_query_tab_title(snapshot, &object_view_title(&request, connection));
+
+    QueryTabState {
+        id: generate_id("object-view-tab"),
+        title,
+        tab_kind: Some("object-view".into()),
+        connection_id: connection.id.clone(),
+        environment_id: environment_id.clone(),
+        family: connection.family.clone(),
+        language: "json".into(),
+        pinned: None,
+        save_target: None,
+        saved_query_id: None,
+        editor_label: "Object view".into(),
+        query_text: String::new(),
+        query_view_mode: None,
+        script_text: None,
+        scoped_target: None,
+        builder_state: None,
+        metrics_state: None,
+        object_view_state: Some(json!({
+            "connectionId": connection.id.clone(),
+            "environmentId": environment_id,
+            "nodeId": request.node_id,
+            "label": request.label,
+            "kind": request.kind,
+            "path": request.path,
+            "warnings": []
+        })),
         test_suite: None,
         test_run: None,
         status: "idle".into(),
@@ -261,10 +310,16 @@ pub(super) fn build_scoped_query_tab(
     request: CreateScopedQueryTabRequest,
 ) -> QueryTabState {
     let builder_kind = scoped_builder_kind(connection, &request.target);
-    let target_label = normalized_target_label(&request.target.label);
+    let target_label = scoped_target_object_label(&request.target, connection);
     let limit = 20;
     let query_text = if builder_kind.as_deref() == Some("mongo-find") {
         mongo_find_query_text(
+            &target_label,
+            limit,
+            connection.database.as_deref().map(str::trim),
+        )
+    } else if builder_kind.as_deref() == Some("mongo-aggregation") {
+        mongo_aggregation_query_text(
             &target_label,
             limit,
             connection.database.as_deref().map(str::trim),
@@ -280,6 +335,11 @@ pub(super) fn build_scoped_query_tab(
     };
     let builder_state = match builder_kind.as_deref() {
         Some("mongo-find") => Some(mongo_find_builder_state(&target_label, &query_text, limit)),
+        Some("mongo-aggregation") => Some(mongo_aggregation_builder_state(
+            &target_label,
+            &query_text,
+            limit,
+        )),
         Some("redis-key-browser") => Some(redis_key_browser_builder_state(
             &redis_pattern_from_target(&request.target),
             &query_text,
@@ -290,7 +350,11 @@ pub(super) fn build_scoped_query_tab(
         snapshot,
         connection,
         &target_label,
-        builder_kind.as_deref() == Some("mongo-find"),
+        matches!(
+            builder_kind.as_deref(),
+            Some("mongo-find" | "mongo-aggregation")
+        ),
+        builder_kind.as_deref(),
     );
     let environment_id =
         effective_connection_environment_id(snapshot, &connection.id, request.environment_id);
@@ -312,6 +376,10 @@ pub(super) fn build_scoped_query_tab(
         script_text: default_script_text(connection).map(|text| {
             if connection.engine == "mongodb" && builder_kind.as_deref() == Some("mongo-find") {
                 format!("db.{target_label}.find({{}}).limit({limit})")
+            } else if connection.engine == "mongodb"
+                && builder_kind.as_deref() == Some("mongo-aggregation")
+            {
+                format!("db.{target_label}.aggregate([{{ $match: {{}} }}, {{ $limit: {limit} }}])")
             } else {
                 text
             }
@@ -319,6 +387,7 @@ pub(super) fn build_scoped_query_tab(
         scoped_target: Some(request.target),
         builder_state,
         metrics_state: None,
+        object_view_state: None,
         test_suite: None,
         test_run: None,
         status: "idle".into(),
@@ -336,6 +405,10 @@ fn scoped_builder_kind(
 ) -> Option<String> {
     if connection.engine == "mongodb" && target.preferred_builder.as_deref() == Some("mongo-find") {
         Some("mongo-find".into())
+    } else if connection.engine == "mongodb"
+        && target.preferred_builder.as_deref() == Some("mongo-aggregation")
+    {
+        Some("mongo-aggregation".into())
     } else if matches!(connection.engine.as_str(), "redis" | "valkey")
         && target.preferred_builder.as_deref() == Some("redis-key-browser")
     {
@@ -350,10 +423,15 @@ fn scoped_query_tab_title(
     connection: &ConnectionProfile,
     target_label: &str,
     has_builder: bool,
+    builder_kind: Option<&str>,
 ) -> String {
     let (_, extension) = query_tab_title_parts(connection);
     let candidate = if has_builder {
-        format!("{target_label}.find.{extension}")
+        if builder_kind == Some("mongo-aggregation") {
+            format!("{target_label}.aggregate.{extension}")
+        } else {
+            format!("{target_label}.find.{extension}")
+        }
     } else {
         format!("{target_label}.{extension}")
     };
@@ -380,6 +458,22 @@ fn unique_query_tab_title(snapshot: &WorkspaceSnapshot, candidate: &str) -> Stri
     title
 }
 
+fn object_view_title(
+    request: &CreateObjectViewTabRequest,
+    connection: &ConnectionProfile,
+) -> String {
+    let path = request.path.clone().unwrap_or_default();
+    let parent = path.last().filter(|item| item.as_str() != request.label);
+
+    if let Some(parent) = parent {
+        format!("{parent} - {}", request.label)
+    } else if request.label.trim().is_empty() {
+        format!("View - {}", connection.name)
+    } else {
+        request.label.clone()
+    }
+}
+
 fn normalized_target_label(label: &str) -> String {
     let trimmed = label.trim();
 
@@ -398,6 +492,22 @@ fn normalized_target_label(label: &str) -> String {
             .take(80)
             .collect()
     }
+}
+
+fn scoped_target_object_label(
+    target: &ScopedQueryTarget,
+    connection: &ConnectionProfile,
+) -> String {
+    let scoped_object = if connection.engine == "mongodb" {
+        target
+            .scope
+            .as_deref()
+            .and_then(|scope| scope.split(':').rfind(|part| !part.is_empty()))
+    } else {
+        None
+    };
+
+    normalized_target_label(scoped_object.unwrap_or(&target.label))
 }
 
 fn mongo_find_query_text(collection: &str, limit: u32, database: Option<&str>) -> String {
@@ -427,6 +537,43 @@ fn mongo_find_builder_state(collection: &str, query_text: &str, limit: u32) -> s
         "projectionFields": [],
         "sort": [],
         "skip": 0,
+        "limit": limit,
+        "lastAppliedQueryText": query_text,
+    })
+}
+
+fn mongo_aggregation_query_text(collection: &str, limit: u32, database: Option<&str>) -> String {
+    let mut query = json!({
+        "collection": collection,
+        "operation": "aggregate",
+        "pipeline": [
+            { "$match": {} }
+        ],
+        "limit": limit,
+    });
+
+    if let Some(database) = database.filter(|value| !value.is_empty()) {
+        query["database"] = json!(database);
+    }
+
+    serde_json::to_string_pretty(&query).unwrap_or_else(|_| {
+        format!(
+            "{{\n  \"collection\": \"{collection}\",\n  \"operation\": \"aggregate\",\n  \"pipeline\": [{{ \"$match\": {{}} }}, {{ \"$limit\": {limit} }}],\n  \"limit\": {limit}\n}}"
+        )
+    })
+}
+
+fn mongo_aggregation_builder_state(
+    collection: &str,
+    query_text: &str,
+    limit: u32,
+) -> serde_json::Value {
+    json!({
+        "kind": "mongo-aggregation",
+        "collection": collection,
+        "stages": [
+            { "id": "stage-match", "enabled": true, "stage": "$match", "body": "{}" },
+        ],
         "limit": limit,
         "lastAppliedQueryText": query_text,
     })

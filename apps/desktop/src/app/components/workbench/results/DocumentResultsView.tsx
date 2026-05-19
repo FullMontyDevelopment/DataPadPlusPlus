@@ -346,6 +346,11 @@ export function DocumentResultsView({
       return
     }
 
+    const fieldPath = pathSegments(row.path).join('.')
+    if (!window.confirm(`Delete field ${fieldPath}?`)) {
+      return
+    }
+
     stopEditing()
     setInspectorRowId(undefined)
     applyDocumentEdit(

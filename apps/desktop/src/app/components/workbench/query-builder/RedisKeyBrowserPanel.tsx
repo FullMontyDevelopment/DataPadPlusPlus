@@ -63,12 +63,15 @@ export function RedisKeyBrowserPanel({
     () => new Set(builderState.expandedPrefixes ?? []),
   )
   const viewMode = builderState.viewMode ?? 'tree'
+  const databaseIndex = builderState.databaseIndex ?? 0
+  const delimiter = builderState.delimiter ?? ':'
+  const ttlFilter = builderState.filters?.ttl ?? 'all'
   const rows = useMemo(
     () =>
       viewMode === 'tree'
-        ? redisTreeRows(keys, expandedPrefixes)
+        ? redisTreeRows(keys, expandedPrefixes, delimiter)
         : keys.map((key) => ({ kind: 'key' as const, id: key.key, depth: 0, key })),
-    [expandedPrefixes, keys, viewMode],
+    [delimiter, expandedPrefixes, keys, viewMode],
   )
 
   const updateBuilder = useCallback(
@@ -96,9 +99,12 @@ export function RedisKeyBrowserPanel({
         environmentId: tab.environmentId,
         pattern: builderState.pattern || '*',
         typeFilter: builderState.typeFilter,
+        databaseIndex,
+        delimiter,
         cursor: reset ? '0' : cursor,
         count: builderState.scanCount ?? builderState.pageSize ?? 100,
         pageSize: builderState.pageSize ?? 100,
+        filters: builderState.filters,
       })
       setLoading(false)
 
@@ -114,16 +120,25 @@ export function RedisKeyBrowserPanel({
       setStatus(response.warnings[0] ?? '')
       updateBuilder({
         cursor: response.nextCursor ?? '0',
+        databaseIndex: response.databaseIndex ?? databaseIndex,
+        scanCursorByDb: {
+          ...(builderState.scanCursorByDb ?? {}),
+          [String(response.databaseIndex ?? databaseIndex)]: response.nextCursor ?? '0',
+        },
         scannedCount: reset ? response.scannedCount : scannedCount + response.scannedCount,
         lastRefreshAt: new Date().toISOString(),
       })
     },
     [
+      builderState.filters,
       builderState.pageSize,
       builderState.pattern,
+      builderState.scanCursorByDb,
       builderState.scanCount,
       builderState.typeFilter,
       cursor,
+      databaseIndex,
+      delimiter,
       onScanRedisKeys,
       scannedCount,
       tab.connectionId,
@@ -140,7 +155,15 @@ export function RedisKeyBrowserPanel({
     return () => window.clearTimeout(scanTimer)
     // Scan is intentionally tied to the stable query controls, not every status/cursor update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [builderState.pattern, builderState.typeFilter, builderState.pageSize, tab.id])
+  }, [
+    builderState.pattern,
+    builderState.typeFilter,
+    builderState.pageSize,
+    databaseIndex,
+    delimiter,
+    ttlFilter,
+    tab.id,
+  ])
 
   const selectKey = (key: string) => {
     updateBuilder({ selectedKey: key })
@@ -183,6 +206,10 @@ export function RedisKeyBrowserPanel({
 
   const deleteKey = async (key: string) => {
     if (!onExecuteDataEdit) {
+      return
+    }
+
+    if (!window.confirm(`Delete Redis key ${key}?`)) {
       return
     }
 
@@ -242,6 +269,22 @@ export function RedisKeyBrowserPanel({
             <TableIcon className="toolbar-icon" />
           </button>
         </div>
+        <label className="redis-browser-compact-field">
+          <span>DB</span>
+          <input
+            aria-label="Redis database index"
+            type="number"
+            min={0}
+            value={databaseIndex}
+            onChange={(event) =>
+              updateBuilder({
+                databaseIndex: Math.max(0, Number(event.target.value) || 0),
+                cursor: '0',
+                selectedKey: undefined,
+              })
+            }
+          />
+        </label>
         <select
           aria-label="Redis key type"
           value={builderState.typeFilter}
@@ -259,6 +302,38 @@ export function RedisKeyBrowserPanel({
             </option>
           ))}
         </select>
+        <select
+          aria-label="Redis TTL filter"
+          value={ttlFilter}
+          onChange={(event) =>
+            updateBuilder({
+              filters: {
+                ...(builderState.filters ?? {}),
+                ttl: event.target.value as NonNullable<RedisKeyBrowserState['filters']>['ttl'],
+              },
+              cursor: '0',
+              selectedKey: undefined,
+            })
+          }
+        >
+          <option value="all">All TTLs</option>
+          <option value="expiring">Expiring</option>
+          <option value="persistent">Persistent</option>
+        </select>
+        <label className="redis-browser-compact-field">
+          <span>Delimiter</span>
+          <input
+            aria-label="Redis namespace delimiter"
+            value={delimiter}
+            maxLength={3}
+            onChange={(event) =>
+              updateBuilder({
+                delimiter: event.target.value || ':',
+                expandedPrefixes: [],
+              })
+            }
+          />
+        </label>
         <label className="redis-browser-pattern">
           <SearchIcon className="toolbar-icon" />
           <input

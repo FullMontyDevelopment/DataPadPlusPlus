@@ -7,6 +7,7 @@ import { FIELD_DRAG_MIME, FIELD_DRAG_PAYLOAD_MIME } from '../results/field-drag'
 import { ResultPayloadView } from '../results/ResultPayloadView'
 import { createDefaultCqlPartitionBuilderState } from './cql-partition'
 import { createDefaultDynamoDbKeyConditionBuilderState } from './dynamodb-key-condition'
+import { createDefaultMongoAggregationBuilderState } from './mongo-aggregation'
 import { createDefaultMongoFindBuilderState } from './mongo-find'
 import { QueryBuilderPanel } from './QueryBuilderPanel'
 import { createDefaultRedisKeyBrowserState } from './redis-key-browser'
@@ -89,6 +90,28 @@ describe('QueryBuilderPanel', () => {
 
     expect(screen.getByLabelText('Filter field')).toHaveValue('sku')
     expect(builder).not.toHaveClass('is-drag-over')
+  })
+
+  it('renders a Mongo aggregation builder with editable pipeline stages', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(
+      <BuilderHarness
+        initialBuilderState={createDefaultMongoAggregationBuilderState('orders', 20)}
+        onBuilderStateChange={onBuilderStateChange}
+        tab={mongoTab()}
+      />,
+    )
+
+    expect(screen.getByRole('region', { name: 'MongoDB aggregation builder' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Collection')).toHaveValue('orders')
+    expect(screen.getByLabelText('Fetch size')).toHaveValue(20)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Stage' }))
+
+    const stages = screen.getAllByLabelText('Aggregation stage')
+    expect(stages.at(-1)).toHaveValue('$match')
+    expect(onBuilderStateChange).toHaveBeenCalled()
   })
 
   it('adds document result fields to the Mongo builder section they are dropped on', () => {
@@ -276,11 +299,37 @@ describe('QueryBuilderPanel', () => {
     )
 
     expect(screen.getByLabelText('Redis key browser')).toBeInTheDocument()
+    expect(screen.getByLabelText('Redis database index')).toHaveValue(0)
     expect(screen.getByLabelText('Redis key type')).toHaveValue('all')
+    expect(screen.getByLabelText('Redis TTL filter')).toHaveValue('all')
+    expect(screen.getByLabelText('Redis namespace delimiter')).toHaveValue(':')
     expect(screen.getByLabelText('Filter by key name or pattern')).toHaveValue('*')
-    await waitFor(() => expect(screen.getByText(/product/)).toBeInTheDocument())
+    await waitFor(() =>
+      expect(onScanRedisKeys).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseIndex: 0,
+          delimiter: ':',
+          filters: { ttl: 'all' },
+        }),
+      ),
+    )
+    fireEvent.change(screen.getByLabelText('Redis database index'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Redis TTL filter'), { target: { value: 'expiring' } })
+    expect(onBuilderStateChange).toHaveBeenCalledWith(
+      'tab-redis',
+      expect.objectContaining({ databaseIndex: 2 }),
+    )
+    expect(onBuilderStateChange).toHaveBeenCalledWith(
+      'tab-redis',
+      expect.objectContaining({ filters: expect.objectContaining({ ttl: 'expiring' }) }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /product1/ })).toBeInTheDocument(),
+    )
     fireEvent.click(screen.getByRole('button', { name: /product1/ }))
-    await waitFor(() => expect(screen.getByText('product:luna-lamp')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'product:luna-lamp' })).toBeInTheDocument(),
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'product:luna-lamp' }))
 
@@ -292,6 +341,55 @@ describe('QueryBuilderPanel', () => {
       sampleSize: 100,
     })
   })
+
+  it('confirms Redis key deletion before executing the edit', async () => {
+    const onExecuteDataEdit = vi.fn().mockResolvedValue({
+      executed: true,
+      operationId: 'redis.data-edit.delete-key',
+      summary: 'Deleted key.',
+      warnings: [],
+      messages: ['Deleted key.'],
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+
+    render(
+      <BuilderHarness
+        connectionEngine="redis"
+        initialBuilderState={createDefaultRedisKeyBrowserState('*', 100)}
+        onBuilderStateChange={vi.fn()}
+        onExecuteDataEdit={onExecuteDataEdit}
+        onScanRedisKeys={vi.fn().mockResolvedValue({
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          cursor: '0',
+          scannedCount: 1,
+          keys: [
+            {
+              key: 'product:luna-lamp',
+              type: 'string',
+              ttlLabel: 'No limit',
+              memoryUsageLabel: '80 B',
+            },
+          ],
+          usedTypeFilterFallback: false,
+          moduleTypes: [],
+          warnings: [],
+        })}
+        tab={redisTab()}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /product1/ })).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /product1/ }))
+    await waitFor(() => expect(screen.getByText('product:luna-lamp')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Delete product:luna-lamp' }))
+
+    expect(confirmSpy).toHaveBeenCalledWith('Delete Redis key product:luna-lamp?')
+    expect(onExecuteDataEdit).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
 })
 
 function BuilderHarness({
@@ -299,11 +397,13 @@ function BuilderHarness({
   initialBuilderState,
   onInspectRedisKey,
   onScanRedisKeys,
+  onExecuteDataEdit,
   onBuilderStateChange,
   tab,
 }: {
   connectionEngine?: 'mongodb' | 'postgresql' | 'dynamodb' | 'cassandra' | 'elasticsearch' | 'redis'
   initialBuilderState?: QueryBuilderState
+  onExecuteDataEdit?: ComponentProps<typeof QueryBuilderPanel>['onExecuteDataEdit']
   onInspectRedisKey?: ComponentProps<typeof QueryBuilderPanel>['onInspectRedisKey']
   onScanRedisKeys?: ComponentProps<typeof QueryBuilderPanel>['onScanRedisKeys']
   onBuilderStateChange(tabId: string, builderState: QueryBuilderState): void
@@ -349,6 +449,7 @@ function BuilderHarness({
         setBuilderState(nextBuilderState)
         onBuilderStateChange(tabId, nextBuilderState)
       }}
+      onExecuteDataEdit={onExecuteDataEdit}
       onInspectRedisKey={onInspectRedisKey}
       onScanRedisKeys={onScanRedisKeys}
     />

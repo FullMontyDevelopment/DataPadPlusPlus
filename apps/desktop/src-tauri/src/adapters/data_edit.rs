@@ -168,7 +168,7 @@ fn validate_edit_target(
                 warnings.push("Document edits need a target collection.".into());
             }
 
-            if request.target.document_id.is_none() {
+            if request.edit_kind != "insert-document" && request.target.document_id.is_none() {
                 warnings.push("Document edits require a stable document id.".into());
             }
         }
@@ -249,6 +249,9 @@ fn required_permissions(
 ) -> Vec<String> {
     match connection.family.as_str() {
         "sql" | "embedded-olap" => vec![format!("{} on table", request.edit_kind)],
+        "document" if request.edit_kind == "insert-document" => {
+            vec!["insert collection document".into()]
+        }
         "document" => vec!["update collection document".into()],
         "keyvalue" => vec!["write concrete key".into()],
         "search" => vec!["write concrete index document".into()],
@@ -258,6 +261,10 @@ fn required_permissions(
 }
 
 fn scan_impact(request: &DataEditPlanRequest) -> String {
+    if request.edit_kind == "insert-document" {
+        return "Single collection insert; no scan should be required.".into();
+    }
+
     if request
         .target
         .primary_key

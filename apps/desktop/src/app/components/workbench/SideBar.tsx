@@ -47,6 +47,7 @@ interface SideBarProps {
   onOpenConnectionDrawer(connectionId: string): void
   onTestConnection(connectionId: string): void
   onLoadExplorerScope(connectionId: string, scope?: string): void
+  onOpenObjectView(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onCreateTab(connectionId?: string): void
   onCreateTestSuite(connectionId?: string): void
@@ -99,6 +100,7 @@ export function SideBar({
   onOpenConnectionDrawer,
   onTestConnection,
   onLoadExplorerScope,
+  onOpenObjectView,
   onOpenScopedQuery,
   onCreateTab,
   onCreateTestSuite,
@@ -273,6 +275,8 @@ export function SideBar({
           onOpenConnectionDrawer={onOpenConnectionDrawer}
           onOpenConnectionExplorer={onOpenConnectionExplorer}
           onOpenConnectionMetrics={onOpenConnectionMetrics}
+          onInspectExplorerNode={onInspectExplorerNode}
+          onOpenObjectView={onOpenObjectView}
           onOpenSettings={onOpenSettings}
           onOpenScopedQuery={onOpenScopedQuery}
           onOpenLibraryItem={onOpenLibraryItem}

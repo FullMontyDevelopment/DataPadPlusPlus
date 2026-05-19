@@ -52,6 +52,7 @@ export function ConnectionsPane({
   onOpenConnectionMetrics,
   onOpenConnectionDrawer,
   onLoadExplorerScope,
+  onOpenObjectView,
   onOpenScopedQuery,
   onCreateTab,
   onSelectConnection,
@@ -76,6 +77,7 @@ export function ConnectionsPane({
   onOpenConnectionExplorer(connectionId: string): void
   onOpenConnectionMetrics(connectionId: string): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
+  onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onCreateTab(connectionId?: string): void
   onSelectConnection(connectionId: string): void
 }) {
@@ -275,6 +277,9 @@ export function ConnectionsPane({
 
                     {expanded ? (
                       <ConnectionObjectTree
+                        adapterManifest={adapterManifests.find(
+                          (manifest) => manifest.engine === connection.engine,
+                        )}
                         connection={connection}
                         environment={environment}
                         explorerNodes={
@@ -284,6 +289,7 @@ export function ConnectionsPane({
                           connection.id === activeConnectionId ? explorerStatus : 'idle'
                         }
                         onLoadExplorerScope={onLoadExplorerScope}
+                        onOpenObjectView={onOpenObjectView}
                         onOpenScopedQuery={onOpenScopedQuery}
                       />
                     ) : null}

@@ -49,6 +49,25 @@ export interface AdapterManifest {
   capabilities: AdapterCapability[]
   defaultLanguage: QueryLanguage
   localDatabase?: LocalDatabaseManifest
+  tree?: DatastoreTreeManifest
+}
+
+export interface DatastoreTreeManifest {
+  version: 1
+  emptyState: 'structural-folders'
+  roots: DatastoreTreeNodeManifest[]
+}
+
+export interface DatastoreTreeNodeManifest {
+  id: string
+  label: string
+  kind: string
+  detail?: string
+  children?: DatastoreTreeNodeManifest[]
+  requiresDatabase?: boolean
+  hiddenWhenDatabaseSelected?: boolean
+  defaultDatabase?: string
+  optionalWhenLiveMetadata?: boolean
 }
 
 export interface ExecutionCapabilities {

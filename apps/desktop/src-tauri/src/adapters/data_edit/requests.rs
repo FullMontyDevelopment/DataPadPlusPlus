@@ -125,6 +125,20 @@ fn mongo_edit_request(request: &DataEditPlanRequest) -> String {
         .collection
         .as_deref()
         .unwrap_or("<collection>");
+
+    if request.edit_kind == "insert-document" {
+        return serde_json::to_string_pretty(&json!({
+            "collection": collection,
+            "operation": "insertOne",
+            "document": request
+                .changes
+                .first()
+                .and_then(|change| change.value.clone())
+                .unwrap_or(Value::Object(Default::default()))
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
     let filter = json!({
         "_id": request
             .target

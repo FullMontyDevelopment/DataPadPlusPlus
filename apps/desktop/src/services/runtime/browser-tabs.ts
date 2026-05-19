@@ -1,4 +1,4 @@
-import type { ConnectionProfile, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import type { ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { createId, defaultQueryTextForConnection, defaultQueryViewModeForConnection, defaultScriptTextForConnection, editorLabelForConnection, languageForConnection } from '../../app/state/helpers'
 import { cloneSnapshot, findTab } from './browser-store'
 import { effectiveConnectionEnvironmentId } from './library-connection-helpers'
@@ -135,6 +135,63 @@ export function createMetricsTabInSnapshot(
   return focused
 }
 
+export function createObjectViewTabInSnapshot(
+  snapshot: WorkspaceSnapshot,
+  request: CreateObjectViewTabRequest,
+): WorkspaceSnapshot {
+  const next = cloneSnapshot(snapshot)
+  const connection = next.connections.find((item) => item.id === request.connectionId)
+
+  if (!connection) {
+    return next
+  }
+
+  const environmentId = effectiveConnectionEnvironmentId(
+    next,
+    connection,
+    request.environmentId,
+  )
+  const existingObjectViewTab = next.tabs.find(
+    (tab) =>
+      tab.connectionId === connection.id &&
+      tab.environmentId === environmentId &&
+      tab.tabKind === 'object-view' &&
+      tab.objectViewState?.nodeId === request.nodeId,
+  )
+
+  if (existingObjectViewTab) {
+    return upsertTab(next, existingObjectViewTab)
+  }
+
+  const tab: QueryTabState = {
+    id: createId('object-view-tab'),
+    title: uniqueObjectViewTabTitle(next, connection, request),
+    tabKind: 'object-view',
+    connectionId: connection.id,
+    environmentId,
+    family: connection.family,
+    language: 'json',
+    editorLabel: 'Object view',
+    queryText: '',
+    queryViewMode: undefined,
+    scriptText: undefined,
+    objectViewState: {
+      connectionId: connection.id,
+      environmentId,
+      nodeId: request.nodeId,
+      label: request.label,
+      kind: request.kind,
+      path: request.path,
+      warnings: [],
+    },
+    status: 'idle',
+    dirty: false,
+    history: [],
+  }
+
+  return upsertTab(next, tab)
+}
+
 
 
 export function createScopedQueryTabInSnapshot(
@@ -148,12 +205,12 @@ export function createScopedQueryTabInSnapshot(
     return next
   }
 
-  const targetLabel = normalizeScopedTargetLabel(request.target.label)
+  const targetLabel = scopedTargetObjectLabel(request.target, connection)
   const builderKind = scopedBuilderKind(connection, request.target)
   const legacyTitle = scopedQueryTitleCandidate(
     connection,
     targetLabel,
-    builderKind === 'mongo-find',
+    builderKind === 'mongo-find' || builderKind === 'mongo-aggregation',
   )
   const existingScopedTab = next.tabs.find(
     (tab) =>
@@ -170,12 +227,20 @@ export function createScopedQueryTabInSnapshot(
   const queryText =
     builderKind === 'mongo-find'
       ? mongoFindQueryText(targetLabel, 20, connection.database)
+      : builderKind === 'mongo-aggregation'
+        ? mongoAggregationQueryText(targetLabel, 20, connection.database)
       : builderKind === 'redis-key-browser'
         ? redisKeyBrowserQueryText(redisPatternFromTarget(request.target))
       : (request.target.queryTemplate ?? defaultQueryTextForConnection(connection))
   const tab: QueryTabState = {
     id: createId('tab'),
-    title: uniqueScopedQueryTitle(next, connection, targetLabel, builderKind === 'mongo-find'),
+    title: uniqueScopedQueryTitle(
+      next,
+      connection,
+      targetLabel,
+      builderKind === 'mongo-find' || builderKind === 'mongo-aggregation',
+      builderKind,
+    ),
     tabKind: 'query',
     connectionId: connection.id,
     environmentId:
@@ -188,6 +253,8 @@ export function createScopedQueryTabInSnapshot(
     scriptText:
       connection.engine === 'mongodb' && builderKind === 'mongo-find'
         ? `db.${targetLabel}.find({}).limit(20)`
+        : connection.engine === 'mongodb' && builderKind === 'mongo-aggregation'
+          ? `db.${targetLabel}.aggregate([{ $match: {} }, { $limit: 20 }])`
         : defaultScriptTextForConnection(connection),
     scopedTarget: request.target,
     builderState:
@@ -203,6 +270,16 @@ export function createScopedQueryTabInSnapshot(
             limit: 20,
             lastAppliedQueryText: queryText,
           }
+        : builderKind === 'mongo-aggregation'
+          ? {
+              kind: 'mongo-aggregation',
+              collection: targetLabel,
+              stages: [
+                { id: 'stage-match', enabled: true, stage: '$match', body: '{}' },
+              ],
+              limit: 20,
+              lastAppliedQueryText: queryText,
+            }
         : builderKind === 'redis-key-browser'
           ? {
               kind: 'redis-key-browser',
@@ -232,6 +309,10 @@ function scopedBuilderKind(
 ): ScopedQueryTarget['preferredBuilder'] {
   if (connection.engine === 'mongodb' && target.preferredBuilder === 'mongo-find') {
     return 'mongo-find'
+  }
+
+  if (connection.engine === 'mongodb' && target.preferredBuilder === 'mongo-aggregation') {
+    return 'mongo-aggregation'
   }
 
   if (
@@ -282,6 +363,33 @@ function uniqueMetricsTabTitle(snapshot: WorkspaceSnapshot, connection: Connecti
   return title
 }
 
+function uniqueObjectViewTabTitle(
+  snapshot: WorkspaceSnapshot,
+  connection: ConnectionProfile,
+  request: CreateObjectViewTabRequest,
+) {
+  const parent = request.path?.at(-1)
+  const candidate =
+    parent && parent !== request.label
+      ? `${parent} - ${request.label}`
+      : request.label || `View - ${connection.name}`
+  const titles = new Set(snapshot.tabs.map((tab) => tab.title))
+
+  if (!titles.has(candidate)) {
+    return candidate
+  }
+
+  let index = 2
+  let title = `${candidate} ${index}`
+
+  while (titles.has(title)) {
+    index += 1
+    title = `${candidate} ${index}`
+  }
+
+  return title
+}
+
 export function scopedTargetsMatch(left: ScopedQueryTarget, right: ScopedQueryTarget) {
   return (
     left.kind === right.kind &&
@@ -294,6 +402,15 @@ export function scopedTargetsMatch(left: ScopedQueryTarget, right: ScopedQueryTa
 
 function scopedPathKey(path?: string[]) {
   return (path ?? []).join('\u001f')
+}
+
+function scopedTargetObjectLabel(target: ScopedQueryTarget, connection: ConnectionProfile) {
+  const scopedObject =
+    connection.engine === 'mongodb'
+      ? target.scope?.split(':').filter(Boolean).at(-1)
+      : undefined
+
+  return normalizeScopedTargetLabel(scopedObject ?? target.label)
 }
 
 
@@ -320,8 +437,9 @@ export function uniqueScopedQueryTitle(
   connection: ConnectionProfile,
   label: string,
   hasBuilder: boolean,
+  builderKind?: ScopedQueryTarget['preferredBuilder'],
 ) {
-  const candidate = scopedQueryTitleCandidate(connection, label, hasBuilder)
+  const candidate = scopedQueryTitleCandidate(connection, label, hasBuilder, builderKind)
   const titles = new Set(snapshot.tabs.map((tab) => tab.title))
 
   if (!titles.has(candidate)) {
@@ -346,8 +464,12 @@ function scopedQueryTitleCandidate(
   connection: ConnectionProfile,
   label: string,
   hasBuilder: boolean,
+  builderKind?: ScopedQueryTarget['preferredBuilder'],
 ) {
   const extension = tabTitleParts(connection).extension
+  if (builderKind === 'mongo-aggregation') {
+    return `${label}.aggregate.${extension}`
+  }
   return hasBuilder ? `${label}.find.${extension}` : `${label}.${extension}`
 }
 
@@ -361,6 +483,22 @@ export function mongoFindQueryText(collection: string, limit: number, database?:
       ...(trimmedDatabase ? { database: trimmedDatabase } : {}),
       collection,
       filter: {},
+      limit,
+    },
+    null,
+    2,
+  )
+}
+
+export function mongoAggregationQueryText(collection: string, limit: number, database?: string) {
+  const trimmedDatabase = database?.trim()
+
+  return JSON.stringify(
+    {
+      ...(trimmedDatabase ? { database: trimmedDatabase } : {}),
+      collection,
+      operation: 'aggregate',
+      pipeline: [{ $match: {} }, { $limit: limit }],
       limit,
     },
     null,

@@ -36,6 +36,8 @@ const defaultActions: Actions = {
   createExplorerTab: noop,
   createMetricsTab: noop,
   refreshMetricsTab: noop,
+  createObjectViewTab: noop,
+  refreshObjectViewTab: noop,
   createTestSuiteTab: noop,
   createScopedTab: noop,
   closeTab: noop,

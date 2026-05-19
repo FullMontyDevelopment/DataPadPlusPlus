@@ -5,14 +5,16 @@ import type {
   DataEditPlanRequest,
   DataEditPlanResponse,
   DatastoreExperienceManifest,
+  WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import {
   DATASTORE_TEST_ASSERTIONS,
   DATAPADPLUSPLUS_ADAPTER_MANIFESTS,
+  datastoreTreeForEngine,
   datastoreBacklogByEngine,
   datastoreTestTemplatesForEngine,
 } from '@datapadplusplus/shared-types'
-import { languageForConnection } from '../../app/state/helpers'
+import { languageForConnection, resolveEnvironment } from '../../app/state/helpers'
 import {
   browserDataEditPermission,
   browserDataEditRequest,
@@ -40,6 +42,7 @@ export function buildDatastoreExperiences(): DatastoreExperienceManifest[] {
         'Destructive and admin operations remain guarded preview plans in this phase.',
         'Safe edits require an unambiguous target and adapter-specific permission checks.',
       ],
+      tree: datastoreTreeForEngine(manifest.engine, family),
       testTemplates: datastoreTestTemplatesForEngine(manifest.engine, family),
       testAssertions: DATASTORE_TEST_ASSERTIONS,
     }
@@ -49,45 +52,60 @@ export function buildDatastoreExperiences(): DatastoreExperienceManifest[] {
 export function planDataEditLocally(
   connection: ConnectionProfile,
   request: DataEditPlanRequest,
+  snapshot?: WorkspaceSnapshot,
 ): DataEditPlanResponse {
   const generatedRequest = browserDataEditRequest(connection, request)
   const warnings = [
     'Preview mode generates guarded data-edit plans without mutating the datastore.',
     ...browserDataEditWarnings(connection, request),
   ]
+  const confirmationText = `CONFIRM ${connection.engine.toUpperCase()} ${request.editKind.toUpperCase()}`
+  const plan: DataEditPlanResponse['plan'] = {
+    operationId: `${connection.engine}.data-edit.${request.editKind}`,
+    engine: connection.engine,
+    summary: `${request.editKind} data edit plan prepared for ${connection.name}.`,
+    generatedRequest,
+    requestLanguage: languageForConnection(connection),
+    destructive: request.editKind.includes('delete'),
+    estimatedCost: 'Single-object edit; cost depends on the engine and indexes.',
+    estimatedScanImpact: browserDataEditScanImpact(request),
+    requiredPermissions: [browserDataEditPermission(connection, request)],
+    confirmationText,
+    warnings,
+  }
+
+  if (snapshot) {
+    applyEnvironmentGuardsToDataEditPlan(snapshot, request.environmentId, plan)
+  }
 
   return {
     connectionId: request.connectionId,
     environmentId: request.environmentId,
     editKind: request.editKind,
     executionSupport: 'plan-only',
-    plan: {
-      operationId: `${connection.engine}.data-edit.${request.editKind}`,
-      engine: connection.engine,
-      summary: `${request.editKind} data edit plan prepared for ${connection.name}.`,
-      generatedRequest,
-      requestLanguage: languageForConnection(connection),
-      destructive: request.editKind.includes('delete'),
-      estimatedCost: 'Single-object edit; cost depends on the engine and indexes.',
-      estimatedScanImpact:
-        request.target.primaryKey ||
-        request.target.documentId ||
-        request.target.key ||
-        request.target.itemKey
-          ? 'Single object/key predicate supplied; no broad scan should be required.'
-          : 'Target is not fully keyed yet; live execution must stay blocked until this is resolved.',
-      requiredPermissions: [browserDataEditPermission(connection, request)],
-      confirmationText: `CONFIRM ${connection.engine.toUpperCase()} ${request.editKind.toUpperCase()}`,
-      warnings,
-    },
+    plan,
   }
+}
+
+function browserDataEditScanImpact(request: DataEditPlanRequest) {
+  if (request.editKind === 'insert-document') {
+    return 'Single collection insert; no scan should be required.'
+  }
+
+  return request.target.primaryKey ||
+    request.target.documentId ||
+    request.target.key ||
+    request.target.itemKey
+    ? 'Single object/key predicate supplied; no broad scan should be required.'
+    : 'Target is not fully keyed yet; live execution must stay blocked until this is resolved.'
 }
 
 export function executeDataEditLocally(
   connection: ConnectionProfile,
   request: DataEditExecutionRequest,
+  snapshot?: WorkspaceSnapshot,
 ): DataEditExecutionResponse {
-  const planResponse = planDataEditLocally(connection, request)
+  const planResponse = planDataEditLocally(connection, request, snapshot)
   const warnings = [...planResponse.plan.warnings]
   const messages = [
     'Generated a safe data-edit plan. Live execution is not enabled in browser preview.',
@@ -97,8 +115,12 @@ export function executeDataEditLocally(
     warnings.push('Live data edit execution was blocked because this connection is read-only.')
   }
 
-  if (request.confirmationText !== planResponse.plan.confirmationText) {
+  if (planResponse.plan.confirmationText && request.confirmationText !== planResponse.plan.confirmationText) {
     warnings.push(`Type \`${planResponse.plan.confirmationText}\` before executing this data edit.`)
+  }
+
+  if (snapshot && environmentHasUnresolvedVariables(snapshot, request.environmentId)) {
+    warnings.push('Unresolved environment variables must be fixed before this data edit can run.')
   }
 
   return {
@@ -110,6 +132,60 @@ export function executeDataEditLocally(
     plan: planResponse.plan,
     messages,
     warnings,
+  }
+}
+
+function applyEnvironmentGuardsToDataEditPlan(
+  snapshot: WorkspaceSnapshot,
+  environmentId: string,
+  plan: DataEditPlanResponse['plan'],
+) {
+  const environment = snapshot.environments.find((item) => item.id === environmentId)
+
+  if (!environment) {
+    return
+  }
+
+  const resolved = resolveEnvironment(snapshot.environments, environmentId)
+  if (resolved.unresolvedKeys.length > 0) {
+    pushWarning(plan.warnings, 'Unresolved environment variables must be fixed before execution.')
+    return
+  }
+
+  const reasons = [
+    snapshot.preferences.safeModeEnabled
+      ? 'Global safe mode requires confirmation for risky work.'
+      : '',
+    environment.safeMode
+      ? `${environment.label} safe mode requires confirmation for risky work.`
+      : '',
+    environment.requiresConfirmation
+      ? `${environment.label} requires confirmation for risky work.`
+      : '',
+    environment.risk === 'high' || environment.risk === 'critical'
+      ? `${environment.label} is a ${environment.risk} risk environment.`
+      : '',
+  ].filter(Boolean)
+
+  for (const reason of reasons) {
+    pushWarning(plan.warnings, reason)
+  }
+
+  if (reasons.length > 0 && !plan.confirmationText) {
+    plan.confirmationText = `CONFIRM ${environment.label}`
+  }
+}
+
+function environmentHasUnresolvedVariables(
+  snapshot: WorkspaceSnapshot,
+  environmentId: string,
+) {
+  return resolveEnvironment(snapshot.environments, environmentId).unresolvedKeys.length > 0
+}
+
+function pushWarning(warnings: string[], warning: string) {
+  if (!warnings.includes(warning)) {
+    warnings.push(warning)
   }
 }
 
@@ -217,7 +293,15 @@ function browserQueryBuilders(
   engine: ConnectionProfile['engine'],
 ): DatastoreExperienceManifest['queryBuilders'] {
   if (engine === 'mongodb') {
-    return [{ kind: 'mongo-find', label: 'Find Builder', scope: 'collection', defaultMode: 'split' }]
+    return [
+      { kind: 'mongo-find', label: 'Find Builder', scope: 'collection', defaultMode: 'visual' },
+      {
+        kind: 'mongo-aggregation',
+        label: 'Aggregation Builder',
+        scope: 'collection',
+        defaultMode: 'visual',
+      },
+    ]
   }
 
   if (engine === 'elasticsearch' || engine === 'opensearch') {
@@ -278,7 +362,7 @@ function browserEditableScopes(
       {
         scope: 'collection',
         label: 'Collection Documents',
-        editKinds: ['set-field', 'unset-field', 'rename-field', 'change-field-type'],
+        editKinds: ['insert-document', 'set-field', 'unset-field', 'rename-field', 'change-field-type'],
         requiresPrimaryKey: true,
         liveExecution: false,
       },

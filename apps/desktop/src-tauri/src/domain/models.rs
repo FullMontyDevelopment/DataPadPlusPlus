@@ -25,7 +25,7 @@ impl AppHealth {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretRef {
     pub id: String,
@@ -44,6 +44,157 @@ pub struct ConnectionAuth {
     pub cloud_provider: Option<String>,
     pub principal: Option<String>,
     pub secret_ref: Option<SecretRef>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisConnectionOptions {
+    pub deployment_mode: Option<String>,
+    pub database_index: Option<u32>,
+    pub use_tls: Option<bool>,
+    pub client_name: Option<String>,
+    pub resp_version: Option<String>,
+    pub connection_timeout_ms: Option<u64>,
+    pub command_timeout_ms: Option<u64>,
+    pub retry_count: Option<u32>,
+    pub retry_delay_ms: Option<u64>,
+    pub keep_alive: Option<bool>,
+    pub auto_reconnect: Option<bool>,
+    pub read_only_mode: Option<bool>,
+    pub pipeline_mode: Option<bool>,
+    pub compression: Option<String>,
+    pub ca_certificate_path: Option<String>,
+    pub client_certificate_path: Option<String>,
+    pub client_key_path: Option<String>,
+    pub certificate_password_secret_ref: Option<SecretRef>,
+    pub verify_server_certificate: Option<bool>,
+    pub allow_invalid_certificates: Option<bool>,
+    pub allow_invalid_hostnames: Option<bool>,
+    pub sentinel_master_name: Option<String>,
+    #[serde(default)]
+    pub sentinel_hosts: Vec<String>,
+    pub sentinel_username: Option<String>,
+    pub sentinel_password_secret_ref: Option<SecretRef>,
+    pub use_sentinel_tls: Option<bool>,
+    #[serde(default)]
+    pub cluster_nodes: Vec<String>,
+    pub auto_discover_cluster_nodes: Option<bool>,
+    pub read_from_replicas: Option<bool>,
+    pub cluster_refresh_interval_ms: Option<u64>,
+    pub unix_socket_path: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SqlServerConnectionOptions {
+    pub connect_mode: Option<String>,
+    pub instance_name: Option<String>,
+    pub local_db_instance: Option<String>,
+    pub named_pipe_path: Option<String>,
+    pub shared_memory_server: Option<String>,
+    pub authentication_mode: Option<String>,
+    pub azure_tenant_id: Option<String>,
+    pub azure_client_id: Option<String>,
+    pub azure_managed_identity_client_id: Option<String>,
+    pub service_principal_secret_ref: Option<SecretRef>,
+    pub aad_access_token_secret_ref: Option<SecretRef>,
+    pub client_certificate_path: Option<String>,
+    pub certificate_store: Option<String>,
+    pub certificate_thumbprint: Option<String>,
+    pub certificate_password_secret_ref: Option<SecretRef>,
+    pub encrypt_connection: Option<bool>,
+    pub trust_server_certificate: Option<bool>,
+    pub trust_server_certificate_ca_path: Option<String>,
+    pub host_name_in_certificate: Option<String>,
+    pub tls_version: Option<String>,
+    pub certificate_validation: Option<String>,
+    pub connection_timeout_ms: Option<u64>,
+    pub command_timeout_ms: Option<u64>,
+    pub application_name: Option<String>,
+    pub multiple_active_result_sets: Option<bool>,
+    pub pooling: Option<bool>,
+    pub min_pool_size: Option<u32>,
+    pub max_pool_size: Option<u32>,
+    pub packet_size: Option<u32>,
+    pub persist_security_info: Option<bool>,
+    pub failover_partner: Option<String>,
+    pub multi_subnet_failover: Option<bool>,
+    pub read_only_intent: Option<bool>,
+    pub application_intent: Option<String>,
+    pub workstation_id: Option<String>,
+    pub language: Option<String>,
+    pub network_library: Option<String>,
+    pub transparent_network_ip_resolution: Option<bool>,
+    pub connect_retry_count: Option<u32>,
+    pub connect_retry_interval_seconds: Option<u64>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SqliteConnectionOptions {
+    pub open_mode: Option<String>,
+    pub use_uri_filename: Option<bool>,
+    pub create_if_missing: Option<bool>,
+    pub immutable: Option<bool>,
+    pub shared_cache: Option<bool>,
+    pub private_cache: Option<bool>,
+    pub busy_timeout_ms: Option<u64>,
+    pub default_timeout_ms: Option<u64>,
+    pub journal_mode: Option<String>,
+    pub synchronous_mode: Option<String>,
+    pub cache_mode: Option<String>,
+    pub cache_size: Option<i64>,
+    pub page_size: Option<u32>,
+    pub foreign_keys: Option<bool>,
+    pub recursive_triggers: Option<bool>,
+    pub case_sensitive_like: Option<bool>,
+    pub temp_store_mode: Option<String>,
+    pub locking_mode: Option<String>,
+    pub auto_vacuum: Option<String>,
+    pub mmap_size: Option<u64>,
+    pub application_id: Option<i64>,
+    pub user_version: Option<i64>,
+    pub encoding: Option<String>,
+    pub encryption_provider: Option<String>,
+    pub encryption_key_secret_ref: Option<SecretRef>,
+    pub cipher_compatibility: Option<String>,
+    pub kdf_iterations: Option<u32>,
+    pub cipher_page_size: Option<u32>,
+    pub hmac_enabled: Option<bool>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OracleConnectionOptions {
+    pub connect_mode: Option<String>,
+    pub service_name: Option<String>,
+    pub sid: Option<String>,
+    pub tns_alias: Option<String>,
+    pub easy_connect_string: Option<String>,
+    pub connection_role: Option<String>,
+    pub proxy_user: Option<String>,
+    pub client_identifier: Option<String>,
+    pub application_name: Option<String>,
+    pub edition: Option<String>,
+    pub nls_language: Option<String>,
+    pub nls_territory: Option<String>,
+    pub statement_cache_size: Option<u32>,
+    pub fetch_size: Option<u32>,
+    pub connection_timeout_ms: Option<u64>,
+    pub request_timeout_ms: Option<u64>,
+    pub pool_min: Option<u32>,
+    pub pool_max: Option<u32>,
+    pub validate_connection: Option<bool>,
+    pub high_availability_events: Option<bool>,
+    pub load_balancing: Option<bool>,
+    pub failover: Option<bool>,
+    pub use_tls: Option<bool>,
+    pub wallet_path: Option<String>,
+    pub wallet_password_secret_ref: Option<SecretRef>,
+    pub ca_certificate_path: Option<String>,
+    pub client_certificate_path: Option<String>,
+    pub client_key_path: Option<String>,
+    pub trace_directory: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -70,6 +221,14 @@ pub struct ConnectionProfile {
     pub notes: Option<String>,
     #[serde(default)]
     pub auth: ConnectionAuth,
+    #[serde(default)]
+    pub redis_options: Option<RedisConnectionOptions>,
+    #[serde(default)]
+    pub sqlite_options: Option<SqliteConnectionOptions>,
+    #[serde(default)]
+    pub sqlserver_options: Option<SqlServerConnectionOptions>,
+    #[serde(default)]
+    pub oracle_options: Option<OracleConnectionOptions>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -86,6 +245,10 @@ pub struct ResolvedConnectionProfile {
     pub username: Option<String>,
     pub password: Option<String>,
     pub connection_string: Option<String>,
+    pub redis_options: Option<RedisConnectionOptions>,
+    pub sqlite_options: Option<SqliteConnectionOptions>,
+    pub sqlserver_options: Option<SqlServerConnectionOptions>,
+    pub oracle_options: Option<OracleConnectionOptions>,
     pub read_only: bool,
 }
 
@@ -210,6 +373,8 @@ pub struct QueryTabState {
     #[serde(default)]
     pub metrics_state: Option<Value>,
     #[serde(default)]
+    pub object_view_state: Option<Value>,
+    #[serde(default)]
     pub test_suite: Option<Value>,
     #[serde(default)]
     pub test_run: Option<Value>,
@@ -220,6 +385,19 @@ pub struct QueryTabState {
     #[serde(default)]
     pub history: Vec<QueryHistoryEntry>,
     pub error: Option<UserFacingError>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateObjectViewTabRequest {
+    pub connection_id: String,
+    #[serde(default)]
+    pub environment_id: Option<String>,
+    pub node_id: String,
+    pub label: String,
+    pub kind: String,
+    #[serde(default)]
+    pub path: Option<Vec<String>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -459,6 +637,8 @@ pub struct AdapterManifest {
     pub default_language: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_database: Option<LocalDatabaseManifest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<DatastoreTreeManifest>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -468,6 +648,36 @@ pub struct LocalDatabaseManifest {
     pub extensions: Vec<String>,
     pub can_create_empty: bool,
     pub can_create_starter: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreTreeManifest {
+    pub version: u8,
+    pub empty_state: String,
+    pub roots: Vec<DatastoreTreeNodeManifest>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreTreeNodeManifest {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<DatastoreTreeNodeManifest>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub requires_database: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden_when_database_selected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_database: Option<String>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -610,6 +820,8 @@ pub struct DatastoreExperienceManifest {
     pub diagnostics_tabs: Vec<DatastoreDiagnosticsTab>,
     pub result_renderers: Vec<String>,
     pub safety_rules: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<DatastoreTreeManifest>,
     #[serde(default)]
     pub test_templates: Vec<Value>,
     #[serde(default)]
@@ -970,6 +1182,9 @@ pub struct RedisKeySummary {
     pub memory_usage_label: Option<String>,
     pub length: Option<u64>,
     pub encoding: Option<String>,
+    pub idle_seconds: Option<u64>,
+    pub reference_count: Option<u64>,
+    pub database_index: Option<u32>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -978,11 +1193,14 @@ pub struct RedisKeyScanRequest {
     pub tab_id: Option<String>,
     pub connection_id: String,
     pub environment_id: String,
+    pub database_index: Option<u32>,
+    pub delimiter: Option<String>,
     pub pattern: Option<String>,
     pub type_filter: Option<String>,
     pub cursor: Option<String>,
     pub count: Option<u32>,
     pub page_size: Option<u32>,
+    pub filters: Option<Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -990,6 +1208,7 @@ pub struct RedisKeyScanRequest {
 pub struct RedisKeyScanResponse {
     pub connection_id: String,
     pub environment_id: String,
+    pub database_index: Option<u32>,
     pub cursor: String,
     pub next_cursor: Option<String>,
     pub scanned_count: u32,

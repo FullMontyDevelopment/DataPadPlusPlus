@@ -1,65 +1,164 @@
+use std::collections::BTreeMap;
+
 use futures_util::TryStreamExt;
-use mongodb::bson::{doc, Document};
-use serde_json::json;
+use mongodb::{
+    bson::{doc, Bson, Document},
+    Database,
+};
+use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::catalog::mongodb_execution_capabilities;
-use super::connection::{mongodb_client, mongodb_database_name};
+use super::connection::{mongodb_client, mongodb_database_name, mongodb_selected_database_name};
+
+const SYSTEM_DATABASES: &[&str] = &["admin", "config", "local"];
+
+struct MongoCollectionInfo {
+    name: String,
+    collection_type: String,
+    options: Document,
+}
+
+impl MongoCollectionInfo {
+    fn is_time_series(&self) -> bool {
+        self.options.contains_key("timeseries")
+    }
+
+    fn is_capped(&self) -> bool {
+        self.options.get_bool("capped").unwrap_or(false)
+    }
+}
 
 pub(super) async fn list_mongodb_explorer_nodes(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
     let client = mongodb_client(connection).await?;
-    let database_name = mongodb_database_name(connection);
-    let database = client.database(&database_name);
     let limit = bounded_page_size(request.limit.or(Some(100))) as usize;
-    let nodes = if let Some(scope) = &request.scope {
-        if let Some(collection_name) = scope.strip_prefix("collection:") {
-            let collection = database.collection::<Document>(collection_name);
-            let index_names = collection.list_index_names().await?;
-
-            vec![
-                ExplorerNode {
-                    id: format!("{collection_name}:indexes"),
-                    family: "document".into(),
-                    label: "Indexes".into(),
-                    kind: "indexes".into(),
-                    detail: format!("{} index(es)", index_names.len()),
-                    scope: None,
-                    path: Some(vec![connection.name.clone(), collection_name.to_string()]),
-                    query_template: Some(mongodb_find_query_template(
-                        connection,
-                        collection_name,
-                        50,
-                    )),
-                    expandable: Some(false),
-                },
-                ExplorerNode {
-                    id: format!("{collection_name}:sample"),
-                    family: "document".into(),
-                    label: "Sample documents".into(),
-                    kind: "sample-documents".into(),
-                    detail: "Quick preview of collection contents".into(),
-                    scope: None,
-                    path: Some(vec![connection.name.clone(), collection_name.to_string()]),
-                    query_template: Some(format!(
-                        "{{\n  \"collection\": \"{collection_name}\",\n  \"pipeline\": [\n    {{ \"$match\": {{}} }},\n    {{ \"$limit\": 20 }}\n  ]\n}}"
-                    )),
-                    expandable: Some(false),
-                },
-            ]
-        } else {
-            Vec::new()
+    let fallback_database = mongodb_database_name(connection);
+    let nodes = match request.scope.as_deref() {
+        Some(scope) if scope.starts_with("database:") => {
+            let database_name = scoped_database(scope, "database:", &fallback_database);
+            mongodb_database_children(connection, &database_name)
         }
-    } else {
-        database
-            .list_collection_names()
-            .await?
-            .into_iter()
-            .take(limit)
-            .map(|collection_name| mongodb_collection_node(connection, &collection_name))
-            .collect()
+        Some("databases") => {
+            let database_names = client.list_database_names().await?;
+            mongodb_database_group_nodes(connection, database_names, limit, false)
+        }
+        Some("system-databases") => {
+            let database_names = client.list_database_names().await?;
+            mongodb_database_group_nodes(connection, database_names, limit, true)
+        }
+        Some(scope) if scope.starts_with("collections:") => {
+            let database_name = scoped_database(scope, "collections:", &fallback_database);
+            let database = client.database(&database_name);
+            let infos = list_collection_infos(&database).await?;
+            infos
+                .into_iter()
+                .filter(|info| {
+                    info.collection_type != "view" && !info.is_time_series() && !info.is_capped()
+                })
+                .take(limit)
+                .map(|info| {
+                    mongodb_collection_node_for_database(connection, &database_name, &info.name)
+                })
+                .collect()
+        }
+        Some(scope) if scope.starts_with("time-series-collections:") => {
+            let database_name =
+                scoped_database(scope, "time-series-collections:", &fallback_database);
+            list_collection_infos(&client.database(&database_name))
+                .await?
+                .into_iter()
+                .filter(MongoCollectionInfo::is_time_series)
+                .take(limit)
+                .map(|info| {
+                    mongodb_collection_node_for_database(connection, &database_name, &info.name)
+                })
+                .collect()
+        }
+        Some(scope) if scope.starts_with("capped-collections:") => {
+            let database_name = scoped_database(scope, "capped-collections:", &fallback_database);
+            list_collection_infos(&client.database(&database_name))
+                .await?
+                .into_iter()
+                .filter(MongoCollectionInfo::is_capped)
+                .take(limit)
+                .map(|info| {
+                    mongodb_collection_node_for_database(connection, &database_name, &info.name)
+                })
+                .collect()
+        }
+        Some(scope) if scope.starts_with("views:") => {
+            let database_name = scoped_database(scope, "views:", &fallback_database);
+            let database = client.database(&database_name);
+            let infos = list_collection_infos(&database).await?;
+            infos
+                .into_iter()
+                .filter(|info| info.collection_type == "view")
+                .take(limit)
+                .map(|info| mongodb_view_node(connection, &database_name, &info))
+                .collect()
+        }
+        Some(scope) if scope.starts_with("collection:") => {
+            let (database_name, collection_name) =
+                scoped_database_collection(scope, "collection:", &fallback_database);
+            mongodb_collection_children(connection, &database_name, &collection_name)
+        }
+        Some(scope) if scope.starts_with("view:") => {
+            let (database_name, view_name) =
+                scoped_database_collection(scope, "view:", &fallback_database);
+            mongodb_view_children(connection, &database_name, &view_name)
+        }
+        Some(scope) if scope.starts_with("indexes:") => {
+            let (database_name, collection_name) =
+                scoped_database_collection(scope, "indexes:", &fallback_database);
+            let collection = client
+                .database(&database_name)
+                .collection::<Document>(&collection_name);
+            collection
+                .list_index_names()
+                .await?
+                .into_iter()
+                .take(limit)
+                .map(|index_name| mongodb_index_node(&database_name, &collection_name, &index_name))
+                .collect()
+        }
+        Some(scope) if scope.starts_with("gridfs:") => {
+            let database_name = scoped_database(scope, "gridfs:", &fallback_database);
+            mongodb_gridfs_children(connection, &database_name)
+        }
+        Some(scope) if scope.starts_with("gridfs-buckets:") => {
+            let database_name = scoped_database(scope, "gridfs-buckets:", &fallback_database);
+            list_gridfs_bucket_nodes(connection, &client.database(&database_name), &database_name)
+                .await
+        }
+        Some(scope) if scope.starts_with("search-indexes:") => {
+            let database_name = scoped_database(scope, "search-indexes:", &fallback_database);
+            mongo_unavailable_node(&database_name, "Search Indexes", "Atlas Search index metadata is available through Atlas APIs or `$listSearchIndexes` on supported clusters.")
+        }
+        Some(scope) if scope.starts_with("vector-indexes:") => {
+            let database_name = scoped_database(scope, "vector-indexes:", &fallback_database);
+            mongo_unavailable_node(&database_name, "Vector Indexes", "Vector search indexes are listed when the connected MongoDB deployment exposes Atlas Search metadata.")
+        }
+        Some(scope) if scope.starts_with("users:") => {
+            let database_name = scoped_database(scope, "users:", &fallback_database);
+            list_user_nodes(&client.database(&database_name), &database_name, limit).await
+        }
+        Some(scope) if scope.starts_with("roles:") => {
+            let database_name = scoped_database(scope, "roles:", &fallback_database);
+            list_role_nodes(&client.database(&database_name), &database_name, limit).await
+        }
+        Some(_) => Vec::new(),
+        None => {
+            let selected_database = mongodb_selected_database_name(connection);
+            match selected_database {
+                Some(database_name) => {
+                    vec![mongodb_database_node(connection, &database_name, None)]
+                }
+                None => mongodb_root_sections(),
+            }
+        }
     };
 
     Ok(ExplorerResponse {
@@ -67,7 +166,7 @@ pub(super) async fn list_mongodb_explorer_nodes(
         environment_id: request.environment_id.clone(),
         scope: request.scope.clone(),
         summary: format!(
-            "Loaded {} explorer node(s) for {}.",
+            "Loaded {} MongoDB explorer node(s) for {}.",
             nodes.len(),
             connection.name
         ),
@@ -81,104 +180,1291 @@ pub(super) async fn inspect_mongodb_explorer_node(
     request: &ExplorerInspectRequest,
 ) -> Result<ExplorerInspectResponse, CommandError> {
     let client = mongodb_client(connection).await?;
-    let database_name = mongodb_database_name(connection);
-    let database = client.database(&database_name);
-    let collection_name = request
-        .node_id
-        .split(':')
-        .next()
-        .unwrap_or(request.node_id.as_str());
-    let collection = database.collection::<Document>(collection_name);
-    let sample_documents = collection
-        .find(doc! {})
-        .limit(3)
-        .await?
-        .try_collect::<Vec<Document>>()
-        .await?;
-    let index_names = collection.list_index_names().await?;
+    let fallback_database = mongodb_database_name(connection);
+    let node_id = request.node_id.as_str();
+
+    if let Some(rest) = node_id.strip_prefix("schema-preview:") {
+        let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
+        let collection = client
+            .database(&database_name)
+            .collection::<Document>(&collection_name);
+        let documents = collection
+            .find(doc! {})
+            .limit(25)
+            .await?
+            .try_collect::<Vec<Document>>()
+            .await?;
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("Schema preview ready for {database_name}.{collection_name}."),
+            query_template: Some(mongodb_find_query_template_for_database(
+                &database_name,
+                &collection_name,
+                20,
+            )),
+            payload: Some(json!({
+                "database": database_name,
+                "collection": collection_name,
+                "sampleSize": documents.len(),
+                "fields": infer_schema_fields(&documents),
+            })),
+        });
+    }
+
+    if let Some(rest) = node_id.strip_prefix("indexes:") {
+        let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
+        let indexes = client
+            .database(&database_name)
+            .run_command(doc! { "listIndexes": &collection_name })
+            .await?;
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("Index list ready for {database_name}.{collection_name}."),
+            query_template: Some(mongodb_command_query_template(
+                &database_name,
+                doc! { "listIndexes": &collection_name },
+            )),
+            payload: Some(json!({
+                "database": database_name,
+                "collection": collection_name,
+                "indexes": indexes,
+            })),
+        });
+    }
+
+    if let Some(rest) = node_id.strip_prefix("collection-statistics:") {
+        let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
+        let stats = client
+            .database(&database_name)
+            .run_command(doc! { "collStats": &collection_name, "scale": 1 })
+            .await;
+
+        return Ok(inspection_with_command_result(
+            request,
+            format!("Collection statistics ready for {database_name}.{collection_name}."),
+            &database_name,
+            doc! { "collStats": &collection_name, "scale": 1 },
+            stats,
+        ));
+    }
+
+    if let Some(database_name) = node_id.strip_prefix("database-statistics:") {
+        let stats = client
+            .database(database_name)
+            .run_command(doc! { "dbStats": 1, "scale": 1 })
+            .await;
+
+        return Ok(inspection_with_command_result(
+            request,
+            format!("Database statistics ready for {database_name}."),
+            database_name,
+            doc! { "dbStats": 1, "scale": 1 },
+            stats,
+        ));
+    }
+
+    if let Some(database_name) = node_id.strip_suffix(":database-statistics") {
+        let stats = client
+            .database(database_name)
+            .run_command(doc! { "dbStats": 1, "scale": 1 })
+            .await;
+
+        return Ok(inspection_with_command_result(
+            request,
+            format!("Database statistics ready for {database_name}."),
+            database_name,
+            doc! { "dbStats": 1, "scale": 1 },
+            stats,
+        ));
+    }
+
+    if let Some(rest) = node_id.strip_prefix("collection-permissions:") {
+        let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
+        let permissions = client
+            .database(&database_name)
+            .run_command(doc! { "usersInfo": 1, "showPrivileges": true })
+            .await;
+
+        return Ok(inspection_with_command_result(
+            request,
+            format!("Permission metadata ready for {database_name}.{collection_name}."),
+            &database_name,
+            doc! { "usersInfo": 1, "showPrivileges": true },
+            permissions,
+        ));
+    }
+
+    if let Some(rest) = node_id.strip_prefix("collection-scripts:") {
+        let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("Script templates ready for {database_name}.{collection_name}."),
+            query_template: Some(format!("db.{collection_name}.find({{}}).limit(20)")),
+            payload: Some(json!({
+                "database": database_name,
+                "collection": collection_name,
+                "scripts": [
+                    format!("db.{collection_name}.find({{}}).limit(20)"),
+                    format!("db.{collection_name}.aggregate([{{ $match: {{}} }}, {{ $limit: 20 }}])"),
+                    format!("db.{collection_name}.countDocuments({{}})")
+                ]
+            })),
+        });
+    }
+
+    if let Some(rest) = node_id.strip_prefix("validation-rules:") {
+        let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
+        let info =
+            collection_info_by_name(&client.database(&database_name), &collection_name).await?;
+        let validator = info.and_then(|item| item.options.get_document("validator").ok().cloned());
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("Validation rules ready for {database_name}.{collection_name}."),
+            query_template: Some(mongodb_command_query_template(
+                &database_name,
+                doc! { "listCollections": 1, "filter": { "name": &collection_name } },
+            )),
+            payload: Some(json!({
+                "database": database_name,
+                "collection": collection_name,
+                "validator": validator,
+            })),
+        });
+    }
+
+    if let Some(rest) = node_id.strip_prefix("view-pipeline:") {
+        let (database_name, view_name) = split_database_collection(rest, &fallback_database);
+        let info = collection_info_by_name(&client.database(&database_name), &view_name).await?;
+        let pipeline = info
+            .and_then(|item| item.options.get_array("pipeline").ok().cloned())
+            .unwrap_or_default();
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("View pipeline ready for {database_name}.{view_name}."),
+            query_template: Some(mongodb_find_query_template_for_database(
+                &database_name,
+                &view_name,
+                20,
+            )),
+            payload: Some(json!({
+                "database": database_name,
+                "view": view_name,
+                "pipeline": pipeline,
+            })),
+        });
+    }
+
+    if let Some(database_name) = node_id.strip_prefix("users:") {
+        return Ok(inspect_users_or_roles(
+            &client.database(database_name),
+            request,
+            database_name,
+            true,
+        )
+        .await);
+    }
+
+    if let Some(database_name) = node_id.strip_prefix("roles:") {
+        return Ok(inspect_users_or_roles(
+            &client.database(database_name),
+            request,
+            database_name,
+            false,
+        )
+        .await);
+    }
+
+    if let Some(rest) = node_id
+        .strip_prefix("collection:")
+        .or_else(|| node_id.strip_prefix("documents:"))
+    {
+        let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
+        let collection = client
+            .database(&database_name)
+            .collection::<Document>(&collection_name);
+        let sample_documents = collection
+            .find(doc! {})
+            .limit(3)
+            .await?
+            .try_collect::<Vec<Document>>()
+            .await?;
+        let index_names = collection.list_index_names().await?;
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("Inspection ready for {database_name}.{collection_name}."),
+            query_template: Some(mongodb_find_query_template_for_database(
+                &database_name,
+                &collection_name,
+                20,
+            )),
+            payload: Some(json!({
+                "database": database_name,
+                "collection": collection_name,
+                "indexes": index_names,
+                "sampleDocuments": sample_documents,
+            })),
+        });
+    }
 
     Ok(ExplorerInspectResponse {
         node_id: request.node_id.clone(),
         summary: format!(
-            "Inspection ready for {} on {}.",
-            request.node_id, connection.name
+            "MongoDB inspection metadata is not available for {}.",
+            request.node_id
         ),
-        query_template: Some(mongodb_find_query_template(connection, collection_name, 50)),
-        payload: Some(json!({
-            "collection": collection_name,
-            "indexes": index_names,
-            "sampleDocuments": sample_documents,
-        })),
-    })
-}
-
-pub(crate) fn mongodb_collection_node(
-    connection: &ResolvedConnectionProfile,
-    collection_name: &str,
-) -> ExplorerNode {
-    ExplorerNode {
-        id: collection_name.into(),
-        family: "document".into(),
-        label: collection_name.into(),
-        kind: "collection".into(),
-        detail: "Documents, indexes, and samples".into(),
-        scope: Some(format!("collection:{collection_name}")),
-        path: Some(vec![connection.name.clone()]),
-        query_template: Some(mongodb_find_query_template(connection, collection_name, 50)),
-        expandable: Some(true),
-    }
-}
-
-fn mongodb_find_query_template(
-    connection: &ResolvedConnectionProfile,
-    collection_name: &str,
-    limit: u32,
-) -> String {
-    let mut query = json!({
-        "collection": collection_name,
-        "filter": {},
-        "limit": limit,
-    });
-    let database = mongodb_database_name(connection);
-
-    if !database.trim().is_empty() && database != "admin" {
-        query["database"] = json!(database);
-    }
-
-    serde_json::to_string_pretty(&query).unwrap_or_else(|_| {
-        format!(
-            "{{\n  \"collection\": \"{collection_name}\",\n  \"filter\": {{}},\n  \"limit\": {limit}\n}}"
-        )
+        query_template: Some("{}".into()),
+        payload: Some(json!({ "nodeId": request.node_id })),
     })
 }
 
 #[cfg(test)]
+fn mongodb_collection_node(
+    connection: &ResolvedConnectionProfile,
+    collection_name: &str,
+) -> ExplorerNode {
+    let database_name = mongodb_database_name(connection);
+    mongodb_collection_node_for_database(connection, &database_name, collection_name)
+}
+
+#[cfg(test)]
+fn mongodb_root_database_nodes(
+    connection: &ResolvedConnectionProfile,
+    database_names: Vec<String>,
+    limit: usize,
+) -> Vec<ExplorerNode> {
+    let mut user_databases = Vec::new();
+    let mut system_databases = Vec::new();
+
+    for database_name in database_names.into_iter().take(limit) {
+        if SYSTEM_DATABASES.contains(&database_name.as_str()) {
+            system_databases.push(mongodb_database_node(
+                connection,
+                &database_name,
+                Some(vec!["System Databases".into()]),
+            ));
+        } else {
+            user_databases.push(mongodb_database_node(connection, &database_name, None));
+        }
+    }
+
+    user_databases.extend(system_databases);
+    user_databases
+}
+
+fn mongodb_root_sections() -> Vec<ExplorerNode> {
+    vec![
+        ExplorerNode {
+            id: "mongodb-databases".into(),
+            family: "document".into(),
+            label: "Databases".into(),
+            kind: "databases".into(),
+            detail: "User MongoDB databases".into(),
+            scope: Some("databases".into()),
+            path: None,
+            query_template: None,
+            expandable: Some(true),
+        },
+        ExplorerNode {
+            id: "mongodb-system-databases".into(),
+            family: "document".into(),
+            label: "System Databases".into(),
+            kind: "system-databases".into(),
+            detail: "admin, config, and local".into(),
+            scope: Some("system-databases".into()),
+            path: None,
+            query_template: None,
+            expandable: Some(true),
+        },
+    ]
+}
+
+fn mongodb_database_group_nodes(
+    connection: &ResolvedConnectionProfile,
+    database_names: Vec<String>,
+    limit: usize,
+    system: bool,
+) -> Vec<ExplorerNode> {
+    database_names
+        .into_iter()
+        .filter(|database_name| SYSTEM_DATABASES.contains(&database_name.as_str()) == system)
+        .take(limit)
+        .map(|database_name| {
+            mongodb_database_node(
+                connection,
+                &database_name,
+                Some(vec![if system {
+                    "System Databases".into()
+                } else {
+                    "Databases".into()
+                }]),
+            )
+        })
+        .collect()
+}
+
+fn mongodb_database_children(
+    connection: &ResolvedConnectionProfile,
+    database_name: &str,
+) -> Vec<ExplorerNode> {
+    vec![
+        mongodb_section_node(
+            connection,
+            database_name,
+            "Collections",
+            "collections",
+            "Document collections",
+        ),
+        mongodb_section_node(
+            connection,
+            database_name,
+            "Views",
+            "views",
+            "Read-only collection views",
+        ),
+        mongodb_section_node(
+            connection,
+            database_name,
+            "Time Series Collections",
+            "time-series-collections",
+            "Time-series optimized collections",
+        ),
+        mongodb_section_node(
+            connection,
+            database_name,
+            "Capped Collections",
+            "capped-collections",
+            "Fixed-size capped collections",
+        ),
+        mongodb_section_node(
+            connection,
+            database_name,
+            "GridFS",
+            "gridfs",
+            "GridFS files and chunks collections",
+        ),
+        mongodb_section_node(
+            connection,
+            database_name,
+            "Search Indexes",
+            "search-indexes",
+            "Atlas Search indexes where supported",
+        ),
+        mongodb_section_node(
+            connection,
+            database_name,
+            "Vector Indexes",
+            "vector-indexes",
+            "Vector search indexes where supported",
+        ),
+        mongodb_section_node(
+            connection,
+            database_name,
+            "Users",
+            "users",
+            "Database users",
+        ),
+        mongodb_section_node(
+            connection,
+            database_name,
+            "Roles",
+            "roles",
+            "Database roles",
+        ),
+        mongodb_section_node(
+            connection,
+            database_name,
+            "Database Statistics",
+            "database-statistics",
+            "Database storage and collection statistics",
+        ),
+    ]
+}
+
+fn mongodb_collection_children(
+    _connection: &ResolvedConnectionProfile,
+    database_name: &str,
+    collection_name: &str,
+) -> Vec<ExplorerNode> {
+    let path = vec![
+        database_name.into(),
+        "Collections".into(),
+        collection_name.into(),
+    ];
+
+    vec![
+        ExplorerNode {
+            id: format!("documents:{database_name}:{collection_name}"),
+            family: "document".into(),
+            label: "Documents".into(),
+            kind: "documents".into(),
+            detail: "Open collection documents".into(),
+            scope: Some(format!("collection:{database_name}:{collection_name}")),
+            path: Some(path.clone()),
+            query_template: Some(mongodb_find_query_template_for_database(
+                database_name,
+                collection_name,
+                20,
+            )),
+            expandable: Some(false),
+        },
+        ExplorerNode {
+            id: format!("schema-preview:{database_name}:{collection_name}"),
+            family: "document".into(),
+            label: "Schema Preview".into(),
+            kind: "schema-preview".into(),
+            detail: "Inferred fields and BSON types".into(),
+            scope: None,
+            path: Some(path.clone()),
+            query_template: Some(mongodb_find_query_template_for_database(
+                database_name,
+                collection_name,
+                20,
+            )),
+            expandable: Some(false),
+        },
+        ExplorerNode {
+            id: format!("indexes:{database_name}:{collection_name}"),
+            family: "document".into(),
+            label: "Indexes".into(),
+            kind: "indexes".into(),
+            detail: "Collection index definitions".into(),
+            scope: Some(format!("indexes:{database_name}:{collection_name}")),
+            path: Some(path.clone()),
+            query_template: Some(mongodb_command_query_template(
+                database_name,
+                doc! { "listIndexes": collection_name },
+            )),
+            expandable: Some(true),
+        },
+        ExplorerNode {
+            id: format!("validation-rules:{database_name}:{collection_name}"),
+            family: "document".into(),
+            label: "Validation Rules".into(),
+            kind: "validation-rules".into(),
+            detail: "Collection validator JSON".into(),
+            scope: None,
+            path: Some(path.clone()),
+            query_template: Some(mongodb_command_query_template(
+                database_name,
+                doc! { "listCollections": 1, "filter": { "name": collection_name } },
+            )),
+            expandable: Some(false),
+        },
+        ExplorerNode {
+            id: format!("aggregations:{database_name}:{collection_name}"),
+            family: "document".into(),
+            label: "Aggregations".into(),
+            kind: "aggregations".into(),
+            detail: "Aggregation pipeline workspace".into(),
+            scope: Some(format!("collection:{database_name}:{collection_name}")),
+            path: Some(path),
+            query_template: Some(mongodb_aggregation_query_template(
+                database_name,
+                collection_name,
+            )),
+            expandable: Some(false),
+        },
+        ExplorerNode {
+            id: format!("collection-statistics:{database_name}:{collection_name}"),
+            family: "document".into(),
+            label: "Statistics".into(),
+            kind: "collection-statistics".into(),
+            detail: "Collection size, count, and storage statistics".into(),
+            scope: None,
+            path: Some(vec![
+                database_name.into(),
+                "Collections".into(),
+                collection_name.into(),
+            ]),
+            query_template: Some(mongodb_command_query_template(
+                database_name,
+                doc! { "collStats": collection_name, "scale": 1 },
+            )),
+            expandable: Some(false),
+        },
+        ExplorerNode {
+            id: format!("collection-permissions:{database_name}:{collection_name}"),
+            family: "document".into(),
+            label: "Permissions".into(),
+            kind: "permissions".into(),
+            detail: "Roles and actions that affect this collection".into(),
+            scope: None,
+            path: Some(vec![
+                database_name.into(),
+                "Collections".into(),
+                collection_name.into(),
+            ]),
+            query_template: Some(mongodb_command_query_template(
+                database_name,
+                doc! { "usersInfo": 1, "showPrivileges": true },
+            )),
+            expandable: Some(false),
+        },
+        ExplorerNode {
+            id: format!("collection-scripts:{database_name}:{collection_name}"),
+            family: "document".into(),
+            label: "Scripts".into(),
+            kind: "scripts".into(),
+            detail: "Collection-scoped script templates".into(),
+            scope: None,
+            path: Some(vec![
+                database_name.into(),
+                "Collections".into(),
+                collection_name.into(),
+            ]),
+            query_template: Some(format!("db.{collection_name}.find({{}}).limit(20)")),
+            expandable: Some(false),
+        },
+    ]
+}
+
+fn mongodb_view_children(
+    _connection: &ResolvedConnectionProfile,
+    database_name: &str,
+    view_name: &str,
+) -> Vec<ExplorerNode> {
+    let path = vec![database_name.into(), "Views".into(), view_name.into()];
+
+    vec![
+        ExplorerNode {
+            id: format!("view-pipeline:{database_name}:{view_name}"),
+            family: "document".into(),
+            label: "Pipeline".into(),
+            kind: "pipeline".into(),
+            detail: "View backing aggregation pipeline".into(),
+            scope: None,
+            path: Some(path.clone()),
+            query_template: Some(mongodb_find_query_template_for_database(
+                database_name,
+                view_name,
+                20,
+            )),
+            expandable: Some(false),
+        },
+        ExplorerNode {
+            id: format!("view-sample-results:{database_name}:{view_name}"),
+            family: "document".into(),
+            label: "Sample Results".into(),
+            kind: "sample-results".into(),
+            detail: "Open a query against this view".into(),
+            scope: Some(format!("collection:{database_name}:{view_name}")),
+            path: Some(path),
+            query_template: Some(mongodb_find_query_template_for_database(
+                database_name,
+                view_name,
+                20,
+            )),
+            expandable: Some(false),
+        },
+    ]
+}
+
+fn mongodb_gridfs_children(
+    _connection: &ResolvedConnectionProfile,
+    database_name: &str,
+) -> Vec<ExplorerNode> {
+    vec![
+        ExplorerNode {
+            id: format!("gridfs-buckets:{database_name}"),
+            family: "document".into(),
+            label: "Buckets".into(),
+            kind: "gridfs-buckets".into(),
+            detail: "GridFS bucket prefixes".into(),
+            scope: Some(format!("gridfs-buckets:{database_name}")),
+            path: Some(vec![database_name.into(), "GridFS".into()]),
+            query_template: None,
+            expandable: Some(true),
+        },
+        ExplorerNode {
+            id: format!("gridfs-files:{database_name}"),
+            family: "document".into(),
+            label: "Files".into(),
+            kind: "gridfs-files".into(),
+            detail: "Files metadata across GridFS buckets".into(),
+            scope: Some(format!("collection:{database_name}:fs.files")),
+            path: Some(vec![database_name.into(), "GridFS".into()]),
+            query_template: Some(mongodb_find_query_template_for_database(
+                database_name,
+                "fs.files",
+                20,
+            )),
+            expandable: Some(false),
+        },
+        ExplorerNode {
+            id: format!("gridfs-chunks:{database_name}"),
+            family: "document".into(),
+            label: "Chunks".into(),
+            kind: "gridfs-chunks".into(),
+            detail: "Chunk documents across GridFS buckets".into(),
+            scope: Some(format!("collection:{database_name}:fs.chunks")),
+            path: Some(vec![database_name.into(), "GridFS".into()]),
+            query_template: Some(mongodb_find_query_template_for_database(
+                database_name,
+                "fs.chunks",
+                20,
+            )),
+            expandable: Some(false),
+        },
+    ]
+}
+
+async fn list_gridfs_bucket_nodes(
+    _connection: &ResolvedConnectionProfile,
+    database: &Database,
+    database_name: &str,
+) -> Vec<ExplorerNode> {
+    let Ok(collection_names) = database.list_collection_names().await else {
+        return mongo_unavailable_node(
+            database_name,
+            "GridFS",
+            "GridFS buckets could not be listed with the current permissions.",
+        );
+    };
+
+    let mut bucket_names = collection_names
+        .iter()
+        .filter_map(|name| name.strip_suffix(".files"))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    bucket_names.sort();
+    bucket_names.dedup();
+
+    bucket_names
+        .into_iter()
+        .map(|bucket| ExplorerNode {
+            id: format!("gridfs-bucket:{database_name}:{bucket}"),
+            family: "document".into(),
+            label: bucket.clone(),
+            kind: "gridfs-bucket".into(),
+            detail: "GridFS bucket".into(),
+            scope: Some(format!("collection:{database_name}:{bucket}.files")),
+            path: Some(vec![
+                database_name.into(),
+                "GridFS".into(),
+                "Buckets".into(),
+            ]),
+            query_template: Some(mongodb_find_query_template_for_database(
+                database_name,
+                &format!("{bucket}.files"),
+                20,
+            )),
+            expandable: Some(false),
+        })
+        .collect()
+}
+
+fn mongo_unavailable_node(database_name: &str, section: &str, detail: &str) -> Vec<ExplorerNode> {
+    vec![ExplorerNode {
+        id: format!("unavailable:{database_name}:{section}"),
+        family: "document".into(),
+        label: "Unavailable".into(),
+        kind: "unavailable".into(),
+        detail: detail.into(),
+        scope: None,
+        path: Some(vec![database_name.into(), section.into()]),
+        query_template: None,
+        expandable: Some(false),
+    }]
+}
+
+#[allow(dead_code)]
+fn mongodb_legacy_gridfs_collection_nodes(database_name: &str) -> Vec<ExplorerNode> {
+    ["fs.files", "fs.chunks"]
+        .iter()
+        .map(|collection_name| ExplorerNode {
+            id: format!("gridfs:{database_name}:{collection_name}"),
+            family: "document".into(),
+            label: (*collection_name).into(),
+            kind: "gridfs-collection".into(),
+            detail: "GridFS backing collection".into(),
+            scope: Some(format!("collection:{database_name}:{collection_name}")),
+            path: Some(vec![database_name.into(), "GridFS".into()]),
+            query_template: Some(mongodb_find_query_template_for_database(
+                database_name,
+                collection_name,
+                20,
+            )),
+            expandable: Some(false),
+        })
+        .collect::<Vec<_>>()
+}
+
+fn mongodb_database_node(
+    connection: &ResolvedConnectionProfile,
+    database_name: &str,
+    path: Option<Vec<String>>,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: format!("database:{database_name}"),
+        family: "document".into(),
+        label: database_name.into(),
+        kind: "database".into(),
+        detail: format!("{} database", connection.engine),
+        scope: Some(format!("database:{database_name}")),
+        path,
+        query_template: None,
+        expandable: Some(true),
+    }
+}
+
+fn mongodb_section_node(
+    _connection: &ResolvedConnectionProfile,
+    database_name: &str,
+    label: &str,
+    scope_prefix: &str,
+    detail: &str,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: format!("{database_name}:{scope_prefix}"),
+        family: "document".into(),
+        label: label.into(),
+        kind: scope_prefix.into(),
+        detail: detail.into(),
+        scope: Some(format!("{scope_prefix}:{database_name}")),
+        path: Some(vec![database_name.into()]),
+        query_template: None,
+        expandable: Some(true),
+    }
+}
+
+fn mongodb_collection_node_for_database(
+    _connection: &ResolvedConnectionProfile,
+    database_name: &str,
+    collection_name: &str,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: format!("collection:{database_name}:{collection_name}"),
+        family: "document".into(),
+        label: collection_name.into(),
+        kind: "collection".into(),
+        detail: "Documents, schema, indexes, validation, and aggregations".into(),
+        scope: Some(format!("collection:{database_name}:{collection_name}")),
+        path: Some(vec![database_name.into(), "Collections".into()]),
+        query_template: Some(mongodb_find_query_template_for_database(
+            database_name,
+            collection_name,
+            20,
+        )),
+        expandable: Some(true),
+    }
+}
+
+fn mongodb_view_node(
+    _connection: &ResolvedConnectionProfile,
+    database_name: &str,
+    info: &MongoCollectionInfo,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: format!("view:{database_name}:{}", info.name),
+        family: "document".into(),
+        label: info.name.clone(),
+        kind: "view".into(),
+        detail: "MongoDB collection view".into(),
+        scope: Some(format!("view:{database_name}:{}", info.name)),
+        path: Some(vec![database_name.into(), "Views".into()]),
+        query_template: Some(mongodb_find_query_template_for_database(
+            database_name,
+            &info.name,
+            20,
+        )),
+        expandable: Some(true),
+    }
+}
+
+fn mongodb_index_node(
+    database_name: &str,
+    collection_name: &str,
+    index_name: &str,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: format!("index:{database_name}:{collection_name}:{index_name}"),
+        family: "document".into(),
+        label: index_name.into(),
+        kind: "index".into(),
+        detail: format!("Index on {collection_name}"),
+        scope: None,
+        path: Some(vec![
+            database_name.into(),
+            "Collections".into(),
+            collection_name.into(),
+            "Indexes".into(),
+        ]),
+        query_template: Some(mongodb_command_query_template(
+            database_name,
+            doc! { "listIndexes": collection_name },
+        )),
+        expandable: Some(false),
+    }
+}
+
+async fn list_user_nodes(
+    database: &Database,
+    database_name: &str,
+    limit: usize,
+) -> Vec<ExplorerNode> {
+    match database.run_command(doc! { "usersInfo": 1 }).await {
+        Ok(response) => response
+            .get_array("users")
+            .map(|users| {
+                users
+                    .iter()
+                    .filter_map(|item| item.as_document())
+                    .filter_map(|user| user.get_str("user").ok())
+                    .take(limit)
+                    .map(|user| ExplorerNode {
+                        id: format!("user:{database_name}:{user}"),
+                        family: "document".into(),
+                        label: user.into(),
+                        kind: "user".into(),
+                        detail: "MongoDB database user".into(),
+                        scope: None,
+                        path: Some(vec![database_name.into(), "Users".into()]),
+                        query_template: None,
+                        expandable: Some(false),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+        Err(error) => vec![permission_warning_node(
+            database_name,
+            "Users",
+            format!("Users unavailable: {error}"),
+        )],
+    }
+}
+
+async fn list_role_nodes(
+    database: &Database,
+    database_name: &str,
+    limit: usize,
+) -> Vec<ExplorerNode> {
+    match database.run_command(doc! { "rolesInfo": 1 }).await {
+        Ok(response) => response
+            .get_array("roles")
+            .map(|roles| {
+                roles
+                    .iter()
+                    .filter_map(|item| item.as_document())
+                    .filter_map(|role| role.get_str("role").ok())
+                    .take(limit)
+                    .map(|role| ExplorerNode {
+                        id: format!("role:{database_name}:{role}"),
+                        family: "document".into(),
+                        label: role.into(),
+                        kind: "role".into(),
+                        detail: "MongoDB database role".into(),
+                        scope: None,
+                        path: Some(vec![database_name.into(), "Roles".into()]),
+                        query_template: None,
+                        expandable: Some(false),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+        Err(error) => vec![permission_warning_node(
+            database_name,
+            "Roles",
+            format!("Roles unavailable: {error}"),
+        )],
+    }
+}
+
+fn permission_warning_node(database_name: &str, section: &str, detail: String) -> ExplorerNode {
+    ExplorerNode {
+        id: format!("permission-warning:{database_name}:{section}"),
+        family: "document".into(),
+        label: "Permission required".into(),
+        kind: "permission".into(),
+        detail,
+        scope: None,
+        path: Some(vec![database_name.into(), section.into()]),
+        query_template: None,
+        expandable: Some(false),
+    }
+}
+
+async fn inspect_users_or_roles(
+    database: &Database,
+    request: &ExplorerInspectRequest,
+    database_name: &str,
+    users: bool,
+) -> ExplorerInspectResponse {
+    let command = if users {
+        doc! { "usersInfo": 1 }
+    } else {
+        doc! { "rolesInfo": 1 }
+    };
+    let label = if users { "users" } else { "roles" };
+    let query_command = command.clone();
+
+    match database.run_command(command).await {
+        Ok(payload) => ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("MongoDB {label} loaded for {database_name}."),
+            query_template: Some(mongodb_command_query_template(database_name, query_command)),
+            payload: Some(json!({
+                "database": database_name,
+                label: payload.get_array(label).cloned().unwrap_or_default(),
+            })),
+        },
+        Err(error) => ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("MongoDB {label} are unavailable for {database_name}."),
+            query_template: None,
+            payload: Some(json!({
+                "database": database_name,
+                "warning": error.to_string(),
+            })),
+        },
+    }
+}
+
+fn inspection_with_command_result(
+    request: &ExplorerInspectRequest,
+    summary: String,
+    database_name: &str,
+    command: Document,
+    result: Result<Document, mongodb::error::Error>,
+) -> ExplorerInspectResponse {
+    match result {
+        Ok(payload) => ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary,
+            query_template: Some(mongodb_command_query_template(database_name, command)),
+            payload: Some(json!({
+                "database": database_name,
+                "result": payload,
+            })),
+        },
+        Err(error) => ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("MongoDB metadata is unavailable for {}.", request.node_id),
+            query_template: Some(mongodb_command_query_template(database_name, command)),
+            payload: Some(json!({
+                "database": database_name,
+                "warning": error.to_string(),
+            })),
+        },
+    }
+}
+
+async fn list_collection_infos(
+    database: &Database,
+) -> Result<Vec<MongoCollectionInfo>, CommandError> {
+    let response = database
+        .run_command(doc! { "listCollections": 1, "cursor": {} })
+        .await?;
+    let Some(cursor) = response.get_document("cursor").ok() else {
+        return Ok(Vec::new());
+    };
+    let Some(first_batch) = cursor.get_array("firstBatch").ok() else {
+        return Ok(Vec::new());
+    };
+
+    Ok(first_batch
+        .iter()
+        .filter_map(|item| item.as_document())
+        .filter_map(|document| {
+            let name = document.get_str("name").ok()?.to_string();
+            let collection_type = document.get_str("type").unwrap_or("collection").to_string();
+            let options = document
+                .get_document("options")
+                .ok()
+                .cloned()
+                .unwrap_or_default();
+
+            Some(MongoCollectionInfo {
+                name,
+                collection_type,
+                options,
+            })
+        })
+        .collect())
+}
+
+async fn collection_info_by_name(
+    database: &Database,
+    collection_name: &str,
+) -> Result<Option<MongoCollectionInfo>, CommandError> {
+    Ok(list_collection_infos(database)
+        .await?
+        .into_iter()
+        .find(|item| item.name == collection_name))
+}
+
+fn infer_schema_fields(documents: &[Document]) -> Vec<Value> {
+    let mut fields = BTreeMap::<String, (String, usize)>::new();
+
+    for document in documents {
+        collect_document_fields("", document, &mut fields);
+    }
+
+    fields
+        .into_iter()
+        .map(|(path, (bson_type, count))| {
+            json!({
+                "path": path,
+                "type": bson_type,
+                "count": count,
+            })
+        })
+        .collect()
+}
+
+fn collect_document_fields(
+    prefix: &str,
+    document: &Document,
+    fields: &mut BTreeMap<String, (String, usize)>,
+) {
+    for (key, value) in document {
+        let path = if prefix.is_empty() {
+            key.clone()
+        } else {
+            format!("{prefix}.{key}")
+        };
+        let entry = fields
+            .entry(path.clone())
+            .or_insert_with(|| (bson_type_name(value).into(), 0));
+        entry.1 += 1;
+
+        if let Bson::Document(child) = value {
+            collect_document_fields(&path, child, fields);
+        }
+    }
+}
+
+fn scoped_database(scope: &str, prefix: &str, fallback_database: &str) -> String {
+    scope
+        .strip_prefix(prefix)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_database)
+        .to_string()
+}
+
+fn scoped_database_collection(
+    scope: &str,
+    prefix: &str,
+    fallback_database: &str,
+) -> (String, String) {
+    let rest = scope.strip_prefix(prefix).unwrap_or_default();
+    split_database_collection(rest, fallback_database)
+}
+
+fn split_database_collection(rest: &str, fallback_database: &str) -> (String, String) {
+    match rest.split_once(':') {
+        Some((database_name, collection_name)) => {
+            (database_name.to_string(), collection_name.to_string())
+        }
+        None => (fallback_database.to_string(), rest.to_string()),
+    }
+}
+
+fn bson_type_name(value: &Bson) -> &'static str {
+    match value {
+        Bson::Double(_) => "double",
+        Bson::String(_) => "string",
+        Bson::Array(_) => "array",
+        Bson::Document(_) => "document",
+        Bson::Boolean(_) => "boolean",
+        Bson::Null => "null",
+        Bson::RegularExpression(_) => "regex",
+        Bson::JavaScriptCode(_) => "javascript",
+        Bson::JavaScriptCodeWithScope(_) => "javascriptWithScope",
+        Bson::Int32(_) => "int32",
+        Bson::Int64(_) => "int64",
+        Bson::ObjectId(_) => "objectId",
+        Bson::DateTime(_) => "dateTime",
+        Bson::Timestamp(_) => "timestamp",
+        Bson::Binary(_) => "binary",
+        Bson::Decimal128(_) => "decimal128",
+        _ => "value",
+    }
+}
+
+fn mongodb_find_query_template_for_database(
+    database_name: &str,
+    collection_name: &str,
+    limit: u32,
+) -> String {
+    serde_json::to_string_pretty(&json!({
+        "database": database_name,
+        "collection": collection_name,
+        "filter": {},
+        "limit": limit,
+    }))
+    .unwrap_or_else(|_| {
+        format!(
+            "{{\n  \"database\": \"{database_name}\",\n  \"collection\": \"{collection_name}\",\n  \"filter\": {{}},\n  \"limit\": {limit}\n}}"
+        )
+    })
+}
+
+fn mongodb_aggregation_query_template(database_name: &str, collection_name: &str) -> String {
+    serde_json::to_string_pretty(&json!({
+        "database": database_name,
+        "collection": collection_name,
+        "pipeline": [
+            { "$match": {} },
+            { "$limit": 20 }
+        ]
+    }))
+    .unwrap_or_default()
+}
+
+fn mongodb_command_query_template(database_name: &str, command: Document) -> String {
+    serde_json::to_string_pretty(&json!({
+        "database": database_name,
+        "command": command,
+    }))
+    .unwrap_or_default()
+}
+
+#[cfg(test)]
 mod tests {
-    use super::mongodb_collection_node;
+    use super::{
+        infer_schema_fields, mongodb_collection_children, mongodb_collection_node,
+        mongodb_database_children, mongodb_root_database_nodes,
+    };
     use crate::domain::models::ResolvedConnectionProfile;
+    use mongodb::bson::doc;
 
     #[test]
-    fn mongodb_collection_nodes_have_collection_scoped_queries() {
-        let connection = ResolvedConnectionProfile {
-            id: "conn-mongo".into(),
-            name: "Mongo".into(),
-            engine: "mongodb".into(),
-            family: "document".into(),
-            host: "127.0.0.1".into(),
-            port: None,
-            database: Some("catalog".into()),
-            username: None,
-            password: None,
-            connection_string: None,
-            read_only: true,
-        };
+    fn mongodb_root_nodes_separate_user_and_system_databases() {
+        let connection = resolved_connection(None);
+        let nodes = mongodb_root_database_nodes(
+            &connection,
+            vec!["admin".into(), "catalog".into(), "local".into()],
+            100,
+        );
+
+        assert_eq!(nodes[0].label, "catalog");
+        assert_eq!(nodes[0].scope.as_deref(), Some("database:catalog"));
+        assert_eq!(nodes[1].label, "admin");
+        assert_eq!(
+            nodes[1].path.as_ref().unwrap(),
+            &vec!["System Databases".to_string()]
+        );
+    }
+
+    #[test]
+    fn mongodb_database_children_use_native_mongo_sections() {
+        let connection = resolved_connection(Some("catalog"));
+        let nodes = mongodb_database_children(&connection, "catalog");
+        let labels = nodes
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            labels,
+            vec![
+                "Collections",
+                "Views",
+                "Time Series Collections",
+                "Capped Collections",
+                "GridFS",
+                "Search Indexes",
+                "Vector Indexes",
+                "Users",
+                "Roles",
+                "Database Statistics",
+            ]
+        );
+        assert_eq!(nodes[0].scope.as_deref(), Some("collections:catalog"));
+    }
+
+    #[test]
+    fn mongodb_collection_children_expose_documents_schema_indexes_validation_and_aggregations() {
+        let connection = resolved_connection(Some("catalog"));
+        let nodes = mongodb_collection_children(&connection, "catalog", "products");
+        let labels = nodes
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            labels,
+            vec![
+                "Documents",
+                "Schema Preview",
+                "Indexes",
+                "Validation Rules",
+                "Aggregations",
+                "Statistics",
+                "Permissions",
+                "Scripts",
+            ]
+        );
+        assert_eq!(
+            nodes[0].scope.as_deref(),
+            Some("collection:catalog:products")
+        );
+        assert!(nodes[0]
+            .query_template
+            .as_deref()
+            .unwrap_or_default()
+            .contains("\"database\": \"catalog\""));
+        let validation_template = nodes
+            .iter()
+            .find(|node| node.kind == "validation-rules")
+            .and_then(|node| node.query_template.as_deref())
+            .unwrap_or_default();
+        assert!(validation_template.contains("listCollections"));
+        assert!(!validation_template.contains("collMod"));
+    }
+
+    #[test]
+    fn mongodb_collection_nodes_have_database_scoped_queries() {
+        let connection = resolved_connection(Some("catalog"));
         let node = mongodb_collection_node(&connection, "products");
-        assert_eq!(node.scope.as_deref(), Some("collection:products"));
+        assert_eq!(node.scope.as_deref(), Some("collection:catalog:products"));
         assert_eq!(node.expandable, Some(true));
         assert!(node
             .query_template
             .as_deref()
             .unwrap_or_default()
             .contains("\"collection\": \"products\""));
+    }
+
+    #[test]
+    fn mongodb_schema_preview_infers_nested_bson_fields() {
+        let fields = infer_schema_fields(&[doc! {
+            "_id": "p1",
+            "inventory": { "available": 3_i32 },
+        }]);
+        let paths = fields
+            .iter()
+            .map(|field| field["path"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+
+        assert!(paths.contains(&"_id"));
+        assert!(paths.contains(&"inventory"));
+        assert!(paths.contains(&"inventory.available"));
+    }
+
+    fn resolved_connection(database: Option<&str>) -> ResolvedConnectionProfile {
+        ResolvedConnectionProfile {
+            id: "conn-mongo".into(),
+            name: "Mongo".into(),
+            engine: "mongodb".into(),
+            family: "document".into(),
+            host: "127.0.0.1".into(),
+            port: None,
+            database: database.map(str::to_string),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            read_only: true,
+        }
     }
 }

@@ -37,6 +37,12 @@ pub(super) async fn test_mongodb_connection(
 }
 
 pub(super) fn mongodb_database_name(connection: &ResolvedConnectionProfile) -> String {
+    mongodb_selected_database_name(connection).unwrap_or_else(|| "admin".into())
+}
+
+pub(super) fn mongodb_selected_database_name(
+    connection: &ResolvedConnectionProfile,
+) -> Option<String> {
     connection
         .database
         .as_deref()
@@ -49,7 +55,6 @@ pub(super) fn mongodb_database_name(connection: &ResolvedConnectionProfile) -> S
                 .as_deref()
                 .and_then(mongodb_database_name_from_uri)
         })
-        .unwrap_or_else(|| "admin".into())
 }
 
 pub(super) struct MongoDatabaseResolution {
@@ -286,6 +291,10 @@ mod tests {
             username: Some("datapadplusplus".into()),
             password: Some("datapadplusplus".into()),
             connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
             read_only: false,
         }
     }

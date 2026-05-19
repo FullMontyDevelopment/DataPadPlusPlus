@@ -62,23 +62,8 @@ pub(super) async fn execute_mongodb_data_edit(
             request, plan, false, messages, warnings, None,
         ));
     };
-    let Some(document_id) = request.target.document_id.as_ref() else {
-        warnings.push("MongoDB document edits require a stable `_id` value.".into());
-        return Ok(data_edit_response(
-            request, plan, false, messages, warnings, None,
-        ));
-    };
-
     if request.changes.is_empty() {
         warnings.push("MongoDB document edits need at least one field change.".into());
-        return Ok(data_edit_response(
-            request, plan, false, messages, warnings, None,
-        ));
-    }
-
-    let update = mongodb_update_document(request)?;
-    if update.is_empty() {
-        warnings.push("MongoDB document edit did not produce an update document.".into());
         return Ok(data_edit_response(
             request, plan, false, messages, warnings, None,
         ));
@@ -89,6 +74,38 @@ pub(super) async fn execute_mongodb_data_edit(
     let collection = client
         .database(&database_name)
         .collection::<Document>(collection_name);
+
+    if request.edit_kind == "insert-document" {
+        let document = mongodb_insert_document(request)?;
+        let insert_result = collection.insert_one(document).await?;
+        messages.push("MongoDB inserted 1 document.".into());
+        return Ok(data_edit_response(
+            request,
+            plan,
+            true,
+            messages,
+            warnings,
+            Some(json!({
+                "insertedId": bson_value_to_json(&insert_result.inserted_id)?
+            })),
+        ));
+    }
+
+    let Some(document_id) = request.target.document_id.as_ref() else {
+        warnings.push("MongoDB document edits require a stable `_id` value.".into());
+        return Ok(data_edit_response(
+            request, plan, false, messages, warnings, None,
+        ));
+    };
+
+    let update = mongodb_update_document(request)?;
+    if update.is_empty() {
+        warnings.push("MongoDB document edit did not produce an update document.".into());
+        return Ok(data_edit_response(
+            request, plan, false, messages, warnings, None,
+        ));
+    }
+
     let filter = doc! { "_id": json_value_to_bson(document_id)? };
     let update_result = collection.update_one(filter, update).await?;
     let matched_count = update_result.matched_count;
@@ -121,6 +138,31 @@ pub(super) async fn execute_mongodb_data_edit(
                 .transpose()?
         })),
     ))
+}
+
+pub(super) fn mongodb_insert_document(
+    request: &DataEditExecutionRequest,
+) -> Result<Document, CommandError> {
+    let Some(value) = request
+        .changes
+        .first()
+        .and_then(|change| change.value.as_ref())
+    else {
+        return Err(CommandError::new(
+            "mongodb-insert-missing-document",
+            "MongoDB document upload requires one JSON object.",
+        ));
+    };
+
+    if !value.is_object() || value.is_array() {
+        return Err(CommandError::new(
+            "mongodb-insert-invalid-document",
+            "MongoDB document upload requires a JSON object.",
+        ));
+    }
+
+    bson::to_document(value)
+        .map_err(|error| CommandError::new("mongodb-insert-bson", error.to_string()))
 }
 
 pub(super) fn mongodb_update_document(
@@ -300,6 +342,36 @@ mod tests {
             rename_update,
             doc! { "$rename": { "metadata.sku": "metadata.stockKeepingUnit" } }
         );
+    }
+
+    #[test]
+    fn mongodb_insert_document_requires_a_json_object() {
+        let document = mongodb_insert_document(&request(
+            "insert-document",
+            vec![DataEditChange {
+                value: Some(json!({
+                    "sku": "nova",
+                    "inventory": {
+                        "available": 24
+                    }
+                })),
+                ..Default::default()
+            }],
+        ))
+        .expect("insert document");
+
+        assert_eq!(document.get_str("sku").unwrap(), "nova");
+        assert!(document.get_document("inventory").is_ok());
+
+        let error = mongodb_insert_document(&request(
+            "insert-document",
+            vec![DataEditChange {
+                value: Some(json!(["not", "an", "object"])),
+                ..Default::default()
+            }],
+        ))
+        .expect_err("arrays are not uploadable documents");
+        assert_eq!(error.code, "mongodb-insert-invalid-document");
     }
 
     #[test]

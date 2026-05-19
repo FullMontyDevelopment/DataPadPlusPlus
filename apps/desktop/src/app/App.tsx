@@ -4,7 +4,9 @@ import type {
   ConnectionProfile,
   EnvironmentProfile,
   ExecutionRequest,
+  ExplorerNode,
   LibraryItemKind,
+  LibraryNode,
   QueryBuilderState,
   QueryTabState,
   QueryViewMode,
@@ -14,6 +16,8 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import {
   CloseSavedTabDialog,
   DeleteConnectionDialog,
+  DeleteEnvironmentDialog,
+  DeleteLibraryNodeDialog,
   SaveQueryDialog,
 } from './components/workbench/AppDialogs'
 import { BootSurface, WelcomeSurface } from './components/workbench/BootSurfaces'
@@ -23,6 +27,7 @@ import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
 import { EnvironmentWorkspace } from './components/workbench/EnvironmentWorkspace'
 import { MetricsWorkspace } from './components/workbench/MetricsWorkspace'
+import { ObjectViewWorkspace } from './components/workbench/ObjectViewWorkspace'
 import { RightDrawer } from './components/workbench/RightDrawer'
 import { RedisConsoleEditor } from './components/workbench/RedisConsoleEditor'
 import { SideBar } from './components/workbench/SideBar'
@@ -42,6 +47,10 @@ import {
   buildMongoFindQueryText,
   isMongoFindBuilderState,
 } from './components/workbench/query-builder/mongo-find'
+import {
+  buildMongoAggregationQueryText,
+  isMongoAggregationBuilderState,
+} from './components/workbench/query-builder/mongo-aggregation'
 import {
   buildSqlSelectQueryText,
   isSqlSelectBuilderState,
@@ -134,6 +143,12 @@ function DesktopWorkspace() {
   const [pendingConnectionDelete, setPendingConnectionDelete] = useState<
     ConnectionProfile | undefined
   >()
+  const [pendingLibraryNodeDelete, setPendingLibraryNodeDelete] = useState<
+    LibraryNode | undefined
+  >()
+  const [pendingEnvironmentDelete, setPendingEnvironmentDelete] = useState<
+    EnvironmentProfile | undefined
+  >()
   const bottomPanelVisibleRef = useRef(false)
   useEffect(() => {
     if (!payload) {
@@ -165,6 +180,7 @@ function DesktopWorkspace() {
   const activeTabId = activeTab?.id
   const activeTabIsExplorer = activeTab?.tabKind === 'explorer'
   const activeTabIsMetrics = activeTab?.tabKind === 'metrics'
+  const activeTabIsObjectView = activeTab?.tabKind === 'object-view'
   const activeTabIsTestSuite = activeTab?.tabKind === 'test-suite'
   const activeEnvironment =
     snapshot?.environments.find((item) => item.id === snapshot.ui.activeEnvironmentId) ??
@@ -195,6 +211,7 @@ function DesktopWorkspace() {
     activeTab &&
     !activeTabIsExplorer &&
     !activeTabIsMetrics &&
+    !activeTabIsObjectView &&
     !activeTabIsTestSuite &&
     activeConnection
       ? builderStateForTab(activeTab, activeConnection, builderStateDrafts)
@@ -246,6 +263,7 @@ function DesktopWorkspace() {
       !activeTab ||
       activeTabIsExplorer ||
       activeTabIsMetrics ||
+      activeTabIsObjectView ||
       activeTabIsTestSuite
     ) {
       return undefined
@@ -266,6 +284,7 @@ function DesktopWorkspace() {
     activeTab,
     activeTabIsExplorer,
     activeTabIsMetrics,
+    activeTabIsObjectView,
     activeTabIsTestSuite,
     intellisenseCatalog,
     runtimeCapabilities.editorLanguage,
@@ -432,7 +451,12 @@ function DesktopWorkspace() {
     async (tabId: string) => {
       const tab = snapshot?.tabs.find((item) => item.id === tabId)
 
-      if (!tab || tab.tabKind === 'explorer' || tab.tabKind === 'metrics') {
+      if (
+        !tab ||
+        tab.tabKind === 'explorer' ||
+        tab.tabKind === 'metrics' ||
+        tab.tabKind === 'object-view'
+      ) {
         return
       }
 
@@ -478,7 +502,7 @@ function DesktopWorkspace() {
           return
         }
 
-        if (tab.tabKind === 'metrics') {
+        if (tab.tabKind === 'metrics' || tab.tabKind === 'object-view') {
           return
         }
 
@@ -553,7 +577,7 @@ function DesktopWorkspace() {
 
       if (key === 's') {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsMetrics) {
+        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView) {
           requestSaveQuery(activeTab.id)
         }
         return
@@ -579,7 +603,12 @@ function DesktopWorkspace() {
 
       if (key === 'e' && event.shiftKey) {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsTestSuite) {
+        if (
+          !activeTabIsExplorer &&
+          !activeTabIsMetrics &&
+          !activeTabIsObjectView &&
+          !activeTabIsTestSuite
+        ) {
           runCurrentTabQuery('explain')
         }
       }
@@ -592,6 +621,7 @@ function DesktopWorkspace() {
     activeTab,
     activeTabIsExplorer,
     activeTabIsMetrics,
+    activeTabIsObjectView,
     activeTabIsTestSuite,
     requestSaveQuery,
     runCurrentTabQuery,
@@ -706,10 +736,11 @@ function DesktopWorkspace() {
   )
   const showingExplorerWorkspace = activeTabIsExplorer
   const showingMetricsWorkspace = activeTabIsMetrics
+  const showingObjectViewWorkspace = activeTabIsObjectView
   const hasWorkbenchMessages = workbenchMessages.length > 0
   const hasActivePanelContext = Boolean(activeTab && activeConnection && activeEnvironment)
   const hasActiveQueryContext = Boolean(
-    hasActivePanelContext && !activeTabIsExplorer && !activeTabIsMetrics,
+    hasActivePanelContext && !activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView,
   )
   const isMessagePanelRequested = snapshot.ui.activeBottomPanelTab === 'messages'
   const isExplorerDetailsRequested =
@@ -722,6 +753,7 @@ function DesktopWorkspace() {
       (!showingEnvironmentWorkspace &&
         !showingExplorerWorkspace &&
         !showingMetricsWorkspace &&
+        !showingObjectViewWorkspace &&
         hasActiveQueryContext))
   const resultsDock = snapshot.ui.resultsDock ?? 'bottom'
   const resultsDockRight = resultsDock === 'right'
@@ -743,6 +775,7 @@ function DesktopWorkspace() {
     if (
       tab.tabKind !== 'explorer' &&
       tab.tabKind !== 'metrics' &&
+      tab.tabKind !== 'object-view' &&
       (tab.saveTarget || tab.savedQueryId) &&
       tab.dirty
     ) {
@@ -779,8 +812,12 @@ function DesktopWorkspace() {
     void actions.renameLibraryNode({ nodeId, name })
   }
 
-  const deleteLibraryNode = (nodeId: string) => {
-    void actions.deleteLibraryNode({ nodeId })
+  const requestDeleteLibraryNode = (nodeId: string) => {
+    const node = snapshot.libraryNodes.find((item) => item.id === nodeId)
+
+    if (node) {
+      setPendingLibraryNodeDelete(node)
+    }
   }
 
   const moveLibraryNode = (nodeId: string, parentId?: string) => {
@@ -912,6 +949,14 @@ function DesktopWorkspace() {
     })()
   }
 
+  const requestDeleteEnvironmentProfile = (environmentId: string) => {
+    const environment = snapshot.environments.find((item) => item.id === environmentId)
+
+    if (environment && snapshot.environments.length > 1) {
+      setPendingEnvironmentDelete(environment)
+    }
+  }
+
   const deleteEnvironmentProfile = (environmentId: string) => {
     void (async () => {
       if (editingEnvironmentId === environmentId) {
@@ -1005,6 +1050,26 @@ function DesktopWorkspace() {
     setEditingEnvironmentId(undefined)
     void (async () => {
       await actions.createMetricsTab(connectionId, environmentId)
+      await actions.updateUiState({
+        activeActivity: 'library',
+        activeSidebarPane: 'library',
+        sidebarCollapsed: false,
+        rightDrawer: 'none',
+      })
+    })()
+  }
+
+  const openObjectView = (connectionId: string, node: ExplorerNode) => {
+    setConnectionDraft(undefined)
+    setEditingEnvironmentId(undefined)
+    void (async () => {
+      await actions.createObjectViewTab({
+        connectionId,
+        nodeId: node.id,
+        label: node.label,
+        kind: node.kind,
+        path: node.path,
+      })
       await actions.updateUiState({
         activeActivity: 'library',
         activeSidebarPane: 'library',
@@ -1152,6 +1217,34 @@ function DesktopWorkspace() {
         />
       ) : null}
 
+      {pendingLibraryNodeDelete ? (
+        <DeleteLibraryNodeDialog
+          node={pendingLibraryNodeDelete}
+          descendantCount={libraryDescendantCount(
+            snapshot.libraryNodes,
+            pendingLibraryNodeDelete.id,
+          )}
+          onCancel={() => setPendingLibraryNodeDelete(undefined)}
+          onConfirm={() => {
+            const nodeId = pendingLibraryNodeDelete.id
+            setPendingLibraryNodeDelete(undefined)
+            void actions.deleteLibraryNode({ nodeId })
+          }}
+        />
+      ) : null}
+
+      {pendingEnvironmentDelete ? (
+        <DeleteEnvironmentDialog
+          environment={pendingEnvironmentDelete}
+          onCancel={() => setPendingEnvironmentDelete(undefined)}
+          onConfirm={() => {
+            const environmentId = pendingEnvironmentDelete.id
+            setPendingEnvironmentDelete(undefined)
+            deleteEnvironmentProfile(environmentId)
+          }}
+        />
+      ) : null}
+
       <div
         className={`ads-workbench${snapshot.ui.sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
         style={
@@ -1210,7 +1303,7 @@ function DesktopWorkspace() {
                 })
               })()
             }
-            onDeleteEnvironment={deleteEnvironmentProfile}
+            onDeleteEnvironment={requestDeleteEnvironmentProfile}
             onConnectionGroupModeChange={(connectionGroupMode) =>
               void actions.updateUiState({ connectionGroupMode })
             }
@@ -1236,6 +1329,7 @@ function DesktopWorkspace() {
               }
             }}
             onLoadExplorerScope={loadConnectionExplorerScope}
+            onOpenObjectView={openObjectView}
             onOpenScopedQuery={openScopedQuery}
             onCreateTab={(connectionId) => openQueryTab(connectionId ?? activeConnection?.id)}
             onCreateTestSuite={(connectionId) => openTestSuite(connectionId)}
@@ -1244,7 +1338,7 @@ function DesktopWorkspace() {
             }
             onSaveCurrentQuery={() => (activeTab ? requestSaveQuery(activeTab.id) : undefined)}
             onCreateLibraryFolder={createLibraryFolder}
-            onDeleteLibraryNode={deleteLibraryNode}
+            onDeleteLibraryNode={requestDeleteLibraryNode}
             onMoveLibraryNode={moveLibraryNode}
             onOpenLibraryItem={(nodeId) => void actions.openLibraryItem(nodeId)}
             onRenameLibraryNode={renameLibraryNode}
@@ -1353,6 +1447,16 @@ function DesktopWorkspace() {
                     environment={activeEnvironment}
                     tab={activeTab}
                     onRefresh={(tabId) => actions.refreshMetricsTab(tabId)}
+                  />
+                ) : activeTabIsObjectView && activeConnection && activeEnvironment && activeTab ? (
+                  <ObjectViewWorkspace
+                    connection={activeConnection}
+                    environment={activeEnvironment}
+                    tab={activeTab}
+                    onRefresh={(tabId) => actions.refreshObjectViewTab(tabId)}
+                    onOpenQuery={(target) => openScopedQuery(activeConnection.id, target)}
+                    onPlanOperation={actions.planDatastoreOperation}
+                    onExecuteDataEdit={actions.executeDataEdit}
                   />
                 ) : activeTabIsTestSuite && activeConnection && activeEnvironment && activeTab ? (
                   <TestSuiteWorkspace
@@ -1589,7 +1693,11 @@ function DesktopWorkspace() {
                   : undefined
               }
               onApplyInspectionTemplate={(queryTemplate) =>
-                queryTemplate && activeTab && !activeTabIsExplorer && !activeTabIsMetrics
+                queryTemplate &&
+                activeTab &&
+                !activeTabIsExplorer &&
+                !activeTabIsMetrics &&
+                !activeTabIsObjectView
                   ? void actions.updateQuery(activeTab.id, queryTemplate)
                   : undefined
               }
@@ -1688,6 +1796,10 @@ function buildQueryTextForBuilderState(
     return buildMongoFindQueryText(builderState)
   }
 
+  if (isMongoAggregationBuilderState(builderState)) {
+    return buildMongoAggregationQueryText(builderState)
+  }
+
   if (connection && isSqlSelectBuilderState(builderState)) {
     return buildSqlSelectQueryText(builderState, connection.engine)
   }
@@ -1753,5 +1865,25 @@ function inferLibraryItemKindForTab(tab: QueryTabState): LibraryItemKind {
   return 'query'
 }
 
-export default App
+function libraryDescendantCount(nodes: LibraryNode[], nodeId: string) {
+  const descendants = new Set<string>()
+  let changed = true
 
+  while (changed) {
+    changed = false
+    nodes.forEach((node) => {
+      if (
+        node.parentId &&
+        (node.parentId === nodeId || descendants.has(node.parentId)) &&
+        !descendants.has(node.id)
+      ) {
+        descendants.add(node.id)
+        changed = true
+      }
+    })
+  }
+
+  return descendants.size
+}
+
+export default App

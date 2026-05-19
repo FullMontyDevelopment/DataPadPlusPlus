@@ -33,7 +33,17 @@ export function connectionTreeNodeTarget(node: ConnectionTreeNode): ScopedQueryT
 export function isExplorerNodeQueryable(node: ExplorerNode) {
   const kind = node.kind.trim().toLowerCase().replace(/_/g, '-')
 
-  return ['collection', 'table', 'base-table', 'view', 'prefix'].includes(kind)
+  return [
+    'collection',
+    'documents',
+    'aggregations',
+    'gridfs-collection',
+    'sample-results',
+    'table',
+    'base-table',
+    'view',
+    'prefix',
+  ].includes(kind)
 }
 
 export function explorerNodeTarget(
@@ -51,8 +61,11 @@ export function explorerNodeTarget(
     scope: node.scope,
     queryTemplate: redisPrefix ? redisKeyBrowserQueryTemplateForNode(node) : node.queryTemplate,
     preferredBuilder:
-      connection?.engine === 'mongodb' && kind === 'collection'
-        ? 'mongo-find'
+      connection?.engine === 'mongodb' && kind === 'aggregations'
+        ? 'mongo-aggregation'
+        : connection?.engine === 'mongodb' &&
+            ['collection', 'documents', 'gridfs-collection', 'sample-results'].includes(kind)
+          ? 'mongo-find'
         : redisPrefix
           ? 'redis-key-browser'
           : undefined,

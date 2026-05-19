@@ -124,6 +124,10 @@ export function EnvironmentWorkspace({
   }
 
   const deleteVariable = (key: string) => {
+    if (!window.confirm(`Delete environment variable ${key}?`)) {
+      return
+    }
+
     setEnvironmentDraft((current) => {
       if (!current) {
         return current

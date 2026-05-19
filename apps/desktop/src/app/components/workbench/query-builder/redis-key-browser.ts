@@ -33,13 +33,19 @@ export function createDefaultRedisKeyBrowserState(
     kind: 'redis-key-browser',
     pattern,
     typeFilter: 'all',
+    databaseIndex: 0,
+    delimiter: ':',
     cursor: '0',
     scanCount: pageSize,
     pageSize,
     scannedCount: 0,
+    scanCursorByDb: { '0': '0' },
+    filters: { ttl: 'all' },
     expandedPrefixes: [],
     visibleColumns: ['ttl', 'memory', 'length'],
     viewMode: 'tree',
+    pipelineMode: false,
+    consoleHistory: [],
   }
 
   return {
@@ -58,9 +64,12 @@ export function buildRedisKeyBrowserQueryText(state: RedisKeyBrowserState) {
   return JSON.stringify(
     {
       mode: 'redis-key-browser',
+      database: state.databaseIndex ?? 0,
       pattern: state.pattern || '*',
       type: state.typeFilter || 'all',
+      delimiter: state.delimiter || ':',
       count: state.scanCount ?? state.pageSize ?? 100,
+      filters: state.filters ?? { ttl: 'all' },
     },
     null,
     2,
@@ -75,7 +84,10 @@ export function parseRedisKeyBrowserQueryText(
       mode?: unknown
       pattern?: unknown
       type?: unknown
+      database?: unknown
+      delimiter?: unknown
       count?: unknown
+      filters?: unknown
     }
 
     if (parsed.mode !== 'redis-key-browser') {
@@ -92,6 +104,12 @@ export function parseRedisKeyBrowserQueryText(
     return {
       ...state,
       typeFilter: isRedisKeyTypeFilter(parsed.type) ? parsed.type : 'all',
+      databaseIndex:
+        typeof parsed.database === 'number' && Number.isInteger(parsed.database)
+          ? Math.max(0, parsed.database)
+          : state.databaseIndex,
+      delimiter: typeof parsed.delimiter === 'string' ? parsed.delimiter : state.delimiter,
+      filters: parseRedisFilters(parsed.filters),
     }
   } catch {
     return undefined
@@ -108,4 +126,28 @@ function isRedisKeyTypeFilter(value: unknown): value is RedisKeyTypeFilter {
     typeof value === 'string' &&
     REDIS_KEY_TYPE_FILTERS.some((item) => item.value === value)
   )
+}
+
+function parseRedisFilters(value: unknown): RedisKeyBrowserState['filters'] {
+  if (!value || typeof value !== 'object') {
+    return { ttl: 'all' }
+  }
+
+  const source = value as Record<string, unknown>
+  const ttl =
+    source.ttl === 'expiring' || source.ttl === 'persistent' || source.ttl === 'all'
+      ? source.ttl
+      : 'all'
+
+  return {
+    ttl,
+    minBytes:
+      typeof source.minBytes === 'number' && Number.isFinite(source.minBytes)
+        ? Math.max(0, Math.floor(source.minBytes))
+        : undefined,
+    maxBytes:
+      typeof source.maxBytes === 'number' && Number.isFinite(source.maxBytes)
+        ? Math.max(0, Math.floor(source.maxBytes))
+        : undefined,
+  }
 }

@@ -268,6 +268,10 @@ mod tests {
             username: None,
             password: None,
             connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
             read_only: true,
         };
         let request = ExplorerInspectRequest {

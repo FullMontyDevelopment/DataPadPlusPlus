@@ -1,10 +1,109 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import type { ConnectionProfile, EnvironmentProfile } from '@datapadplusplus/shared-types'
+import type { AdapterManifest, ConnectionProfile, EnvironmentProfile } from '@datapadplusplus/shared-types'
+import { datastoreTreeForEngine } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import type { ConnectionTreeNode } from './SideBar.helpers'
 import { ConnectionObjectTree } from './SideBar.connection-object-tree'
 
 describe('ConnectionObjectTree', () => {
+  it('renders adapter-manifest structural folders while live metadata is unavailable', () => {
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(mongoConnection())}
+        connection={mongoConnection()}
+        explorerNodes={[]}
+        explorerStatus="loading"
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('catalog')).toBeInTheDocument()
+
+    expandTreeItem('catalog')
+
+    expect(screen.getByText('Collections')).toBeInTheDocument()
+    expect(screen.getByText('Views')).toBeInTheDocument()
+    expect(screen.getByText('GridFS')).toBeInTheDocument()
+    expect(screen.queryByText('Time Series Collections')).not.toBeInTheDocument()
+    expect(screen.queryByText('Capped Collections')).not.toBeInTheDocument()
+    expect(screen.queryByText('Search Indexes')).not.toBeInTheDocument()
+    expect(screen.queryByText('Vector Indexes')).not.toBeInTheDocument()
+    expect(screen.queryByText('products')).not.toBeInTheDocument()
+  })
+
+  it('uses adapter-manifest Object Explorer folders for SQL Server', () => {
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(sqlServerConnection())}
+        connection={sqlServerConnection()}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('datapadplusplus')
+
+    expect(screen.getByText('Database Diagrams')).toBeInTheDocument()
+    expect(screen.getByText('Tables')).toBeInTheDocument()
+    expect(screen.getByText('Stored Procedures')).toBeInTheDocument()
+    expect(screen.getByText('Functions')).toBeInTheDocument()
+    expect(screen.getByText('Query Store')).toBeInTheDocument()
+    expect(screen.getAllByText('Extended Events').length).toBeGreaterThan(0)
+    expect(screen.getByText('CDC')).toBeInTheDocument()
+    expect(screen.getByText('Change Tracking')).toBeInTheDocument()
+    expect(screen.getByText('Service Broker')).toBeInTheDocument()
+    expect(screen.getByText('SQL Server Agent')).toBeInTheDocument()
+  })
+
+  it('uses SQLite-owned file database folders', () => {
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(sqliteConnection())}
+        connection={sqliteConnection()}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Main Database')
+
+    expect(screen.getByText('Tables')).toBeInTheDocument()
+    expect(screen.getByText('Views')).toBeInTheDocument()
+    expect(screen.getByText('Indexes')).toBeInTheDocument()
+    expect(screen.getByText('Triggers')).toBeInTheDocument()
+    expect(screen.queryByText('Virtual Tables')).not.toBeInTheDocument()
+    expect(screen.queryByText('FTS Tables')).not.toBeInTheDocument()
+    expect(screen.queryByText('RTree Tables')).not.toBeInTheDocument()
+    expect(screen.queryByText('Generated Columns')).not.toBeInTheDocument()
+    expect(screen.getByText('Pragmas')).toBeInTheDocument()
+    expect(screen.queryByText('accounts')).not.toBeInTheDocument()
+  })
+
+  it('uses Oracle-owned enterprise object folders and PL/SQL actions', () => {
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(oracleConnection())}
+        connection={oracleConnection()}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Containers')
+    expandTreeItem('FREEPDB1')
+
+    expect(screen.getByText('Tables')).toBeInTheDocument()
+    expect(screen.getByText('Packages')).toBeInTheDocument()
+    expect(screen.getByText('Procedures')).toBeInTheDocument()
+    expect(screen.queryByText('Database Links')).not.toBeInTheDocument()
+    expect(screen.queryByText('Data Guard')).not.toBeInTheDocument()
+    expect(screen.queryByText('RAC')).not.toBeInTheDocument()
+
+    fireEvent.contextMenu(treeItemForLabel('Packages'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Packages' })
+    expect(within(menu).getByRole('menuitem', { name: 'Create Package...' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Refresh Packages' })).not.toBeInTheDocument()
+  })
+
   it('marks queryable leaf objects as clickable and opens a scoped query on click', () => {
     const onOpenScopedQuery = vi.fn()
 
@@ -17,7 +116,6 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('Databases')
     expandTreeItem('catalog')
     expandTreeItem('Collections')
 
@@ -26,7 +124,7 @@ describe('ConnectionObjectTree', () => {
     expect(productsRow).toHaveClass('is-queryable')
     expect(within(productsRow).getByText('Query')).toBeInTheDocument()
 
-    fireEvent.click(productsRow)
+    fireEvent.click(within(productsRow).getByRole('button', { name: 'Query' }))
 
     expect(onOpenScopedQuery).toHaveBeenCalledWith(
       'conn-mongo',
@@ -34,7 +132,7 @@ describe('ConnectionObjectTree', () => {
         kind: 'collection',
         label: 'products',
         preferredBuilder: 'mongo-find',
-        scope: 'collection:products',
+        scope: 'collection:catalog:products',
       }),
     )
   })
@@ -51,7 +149,6 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('Databases')
     expandTreeItem('catalog')
     expandTreeItem('Collections')
 
@@ -63,6 +160,154 @@ describe('ConnectionObjectTree', () => {
     expect(onOpenScopedQuery).toHaveBeenCalledWith(
       'conn-mongo',
       expect.objectContaining({ label: 'products' }),
+    )
+  })
+
+  it('renders Mongo native collection admin children without sample document nodes', () => {
+    render(
+      <ConnectionObjectTree
+        connection={mongoConnection()}
+        explorerNodes={mongoExplorerNodes()}
+        explorerStatus="ready"
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('catalog')
+    expandTreeItem('Collections')
+    expandTreeItem('products')
+
+    expect(screen.getByText('Documents')).toBeInTheDocument()
+    expect(screen.getByText('Schema Preview')).toBeInTheDocument()
+    expect(screen.getByText('Indexes')).toBeInTheDocument()
+    expect(screen.getByText('Validation Rules')).toBeInTheDocument()
+    expect(screen.getByText('Aggregations')).toBeInTheDocument()
+    expect(screen.queryByText('Sample documents')).not.toBeInTheDocument()
+  })
+
+  it('opens Mongo metadata leaves as object-view tabs on normal click', () => {
+    const onOpenObjectView = vi.fn()
+    const onOpenScopedQuery = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={mongoConnection()}
+        explorerNodes={mongoExplorerNodes()}
+        explorerStatus="ready"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={onOpenScopedQuery}
+      />,
+    )
+
+    expandTreeItem('catalog')
+    expandTreeItem('Collections')
+    expandTreeItem('products')
+    fireEvent.click(treeItemForLabel('Schema Preview'))
+
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-mongo',
+      expect.objectContaining({
+        id: 'schema-preview:catalog:products',
+        kind: 'schema-preview',
+        label: 'Schema Preview',
+      }),
+    )
+    expect(onOpenScopedQuery).not.toHaveBeenCalled()
+  })
+
+  it('keeps Mongo Documents as a scoped query entry instead of an object view', () => {
+    const onOpenObjectView = vi.fn()
+    const onOpenScopedQuery = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={mongoConnection()}
+        explorerNodes={mongoExplorerNodes()}
+        explorerStatus="ready"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={onOpenScopedQuery}
+      />,
+    )
+
+    expandTreeItem('catalog')
+    expandTreeItem('Collections')
+    expandTreeItem('products')
+    fireEvent.click(treeItemForLabel('Documents'))
+
+    expect(onOpenScopedQuery).toHaveBeenCalledWith(
+      'conn-mongo',
+      expect.objectContaining({
+        kind: 'documents',
+        label: 'Documents',
+        scope: 'collection:catalog:products',
+      }),
+    )
+    expect(onOpenObjectView).not.toHaveBeenCalled()
+  })
+
+  it('shows Open View rather than Open Query for Mongo metadata menu items', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={mongoConnection()}
+        explorerNodes={mongoExplorerNodes()}
+        explorerStatus="ready"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('catalog')
+    expandTreeItem('Collections')
+    expandTreeItem('products')
+    fireEvent.contextMenu(treeItemForLabel('Schema Preview'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Schema Preview' })
+    expect(within(menu).getByRole('menuitem', { name: 'Open View' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open Query' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open View' }))
+
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-mongo',
+      expect.objectContaining({ id: 'schema-preview:catalog:products' }),
+    )
+  })
+
+  it('offers Mongo collection admin templates and inspect from the object menu', () => {
+    const onInspectNode = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={mongoConnection()}
+        explorerNodes={mongoExplorerNodes()}
+        explorerStatus="ready"
+        onInspectNode={onInspectNode}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('catalog')
+    expandTreeItem('Collections')
+
+    fireEvent.contextMenu(treeItemForLabel('products'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for products' })
+    expect(within(menu).getByRole('menuitem', { name: 'Inspect' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Open Documents' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Open Aggregation Pipeline' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Create Index...' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Update Validation Rules...' })).toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Inspect' }))
+
+    expect(onInspectNode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'collection:catalog:products',
+        kind: 'collection',
+        scope: 'collection:catalog:products',
+      }),
     )
   })
 
@@ -190,20 +435,73 @@ describe('ConnectionObjectTree', () => {
     render(
       <ConnectionObjectTree
         connection={mongoConnection()}
+        explorerNodes={mongoExplorerNodes()}
+        explorerStatus="ready"
         onOpenScopedQuery={vi.fn()}
       />,
     )
 
-    expandTreeItem('Databases')
     expandTreeItem('catalog')
+    expandTreeItem('Collections')
+    expandTreeItem('products')
 
     fireEvent.contextMenu(treeItemForLabel('Indexes'), { clientX: 24, clientY: 32 })
 
     const menu = screen.getByRole('menu', { name: 'Object options for Indexes' })
 
     expect(within(menu).queryByRole('menuitem', { name: 'Open Query' })).not.toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: 'Refresh indexes' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Refresh indexes' })).not.toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Copy Name' })).toBeInTheDocument()
+  })
+
+  it('does not show object action affordances for unavailable structural leaves', () => {
+    render(
+      <ConnectionObjectTree
+        connection={redisConnection()}
+        nodes={[
+          {
+            id: 'module-search',
+            label: 'Search Indexes',
+            kind: 'search-indexes',
+            detail: 'Redis module metadata unavailable',
+          },
+        ]}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    const row = treeItemForLabel('Search Indexes')
+
+    expect(
+      within(row).queryByRole('button', { name: 'Object actions for Search Indexes' }),
+    ).not.toBeInTheDocument()
+
+    fireEvent.contextMenu(row, { clientX: 24, clientY: 32 })
+
+    expect(
+      screen.queryByRole('menu', { name: 'Object options for Search Indexes' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides optional Redis module folders until live metadata reports them', () => {
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(redisConnection())}
+        connection={redisConnection()}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('DB 0')
+
+    expect(screen.getByText('Strings')).toBeInTheDocument()
+    expect(screen.getByText('Hashes')).toBeInTheDocument()
+    expect(screen.queryByText('JSON')).not.toBeInTheDocument()
+    expect(screen.queryByText('Search Indexes')).not.toBeInTheDocument()
+    expect(screen.queryByText('Vector Indexes')).not.toBeInTheDocument()
+    expect(screen.queryByText('Cluster')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sentinel')).not.toBeInTheDocument()
   })
 
   it('uses datastore/object icons and environment tint for object rows', () => {
@@ -217,13 +515,12 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    const databasesRow = treeItemForLabel('Databases')
+    const databasesRow = treeItemForLabel('catalog')
 
     expect(databasesRow).toHaveClass('has-environment-accent')
     expect(databasesRow.getAttribute('style')).toContain('--connection-env-color')
     expect(databasesRow.querySelector('.tree-kind-icon--database')).not.toBeNull()
 
-    expandTreeItem('Databases')
     expandTreeItem('catalog')
     expandTreeItem('Collections')
 
@@ -321,8 +618,8 @@ describe('ConnectionObjectTree', () => {
             kind: 'collection',
             detail: 'Documents, validators, and indexes',
             family: 'document',
-            path: ['Fixture MongoDB'],
-            scope: 'collection:customers',
+            path: ['catalog', 'Collections'],
+            scope: 'collection:catalog:customers',
             queryTemplate: '{ "collection": "customers", "filter": {} }',
             expandable: true,
           },
@@ -333,7 +630,6 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('Databases')
     expandTreeItem('catalog')
     expandTreeItem('Collections')
 
@@ -342,7 +638,7 @@ describe('ConnectionObjectTree', () => {
 
     expandTreeItem('customers')
 
-    expect(onLoadExplorerScope).toHaveBeenCalledWith('conn-mongo', 'collection:customers')
+    expect(onLoadExplorerScope).toHaveBeenCalledWith('conn-mongo', 'collection:catalog:customers')
   })
 })
 
@@ -372,6 +668,80 @@ function postgresConnection(): ConnectionProfile {
     auth: {},
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function sqlServerConnection(): ConnectionProfile {
+  return {
+    id: 'conn-sqlserver',
+    name: 'Fixture SQL Server',
+    engine: 'sqlserver',
+    family: 'sql',
+    host: 'localhost',
+    port: 1433,
+    database: 'datapadplusplus',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'sqlserver',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function oracleConnection(): ConnectionProfile {
+  return {
+    id: 'conn-oracle',
+    name: 'Fixture Oracle',
+    engine: 'oracle',
+    family: 'sql',
+    host: 'localhost',
+    port: 1521,
+    database: 'FREEPDB1',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: true,
+    icon: 'oracle',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'APP' },
+    oracleOptions: {
+      connectMode: 'service-name',
+      serviceName: 'FREEPDB1',
+    },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function adapterManifestFor(connection: ConnectionProfile): AdapterManifest {
+  const defaultLanguage: AdapterManifest['defaultLanguage'] =
+    connection.family === 'keyvalue'
+      ? 'redis'
+      : connection.family === 'document'
+        ? 'mongodb'
+        : 'sql'
+
+  return {
+    id: `adapter-${connection.engine}`,
+    engine: connection.engine,
+    family: connection.family,
+    label: `${connection.engine} adapter`,
+    maturity: 'mvp',
+    capabilities: [],
+    defaultLanguage,
+    tree: datastoreTreeForEngine(connection.engine, connection.family),
   }
 }
 
@@ -413,15 +783,82 @@ function mongoConnection(): ConnectionProfile {
 function mongoExplorerNodes() {
   return [
     {
-      id: 'collection-products',
+      id: 'database:catalog',
+      label: 'catalog',
+      kind: 'database',
+      detail: 'MongoDB database',
+      family: 'document',
+      scope: 'database:catalog',
+      expandable: true,
+    },
+    {
+      id: 'collections:catalog',
+      label: 'Collections',
+      kind: 'collections',
+      detail: 'Document collections',
+      family: 'document',
+      path: ['catalog'],
+      scope: 'collections:catalog',
+      expandable: true,
+    },
+    {
+      id: 'collection:catalog:products',
       label: 'products',
       kind: 'collection',
-      detail: 'Documents, validators, and indexes',
+      detail: 'Collection',
       family: 'document',
-      path: ['Fixture MongoDB'],
-      scope: 'collection:products',
-      queryTemplate: '{ "collection": "products", "filter": {} }',
+      path: ['catalog', 'Collections'],
+      scope: 'collection:catalog:products',
+      queryTemplate: '{ "database": "catalog", "collection": "products", "filter": {} }',
       expandable: true,
+    },
+    {
+      id: 'documents:catalog:products',
+      label: 'Documents',
+      kind: 'documents',
+      detail: 'Collection documents',
+      family: 'document',
+      path: ['catalog', 'Collections', 'products'],
+      scope: 'collection:catalog:products',
+      queryTemplate: '{ "database": "catalog", "collection": "products", "filter": {} }',
+    },
+    {
+      id: 'schema-preview:catalog:products',
+      label: 'Schema Preview',
+      kind: 'schema-preview',
+      detail: 'Inferred BSON field paths',
+      family: 'document',
+      path: ['catalog', 'Collections', 'products'],
+      scope: 'schema-preview:catalog:products',
+    },
+    {
+      id: 'indexes:catalog:products',
+      label: 'Indexes',
+      kind: 'indexes',
+      detail: 'Collection indexes',
+      family: 'document',
+      path: ['catalog', 'Collections', 'products'],
+      scope: 'indexes:catalog:products',
+      expandable: true,
+    },
+    {
+      id: 'validation-rules:catalog:products',
+      label: 'Validation Rules',
+      kind: 'validation-rules',
+      detail: 'Collection validator',
+      family: 'document',
+      path: ['catalog', 'Collections', 'products'],
+      scope: 'validation-rules:catalog:products',
+    },
+    {
+      id: 'aggregations:catalog:products',
+      label: 'Aggregations',
+      kind: 'aggregations',
+      detail: 'Aggregation pipeline template',
+      family: 'document',
+      path: ['catalog', 'Collections', 'products'],
+      scope: 'aggregation:catalog:products',
+      queryTemplate: '{ "database": "catalog", "collection": "products", "pipeline": [] }',
     },
   ] satisfies Parameters<typeof ConnectionObjectTree>[0]['explorerNodes']
 }
@@ -446,6 +883,35 @@ function redisConnection(): ConnectionProfile {
     group: undefined,
     notes: undefined,
     auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function sqliteConnection(): ConnectionProfile {
+  return {
+    id: 'conn-sqlite',
+    name: 'Fixture SQLite',
+    engine: 'sqlite',
+    family: 'sql',
+    host: 'tests/fixtures/sqlite/datapadplusplus.sqlite3',
+    port: undefined,
+    database: 'tests/fixtures/sqlite/datapadplusplus.sqlite3',
+    connectionString: undefined,
+    connectionMode: 'local-file',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'sqlite',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    sqliteOptions: {
+      openMode: 'read-write',
+      foreignKeys: true,
+    },
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }

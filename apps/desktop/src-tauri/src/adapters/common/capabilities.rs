@@ -1,5 +1,7 @@
 use crate::domain::models::{AdapterManifest, ExecutionCapabilities};
 
+use super::tree_manifest::datastore_tree_manifest;
+
 pub(crate) const DEFAULT_PAGE_SIZE: u32 = 500;
 pub(crate) const MAX_PAGE_SIZE: u32 = 5_000;
 
@@ -43,6 +45,7 @@ pub(crate) fn manifest_with_maturity(
             .collect(),
         default_language: default_language.into(),
         local_database: None,
+        tree: Some(datastore_tree_manifest(engine, family)),
     }
 }
 

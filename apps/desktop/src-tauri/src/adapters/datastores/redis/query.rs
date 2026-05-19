@@ -32,16 +32,16 @@ pub(super) async fn execute_redis_query(
     }
 
     let upper = parts[0].to_uppercase();
-    if is_redis_write_command(&upper) {
+    if is_redis_write_command(&parts) {
         return Err(CommandError::new(
             "redis-write-preview-only",
             "Redis write and destructive commands are planned as guarded operations in this milestone; live execution is read/diagnostic only.",
         ));
     }
-    if !is_supported_redis_read_command(&upper, parts.len()) {
+    if !is_supported_redis_read_command(&parts) {
         return Err(CommandError::new(
             "redis-command-unsupported",
-            "This milestone supports read-oriented Redis commands such as SCAN, HGETALL, GET, TYPE, TTL, and PING.",
+            "Redis Console runs read-oriented commands such as SCAN, GET, HGETALL, INFO, SLOWLOG, ACL LIST, MODULE LIST, and type inspectors. Writes are available through guarded key editors and operation plans.",
         ));
     }
 

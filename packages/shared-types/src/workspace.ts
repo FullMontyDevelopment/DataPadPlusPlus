@@ -76,7 +76,7 @@ export type QuerySaveTarget =
 export interface QueryTabDefinition {
   id: string
   title: string
-  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics'
+  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics' | 'object-view'
   connectionId: string
   environmentId: string
   family: DatastoreFamily
@@ -94,8 +94,32 @@ export interface MetricsTabState {
   warnings: string[]
 }
 
+export interface ObjectViewTabState {
+  connectionId: string
+  environmentId: string
+  nodeId: string
+  label: string
+  kind: string
+  path?: string[]
+  summary?: string
+  queryTemplate?: string
+  payload?: unknown
+  lastRefreshedAt?: string
+  warnings: string[]
+}
+
+export interface CreateObjectViewTabRequest {
+  connectionId: string
+  environmentId?: string
+  nodeId: string
+  label: string
+  kind: string
+  path?: string[]
+}
+
 export type QueryBuilderKind =
   | 'mongo-find'
+  | 'mongo-aggregation'
   | 'redis-key-browser'
   | 'sql-select'
   | 'dynamodb-key-condition'
@@ -160,6 +184,21 @@ export interface MongoFindBuilderState {
   projectionFields: MongoFindProjectionField[]
   sort: MongoFindSortRow[]
   skip?: number
+  limit?: number
+  lastAppliedQueryText?: string
+}
+
+export interface MongoAggregationStageRow {
+  id: string
+  enabled?: boolean
+  stage: string
+  body: string
+}
+
+export interface MongoAggregationBuilderState {
+  kind: 'mongo-aggregation'
+  collection: string
+  stages: MongoAggregationStageRow[]
   limit?: number
   lastAppliedQueryText?: string
 }
@@ -372,20 +411,31 @@ export interface RedisKeyBrowserState {
   kind: 'redis-key-browser'
   pattern: string
   typeFilter: RedisKeyTypeFilter
+  databaseIndex?: number
+  delimiter?: string
   cursor?: string
   scanCount?: number
   pageSize?: number
   scannedCount?: number
+  scanCursorByDb?: Record<string, string>
+  filters?: {
+    ttl?: 'all' | 'expiring' | 'persistent'
+    minBytes?: number
+    maxBytes?: number
+  }
   selectedKey?: string
   expandedPrefixes?: string[]
   visibleColumns?: string[]
   viewMode?: 'tree' | 'list'
+  pipelineMode?: boolean
+  consoleHistory?: string[]
   lastRefreshAt?: string
   lastAppliedQueryText?: string
 }
 
 export type QueryBuilderState =
   | MongoFindBuilderState
+  | MongoAggregationBuilderState
   | RedisKeyBrowserState
   | SqlSelectBuilderState
   | DynamoDbKeyConditionBuilderState
@@ -569,6 +619,12 @@ export interface KeyValuePayload {
   metadata?: Record<string, unknown>
   supports?: Record<string, boolean>
   disabledActions?: Record<string, string>
+  binaryValueBase64?: string
+  hexValue?: string
+  streamGroups?: Array<Record<string, unknown>>
+  zsetRanks?: Array<Record<string, unknown>>
+  moduleMetadata?: Record<string, unknown>
+  commandSupport?: Record<string, boolean>
 }
 
 export interface RawPayload {
@@ -742,6 +798,7 @@ export interface QueryTabState extends QueryTabDefinition {
   scopedTarget?: ScopedQueryTarget
   builderState?: QueryBuilderState
   metricsState?: MetricsTabState
+  objectViewState?: ObjectViewTabState
   testSuite?: DatastoreTestSuiteDefinition
   testRun?: DatastoreTestRunResult
   status: QueryExecutionState

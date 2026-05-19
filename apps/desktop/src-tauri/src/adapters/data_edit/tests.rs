@@ -138,6 +138,48 @@ fn mongo_nested_rename_and_unset_requests_are_operation_specific() {
 }
 
 #[test]
+fn mongo_insert_document_preview_does_not_require_existing_document_id() {
+    let connection = connection("mongodb", "document", false);
+    let experience = experience(&["insert-document"], true);
+    let plan = default_data_edit_plan(
+        &connection,
+        &experience,
+        &request(
+            "insert-document",
+            DataEditTarget {
+                object_kind: "document".into(),
+                collection: Some("products".into()),
+                ..Default::default()
+            },
+            vec![DataEditChange {
+                value: Some(json!({
+                    "sku": "nova",
+                    "name": "Nova Chair"
+                })),
+                value_type: Some("json".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+
+    assert_eq!(plan.execution_support, "live");
+    assert!(plan
+        .plan
+        .generated_request
+        .contains("\"operation\": \"insertOne\""));
+    assert!(plan.plan.generated_request.contains("\"sku\": \"nova\""));
+    assert!(!plan
+        .plan
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("stable document id")));
+    assert_eq!(
+        plan.plan.required_permissions,
+        vec!["insert collection document"]
+    );
+}
+
+#[test]
 fn keyvalue_delete_is_destructive_and_confirmation_gated() {
     let connection = connection("redis", "keyvalue", false);
     let plan = default_data_edit_plan(
@@ -301,6 +343,10 @@ fn connection(engine: &str, family: &str, read_only: bool) -> ResolvedConnection
         username: None,
         password: None,
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only,
     }
 }
@@ -324,6 +370,7 @@ fn experience(edit_kinds: &[&str], live_execution: bool) -> DatastoreExperienceM
         diagnostics_tabs: Vec::new(),
         result_renderers: Vec::new(),
         safety_rules: Vec::new(),
+        tree: None,
         test_templates: Vec::new(),
         test_assertions: Vec::new(),
     }

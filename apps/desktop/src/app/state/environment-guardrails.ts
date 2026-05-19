@@ -83,6 +83,8 @@ export function evaluateGuardrails(
   const looksWrite = /(insert|update|delete|drop|truncate|alter|create|flushdb|flushall|set )/.test(
     normalized,
   )
+  const riskyQuery =
+    looksWrite || environment.risk === 'high' || environment.risk === 'critical'
 
   if (resolvedEnvironment.unresolvedKeys.length > 0) {
     reasons.push('Unresolved environment variables must be fixed before execution.')
@@ -102,11 +104,27 @@ export function evaluateGuardrails(
     }
   }
 
-  if (
-    environment.requiresConfirmation &&
-    (looksWrite || environment.risk === 'critical')
-  ) {
-    reasons.push(`${environment.label} requires confirmation for risky work.`)
+  if (riskyQuery) {
+    if (safeModeEnabled) {
+      reasons.push('Global safe mode requires confirmation for risky work.')
+    }
+
+    if (environment.safeMode) {
+      reasons.push(
+        `${environment.label} safe mode requires confirmation for risky work.`,
+      )
+    }
+
+    if (environment.requiresConfirmation) {
+      reasons.push(`${environment.label} requires confirmation for risky work.`)
+    }
+
+    if (environment.risk === 'high' || environment.risk === 'critical') {
+      reasons.push(`${environment.label} is a ${environment.risk} risk environment.`)
+    }
+  }
+
+  if (reasons.length > 0) {
     return {
       status: 'confirm',
       reasons,

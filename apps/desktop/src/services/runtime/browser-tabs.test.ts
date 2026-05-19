@@ -3,6 +3,7 @@ import { createSeedSnapshot } from '../../test/fixtures/seed-workspace'
 import {
   createExplorerTabInSnapshot,
   createMetricsTabInSnapshot,
+  createObjectViewTabInSnapshot,
   createScopedQueryTabInSnapshot,
   scopedTargetsMatch,
 } from './browser-tabs'
@@ -54,6 +55,41 @@ describe('browser tab runtime', () => {
 
     expect(reopened.tabs.filter((tab) => tab.tabKind === 'metrics')).toHaveLength(1)
     expect(reopened.ui.activeTabId).toBe(metricsTab?.id)
+  })
+
+  it('opens object views once per connection, environment, and object node', () => {
+    const snapshot = createSeedSnapshot()
+    const request = {
+      connectionId: 'conn-catalog',
+      environmentId: 'env-dev',
+      nodeId: 'schema-preview:catalog:products',
+      label: 'Schema Preview',
+      kind: 'schema-preview',
+      path: ['catalog', 'Collections', 'products'],
+    }
+    const opened = createObjectViewTabInSnapshot(snapshot, request)
+    const objectViewTab = opened.tabs.find((tab) => tab.tabKind === 'object-view')
+
+    expect(objectViewTab).toMatchObject({
+      connectionId: 'conn-catalog',
+      environmentId: 'env-dev',
+      dirty: false,
+      editorLabel: 'Object view',
+      queryText: '',
+      objectViewState: expect.objectContaining({
+        nodeId: 'schema-preview:catalog:products',
+        kind: 'schema-preview',
+        label: 'Schema Preview',
+      }),
+    })
+    expect(objectViewTab?.saveTarget).toBeUndefined()
+    expect(opened.ui.activeTabId).toBe(objectViewTab?.id)
+    expect(opened.ui.rightDrawer).toBe('none')
+
+    const reopened = createObjectViewTabInSnapshot(opened, request)
+
+    expect(reopened.tabs.filter((tab) => tab.tabKind === 'object-view')).toHaveLength(1)
+    expect(reopened.ui.activeTabId).toBe(objectViewTab?.id)
   })
 
   it('reuses an already-open scoped object query tab', () => {
@@ -111,6 +147,34 @@ describe('browser tab runtime', () => {
 
     expect(reopened.tabs).toHaveLength(1)
     expect(reopened.ui.activeTabId).toBe('tab-legacy-products')
+  })
+
+  it('creates Mongo aggregation scoped tabs with the aggregation builder active', () => {
+    const snapshot = createSeedSnapshot()
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-catalog',
+      target: {
+        kind: 'aggregations',
+        label: 'Aggregations',
+        path: ['Catalog Mongo', 'catalog', 'Collections', 'products'],
+        scope: 'aggregation:catalog:products',
+        preferredBuilder: 'mongo-aggregation',
+      },
+    })
+    const aggregationTab = opened.tabs.find(
+      (tab) => tab.scopedTarget?.scope === 'aggregation:catalog:products',
+    )
+
+    expect(aggregationTab).toMatchObject({
+      title: 'products.aggregate.json',
+      queryViewMode: 'builder',
+      builderState: expect.objectContaining({
+        kind: 'mongo-aggregation',
+        collection: 'products',
+      }),
+      scriptText: expect.stringContaining('aggregate'),
+    })
+    expect(aggregationTab?.queryText).toContain('"operation": "aggregate"')
   })
 
   it('creates Redis scoped tabs as key-browser tabs filtered to the selected prefix', () => {

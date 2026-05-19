@@ -187,13 +187,8 @@ pub fn evaluate_guardrails(
     query_text: &str,
     safe_mode_enabled: bool,
 ) -> GuardrailDecision {
-    let normalized = query_text.to_lowercase();
-    let looks_write = [
-        "insert", "update", "delete", "drop", "truncate", "alter", "create", "flushdb", "flushall",
-        "set ",
-    ]
-    .iter()
-    .any(|keyword| normalized.contains(keyword));
+    let looks_write = query_looks_write(query_text);
+    let risky_query = looks_write || matches!(environment.risk.as_str(), "high" | "critical");
 
     if !resolved_environment.unresolved_keys.is_empty() {
         return GuardrailDecision {
@@ -217,16 +212,15 @@ pub fn evaluate_guardrails(
         };
     }
 
-    if environment.requires_confirmation && (looks_write || environment.risk == "critical") {
+    let confirmation_reasons =
+        environment_risky_confirmation_reasons(environment, safe_mode_enabled, risky_query);
+    if !confirmation_reasons.is_empty() {
         return GuardrailDecision {
             id: None,
             status: "confirm".into(),
-            reasons: vec![format!(
-                "{} requires confirmation for risky work.",
-                environment.label
-            )],
+            reasons: confirmation_reasons,
             safe_mode_applied: safe_mode_enabled || environment.safe_mode,
-            required_confirmation_text: None,
+            required_confirmation_text: Some(environment_confirmation_text(environment)),
         };
     }
 
@@ -237,6 +231,59 @@ pub fn evaluate_guardrails(
         safe_mode_applied: safe_mode_enabled || environment.safe_mode,
         required_confirmation_text: None,
     }
+}
+
+pub fn query_looks_write(query_text: &str) -> bool {
+    let normalized = query_text.to_lowercase();
+    [
+        "insert", "update", "delete", "drop", "truncate", "alter", "create", "flushdb", "flushall",
+        "set ",
+    ]
+    .iter()
+    .any(|keyword| normalized.contains(keyword))
+}
+
+pub fn environment_confirmation_text(environment: &EnvironmentProfile) -> String {
+    format!("CONFIRM {}", environment.label)
+}
+
+pub fn environment_risky_confirmation_reasons(
+    environment: &EnvironmentProfile,
+    safe_mode_enabled: bool,
+    risky: bool,
+) -> Vec<String> {
+    if !risky {
+        return Vec::new();
+    }
+
+    let mut reasons = Vec::new();
+
+    if safe_mode_enabled {
+        reasons.push("Global safe mode requires confirmation for risky work.".into());
+    }
+
+    if environment.safe_mode {
+        reasons.push(format!(
+            "{} safe mode requires confirmation for risky work.",
+            environment.label
+        ));
+    }
+
+    if environment.requires_confirmation {
+        reasons.push(format!(
+            "{} requires confirmation for risky work.",
+            environment.label
+        ));
+    }
+
+    if matches!(environment.risk.as_str(), "high" | "critical") {
+        reasons.push(format!(
+            "{} is a {} risk environment.",
+            environment.label, environment.risk
+        ));
+    }
+
+    reasons
 }
 
 fn derive_legacy_key(passphrase: &str) -> [u8; 32] {
@@ -327,6 +374,116 @@ pub fn decrypt_export_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    fn connection(read_only: bool) -> ConnectionProfile {
+        ConnectionProfile {
+            id: "conn".into(),
+            name: "Connection".into(),
+            engine: "postgresql".into(),
+            family: "sql".into(),
+            host: "localhost".into(),
+            port: Some(5432),
+            database: Some("app".into()),
+            connection_string: None,
+            connection_mode: None,
+            environment_ids: Vec::new(),
+            tags: Vec::new(),
+            favorite: false,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            read_only,
+            icon: "postgresql".into(),
+            color: None,
+            group: None,
+            notes: None,
+            auth: Default::default(),
+            created_at: "2026-05-19T00:00:00Z".into(),
+            updated_at: "2026-05-19T00:00:00Z".into(),
+        }
+    }
+
+    fn environment(risk: &str, safe_mode: bool, requires_confirmation: bool) -> EnvironmentProfile {
+        EnvironmentProfile {
+            id: "env".into(),
+            label: "QA".into(),
+            color: "#2563eb".into(),
+            risk: risk.into(),
+            inherits_from: None,
+            variables: HashMap::new(),
+            sensitive_keys: Vec::new(),
+            requires_confirmation,
+            safe_mode,
+            exportable: true,
+            created_at: "2026-05-19T00:00:00Z".into(),
+            updated_at: "2026-05-19T00:00:00Z".into(),
+        }
+    }
+
+    fn resolved_environment(unresolved_keys: Vec<String>) -> ResolvedEnvironment {
+        ResolvedEnvironment {
+            environment_id: "env".into(),
+            label: "QA".into(),
+            risk: "low".into(),
+            variables: HashMap::new(),
+            unresolved_keys,
+            inherited_chain: Vec::new(),
+            sensitive_keys: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn safe_mode_requires_confirmation_for_risky_queries() {
+        let decision = evaluate_guardrails(
+            &connection(false),
+            &environment("low", false, false),
+            &resolved_environment(Vec::new()),
+            "delete from accounts where id = 1",
+            true,
+        );
+
+        assert_eq!(decision.status, "confirm");
+        assert_eq!(
+            decision.required_confirmation_text.as_deref(),
+            Some("CONFIRM QA")
+        );
+        assert!(decision
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("Global safe mode")));
+    }
+
+    #[test]
+    fn high_risk_environment_requires_confirmation_even_for_reads() {
+        let decision = evaluate_guardrails(
+            &connection(false),
+            &environment("high", false, false),
+            &resolved_environment(Vec::new()),
+            "select * from accounts",
+            false,
+        );
+
+        assert_eq!(decision.status, "confirm");
+        assert!(decision
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("high risk")));
+    }
+
+    #[test]
+    fn unresolved_environment_variables_block_before_confirmation() {
+        let decision = evaluate_guardrails(
+            &connection(false),
+            &environment("high", true, true),
+            &resolved_environment(vec!["DB_NAME".into()]),
+            "select 1",
+            true,
+        );
+
+        assert_eq!(decision.status, "block");
+    }
 
     #[test]
     fn export_encryption_round_trips_with_kdf_metadata() {

@@ -23,7 +23,7 @@ export function browserDataEditWarnings(
     if (!target.collection) {
       warnings.push('Document edits need a target collection.')
     }
-    if (target.documentId === undefined) {
+    if (request.editKind !== 'insert-document' && target.documentId === undefined) {
       warnings.push('Document edits require a stable document id.')
     }
   }
@@ -55,7 +55,9 @@ export function browserDataEditPermission(
   }
 
   if (connection.family === 'document') {
-    return 'update collection document'
+    return request.editKind === 'insert-document'
+      ? 'insert collection document'
+      : 'update collection document'
   }
 
   if (connection.family === 'keyvalue') {
@@ -97,6 +99,18 @@ export function browserDataEditRequest(
 }
 
 function mongoEditRequest(request: DataEditPlanRequest) {
+  if (request.editKind === 'insert-document') {
+    return JSON.stringify(
+      {
+        collection: request.target.collection ?? '<collection>',
+        operation: 'insertOne',
+        document: request.changes[0]?.value ?? {},
+      },
+      null,
+      2,
+    )
+  }
+
   const update =
     request.editKind === 'unset-field'
       ? { $unset: documentPathObject(request, '') }

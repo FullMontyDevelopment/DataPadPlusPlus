@@ -353,6 +353,35 @@ describe('ResultPayloadView', () => {
     expect(screen.getByRole('button', { name: 'paused' })).toBeInTheDocument()
   })
 
+  it('confirms Mongo document field deletion before executing the edit', async () => {
+    const executeDataEdit = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "collection": "products", "filter": {}, "limit": 20 }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-1', status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Field' }))
+
+    expect(confirmSpy).toHaveBeenCalledWith('Delete field status?')
+    expect(executeDataEdit).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
   it('keeps non-editable document results read-only on double click', () => {
     render(
       <ResultPayloadView

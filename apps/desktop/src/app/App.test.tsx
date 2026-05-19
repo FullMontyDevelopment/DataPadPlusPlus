@@ -222,19 +222,12 @@ async function createCatalogMongoWithBuilderTab() {
 
   let mongoTree = await expandConnectionObjects('Catalog Mongo')
   await waitFor(() => {
-    expect(within(getConnectionObjectTree('Catalog Mongo')).getByText('Databases')).toBeInTheDocument()
+    expect(within(getConnectionObjectTree('Catalog Mongo')).getByText('catalog')).toBeInTheDocument()
   })
   await waitFor(() => {
     expect(
       within(getConnectionObjectTree('Catalog Mongo')).queryByText('Loading live metadata...'),
     ).not.toBeInTheDocument()
-  })
-  mongoTree = getConnectionObjectTree('Catalog Mongo')
-  expandObjectTreeItem(mongoTree, 'Databases')
-  await waitFor(() => {
-    expect(
-      within(getConnectionObjectTree('Catalog Mongo')).getByLabelText('Expand catalog'),
-    ).toBeInTheDocument()
   })
   mongoTree = getConnectionObjectTree('Catalog Mongo')
   expandObjectTreeItem(mongoTree, 'catalog')
@@ -846,19 +839,12 @@ describe('App', () => {
     let mongoTree = await expandConnectionObjects('Catalog Mongo')
     expect(mongoTree).toBeInTheDocument()
     await waitFor(() => {
-      expect(within(getConnectionObjectTree('Catalog Mongo')).getByText('Databases')).toBeInTheDocument()
+      expect(within(getConnectionObjectTree('Catalog Mongo')).getByText('catalog')).toBeInTheDocument()
     })
     await waitFor(() => {
       expect(
         within(getConnectionObjectTree('Catalog Mongo')).queryByText('Loading live metadata...'),
       ).not.toBeInTheDocument()
-    })
-    mongoTree = getConnectionObjectTree('Catalog Mongo')
-    expandObjectTreeItem(mongoTree, 'Databases')
-    await waitFor(() => {
-      expect(
-        within(getConnectionObjectTree('Catalog Mongo')).getByLabelText('Expand catalog'),
-      ).toBeInTheDocument()
     })
     mongoTree = getConnectionObjectTree('Catalog Mongo')
     expandObjectTreeItem(mongoTree, 'catalog')
@@ -872,7 +858,7 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(within(mongoTree).getByText('products')).toBeInTheDocument()
-      expect(within(mongoTree).getByText('inventory')).toBeInTheDocument()
+      expect(within(mongoTree).getByText('orders')).toBeInTheDocument()
     })
     expect(within(mongoTree).getByText('Collections')).toBeInTheDocument()
     expect(within(mongoTree).queryByText('Sample documents')).not.toBeInTheDocument()
@@ -1244,8 +1230,15 @@ describe('App', () => {
       expect(screen.getAllByRole('tab', { name: /Query 1/i })).toHaveLength(1)
     })
 
-    vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
-    fireEvent.click(screen.getByRole('button', { name: /Delete Query 1/i }))
+    fireEvent.click(
+      within(librarySidebar).getByRole('button', { name: 'Open actions for Query 1' }),
+    )
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Query 1' }))
+
+    const deleteDialog = await screen.findByRole('dialog', {
+      name: 'Delete Query 1?',
+    })
+    fireEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete Query' }))
 
     await waitFor(() => {
       expect(

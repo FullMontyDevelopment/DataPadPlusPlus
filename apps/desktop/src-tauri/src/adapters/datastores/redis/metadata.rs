@@ -65,7 +65,7 @@ pub(crate) async fn load_redis_structure(
             id: prefix.clone(),
             label: format!("{prefix}:*"),
             kind: "prefix".into(),
-            detail: Some(format!("{count} sampled key(s)")),
+            detail: Some(format!("{count} key(s) in loaded metadata")),
             color: None,
         })
         .collect::<Vec<StructureGroup>>();
@@ -74,13 +74,13 @@ pub(crate) async fn load_redis_structure(
         request,
         connection,
         StructureResponseInput {
-            summary: format!("Loaded {} Redis key sample(s).", nodes.len()),
+            summary: format!("Loaded {} Redis key metadata item(s).", nodes.len()),
             groups: if groups.is_empty() {
                 vec![StructureGroup {
                     id: format!("db:{database}"),
                     label: format!("DB {database}"),
                     kind: "database".into(),
-                    detail: Some("No sampled prefixes".into()),
+                    detail: Some("No key prefixes loaded".into()),
                     color: None,
                 }]
             } else {
@@ -89,7 +89,7 @@ pub(crate) async fn load_redis_structure(
             nodes,
             edges: Vec::new(),
             metrics: vec![structure_metric(
-                "Sampled keys",
+                "Loaded keys",
                 nodes_count_hint(limit, keys.len()),
             )],
             truncated: keys.len() > limit as usize,

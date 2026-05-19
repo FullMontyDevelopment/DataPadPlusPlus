@@ -13,12 +13,25 @@ pub(super) async fn execute_sqlite_query(
     notices: Vec<QueryExecutionNotice>,
 ) -> Result<ExecutionResultEnvelope, CommandError> {
     let started = Instant::now();
-    let statement = selected_query(request);
+    let statement = selected_query(request).trim();
+    if statement.is_empty() {
+        return Err(CommandError::new(
+            "sqlite-query-missing",
+            "No SQLite SQL statement was provided.",
+        ));
+    }
+    if connection.read_only && is_mutating_sqlite(statement) {
+        return Err(CommandError::new(
+            "sqlite-read-only",
+            "SQLite profile is read-only; write, DDL, ATTACH/DETACH, VACUUM, and PRAGMA mutation statements are blocked before execution.",
+        ));
+    }
+    let query = sqlite_statement_for_mode(statement, execute_mode(request));
     let row_limit = request
         .row_limit
         .unwrap_or(adapter.execution_capabilities().default_row_limit);
     let pool = sqlite_pool(connection).await?;
-    let mut stream = sqlx::query(statement).fetch(&pool);
+    let mut stream = sqlx::query(&query).fetch(&pool);
     let mut rows = Vec::new();
     while let Some(row) = stream.try_next().await? {
         rows.push(row);
@@ -48,26 +61,114 @@ pub(super) async fn execute_sqlite_query(
         .collect::<Vec<Vec<String>>>();
     pool.close().await;
 
+    let table_payload = payload_table(columns.clone(), tabular_rows);
+    let explain_payload = if matches!(execute_mode(request), "explain" | "profile") {
+        Some(payload_plan(
+            if execute_mode(request) == "profile" {
+                "bytecode"
+            } else {
+                "tree"
+            },
+            json!({
+                "columns": columns,
+                "rows": rows
+                    .iter()
+                    .take(row_limit as usize)
+                    .map(|row| {
+                        (0..row.columns().len())
+                            .map(|index| stringify_sqlite_cell(row, index))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>(),
+            }),
+            if execute_mode(request) == "profile" {
+                "SQLite EXPLAIN bytecode returned."
+            } else {
+                "SQLite EXPLAIN QUERY PLAN returned."
+            },
+        ))
+    } else {
+        None
+    };
+
+    let mut payloads = Vec::new();
+    if let Some(plan) = explain_payload.clone() {
+        payloads.push(plan);
+        payloads.push(table_payload);
+    } else {
+        payloads.push(table_payload);
+    }
+    payloads.push(payload_json(json!({
+        "engine": connection.engine,
+        "rowCount": total_rows,
+        "rowLimit": row_limit,
+        "mode": execute_mode(request),
+    })));
+    payloads.push(payload_raw(query.clone()));
+
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
         summary: format!("{total_rows} row(s) returned from {}.", connection.name),
-        default_renderer: "table",
-        renderer_modes: vec!["table", "json", "raw"],
-        payloads: vec![
-            payload_table(columns, tabular_rows),
-            payload_json(json!({
-                "engine": connection.engine,
-                "rowCount": total_rows,
-                "rowLimit": row_limit,
-            })),
-            payload_raw(statement.to_string()),
-        ],
+        default_renderer: if explain_payload.is_some() {
+            "plan"
+        } else {
+            "table"
+        },
+        renderer_modes: if explain_payload.is_some() {
+            vec!["plan", "table", "json", "raw"]
+        } else {
+            vec!["table", "json", "raw"]
+        },
+        payloads,
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
         truncated: total_rows > row_limit as usize,
-        explain_payload: None,
+        explain_payload,
     }))
+}
+
+fn sqlite_statement_for_mode(statement: &str, mode: &str) -> String {
+    let trimmed = statement.trim().trim_end_matches(';');
+    let lower = trimmed.to_ascii_lowercase();
+    match mode {
+        "explain" if !lower.starts_with("explain") => {
+            format!("EXPLAIN QUERY PLAN {trimmed}")
+        }
+        "profile" if !lower.starts_with("explain") => format!("EXPLAIN {trimmed}"),
+        _ => statement.into(),
+    }
+}
+
+fn is_mutating_sqlite(statement: &str) -> bool {
+    let first = statement
+        .trim_start()
+        .split(|ch: char| ch.is_whitespace() || ch == '(')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if first == "pragma" {
+        let lower = statement.to_ascii_lowercase();
+        return lower.contains('=')
+            || lower.contains("journal_mode")
+            || lower.contains("synchronous")
+            || lower.contains("writable_schema")
+            || lower.contains("foreign_keys")
+            || lower.contains("optimize");
+    }
+    matches!(
+        first.as_str(),
+        "attach"
+            | "create"
+            | "delete"
+            | "detach"
+            | "drop"
+            | "insert"
+            | "replace"
+            | "reindex"
+            | "update"
+            | "vacuum"
+    )
 }
 
 #[cfg(test)]
@@ -140,6 +241,27 @@ mod tests {
         });
     }
 
+    #[test]
+    fn sqlite_modes_generate_query_plan_and_bytecode() {
+        assert_eq!(
+            sqlite_statement_for_mode("select * from accounts;", "explain"),
+            "EXPLAIN QUERY PLAN select * from accounts"
+        );
+        assert_eq!(
+            sqlite_statement_for_mode("select * from accounts", "profile"),
+            "EXPLAIN select * from accounts"
+        );
+    }
+
+    #[test]
+    fn sqlite_read_only_guard_detects_mutations() {
+        assert!(is_mutating_sqlite("create table accounts(id int)"));
+        assert!(is_mutating_sqlite("pragma foreign_keys = off"));
+        assert!(is_mutating_sqlite("vacuum"));
+        assert!(!is_mutating_sqlite("pragma table_info(accounts)"));
+        assert!(!is_mutating_sqlite("select * from accounts"));
+    }
+
     fn test_connection(path: &str) -> ResolvedConnectionProfile {
         ResolvedConnectionProfile {
             id: "conn-sqlite".into(),
@@ -152,6 +274,10 @@ mod tests {
             username: None,
             password: None,
             connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
             read_only: false,
         }
     }

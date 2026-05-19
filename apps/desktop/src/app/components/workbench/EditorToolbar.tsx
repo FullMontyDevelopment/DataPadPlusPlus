@@ -194,7 +194,7 @@ function noop() {
 }
 
 function queryWindowModesForBuilder(builderKind?: QueryBuilderState['kind']): QueryViewMode[] {
-  if (builderKind === 'mongo-find') {
+  if (builderKind === 'mongo-find' || builderKind === 'mongo-aggregation') {
     return ['builder', 'raw', 'script']
   }
 

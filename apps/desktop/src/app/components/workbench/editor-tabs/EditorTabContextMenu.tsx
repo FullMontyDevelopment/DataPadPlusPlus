@@ -44,7 +44,10 @@ export function EditorTabContextMenu({
     onCloseMenu()
     action()
   }
-  const canSaveTab = contextTab.tabKind !== 'explorer' && contextTab.tabKind !== 'metrics'
+  const canSaveTab =
+    contextTab.tabKind !== 'explorer' &&
+    contextTab.tabKind !== 'metrics' &&
+    contextTab.tabKind !== 'object-view'
 
   return (
     <div

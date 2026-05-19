@@ -25,7 +25,11 @@ pub(super) async fn collect_sqlserver_diagnostics(
           CAST((SELECT COUNT(*) FROM sys.dm_exec_requests WHERE blocking_session_id <> 0) AS float) AS blocked_requests,
           CAST((SELECT COALESCE(SUM(size), 0) * 8.0 * 1024.0 FROM sys.database_files) AS float) AS database_size_bytes,
           CAST((SELECT COALESCE(SUM(total_logical_reads), 0) FROM sys.dm_exec_requests WHERE session_id <> @@SPID) AS float) AS request_logical_reads,
-          CAST((SELECT COALESCE(SUM(writes), 0) FROM sys.dm_exec_requests WHERE session_id <> @@SPID) AS float) AS request_writes
+          CAST((SELECT COALESCE(SUM(writes), 0) FROM sys.dm_exec_requests WHERE session_id <> @@SPID) AS float) AS request_writes,
+          CAST((SELECT COALESCE(SUM(wait_time_ms), 0) FROM sys.dm_os_wait_stats WHERE wait_type NOT LIKE 'SLEEP%') AS float) AS wait_time_ms,
+          CAST((SELECT COALESCE(SUM(num_of_bytes_read), 0) FROM sys.dm_io_virtual_file_stats(DB_ID(), NULL)) AS float) AS io_bytes_read,
+          CAST((SELECT COALESCE(SUM(num_of_bytes_written), 0) FROM sys.dm_io_virtual_file_stats(DB_ID(), NULL)) AS float) AS io_bytes_written,
+          CAST((SELECT COALESCE(SUM(size), 0) * 8.0 * 1024.0 FROM tempdb.sys.database_files) AS float) AS tempdb_size_bytes
     "#;
 
     match client.simple_query(statement).await {
@@ -43,6 +47,10 @@ pub(super) async fn collect_sqlserver_diagnostics(
                         (3, "sqlserver.database_size", "bytes"),
                         (4, "sqlserver.request_logical_reads", "reads"),
                         (5, "sqlserver.request_writes", "writes"),
+                        (6, "sqlserver.wait_time", "ms"),
+                        (7, "sqlserver.io_bytes_read", "bytes"),
+                        (8, "sqlserver.io_bytes_written", "bytes"),
+                        (9, "sqlserver.tempdb_size", "bytes"),
                     ] {
                         if let Some(value) = row
                             .cells()

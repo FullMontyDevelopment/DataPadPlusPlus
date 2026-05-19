@@ -7,7 +7,11 @@ import type {
   UiActivity,
 } from './app'
 import type { ConnectionProfile, DatastoreEngine, DatastoreFamily } from './connection'
-import type { AdapterCapability, ExecutionCapabilities } from './capabilities'
+import type {
+  AdapterCapability,
+  DatastoreTreeManifest,
+  ExecutionCapabilities,
+} from './capabilities'
 import type { GuardrailDecision } from './security'
 import type {
   ExecutionResultEnvelope,
@@ -137,7 +141,7 @@ export interface DatastoreExperienceAction {
 }
 
 export interface DatastoreExperienceBuilder {
-  kind: QueryBuilderKind | 'sql-select' | 'search-dsl' | 'dynamodb-key-condition' | 'cql-partition' | 'redis-key-browser'
+  kind: QueryBuilderKind
   label: string
   scope: DatastoreOperationScope
   defaultMode: 'visual' | 'split' | 'raw'
@@ -170,6 +174,7 @@ export interface DatastoreExperienceManifest {
   diagnosticsTabs: DatastoreDiagnosticsTab[]
   resultRenderers: ResultRenderer[]
   safetyRules: string[]
+  tree?: DatastoreTreeManifest
   testTemplates: DatastoreTestTemplate[]
   testAssertions: DatastoreTestAssertionKind[]
 }
@@ -186,6 +191,7 @@ export type DataEditKind =
   | 'unset-field'
   | 'rename-field'
   | 'change-field-type'
+  | 'insert-document'
   | 'set-key-value'
   | 'set-ttl'
   | 'delete-key'
@@ -463,22 +469,33 @@ export interface RedisKeySummary {
   memoryUsageLabel?: string
   length?: number
   encoding?: string
+  idleSeconds?: number
+  referenceCount?: number
+  databaseIndex?: number
 }
 
 export interface RedisKeyScanRequest {
   tabId?: string
   connectionId: string
   environmentId: string
+  databaseIndex?: number
+  delimiter?: string
   pattern?: string
   typeFilter?: string
   cursor?: string
   count?: number
   pageSize?: number
+  filters?: {
+    ttl?: 'all' | 'expiring' | 'persistent'
+    minBytes?: number
+    maxBytes?: number
+  }
 }
 
 export interface RedisKeyScanResponse {
   connectionId: string
   environmentId: string
+  databaseIndex?: number
   cursor: string
   nextCursor?: string
   scannedCount: number

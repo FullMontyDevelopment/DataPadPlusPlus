@@ -139,9 +139,9 @@ fn collection_child_nodes(
         ),
         (
             format!("litedb-schema:{collection}"),
-            "Schema Sample",
+            "Schema Preview",
             "schema",
-            "Sample documents for inferred field structure",
+            "Inferred field structure from bounded collection reads",
             json!({ "operation": "SampleSchema", "collection": collection, "limit": 100 })
                 .to_string(),
         ),

@@ -1,6 +1,7 @@
-import type { BootstrapPayload, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateQueryBuilderStateRequest } from '@datapadplusplus/shared-types'
-import { closeQueryTab, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, upsertTab } from './browser-tabs'
+import type { BootstrapPayload, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateQueryBuilderStateRequest } from '@datapadplusplus/shared-types'
+import { closeQueryTab, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createObjectViewTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, upsertTab } from './browser-tabs'
 import { collectDiagnosticsLocally } from './browser-operation-inspection'
+import { inspectExplorerNodeLocally } from './browser-explorer'
 import { buildBrowserPayload, cloneSnapshot, findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 
@@ -103,6 +104,70 @@ export const clientTabs = {
     )
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
+  },
+
+  async createObjectViewTab(
+    request: CreateObjectViewTabRequest,
+  ): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('create_object_view_tab', { request })
+    }
+
+    const snapshot = createObjectViewTabInSnapshot(loadBrowserSnapshot(), request)
+    saveBrowserSnapshot(snapshot)
+    return buildBrowserPayload(snapshot)
+  },
+
+  async refreshObjectViewTab(tabId: string): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('refresh_object_view_tab', { tabId })
+    }
+
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    const tab = findTab(next, tabId)
+
+    if (!tab || tab.tabKind !== 'object-view' || !tab.objectViewState) {
+      return buildBrowserPayload(next)
+    }
+
+    try {
+      const response = inspectExplorerNodeLocally(next, {
+        connectionId: tab.connectionId,
+        environmentId: tab.environmentId,
+        nodeId: tab.objectViewState.nodeId,
+      })
+      const refreshedAt = new Date().toISOString()
+      tab.objectViewState = {
+        ...tab.objectViewState,
+        summary: response.summary,
+        queryTemplate: response.queryTemplate,
+        payload: response.payload,
+        lastRefreshedAt: refreshedAt,
+        warnings: [],
+      }
+      tab.status = 'success'
+      tab.error = undefined
+      tab.dirty = false
+      tab.lastRunAt = refreshedAt
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to refresh object view.'
+      tab.objectViewState = {
+        ...tab.objectViewState,
+        lastRefreshedAt: new Date().toISOString(),
+        warnings: [message],
+      }
+      tab.status = 'error'
+      tab.error = { code: 'object-view-refresh-failed', message }
+      tab.dirty = false
+    }
+
+    next.ui.activeTabId = tab.id
+    next.ui.activeConnectionId = tab.connectionId
+    next.ui.activeEnvironmentId = tab.environmentId
+    next.ui.rightDrawer = 'none'
+    next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
   },
 
   async refreshMetricsTab(tabId: string): Promise<BootstrapPayload> {

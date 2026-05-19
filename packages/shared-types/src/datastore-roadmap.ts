@@ -8,6 +8,7 @@ import {
   type DatastoreEngine,
   type DatastoreFamily,
 } from './connection'
+import { datastoreTreeForEngine } from './datastore-tree-manifests'
 import type { QueryLanguage, ResultRenderer } from './workspace'
 
 export interface DatastoreFeatureBacklogEntry {
@@ -416,14 +417,14 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     queryLanguages: ['sql'],
     connectionModes: ['native', 'connection-string'],
     primaryConnectionMechanisms: [
-      'Oracle native driver/TNS connection',
-      'Oracle connection string with wallet/secret references',
+      'Host/port/service-name, SID, TNS alias, Easy Connect, TCPS, and cloud wallet profiles',
+      'Oracle connection string pass-through with wallet and secret references',
     ],
     defaultPort: 1521,
-    managementModel: 'Enterprise relational catalogs with schemas, tables, indexes, sequences, packages, dictionary views, users, roles, profiles, and grants.',
-    queryModel: 'SQL/PLSQL editor with visual object browser and guarded DDL helpers.',
-    presentationModel: 'Tables, dictionary metadata, DBMS_XPLAN-style plans, session/wait metrics, and charts.',
-    securityModel: 'Users, roles, object grants, system privileges, wallet secrets, SSL, and profile-aware read-only restrictions.',
+    managementModel: 'Enterprise relational catalogs with CDB/PDB containers, schemas, tables, indexes, sequences, packages, procedures, functions, scheduler objects, queues, storage, security, dictionary views, users, roles, profiles, and grants.',
+    queryModel: 'SQL Query, PL/SQL Script, and Explain Plan modes with Oracle-native templates and guarded DDL/admin preview plans.',
+    presentationModel: 'Tables, dictionary metadata, DBMS_XPLAN-style plans, SQL Monitor templates, session/wait metrics, storage/security diagnostics, and charts.',
+    securityModel: 'Users, roles, object grants, system privileges, proxy users, wallets, TCPS, read-only profiles, and environment guardrails determine action availability.',
     resultRenderers: [...tableSchemaPlan],
     capabilities: [
       ...SQL_CORE,
@@ -435,28 +436,33 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_backup_restore',
     ],
     baselineFeatures: [
-      'Schema/table/index/sequence/package browser',
-      'DDL editor and object creation helpers',
-      'SQL/PLSQL editor with saved queries and export',
-      'Object grants viewer',
+      'Oracle connection options for service name, SID, TNS alias, Easy Connect, TCPS, wallet paths, proxy user, NLS, fetch, timeout, and pool settings',
+      'Container, schema, table, view, materialized view, synonym, sequence, function, procedure, package, type, scheduler, queue, storage, and security object browser',
+      'SQL/PLSQL editor with Oracle templates, saved queries, object inspection, and export planning',
+      'Object grants, role/profile, and permission-aware disabled action surfaces',
     ],
     advancedFeatures: [
-      'EXPLAIN PLAN and DBMS_XPLAN renderer',
-      'Session and wait metrics',
-      'Role and privilege inspection',
-      'Package/procedure workflow support',
+      'Table, package, procedure, function, type, sequence, synonym, materialized view, grant, compile, and explain operation previews',
+      'EXPLAIN PLAN and DBMS_XPLAN renderer with guarded SQL Monitor/AWR/ASH-style templates',
+      'Session, lock, wait, storage, Data Guard, RAC, Flashback, and scheduler diagnostics where permissions allow',
+      'Package spec/body/dependency/compilation-error and PL/SQL workflow support',
     ],
     diagnosticFeatures: [
-      'Plan visualization',
-      'Session wait analysis',
-      'Long-running query cancellation',
-      'Permission-aware admin controls',
+      'DBMS_XPLAN and SQL Monitor plan templates',
+      'Session, lock, wait, and active-session analysis',
+      'Tablespace, segment, quota, invalid-object, and compile-error views',
+      'Permission-aware DBA/V$/GV$/AWR/ASH controls with warning rows instead of hard failures',
     ],
     analyticsSignals: [
       'Elapsed time, CPU, logical reads, and physical reads',
       'Wait events',
       'Segment and index stats',
       'Session counts',
+    ],
+    roadmapNotes: [
+      'Oracle live runtime support is optional until driver/client prerequisites are configured.',
+      'Use ALL_* and USER_* views by default; query DBA_*, V$, GV$, AWR/ASH, Data Guard, and RAC views only when permissions allow.',
+      'Admin/destructive Oracle operations remain guarded previews until a later pass explicitly enables live execution.',
     ],
   },
   {
@@ -1710,6 +1716,7 @@ export const DATAPADPLUSPLUS_ADAPTER_MANIFESTS: AdapterManifest[] =
     capabilities: entry.capabilities,
     defaultLanguage: entry.defaultLanguage,
     localDatabase: entry.localDatabase,
+    tree: datastoreTreeForEngine(entry.engine, entry.family),
   }))
 
 export function datastoreBacklogByEngine(engine: DatastoreEngine) {

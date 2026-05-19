@@ -13,10 +13,21 @@ describe('browser datastore platform contracts', () => {
     const postgres = experiences.find((item) => item.engine === 'postgresql')
     const redis = experiences.find((item) => item.engine === 'redis')
 
-    expect(mongodb?.queryBuilders.map((item) => item.kind)).toContain('mongo-find')
+    expect(mongodb?.queryBuilders.map((item) => item.kind)).toEqual(
+      expect.arrayContaining(['mongo-find', 'mongo-aggregation']),
+    )
     expect(mongodb?.editableScopes[0]?.editKinds).toContain('rename-field')
+    expect(mongodb?.tree?.roots.map((item) => item.label)).toContain('{{database}}')
+    expect(
+      mongodb?.tree?.roots
+        .find((item) => item.id === 'selected-database')
+        ?.children?.map((item) => item.label),
+    ).toContain('Time Series Collections')
     expect(postgres?.queryBuilders.map((item) => item.kind)).toContain('sql-select')
+    expect(postgres?.tree?.roots.map((item) => item.label)).toContain('User Schemas')
     expect(redis?.editableScopes[0]?.editKinds).toContain('set-ttl')
+    expect(redis?.tree?.roots.map((item) => item.label)).toContain('Databases')
+    expect(redis?.tree?.roots.map((item) => item.label)).toContain('ACL / Security')
   })
 
   it('covers every core-popular engine with actions, renderers, diagnostics, and safety rules', () => {
@@ -47,6 +58,8 @@ describe('browser datastore platform contracts', () => {
       expect(experience?.diagnosticsTabs.length, `${engine} diagnostics`).toBeGreaterThan(0)
       expect(experience?.resultRenderers.length, `${engine} renderers`).toBeGreaterThan(0)
       expect(experience?.safetyRules.join(' '), `${engine} safety`).toContain('Read-only')
+      expect(experience?.tree?.emptyState, `${engine} tree empty state`).toBe('structural-folders')
+      expect(experience?.tree?.roots.length, `${engine} tree roots`).toBeGreaterThan(0)
     }
   })
 
@@ -242,6 +255,29 @@ describe('browser datastore platform contracts', () => {
     expect(response.plan.destructive).toBe(true)
     expect(response.warnings.join(' ')).toContain('read-only')
     expect(response.warnings.join(' ')).toContain('Type `CONFIRM REDIS DELETE-KEY`')
+  })
+
+  it('plans Mongo document uploads without requiring an existing document id', () => {
+    const connection = connectionProfile('mongodb', 'document')
+    const response = planDataEditLocally(connection, {
+      connectionId: connection.id,
+      environmentId: 'env-dev',
+      editKind: 'insert-document',
+      target: {
+        objectKind: 'document',
+        path: ['catalog', 'products'],
+        collection: 'products',
+      },
+      changes: [{ value: { sku: 'nova', name: 'Nova Chair' }, valueType: 'json' }],
+    })
+
+    expect(response.plan.warnings.join(' ')).not.toContain('stable document id')
+    expect(response.plan.requiredPermissions).toEqual(['insert collection document'])
+    expect(JSON.parse(response.plan.generatedRequest)).toMatchObject({
+      collection: 'products',
+      operation: 'insertOne',
+      document: { sku: 'nova', name: 'Nova Chair' },
+    })
   })
 })
 

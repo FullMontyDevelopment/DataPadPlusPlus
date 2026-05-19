@@ -67,6 +67,8 @@ interface LibraryPaneProps {
   onOpenConnectionDrawer?(connectionId: string): void
   onOpenConnectionExplorer?(connectionId: string): void
   onOpenConnectionMetrics?(connectionId: string): void
+  onInspectExplorerNode?(node: ExplorerNode): void
+  onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onOpenSettings?(): void
   onOpenScopedQuery?(connectionId: string, target: ScopedQueryTarget): void
   onOpenLibraryItem(nodeId: string): void
@@ -159,6 +161,8 @@ export function LibraryPane({
   onOpenConnectionDrawer = noop,
   onOpenConnectionExplorer = noop,
   onOpenConnectionMetrics = noop,
+  onInspectExplorerNode = noop,
+  onOpenObjectView = noop,
   onOpenSettings = noop,
   onOpenScopedQuery = noop,
   onOpenLibraryItem,
@@ -225,10 +229,7 @@ export function LibraryPane({
   }
 
   const deleteNode = (node: LibraryNode) => {
-    const suffix = node.kind === 'folder' ? ' and everything inside it' : ''
-    if (window.confirm(`Delete ${node.name}${suffix}?`)) {
-      onDeleteNode(node.id)
-    }
+    onDeleteNode(node.id)
   }
 
   const openEnvironmentMenu = (
@@ -246,13 +247,7 @@ export function LibraryPane({
       return
     }
 
-    if (
-      window.confirm(
-        `Delete environment ${environment.label}? Connections, tabs, and Library items using it will fall back to another environment or inherit from their parent.`,
-      )
-    ) {
-      onDeleteEnvironment(environment.id)
-    }
+    onDeleteEnvironment(environment.id)
   }
 
   const moveNode = (node: LibraryNode) => {
@@ -475,6 +470,7 @@ export function LibraryPane({
               <LibraryTreeItem
                 key={item.node.id}
                 activeConnectionId={activeConnectionId}
+                adapterManifests={adapterManifests}
                 connectionExplorerItems={connectionExplorerItems}
                 connections={connections}
                 item={item}
@@ -500,6 +496,8 @@ export function LibraryPane({
                 onOpenConnectionDrawer={onOpenConnectionDrawer}
                 onOpenConnectionExplorer={onOpenConnectionExplorer}
                 onOpenConnectionMetrics={onOpenConnectionMetrics}
+                onInspectExplorerNode={onInspectExplorerNode}
+                onOpenObjectView={onOpenObjectView}
                 onOpenScopedQuery={onOpenScopedQuery}
                 onOpenLibraryItem={onOpenLibraryItem}
                 onPointerDragMove={updatePointerDrag}
@@ -1052,6 +1050,7 @@ export function LibraryPane({
 
 function LibraryTreeItem({
   activeConnectionId,
+  adapterManifests,
   connectionExplorerItems,
   connections,
   item,
@@ -1077,6 +1076,8 @@ function LibraryTreeItem({
   onOpenConnectionDrawer,
   onOpenConnectionExplorer,
   onOpenConnectionMetrics,
+  onInspectExplorerNode,
+  onOpenObjectView,
   onOpenScopedQuery,
   onOpenLibraryItem,
   onPointerDragMove,
@@ -1087,6 +1088,7 @@ function LibraryTreeItem({
   shouldSuppressOpenClick,
 }: {
   activeConnectionId: string
+  adapterManifests: AdapterManifest[]
   connectionExplorerItems: ExplorerNode[]
   connections: ConnectionProfile[]
   item: TreeNode
@@ -1112,6 +1114,8 @@ function LibraryTreeItem({
   onOpenConnectionDrawer(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
   onOpenConnectionMetrics(connectionId: string): void
+  onInspectExplorerNode(node: ExplorerNode): void
+  onOpenObjectView(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onOpenLibraryItem(nodeId: string): void
   onPointerDragMove(event: ReactPointerEvent<HTMLElement>): void
@@ -1276,6 +1280,9 @@ function LibraryTreeItem({
       </div>
       {connection && expanded ? (
         <ConnectionObjectTree
+          adapterManifest={adapterManifests?.find(
+            (manifest) => manifest.engine === connection.engine,
+          )}
           connection={connection}
           environment={environment}
           explorerNodes={
@@ -1283,6 +1290,8 @@ function LibraryTreeItem({
           }
           explorerStatus={explorerStatus}
           onLoadExplorerScope={onLoadExplorerScope}
+          onInspectNode={onInspectExplorerNode}
+          onOpenObjectView={onOpenObjectView}
           onOpenScopedQuery={onOpenScopedQuery}
         />
       ) : null}
@@ -1292,6 +1301,7 @@ function LibraryTreeItem({
             <LibraryTreeItem
               key={child.node.id}
               activeConnectionId={activeConnectionId}
+              adapterManifests={adapterManifests}
               connectionExplorerItems={connectionExplorerItems}
               connections={connections}
               item={child}
@@ -1317,6 +1327,8 @@ function LibraryTreeItem({
               onOpenConnectionDrawer={onOpenConnectionDrawer}
               onOpenConnectionExplorer={onOpenConnectionExplorer}
               onOpenConnectionMetrics={onOpenConnectionMetrics}
+              onInspectExplorerNode={onInspectExplorerNode}
+              onOpenObjectView={onOpenObjectView}
               onOpenScopedQuery={onOpenScopedQuery}
               onOpenLibraryItem={onOpenLibraryItem}
               onPointerDragMove={onPointerDragMove}

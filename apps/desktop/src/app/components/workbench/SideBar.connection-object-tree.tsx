@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { MouseEvent } from 'react'
 import type {
+  AdapterManifest,
   ConnectionProfile,
   EnvironmentProfile,
   ExplorerNode,
@@ -12,6 +13,7 @@ import {
   ChevronRightIcon,
   CopyIcon,
   MoreIcon,
+  ObjectSearchIcon,
   PlayIcon,
   RefreshIcon,
 } from './icons'
@@ -29,28 +31,39 @@ export const CONNECTION_OBJECT_CHILD_BATCH_SIZE = 100
 
 export function ConnectionObjectTree({
   connection,
+  adapterManifest,
   environment,
   explorerNodes,
   explorerStatus = 'idle',
   nodes: nodesOverride,
   onLoadExplorerScope,
+  onInspectNode,
+  onOpenObjectView,
   onOpenScopedQuery,
 }: {
   connection: ConnectionProfile
+  adapterManifest?: AdapterManifest
   environment?: EnvironmentProfile
   explorerNodes?: ExplorerNode[]
   explorerStatus?: 'idle' | 'loading' | 'ready'
   nodes?: ConnectionTreeNode[]
   onLoadExplorerScope?(connectionId: string, scope?: string): void
+  onInspectNode?(node: ExplorerNode): void
+  onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
 }) {
-  const nodes = useMemo(
+  const structuralNodes = useMemo(
+    () => nodesOverride ?? buildConnectionObjectTree(connection, adapterManifest),
+    [adapterManifest, connection, nodesOverride],
+  )
+  const liveNodes = useMemo(
     () =>
       explorerNodes
         ? buildConnectionObjectTreeFromExplorerNodes(connection, explorerNodes)
-        : nodesOverride ?? buildConnectionObjectTree(connection),
-    [connection, explorerNodes, nodesOverride],
+        : undefined,
+    [connection, explorerNodes],
   )
+  const nodes = liveNodes?.length ? liveNodes : structuralNodes
   const usingLiveExplorer = Boolean(explorerNodes)
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({})
   const [visibleChildCounts, setVisibleChildCounts] = useState<Record<string, number>>({})
@@ -81,6 +94,17 @@ export function ConnectionObjectTree({
   ) => {
     event.preventDefault()
     event.stopPropagation()
+
+    if (
+      !hasAvailableObjectMenuItems(connection, node, {
+        canInspectNode: Boolean(onInspectNode),
+        canOpenObjectView: Boolean(onOpenObjectView),
+        canRefreshNode: Boolean(onLoadExplorerScope),
+      })
+    ) {
+      return
+    }
+
     setContextMenu({
       node,
       nodeKey,
@@ -106,6 +130,12 @@ export function ConnectionObjectTree({
         queryTemplate: action.queryTemplate,
       })
     }
+  }
+  const inspectNode = (node: ConnectionTreeNode) => {
+    onInspectNode?.(connectionTreeNodeToExplorerNode(connection, node))
+  }
+  const openObjectView = (node: ConnectionTreeNode) => {
+    onOpenObjectView?.(connection.id, connectionTreeNodeToExplorerNode(connection, node))
   }
 
   useEffect(() => {
@@ -151,9 +181,11 @@ export function ConnectionObjectTree({
             nodeKey={node.id}
             explorerStatus={explorerStatus}
             visibleChildCounts={visibleChildCounts}
+            canInspectNode={Boolean(onInspectNode)}
             onContextMenu={openObjectContextMenu}
             onLoadExplorerScope={onLoadExplorerScope}
             onLoadMoreChildren={loadMoreChildren}
+            onOpenObjectView={openObjectView}
             onOpenQuery={openNodeQuery}
             onToggleNode={toggleNode}
           />
@@ -162,10 +194,14 @@ export function ConnectionObjectTree({
 
       {contextMenu ? (
         <ConnectionObjectContextMenu
+          canRefreshNodes={Boolean(onLoadExplorerScope)}
+          connection={connection}
           expanded={Boolean(expandedNodes[contextMenu.nodeKey])}
           menu={contextMenu}
           onClose={() => setContextMenu(undefined)}
           onCopyName={copyNodeName}
+          onInspectNode={onInspectNode ? inspectNode : undefined}
+          onOpenObjectView={onOpenObjectView ? openObjectView : undefined}
           onOpenQuery={openNodeQuery}
           onRefresh={refreshNode}
           onRunAction={runNodeAction}
@@ -184,6 +220,7 @@ interface ConnectionObjectContextMenuState {
 }
 
 function ConnectionObjectTreeNode({
+  canInspectNode,
   connection,
   depth,
   expandedNodes,
@@ -196,8 +233,10 @@ function ConnectionObjectTreeNode({
   onLoadExplorerScope,
   onLoadMoreChildren,
   onOpenQuery,
+  onOpenObjectView,
   onToggleNode,
 }: {
+  canInspectNode: boolean
   connection: ConnectionProfile
   depth: number
   expandedNodes: Record<string, boolean>
@@ -210,6 +249,7 @@ function ConnectionObjectTreeNode({
   onLoadExplorerScope?(connectionId: string, scope?: string): void
   onLoadMoreChildren(nodeKey: string): void
   onOpenQuery(node: ConnectionTreeNode): void
+  onOpenObjectView?(node: ConnectionTreeNode): void
   onToggleNode(nodeKey: string): void
 }) {
   const children = node.children ?? []
@@ -223,6 +263,12 @@ function ConnectionObjectTreeNode({
   const canExpand = hasChildren || canLoadChildren
   const expanded = Boolean(expandedNodes[nodeKey])
   const queryable = isScopedQueryable(node)
+  const objectViewable = isMongoObjectViewNode(connection, node)
+  const hasObjectMenu = hasAvailableObjectMenuItems(connection, node, {
+    canInspectNode,
+    canOpenObjectView: Boolean(onOpenObjectView),
+    canRefreshNode: Boolean(onLoadExplorerScope),
+  })
   const toggleNode = () => {
     if (!canExpand) {
       return
@@ -238,6 +284,8 @@ function ConnectionObjectTreeNode({
   const openLeafQuery = () => {
     if (!canExpand && queryable) {
       onOpenQuery(node)
+    } else if (!canExpand && objectViewable) {
+      onOpenObjectView?.(node)
     }
   }
 
@@ -245,12 +293,12 @@ function ConnectionObjectTreeNode({
     <>
       <div
         role="treeitem"
-        tabIndex={canExpand || queryable ? 0 : undefined}
+        tabIndex={canExpand || queryable || objectViewable ? 0 : undefined}
         aria-expanded={canExpand ? expanded : undefined}
         aria-level={depth}
-        className={`tree-item connection-object-item${canExpand ? ' is-branch' : ''}${queryable ? ' is-queryable' : ''}${environment ? ' has-environment-accent' : ''}`}
+        className={`tree-item connection-object-item${canExpand ? ' is-branch' : ''}${queryable || objectViewable ? ' is-queryable' : ''}${environment ? ' has-environment-accent' : ''}`}
         style={{ '--tree-depth': depth, ...environmentStyle } as CSSProperties}
-        title={objectNodeTitle(node, queryable, canExpand)}
+        title={objectNodeTitle(node, queryable, objectViewable, canExpand)}
         onClick={() => {
           if (canExpand) {
             toggleNode()
@@ -263,9 +311,17 @@ function ConnectionObjectTreeNode({
             event.preventDefault()
             event.stopPropagation()
             onOpenQuery(node)
+          } else if (objectViewable) {
+            event.preventDefault()
+            event.stopPropagation()
+            onOpenObjectView?.(node)
           }
         }}
-        onContextMenu={(event) => onContextMenu(event, node, nodeKey)}
+        onContextMenu={(event) => {
+          if (hasObjectMenu) {
+            onContextMenu(event, node, nodeKey)
+          }
+        }}
         onKeyDown={(event) => {
           if (canExpand && (event.key === 'Enter' || event.key === ' ')) {
             event.preventDefault()
@@ -273,6 +329,9 @@ function ConnectionObjectTreeNode({
           } else if (queryable && (event.key === 'Enter' || event.key === ' ')) {
             event.preventDefault()
             onOpenQuery(node)
+          } else if (objectViewable && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault()
+            onOpenObjectView?.(node)
           }
         }}
       >
@@ -303,10 +362,6 @@ function ConnectionObjectTreeNode({
         </span>
         <span className="tree-item-content">
           <strong>{node.label}</strong>
-          <span>
-            {node.kind}
-            {node.detail ? ` / ${node.detail}` : ''}
-          </span>
         </span>
         {queryable ? (
           <button
@@ -321,15 +376,17 @@ function ConnectionObjectTreeNode({
             Query
           </button>
         ) : null}
-        <button
-          type="button"
-          className="tree-item-action-menu"
-          aria-label={`Object actions for ${node.label}`}
-          title={`Object actions for ${node.label}`}
-          onClick={(event) => openObjectMenuFromButton(event, node, nodeKey, onContextMenu)}
-        >
-          <MoreIcon className="tree-icon" />
-        </button>
+        {hasObjectMenu ? (
+          <button
+            type="button"
+            className="tree-item-action-menu"
+            aria-label={`Object actions for ${node.label}`}
+            title={`Object actions for ${node.label}`}
+            onClick={(event) => openObjectMenuFromButton(event, node, nodeKey, onContextMenu)}
+          >
+            <MoreIcon className="tree-icon" />
+          </button>
+        ) : null}
       </div>
 
       {expanded
@@ -347,9 +404,11 @@ function ConnectionObjectTreeNode({
                 node={child}
                 nodeKey={childKey}
                 visibleChildCounts={visibleChildCounts}
+                canInspectNode={canInspectNode}
                 onContextMenu={onContextMenu}
                 onLoadExplorerScope={onLoadExplorerScope}
                 onLoadMoreChildren={onLoadMoreChildren}
+                onOpenObjectView={onOpenObjectView}
                 onOpenQuery={onOpenQuery}
                 onToggleNode={onToggleNode}
               />
@@ -407,20 +466,55 @@ function openObjectMenuFromButton(
   onContextMenu(event, node, nodeKey)
 }
 
+function isMongoObjectViewNode(connection: ConnectionProfile, node: ConnectionTreeNode) {
+  if (connection.engine !== 'mongodb') {
+    return false
+  }
+
+  return [
+    'database',
+    'collection',
+    'view',
+    'schema-preview',
+    'indexes',
+    'validation-rules',
+    'collection-statistics',
+    'database-statistics',
+    'permissions',
+    'scripts',
+    'pipeline',
+    'gridfs',
+    'gridfs-buckets',
+    'gridfs-bucket',
+    'users',
+    'roles',
+    'search-indexes',
+    'vector-indexes',
+  ].includes(node.kind)
+}
+
 function ConnectionObjectContextMenu({
+  canRefreshNodes,
+  connection,
   expanded,
   menu,
   onClose,
   onCopyName,
+  onInspectNode,
+  onOpenObjectView,
   onOpenQuery,
   onRefresh,
   onRunAction,
   onToggleNode,
 }: {
+  canRefreshNodes: boolean
+  connection: ConnectionProfile
   expanded: boolean
   menu: ConnectionObjectContextMenuState
   onClose(): void
   onCopyName(node: ConnectionTreeNode): void
+  onInspectNode?(node: ConnectionTreeNode): void
+  onOpenObjectView?(node: ConnectionTreeNode): void
   onOpenQuery(node: ConnectionTreeNode): void
   onRefresh(node: ConnectionTreeNode): void
   onRunAction(node: ConnectionTreeNode, action: ConnectionTreeAction): void
@@ -429,7 +523,14 @@ function ConnectionObjectContextMenu({
   const { node } = menu
   const hasChildren = Boolean(node.children?.length || (node.expandable && node.scope))
   const queryable = isScopedQueryable(node)
-  const managementActions = node.actions ?? []
+  const objectViewable = isMongoObjectViewNode(connection, node)
+  const canOpenObjectView = objectViewable && Boolean(onOpenObjectView)
+  const canInspect =
+    Boolean(onInspectNode) &&
+    (!objectViewable || !onOpenObjectView) &&
+    isInspectableTreeNode(node)
+  const canRefresh = canRefreshNodes && canRefreshTreeNode(node)
+  const managementActions = availableManagementActions(node.actions)
 
   return (
     <div
@@ -454,6 +555,36 @@ function ConnectionObjectContextMenu({
         </button>
       ) : null}
 
+      {canOpenObjectView ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="connection-context-menu-item"
+          onClick={() => {
+            onOpenObjectView?.(node)
+            onClose()
+          }}
+        >
+          <ObjectSearchIcon className="connection-context-menu-icon" />
+          <span>Open View</span>
+        </button>
+      ) : null}
+
+      {canInspect ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="connection-context-menu-item"
+          onClick={() => {
+            onInspectNode?.(node)
+            onClose()
+          }}
+        >
+          <ObjectSearchIcon className="connection-context-menu-icon" />
+          <span>Inspect</span>
+        </button>
+      ) : null}
+
       {hasChildren ? (
         <button
           type="button"
@@ -473,22 +604,24 @@ function ConnectionObjectContextMenu({
         </button>
       ) : null}
 
-      {queryable || hasChildren ? (
+      {queryable || canOpenObjectView || canInspect || hasChildren ? (
         <div className="connection-context-menu-separator" role="separator" />
       ) : null}
 
-      <button
-        type="button"
-        role="menuitem"
-        className="connection-context-menu-item"
-        onClick={() => {
-          onRefresh(node)
-          onClose()
-        }}
-      >
-        <RefreshIcon className="connection-context-menu-icon" />
-        <span>{refreshLabel(node)}</span>
-      </button>
+      {canRefresh ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="connection-context-menu-item"
+          onClick={() => {
+            onRefresh(node)
+            onClose()
+          }}
+        >
+          <RefreshIcon className="connection-context-menu-icon" />
+          <span>{refreshLabel(node)}</span>
+        </button>
+      ) : null}
 
       {managementActions.map((action) => (
         <MenuActionButton
@@ -518,6 +651,65 @@ function ConnectionObjectContextMenu({
       </button>
     </div>
   )
+}
+
+function hasAvailableObjectMenuItems(
+  connection: ConnectionProfile,
+  node: ConnectionTreeNode,
+  options: {
+    canInspectNode: boolean
+    canOpenObjectView: boolean
+    canRefreshNode: boolean
+  },
+) {
+  const objectViewable = isMongoObjectViewNode(connection, node)
+
+  return Boolean(
+      isScopedQueryable(node) ||
+      (objectViewable && options.canOpenObjectView) ||
+      (options.canInspectNode && isInspectableTreeNode(node)) ||
+      (options.canRefreshNode && canRefreshTreeNode(node)) ||
+      availableManagementActions(node.actions).length,
+  )
+}
+
+function availableManagementActions(actions: ConnectionTreeAction[] | undefined) {
+  return (actions ?? []).filter((action) => {
+    if (action.command === 'open-template') {
+      return Boolean(action.queryTemplate?.trim())
+    }
+
+    if (action.command === 'copy-qualified-name') {
+      return true
+    }
+
+    return false
+  })
+}
+
+function canRefreshTreeNode(node: ConnectionTreeNode) {
+  return Boolean(node.scope || node.refreshScope)
+}
+
+function isInspectableTreeNode(node: ConnectionTreeNode) {
+  return Boolean(node.scope || node.queryTemplate || node.refreshScope)
+}
+
+function connectionTreeNodeToExplorerNode(
+  connection: ConnectionProfile,
+  node: ConnectionTreeNode,
+): ExplorerNode {
+  return {
+    id: node.id,
+    family: connection.family,
+    label: node.label,
+    kind: node.kind,
+    detail: node.detail ?? '',
+    scope: node.scope,
+    path: node.path,
+    queryTemplate: node.queryTemplate,
+    expandable: node.expandable,
+  }
 }
 
 function MenuActionButton({
@@ -560,8 +752,17 @@ function refreshLabel(node: ConnectionTreeNode) {
   return `Refresh ${node.kind}`
 }
 
-function objectNodeTitle(node: ConnectionTreeNode, queryable: boolean, hasChildren: boolean) {
+function objectNodeTitle(
+  node: ConnectionTreeNode,
+  queryable: boolean,
+  objectViewable: boolean,
+  hasChildren: boolean,
+) {
   const base = node.detail ? `${node.label}: ${node.detail}` : node.label
+
+  if (objectViewable && !hasChildren) {
+    return `${base}. Click to open the object view.`
+  }
 
   if (!queryable) {
     return base

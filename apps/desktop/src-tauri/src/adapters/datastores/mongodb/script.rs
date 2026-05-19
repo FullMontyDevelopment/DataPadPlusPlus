@@ -402,7 +402,7 @@ fn call_end_index(source: &str, call_name: &str) -> Option<usize> {
         .char_indices()
         .nth(close_index + 1)
         .map(|(index, _)| index)
-        .or_else(|| Some(source.len()))
+        .or(Some(source.len()))
 }
 
 fn chained_call_value(source: &str, call_name: &str) -> Result<Option<Value>, CommandError> {
@@ -567,12 +567,11 @@ fn replace_constructor(input: &str, constructor: &str) -> String {
 
 fn single_to_double_quotes(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
     let mut in_double = false;
     let mut in_single = false;
     let mut escaped = false;
 
-    while let Some(character) = chars.next() {
+    for character in input.chars() {
         if escaped {
             output.push(character);
             escaped = false;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { ExplorerNode } from '@datapadplusplus/shared-types'
+import type { AdapterManifest, ConnectionProfile, ExplorerNode } from '@datapadplusplus/shared-types'
+import { datastoreTreeForEngine } from '@datapadplusplus/shared-types'
 import { createSeedSnapshot } from '../../../test/fixtures/seed-workspace'
 import {
   buildConnectionObjectTree,
@@ -44,18 +45,43 @@ describe('sidebar connection tree helpers', () => {
     expect(findNode(tree, 'table-dbo-accounts')).toBeUndefined()
   })
 
-  it('builds SQLite structural folders with the main schema', () => {
+  it('builds SQLite structural folders with the main database', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-local-sqlite')
 
     const tree = buildConnectionObjectTree(connection!)
 
-    expect(findNode(tree, 'schema-main')).toMatchObject({
-      label: 'main',
-      kind: 'schema',
+    expect(findNodeByLabel(tree, 'Main Database')).toMatchObject({
+      label: 'Main Database',
+      kind: 'database',
     })
     expect(findNode(tree, 'tables')).toMatchObject({ label: 'Tables' })
+    expect(findNodeByLabel(tree, 'Virtual Tables')).toBeUndefined()
+    expect(findNodeByLabel(tree, 'FTS Tables')).toBeUndefined()
+    expect(findNodeByLabel(tree, 'Pragmas')).toMatchObject({ label: 'Pragmas' })
     expect(findNode(tree, 'table-accounts')).toBeUndefined()
+  })
+
+  it('builds Oracle structural folders for containers, schemas, and PL/SQL objects', () => {
+    const connection = oracleConnection()
+    const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
+
+    expect(findNodeByLabel(tree, 'Containers')).toMatchObject({ label: 'Containers' })
+    expect(findNodeByLabel(tree, 'Schemas')).toMatchObject({ label: 'Schemas' })
+    expect(findNodeByLabel(tree, 'Tables')).toMatchObject({ label: 'Tables' })
+    expect(findNodeByLabel(tree, 'Packages')).toMatchObject({ label: 'Packages' })
+    expect(findNodeByLabel(tree, 'Procedures')).toMatchObject({ label: 'Procedures' })
+    expect(findNodeByLabel(tree, 'Data Guard')).toBeUndefined()
+
+    const packages = findNodeByLabel(tree, 'Packages')
+    expect(packages?.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Create Package...',
+          queryTemplate: expect.stringContaining('create or replace package'),
+        }),
+      ]),
+    )
   })
 
   it('builds Mongo structural folders without invented collection leaves', () => {
@@ -64,9 +90,12 @@ describe('sidebar connection tree helpers', () => {
 
     const tree = buildConnectionObjectTree(connection!)
 
-    expect(findNode(tree, 'databases')).toMatchObject({ label: 'Databases' })
     expect(findNode(tree, 'database-catalog')).toMatchObject({ label: 'catalog' })
     expect(findNode(tree, 'collections')).toMatchObject({ label: 'Collections' })
+    expect(findNode(tree, 'views')).toMatchObject({ label: 'Views' })
+    expect(findNode(tree, 'gridfs')).toMatchObject({ label: 'GridFS' })
+    expect(findNode(tree, 'users')).toMatchObject({ label: 'Users' })
+    expect(findNode(tree, 'roles')).toMatchObject({ label: 'Roles' })
     expect(findNode(tree, 'collection-products')).toBeUndefined()
   })
 
@@ -104,8 +133,8 @@ describe('sidebar connection tree helpers', () => {
       kind: 'collection',
       detail: 'collection',
       family: 'document',
-      path: ['catalog', 'products'],
-      scope: 'collection:products',
+      path: ['catalog', 'Collections'],
+      scope: 'collection:catalog:products',
     }
 
     expect(isExplorerNodeQueryable(node)).toBe(true)
@@ -113,7 +142,29 @@ describe('sidebar connection tree helpers', () => {
       kind: 'collection',
       label: 'products',
       preferredBuilder: 'mongo-find',
-      scope: 'collection:products',
+      scope: 'collection:catalog:products',
+    })
+  })
+
+  it('maps Mongo aggregation nodes to the aggregation builder target', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')
+    const node: ExplorerNode = {
+      id: 'aggregations:catalog:products',
+      label: 'Aggregations',
+      kind: 'aggregations',
+      detail: 'Aggregation pipeline template',
+      family: 'document',
+      path: ['catalog', 'Collections', 'products'],
+      scope: 'aggregation:catalog:products',
+    }
+
+    expect(isExplorerNodeQueryable(node)).toBe(true)
+    expect(explorerNodeTarget(node, connection)).toMatchObject({
+      kind: 'aggregations',
+      label: 'Aggregations',
+      preferredBuilder: 'mongo-aggregation',
+      scope: 'aggregation:catalog:products',
     })
   })
 
@@ -191,42 +242,51 @@ describe('sidebar connection tree helpers', () => {
     const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')!
     const tree = buildConnectionObjectTreeFromExplorerNodes(connection, [
       {
-        id: 'products',
-        label: 'products',
-        kind: 'collection',
-        detail: 'Documents, indexes, and samples',
+        id: 'database:catalog',
+        label: 'catalog',
+        kind: 'database',
+        detail: 'MongoDB database',
         family: 'document',
-        path: [connection.name],
-        scope: 'collection:products',
-        queryTemplate: '{ "collection": "products", "filter": {} }',
+        scope: 'database:catalog',
         expandable: true,
       },
       {
-        id: 'products:indexes',
+        id: 'collection:catalog:products',
+        label: 'products',
+        kind: 'collection',
+        detail: 'Documents, indexes, and validators',
+        family: 'document',
+        path: ['catalog', 'Collections'],
+        scope: 'collection:catalog:products',
+        queryTemplate: '{ "database": "catalog", "collection": "products", "filter": {} }',
+        expandable: true,
+      },
+      {
+        id: 'indexes:catalog:products',
         label: 'Indexes',
         kind: 'indexes',
         detail: '2 index(es)',
         family: 'document',
-        path: [connection.name, 'products'],
+        path: ['catalog', 'Collections', 'products'],
       },
     ])
 
     expect(tree).toHaveLength(1)
     expect(tree[0]).toMatchObject({
-      label: 'Databases',
-      kind: 'databases',
+      label: 'catalog',
+      kind: 'database',
     })
 
-    const products = findNode(tree, 'products')
+    const products = findNode(tree, 'collection:catalog:products')
     expect(products).toMatchObject({
-      id: 'products',
+      id: 'collection:catalog:products',
       label: 'products',
       builderKind: 'mongo-find',
       queryable: true,
       expandable: true,
     })
-    expect(findNode(tree, 'products:indexes')).toMatchObject({
-      id: 'products:indexes',
+    expect(findNode(tree, 'indexes:catalog:products')).toMatchObject({
+      id: 'indexes:catalog:products',
       label: 'Indexes',
     })
   })
@@ -432,6 +492,49 @@ describe('sidebar connection tree helpers', () => {
   })
 })
 
+function oracleConnection(): ConnectionProfile {
+  return {
+    id: 'conn-oracle',
+    name: 'Oracle',
+    engine: 'oracle',
+    family: 'sql',
+    host: 'localhost',
+    port: 1521,
+    database: 'FREEPDB1',
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: true,
+    icon: 'OR',
+    group: 'Connections',
+    auth: { username: 'APP' },
+    oracleOptions: { connectMode: 'service-name', serviceName: 'FREEPDB1' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function adapterManifestFor(connection: ConnectionProfile): AdapterManifest {
+  const defaultLanguage: AdapterManifest['defaultLanguage'] =
+    connection.family === 'keyvalue'
+      ? 'redis'
+      : connection.family === 'document'
+        ? 'mongodb'
+        : 'sql'
+
+  return {
+    id: `adapter-${connection.engine}`,
+    engine: connection.engine,
+    family: connection.family,
+    label: `${connection.engine} adapter`,
+    maturity: 'mvp',
+    capabilities: [],
+    defaultLanguage,
+    tree: datastoreTreeForEngine(connection.engine, connection.family),
+  }
+}
+
 function findNode(
   nodes: ConnectionTreeNode[],
   id: string,
@@ -442,6 +545,25 @@ function findNode(
     }
 
     const child = node.children ? findNode(node.children, id) : undefined
+
+    if (child) {
+      return child
+    }
+  }
+
+  return undefined
+}
+
+function findNodeByLabel(
+  nodes: ConnectionTreeNode[],
+  label: string,
+): ConnectionTreeNode | undefined {
+  for (const node of nodes) {
+    if (node.label === label) {
+      return node
+    }
+
+    const child = node.children ? findNodeByLabel(node.children, label) : undefined
 
     if (child) {
       return child

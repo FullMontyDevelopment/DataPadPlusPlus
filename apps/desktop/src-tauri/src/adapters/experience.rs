@@ -30,12 +30,25 @@ pub(crate) fn experience_manifest_for_manifest(
         diagnostics_tabs: diagnostics_tabs(manifest),
         result_renderers: result_renderers(manifest),
         safety_rules: safety_rules(manifest),
+        tree: manifest.tree.clone(),
         test_templates: test_templates(manifest),
         test_assertions: test_assertions(),
     }
 }
 
 fn context_actions(manifest: &AdapterManifest) -> Vec<DatastoreExperienceAction> {
+    if manifest.engine == "oracle" {
+        return oracle_context_actions(manifest);
+    }
+
+    if manifest.engine == "sqlserver" {
+        return sqlserver_context_actions(manifest);
+    }
+
+    if manifest.engine == "sqlite" {
+        return sqlite_context_actions(manifest);
+    }
+
     let mut actions = vec![
         action(
             "open-query",
@@ -108,9 +121,257 @@ fn context_actions(manifest: &AdapterManifest) -> Vec<DatastoreExperienceAction>
     actions
 }
 
+fn sqlite_context_actions(manifest: &AdapterManifest) -> Vec<DatastoreExperienceAction> {
+    vec![
+        action(
+            "open-query",
+            "Open SQL Query",
+            "query",
+            "read",
+            Some(format!("{}.query.execute", manifest.engine)),
+            true,
+            "Open a raw SQLite SQL editor scoped to the selected object.",
+        ),
+        action(
+            "open-select-builder",
+            "Open SELECT Builder",
+            "table",
+            "read",
+            Some(format!("{}.query.execute", manifest.engine)),
+            true,
+            "Open the visual SELECT builder for a SQLite table or view.",
+        ),
+        action(
+            "refresh-metadata",
+            "Refresh Branch",
+            "connection",
+            "read",
+            Some(format!("{}.metadata.refresh", manifest.engine)),
+            false,
+            "Reload SQLite file metadata for the selected branch.",
+        ),
+        action(
+            "explain-query-plan",
+            "Explain Query Plan",
+            "query",
+            "diagnostic",
+            Some(format!("{}.query.explain", manifest.engine)),
+            true,
+            "Generate EXPLAIN QUERY PLAN output without changing data.",
+        ),
+        action(
+            "integrity-check",
+            "Integrity Check",
+            "diagnostic",
+            "diagnostic",
+            Some(format!("{}.diagnostics.integrity-check", manifest.engine)),
+            true,
+            "Run PRAGMA quick_check/integrity_check previews for the SQLite file.",
+        ),
+        action(
+            "create-index",
+            "Create Index...",
+            "table",
+            "write",
+            Some(format!("{}.index.create", manifest.engine)),
+            true,
+            "Preview a SQLite CREATE INDEX statement.",
+        ),
+        action(
+            "create-trigger",
+            "Create Trigger...",
+            "table",
+            "write",
+            Some(format!("{}.trigger.create", manifest.engine)),
+            true,
+            "Preview a SQLite CREATE TRIGGER statement.",
+        ),
+        action(
+            "vacuum",
+            "Vacuum...",
+            "maintenance",
+            "write",
+            Some(format!("{}.maintenance.vacuum", manifest.engine)),
+            true,
+            "Preview VACUUM or VACUUM INTO maintenance.",
+        ),
+    ]
+}
+
+fn sqlserver_context_actions(manifest: &AdapterManifest) -> Vec<DatastoreExperienceAction> {
+    vec![
+        action(
+            "open-query",
+            "Open T-SQL Query",
+            "query",
+            "read",
+            Some(format!("{}.query.execute", manifest.engine)),
+            true,
+            "Open a raw T-SQL editor scoped to the selected SQL Server object.",
+        ),
+        action(
+            "open-select-builder",
+            "Open SELECT Builder",
+            "table",
+            "read",
+            Some(format!("{}.query.execute", manifest.engine)),
+            true,
+            "Open the visual SELECT builder for a table or view.",
+        ),
+        action(
+            "refresh-metadata",
+            "Refresh Branch",
+            "connection",
+            "read",
+            Some(format!("{}.metadata.refresh", manifest.engine)),
+            false,
+            "Reload SQL Server metadata for the selected branch.",
+        ),
+        action(
+            "estimated-plan",
+            "Estimated Plan",
+            "query",
+            "diagnostic",
+            Some(format!("{}.query.explain", manifest.engine)),
+            true,
+            "Generate SET SHOWPLAN output without executing the query.",
+        ),
+        action(
+            "actual-plan",
+            "Actual Plan...",
+            "query",
+            "diagnostic",
+            Some(format!("{}.query.profile", manifest.engine)),
+            true,
+            "Preview an actual-plan/statistics request that may execute workload.",
+        ),
+        action(
+            "generate-ddl",
+            "Generate DDL",
+            "object",
+            "read",
+            Some(format!("{}.metadata.refresh", manifest.engine)),
+            true,
+            "Inspect object definition using SQL Server catalog metadata.",
+        ),
+        action(
+            "create-index",
+            "Create Index...",
+            "table",
+            "write",
+            Some(format!("{}.index.create", manifest.engine)),
+            true,
+            "Preview a CREATE INDEX request.",
+        ),
+        action(
+            "rebuild-index",
+            "Rebuild Index...",
+            "index",
+            "write",
+            Some(format!("{}.index.rebuild", manifest.engine)),
+            true,
+            "Preview an ALTER INDEX REBUILD request.",
+        ),
+        action(
+            "inspect-permissions",
+            "Inspect Permissions",
+            "security",
+            "read",
+            Some(format!("{}.security.inspect", manifest.engine)),
+            false,
+            "Show effective roles, grants, and unavailable SQL Server actions.",
+        ),
+        action(
+            "query-store",
+            "Open Query Store",
+            "diagnostic",
+            "read",
+            Some(format!("{}.diagnostics.query-store", manifest.engine)),
+            false,
+            "Inspect Query Store runtime stats and plan health where available.",
+        ),
+    ]
+}
+
+fn oracle_context_actions(manifest: &AdapterManifest) -> Vec<DatastoreExperienceAction> {
+    vec![
+        action(
+            "open-query",
+            "Open SQL Query",
+            "query",
+            "read",
+            Some(format!("{}.query.execute", manifest.engine)),
+            true,
+            "Open a SQL editor scoped to the selected Oracle object.",
+        ),
+        action(
+            "open-plsql-script",
+            "Open PL/SQL Script",
+            "script",
+            "read",
+            Some(format!("{}.query.execute", manifest.engine)),
+            true,
+            "Open a PL/SQL script template for packages, procedures, and functions.",
+        ),
+        action(
+            "refresh-metadata",
+            "Refresh Metadata",
+            "connection",
+            "read",
+            Some(format!("{}.metadata.refresh", manifest.engine)),
+            false,
+            "Reload Oracle dictionary metadata using USER_*/ALL_* views.",
+        ),
+        action(
+            "view-plan",
+            "Explain Plan",
+            "query",
+            "diagnostic",
+            Some(format!("{}.query.explain", manifest.engine)),
+            true,
+            "Generate EXPLAIN PLAN and DBMS_XPLAN output templates.",
+        ),
+        action(
+            "compile-object",
+            "Compile Object...",
+            "object",
+            "write",
+            Some(format!("{}.object.create", manifest.engine)),
+            true,
+            "Preview an ALTER ... COMPILE request for PL/SQL objects.",
+        ),
+        action(
+            "generate-ddl",
+            "Generate DDL",
+            "object",
+            "read",
+            Some(format!("{}.metadata.refresh", manifest.engine)),
+            true,
+            "Use DBMS_METADATA where granted to inspect object DDL.",
+        ),
+        action(
+            "inspect-permissions",
+            "Inspect Grants",
+            "role",
+            "read",
+            Some(format!("{}.security.inspect", manifest.engine)),
+            false,
+            "Show effective roles, grants, and unavailable Oracle actions.",
+        ),
+    ]
+}
+
 fn query_builders(manifest: &AdapterManifest) -> Vec<DatastoreExperienceBuilder> {
     match manifest.engine.as_str() {
-        "mongodb" => vec![builder("mongo-find", "Find Builder", "collection", "split")],
+        "mongodb" => vec![
+            builder("mongo-find", "Find Builder", "collection", "visual"),
+            builder(
+                "mongo-aggregation",
+                "Aggregation Builder",
+                "collection",
+                "visual",
+            ),
+        ],
         "elasticsearch" | "opensearch" => {
             vec![builder(
                 "search-dsl",
@@ -171,6 +432,7 @@ fn editable_scopes(manifest: &AdapterManifest) -> Vec<DatastoreEditableScope> {
             "collection",
             "Collection Documents",
             &[
+                "insert-document",
                 "set-field",
                 "unset-field",
                 "rename-field",
@@ -236,6 +498,135 @@ fn editable_scopes(manifest: &AdapterManifest) -> Vec<DatastoreEditableScope> {
 }
 
 fn diagnostics_tabs(manifest: &AdapterManifest) -> Vec<DatastoreDiagnosticsTab> {
+    if manifest.engine == "sqlserver" {
+        return vec![
+            diagnostics_tab(
+                "overview",
+                "Overview",
+                "Connection health, database size, session counts, and adapter status.",
+                "metrics",
+            ),
+            diagnostics_tab(
+                "plans",
+                "Execution Plans",
+                "Estimated and guarded actual-plan output.",
+                "plan",
+            ),
+            diagnostics_tab(
+                "query-store",
+                "Query Store",
+                "Top queries, regressed queries, forced plans, and runtime stats.",
+                "table",
+            ),
+            diagnostics_tab(
+                "sessions-blocking",
+                "Sessions & Blocking",
+                "Active sessions, blocking tree, long-running requests, waits, and locks.",
+                "table",
+            ),
+            diagnostics_tab(
+                "waits-io",
+                "Waits & IO",
+                "Wait statistics, file IO, memory grants, and TempDB pressure.",
+                "metrics",
+            ),
+            diagnostics_tab(
+                "index-health",
+                "Index Health",
+                "Usage, missing indexes, fragmentation, and statistics signals.",
+                "table",
+            ),
+            diagnostics_tab(
+                "security",
+                "Security",
+                "Logins, users, roles, grants, and disabled-action reasons.",
+                "table",
+            ),
+            diagnostics_tab(
+                "agent-events",
+                "Agent & Events",
+                "SQL Server Agent jobs and Extended Events where available.",
+                "table",
+            ),
+        ];
+    }
+
+    if manifest.engine == "oracle" {
+        return vec![
+            diagnostics_tab(
+                "overview",
+                "Overview",
+                "Connection health, adapter maturity, and dictionary access.",
+                "metrics",
+            ),
+            diagnostics_tab(
+                "plans",
+                "Execution Plans",
+                "EXPLAIN PLAN and DBMS_XPLAN renderer payloads.",
+                "plan",
+            ),
+            diagnostics_tab(
+                "sql-monitor",
+                "SQL Monitor",
+                "SQL Monitor and current-operation templates where available.",
+                "profile",
+            ),
+            diagnostics_tab(
+                "sessions",
+                "Sessions & Locks",
+                "V$SESSION, V$LOCK, waits, blocking sessions, and deadlock context.",
+                "table",
+            ),
+            diagnostics_tab(
+                "storage",
+                "Storage",
+                "Tablespaces, segments, quotas, and storage alerts.",
+                "metrics",
+            ),
+            diagnostics_tab(
+                "security",
+                "Security",
+                "Roles, grants, profiles, and disabled-action reasons.",
+                "table",
+            ),
+        ];
+    }
+
+    if manifest.engine == "sqlite" {
+        return vec![
+            diagnostics_tab(
+                "overview",
+                "Overview",
+                "File size, object counts, page usage, and adapter status.",
+                "metrics",
+            ),
+            diagnostics_tab(
+                "query-plan",
+                "Query Plan",
+                "EXPLAIN QUERY PLAN scan/index/tree output.",
+                "plan",
+            ),
+            diagnostics_tab(
+                "pragmas",
+                "Pragmas",
+                "database_list, table_list, journal, synchronous, cache, encoding, and app metadata.",
+                "table",
+            ),
+            diagnostics_tab(
+                "integrity",
+                "Integrity",
+                "quick_check, foreign_key_check, optimize, and maintenance plans.",
+                "table",
+            ),
+            diagnostics_tab(
+                "storage",
+                "Storage",
+                "Page count, freelist count, auto-vacuum, mmap, and attached file paths.",
+                "metrics",
+            ),
+        ];
+    }
+
     let mut tabs = vec![diagnostics_tab(
         "overview",
         "Overview",
@@ -489,6 +880,18 @@ fn test_template_parts(manifest: &AdapterManifest) -> Option<TestTemplateParts> 
             vec!["insert into datapad_test.orders (account_id, order_id, total) values ('acct-1', 'order-1', 42);"],
             "select * from datapad_test.orders where account_id = 'acct-1' and order_id = 'order-1';",
             "delete from datapad_test.orders where account_id = 'acct-1' and order_id = 'order-1';",
+            "row-count",
+            json!(1),
+        )),
+        "oracle" => Some((
+            "Oracle SQL/PLSQL smoke test",
+            "sql",
+            vec![
+                "begin execute immediate 'create global temporary table datapad_test_accounts (id number primary key, name varchar2(100)) on commit preserve rows'; exception when others then if sqlcode != -955 then raise; end if; end;",
+                "insert into datapad_test_accounts (id, name) values (1, 'Ada')",
+            ],
+            "select id, name from datapad_test_accounts where id = 1",
+            "truncate table datapad_test_accounts",
             "row-count",
             json!(1),
         )),

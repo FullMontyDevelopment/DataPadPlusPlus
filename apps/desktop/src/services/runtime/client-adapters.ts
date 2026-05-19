@@ -65,6 +65,7 @@ export const clientAdapters = {
     return {
       connectionId: request.connectionId,
       environmentId: request.environmentId,
+      databaseIndex: request.databaseIndex ?? 0,
       cursor: request.cursor ?? '0',
       scannedCount: sampleKeys.length,
       keys,
@@ -218,13 +219,14 @@ export const clientAdapters = {
       return invokeDesktop<DataEditPlanResponse>('plan_data_edit', { request })
     }
 
-    const connection = findConnection(loadBrowserSnapshot(), request.connectionId)
+    const snapshot = loadBrowserSnapshot()
+    const connection = findConnection(snapshot, request.connectionId)
 
     if (!connection) {
       throw new Error('Connection was not found.')
     }
 
-    return planDataEditLocally(connection, request)
+    return planDataEditLocally(connection, request, snapshot)
   },
 
   async executeDataEdit(
@@ -234,13 +236,14 @@ export const clientAdapters = {
       return invokeDesktop<DataEditExecutionResponse>('execute_data_edit', { request })
     }
 
-    const connection = findConnection(loadBrowserSnapshot(), request.connectionId)
+    const snapshot = loadBrowserSnapshot()
+    const connection = findConnection(snapshot, request.connectionId)
 
     if (!connection) {
       throw new Error('Connection was not found.')
     }
 
-    return executeDataEditLocally(connection, request)
+    return executeDataEditLocally(connection, request, snapshot)
   },
 
   async inspectConnectionPermissions(

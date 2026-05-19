@@ -140,6 +140,10 @@ fn test_resolved_connection(
         username: Some("datapadplusplus".into()),
         password: Some("pw".into()),
         connection_string: None,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
         read_only: false,
     }
 }

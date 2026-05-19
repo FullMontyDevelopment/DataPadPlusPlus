@@ -157,6 +157,70 @@ pub(crate) fn is_read_only_oracle_statement(statement: &str) -> bool {
         || normalized.starts_with("show")
 }
 
+#[allow(dead_code)]
+pub(crate) fn oracle_friendly_error(raw: &str) -> CommandError {
+    let upper = raw.to_uppercase();
+    let (code, hint) = if upper.contains("ORA-01017") {
+        (
+            "oracle-authentication-failed",
+            "Oracle rejected the username or password. Check credentials, auth database/service, proxy user, and account status.",
+        )
+    } else if upper.contains("ORA-12154") {
+        (
+            "oracle-tns-name-unresolved",
+            "Oracle could not resolve the TNS alias. Check TNS_ADMIN, tnsnames.ora, wallet location, or use Easy Connect.",
+        )
+    } else if upper.contains("ORA-12514") {
+        (
+            "oracle-service-unknown",
+            "The listener does not know the requested service. Check service name, PDB name, and listener registration.",
+        )
+    } else if upper.contains("ORA-12541") {
+        (
+            "oracle-listener-unreachable",
+            "No Oracle listener is reachable on the configured host and port.",
+        )
+    } else if upper.contains("ORA-28000") {
+        (
+            "oracle-account-locked",
+            "The Oracle account is locked. Unlock it or use another account.",
+        )
+    } else if upper.contains("ORA-01555") {
+        (
+            "oracle-snapshot-too-old",
+            "Oracle reported snapshot too old. Reduce query duration, adjust undo retention, or query a smaller range.",
+        )
+    } else if upper.contains("ORA-00060") {
+        (
+            "oracle-deadlock-detected",
+            "Oracle detected a deadlock. Review concurrent transactions and lock order.",
+        )
+    } else if upper.contains("ORA-03113") || upper.contains("ORA-12537") {
+        (
+            "oracle-connection-closed",
+            "Oracle closed the connection unexpectedly. Check server process health, TLS/wallet settings, and network stability.",
+        )
+    } else if upper.contains("ORA-01031") || upper.contains("INSUFFICIENT PRIVILEGES") {
+        (
+            "oracle-insufficient-privileges",
+            "The current Oracle user lacks the required privilege or dictionary-view grant.",
+        )
+    } else if upper.contains("ORA-01653")
+        || upper.contains("ORA-01654")
+        || upper.contains("ORA-01658")
+        || upper.contains("TABLESPACE")
+    {
+        (
+            "oracle-tablespace-full",
+            "Oracle could not allocate space. Check tablespace size, quotas, and autoextend settings.",
+        )
+    } else {
+        ("oracle-error", "Oracle returned an error.")
+    };
+
+    CommandError::new(code, format!("{hint} Details: {raw}"))
+}
+
 fn oracle_value_to_string(value: &Value) -> String {
     value
         .as_str()
@@ -169,7 +233,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        is_read_only_oracle_statement, normalize_oracle_response, preview_oracle_response,
+        is_read_only_oracle_statement, normalize_oracle_response, oracle_friendly_error,
+        preview_oracle_response,
     };
     use crate::domain::models::ResolvedConnectionProfile;
 
@@ -185,6 +250,10 @@ mod tests {
             username: Some("APP".into()),
             password: None,
             connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
             read_only: true,
         }
     }
@@ -214,5 +283,16 @@ mod tests {
         ));
         assert!(!is_read_only_oracle_statement("insert into t values (1)"));
         assert!(!is_read_only_oracle_statement("begin delete from t; end;"));
+    }
+
+    #[test]
+    fn oracle_friendly_error_maps_common_ora_codes() {
+        let auth = oracle_friendly_error("ORA-01017: invalid username/password; logon denied");
+        let tns = oracle_friendly_error("ORA-12154: TNS:could not resolve the connect identifier");
+        let privilege = oracle_friendly_error("ORA-01031: insufficient privileges");
+
+        assert_eq!(auth.code, "oracle-authentication-failed");
+        assert_eq!(tns.code, "oracle-tns-name-unresolved");
+        assert_eq!(privilege.code, "oracle-insufficient-privileges");
     }
 }

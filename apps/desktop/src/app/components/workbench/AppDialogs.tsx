@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type {
   ConnectionProfile,
+  EnvironmentProfile,
   LibraryNode,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
@@ -176,6 +177,51 @@ function displayLibraryNameForTab(title: string) {
   return title.replace(/\.(datapad-test\.json|sql|json|redis|promql|cql|txt)$/i, '')
 }
 
+interface DeleteConfirmationDialogProps {
+  eyebrow: string
+  title: string
+  body: string
+  confirmLabel: string
+  onCancel(): void
+  onConfirm(): void
+}
+
+function DeleteConfirmationDialog({
+  eyebrow,
+  title,
+  body,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+}: DeleteConfirmationDialogProps) {
+  return (
+    <div className="workbench-modal-overlay" role="presentation">
+      <section
+        className="workbench-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-confirmation-dialog-title"
+      >
+        <p className="sidebar-eyebrow">{eyebrow}</p>
+        <h2 id="delete-confirmation-dialog-title">{title}</h2>
+        <p>{body}</p>
+        <div className="workbench-dialog-actions">
+          <button type="button" className="drawer-button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="drawer-button drawer-button--danger"
+            onClick={onConfirm}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 export function DeleteConnectionDialog({
   connection,
   onCancel,
@@ -186,32 +232,96 @@ export function DeleteConnectionDialog({
   onConfirm(): void
 }) {
   return (
-    <div className="workbench-modal-overlay" role="presentation">
-      <section
-        className="workbench-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="delete-connection-dialog-title"
-      >
-        <p className="sidebar-eyebrow">Delete Connection</p>
-        <h2 id="delete-connection-dialog-title">Remove {connection.name}?</h2>
-        <p>
-          This removes the local connection profile from this workspace. Secrets
-          referenced by the profile are not shown or exported by this action.
-        </p>
-        <div className="workbench-dialog-actions">
-          <button type="button" className="drawer-button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="drawer-button drawer-button--danger"
-            onClick={onConfirm}
-          >
-            Delete Connection
-          </button>
-        </div>
-      </section>
-    </div>
+    <DeleteConfirmationDialog
+      eyebrow="Delete Connection"
+      title={`Remove ${connection.name}?`}
+      body="This removes the local connection profile from this workspace. Secrets referenced by the profile are not shown or exported by this action."
+      confirmLabel="Delete Connection"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   )
+}
+
+export function DeleteLibraryNodeDialog({
+  descendantCount = 0,
+  node,
+  onCancel,
+  onConfirm,
+}: {
+  descendantCount?: number
+  node: LibraryNode
+  onCancel(): void
+  onConfirm(): void
+}) {
+  const label = libraryNodeKindLabel(node)
+  const title =
+    node.kind === 'folder'
+      ? `Delete folder ${node.name}?`
+      : `Delete ${node.name}?`
+  const body =
+    node.kind === 'folder'
+      ? descendantCount > 0
+        ? `This deletes the folder and ${descendantCount} item${descendantCount === 1 ? '' : 's'} inside it. Open tabs linked to deleted Library items become unsaved.`
+        : 'This deletes the empty folder from the workspace Library.'
+      : `This removes the ${label.toLowerCase()} from the workspace Library. Open tabs linked to it become unsaved.`
+
+  return (
+    <DeleteConfirmationDialog
+      eyebrow={`Delete ${label}`}
+      title={title}
+      body={body}
+      confirmLabel={`Delete ${label}`}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
+  )
+}
+
+export function DeleteEnvironmentDialog({
+  environment,
+  onCancel,
+  onConfirm,
+}: {
+  environment: EnvironmentProfile
+  onCancel(): void
+  onConfirm(): void
+}) {
+  return (
+    <DeleteConfirmationDialog
+      eyebrow="Delete Environment"
+      title={`Delete environment ${environment.label}?`}
+      body="Connections, tabs, and Library items using this environment will fall back to another environment or inherit from their parent."
+      confirmLabel="Delete Environment"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
+  )
+}
+
+function libraryNodeKindLabel(node: LibraryNode) {
+  switch (node.kind) {
+    case 'bookmark':
+      return 'Bookmark'
+    case 'connection':
+      return 'Connection'
+    case 'folder':
+      return 'Folder'
+    case 'note':
+      return 'Note'
+    case 'query':
+      return 'Query'
+    case 'script':
+      return 'Script'
+    case 'snapshot':
+      return 'Snapshot'
+    case 'snippet':
+      return 'Snippet'
+    case 'template':
+      return 'Template'
+    case 'test-suite':
+      return 'Test Suite'
+    default:
+      return 'Library Item'
+  }
 }

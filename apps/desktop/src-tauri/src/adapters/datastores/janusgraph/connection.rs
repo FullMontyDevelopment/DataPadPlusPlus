@@ -253,6 +253,10 @@ mod tests {
             username: None,
             password: None,
             connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
             read_only: true,
         };
         let body = janusgraph_gremlin_body(&connection, "g.V().limit(1)").unwrap();

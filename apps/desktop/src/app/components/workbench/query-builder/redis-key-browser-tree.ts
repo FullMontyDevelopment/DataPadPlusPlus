@@ -7,18 +7,20 @@ export type RedisTreeRow =
 export function redisTreeRows(
   keys: RedisKeySummary[],
   expandedPrefixes: Set<string>,
+  delimiter = ':',
 ): RedisTreeRow[] {
   const sorted = [...keys].sort((left, right) => left.key.localeCompare(right.key))
   const rows: RedisTreeRow[] = []
   const emittedPrefixes = new Set<string>()
+  const keyDelimiter = delimiter || ':'
 
   for (const key of sorted) {
-    const parts = key.key.split(':')
+    const parts = key.key.split(keyDelimiter)
     let prefix = ''
     let hiddenByCollapsedPrefix = false
 
     for (let index = 0; index < parts.length - 1; index += 1) {
-      prefix = prefix ? `${prefix}:${parts[index]}` : parts[index] ?? ''
+      prefix = prefix ? `${prefix}${keyDelimiter}${parts[index]}` : parts[index] ?? ''
       if (!prefix) {
         continue
       }
@@ -30,7 +32,7 @@ export function redisTreeRows(
           id: prefix,
           label: parts[index] ?? prefix,
           depth: index,
-          count: countKeysWithPrefix(sorted, `${prefix}:`),
+          count: countKeysWithPrefix(sorted, `${prefix}${keyDelimiter}`),
         })
       }
 

@@ -272,6 +272,7 @@ impl ManagedAppState {
             scoped_target: None,
             builder_state: None,
             metrics_state: None,
+            object_view_state: None,
             test_suite: Some(suite),
             test_run: None,
             status: "idle".into(),

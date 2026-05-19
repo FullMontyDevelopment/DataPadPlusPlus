@@ -59,6 +59,29 @@ describe('evaluateGuardrails', () => {
     expect(decision.status).toBe('confirm')
     expect(decision.requiredConfirmationText).toBe('CONFIRM Prod')
   })
+
+  it('requires confirmation for risky writes when safe mode is enabled', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-analytics')
+    const environment = snapshot.environments.find((item) => item.id === 'env-dev')
+    const resolved = resolveEnvironment(snapshot.environments, 'env-dev')
+
+    expect(connection).toBeDefined()
+    expect(environment).toBeDefined()
+
+    const decision = evaluateGuardrails(
+      connection!,
+      environment!,
+      resolved,
+      'update accounts set status = "inactive" where id = 1;',
+      true,
+    )
+
+    expect(decision.status).toBe('confirm')
+    expect(decision.reasons).toContain(
+      'Global safe mode requires confirmation for risky work.',
+    )
+  })
 })
 
 describe('migrateWorkspaceSnapshot', () => {

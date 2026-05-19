@@ -856,6 +856,7 @@ impl ManagedAppState {
             scoped_target: None,
             builder_state: item.builder_state.clone(),
             metrics_state: None,
+            object_view_state: None,
             test_suite: item.test_suite.clone(),
             test_run: None,
             status: "idle".into(),
