@@ -1,5 +1,5 @@
 import type { BootstrapPayload, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateQueryBuilderStateRequest } from '@datapadplusplus/shared-types'
-import { closeQueryTab, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createObjectViewTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, upsertTab } from './browser-tabs'
+import { closeQueryTab, createEnvironmentTabInSnapshot, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createObjectViewTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, upsertTab } from './browser-tabs'
 import { collectDiagnosticsLocally } from './browser-operation-inspection'
 import { inspectExplorerNodeLocally } from './browser-explorer'
 import { buildBrowserPayload, cloneSnapshot, findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
@@ -102,6 +102,16 @@ export const clientTabs = {
       connectionId,
       environmentId,
     )
+    saveBrowserSnapshot(snapshot)
+    return buildBrowserPayload(snapshot)
+  },
+
+  async createEnvironmentTab(environmentId: string): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('create_environment_tab', { environmentId })
+    }
+
+    const snapshot = createEnvironmentTabInSnapshot(loadBrowserSnapshot(), environmentId)
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
   },

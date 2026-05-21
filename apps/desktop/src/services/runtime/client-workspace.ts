@@ -4,6 +4,8 @@ import { buildDiagnosticsReport, migrateWorkspaceSnapshot } from '../../app/stat
 import { decodeBase64, encodeBase64, buildBrowserPayload, cloneSnapshot, hashPassphrase, loadBrowserSnapshot, saveBrowserSnapshot, updateUiStateLocally } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 
+const WORKSPACE_BUNDLE_PASSPHRASE_MIN_LENGTH = 8
+
 export const clientWorkspace = {
   async bootstrapApp(): Promise<BootstrapPayload> {
     if (isTauriRuntime()) {
@@ -39,6 +41,8 @@ export const clientWorkspace = {
   },
 
   async exportWorkspaceBundle(passphrase: string): Promise<ExportBundle> {
+    validateWorkspaceBundlePassphrase(passphrase)
+
     if (isTauriRuntime()) {
       return invokeDesktop<ExportBundle>('export_workspace_bundle', { passphrase })
     }
@@ -59,6 +63,8 @@ export const clientWorkspace = {
     passphrase: string,
     encryptedPayload: string,
   ): Promise<BootstrapPayload> {
+    validateWorkspaceBundlePassphrase(passphrase)
+
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('import_workspace_bundle', {
         passphrase,
@@ -107,4 +113,10 @@ export const clientWorkspace = {
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
   },
+}
+
+function validateWorkspaceBundlePassphrase(passphrase: string) {
+  if (passphrase.trim().length < WORKSPACE_BUNDLE_PASSPHRASE_MIN_LENGTH) {
+    throw new Error('Use a workspace backup passphrase with at least 8 characters.')
+  }
 }

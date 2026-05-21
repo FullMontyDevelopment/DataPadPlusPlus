@@ -17,7 +17,6 @@ import { useTabStripScroll } from './editor-tabs/useTabStripScroll'
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
-  PlusIcon,
 } from './icons'
 
 interface TabContextMenuState {
@@ -31,10 +30,8 @@ interface EditorTabsProps {
   activeTabId: string
   connections: ConnectionProfile[]
   environments: EnvironmentProfile[]
-  canCreateTab: boolean
   onSelectTab(tabId: string): void
   onCloseTab(tabId: string): void
-  onCreateTab(): void
   onRenameTab(tabId: string, title: string): void
   onSaveTab(tabId: string): void
   onReorderTabs(orderedTabIds: string[]): void
@@ -46,10 +43,8 @@ export function EditorTabs({
   activeTabId,
   connections,
   environments,
-  canCreateTab,
   onSelectTab,
   onCloseTab,
-  onCreateTab,
   onRenameTab,
   onSaveTab,
   onReorderTabs,
@@ -322,21 +317,6 @@ export function EditorTabs({
         onClick={() => scrollTabs('right')}
       >
         <ArrowRightIcon className="editor-tab-scroll-icon" />
-      </button>
-
-      <button
-        type="button"
-        className="editor-tab editor-tab--create"
-        aria-label="Create query tab"
-        disabled={!canCreateTab}
-        title={
-          canCreateTab
-            ? 'Create a new scratch query tab for the selected connection.'
-            : 'Create a connection first before opening a query tab.'
-        }
-        onClick={onCreateTab}
-      >
-        <PlusIcon className="tab-inline-icon" />
       </button>
 
       {contextMenu && contextTab ? (

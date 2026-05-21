@@ -135,6 +135,58 @@ export function createMetricsTabInSnapshot(
   return focused
 }
 
+export function createEnvironmentTabInSnapshot(
+  snapshot: WorkspaceSnapshot,
+  environmentId: string,
+): WorkspaceSnapshot {
+  const next = cloneSnapshot(snapshot)
+  const environment = next.environments.find((item) => item.id === environmentId)
+
+  if (!environment) {
+    return next
+  }
+
+  const existingEnvironmentTab = next.tabs.find(
+    (tab) => tab.tabKind === 'environment' && tab.environmentId === environment.id,
+  )
+
+  if (existingEnvironmentTab) {
+    const focused = upsertTab(next, existingEnvironmentTab)
+    focused.ui.activeActivity = 'library'
+    focused.ui.activeSidebarPane = 'library'
+    focused.ui.activeEnvironmentId = environment.id
+    focused.ui.rightDrawer = 'none'
+    return focused
+  }
+
+  const connection =
+    next.connections.find((item) => item.id === next.ui.activeConnectionId) ??
+    next.connections[0]
+  const tab: QueryTabState = {
+    id: createId('environment-tab'),
+    title: uniqueEnvironmentTabTitle(next, environment.label),
+    tabKind: 'environment',
+    connectionId: connection?.id ?? '',
+    environmentId: environment.id,
+    family: connection?.family ?? 'sql',
+    language: 'text',
+    editorLabel: 'Environment',
+    queryText: '',
+    queryViewMode: undefined,
+    scriptText: undefined,
+    status: 'idle',
+    dirty: false,
+    history: [],
+  }
+
+  const focused = upsertTab(next, tab)
+  focused.ui.activeActivity = 'library'
+  focused.ui.activeSidebarPane = 'library'
+  focused.ui.activeEnvironmentId = environment.id
+  focused.ui.rightDrawer = 'none'
+  return focused
+}
+
 export function createObjectViewTabInSnapshot(
   snapshot: WorkspaceSnapshot,
   request: CreateObjectViewTabRequest,
@@ -346,6 +398,25 @@ function uniqueExplorerTabTitle(snapshot: WorkspaceSnapshot, connection: Connect
 
 function uniqueMetricsTabTitle(snapshot: WorkspaceSnapshot, connection: ConnectionProfile) {
   const candidate = `Metrics - ${connection.name}`
+  const titles = new Set(snapshot.tabs.map((tab) => tab.title))
+
+  if (!titles.has(candidate)) {
+    return candidate
+  }
+
+  let index = 2
+  let title = `${candidate} ${index}`
+
+  while (titles.has(title)) {
+    index += 1
+    title = `${candidate} ${index}`
+  }
+
+  return title
+}
+
+function uniqueEnvironmentTabTitle(snapshot: WorkspaceSnapshot, environmentLabel: string) {
+  const candidate = `Environment - ${environmentLabel || 'Untitled'}`
   const titles = new Set(snapshot.tabs.map((tab) => tab.title))
 
   if (!titles.has(candidate)) {

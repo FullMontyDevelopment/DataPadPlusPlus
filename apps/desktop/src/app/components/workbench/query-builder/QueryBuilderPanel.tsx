@@ -9,9 +9,18 @@ import type {
   RedisKeyScanRequest,
   RedisKeyScanResponse,
 } from '@datapadplusplus/shared-types'
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
-import { readFieldDragPayload } from '../results/field-drag'
+import {
+  FIELD_POINTER_DRAG_CANCEL_EVENT,
+  FIELD_POINTER_DRAG_DROP_EVENT,
+  FIELD_POINTER_DRAG_MOVE_EVENT,
+  acceptFieldDrag,
+  clearFieldDragData,
+  type FieldPointerDragDetail,
+  readFieldDragPayload,
+  type FieldDragPayload,
+} from '../results/field-drag'
 import { CqlPartitionBuilder } from './CqlPartitionBuilder'
 import { isCqlPartitionBuilderState } from './cql-partition'
 import { DynamoDbKeyConditionBuilder } from './DynamoDbKeyConditionBuilder'
@@ -27,6 +36,7 @@ import {
   MongoProjectionBuilderSection,
   MongoSortBuilderSection,
 } from './MongoFindBuilderSections'
+import { rowId } from './MongoBuilderSection.types'
 import { mongoFilterRowFromDroppedField } from './mongo-filter-row'
 import { isSqlSelectBuilderState } from './sql-select'
 import { SqlSelectBuilder } from './SqlSelectBuilder'
@@ -164,14 +174,16 @@ function MongoFindBuilder({
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
 }) {
   const draft = builderState
-  const filterGroups = draft.filterGroups ?? []
+  const filterGroups = useMemo(() => draft.filterGroups ?? [], [draft.filterGroups])
+  const rootRef = useRef<HTMLElement>(null)
   const [builderDragActive, setBuilderDragActive] = useState(false)
+  const [activeDropZone, setActiveDropZone] = useState<string>()
   const resolvedCollectionOptions = uniqueValues([
     draft.collection,
     ...collectionOptions,
   ]).filter(Boolean)
 
-  const updateDraft = (patch: Partial<MongoFindBuilderState>) => {
+  const updateDraft = useCallback((patch: Partial<MongoFindBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
     const next = {
       ...nextDraft,
@@ -181,12 +193,99 @@ function MongoFindBuilder({
     if (onBuilderStateChange) {
       onBuilderStateChange(tab.id, next)
     }
-  }
+  }, [draft, onBuilderStateChange, tab.id])
+
+  const addDroppedFilter = useCallback((payload: FieldDragPayload) => {
+    updateDraft({
+      filterGroups,
+      filters: [
+        ...draft.filters,
+        mongoFilterRowFromDroppedField(filterGroups[0]?.id, payload.fieldPath, payload),
+      ],
+    })
+  }, [draft.filters, filterGroups, updateDraft])
+
+  const addDroppedProjection = useCallback((field: string) => {
+    updateDraft({
+      filterGroups,
+      projectionMode: draft.projectionMode === 'all' ? 'include' : draft.projectionMode,
+      projectionFields: [...draft.projectionFields, { id: rowId('projection'), field }],
+    })
+  }, [draft.projectionFields, draft.projectionMode, filterGroups, updateDraft])
+
+  const addDroppedSort = useCallback((field: string) => {
+    updateDraft({
+      filterGroups,
+      sort: [...draft.sort, { id: rowId('sort'), field, direction: 'asc' }],
+    })
+  }, [draft.sort, filterGroups, updateDraft])
+
+  const addDroppedPayload = useCallback((payload: FieldDragPayload, dropZone: string | undefined) => {
+    if (dropZone === 'projection') {
+      addDroppedProjection(payload.fieldPath)
+    } else if (dropZone === 'sort') {
+      addDroppedSort(payload.fieldPath)
+    } else {
+      addDroppedFilter(payload)
+    }
+  }, [addDroppedFilter, addDroppedProjection, addDroppedSort])
+
+  useEffect(() => {
+    const handlePointerMove = (event: Event) => {
+      const detail = (event as CustomEvent<FieldPointerDragDetail>).detail
+      const root = rootRef.current
+
+      if (!root || !detail) {
+        return
+      }
+
+      if (!pointInsideElement(root, detail.clientX, detail.clientY)) {
+        setBuilderDragActive(false)
+        setActiveDropZone(undefined)
+        return
+      }
+
+      setBuilderDragActive(true)
+      setActiveDropZone(queryBuilderDropZoneFromPoint(detail.clientX, detail.clientY) ?? 'filters')
+    }
+
+    const handlePointerDrop = (event: Event) => {
+      const detail = (event as CustomEvent<FieldPointerDragDetail>).detail
+      const root = rootRef.current
+
+      setBuilderDragActive(false)
+      setActiveDropZone(undefined)
+
+      if (!root || !detail || !pointInsideElement(root, detail.clientX, detail.clientY)) {
+        return
+      }
+
+      addDroppedPayload(
+        detail.payload,
+        queryBuilderDropZoneFromPoint(detail.clientX, detail.clientY) ?? 'filters',
+      )
+    }
+
+    const handlePointerCancel = () => {
+      setBuilderDragActive(false)
+      setActiveDropZone(undefined)
+    }
+
+    window.addEventListener(FIELD_POINTER_DRAG_MOVE_EVENT, handlePointerMove)
+    window.addEventListener(FIELD_POINTER_DRAG_DROP_EVENT, handlePointerDrop)
+    window.addEventListener(FIELD_POINTER_DRAG_CANCEL_EVENT, handlePointerCancel)
+
+    return () => {
+      window.removeEventListener(FIELD_POINTER_DRAG_MOVE_EVENT, handlePointerMove)
+      window.removeEventListener(FIELD_POINTER_DRAG_DROP_EVENT, handlePointerDrop)
+      window.removeEventListener(FIELD_POINTER_DRAG_CANCEL_EVENT, handlePointerCancel)
+    }
+  }, [addDroppedPayload])
 
   const handleBuilderDragOver = (event: DragEvent<HTMLElement>) => {
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
-    setBuilderDragActive((current) => current || true)
+    if (acceptFieldDrag(event)) {
+      setBuilderDragActive((current) => current || true)
+    }
   }
 
   const handleBuilderDragLeave = (event: DragEvent<HTMLElement>) => {
@@ -201,31 +300,32 @@ function MongoFindBuilder({
 
   const handleBuilderDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault()
+    event.stopPropagation()
     setBuilderDragActive(false)
 
     const payload = readFieldDragPayload(event)
 
     if (!payload?.fieldPath) {
+      clearFieldDragData()
       return
     }
 
-    updateDraft({
-      filterGroups,
-      filters: [
-        ...draft.filters,
-        mongoFilterRowFromDroppedField(filterGroups[0]?.id, payload.fieldPath, payload),
-      ],
-    })
+    const dropZone = queryBuilderDropZoneFromEvent(event) ?? 'filters'
+
+    addDroppedPayload(payload, dropZone)
+
+    clearFieldDragData()
   }
 
   return (
     <section
+      ref={rootRef}
       className={`query-builder-panel${builderDragActive ? ' is-drag-over' : ''}`}
       aria-label="MongoDB query builder"
       onDragEnterCapture={handleBuilderDragOver}
       onDragOverCapture={handleBuilderDragOver}
       onDragLeave={handleBuilderDragLeave}
-      onDrop={handleBuilderDrop}
+      onDropCapture={handleBuilderDrop}
     >
       <div className="query-builder-grid">
         <label className="query-builder-field">
@@ -259,16 +359,19 @@ function MongoFindBuilder({
 
       <MongoFilterBuilderSection
         draft={draft}
+        dragActive={activeDropZone === 'filters'}
         filterGroups={filterGroups}
         updateDraft={updateDraft}
       />
       <MongoProjectionBuilderSection
         draft={draft}
+        dragActive={activeDropZone === 'projection'}
         filterGroups={filterGroups}
         updateDraft={updateDraft}
       />
       <MongoSortBuilderSection
         draft={draft}
+        dragActive={activeDropZone === 'sort'}
         filterGroups={filterGroups}
         updateDraft={updateDraft}
       />
@@ -278,6 +381,43 @@ function MongoFindBuilder({
 
 function uniqueValues(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
+}
+
+function queryBuilderDropZoneFromEvent(event: DragEvent<HTMLElement>) {
+  const target = event.target
+
+  if (!(target instanceof Element)) {
+    return undefined
+  }
+
+  const dropZone = target.closest<HTMLElement>('[data-query-builder-drop-zone]')
+  return dropZone?.dataset.queryBuilderDropZone
+}
+
+function queryBuilderDropZoneFromPoint(clientX: number, clientY: number) {
+  if (typeof document.elementFromPoint !== 'function') {
+    return undefined
+  }
+
+  const target = document.elementFromPoint(clientX, clientY)
+
+  if (!(target instanceof Element)) {
+    return undefined
+  }
+
+  return target.closest<HTMLElement>('[data-query-builder-drop-zone]')
+    ?.dataset.queryBuilderDropZone
+}
+
+function pointInsideElement(element: HTMLElement, clientX: number, clientY: number) {
+  const rect = element.getBoundingClientRect()
+
+  return (
+    clientX >= rect.left &&
+    clientX <= rect.right &&
+    clientY >= rect.top &&
+    clientY <= rect.bottom
+  )
 }
 
 function positiveInteger(value: string, fallback: number) {

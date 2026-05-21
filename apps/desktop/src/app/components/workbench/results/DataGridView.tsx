@@ -24,7 +24,7 @@ import {
 import { DataGridToolbar } from './DataGridToolbar'
 import { useDataGridEditing } from './data-grid-editing'
 import type { DocumentEditContext } from './document-edit-context'
-import { writeFieldDragData } from './field-drag'
+import { clearFieldDragData, writeFieldDragData } from './field-drag'
 import { copyText } from './payload-export'
 import { buildDataGridRowDeleteRequest } from './data-grid-edit-requests'
 
@@ -37,7 +37,7 @@ interface DataGridViewProps {
 }
 
 interface ContextMenuState { sourceIndex: number; x: number; y: number }
-interface PendingDeleteState { confirmation: string; expectedText: string; rowNumber: number; sourceIndex: number }
+interface PendingDeleteState { expectedText: string; rowNumber: number; sourceIndex: number }
 
 export function DataGridView({
   connection,
@@ -270,7 +270,6 @@ export function DataGridView({
     }
 
     setPendingDelete({
-      confirmation: '',
       expectedText: request.confirmationText,
       rowNumber: sourceIndex + 1,
       sourceIndex,
@@ -289,18 +288,12 @@ export function DataGridView({
         <DataGridDeleteConfirmation
           expectedText={pendingDelete.expectedText}
           rowNumber={pendingDelete.rowNumber}
-          value={pendingDelete.confirmation}
           onCancel={() => setPendingDelete(undefined)}
           onConfirm={() => {
             const sourceIndex = pendingDelete.sourceIndex
             setPendingDelete(undefined)
             void deleteRow(sourceIndex)
           }}
-          onValueChange={(confirmation) =>
-            setPendingDelete((current) =>
-              current ? { ...current, confirmation } : current,
-            )
-          }
         />
       ) : null}
       <div
@@ -339,6 +332,7 @@ export function DataGridView({
                   draggable
                   onClick={() => toggleSort(columnIndex)}
                   onDragStart={(event) => writeFieldDragData(event, column)}
+                  onDragEnd={clearFieldDragData}
                   onDoubleClick={() => autoFitColumn(columnIndex)}
                 >
                   <span>{column}</span>

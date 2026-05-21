@@ -33,7 +33,7 @@ pub(super) async fn execute_mongodb_data_edit(
     if let Some(expected) = plan.plan.confirmation_text.as_deref() {
         if request.confirmation_text.as_deref() != Some(expected) {
             warnings.push(format!(
-                "Type `{expected}` before executing this MongoDB document edit."
+                "This MongoDB document edit requires confirmation before it can run ({expected})."
             ));
             return Ok(data_edit_response(
                 request, plan, false, messages, warnings, None,

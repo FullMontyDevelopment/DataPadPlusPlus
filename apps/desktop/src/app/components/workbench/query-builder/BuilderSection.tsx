@@ -1,11 +1,18 @@
 import { useState } from 'react'
 import type { DragEvent, ReactNode } from 'react'
-import { readFieldDragPayload, type FieldDragPayload } from '../results/field-drag'
+import {
+  acceptFieldDrag,
+  clearFieldDragData,
+  readFieldDragPayload,
+  type FieldDragPayload,
+} from '../results/field-drag'
 
 interface BuilderSectionProps {
   actionLabel: string
   children: ReactNode
+  dragActive?: boolean
   dropHint?: string
+  dropZone?: string
   onAdd(): void
   onDropField?(field: string, payload: FieldDragPayload): void
   secondaryActionLabel?: string
@@ -16,7 +23,9 @@ interface BuilderSectionProps {
 export function BuilderSection({
   actionLabel,
   children,
+  dragActive: forcedDragActive = false,
   dropHint,
+  dropZone,
   onAdd,
   onDropField,
   onSecondaryAdd,
@@ -24,15 +33,16 @@ export function BuilderSection({
   title,
 }: BuilderSectionProps) {
   const [dragActive, setDragActive] = useState(false)
+  const isDragActive = forcedDragActive || dragActive
 
   const handleDragOver = (event: DragEvent<HTMLElement>) => {
     if (!onDropField) {
       return
     }
 
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
-    setDragActive((current) => current || true)
+    if (acceptFieldDrag(event)) {
+      setDragActive((current) => current || true)
+    }
   }
 
   const handleDragLeave = (event: DragEvent<HTMLElement>) => {
@@ -63,11 +73,14 @@ export function BuilderSection({
     if (field && payload) {
       onDropField(field, payload)
     }
+
+    clearFieldDragData()
   }
 
   return (
     <section
-      className={`query-builder-section${dragActive ? ' is-drag-over' : ''}`}
+      className={`query-builder-section${isDragActive ? ' is-drag-over' : ''}`}
+      data-query-builder-drop-zone={dropZone}
       onDragEnter={handleDragOver}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}

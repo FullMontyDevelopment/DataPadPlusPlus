@@ -23,6 +23,14 @@ import {
   RefreshIcon,
   WarningIcon,
 } from './icons'
+import {
+  getMongoObjectViewDescriptor,
+  mongoScopedQueryMenuLabel,
+  type MongoObjectViewDescriptor,
+} from './MongoObjectViewDescriptors'
+import { OracleObjectViewWorkspace } from './OracleObjectViewWorkspace'
+import { executeDataEditWithConfirmation } from './results/data-edit-confirmation'
+import { RedisObjectViewWorkspace } from './RedisObjectViewWorkspace'
 import { ExplorerNodeIcon } from './SideBar.node-icons'
 
 interface ObjectViewWorkspaceProps {
@@ -68,6 +76,30 @@ export function ObjectViewWorkspace({
     )
   }
 
+  if (connection.engine === 'redis' || connection.engine === 'valkey') {
+    return (
+      <RedisObjectViewWorkspace
+        connection={connection}
+        environment={environment}
+        tab={tab}
+        onRefresh={onRefresh}
+        onOpenQuery={onOpenQuery}
+      />
+    )
+  }
+
+  if (connection.engine === 'oracle') {
+    return (
+      <OracleObjectViewWorkspace
+        connection={connection}
+        environment={environment}
+        tab={tab}
+        onRefresh={onRefresh}
+        onOpenQuery={onOpenQuery}
+      />
+    )
+  }
+
   return (
     <GenericObjectViewWorkspace
       connection={connection}
@@ -104,8 +136,10 @@ function MongoObjectViewWorkspace({
     () => queryTargetFromObjectView(tab),
     [tab],
   )
-  const title = state?.label ?? tab.title
   const kind = state?.kind ?? 'object'
+  const descriptor = getMongoObjectViewDescriptor(kind)
+  const title = descriptor.title
+  const summary = mongoObjectViewSummary(state?.summary, descriptor)
   const planMongoOperation = useCallback(async ({
     objectName,
     operationId,
@@ -175,17 +209,10 @@ function MongoObjectViewWorkspace({
         valueType: 'json',
       }],
     }
-    let response = await onExecuteDataEdit(request)
-    const confirmationText = response?.plan.confirmationText
-    if (confirmationText && !response?.executed) {
-      const confirmation = window.prompt(`Type ${confirmationText} to upload this document.`)
-      if (confirmation === confirmationText) {
-        response = await onExecuteDataEdit({
-          ...request,
-          confirmationText: confirmation,
-        })
-      }
-    }
+    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+      actionLabel: `Upload a document into ${collection}.`,
+      confirmationTitle: 'Upload this MongoDB document?',
+    })
 
     setFeedback({
       title: 'Upload Document',
@@ -215,16 +242,20 @@ function MongoObjectViewWorkspace({
             onClick={() => onOpenQuery(queryTarget)}
           >
             <PlayIcon className="panel-inline-icon" />
-            Open Query
+            {descriptor.primaryQueryLabel ?? mongoScopedQueryMenuLabel(kind)}
           </button>
         ) : null}
       </ObjectViewHeader>
 
-      {state?.summary ? <p className="object-view-summary">{state.summary}</p> : null}
+      <div className="object-view-purpose">
+        <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
+        <span>{descriptor.purpose}</span>
+      </div>
+      {summary ? <p className="object-view-summary">{summary}</p> : null}
       <WarningList warnings={warnings} />
 
       <div className="object-view-body">
-        {renderMongoObjectView(kind, payload, onOpenQuery, queryTarget, {
+        {renderMongoObjectView(kind, descriptor, payload, onOpenQuery, queryTarget, {
           feedback,
           onPlanOperation: planMongoOperation,
           onUploadDocument: uploadMongoDocument,
@@ -317,6 +348,7 @@ function ObjectViewHeader({
 
 function renderMongoObjectView(
   kind: string,
+  descriptor: MongoObjectViewDescriptor,
   payload: JsonRecord,
   onOpenQuery: (target: ScopedQueryTarget) => void,
   queryTarget?: ScopedQueryTarget,
@@ -335,6 +367,7 @@ function renderMongoObjectView(
     return (
       <MongoOverviewView
         kind={kind}
+        descriptor={descriptor}
         payload={payload}
         queryTarget={queryTarget}
         onOpenQuery={onOpenQuery}
@@ -344,48 +377,50 @@ function renderMongoObjectView(
   }
 
   if (kind === 'schema-preview') {
-    return <MongoSchemaView payload={payload} />
+    return <MongoSchemaView descriptor={descriptor} payload={payload} />
   }
 
   if (kind === 'indexes' || kind === 'search-indexes' || kind === 'vector-indexes') {
-    return <MongoIndexesView payload={payload} onPlanOperation={actions?.onPlanOperation} />
+    return <MongoIndexesView descriptor={descriptor} payload={payload} onPlanOperation={actions?.onPlanOperation} />
   }
 
   if (kind === 'validation-rules') {
-    return <MongoValidationView payload={payload} onPlanOperation={actions?.onPlanOperation} />
+    return <MongoValidationView descriptor={descriptor} payload={payload} onPlanOperation={actions?.onPlanOperation} />
   }
 
   if (kind === 'collection-statistics' || kind === 'database-statistics') {
-    return <MongoStatisticsView payload={payload} />
+    return <MongoStatisticsView descriptor={descriptor} payload={payload} />
   }
 
   if (kind === 'permissions' || kind === 'users' || kind === 'roles') {
-    return <MongoSecurityView kind={kind} payload={payload} onPlanOperation={actions?.onPlanOperation} />
+    return <MongoSecurityView kind={kind} descriptor={descriptor} payload={payload} onPlanOperation={actions?.onPlanOperation} />
   }
 
   if (kind === 'scripts' || kind === 'aggregations') {
-    return <MongoScriptsView payload={payload} queryTarget={queryTarget} onOpenQuery={onOpenQuery} />
+    return <MongoScriptsView descriptor={descriptor} payload={payload} queryTarget={queryTarget} onOpenQuery={onOpenQuery} />
   }
 
   if (kind === 'pipeline') {
-    return <MongoPipelineView payload={payload} queryTarget={queryTarget} onOpenQuery={onOpenQuery} />
+    return <MongoPipelineView descriptor={descriptor} payload={payload} queryTarget={queryTarget} onOpenQuery={onOpenQuery} />
   }
 
   if (kind.startsWith('gridfs')) {
-    return <MongoGridFsView payload={payload} queryTarget={queryTarget} onOpenQuery={onOpenQuery} />
+    return <MongoGridFsView descriptor={descriptor} payload={payload} queryTarget={queryTarget} onOpenQuery={onOpenQuery} />
   }
 
-  return <MongoOverviewView kind={kind} payload={payload} queryTarget={queryTarget} onOpenQuery={onOpenQuery} />
+  return <MongoOverviewView kind={kind} descriptor={descriptor} payload={payload} queryTarget={queryTarget} onOpenQuery={onOpenQuery} />
 }
 
 function MongoOverviewView({
   kind,
+  descriptor,
   payload,
   queryTarget,
   onOpenQuery,
   onUploadDocument,
 }: {
   kind: string
+  descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
   queryTarget?: ScopedQueryTarget
   onOpenQuery(target: ScopedQueryTarget): void
@@ -402,14 +437,15 @@ function MongoOverviewView({
     <div className="object-view-section">
       <SectionHeading
         Icon={kind === 'database' ? DatabaseIcon : ObjectCollectionIcon}
-        title={`${titleCase(kind)} View`}
+        title={descriptor.title}
         unit="MongoDB"
       />
+      <p className="object-view-note">{descriptor.purpose}</p>
       <KeyValueGrid rows={facts} emptyText="No object metadata has been loaded yet." />
       {queryTarget ? (
         <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
           <PlayIcon className="panel-inline-icon" />
-          Open Data Query
+          {descriptor.primaryQueryLabel ?? mongoScopedQueryMenuLabel(kind)}
         </button>
       ) : null}
       {onUploadDocument ? (
@@ -419,12 +455,19 @@ function MongoOverviewView({
   )
 }
 
-function MongoSchemaView({ payload }: { payload: JsonRecord }) {
+function MongoSchemaView({
+  descriptor,
+  payload,
+}: {
+  descriptor: MongoObjectViewDescriptor
+  payload: JsonRecord
+}) {
   const fields = arrayOfRecords(payload.fields)
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectDocumentIcon} title="Schema Preview" unit={`${fields.length} field(s)`} />
+      <SectionHeading Icon={ObjectDocumentIcon} title={descriptor.title} unit={`${fields.length} field(s)`} />
+      <p className="object-view-note">{descriptor.purpose}</p>
       <ObjectViewTable
         columns={['Field path', 'BSON type', 'Presence', 'Examples']}
         rows={fields.map((field) => [
@@ -433,16 +476,18 @@ function MongoSchemaView({ payload }: { payload: JsonRecord }) {
           field.count === undefined ? '' : String(field.count),
           compactJson(field.examples ?? field.example ?? ''),
         ])}
-        emptyText="No sampled fields were returned."
+        emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`}
       />
     </div>
   )
 }
 
 function MongoIndexesView({
+  descriptor,
   payload,
   onPlanOperation,
 }: {
+  descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
   onPlanOperation?: (request: {
     objectName?: string
@@ -499,20 +544,10 @@ function MongoIndexesView({
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectIndexIcon} title="Indexes" unit={`${indexes.length} index(es)`} />
-      <MongoIndexCreatePanel
-        disabled={!collection || !onPlanOperation}
-        indexName={indexName}
-        keyPattern={keyPattern}
-        options={options}
-        validationError={validationError}
-        onIndexNameChange={setIndexName}
-        onKeyPatternChange={setKeyPattern}
-        onOptionsChange={setOptions}
-        onPreviewCreate={previewCreate}
-      />
+      <SectionHeading Icon={ObjectIndexIcon} title={descriptor.title} unit={`${indexes.length} index(es)`} />
+      <p className="object-view-note">{descriptor.purpose}</p>
       {indexes.length === 0 ? (
-        <p className="object-view-empty">No indexes were returned, or index metadata is unavailable to this user.</p>
+        <PurposeEmptyState descriptor={descriptor} />
       ) : (
         <div className="object-view-table-wrap">
           <table className="object-view-table">
@@ -552,6 +587,17 @@ function MongoIndexesView({
           </table>
         </div>
       )}
+      <MongoIndexCreatePanel
+        disabled={!collection || !onPlanOperation}
+        indexName={indexName}
+        keyPattern={keyPattern}
+        options={options}
+        validationError={validationError}
+        onIndexNameChange={setIndexName}
+        onKeyPatternChange={setKeyPattern}
+        onOptionsChange={setOptions}
+        onPreviewCreate={previewCreate}
+      />
       <p className="object-view-note">
         Create, drop, hide, and unhide index actions are preview-only and run through environment guardrails.
       </p>
@@ -560,9 +606,11 @@ function MongoIndexesView({
 }
 
 function MongoValidationView({
+  descriptor,
   payload,
   onPlanOperation,
 }: {
+  descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
   onPlanOperation?: (request: {
     objectName?: string
@@ -597,11 +645,12 @@ function MongoValidationView({
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectSecurityIcon} title="Validation Rules" unit={validator ? 'configured' : 'none'} />
+      <SectionHeading Icon={ObjectSecurityIcon} title={descriptor.title} unit={validator ? 'configured' : 'none'} />
+      <p className="object-view-note">{descriptor.purpose}</p>
       {validator ? (
         <pre className="object-view-code">{prettyJson(validator)}</pre>
       ) : (
-        <p className="object-view-empty">No validator is configured for this collection.</p>
+        <PurposeEmptyState descriptor={descriptor} />
       )}
       <p className="object-view-note">
         Validator changes are generated as guarded operation previews.
@@ -633,7 +682,13 @@ function MongoValidationView({
   )
 }
 
-function MongoStatisticsView({ payload }: { payload: JsonRecord }) {
+function MongoStatisticsView({
+  descriptor,
+  payload,
+}: {
+  descriptor: MongoObjectViewDescriptor
+  payload: JsonRecord
+}) {
   const stats = asRecord(payload.result) ?? payload
   const metricRows = Object.entries(stats)
     .filter(([, value]) => typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean')
@@ -641,7 +696,8 @@ function MongoStatisticsView({ payload }: { payload: JsonRecord }) {
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={DatabaseIcon} title="Statistics" unit={`${metricRows.length} metric(s)`} />
+      <SectionHeading Icon={DatabaseIcon} title={descriptor.title} unit={`${metricRows.length} metric(s)`} />
+      <p className="object-view-note">{descriptor.purpose}</p>
       <div className="object-view-card-grid">
         {metricRows.slice(0, 8).map(([label, value]) => (
           <div key={label} className="object-view-card">
@@ -653,7 +709,7 @@ function MongoStatisticsView({ payload }: { payload: JsonRecord }) {
       <ObjectViewTable
         columns={['Metric', 'Value']}
         rows={metricRows}
-        emptyText="No statistics were returned. The current user may not have permission for this command."
+        emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`}
       />
     </div>
   )
@@ -661,10 +717,12 @@ function MongoStatisticsView({ payload }: { payload: JsonRecord }) {
 
 function MongoSecurityView({
   kind,
+  descriptor,
   payload,
   onPlanOperation,
 }: {
   kind: string
+  descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
   onPlanOperation?: (request: {
     objectName?: string
@@ -735,9 +793,47 @@ function MongoSecurityView({
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectRoleIcon} title={kind === 'roles' ? 'Roles' : 'Users and Permissions'} unit={`${rows.length} row(s)`} />
+      <SectionHeading Icon={ObjectRoleIcon} title={descriptor.title} unit={`${rows.length} row(s)`} />
+      <p className="object-view-note">{descriptor.purpose}</p>
+      {rows.length === 0 ? (
+        <PurposeEmptyState descriptor={descriptor} />
+      ) : (
+        <div className="object-view-table-wrap">
+          <table className="object-view-table">
+            <thead>
+              <tr>
+                {(isRoleView ? ['Role', 'Inherited roles', 'Privileges', 'Actions'] : ['User', 'Roles', 'Details', 'Actions']).map((column) => (
+                  <th key={column}>{column}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const name = row[0] ?? ''
+                return (
+                  <tr key={row.join('|')}>
+                    {row.map((cell, index) => (
+                      <td key={`${name}:${index}`}>{cell}</td>
+                    ))}
+                    <td>
+                      <button
+                        type="button"
+                        className="drawer-button drawer-button--danger"
+                        disabled={!onPlanOperation || !name}
+                        onClick={() => previewDrop(name)}
+                      >
+                        {isRoleView ? 'Preview Drop Role' : 'Preview Drop User'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="object-view-management">
-        <strong>{isRoleView ? 'Role Management Preview' : 'User Management Preview'}</strong>
+        <strong>{isRoleView ? 'Create Role Preview' : 'Create User Preview'}</strong>
         <div className="object-view-form-grid">
           <label className="object-view-field">
             <span>{isRoleView ? 'Role name' : 'Username'}</span>
@@ -780,52 +876,17 @@ function MongoSecurityView({
           </button>
         </div>
       </div>
-      {rows.length === 0 ? (
-        <p className="object-view-empty">No security metadata was returned for this database.</p>
-      ) : (
-        <div className="object-view-table-wrap">
-          <table className="object-view-table">
-            <thead>
-              <tr>
-                {(isRoleView ? ['Role', 'Inherited roles', 'Privileges', 'Actions'] : ['User', 'Roles', 'Details', 'Actions']).map((column) => (
-                  <th key={column}>{column}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const name = row[0] ?? ''
-                return (
-                  <tr key={row.join('|')}>
-                    {row.map((cell, index) => (
-                      <td key={`${name}:${index}`}>{cell}</td>
-                    ))}
-                    <td>
-                      <button
-                        type="button"
-                        className="drawer-button drawer-button--danger"
-                        disabled={!onPlanOperation || !name}
-                        onClick={() => previewDrop(name)}
-                      >
-                        {isRoleView ? 'Preview Drop Role' : 'Preview Drop User'}
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   )
 }
 
 function MongoScriptsView({
+  descriptor,
   payload,
   queryTarget,
   onOpenQuery,
 }: {
+  descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
   queryTarget?: ScopedQueryTarget
   onOpenQuery(target: ScopedQueryTarget): void
@@ -835,39 +896,48 @@ function MongoScriptsView({
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectSearchIcon} title="Scripts and Aggregations" unit={`${scripts.length} template(s)`} />
+      <SectionHeading Icon={ObjectSearchIcon} title={descriptor.title} unit={`${scripts.length} template(s)`} />
+      <p className="object-view-note">{descriptor.purpose}</p>
       {queryTarget ? (
         <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
           <PlayIcon className="panel-inline-icon" />
-          Open Query Workspace
+          {descriptor.primaryQueryLabel ?? mongoScopedQueryMenuLabel(descriptor.kind)}
         </button>
       ) : null}
       {scripts.length ? scripts.map((script) => (
         <pre key={script} className="object-view-code">{script}</pre>
       )) : (
-        <p className="object-view-empty">No script templates were returned.</p>
+        <PurposeEmptyState descriptor={descriptor} />
       )}
     </div>
   )
 }
 
 function MongoPipelineView({
+  descriptor,
   payload,
   queryTarget,
   onOpenQuery,
 }: {
+  descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
   queryTarget?: ScopedQueryTarget
   onOpenQuery(target: ScopedQueryTarget): void
 }) {
+  const pipeline = Array.isArray(payload.pipeline) ? payload.pipeline : []
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectSearchIcon} title="View Pipeline" unit="pipeline" />
-      <pre className="object-view-code">{prettyJson(payload.pipeline ?? [])}</pre>
+      <SectionHeading Icon={ObjectSearchIcon} title={descriptor.title} unit={`${pipeline.length} stage(s)`} />
+      <p className="object-view-note">{descriptor.purpose}</p>
+      {pipeline.length ? (
+        <pre className="object-view-code">{prettyJson(pipeline)}</pre>
+      ) : (
+        <PurposeEmptyState descriptor={descriptor} />
+      )}
       {queryTarget ? (
         <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
           <PlayIcon className="panel-inline-icon" />
-          Open Sample Results
+          {descriptor.primaryQueryLabel ?? 'Open Sample Results'}
         </button>
       ) : null}
     </div>
@@ -875,24 +945,31 @@ function MongoPipelineView({
 }
 
 function MongoGridFsView({
+  descriptor,
   payload,
   queryTarget,
   onOpenQuery,
 }: {
+  descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
   queryTarget?: ScopedQueryTarget
   onOpenQuery(target: ScopedQueryTarget): void
 }) {
+  const facts = [
+    ['Database', stringValue(payload.database)],
+    ['Bucket', stringValue(payload.bucket)],
+    ['Collection', stringValue(payload.collection)],
+    ['Files collection', stringValue(payload.filesCollection)],
+    ['Chunks collection', stringValue(payload.chunksCollection)],
+  ].filter(([, value]) => value)
+
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectCollectionIcon} title="GridFS" unit="files and chunks" />
+      <SectionHeading Icon={ObjectCollectionIcon} title={descriptor.title} unit="files and chunks" />
+      <p className="object-view-note">{descriptor.purpose}</p>
       <KeyValueGrid
-        rows={[
-          ['Database', stringValue(payload.database)],
-          ['Bucket', stringValue(payload.bucket)],
-          ['Collection', stringValue(payload.collection)],
-        ].filter(([, value]) => value)}
-        emptyText="GridFS metadata has not been loaded yet."
+        rows={facts}
+        emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`}
       />
       {queryTarget ? (
         <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
@@ -1057,6 +1134,15 @@ function SectionHeading({
   )
 }
 
+function PurposeEmptyState({ descriptor }: { descriptor: MongoObjectViewDescriptor }) {
+  return (
+    <div className="object-view-empty-panel">
+      <strong>{descriptor.emptyTitle}</strong>
+      <span>{descriptor.emptyDescription}</span>
+    </div>
+  )
+}
+
 function ObjectViewFeedbackPanel({ feedback }: { feedback?: ObjectViewFeedback }) {
   if (!feedback) {
     return null
@@ -1193,6 +1279,21 @@ function objectViewWarnings(tab: QueryTabState, payload: JsonRecord) {
   ].filter(Boolean)
 }
 
+function mongoObjectViewSummary(
+  summary: string | undefined,
+  descriptor: MongoObjectViewDescriptor,
+) {
+  if (!summary) {
+    return ''
+  }
+
+  if (/inspection metadata is not available/i.test(summary)) {
+    return `${descriptor.emptyTitle}. ${descriptor.emptyDescription}`
+  }
+
+  return summary
+}
+
 function extractIndexes(payload: JsonRecord) {
   const indexes = payload.indexes
   const result = asRecord(payload.result)
@@ -1316,8 +1417,4 @@ function humanizeMetric(value: string) {
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/[_.$-]+/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase())
-}
-
-function titleCase(value: string) {
-  return humanizeMetric(value).replace(/\b\w/g, (char) => char.toUpperCase())
 }

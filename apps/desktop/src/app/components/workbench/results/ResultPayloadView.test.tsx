@@ -4,9 +4,13 @@ import type {
   DataEditExecutionRequest,
   DataEditExecutionResponse,
 } from '@datapadplusplus/shared-types'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computeRenderedColumnWidths } from './data-grid-layout'
-import { FIELD_DRAG_MIME, FIELD_DRAG_PAYLOAD_MIME } from './field-drag'
+import {
+  FIELD_POINTER_DRAG_DROP_EVENT,
+  clearFieldDragData,
+  type FieldPointerDragDetail,
+} from './field-drag'
 import { JsonTreeView } from './JsonTreeView'
 import { ResultPayloadView } from './ResultPayloadView'
 
@@ -18,6 +22,10 @@ beforeEach(() => {
     configurable: true,
     value: { writeText: writeTextSpy },
   })
+})
+
+afterEach(() => {
+  clearFieldDragData()
 })
 
 describe('ResultPayloadView', () => {
@@ -198,7 +206,7 @@ describe('ResultPayloadView', () => {
     })
   })
 
-  it('uses visible document field labels as drag handles for query builder drops', () => {
+  it('uses visible document rows as pointer drag handles for query builder drops', () => {
     render(
       <ResultPayloadView
         payload={{
@@ -211,29 +219,37 @@ describe('ResultPayloadView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
 
     const field = screen.getByText('status')
-    const dataTransfer = {
-      effectAllowed: '',
-      setData: vi.fn(),
+    const drops: FieldPointerDragDetail[] = []
+    const onDrop = (event: Event) => {
+      drops.push((event as CustomEvent<FieldPointerDragDetail>).detail)
     }
+    window.addEventListener(FIELD_POINTER_DRAG_DROP_EVENT, onDrop)
 
-    expect(field).toHaveAttribute('draggable', 'true')
-    fireEvent.dragStart(field, { dataTransfer })
+    const valueCell = screen.getByRole('button', { name: 'active' })
+    const row = field.closest('[role="row"]')
 
-    expect(dataTransfer.effectAllowed).toBe('copy')
-    expect(dataTransfer.setData).toHaveBeenCalledWith(FIELD_DRAG_MIME, 'status')
-    expect(dataTransfer.setData).toHaveBeenCalledWith(
-      FIELD_DRAG_PAYLOAD_MIME,
-      JSON.stringify({
+    expect(row).toHaveClass('is-field-draggable')
+    expect(valueCell).not.toHaveAttribute('draggable')
+
+    fireEvent.pointerDown(field, { button: 0, clientX: 10, clientY: 10, pointerId: 7 })
+    fireEvent.pointerMove(window, { clientX: 18, clientY: 20, pointerId: 7 })
+    expect(document.body).toHaveClass('is-field-pointer-dragging')
+    fireEvent.pointerUp(window, { clientX: 30, clientY: 40, pointerId: 7 })
+
+    expect(drops).toHaveLength(1)
+    expect(drops[0]).toMatchObject({
+      clientX: 30,
+      clientY: 40,
+      payload: {
         fieldPath: 'status',
         value: 'active',
         valueLabel: 'active',
         valueType: 'string',
-      }),
-    )
-    expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', 'status')
+      },
+    })
+    expect(document.body).not.toHaveClass('is-field-pointer-dragging')
 
-    const valueCell = screen.getByRole('button', { name: 'active' })
-    expect(valueCell).toHaveAttribute('draggable', 'true')
+    window.removeEventListener(FIELD_POINTER_DRAG_DROP_EVENT, onDrop)
   })
 
   it('enables Mongo document inline edits, typed badges, and context actions', async () => {
@@ -351,6 +367,67 @@ describe('ResultPayloadView', () => {
       })
     })
     expect(screen.getByRole('button', { name: 'paused' })).toBeInTheDocument()
+  })
+
+  it('uses a confirm dialog instead of typed confirmation for guarded Mongo field edits', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: 'conn-mongo',
+      environmentId: 'env-qa',
+      editKind: 'set-field',
+      executionSupport: 'live',
+      executed: Boolean(request.confirmationText),
+      plan: {
+        operationId: 'mongodb.data-edit.set-field',
+        engine: 'mongodb',
+        summary: 'Updated document field.',
+        generatedRequest: '{}',
+        requestLanguage: 'mongodb',
+        destructive: false,
+        requiredPermissions: ['update collection document'],
+        confirmationText: 'CONFIRM QA',
+        warnings: ['QA requires confirmation for risky work.'],
+      },
+      messages: request.confirmationText ? ['Updated document field.'] : [],
+      warnings: request.confirmationText
+        ? []
+        : ['This data edit requires confirmation before it can run (CONFIRM QA).'],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-qa',
+          queryText: '{ "collection": "products", "filter": {}, "limit": 20 }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-1', status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
+    const valueInput = screen.getByLabelText('Edit value status')
+    fireEvent.change(valueInput, { target: { value: 'paused' } })
+    fireEvent.blur(valueInput)
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('Apply this document edit?'))
+    })
+    expect(executeDataEdit).toHaveBeenCalledTimes(2)
+    expect(executeDataEdit).toHaveBeenLastCalledWith(expect.objectContaining({
+      confirmationText: 'CONFIRM QA',
+    }))
+    expect(screen.getByRole('button', { name: 'paused' })).toBeInTheDocument()
+
+    confirmSpy.mockRestore()
   })
 
   it('confirms Mongo document field deletion before executing the edit', async () => {
@@ -616,7 +693,7 @@ describe('ResultPayloadView', () => {
     expect(screen.getByRole('button', { name: 'queued' })).toBeInTheDocument()
   })
 
-  it('deletes SQL rows from the context menu with explicit confirmation', async () => {
+  it('deletes SQL rows from the context menu with a confirm/cancel action', async () => {
     const executeDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> => ({
       connectionId: 'conn-sql',
       environmentId: 'env-dev',
@@ -660,9 +737,6 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByRole('button', { name: 'processing' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Row' }))
-    fireEvent.change(screen.getByLabelText('Delete confirmation text'), {
-      target: { value: 'CONFIRM SQLSERVER DELETE-ROW' },
-    })
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
@@ -756,7 +830,7 @@ describe('ResultPayloadView', () => {
     expect(screen.getByRole('button', { name: 'closed' })).toBeInTheDocument()
   })
 
-  it('deletes DynamoDB items from the context menu with explicit confirmation', async () => {
+  it('deletes DynamoDB items from the context menu with a confirm/cancel action', async () => {
     const executeDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> => ({
       connectionId: 'conn-dynamodb',
       environmentId: 'env-dev',
@@ -800,9 +874,6 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByRole('button', { name: 'open' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Row' }))
-    fireEvent.change(screen.getByLabelText('Delete confirmation text'), {
-      target: { value: 'CONFIRM DYNAMODB DELETE-ITEM' },
-    })
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
@@ -1186,7 +1257,7 @@ describe('ResultPayloadView', () => {
     expect(screen.getByRole('button', { name: '{"state":"new"}' })).toBeInTheDocument()
   })
 
-  it('deletes Redis keys with explicit confirmation', async () => {
+  it('deletes Redis keys with a confirm/cancel action', async () => {
     const executeDataEdit = vi.fn(async (
       request: DataEditExecutionRequest,
     ): Promise<DataEditExecutionResponse> => ({
@@ -1230,9 +1301,6 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Key' }))
-    fireEvent.change(screen.getByLabelText('Delete key confirmation text'), {
-      target: { value: 'CONFIRM REDIS DELETE-KEY' },
-    })
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
@@ -1489,7 +1557,7 @@ describe('ResultPayloadView', () => {
     expect(screen.getByText(/queued/)).toBeInTheDocument()
   })
 
-  it('deletes search hit documents with explicit confirmation', async () => {
+  it('deletes search hit documents with a confirm/cancel action', async () => {
     const executeDataEdit = vi.fn(async (
       request: DataEditExecutionRequest,
     ): Promise<DataEditExecutionResponse> => ({
@@ -1538,9 +1606,6 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByRole('button', { name: '101' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Document' }))
-    fireEvent.change(screen.getByLabelText('Delete search document confirmation text'), {
-      target: { value: 'CONFIRM ELASTICSEARCH DELETE-DOCUMENT' },
-    })
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {

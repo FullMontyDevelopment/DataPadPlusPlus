@@ -91,38 +91,29 @@ export function SearchDocumentIndexPanel({
 }
 
 interface SearchDocumentDeletePanelProps {
-  confirmation: string
   expectedText: string
   onCancel(): void
   onConfirm(): void
-  onConfirmationChange(value: string): void
 }
 
 export function SearchDocumentDeletePanel({
-  confirmation,
   expectedText,
   onCancel,
   onConfirm,
-  onConfirmationChange,
 }: SearchDocumentDeletePanelProps) {
   return (
     <div className="data-grid-confirmation">
       <div>
         <strong>Delete search document</strong>
-        <span>Type {expectedText} to confirm.</span>
+        <span>DataPad++ will run this guarded delete with confirmation.</span>
       </div>
-      <input
-        aria-label="Delete search document confirmation text"
-        value={confirmation}
-        onChange={(event) => onConfirmationChange(event.target.value)}
-      />
       <button type="button" className="drawer-button" onClick={onCancel}>
         Cancel
       </button>
       <button
         type="button"
         className="drawer-button drawer-button--primary"
-        disabled={confirmation !== expectedText}
+        title={`Uses ${expectedText}`}
         onClick={onConfirm}
       >
         Delete

@@ -1,0 +1,87 @@
+import { describe, expect, it } from 'vitest'
+import { createBlankSnapshot } from '../../app/data/workspace-factory'
+import { loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
+
+describe('browser workspace storage', () => {
+  it('does not persist plaintext secrets embedded in connection strings', () => {
+    const snapshot = createBlankSnapshot()
+    snapshot.connections = [
+      {
+        id: 'conn-secret',
+        name: 'Secret connection',
+        engine: 'mongodb',
+        family: 'document',
+        host: 'localhost',
+        port: 27017,
+        database: 'catalog',
+        connectionString: 'mongodb://user:plain-secret@localhost:27017/catalog',
+        environmentIds: [],
+        tags: [],
+        favorite: false,
+        readOnly: false,
+        icon: 'mongodb',
+        auth: {},
+        createdAt: '2026-05-20T00:00:00.000Z',
+        updatedAt: '2026-05-20T00:00:00.000Z',
+      },
+      {
+        id: 'conn-placeholder',
+        name: 'Placeholder connection',
+        engine: 'sqlserver',
+        family: 'sql',
+        host: 'localhost',
+        port: 1433,
+        database: 'app',
+        connectionString: 'Server=localhost;Password=${DB_PASSWORD};',
+        environmentIds: [],
+        tags: [],
+        favorite: false,
+        readOnly: false,
+        icon: 'sqlserver',
+        auth: {},
+        createdAt: '2026-05-20T00:00:00.000Z',
+        updatedAt: '2026-05-20T00:00:00.000Z',
+      },
+    ]
+
+    saveBrowserSnapshot(snapshot)
+
+    const stored = window.localStorage.getItem('datapadplusplus.workspace.v2') ?? ''
+    expect(stored).not.toContain('plain-secret')
+
+    const loaded = loadBrowserSnapshot()
+    expect(loaded.connections.find((connection) => connection.id === 'conn-secret')?.connectionString)
+      .toBeUndefined()
+    expect(loaded.connections.find((connection) => connection.id === 'conn-placeholder')?.connectionString)
+      .toBe('Server=localhost;Password=${DB_PASSWORD};')
+  })
+
+  it('removes plaintext secrets from old browser snapshots when loaded', () => {
+    const snapshot = createBlankSnapshot()
+    snapshot.connections = [
+      {
+        id: 'conn-old-secret',
+        name: 'Old secret connection',
+        engine: 'mongodb',
+        family: 'document',
+        host: 'localhost',
+        port: 27017,
+        database: 'catalog',
+        connectionString: 'mongodb://user:old-secret@localhost:27017/catalog',
+        environmentIds: [],
+        tags: [],
+        favorite: false,
+        readOnly: false,
+        icon: 'mongodb',
+        auth: {},
+        createdAt: '2026-05-20T00:00:00.000Z',
+        updatedAt: '2026-05-20T00:00:00.000Z',
+      },
+    ]
+    window.localStorage.setItem('datapadplusplus.workspace.v2', JSON.stringify(snapshot))
+
+    const loaded = loadBrowserSnapshot()
+
+    expect(loaded.connections[0]?.connectionString).toBeUndefined()
+  })
+})

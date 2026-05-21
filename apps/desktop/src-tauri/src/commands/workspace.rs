@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::MutexGuard,
+};
 
 use duckdb::Connection as DuckDbConnection;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -33,17 +36,32 @@ use crate::{
     },
 };
 
-fn clone_runtime(state: &State<'_, SharedAppState>) -> ManagedAppState {
-    let state = state.lock().unwrap();
-    ManagedAppState {
-        app: state.app.clone(),
-        snapshot: state.snapshot.clone(),
-    }
+fn lock_state<'a, 'b>(
+    state: &'a State<'b, SharedAppState>,
+) -> Result<MutexGuard<'a, ManagedAppState>, CommandError> {
+    state.lock().map_err(|_| {
+        CommandError::new(
+            "workspace-state-unavailable",
+            "Workspace state is temporarily unavailable. Restart DataPad++ if this continues.",
+        )
+    })
 }
 
-fn replace_runtime(state: &State<'_, SharedAppState>, runtime: ManagedAppState) {
-    let mut state = state.lock().unwrap();
+fn clone_runtime(state: &State<'_, SharedAppState>) -> Result<ManagedAppState, CommandError> {
+    let state = lock_state(state)?;
+    Ok(ManagedAppState {
+        app: state.app.clone(),
+        snapshot: state.snapshot.clone(),
+    })
+}
+
+fn replace_runtime(
+    state: &State<'_, SharedAppState>,
+    runtime: ManagedAppState,
+) -> Result<(), CommandError> {
+    let mut state = lock_state(state)?;
     state.snapshot = runtime.snapshot;
+    Ok(())
 }
 
 #[tauri::command]
@@ -51,7 +69,7 @@ pub fn set_active_connection(
     state: State<'_, SharedAppState>,
     connection_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.set_active_connection(&connection_id)
 }
 
@@ -60,7 +78,7 @@ pub fn set_active_tab(
     state: State<'_, SharedAppState>,
     tab_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.set_active_tab(&tab_id)
 }
 
@@ -70,7 +88,7 @@ pub fn set_tab_environment(
     tab_id: String,
     environment_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.set_tab_environment(&tab_id, &environment_id)
 }
 
@@ -79,7 +97,7 @@ pub fn upsert_connection_profile(
     state: State<'_, SharedAppState>,
     profile: ConnectionProfile,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.upsert_connection(profile)
 }
 
@@ -88,7 +106,7 @@ pub fn delete_connection_profile(
     state: State<'_, SharedAppState>,
     connection_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.delete_connection(&connection_id)
 }
 
@@ -97,7 +115,7 @@ pub fn upsert_environment_profile(
     state: State<'_, SharedAppState>,
     profile: EnvironmentProfile,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.upsert_environment(profile)
 }
 
@@ -106,7 +124,7 @@ pub fn delete_environment_profile(
     state: State<'_, SharedAppState>,
     environment_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.delete_environment(&environment_id)
 }
 
@@ -115,7 +133,7 @@ pub fn create_query_tab(
     state: State<'_, SharedAppState>,
     connection_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.create_query_tab(&connection_id)
 }
 
@@ -124,7 +142,7 @@ pub fn create_explorer_tab(
     state: State<'_, SharedAppState>,
     connection_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.create_explorer_tab(&connection_id)
 }
 
@@ -134,8 +152,17 @@ pub fn create_metrics_tab(
     connection_id: String,
     environment_id: Option<String>,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.create_metrics_tab(&connection_id, environment_id)
+}
+
+#[tauri::command]
+pub fn create_environment_tab(
+    state: State<'_, SharedAppState>,
+    environment_id: String,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.create_environment_tab(&environment_id)
 }
 
 #[tauri::command]
@@ -143,7 +170,7 @@ pub fn create_object_view_tab(
     state: State<'_, SharedAppState>,
     request: CreateObjectViewTabRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.create_object_view_tab(request)
 }
 
@@ -152,7 +179,7 @@ pub fn create_scoped_query_tab(
     state: State<'_, SharedAppState>,
     request: CreateScopedQueryTabRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.create_scoped_query_tab(request)
 }
 
@@ -161,7 +188,7 @@ pub fn create_test_suite_tab(
     state: State<'_, SharedAppState>,
     request: CreateTestSuiteTabRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.create_test_suite_tab(request)
 }
 
@@ -170,7 +197,7 @@ pub fn open_test_suite_template(
     state: State<'_, SharedAppState>,
     request: OpenTestSuiteTemplateRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.open_test_suite_template(request)
 }
 
@@ -179,7 +206,7 @@ pub fn update_test_suite_tab(
     state: State<'_, SharedAppState>,
     request: UpdateTestSuiteTabRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.update_test_suite_tab(request)
 }
 
@@ -188,7 +215,7 @@ pub fn close_query_tab(
     state: State<'_, SharedAppState>,
     tab_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.close_query_tab(&tab_id)
 }
 
@@ -197,7 +224,7 @@ pub fn reopen_closed_query_tab(
     state: State<'_, SharedAppState>,
     closed_tab_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.reopen_closed_query_tab(&closed_tab_id)
 }
 
@@ -206,7 +233,7 @@ pub fn reorder_query_tabs(
     state: State<'_, SharedAppState>,
     request: QueryTabReorderRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.reorder_query_tabs(request)
 }
 
@@ -217,7 +244,7 @@ pub fn update_query_tab(
     query_text: String,
     query_view_mode: Option<String>,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.update_query_tab(&tab_id, &query_text, query_view_mode)
 }
 
@@ -226,7 +253,7 @@ pub fn update_query_builder_state(
     state: State<'_, SharedAppState>,
     request: UpdateQueryBuilderStateRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.update_query_builder_state(request)
 }
 
@@ -236,7 +263,7 @@ pub fn rename_query_tab(
     tab_id: String,
     title: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.rename_query_tab(&tab_id, &title)
 }
 
@@ -246,7 +273,7 @@ pub fn save_query_tab(
     tab_id: String,
     item: SavedWorkItem,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.save_query_tab(&tab_id, item)
 }
 
@@ -255,7 +282,7 @@ pub fn upsert_saved_work_item(
     state: State<'_, SharedAppState>,
     item: SavedWorkItem,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.upsert_saved_work(item)
 }
 
@@ -264,7 +291,7 @@ pub fn delete_saved_work_item(
     state: State<'_, SharedAppState>,
     saved_work_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.delete_saved_work(&saved_work_id)
 }
 
@@ -273,7 +300,7 @@ pub fn open_saved_work_item(
     state: State<'_, SharedAppState>,
     saved_work_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.open_saved_work(&saved_work_id)
 }
 
@@ -282,7 +309,7 @@ pub fn create_library_folder(
     state: State<'_, SharedAppState>,
     request: LibraryCreateFolderRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.create_library_folder(request)
 }
 
@@ -291,7 +318,7 @@ pub fn rename_library_node(
     state: State<'_, SharedAppState>,
     request: LibraryRenameNodeRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.rename_library_node(request)
 }
 
@@ -300,7 +327,7 @@ pub fn move_library_node(
     state: State<'_, SharedAppState>,
     request: LibraryMoveNodeRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.move_library_node(request)
 }
 
@@ -309,7 +336,7 @@ pub fn set_library_node_environment(
     state: State<'_, SharedAppState>,
     request: LibrarySetEnvironmentRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.set_library_node_environment(request)
 }
 
@@ -318,7 +345,7 @@ pub fn delete_library_node(
     state: State<'_, SharedAppState>,
     request: LibraryDeleteNodeRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.delete_library_node(request)
 }
 
@@ -327,7 +354,7 @@ pub fn open_library_item(
     state: State<'_, SharedAppState>,
     library_item_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.open_library_item(&library_item_id)
 }
 
@@ -336,7 +363,7 @@ pub fn save_query_tab_to_library(
     state: State<'_, SharedAppState>,
     request: SaveQueryTabToLibraryRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.save_query_tab_to_library(request)
 }
 
@@ -352,7 +379,7 @@ pub fn save_query_tab_to_local_file(
         .is_none_or(|path| path.trim().is_empty())
     {
         let (title, language, tab_kind) = {
-            let state = state.lock().unwrap();
+            let state = lock_state(&state)?;
             state.ensure_unlocked()?;
             let tab = state
                 .snapshot
@@ -374,13 +401,13 @@ pub fn save_query_tab_to_local_file(
             .blocking_save_file();
 
         let Some(selected) = selected else {
-            let state = state.lock().unwrap();
+            let state = lock_state(&state)?;
             return Ok(state.bootstrap_payload());
         };
         request.path = Some(dialog_path_to_string(selected)?);
     }
 
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.save_query_tab_to_local_file(request)
 }
 
@@ -389,7 +416,7 @@ pub async fn test_connection(
     state: State<'_, SharedAppState>,
     request: ConnectionTestRequest,
 ) -> Result<ConnectionTestResult, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.test_connection(request).await
 }
 
@@ -398,9 +425,9 @@ pub async fn list_explorer_nodes(
     state: State<'_, SharedAppState>,
     request: ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
-    let mut runtime = clone_runtime(&state);
+    let mut runtime = clone_runtime(&state)?;
     let response = runtime.list_explorer_nodes(request).await?;
-    replace_runtime(&state, runtime);
+    replace_runtime(&state, runtime)?;
     Ok(response)
 }
 
@@ -409,7 +436,7 @@ pub async fn inspect_explorer_node(
     state: State<'_, SharedAppState>,
     request: ExplorerInspectRequest,
 ) -> Result<ExplorerInspectResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.inspect_explorer_node(request).await
 }
 
@@ -418,7 +445,7 @@ pub async fn load_structure_map(
     state: State<'_, SharedAppState>,
     request: StructureRequest,
 ) -> Result<StructureResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.load_structure_map(request).await
 }
 
@@ -427,7 +454,7 @@ pub async fn scan_redis_keys(
     state: State<'_, SharedAppState>,
     request: RedisKeyScanRequest,
 ) -> Result<RedisKeyScanResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.scan_redis_keys(request).await
 }
 
@@ -436,9 +463,9 @@ pub async fn inspect_redis_key(
     state: State<'_, SharedAppState>,
     request: RedisKeyInspectRequest,
 ) -> Result<ExecutionResponse, CommandError> {
-    let mut runtime = clone_runtime(&state);
+    let mut runtime = clone_runtime(&state)?;
     let response = runtime.inspect_redis_key(request).await?;
-    replace_runtime(&state, runtime);
+    replace_runtime(&state, runtime)?;
     Ok(response)
 }
 
@@ -446,7 +473,7 @@ pub async fn inspect_redis_key(
 pub fn list_datastore_experiences(
     state: State<'_, SharedAppState>,
 ) -> Result<DatastoreExperienceResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.list_datastore_experiences()
 }
 
@@ -455,7 +482,7 @@ pub async fn list_datastore_operations(
     state: State<'_, SharedAppState>,
     request: OperationManifestRequest,
 ) -> Result<OperationManifestResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.list_operation_manifests(request).await
 }
 
@@ -464,7 +491,7 @@ pub async fn plan_datastore_operation(
     state: State<'_, SharedAppState>,
     request: OperationPlanRequest,
 ) -> Result<OperationPlanResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.plan_operation(request).await
 }
 
@@ -473,7 +500,7 @@ pub async fn execute_datastore_operation(
     state: State<'_, SharedAppState>,
     request: OperationExecutionRequest,
 ) -> Result<OperationExecutionResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.execute_operation(request).await
 }
 
@@ -482,7 +509,7 @@ pub async fn plan_data_edit(
     state: State<'_, SharedAppState>,
     request: DataEditPlanRequest,
 ) -> Result<DataEditPlanResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.plan_data_edit(request).await
 }
 
@@ -491,7 +518,7 @@ pub async fn execute_data_edit(
     state: State<'_, SharedAppState>,
     request: DataEditExecutionRequest,
 ) -> Result<DataEditExecutionResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.execute_data_edit(request).await
 }
 
@@ -500,7 +527,7 @@ pub async fn inspect_connection_permissions(
     state: State<'_, SharedAppState>,
     request: PermissionInspectionRequest,
 ) -> Result<PermissionInspectionResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.inspect_permissions(request).await
 }
 
@@ -509,7 +536,7 @@ pub async fn collect_adapter_diagnostics(
     state: State<'_, SharedAppState>,
     request: AdapterDiagnosticsRequest,
 ) -> Result<AdapterDiagnosticsResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.collect_adapter_diagnostics(request).await
 }
 
@@ -518,9 +545,9 @@ pub async fn refresh_metrics_tab(
     state: State<'_, SharedAppState>,
     tab_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut runtime = clone_runtime(&state);
+    let mut runtime = clone_runtime(&state)?;
     let response = runtime.refresh_metrics_tab(&tab_id).await?;
-    replace_runtime(&state, runtime);
+    replace_runtime(&state, runtime)?;
     Ok(response)
 }
 
@@ -529,9 +556,9 @@ pub async fn refresh_object_view_tab(
     state: State<'_, SharedAppState>,
     tab_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut runtime = clone_runtime(&state);
+    let mut runtime = clone_runtime(&state)?;
     let response = runtime.refresh_object_view_tab(&tab_id).await?;
-    replace_runtime(&state, runtime);
+    replace_runtime(&state, runtime)?;
     Ok(response)
 }
 
@@ -540,9 +567,9 @@ pub async fn execute_query_request(
     state: State<'_, SharedAppState>,
     request: ExecutionRequest,
 ) -> Result<ExecutionResponse, CommandError> {
-    let mut runtime = clone_runtime(&state);
+    let mut runtime = clone_runtime(&state)?;
     let response = runtime.execute_query(request).await?;
-    replace_runtime(&state, runtime);
+    replace_runtime(&state, runtime)?;
     Ok(response)
 }
 
@@ -551,7 +578,7 @@ pub fn execute_test_suite(
     state: State<'_, SharedAppState>,
     request: ExecuteTestSuiteRequest,
 ) -> Result<ExecuteTestSuiteResponse, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.execute_test_suite(request)
 }
 
@@ -560,7 +587,7 @@ pub fn cancel_test_run(
     state: State<'_, SharedAppState>,
     request: CancelTestRunRequest,
 ) -> Result<CancelExecutionResult, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.cancel_test_run(request)
 }
 
@@ -569,7 +596,7 @@ pub async fn cancel_execution_request(
     state: State<'_, SharedAppState>,
     request: CancelExecutionRequest,
 ) -> Result<CancelExecutionResult, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.cancel_execution(request).await
 }
 
@@ -578,7 +605,7 @@ pub async fn fetch_result_page(
     state: State<'_, SharedAppState>,
     request: ResultPageRequest,
 ) -> Result<ResultPageResponse, CommandError> {
-    let runtime = clone_runtime(&state);
+    let runtime = clone_runtime(&state)?;
     runtime.fetch_result_page(request).await
 }
 
@@ -589,7 +616,7 @@ pub fn pick_local_database_file(
     request: LocalDatabasePickRequest,
 ) -> Result<LocalDatabasePickResult, CommandError> {
     {
-        let state = state.lock().unwrap();
+        let state = lock_state(&state)?;
         state.ensure_unlocked()?;
     }
 
@@ -625,7 +652,7 @@ pub async fn create_local_database(
     request: LocalDatabaseCreateRequest,
 ) -> Result<LocalDatabaseCreateResult, CommandError> {
     {
-        let state = state.lock().unwrap();
+        let state = lock_state(&state)?;
         state.ensure_unlocked()?;
     }
 
@@ -688,7 +715,7 @@ pub fn set_theme(
     state: State<'_, SharedAppState>,
     theme: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.set_theme(&theme)
 }
 
@@ -697,13 +724,13 @@ pub fn set_ui_state(
     state: State<'_, SharedAppState>,
     patch: UpdateUiStateRequest,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.set_ui_state(patch)
 }
 
 #[tauri::command]
 pub fn unlock_app(state: State<'_, SharedAppState>) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.set_locked(false)
 }
 
@@ -712,7 +739,7 @@ pub fn export_workspace_bundle(
     state: State<'_, SharedAppState>,
     passphrase: String,
 ) -> Result<ExportBundle, CommandError> {
-    let state = state.lock().unwrap();
+    let state = lock_state(&state)?;
     state.export_bundle(&passphrase)
 }
 
@@ -722,7 +749,7 @@ pub fn import_workspace_bundle(
     passphrase: String,
     encrypted_payload: String,
 ) -> Result<BootstrapPayload, CommandError> {
-    let mut state = state.lock().unwrap();
+    let mut state = lock_state(&state)?;
     state.import_bundle(&passphrase, &encrypted_payload)
 }
 

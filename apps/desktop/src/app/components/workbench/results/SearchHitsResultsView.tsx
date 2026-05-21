@@ -6,6 +6,10 @@ import type {
   ResultPayload,
 } from '@datapadplusplus/shared-types'
 import type { DocumentEditContext } from './document-edit-context'
+import {
+  dataEditStatusMessage,
+  executeDataEditWithConfirmation,
+} from './data-edit-confirmation'
 import { JsonTreeView } from './JsonTreeView'
 import { SearchHitsContextMenu } from './SearchHitsContextMenu'
 import {
@@ -44,7 +48,6 @@ interface ContextMenuState {
 }
 
 interface PendingDeleteState {
-  confirmation: string
   expectedText: string
   hitIndex: number
 }
@@ -125,7 +128,10 @@ export function SearchHitsResultsView({
       return
     }
 
-    const response = await onExecuteDataEdit(request)
+    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+      actionLabel: 'Update this search document.',
+      confirmationTitle: 'Apply this document update?',
+    })
     if (response?.executed) {
       setHits((current) =>
         current.map((hit, index) =>
@@ -134,7 +140,7 @@ export function SearchHitsResultsView({
       )
       setStatusMessage('Updated search document.')
     } else {
-      setStatusMessage(response?.warnings.join(' ') || 'Unable to update search document.')
+      setStatusMessage(dataEditStatusMessage(response, 'Unable to update search document.'))
     }
   }
 
@@ -167,7 +173,10 @@ export function SearchHitsResultsView({
       return
     }
 
-    const response = await onExecuteDataEdit(request)
+    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+      actionLabel: `Index document ${documentId}.`,
+      confirmationTitle: 'Index this document?',
+    })
     if (response?.executed) {
       setHits((current) => [
         { id: documentId, _id: documentId, _index: index, source, _source: source },
@@ -175,7 +184,7 @@ export function SearchHitsResultsView({
       ])
       setStatusMessage('Indexed search document.')
     } else {
-      setStatusMessage(response?.warnings.join(' ') || 'Unable to index search document.')
+      setStatusMessage(dataEditStatusMessage(response, 'Unable to index search document.'))
     }
   }
 
@@ -198,15 +207,19 @@ export function SearchHitsResultsView({
       return
     }
 
-    const response = await onExecuteDataEdit({
-      ...request,
-      confirmationText: pendingDelete.confirmation,
-    })
+    const response = await executeDataEditWithConfirmation(
+      onExecuteDataEdit,
+      request,
+      {
+        actionLabel: 'Delete this search document.',
+        confirmationTitle: 'Delete this document?',
+      },
+    )
     if (response?.executed) {
       setHits((current) => current.filter((_, index) => index !== hitIndex))
       setStatusMessage('Deleted search document.')
     } else {
-      setStatusMessage(response?.warnings.join(' ') || 'Unable to delete search document.')
+      setStatusMessage(dataEditStatusMessage(response, 'Unable to delete search document.'))
     }
   }
 
@@ -313,15 +326,9 @@ export function SearchHitsResultsView({
       ) : null}
       {pendingDelete ? (
         <SearchDocumentDeletePanel
-          confirmation={pendingDelete.confirmation}
           expectedText={pendingDelete.expectedText}
           onCancel={() => setPendingDelete(undefined)}
           onConfirm={() => void deleteDocument()}
-          onConfirmationChange={(confirmation) =>
-            setPendingDelete((current) =>
-              current ? { ...current, confirmation } : current,
-            )
-          }
         />
       ) : null}
       {statusMessage ? <div className="data-grid-status">{statusMessage}</div> : null}
@@ -344,7 +351,6 @@ export function SearchHitsResultsView({
               return
             }
             setPendingDelete({
-              confirmation: '',
               expectedText: searchConfirmationText(connection, 'delete-document'),
               hitIndex: contextMenu.hitIndex,
             })

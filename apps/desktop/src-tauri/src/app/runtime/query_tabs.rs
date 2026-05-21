@@ -2,8 +2,8 @@ use serde_json::json;
 
 use super::{generate_id, library::effective_connection_environment_id};
 use crate::domain::models::{
-    ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabState,
-    SavedWorkItem, ScopedQueryTarget, WorkspaceSnapshot,
+    ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, EnvironmentProfile,
+    QueryTabState, SavedWorkItem, ScopedQueryTarget, WorkspaceSnapshot,
 };
 
 pub(super) fn default_query_text(connection: &ConnectionProfile) -> String {
@@ -246,6 +246,51 @@ pub(super) fn build_metrics_tab(
             "environmentId": metrics_environment_id,
             "warnings": []
         })),
+        object_view_state: None,
+        test_suite: None,
+        test_run: None,
+        status: "idle".into(),
+        dirty: false,
+        last_run_at: None,
+        result: None,
+        history: Vec::new(),
+        error: None,
+    }
+}
+
+pub(super) fn build_environment_tab(
+    snapshot: &WorkspaceSnapshot,
+    environment: &EnvironmentProfile,
+) -> QueryTabState {
+    let connection = snapshot
+        .connections
+        .iter()
+        .find(|connection| connection.id == snapshot.ui.active_connection_id)
+        .or_else(|| snapshot.connections.first());
+    let title = unique_query_tab_title(snapshot, &format!("Environment - {}", environment.label));
+
+    QueryTabState {
+        id: generate_id("environment-tab"),
+        title,
+        tab_kind: Some("environment".into()),
+        connection_id: connection
+            .map(|connection| connection.id.clone())
+            .unwrap_or_default(),
+        environment_id: environment.id.clone(),
+        family: connection
+            .map(|connection| connection.family.clone())
+            .unwrap_or_else(|| "sql".into()),
+        language: "text".into(),
+        pinned: None,
+        save_target: None,
+        saved_query_id: None,
+        editor_label: "Environment".into(),
+        query_text: String::new(),
+        query_view_mode: None,
+        script_text: None,
+        scoped_target: None,
+        builder_state: None,
+        metrics_state: None,
         object_view_state: None,
         test_suite: None,
         test_run: None,

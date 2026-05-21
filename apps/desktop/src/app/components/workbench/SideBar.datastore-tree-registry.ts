@@ -432,7 +432,7 @@ function categoryPathForNode(
     case 'document':
       return documentPlacement(connection, node, kind, normalizedPath)
     case 'keyvalue':
-      return keyValuePlacement(kind, normalizedPath)
+      return keyValuePlacement(node, kind, normalizedPath)
     case 'search':
       return searchPlacement(kind, normalizedPath)
     case 'widecolumn':
@@ -624,6 +624,10 @@ function sqlServerPlacement(
     return ['Management']
   }
 
+  if (isSqlServerCategoryExplorerNode(node, normalizedPath)) {
+    return normalizedPath
+  }
+
   const objectParts = sqlObjectPartsFromExplorerNode(connection, node, normalizedPath)
   const tableLabel = sqlServerQualifiedDisplayName(objectParts.schema, objectParts.table ?? objectParts.objectName)
   const tableCategory = sqlServerTableCategoryForKind(kind, objectParts.schema, objectParts.objectName)
@@ -682,6 +686,14 @@ function sqlServerPlacement(
   }
 
   return ['Databases', database, 'Tables']
+}
+
+function isSqlServerCategoryExplorerNode(node: ExplorerNode, normalizedPath: string[]) {
+  return Boolean(
+    normalizedPath.length > 0 &&
+      node.expandable &&
+      isCategoryLabel(node.label),
+  )
 }
 
 function documentPlacement(
@@ -773,7 +785,17 @@ function compactPath(...segments: Array<string | undefined>) {
   return segments.filter((segment): segment is string => Boolean(segment))
 }
 
-function keyValuePlacement(kind: string, normalizedPath: string[]) {
+function keyValuePlacement(node: ExplorerNode, kind: string, normalizedPath: string[]) {
+  const redisRootPath = redisRootPlacement(node)
+  if (redisRootPath) {
+    return redisRootPath
+  }
+
+  const redisScopedPath = redisScopedPlacement(node, kind)
+  if (redisScopedPath) {
+    return redisScopedPath
+  }
+
   if (kind === 'database') {
     return ['Databases']
   }
@@ -800,6 +822,99 @@ function keyValuePlacement(kind: string, normalizedPath: string[]) {
   }
 
   return ['Diagnostics']
+}
+
+function redisRootPlacement(node: ExplorerNode): string[] | undefined {
+  const rootIds = new Set([
+    'redis:databases',
+    'redis:cluster',
+    'redis:sentinel',
+    'redis:pubsub',
+    'redis:lua-scripts',
+    'redis:functions',
+    'redis:acl',
+    'redis:diagnostics',
+  ])
+
+  return rootIds.has(node.id) ? [] : undefined
+}
+
+function redisScopedPlacement(node: ExplorerNode, kind: string): string[] | undefined {
+  const databaseMatch = /^redis:db:(\d+)(?::(.+))?$/.exec(node.id)
+
+  if (databaseMatch) {
+    const databaseLabel = `DB ${databaseMatch[1]}`
+    const typeKind = databaseMatch[2]
+
+    return typeKind ? ['Databases', databaseLabel] : ['Databases']
+  }
+
+  const keyMatch = /^key:(\d+):/.exec(node.id)
+  if (keyMatch) {
+    return ['Databases', `DB ${keyMatch[1]}`, redisTypeFolderLabel(kind)]
+  }
+
+  if (node.id.startsWith('redis:cluster:')) {
+    return ['Cluster']
+  }
+
+  if (node.id.startsWith('redis:sentinel:')) {
+    return ['Sentinel']
+  }
+
+  if (node.id.startsWith('redis:pubsub:')) {
+    return ['Pub/Sub']
+  }
+
+  if (node.id.startsWith('redis:lua:')) {
+    return ['Lua Scripts']
+  }
+
+  if (node.id.startsWith('redis:functions:')) {
+    return ['Functions']
+  }
+
+  if (node.id.startsWith('redis:acl:')) {
+    return ['ACL / Security']
+  }
+
+  if (node.id.startsWith('redis:diagnostics:')) {
+    return ['Diagnostics']
+  }
+
+  return undefined
+}
+
+function redisTypeFolderLabel(kind: string) {
+  switch (kind) {
+    case 'string':
+      return 'Strings'
+    case 'hash':
+      return 'Hashes'
+    case 'list':
+      return 'Lists'
+    case 'set':
+      return 'Sets'
+    case 'zset':
+    case 'sorted-set':
+      return 'Sorted Sets'
+    case 'stream':
+      return 'Streams'
+    case 'json':
+      return 'JSON'
+    case 'timeseries':
+      return 'Time Series'
+    case 'bloom':
+      return 'Bloom Filters'
+    case 'search-index':
+    case 'search-indexes':
+      return 'Search Indexes'
+    case 'vectorset':
+    case 'vector-indexes':
+      return 'Vector Indexes'
+    default:
+      return 'Keys'
+  }
 }
 
 function searchPlacement(kind: string, normalizedPath: string[]) {

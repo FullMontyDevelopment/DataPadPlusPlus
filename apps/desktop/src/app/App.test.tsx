@@ -2,7 +2,6 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { desktopClient } from '../services/runtime/client'
 import { App } from './App'
-import { FIELD_DRAG_MIME, FIELD_DRAG_PAYLOAD_MIME } from './components/workbench/results/field-drag'
 
 vi.mock('@monaco-editor/react', () => ({
   default: ({
@@ -22,19 +21,8 @@ vi.mock('@monaco-editor/react', () => ({
 }))
 
 async function openConnectionDraft() {
-  const sidebar = await screen.findByLabelText('library sidebar')
-  const firstRunAction = screen.queryByRole('button', { name: 'New Connection' })
-
-  if (firstRunAction) {
-    fireEvent.click(firstRunAction)
-  } else {
-    fireEvent.contextMenu(getLibraryTreeItem('Queries', sidebar))
-    fireEvent.click(
-      await screen.findByRole('menuitem', {
-        name: 'New Connection',
-      }),
-    )
-  }
+  await screen.findByLabelText('library sidebar')
+  fireEvent.click(screen.getByLabelText('New datastore connection'))
 
   const drawer = await screen.findByLabelText('connection drawer')
 
@@ -53,12 +41,24 @@ async function saveConnectionDraft(drawer: HTMLElement, options = { createQueryT
   })
 
   if (options.createQueryTab) {
-    fireEvent.click(screen.getByRole('button', { name: 'Create query tab' }))
-
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Query 1/i })).toBeInTheDocument()
-    })
+    await openNewQueryFromConnection('PostgreSQL connection', /Query 1/i)
   }
+}
+
+async function openNewQueryFromConnection(
+  connectionName = 'PostgreSQL connection',
+  expectedTabName: RegExp = /Query \d+/i,
+) {
+  fireEvent.contextMenu(getConnectionRow(connectionName))
+  fireEvent.click(
+    await screen.findByRole('menuitem', {
+      name: `New Query for ${connectionName}`,
+    }),
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: expectedTabName })).toBeInTheDocument()
+  })
 }
 
 async function createFirstConnection() {
@@ -81,20 +81,6 @@ function getConnectionRow(connectionName: string) {
 
   if (!(row instanceof HTMLElement)) {
     throw new Error(`Connection row was not found for ${connectionName}.`)
-  }
-
-  return row
-}
-
-function getLibraryTreeItem(
-  name: string,
-  root: HTMLElement = screen.getByLabelText('library sidebar'),
-) {
-  const label = within(root).getByText(name)
-  const row = label.closest('[role="treeitem"]')
-
-  if (!(row instanceof HTMLElement)) {
-    throw new Error(`Library row was not found for ${name}.`)
   }
 
   return row
@@ -175,24 +161,41 @@ function setConnectionDatabase(drawer: HTMLElement, database: string) {
   })
 }
 
-function createFieldDataTransfer(
-  field = '',
-  options: { includeCustomPayload?: boolean } = {},
+function pointerDropFieldIntoBuilder(
+  source: HTMLElement,
+  builder: HTMLElement,
+  target: HTMLElement,
 ) {
-  const includeCustomPayload = options.includeCustomPayload ?? true
-  const data = new Map<string, string>([
-    [FIELD_DRAG_MIME, field],
-    ['text/plain', field],
-  ])
+  const builderRect = vi.spyOn(builder, 'getBoundingClientRect').mockReturnValue({
+    bottom: 500,
+    height: 500,
+    left: 0,
+    right: 500,
+    toJSON: () => ({}),
+    top: 0,
+    width: 500,
+    x: 0,
+    y: 0,
+  })
+  const originalElementFromPoint = document.elementFromPoint
+  Object.defineProperty(document, 'elementFromPoint', {
+    configurable: true,
+    value: vi.fn().mockReturnValue(target),
+  })
 
-  return {
-    effectAllowed: '',
-    dropEffect: 'copy',
-    getData: (type: string) =>
-      includeCustomPayload || type !== FIELD_DRAG_PAYLOAD_MIME
-        ? data.get(type) ?? ''
-        : '',
-    setData: (type: string, value: string) => data.set(type, value),
+  fireEvent.pointerDown(source, { button: 0, clientX: 10, clientY: 600, pointerId: 11 })
+  fireEvent.pointerMove(window, { clientX: 18, clientY: 590, pointerId: 11 })
+  fireEvent.pointerMove(window, { clientX: 40, clientY: 40, pointerId: 11 })
+  fireEvent.pointerUp(window, { clientX: 40, clientY: 40, pointerId: 11 })
+
+  builderRect.mockRestore()
+  if (originalElementFromPoint) {
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: originalElementFromPoint,
+    })
+  } else {
+    Reflect.deleteProperty(document, 'elementFromPoint')
   }
 }
 
@@ -267,8 +270,12 @@ describe('App', () => {
     expect(screen.getByLabelText('First run onboarding')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { level: 1, name: 'Library' })).not.toBeInTheDocument()
     expect(screen.getByRole('tree', { name: 'Library tree' })).toBeInTheDocument()
-    expect(screen.getByText('Queries')).toBeInTheDocument()
-    expect(screen.getByText('Tests')).toBeInTheDocument()
+    expect(screen.queryByText('Queries')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tests')).not.toBeInTheDocument()
+    expect(screen.getByText('Start your workspace')).toBeInTheDocument()
+    expect(screen.getByText(/add your first datastore connection/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add Connection' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add Folder' })).toBeInTheDocument()
     expect(screen.queryByText('Analytics Postgres')).not.toBeInTheDocument()
     expect(screen.queryByText('Ops dashboard')).not.toBeInTheDocument()
   })
@@ -283,17 +290,17 @@ describe('App', () => {
     expect(screen.queryByLabelText('Environments view')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Tests view')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Explorer view')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'New Connection' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add Connection' })).toBeInTheDocument()
     expect(screen.getByLabelText('New datastore connection')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Create query tab' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Create query tab' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Run query' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Cancel query' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Explain query' })).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Toggle theme')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Toggle theme')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Open settings')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Save current query to library')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Lock workspace')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Unlock workspace')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Open diagnostics drawer')).toBeInTheDocument()
 
     await createFirstConnection()
 
@@ -328,7 +335,7 @@ describe('App', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('saves a connection created from a folder context menu into that folder', async () => {
+  it('saves a connection draft without creating default Library folders', async () => {
     render(<App />)
 
     await createFirstConnection()
@@ -339,8 +346,9 @@ describe('App', () => {
     })
     await saveConnectionDraft(drawer, { createQueryTab: false })
 
-    const queriesFolder = getLibraryTreeItem('Queries')
-    expect(within(queriesFolder).getByText('Folder PostgreSQL')).toBeInTheDocument()
+    const librarySidebar = screen.getByLabelText('library sidebar')
+    expect(within(librarySidebar).queryByText('Queries')).not.toBeInTheDocument()
+    expect(within(librarySidebar).getByText('Folder PostgreSQL')).toBeInTheDocument()
     expect(screen.queryByText('Library item was not found.')).not.toBeInTheDocument()
   })
 
@@ -455,7 +463,7 @@ describe('App', () => {
     expect(within(drawer).getByLabelText('SDK profile / principal')).toBeInTheDocument()
   })
 
-  it('opens settings from the Library header without losing the active editor tab', async () => {
+  it('opens diagnostics from the status bar without losing the active editor tab', async () => {
     render(<App />)
 
     await createFirstConnection()
@@ -475,7 +483,7 @@ describe('App', () => {
     expect(screen.queryByLabelText('Activity bar')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Open settings'))
-    expect(await screen.findByLabelText('diagnostics drawer')).toBeInTheDocument()
+    expect(await screen.findByLabelText('settings drawer')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Close drawer'))
 
     await waitFor(() => {
@@ -648,22 +656,12 @@ describe('App', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('closes connection details when creating a query from the editor tab strip', async () => {
+  it('does not show the old scratch-query button in the editor tab strip', async () => {
     render(<App />)
 
     await createFirstConnection()
-    fireEvent.click(screen.getByRole('button', { name: 'Change connection' }))
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('connection drawer')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Create query tab' }))
-
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Query 2/i })).toBeInTheDocument()
-      expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()
-    })
+    expect(screen.queryByRole('button', { name: 'Create query tab' })).not.toBeInTheDocument()
   })
 
   it('does not expose dead operations from the connection context menu', async () => {
@@ -707,7 +705,7 @@ describe('App', () => {
       expect(screen.queryByRole('tab', { name: /Query 1/i })).not.toBeInTheDocument()
     })
     expect(screen.queryByRole('button', { name: 'New query tab' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Create query tab' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Create query tab' })).not.toBeInTheDocument()
   })
 
   it('opens the connection drawer for editing from the toolbar', async () => {
@@ -755,6 +753,25 @@ describe('App', () => {
     await waitFor(() => {
       expect(within(sidebar).getByText('PostgreSQL connection')).toBeInTheDocument()
       expect(within(sidebar).queryByText('Scripts')).not.toBeInTheDocument()
+    })
+  })
+
+  it('opens an environment tab when an environment is selected', async () => {
+    render(<App />)
+
+    await createFirstConnection()
+    const sidebar = screen.getByLabelText('library sidebar')
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Open environment Local' }))
+
+    const workspace = await screen.findByLabelText('Environment workspace')
+    expect(screen.getByRole('tab', { name: /Environment - Local/ })).toBeInTheDocument()
+    expect(within(workspace).getByRole('heading', { level: 1, name: 'Local' })).toBeInTheDocument()
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Open environment Local' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('tab', { name: /Environment - Local/ })).toHaveLength(1)
     })
   })
 
@@ -877,6 +894,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Edit environment Local' }))
 
     const workspace = await screen.findByLabelText('Environment workspace')
+    expect(screen.getByRole('tab', { name: /Environment - Local/ })).toBeInTheDocument()
     expect(within(workspace).getByRole('heading', { level: 1, name: 'Local' })).toBeInTheDocument()
     expect(within(workspace).queryByRole('button', { name: 'New Environment' })).not.toBeInTheDocument()
     expect(within(workspace).getByRole('button', { name: 'Clone' })).toBeInTheDocument()
@@ -887,6 +905,7 @@ describe('App', () => {
     })
     expect(within(workspace).getByLabelText('Environment color')).toHaveValue('#ff8800')
     expect(within(workspace).getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Environment - Local/ })).toHaveTextContent('Environment - Local')
 
     fireEvent.change(within(workspace).getByLabelText('New variable key'), {
       target: { value: 'API_TOKEN' },
@@ -1144,14 +1163,24 @@ describe('App', () => {
 
     await createFirstConnection()
 
+    const panelStartsVisible = Boolean(screen.queryByLabelText('Bottom panel'))
+
     fireEvent.keyDown(window, { key: 'j', ctrlKey: true })
     await waitFor(() => {
-      expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
+      if (panelStartsVisible) {
+        expect(screen.queryByLabelText('Bottom panel')).not.toBeInTheDocument()
+      } else {
+        expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
+      }
     })
 
     fireEvent.keyDown(window, { key: 'j', ctrlKey: true })
     await waitFor(() => {
-      expect(screen.queryByLabelText('Bottom panel')).not.toBeInTheDocument()
+      if (panelStartsVisible) {
+        expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
+      } else {
+        expect(screen.queryByLabelText('Bottom panel')).not.toBeInTheDocument()
+      }
     })
 
     fireEvent.keyDown(window, { key: 'b', ctrlKey: true })
@@ -1193,17 +1222,50 @@ describe('App', () => {
     expect(contextMenuEvent.defaultPrevented).toBe(true)
   })
 
-  it('shows keyboard shortcut help in diagnostics without a connection', async () => {
+  it('shows keyboard shortcut help in settings without a connection', async () => {
     render(<App />)
 
     await screen.findByLabelText('library sidebar')
-    fireEvent.click(screen.getByLabelText('Open diagnostics drawer'))
+    fireEvent.click(screen.getByLabelText('Open settings'))
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 2, name: 'Diagnostics' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 2, name: 'Settings' })).toBeInTheDocument()
     })
-    expect(screen.getByText('Shortcuts')).toBeInTheDocument()
+    expect(screen.getByText('Keyboard Shortcuts')).toBeInTheDocument()
     expect(screen.queryByText('Ctrl K')).not.toBeInTheDocument()
+  })
+
+  it('guides workspace backup and restore from Settings', async () => {
+    render(<App />)
+
+    await screen.findByLabelText('library sidebar')
+    fireEvent.click(screen.getByLabelText('Open settings'))
+    const drawer = await screen.findByLabelText('settings drawer')
+    const createBackup = within(drawer).getByRole('button', {
+      name: 'Create Backup Bundle',
+    })
+
+    expect(within(drawer).getByRole('heading', { level: 2, name: 'Settings' })).toBeInTheDocument()
+    expect(createBackup).toBeDisabled()
+
+    fireEvent.change(within(drawer).getByLabelText('Backup passphrase'), {
+      target: { value: 'strong-backup-passphrase' },
+    })
+    expect(createBackup).toBeEnabled()
+    fireEvent.click(createBackup)
+
+    await waitFor(() => {
+      expect(within(drawer).getByText('Backup bundle ready')).toBeInTheDocument()
+    })
+    const bundleText = within(drawer).getByText(/"format": "datapadplusplus-bundle"/).textContent
+      ?? ''
+
+    fireEvent.change(within(drawer).getByLabelText('Workspace bundle'), {
+      target: { value: bundleText },
+    })
+
+    expect(within(drawer).getByText('Bundle format looks valid.')).toBeInTheDocument()
+    expect(within(drawer).getByRole('button', { name: 'Restore Workspace' })).toBeEnabled()
   })
 
   it('saves, opens, and deletes library query work from a real tab', async () => {
@@ -1215,12 +1277,12 @@ describe('App', () => {
       expect(screen.getByRole('tree', { name: 'Library tree' })).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByLabelText('Save current query to library'))
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
     fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
 
     const librarySidebar = screen.getByLabelText('library sidebar')
     await waitFor(() => {
-      expect(within(librarySidebar).getByText('Queries')).toBeInTheDocument()
+      expect(within(librarySidebar).queryByText('Queries')).not.toBeInTheDocument()
       expect(within(librarySidebar).getByText('Query 1')).toBeInTheDocument()
     })
 
@@ -1299,11 +1361,7 @@ describe('App', () => {
     expect(within(tablist).getByRole('tab', { name: /Query 1/i })).toBeInTheDocument()
     expect(within(tablist).queryByText('Local')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create query tab' }))
-
-    await waitFor(() => {
-      expect(within(tablist).getByRole('tab', { name: /Query 2/i })).toBeInTheDocument()
-    })
+    await openNewQueryFromConnection('PostgreSQL connection', /Query 2/i)
 
     fireEvent.contextMenu(within(tablist).getByRole('tab', { name: /Query 1/i }))
     fireEvent.click(screen.getByRole('menuitem', { name: /Move tab Query 1.* right/i }))
@@ -1317,8 +1375,8 @@ describe('App', () => {
     render(<App />)
 
     await createFirstConnection()
-    fireEvent.click(screen.getByRole('button', { name: 'Create query tab' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Create query tab' }))
+    await openNewQueryFromConnection('PostgreSQL connection', /Query 2/i)
+    await openNewQueryFromConnection('PostgreSQL connection', /Query 3/i)
 
     const tablist = screen.getByRole('tablist', { name: 'Editor tabs' })
 
@@ -1392,12 +1450,12 @@ describe('App', () => {
       expect(screen.getByRole('tree', { name: 'Library tree' })).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByLabelText('Save current query to library'))
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
     fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
 
     const librarySidebar = screen.getByLabelText('library sidebar')
     await waitFor(() => {
-      expect(within(librarySidebar).getByText('Queries')).toBeInTheDocument()
+      expect(within(librarySidebar).queryByText('Queries')).not.toBeInTheDocument()
       expect(within(librarySidebar).getByText('Query 1')).toBeInTheDocument()
     })
 
@@ -1531,10 +1589,14 @@ describe('App', () => {
 
     expect(screen.getByLabelText('MongoDB query builder')).toBeInTheDocument()
     expect(screen.queryByLabelText('Query editor')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('MongoDB query scope')).toHaveTextContent('Databasecatalog')
+    expect(screen.getByLabelText('MongoDB query scope')).toHaveTextContent('Collectionproducts')
 
     fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
     expect(screen.queryByLabelText('MongoDB query builder')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Query editor')).toBeInTheDocument()
+    expect(screen.getByLabelText('MongoDB query scope')).toHaveTextContent('Databasecatalog')
+    expect(screen.getByLabelText('MongoDB query scope')).toHaveTextContent('Collectionproducts')
 
     fireEvent.click(screen.getByRole('button', { name: 'Scripting' }))
     expect(screen.queryByLabelText('MongoDB query builder')).not.toBeInTheDocument()
@@ -1605,17 +1667,21 @@ describe('App', () => {
     fireEvent.change(filterOperator, { target: { value: 'eq' } })
     fireEvent.change(filterValue, { target: { value: 'open' } })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Run query' }))
-
     await waitFor(() => {
-      expect(updateBuilderSpy).toHaveBeenCalled()
       const latestRequest = updateBuilderSpy.mock.calls.at(-1)?.[0]
       expect(latestRequest?.queryText).toContain('"status"')
       expect(latestRequest?.queryText).toContain('"open"')
+    })
+    updateBuilderSpy.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run query' }))
+
+    await waitFor(() => {
       const latestExecution = executeSpy.mock.calls.at(-1)?.[0]
       expect(latestExecution?.queryText).toContain('"status"')
       expect(latestExecution?.queryText).toContain('"open"')
     })
+    expect(updateBuilderSpy).not.toHaveBeenCalled()
   })
 
   it('keeps the last result visible while editing a Mongo builder query', async () => {
@@ -1653,16 +1719,12 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand itm-2048' }))
 
     const source = screen.getByTitle('Drag sku with value luna-lamp to the query builder')
-    const dragDataTransfer = createFieldDataTransfer()
-    const dropDataTransfer = createFieldDataTransfer('sku', { includeCustomPayload: false })
     const builder = screen.getByLabelText('MongoDB query builder')
     const filtersSection = within(builder)
       .getByRole('heading', { name: 'Filters' })
       .closest('section') as HTMLElement
 
-    fireEvent.dragStart(source, { dataTransfer: dragDataTransfer })
-    fireEvent.dragOver(filtersSection, { dataTransfer: dropDataTransfer })
-    fireEvent.drop(filtersSection, { dataTransfer: dropDataTransfer })
+    pointerDropFieldIntoBuilder(source, builder, filtersSection)
 
     expect(within(builder).getByLabelText('Filter field')).toHaveValue('sku')
     expect(within(builder).getByLabelText('Value type')).toHaveValue('string')
@@ -1713,7 +1775,9 @@ describe('App', () => {
     render(<App />)
 
     await screen.findByLabelText('library sidebar')
-    fireEvent.click(screen.getByLabelText('Toggle theme'))
+    fireEvent.click(screen.getByLabelText('Open settings'))
+    const drawer = await screen.findByLabelText('settings drawer')
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Switch theme' }))
 
     await waitFor(() => {
       expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
@@ -1748,7 +1812,9 @@ describe('App', () => {
     render(<App />)
 
     await screen.findByLabelText('library sidebar')
-    fireEvent.click(screen.getByLabelText('Toggle theme'))
+    fireEvent.click(screen.getByLabelText('Open settings'))
+    const drawer = await screen.findByLabelText('settings drawer')
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Switch theme' }))
 
     await waitFor(() => {
       expect(screen.getByText('Theme switch exploded')).toBeInTheDocument()

@@ -58,29 +58,44 @@ export function createStructureResponseLocally(
   }
 
   if (connection.family === 'keyvalue') {
+    const database = connection.database || '0'
+    const typeSummaries = [
+      { id: 'hash', label: 'Hashes', kind: 'hash', count: '39,992', examples: ['perf:session:000143', 'perf:session:000561'] },
+      { id: 'zset', label: 'Sorted Sets', kind: 'zset', count: '1', examples: ['products:inventory'] },
+      { id: 'string', label: 'Strings', kind: 'string', count: '17', examples: ['account:1'] },
+    ]
+
     return {
       connectionId: request.connectionId,
       environmentId: request.environmentId,
       engine: connection.engine,
-      summary: 'Preview structure loaded Redis key prefixes.',
+      summary: 'Preview structure loaded Redis keyspace overview.',
       groups: [
-        { id: 'session', label: 'session:*', kind: 'prefix', detail: 'Key prefix group' },
-        { id: 'cache', label: 'cache:*', kind: 'prefix', detail: 'Key prefix group' },
+        { id: `db:${database}`, label: `DB ${database}`, kind: 'database', detail: 'Logical Redis database' },
       ],
-      nodes: ['session:9f2d7e1a', 'session:7cc1a6f2', 'cache:products'].map((key) => ({
-        id: key,
+      nodes: typeSummaries.map((summary) => ({
+        id: `db:${database}:${summary.id}`,
         family: 'keyvalue',
-        label: key,
-        kind: key.startsWith('session') ? 'hash' : 'string',
-        groupId: key.split(':')[0],
-        detail: 'Preview Redis key',
+        label: summary.label,
+        kind: summary.kind,
+        groupId: `db:${database}`,
+        detail: 'Bounded keyspace type summary',
         metrics: [
-          { label: 'TTL', value: key.startsWith('cache') ? '120' : '1800' },
-          { label: 'Memory', value: '4 KB' },
+          { label: 'Keys', value: summary.count },
+          { label: 'Examples', value: summary.examples.join(', ') },
         ],
+        fields: summary.examples.map((example) => ({
+          name: example,
+          dataType: summary.kind,
+          detail: 'Example key from bounded metadata',
+        })),
       })),
       edges: [],
-      metrics: [{ label: 'Keys', value: '3' }],
+      metrics: [
+        { label: 'Database', value: `DB ${database}` },
+        { label: 'Loaded types', value: String(typeSummaries.length) },
+        { label: 'Loaded keys', value: '100' },
+      ],
     }
   }
 
@@ -184,4 +199,3 @@ export function fetchResultPageLocally(
     notices: [],
   }
 }
-

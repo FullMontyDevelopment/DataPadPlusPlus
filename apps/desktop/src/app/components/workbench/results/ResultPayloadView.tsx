@@ -10,6 +10,7 @@ import type { DocumentEditContext } from './document-edit-context'
 import { DocumentResultsView } from './DocumentResultsView'
 import { JsonTreeView } from './JsonTreeView'
 import { KeyValueResultsView } from './KeyValueResultsView'
+import { GenericPlanPayloadView, MongoExplainPlanView } from './MongoExplainPlanView'
 import { RawResultView } from './RawResultView'
 import { SearchHitsResultsView } from './SearchHitsResultsView'
 
@@ -108,6 +109,12 @@ export function ResultPayloadView({
 
   if (payload.renderer === 'chart') {
     return <ChartResultView payload={payload} />
+  }
+
+  if (payload.renderer === 'plan') {
+    return connection?.engine === 'mongodb'
+      ? <MongoExplainPlanView payload={payload} />
+      : <GenericPlanPayloadView payload={payload} />
   }
 
   if (payload.renderer === 'metrics') {

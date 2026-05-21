@@ -60,9 +60,7 @@ pub(super) async fn list_sqlite_explorer_nodes(
             let schema = scope.trim_start_matches("pragmas:");
             pragma_nodes(connection, schema)
         }
-        Some(scope) if scope == "attached-databases" => {
-            attached_database_nodes(connection, &pool, true).await?
-        }
+        Some("attached-databases") => attached_database_nodes(connection, &pool, true).await?,
         Some(scope) if scope.starts_with("schema:") => {
             // Backward-compatible scope used by older UI/tests.
             database_nodes(connection, scope.trim_start_matches("schema:"))

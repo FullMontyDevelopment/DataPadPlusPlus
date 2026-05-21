@@ -235,6 +235,7 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   migrateConnectionModes(next.connections)
   next.libraryNodes = migrateLibraryNodes(next.libraryNodes, next.savedWork)
   ensureConnectionLibraryNodes(next.libraryNodes, next.connections)
+  pruneEmptyDefaultLibraryRoots(next.libraryNodes)
   migrateTabKinds(next.tabs)
   migrateTabKinds(next.closedTabs)
   migrateTabSaveTargets(next.tabs)
@@ -351,7 +352,6 @@ function migrateLibraryNodes(
 ): LibraryNode[] {
   const timestamp = new Date().toISOString()
   const nodes = [...libraryNodes]
-  ensureDefaultLibraryFolders(nodes, timestamp)
 
   savedWork.forEach((item) => {
     if (nodes.some((node) => node.id === item.id)) {
@@ -388,22 +388,6 @@ function migrateLibraryNodes(
   return nodes
 }
 
-function ensureDefaultLibraryFolders(nodes: LibraryNode[], timestamp: string) {
-  DEFAULT_LIBRARY_ROOTS.forEach(([id, name]) => {
-    if (!nodes.some((node) => node.id === id)) {
-      nodes.push({
-        id,
-        kind: 'folder',
-        name,
-        tags: [],
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        summary: 'Workspace library folder.',
-      })
-    }
-  })
-}
-
 function ensureConnectionLibraryNodes(
   nodes: LibraryNode[],
   connections: ConnectionProfile[],
@@ -433,6 +417,40 @@ function ensureConnectionLibraryNodes(
       connectionId: connection.id,
     })
   })
+}
+
+function pruneEmptyDefaultLibraryRoots(nodes: LibraryNode[]) {
+  const defaultRootIds = new Set<string>(DEFAULT_LIBRARY_ROOTS.map(([id]) => id))
+  const nodesWithChildren = new Set(
+    nodes.map((node) => node.parentId).filter(Boolean) as string[],
+  )
+
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index]
+    if (
+      node &&
+      isUnmodifiedDefaultLibraryRoot(node) &&
+      defaultRootIds.has(node.id) &&
+      !nodesWithChildren.has(node.id)
+    ) {
+      nodes.splice(index, 1)
+    }
+  }
+}
+
+function isUnmodifiedDefaultLibraryRoot(node: LibraryNode) {
+  return (
+    node.kind === 'folder' &&
+    !node.parentId &&
+    !node.connectionId &&
+    !node.environmentId &&
+    !node.queryText &&
+    !node.scriptText &&
+    !node.testSuite &&
+    (node.tags?.length ?? 0) === 0 &&
+    !node.favorite &&
+    DEFAULT_LIBRARY_ROOTS.some(([id, name]) => node.id === id && node.name === name)
+  )
 }
 
 function ensureLegacyFolder(

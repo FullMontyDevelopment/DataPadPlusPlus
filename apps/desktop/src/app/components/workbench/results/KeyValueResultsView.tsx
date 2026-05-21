@@ -7,6 +7,10 @@ import type {
 } from '@datapadplusplus/shared-types'
 import type { DocumentEditContext } from './document-edit-context'
 import {
+  dataEditStatusMessage,
+  executeDataEditWithConfirmation,
+} from './data-edit-confirmation'
+import {
   KeyValueAddPanel,
   KeyValueDeletePanel,
   KeyValueTtlPanel,
@@ -38,7 +42,6 @@ interface ContextMenuState {
 }
 
 interface PendingDeleteState {
-  confirmation: string
   expectedText: string
   keyName: string
 }
@@ -135,7 +138,10 @@ export function KeyValueResultsView({
       return
     }
 
-    const response = await onExecuteDataEdit(request)
+    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+      actionLabel: `Update ${keyName}.`,
+      confirmationTitle: 'Apply this key edit?',
+    })
     if (response?.executed) {
       setDraftEntries((current) => ({
         ...current,
@@ -143,7 +149,7 @@ export function KeyValueResultsView({
       }))
       setStatusMessage(`Updated ${keyName}.`)
     } else {
-      setStatusMessage(editStatusMessage(response, `Unable to update ${keyName}.`))
+      setStatusMessage(dataEditStatusMessage(response, `Unable to update ${keyName}.`))
     }
   }
 
@@ -171,7 +177,10 @@ export function KeyValueResultsView({
       return
     }
 
-    const response = await onExecuteDataEdit(request)
+    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+      actionLabel: `Add ${keyName}.`,
+      confirmationTitle: 'Create this key?',
+    })
     if (response?.executed) {
       setDraftEntries((current) => ({
         ...current,
@@ -179,7 +188,7 @@ export function KeyValueResultsView({
       }))
       setStatusMessage(`Added ${keyName}.`)
     } else {
-      setStatusMessage(editStatusMessage(response, `Unable to add ${keyName}.`))
+      setStatusMessage(dataEditStatusMessage(response, `Unable to add ${keyName}.`))
     }
   }
 
@@ -203,11 +212,14 @@ export function KeyValueResultsView({
       return
     }
 
-    const response = await onExecuteDataEdit(request)
+    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+      actionLabel: `Set TTL for ${keyName}.`,
+      confirmationTitle: 'Apply this TTL change?',
+    })
     setStatusMessage(
       response?.executed
         ? `Set TTL for ${keyName}.`
-        : editStatusMessage(response, `Unable to set TTL for ${keyName}.`),
+        : dataEditStatusMessage(response, `Unable to set TTL for ${keyName}.`),
     )
   }
 
@@ -229,10 +241,14 @@ export function KeyValueResultsView({
       return
     }
 
-    const response = await onExecuteDataEdit({
-      ...request,
-      confirmationText: pendingDelete.confirmation,
-    })
+    const response = await executeDataEditWithConfirmation(
+      onExecuteDataEdit,
+      request,
+      {
+        actionLabel: `Delete ${keyName}.`,
+        confirmationTitle: 'Delete this key?',
+      },
+    )
     if (response?.executed) {
       setDraftEntries((current) => {
         const next = { ...current }
@@ -241,7 +257,7 @@ export function KeyValueResultsView({
       })
       setStatusMessage(`Deleted ${keyName}.`)
     } else {
-      setStatusMessage(editStatusMessage(response, `Unable to delete ${keyName}.`))
+      setStatusMessage(dataEditStatusMessage(response, `Unable to delete ${keyName}.`))
     }
   }
 
@@ -333,16 +349,10 @@ export function KeyValueResultsView({
       ) : null}
       {pendingDelete ? (
         <KeyValueDeletePanel
-          confirmation={pendingDelete.confirmation}
           expectedText={pendingDelete.expectedText}
           keyName={pendingDelete.keyName}
           onCancel={() => setPendingDelete(undefined)}
           onConfirm={() => void deleteKey()}
-          onConfirmationChange={(confirmation) =>
-            setPendingDelete((current) =>
-              current ? { ...current, confirmation } : current,
-            )
-          }
         />
       ) : null}
       {statusMessage ? <div className="data-grid-status">{statusMessage}</div> : null}
@@ -361,7 +371,6 @@ export function KeyValueResultsView({
               return
             }
             setPendingDelete({
-              confirmation: '',
               expectedText: keyValueConfirmationText(connection, 'delete-key'),
               keyName: contextMenu.keyName,
             })
@@ -374,13 +383,6 @@ export function KeyValueResultsView({
 
 function serializedKeyValue(value: unknown) {
   return typeof value === 'string' ? value : JSON.stringify(value)
-}
-
-function editStatusMessage(
-  response: DataEditExecutionResponse | undefined,
-  fallback: string,
-) {
-  return (response?.messages.at(-1) ?? response?.warnings.join(' ')) || fallback
 }
 
 function redisEditKindForValue(

@@ -63,12 +63,13 @@ export function useRuntimeActions({
     async (request) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        dispatch({ type: 'EXPLORER_LOADING' })
+        dispatch({ type: 'EXPLORER_LOADING', request })
         const explorer = await desktopClient.loadExplorer(request)
         dispatch({ type: 'EXPLORER_READY', explorer })
       } catch (error) {
         dispatch({
           type: 'EXPLORER_ERROR',
+          request,
           message: toUserMessage(error, 'Unable to load live explorer metadata.'),
         })
       }
@@ -106,6 +107,7 @@ export function useRuntimeActions({
       } catch (error) {
         dispatch({
           type: 'EXPLORER_ERROR',
+          request: { connectionId, environmentId },
           message: toUserMessage(error, 'Unable to inspect explorer object.'),
         })
       }

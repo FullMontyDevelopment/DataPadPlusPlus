@@ -65,6 +65,13 @@ describe('Mongo query builder', () => {
             valueType: 'boolean',
           },
           {
+            id: 'filter-name',
+            field: 'name',
+            operator: 'contains',
+            value: 'Lamp (warm)',
+            valueType: 'string',
+          },
+          {
             id: 'filter-tags',
             field: 'tags',
             operator: 'in',
@@ -82,6 +89,7 @@ describe('Mongo query builder', () => {
       sku: 'SKU-001',
       price: { $gte: 10.5 },
       active: { $exists: true },
+      name: { $regex: 'Lamp \\(warm\\)' },
       tags: { $in: ['featured', 'clearance'] },
     })
   })
@@ -337,6 +345,14 @@ describe('SQL SELECT query builder', () => {
             valueType: 'number',
           },
           {
+            id: 'filter-name',
+            enabled: true,
+            field: 'display_name',
+            operator: 'contains',
+            value: 'A_%',
+            valueType: 'string',
+          },
+          {
             id: 'filter-archived',
             enabled: false,
             field: 'archived',
@@ -350,7 +366,7 @@ describe('SQL SELECT query builder', () => {
         limit: 25,
       }),
     ).toBe(
-      'select "email", "status" from "public"."accounts" where "status" = \'active\' and "total" >= 100 order by "created_at" desc limit 25;',
+      'select "email", "status" from "public"."accounts" where "status" = \'active\' and "total" >= 100 and "display_name" like \'%A\\_\\%%\' escape \'\\\' order by "created_at" desc limit 25;',
     )
   })
 

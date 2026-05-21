@@ -15,7 +15,7 @@ export function loadBrowserSnapshot(): WorkspaceSnapshot {
   }
 
   try {
-    return migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot)
+    return sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot))
   } catch {
     return createBlankBootstrapPayload().snapshot
   }
@@ -27,9 +27,116 @@ export function saveBrowserSnapshot(snapshot: WorkspaceSnapshot) {
   if (typeof window !== 'undefined') {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify(migrateWorkspaceSnapshot(snapshot)),
+      JSON.stringify(sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(snapshot))),
     )
   }
+}
+
+function sanitizeBrowserSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  const sanitized = cloneSnapshot(snapshot)
+  sanitized.connections = sanitized.connections.map((connection) => {
+    if (!connection.connectionString || !connectionStringContainsPlainSecret(connection.connectionString)) {
+      return connection
+    }
+
+    return {
+      ...connection,
+      connectionString: undefined,
+    }
+  })
+  return sanitized
+}
+
+export function connectionStringContainsPlainSecret(connectionString: string) {
+  return (
+    urlConnectionStringContainsSecret(connectionString) ||
+    keyValueConnectionStringContainsSecret(connectionString) ||
+    queryParameterContainsSecret(connectionString)
+  )
+}
+
+function urlConnectionStringContainsSecret(value: string) {
+  const schemeIndex = value.indexOf('://')
+  if (schemeIndex < 0) {
+    return false
+  }
+
+  const authorityStart = schemeIndex + 3
+  const authorityEndCandidates = ['/', '?', '#']
+    .map((character) => value.indexOf(character, authorityStart))
+    .filter((index) => index >= 0)
+  const authorityEnd = authorityEndCandidates.length
+    ? Math.min(...authorityEndCandidates)
+    : value.length
+  const authority = value.slice(authorityStart, authorityEnd)
+  const userInfoEnd = authority.lastIndexOf('@')
+  if (userInfoEnd < 0) {
+    return false
+  }
+
+  const [, password] = authority.slice(0, userInfoEnd).split(':', 2)
+  return isPlainSecretLiteral(password)
+}
+
+function keyValueConnectionStringContainsSecret(value: string) {
+  return value.split(';').some((part) => {
+    const [key, rawValue] = part.split('=', 2)
+    if (!key || rawValue === undefined || !isPlainSecretLiteral(rawValue)) {
+      return false
+    }
+
+    return [
+      'password',
+      'pwd',
+      'pass',
+      'access token',
+      'access_token',
+      'sharedaccesskey',
+      'shared access key',
+      'secret',
+      'secretkey',
+      'secret key',
+      'apikey',
+      'api key',
+      'token',
+    ].includes(key.trim().toLowerCase())
+  })
+}
+
+function queryParameterContainsSecret(value: string) {
+  const queryStart = value.indexOf('?')
+  if (queryStart < 0) {
+    return false
+  }
+
+  return value.slice(queryStart + 1).split('&').some((part) => {
+    const [key, rawValue] = part.split('=', 2)
+    if (!key || rawValue === undefined || !isPlainSecretLiteral(rawValue)) {
+      return false
+    }
+
+    return [
+      'password',
+      'pwd',
+      'access_token',
+      'access-token',
+      'auth_token',
+      'token',
+      'secret',
+      'secretkey',
+      'api_key',
+      'apikey',
+    ].includes(key.trim().toLowerCase())
+  })
+}
+
+function isPlainSecretLiteral(value: string | undefined) {
+  const trimmed = value?.trim()
+  return Boolean(
+    trimmed &&
+      !(trimmed.startsWith('${') && trimmed.endsWith('}')) &&
+      !['****', '***', '<secret>', '<redacted>'].includes(trimmed),
+  )
 }
 
 
@@ -175,4 +282,3 @@ export function buildExecutionCapabilities(
     defaultRowLimit: defaultRowLimitForConnection(connection),
   }
 }
-

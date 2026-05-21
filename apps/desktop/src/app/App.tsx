@@ -26,6 +26,7 @@ import { DesktopCodeEditor } from './components/workbench/DesktopCodeEditor'
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
 import { EnvironmentWorkspace } from './components/workbench/EnvironmentWorkspace'
+import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
 import { MetricsWorkspace } from './components/workbench/MetricsWorkspace'
 import { ObjectViewWorkspace } from './components/workbench/ObjectViewWorkspace'
 import { RightDrawer } from './components/workbench/RightDrawer'
@@ -66,10 +67,16 @@ import {
   isRedisConsoleTab,
   redisConsoleCommandFromQueryText,
 } from './components/workbench/query-builder/redis-console'
+import { mongoQueryScopeForTab } from './components/workbench/query-builder/mongo-query-scope'
 import { completionProvidersForConnection } from './components/workbench/intellisense/providers'
 import { useQueryIntellisenseCatalog } from './components/workbench/intellisense/useQueryIntellisenseCatalog'
 import { SavedWorkIcon } from './components/workbench/icons'
 import { AppStateProvider, useAppState } from './state/app-state'
+import {
+  explorerCacheKey,
+  hasExplorerScope,
+  isExplorerRequestLoading,
+} from './state/app-state-reducer-helpers'
 import { connectionLibraryNodeId } from '../services/runtime/library-connection-helpers'
 import { createConnectionProfile, createEnvironmentProfile } from './state/app-state-factories'
 import {
@@ -99,9 +106,10 @@ function DesktopWorkspace() {
     payload,
     diagnostics,
     exportBundle,
-    explorer,
+    explorerCache,
     explorerError,
     explorerInspection,
+    explorerLoadingRequests,
     explorerStatus,
     structure,
     structureError,
@@ -114,7 +122,7 @@ function DesktopWorkspace() {
     workbenchMessages,
     actions,
   } = useAppState()
-  const [exportPassphrase, setExportPassphrase] = useState('datapadplusplus-desktop')
+  const [exportPassphrase, setExportPassphrase] = useState('')
   const [importPayload, setImportPayload] = useState('')
   const [rendererPreference, setRendererPreference] = useState<{
     renderer?: string
@@ -124,8 +132,11 @@ function DesktopWorkspace() {
   const [testWindowMode, setTestWindowMode] = useState<'both' | 'builder' | 'raw'>('both')
   const [connectionDraft, setConnectionDraft] = useState<ConnectionProfile | undefined>()
   const [connectionDraftParentId, setConnectionDraftParentId] = useState<string | undefined>()
-  const [editingEnvironmentId, setEditingEnvironmentId] = useState<string | undefined>()
+  const [environmentDrafts, setEnvironmentDrafts] = useState<
+    Record<string, EnvironmentProfile>
+  >({})
   const initializedQueryModeByTabRef = useRef<Record<string, string>>({})
+  const environmentDraftsRef = useRef<Record<string, EnvironmentProfile>>({})
   const builderStateDraftRef = useRef<Record<string, QueryBuilderState>>({})
   const [builderStateDrafts, setBuilderStateDrafts] = useState<
     Record<string, QueryBuilderState>
@@ -163,6 +174,10 @@ function DesktopWorkspace() {
     builderStateDraftRef.current = builderStateDrafts
   }, [builderStateDrafts])
 
+  useEffect(() => {
+    environmentDraftsRef.current = environmentDrafts
+  }, [environmentDrafts])
+
   const snapshot = payload?.snapshot
   const activeConnection =
     snapshot?.connections.find((item) => item.id === snapshot.ui.activeConnectionId) ??
@@ -170,7 +185,9 @@ function DesktopWorkspace() {
   const activeTabFromSelection = snapshot?.tabs.find(
     (item) =>
       item.id === snapshot.ui.activeTabId &&
-      (!activeConnection || item.connectionId === activeConnection.id),
+      (item.tabKind === 'environment' ||
+        !activeConnection ||
+        item.connectionId === activeConnection.id),
   )
   const activeTab =
     activeTabFromSelection ??
@@ -182,6 +199,7 @@ function DesktopWorkspace() {
   const activeTabIsMetrics = activeTab?.tabKind === 'metrics'
   const activeTabIsObjectView = activeTab?.tabKind === 'object-view'
   const activeTabIsTestSuite = activeTab?.tabKind === 'test-suite'
+  const activeTabIsEnvironment = activeTab?.tabKind === 'environment'
   const activeEnvironment =
     snapshot?.environments.find((item) => item.id === snapshot.ui.activeEnvironmentId) ??
     snapshot?.environments[0]
@@ -192,27 +210,91 @@ function DesktopWorkspace() {
   }, [snapshot?.ui.bottomPanelVisible])
   const activeConnectionId = activeConnection?.id
   const activeEnvironmentId = activeEnvironment?.id
+  const activeExplorerCacheEntry =
+    activeConnectionId && activeEnvironmentId
+      ? explorerCache?.[explorerCacheKey(activeConnectionId, activeEnvironmentId)]
+      : undefined
+  const activeExplorerResponse = activeExplorerCacheEntry?.response
   const runtimeCapabilities =
-    activeConnection && explorer?.capabilities
-      ? explorer.capabilities
+    activeConnection && activeExplorerResponse?.capabilities
+      ? activeExplorerResponse.capabilities
       : activeConnection && snapshot
         ? deriveCapabilities(snapshot, activeConnection)
         : defaultCapabilities()
-  const hasActiveExplorerResponse = Boolean(
-    activeConnection &&
-      explorer?.connectionId === activeConnection.id &&
-      explorer.environmentId === activeEnvironmentId,
+  const activeConnectionExplorerItems = activeExplorerResponse?.nodes
+  const explorerSourceNodes = activeConnectionExplorerItems ?? snapshot?.explorerNodes ?? []
+  const activeExplorerStatus =
+    activeConnectionId &&
+    activeEnvironmentId &&
+    isExplorerRequestLoading(
+      explorerLoadingRequests,
+      activeConnectionId,
+      activeEnvironmentId,
+    )
+      ? 'loading'
+      : activeExplorerResponse
+        ? 'ready'
+        : activeConnectionId && activeEnvironmentId
+          ? 'idle'
+          : explorerStatus
+  const getConnectionExplorerResponse = useCallback(
+    (connectionId: string, environmentId?: string) => {
+      const resolvedEnvironmentId = environmentId || activeEnvironmentId
+
+      if (!resolvedEnvironmentId) {
+        return undefined
+      }
+
+      return explorerCache?.[explorerCacheKey(connectionId, resolvedEnvironmentId)]?.response
+    },
+    [activeEnvironmentId, explorerCache],
   )
-  const activeConnectionExplorerItems = hasActiveExplorerResponse ? explorer?.nodes ?? [] : []
-  const explorerSourceNodes = hasActiveExplorerResponse
-    ? activeConnectionExplorerItems
-    : snapshot?.explorerNodes ?? []
+  const getConnectionExplorerItems = useCallback(
+    (connectionId: string, environmentId?: string) =>
+      getConnectionExplorerResponse(connectionId, environmentId)?.nodes,
+    [getConnectionExplorerResponse],
+  )
+  const getConnectionExplorerStatus = useCallback(
+    (connectionId: string, environmentId?: string) => {
+      const resolvedEnvironmentId = environmentId || activeEnvironmentId
+
+      if (!resolvedEnvironmentId) {
+        return 'idle' as const
+      }
+
+      if (
+        isExplorerRequestLoading(
+          explorerLoadingRequests,
+          connectionId,
+          resolvedEnvironmentId,
+        )
+      ) {
+        return 'loading' as const
+      }
+
+      return getConnectionExplorerResponse(connectionId, resolvedEnvironmentId)
+        ? ('ready' as const)
+        : ('idle' as const)
+    },
+    [activeEnvironmentId, explorerLoadingRequests, getConnectionExplorerResponse],
+  )
+  const isConnectionExplorerScopeLoading = useCallback(
+    (connectionId: string, scope?: string, environmentId?: string) =>
+      isExplorerRequestLoading(
+        explorerLoadingRequests,
+        connectionId,
+        environmentId || activeEnvironmentId,
+        scope,
+      ),
+    [activeEnvironmentId, explorerLoadingRequests],
+  )
   const activeBuilderState =
     activeTab &&
     !activeTabIsExplorer &&
     !activeTabIsMetrics &&
     !activeTabIsObjectView &&
     !activeTabIsTestSuite &&
+    !activeTabIsEnvironment &&
     activeConnection
       ? builderStateForTab(activeTab, activeConnection, builderStateDrafts)
       : undefined
@@ -244,6 +326,13 @@ function DesktopWorkspace() {
     activeQueryWindowMode === 'builder'
       ? buildQueryTextForBuilderState(activeBuilderState, activeConnection)
       : activeTab?.queryText)
+  const activeMongoQueryScope = mongoQueryScopeForTab({
+    builderState: activeBuilderState,
+    connection: activeConnection,
+    queryText: activeEditorQueryText,
+    scriptText: activeTab?.scriptText,
+    tab: activeTab,
+  })
   const intellisenseCatalog = useQueryIntellisenseCatalog({
     connection: activeConnection,
     environment: activeEnvironment,
@@ -264,7 +353,8 @@ function DesktopWorkspace() {
       activeTabIsExplorer ||
       activeTabIsMetrics ||
       activeTabIsObjectView ||
-      activeTabIsTestSuite
+      activeTabIsTestSuite ||
+      activeTabIsEnvironment
     ) {
       return undefined
     }
@@ -286,6 +376,7 @@ function DesktopWorkspace() {
     activeTabIsMetrics,
     activeTabIsObjectView,
     activeTabIsTestSuite,
+    activeTabIsEnvironment,
     intellisenseCatalog,
     runtimeCapabilities.editorLanguage,
   ])
@@ -382,15 +473,6 @@ function DesktopWorkspace() {
       return
     }
 
-    void actions.updateQueryBuilderState({
-      tabId: activeTab.id,
-      builderState: {
-        ...builderState,
-        lastAppliedQueryText: generatedQueryText,
-      },
-      queryText: generatedQueryText,
-      queryViewMode: 'builder',
-    })
     void actions.executeQuery(activeTab.id, mode, guardrailId, generatedQueryText, 'builder')
   }, [
     actions,
@@ -455,7 +537,8 @@ function DesktopWorkspace() {
         !tab ||
         tab.tabKind === 'explorer' ||
         tab.tabKind === 'metrics' ||
-        tab.tabKind === 'object-view'
+        tab.tabKind === 'object-view' ||
+        tab.tabKind === 'environment'
       ) {
         return
       }
@@ -489,6 +572,38 @@ function DesktopWorkspace() {
     [actions, snapshot?.connections, snapshot?.tabs],
   )
 
+  const saveEnvironmentTabDraft = useCallback(
+    async (tabId: string) => {
+      const tab = snapshot?.tabs.find((item) => item.id === tabId)
+
+      if (!tab || tab.tabKind !== 'environment') {
+        return
+      }
+
+      const savedEnvironment = snapshot?.environments.find(
+        (item) => item.id === tab.environmentId,
+      )
+      const draft = environmentDraftsRef.current[tabId] ?? savedEnvironment
+
+      if (!draft) {
+        return
+      }
+
+      await actions.saveEnvironment(draft)
+      setEnvironmentDrafts((current) => {
+        const next = { ...current }
+        delete next[tabId]
+        return next
+      })
+
+      const nextTitle = environmentTabTitle(draft.label)
+      if (tab.title !== nextTitle) {
+        await actions.renameTab(tabId, nextTitle)
+      }
+    },
+    [actions, snapshot?.environments, snapshot?.tabs],
+  )
+
   const requestSaveQuery = useCallback(
     (tabId: string) => {
       void (async () => {
@@ -506,6 +621,11 @@ function DesktopWorkspace() {
           return
         }
 
+        if (tab.tabKind === 'environment') {
+          await saveEnvironmentTabDraft(tabId)
+          return
+        }
+
         await flushQueryTabDrafts(tabId)
 
         if (tab.saveTarget) {
@@ -516,7 +636,7 @@ function DesktopWorkspace() {
         setPendingSaveTabId(tabId)
       })()
     },
-    [actions, flushQueryTabDrafts, snapshot?.tabs],
+    [actions, flushQueryTabDrafts, saveEnvironmentTabDraft, snapshot?.tabs],
   )
 
   useEffect(() => {
@@ -531,7 +651,7 @@ function DesktopWorkspace() {
   }, [activeTabId, activeTabIsTestSuite])
 
   useEffect(() => {
-    if (!activeTabId || !activeTab || activeTabIsTestSuite) {
+    if (!activeTabId || !activeTab || activeTabIsTestSuite || activeTabIsEnvironment) {
       return
     }
 
@@ -549,7 +669,14 @@ function DesktopWorkspace() {
         activeConnection,
       ),
     )
-  }, [activeBuilderKind, activeConnection, activeTab, activeTabId, activeTabIsTestSuite])
+  }, [
+    activeBuilderKind,
+    activeConnection,
+    activeTab,
+    activeTabId,
+    activeTabIsEnvironment,
+    activeTabIsTestSuite,
+  ])
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -558,7 +685,7 @@ function DesktopWorkspace() {
       if (event.key === 'F5') {
         event.preventDefault()
 
-        if (activeTab && !activeTabIsExplorer) {
+        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment) {
           runCurrentTabQuery()
         }
 
@@ -585,7 +712,7 @@ function DesktopWorkspace() {
 
       if (key === 'enter') {
         event.preventDefault()
-        if (!activeTabIsExplorer) {
+        if (!activeTabIsExplorer && !activeTabIsEnvironment) {
           runCurrentTabQuery()
         }
         return
@@ -607,7 +734,8 @@ function DesktopWorkspace() {
           !activeTabIsExplorer &&
           !activeTabIsMetrics &&
           !activeTabIsObjectView &&
-          !activeTabIsTestSuite
+          !activeTabIsTestSuite &&
+          !activeTabIsEnvironment
         ) {
           runCurrentTabQuery('explain')
         }
@@ -620,6 +748,7 @@ function DesktopWorkspace() {
     actions,
     activeTab,
     activeTabIsExplorer,
+    activeTabIsEnvironment,
     activeTabIsMetrics,
     activeTabIsObjectView,
     activeTabIsTestSuite,
@@ -642,10 +771,12 @@ function DesktopWorkspace() {
       !activeConnectionId ||
       !activeEnvironmentId ||
       (activeSidebarPane !== 'explorer' && activeSidebarPane !== 'library') ||
-      explorerStatus === 'loading' ||
-      (explorer?.connectionId === activeConnectionId &&
-        explorer.environmentId === activeEnvironmentId &&
-        (explorer.nodes.length > 0 || explorer.scope === undefined))
+      isExplorerRequestLoading(
+        explorerLoadingRequests,
+        activeConnectionId,
+        activeEnvironmentId,
+      ) ||
+      hasExplorerScope(activeExplorerCacheEntry)
     ) {
       return
     }
@@ -658,9 +789,9 @@ function DesktopWorkspace() {
   }, [
     activeConnectionId,
     activeEnvironmentId,
+    activeExplorerCacheEntry,
     activeSidebarPane,
-    explorer,
-    explorerStatus,
+    explorerLoadingRequests,
     loadExplorer,
   ])
 
@@ -728,11 +859,45 @@ function DesktopWorkspace() {
       ? rendererPreference.renderer
       : activeTab?.result?.defaultRenderer
   const activePayload = selectPayload(activeTab?.result?.payloads ?? [], activeRenderer)
+  const savedEnvironmentForActiveTab =
+    activeTabIsEnvironment && activeTab
+      ? snapshot.environments.find((item) => item.id === activeTab.environmentId)
+      : undefined
+  const activeEnvironmentDraft =
+    activeTabIsEnvironment && activeTab
+      ? (environmentDrafts[activeTab.id] ?? savedEnvironmentForActiveTab)
+      : undefined
+  const environmentTabHasChanges = (tab: QueryTabState) => {
+    if (tab.tabKind !== 'environment') {
+      return Boolean(tab.dirty)
+    }
+
+    const savedEnvironment = snapshot.environments.find(
+      (item) => item.id === tab.environmentId,
+    )
+    const draft = environmentDraftsRef.current[tab.id] ?? savedEnvironment
+    return comparableEnvironment(draft) !== comparableEnvironment(savedEnvironment)
+  }
+  const displayTabs = snapshot.tabs.map((tab) => {
+    if (tab.tabKind !== 'environment') {
+      return tab
+    }
+
+    const savedEnvironment = snapshot.environments.find(
+      (item) => item.id === tab.environmentId,
+    )
+    const draft = environmentDrafts[tab.id] ?? savedEnvironment
+    const title = environmentTabTitle(draft?.label ?? tab.title)
+    const dirty = comparableEnvironment(draft) !== comparableEnvironment(savedEnvironment)
+
+    return {
+      ...tab,
+      dirty,
+      title,
+    }
+  })
   const canCancelExecution = Boolean(
     runtimeCapabilities.canCancel && lastExecution?.executionId,
-  )
-  const showingEnvironmentWorkspace = Boolean(
-    editingEnvironmentId && activeEnvironment?.id === editingEnvironmentId,
   )
   const showingExplorerWorkspace = activeTabIsExplorer
   const showingMetricsWorkspace = activeTabIsMetrics
@@ -740,7 +905,12 @@ function DesktopWorkspace() {
   const hasWorkbenchMessages = workbenchMessages.length > 0
   const hasActivePanelContext = Boolean(activeTab && activeConnection && activeEnvironment)
   const hasActiveQueryContext = Boolean(
-    hasActivePanelContext && !activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView,
+    hasActivePanelContext &&
+      !activeTabIsExplorer &&
+      !activeTabIsMetrics &&
+      !activeTabIsObjectView &&
+      !activeTabIsTestSuite &&
+      !activeTabIsEnvironment,
   )
   const isMessagePanelRequested = snapshot.ui.activeBottomPanelTab === 'messages'
   const isExplorerDetailsRequested =
@@ -750,8 +920,7 @@ function DesktopWorkspace() {
     (hasWorkbenchMessages ||
       isMessagePanelRequested ||
       (hasActivePanelContext && isExplorerDetailsRequested) ||
-      (!showingEnvironmentWorkspace &&
-        !showingExplorerWorkspace &&
+      (!showingExplorerWorkspace &&
         !showingMetricsWorkspace &&
         !showingObjectViewWorkspace &&
         hasActiveQueryContext))
@@ -776,10 +945,14 @@ function DesktopWorkspace() {
       tab.tabKind !== 'explorer' &&
       tab.tabKind !== 'metrics' &&
       tab.tabKind !== 'object-view' &&
-      (tab.saveTarget || tab.savedQueryId) &&
-      tab.dirty
+      (tab.tabKind === 'environment'
+        ? environmentTabHasChanges(tab)
+        : Boolean((tab.saveTarget || tab.savedQueryId) && tab.dirty))
     ) {
-      setPendingTabClose({ tab, remainingTabIds })
+      setPendingTabClose({
+        tab: displayTabs.find((item) => item.id === tab.id) ?? tab,
+        remainingTabIds,
+      })
       return
     }
 
@@ -831,7 +1004,6 @@ function DesktopWorkspace() {
   const openConnectionDrawer = () => {
     setConnectionDraft(undefined)
     setConnectionDraftParentId(undefined)
-    setEditingEnvironmentId(undefined)
     if (snapshot?.ui.activeConnectionId) {
       void actions.updateUiState({
         activeActivity: 'library',
@@ -845,7 +1017,6 @@ function DesktopWorkspace() {
   const openConnectionDrawerFor = (connectionId: string) => {
     setConnectionDraft(undefined)
     setConnectionDraftParentId(undefined)
-    setEditingEnvironmentId(undefined)
     if (connectionId === snapshot?.ui.activeConnectionId) {
       openConnectionDrawer()
       return
@@ -939,13 +1110,7 @@ function DesktopWorkspace() {
 
     void (async () => {
       await actions.saveEnvironment(clone)
-      setEditingEnvironmentId(clone.id)
-      await actions.updateUiState({
-        activeActivity: 'library',
-        activeEnvironmentId: clone.id,
-        activeSidebarPane: 'library',
-        sidebarCollapsed: false,
-      })
+      await actions.createEnvironmentTab(clone.id)
     })()
   }
 
@@ -959,15 +1124,16 @@ function DesktopWorkspace() {
 
   const deleteEnvironmentProfile = (environmentId: string) => {
     void (async () => {
-      if (editingEnvironmentId === environmentId) {
-        setEditingEnvironmentId(undefined)
-      }
+      setEnvironmentDrafts((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([, draft]) => draft.id !== environmentId),
+        ),
+      )
       await actions.deleteEnvironment(environmentId)
     })()
   }
 
   const openNewConnectionDraft = (parentId?: string) => {
-    setEditingEnvironmentId(undefined)
     const environmentId =
       snapshot.ui.activeEnvironmentId ||
       activeEnvironment?.id ||
@@ -1028,7 +1194,6 @@ function DesktopWorkspace() {
 
   const openConnectionExplorer = (connectionId: string) => {
     setConnectionDraft(undefined)
-    setEditingEnvironmentId(undefined)
     void (async () => {
       await actions.createExplorerTab(connectionId)
       await actions.updateUiState({
@@ -1047,7 +1212,6 @@ function DesktopWorkspace() {
       snapshot.ui.activeEnvironmentId || connection?.environmentIds[0] || activeEnvironment?.id
 
     setConnectionDraft(undefined)
-    setEditingEnvironmentId(undefined)
     void (async () => {
       await actions.createMetricsTab(connectionId, environmentId)
       await actions.updateUiState({
@@ -1061,7 +1225,6 @@ function DesktopWorkspace() {
 
   const openObjectView = (connectionId: string, node: ExplorerNode) => {
     setConnectionDraft(undefined)
-    setEditingEnvironmentId(undefined)
     void (async () => {
       await actions.createObjectViewTab({
         connectionId,
@@ -1079,19 +1242,21 @@ function DesktopWorkspace() {
     })()
   }
 
-  const loadConnectionExplorerScope = (connectionId: string, scope?: string) => {
-    if (!activeEnvironmentId) {
+  const loadConnectionExplorerScope = (
+    connectionId: string,
+    scope?: string,
+    environmentId?: string,
+  ) => {
+    const resolvedEnvironmentId = environmentId || activeEnvironmentId
+
+    if (!resolvedEnvironmentId) {
       return
     }
 
     void (async () => {
-      if (connectionId !== activeConnectionId) {
-        await actions.selectConnection(connectionId)
-      }
-
       await actions.loadExplorer({
         connectionId,
-        environmentId: activeEnvironmentId,
+        environmentId: resolvedEnvironmentId,
         limit: 100,
         scope,
       })
@@ -1104,7 +1269,6 @@ function DesktopWorkspace() {
     }
 
     setConnectionDraft(undefined)
-    setEditingEnvironmentId(undefined)
     void (async () => {
       await actions.createTab(connectionId)
       await actions.updateUiState({
@@ -1119,7 +1283,6 @@ function DesktopWorkspace() {
       snapshot.connections.find((connection) => connection.id === connectionId)?.environmentIds[0]
 
     setConnectionDraft(undefined)
-    setEditingEnvironmentId(undefined)
     void (async () => {
       await actions.createScopedTab({
         connectionId,
@@ -1165,14 +1328,24 @@ function DesktopWorkspace() {
             const tabId = pendingTabClose.tab.id
             const remainingTabIds = pendingTabClose.remainingTabIds
             setPendingTabClose(undefined)
+            setEnvironmentDrafts((current) => {
+              if (!current[tabId]) {
+                return current
+              }
+              const next = { ...current }
+              delete next[tabId]
+              return next
+            })
             void actions.closeTab(tabId).then(() => continuePendingTabClose(remainingTabIds))
           }}
           onSaveAndClose={() => {
             const tabId = pendingTabClose.tab.id
             const remainingTabIds = pendingTabClose.remainingTabIds
+            const isEnvironmentTab = pendingTabClose.tab.tabKind === 'environment'
             setPendingTabClose(undefined)
-            void flushQueryTabDrafts(tabId)
-              .then(() => actions.saveAndCloseTab(tabId))
+            void (isEnvironmentTab
+              ? saveEnvironmentTabDraft(tabId).then(() => actions.closeTab(tabId))
+              : flushQueryTabDrafts(tabId).then(() => actions.saveAndCloseTab(tabId)))
               .then(() => continuePendingTabClose(remainingTabIds))
           }}
         />
@@ -1259,30 +1432,22 @@ function DesktopWorkspace() {
           <SideBar
             ui={snapshot.ui}
             width={snapshot.ui.sidebarWidth}
-            theme={snapshot.preferences.theme}
             connections={snapshot.connections}
             adapterManifests={snapshot.adapterManifests}
             environments={snapshot.environments}
             libraryNodes={snapshot.libraryNodes}
             closedTabs={snapshot.closedTabs}
             explorerItems={explorerItems}
-            connectionExplorerItems={activeConnectionExplorerItems}
-            explorerSummary={explorer?.summary ?? explorerError}
-            explorerStatus={explorerStatus}
+            getConnectionExplorerItems={getConnectionExplorerItems}
+            getConnectionExplorerStatus={getConnectionExplorerStatus}
+            explorerSummary={activeExplorerResponse?.summary ?? explorerError}
+            explorerStatus={activeExplorerStatus}
+            isExplorerScopeLoading={isConnectionExplorerScopeLoading}
             activeConnectionId={activeConnection?.id ?? ''}
             activeEnvironmentId={activeEnvironment?.id ?? ''}
             onSelectConnection={(connectionId) => void actions.selectConnection(connectionId)}
-            onOpenSettings={openDiagnosticsDrawer}
-            onToggleTheme={() =>
-              void actions.setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
-            }
             onSelectEnvironment={(environmentId) =>
-              void actions.updateUiState({
-                activeEnvironmentId: environmentId,
-                activeActivity: 'library',
-                activeSidebarPane: 'library',
-                sidebarCollapsed: false,
-              })
+              void actions.createEnvironmentTab(environmentId)
             }
             onCreateConnection={openNewConnectionDraft}
             onCreateEnvironment={() => void actions.createEnvironment()}
@@ -1293,15 +1458,7 @@ function DesktopWorkspace() {
               }
             }}
             onEditEnvironment={(environmentId) =>
-              void (async () => {
-                setEditingEnvironmentId(environmentId)
-                await actions.updateUiState({
-                  activeEnvironmentId: environmentId,
-                  activeActivity: 'library',
-                  activeSidebarPane: 'library',
-                  sidebarCollapsed: false,
-                })
-              })()
+              void actions.createEnvironmentTab(environmentId)
             }
             onDeleteEnvironment={requestDeleteEnvironmentProfile}
             onConnectionGroupModeChange={(connectionGroupMode) =>
@@ -1336,7 +1493,6 @@ function DesktopWorkspace() {
             onOpenTestSuiteTemplate={(connectionId, templateId) =>
               openTestSuite(connectionId, templateId)
             }
-            onSaveCurrentQuery={() => (activeTab ? requestSaveQuery(activeTab.id) : undefined)}
             onCreateLibraryFolder={createLibraryFolder}
             onDeleteLibraryNode={requestDeleteLibraryNode}
             onMoveLibraryNode={moveLibraryNode}
@@ -1393,27 +1549,15 @@ function DesktopWorkspace() {
 
         <div className={`workbench-center${resultsDockRight && shouldShowBottomPanel ? ' has-right-results' : ''}`}>
           <main className="editor-workspace">
-            {showingEnvironmentWorkspace ? (
-              <EnvironmentWorkspace
-                key={`${activeEnvironment?.id ?? 'none'}-${activeEnvironment?.updatedAt ?? ''}`}
-                activeEnvironment={activeEnvironment}
-                environments={snapshot.environments}
-                onCreateEnvironment={() => void actions.createEnvironment()}
-                onCloneEnvironment={cloneEnvironmentProfile}
-                onSaveEnvironment={(environment) => void actions.saveEnvironment(environment)}
-              />
-            ) : (
-              <>
+            <>
                 <EditorTabs
-                  tabs={snapshot.tabs}
+                  tabs={displayTabs}
                   activeTabId={activeTab?.id ?? ''}
                   connections={snapshot.connections}
                   environments={snapshot.environments}
-                  canCreateTab={Boolean(activeConnection)}
                   onSelectTab={(tabId) => void actions.selectTab(tabId)}
                   onCloseTab={requestCloseTab}
                   onCloseTabs={requestCloseTabs}
-                  onCreateTab={() => openQueryTab(activeConnection?.id)}
                   onRenameTab={(tabId, title) => void actions.renameTab(tabId, title)}
                   onSaveTab={requestSaveQuery}
                   onReorderTabs={(orderedTabIds) =>
@@ -1421,7 +1565,22 @@ function DesktopWorkspace() {
                   }
                 />
 
-                {activeTabIsExplorer ? (
+                {activeTabIsEnvironment && activeTab ? (
+                  <EnvironmentWorkspace
+                    key={activeTab.id}
+                    activeEnvironment={activeEnvironmentDraft}
+                    environments={snapshot.environments}
+                    onCreateEnvironment={() => void actions.createEnvironment()}
+                    onCloneEnvironment={cloneEnvironmentProfile}
+                    onEnvironmentChange={(environment) =>
+                      setEnvironmentDrafts((current) => ({
+                        ...current,
+                        [activeTab.id]: environment,
+                      }))
+                    }
+                    onSaveEnvironment={() => void saveEnvironmentTabDraft(activeTab.id)}
+                  />
+                ) : activeTabIsExplorer ? (
                   <StructureWorkspace
                     activeConnection={activeConnection}
                     activeEnvironment={activeEnvironment}
@@ -1553,9 +1712,21 @@ function DesktopWorkspace() {
 
                     <div className="editor-surface">
                       <div className="editor-surface-meta">
-                        <span>
+                        <span className="editor-surface-context">
                           {activeConnection.name} / {activeEnvironment.label}
                         </span>
+                        {activeMongoQueryScope ? (
+                          <div className="editor-query-scope" aria-label="MongoDB query scope">
+                            <span className="editor-query-scope-item">
+                              <span className="editor-query-scope-label">Database</span>
+                              <strong>{activeMongoQueryScope.database ?? 'Not selected'}</strong>
+                            </span>
+                            <span className="editor-query-scope-item">
+                              <span className="editor-query-scope-label">Collection</span>
+                              <strong>{activeMongoQueryScope.collection ?? 'Not selected'}</strong>
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                       <div
                         className={`editor-query-layout query-layout--${activeQueryWindowMode}`}
@@ -1639,7 +1810,6 @@ function DesktopWorkspace() {
                   />
                 )}
               </>
-            )}
           </main>
 
           {shouldShowBottomPanel ? (
@@ -1746,8 +1916,8 @@ function DesktopWorkspace() {
             }
             onRefreshDiagnostics={() => void actions.refreshDiagnostics()}
             onExportWorkspace={() => void actions.exportWorkspace(exportPassphrase)}
-            onImportWorkspace={() =>
-              void actions.importWorkspace(exportPassphrase, importPayload)
+            onImportWorkspace={(encryptedPayload) =>
+              void actions.importWorkspace(exportPassphrase, encryptedPayload)
             }
             onApplyTemplate={(queryTemplate) =>
               queryTemplate && activeTab
@@ -1863,6 +2033,10 @@ function inferLibraryItemKindForTab(tab: QueryTabState): LibraryItemKind {
   }
 
   return 'query'
+}
+
+function environmentTabTitle(label: string) {
+  return `Environment - ${label.trim() || 'Untitled'}`
 }
 
 function libraryDescendantCount(nodes: LibraryNode[], nodeId: string) {

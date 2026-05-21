@@ -65,6 +65,13 @@ export interface WorkbenchMessage {
   details?: string
 }
 
+export interface ExplorerCacheEntry {
+  connectionId: string
+  environmentId: string
+  response: ExplorerResponse
+  scopes: Record<string, ExplorerResponse>
+}
+
 export interface StateShape {
   status: LoadStatus
   payload?: BootstrapPayload
@@ -72,6 +79,8 @@ export interface StateShape {
   exportBundle?: ExportBundle
   explorerStatus: RemoteStatus
   explorer?: ExplorerResponse
+  explorerCache?: Record<string, ExplorerCacheEntry>
+  explorerLoadingRequests: Record<string, true>
   explorerError?: string
   explorerInspection?: ExplorerInspectResponse
   structureStatus: RemoteStatus
@@ -91,9 +100,9 @@ export type AppAction =
   | { type: 'DIAGNOSTICS_READY'; diagnostics: DiagnosticsReport }
   | { type: 'EXPORT_READY'; exportBundle: ExportBundle }
   | { type: 'CONNECTION_TEST_READY'; profileId: string; result: ConnectionTestResult }
-  | { type: 'EXPLORER_LOADING' }
+  | { type: 'EXPLORER_LOADING'; request: ExplorerRequest }
   | { type: 'EXPLORER_READY'; explorer: ExplorerResponse }
-  | { type: 'EXPLORER_ERROR'; message: string }
+  | { type: 'EXPLORER_ERROR'; request: ExplorerRequest; message: string }
   | { type: 'EXPLORER_INSPECTION_READY'; inspection: ExplorerInspectResponse }
   | { type: 'STRUCTURE_LOADING' }
   | { type: 'STRUCTURE_READY'; structure: StructureResponse }
@@ -123,6 +132,7 @@ export interface Actions {
   createTab(connectionId: string): Promise<void>
   createExplorerTab(connectionId: string): Promise<void>
   createMetricsTab(connectionId: string, environmentId?: string): Promise<void>
+  createEnvironmentTab(environmentId: string): Promise<void>
   refreshMetricsTab(tabId: string): Promise<void>
   createObjectViewTab(request: CreateObjectViewTabRequest): Promise<void>
   refreshObjectViewTab(tabId: string): Promise<void>

@@ -21,6 +21,7 @@ fn normal_blank_workspace_has_no_fixture_user_data() {
     assert!(snapshot.environments.is_empty());
     assert!(snapshot.tabs.is_empty());
     assert!(snapshot.saved_work.is_empty());
+    assert!(snapshot.library_nodes.is_empty());
 }
 
 #[test]
@@ -140,6 +141,41 @@ fn migrated_workspace_is_unlocked_after_lock_ui_removal() {
 }
 
 #[test]
+fn migration_strips_connection_strings_with_plaintext_secrets() {
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.connections.push(ConnectionProfile {
+        id: "conn-secret-string".into(),
+        name: "Secret string".into(),
+        engine: "mongodb".into(),
+        family: "document".into(),
+        host: "localhost".into(),
+        port: Some(27017),
+        database: Some("catalog".into()),
+        connection_string: Some("mongodb://user:plain-secret@localhost:27017/catalog".into()),
+        connection_mode: Some("connection-string".into()),
+        environment_ids: Vec::new(),
+        tags: Vec::new(),
+        favorite: false,
+        redis_options: None,
+        sqlite_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        read_only: false,
+        icon: "mongodb".into(),
+        color: None,
+        group: None,
+        notes: None,
+        auth: ConnectionAuth::default(),
+        created_at: timestamp_now(),
+        updated_at: timestamp_now(),
+    });
+
+    let migrated = migrate_snapshot(snapshot);
+
+    assert!(migrated.connections[0].connection_string.is_none());
+}
+
+#[test]
 fn fixture_workspace_json_contains_secret_refs_but_never_raw_passwords() {
     let seed = fixture_workspace_seed_for_profile(Some("all"), "fixture.sqlite3");
     let serialized = serde_json::to_string(&seed.snapshot).expect("serialize fixture snapshot");
@@ -165,9 +201,18 @@ fn fixture_secrets_are_written_to_file_secret_store() {
     seed_fixture_secrets(&seed.secrets).expect("store fixture secrets");
     let secret_file = fs::read_to_string(&path).expect("read fixture secrets file");
 
-    assert!(secret_file.contains("DataPadPlusPlusFixture:fixture-sqlserver"));
-    assert!(secret_file.contains("DataPadPlusPlus_pwd_123"));
-    assert!(secret_file.contains("fixture-token"));
+    assert!(!secret_file.contains("DataPadPlusPlusFixture:fixture-sqlserver"));
+    assert!(!secret_file.contains("DataPadPlusPlus_pwd_123"));
+    assert!(!secret_file.contains("fixture-token"));
+    let (secret_ref, secret) = seed
+        .secrets
+        .first()
+        .cloned()
+        .expect("fixture seed should include a secret");
+    assert_eq!(
+        crate::security::resolve_secret_value(&secret_ref).expect("resolve encrypted secret"),
+        secret
+    );
 
     std::env::remove_var("DATAPADPLUSPLUS_SECRET_STORE");
     std::env::remove_var("DATAPADPLUSPLUS_SECRET_FILE");

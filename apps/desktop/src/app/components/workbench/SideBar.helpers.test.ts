@@ -62,11 +62,11 @@ describe('sidebar connection tree helpers', () => {
     expect(findNode(tree, 'table-accounts')).toBeUndefined()
   })
 
-  it('builds Oracle structural folders for containers, schemas, and PL/SQL objects', () => {
+  it('builds Oracle structural folders for the selected service, schemas, and PL/SQL objects', () => {
     const connection = oracleConnection()
     const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
 
-    expect(findNodeByLabel(tree, 'Containers')).toMatchObject({ label: 'Containers' })
+    expect(findNodeByLabel(tree, 'FREEPDB1')).toMatchObject({ label: 'FREEPDB1' })
     expect(findNodeByLabel(tree, 'Schemas')).toMatchObject({ label: 'Schemas' })
     expect(findNodeByLabel(tree, 'Tables')).toMatchObject({ label: 'Tables' })
     expect(findNodeByLabel(tree, 'Packages')).toMatchObject({ label: 'Packages' })

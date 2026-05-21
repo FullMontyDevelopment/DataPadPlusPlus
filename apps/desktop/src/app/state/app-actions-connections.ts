@@ -175,14 +175,7 @@ export function useConnectionActions({
           label: environmentCount === 0 ? 'Local' : `Environment ${environmentCount + 1}`,
         })
         await desktopClient.upsertEnvironment(environment)
-        applyPayload(
-          await desktopClient.updateUiState({
-            activeEnvironmentId: environment.id,
-            activeActivity: 'library',
-            activeSidebarPane: 'library',
-            sidebarCollapsed: false,
-          }),
-        )
+        applyPayload(await desktopClient.createEnvironmentTab(environment.id))
       } catch (error) {
         handleError(error)
       }

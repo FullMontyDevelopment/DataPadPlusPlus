@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentType, DragEvent } from 'react'
-import { readFieldDragData } from './results/field-drag'
+import {
+  acceptFieldDrag,
+  clearFieldDragData,
+  readFieldDragData,
+} from './results/field-drag'
 import {
   registerDatastoreCompletionProvider,
   type MonacoApiLike,
@@ -111,8 +115,7 @@ export function DesktopCodeEditor({
       return
     }
 
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
+    acceptFieldDrag(event)
   }
 
   const handleDrop = (event: DragEvent<HTMLElement>) => {
@@ -126,6 +129,8 @@ export function DesktopCodeEditor({
     if (fieldPath) {
       onDropField(fieldPath)
     }
+
+    clearFieldDragData()
   }
 
   if (!LoadedEditor) {

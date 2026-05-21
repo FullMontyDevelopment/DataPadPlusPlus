@@ -11,7 +11,6 @@ describe('ConnectionObjectTree', () => {
       <ConnectionObjectTree
         adapterManifest={adapterManifestFor(mongoConnection())}
         connection={mongoConnection()}
-        explorerNodes={[]}
         explorerStatus="loading"
         onOpenScopedQuery={vi.fn()}
       />,
@@ -29,6 +28,21 @@ describe('ConnectionObjectTree', () => {
     expect(screen.queryByText('Search Indexes')).not.toBeInTheDocument()
     expect(screen.queryByText('Vector Indexes')).not.toBeInTheDocument()
     expect(screen.queryByText('products')).not.toBeInTheDocument()
+  })
+
+  it('shows an empty live metadata state without falling back to structural folders', () => {
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(mongoConnection())}
+        connection={mongoConnection()}
+        explorerNodes={[]}
+        explorerStatus="ready"
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('No live metadata objects found.')).toBeInTheDocument()
+    expect(screen.queryByText('catalog')).not.toBeInTheDocument()
   })
 
   it('uses adapter-manifest Object Explorer folders for SQL Server', () => {
@@ -53,6 +67,56 @@ describe('ConnectionObjectTree', () => {
     expect(screen.getByText('Change Tracking')).toBeInTheDocument()
     expect(screen.getByText('Service Broker')).toBeInTheDocument()
     expect(screen.getByText('SQL Server Agent')).toBeInTheDocument()
+  })
+
+  it('does not nest live SQL Server category folders inside duplicate category folders', () => {
+    render(
+      <ConnectionObjectTree
+        connection={sqlServerConnection()}
+        explorerNodes={[
+          {
+            id: 'database:datapadplusplus',
+            label: 'datapadplusplus',
+            kind: 'database',
+            detail: 'online',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases'],
+            scope: 'database:datapadplusplus',
+            expandable: true,
+          },
+          {
+            id: 'sqlserver:datapadplusplus:tables',
+            label: 'Tables',
+            kind: 'tables',
+            detail: 'Base, system, external, and graph tables',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases', 'datapadplusplus'],
+            scope: 'sqlserver:datapadplusplus:tables',
+            expandable: true,
+          },
+          {
+            id: 'table:datapadplusplus:dbo:accounts',
+            label: 'dbo.accounts',
+            kind: 'table',
+            detail: 'base table',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases', 'datapadplusplus', 'tables'],
+            scope: 'table:datapadplusplus:dbo:accounts',
+            expandable: true,
+          },
+        ]}
+        explorerStatus="ready"
+        onLoadExplorerScope={vi.fn()}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('datapadplusplus')
+    expandTreeItem('Tables')
+
+    expect(screen.getAllByText('Tables')).toHaveLength(1)
+    expect(screen.getByText('dbo.accounts')).toBeInTheDocument()
   })
 
   it('uses SQLite-owned file database folders', () => {
@@ -87,7 +151,6 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('Containers')
     expandTreeItem('FREEPDB1')
 
     expect(screen.getByText('Tables')).toBeInTheDocument()
@@ -102,6 +165,55 @@ describe('ConnectionObjectTree', () => {
     const menu = screen.getByRole('menu', { name: 'Object options for Packages' })
     expect(within(menu).getByRole('menuitem', { name: 'Create Package...' })).toBeInTheDocument()
     expect(within(menu).queryByRole('menuitem', { name: 'Refresh Packages' })).not.toBeInTheDocument()
+  })
+
+  it('uses Oracle-specific object view labels instead of generic Open View', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={oracleConnection()}
+        explorerNodes={[
+          {
+            id: 'oracle-performance',
+            label: 'Performance',
+            kind: 'performance',
+            detail: 'Sessions and waits',
+            family: 'sql',
+            path: ['Fixture Oracle'],
+            scope: 'oracle:performance',
+            expandable: true,
+          },
+          {
+            id: 'oracle-sessions',
+            label: 'Sessions',
+            kind: 'sessions',
+            detail: 'Active sessions',
+            family: 'sql',
+            path: ['Fixture Oracle', 'Performance'],
+          },
+        ]}
+        explorerStatus="ready"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Performance')
+    fireEvent.contextMenu(treeItemForLabel('Sessions'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Sessions' })
+    expect(within(menu).getByRole('menuitem', { name: 'Review Sessions' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Review Sessions' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-oracle',
+      expect.objectContaining({
+        id: 'oracle-sessions',
+        kind: 'sessions',
+      }),
+    )
   })
 
   it('marks queryable leaf objects as clickable and opens a scoped query on click', () => {
@@ -155,7 +267,7 @@ describe('ConnectionObjectTree', () => {
     fireEvent.contextMenu(treeItemForLabel('products'), { clientX: 24, clientY: 32 })
 
     const menu = screen.getByRole('menu', { name: 'Object options for products' })
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open Query' }))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open Documents' }))
 
     expect(onOpenScopedQuery).toHaveBeenCalledWith(
       'conn-mongo',
@@ -245,7 +357,7 @@ describe('ConnectionObjectTree', () => {
     expect(onOpenObjectView).not.toHaveBeenCalled()
   })
 
-  it('shows Open View rather than Open Query for Mongo metadata menu items', () => {
+  it('shows specific Mongo view labels rather than generic Open View for metadata menu items', () => {
     const onOpenObjectView = vi.fn()
 
     render(
@@ -264,15 +376,21 @@ describe('ConnectionObjectTree', () => {
     fireEvent.contextMenu(treeItemForLabel('Schema Preview'), { clientX: 24, clientY: 32 })
 
     const menu = screen.getByRole('menu', { name: 'Object options for Schema Preview' })
-    expect(within(menu).getByRole('menuitem', { name: 'Open View' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Open Schema Preview' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
     expect(within(menu).queryByRole('menuitem', { name: 'Open Query' })).not.toBeInTheDocument()
 
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open View' }))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open Schema Preview' }))
 
     expect(onOpenObjectView).toHaveBeenCalledWith(
       'conn-mongo',
       expect.objectContaining({ id: 'schema-preview:catalog:products' }),
     )
+
+    fireEvent.contextMenu(treeItemForLabel('Indexes'), { clientX: 24, clientY: 32 })
+    const indexesMenu = screen.getByRole('menu', { name: 'Object options for Indexes' })
+    expect(within(indexesMenu).getByRole('menuitem', { name: 'Manage Indexes' })).toBeInTheDocument()
+    expect(within(indexesMenu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
   })
 
   it('offers Mongo collection admin templates and inspect from the object menu', () => {
@@ -349,6 +467,96 @@ describe('ConnectionObjectTree', () => {
         preferredBuilder: 'redis-key-browser',
         scope: 'prefix:perf:',
         queryTemplate: expect.stringContaining('"pattern": "perf:*"'),
+      }),
+    )
+  })
+
+  it('keeps Redis structure while overlaying partial live metadata', () => {
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(redisConnection())}
+        connection={redisConnection()}
+        explorerNodes={[
+          {
+            id: 'redis:diagnostics:info',
+            label: 'INFO',
+            kind: 'diagnostics',
+            detail: 'Server INFO sections',
+            family: 'keyvalue',
+          },
+          {
+            id: 'redis:cluster',
+            label: 'Cluster',
+            kind: 'cluster',
+            detail: 'Cluster slots, nodes, and failover status',
+            family: 'keyvalue',
+            scope: 'cluster',
+            expandable: true,
+          },
+        ]}
+        explorerStatus="ready"
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Databases')).toBeInTheDocument()
+    expect(screen.getByText('Lua Scripts')).toBeInTheDocument()
+    expect(screen.getByText('ACL / Security')).toBeInTheDocument()
+    expect(screen.getByText('Cluster')).toBeInTheDocument()
+    expect(screen.getByText('Diagnostics')).toBeInTheDocument()
+
+    expandTreeItem('Databases')
+    expandTreeItem('DB 0')
+
+    expect(screen.getByText('Strings')).toBeInTheDocument()
+    expect(screen.getByText('Hashes')).toBeInTheDocument()
+
+    expandTreeItem('Diagnostics')
+
+    expect(screen.getByText('INFO')).toBeInTheDocument()
+    expect(screen.getAllByText('Databases')).toHaveLength(1)
+  })
+
+  it('uses Redis-specific object view labels instead of generic Open View', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(redisConnection())}
+        connection={redisConnection()}
+        explorerNodes={[
+          {
+            id: 'redis:db:0:hash',
+            label: 'Hashes',
+            kind: 'hash',
+            detail: 'Hash maps',
+            family: 'keyvalue',
+            path: ['Fixture Redis', 'DB 0'],
+            scope: 'db:0:type:hash',
+            expandable: true,
+          },
+        ]}
+        explorerStatus="ready"
+        onLoadExplorerScope={vi.fn()}
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('DB 0')
+    fireEvent.contextMenu(treeItemForLabel('Hashes'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Hashes' })
+    expect(within(menu).getByRole('menuitem', { name: 'Browse Hashes' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Browse Hashes' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-redis',
+      expect.objectContaining({
+        id: 'redis:db:0:hash',
+        kind: 'hash',
       }),
     )
   })

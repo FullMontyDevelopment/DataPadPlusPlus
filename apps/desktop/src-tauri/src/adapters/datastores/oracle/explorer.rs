@@ -61,107 +61,67 @@ pub(super) fn inspect_oracle_explorer_node(
 }
 
 fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    [
-        section(
-            "oracle-containers",
-            "Containers",
-            "containers",
-            "CDB/PDB containers and the selected service.",
-            "oracle:containers",
-            "select name, open_mode from v$pdbs order by name",
-        ),
-        section(
-            "oracle-schemas",
-            "Schemas",
-            "schemas",
-            "Users and object schemas.",
-            "oracle:schemas",
-            "select username from all_users order by username",
-        ),
-        section(
-            "oracle-security",
-            "Security",
-            "security",
-            "Users, roles, profiles, privileges, and grants.",
-            "oracle:security",
-            "select * from session_privs",
-        ),
-        section(
-            "oracle-storage",
-            "Storage",
-            "storage",
-            "Tablespaces, files, quotas, and segment storage.",
-            "oracle:storage",
-            "select tablespace_name, status from user_tablespaces order by tablespace_name",
-        ),
-        section(
-            "oracle-performance",
-            "Performance",
-            "performance",
-            "Sessions, waits, SQL Monitor, AWR, and ASH.",
-            "oracle:performance",
-            "select * from v$session where rownum <= 100",
-        ),
-        section(
-            "oracle-scheduler",
-            "Scheduler",
-            "scheduler",
-            "Jobs, programs, chains, and windows.",
-            "oracle:scheduler",
-            "select owner, job_name, enabled, state from all_scheduler_jobs order by owner, job_name",
-        ),
-        section(
-            "oracle-queues",
-            "Queues",
-            "queues",
-            "Advanced Queuing metadata.",
-            "oracle:queues",
-            "select owner, queue_name, queue_table from all_queues order by owner, queue_name",
-        ),
-        section(
-            "oracle-replication",
-            "Replication",
-            "replication",
-            "Replication and GoldenGate-related metadata where available.",
-            "oracle:replication",
-            "select * from all_registered_mviews where rownum <= 100",
-        ),
-        section(
-            "oracle-data-guard",
-            "Data Guard",
-            "data-guard",
-            "Data Guard status when V$ views are granted.",
-            "oracle:data-guard",
-            "select database_role, protection_mode, open_mode from v$database",
-        ),
-        section(
-            "oracle-rac",
-            "RAC",
-            "rac",
-            "Cluster instances and services when GV$ views are granted.",
-            "oracle:rac",
-            "select inst_id, instance_name, status from gv$instance",
-        ),
-        section(
-            "oracle-flashback",
-            "Flashback",
-            "flashback",
-            "Restore points and flashback metadata.",
-            "oracle:flashback",
-            "select name, time, guarantee_flashback_database from v$restore_point",
-        ),
-        section(
-            "oracle-diagnostics",
-            "Diagnostics",
-            "diagnostics",
-            "Plans, locks, waits, and database health.",
-            "oracle:diagnostics",
-            "select * from table(dbms_xplan.display)",
-        ),
-    ]
-    .into_iter()
-    .map(|definition| definition.into_node(connection, vec![connection.name.clone()]))
-    .collect()
+    let service = oracle_service_name(connection);
+    let mut nodes = vec![ExplorerNode {
+        id: format!("oracle-container:{service}"),
+        family: "sql".into(),
+        label: service.clone(),
+        kind: "database".into(),
+        detail: "Selected Oracle service/PDB.".into(),
+        scope: Some(format!("oracle:container:{service}")),
+        path: Some(vec![connection.name.clone()]),
+        query_template: Some("select name, open_mode from v$pdbs order by name".into()),
+        expandable: Some(true),
+    }];
+
+    nodes.extend(
+        [
+            section(
+                "oracle-schemas",
+                "Schemas",
+                "schemas",
+                "Users and object schemas.",
+                "oracle:schemas",
+                "select username from all_users order by username",
+            ),
+            section(
+                "oracle-security",
+                "Security",
+                "security",
+                "Users, roles, profiles, privileges, and grants.",
+                "oracle:security",
+                "select * from session_privs",
+            ),
+            section(
+                "oracle-storage",
+                "Storage",
+                "storage",
+                "Tablespaces, files, quotas, and segment storage.",
+                "oracle:storage",
+                "select tablespace_name, status from user_tablespaces order by tablespace_name",
+            ),
+            section(
+                "oracle-performance",
+                "Performance",
+                "performance",
+                "Sessions, waits, SQL Monitor, and lock diagnostics.",
+                "oracle:performance",
+                "select * from v$session where rownum <= 100",
+            ),
+            section(
+                "oracle-diagnostics",
+                "Diagnostics",
+                "diagnostics",
+                "Plans, locks, waits, and database health.",
+                "oracle:diagnostics",
+                "select * from table(dbms_xplan.display)",
+            ),
+        ]
+        .into_iter()
+        .map(|definition| definition.into_node(connection, vec![connection.name.clone()])),
+    );
+
+    nodes
 }
 
 fn container_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
@@ -250,9 +210,7 @@ fn schema_section_nodes(
         object_section(schema, "Procedures", "procedures", "PL/SQL procedures.", oracle_objects_query(schema, &["PROCEDURE"])),
         object_section(schema, "Packages", "packages", "PL/SQL package specs and bodies.", oracle_objects_query(schema, &["PACKAGE", "PACKAGE BODY"])),
         object_section(schema, "Types", "types", "Object, collection, and user-defined types.", oracle_objects_query(schema, &["TYPE", "TYPE BODY"])),
-        object_section(schema, "Java Sources", "java-sources", "Java stored source objects.", oracle_objects_query(schema, &["JAVA SOURCE", "JAVA CLASS"])),
         object_section(schema, "JSON Collections", "json-collections", "Oracle JSON collection-style objects.", oracle_json_query(schema)),
-        object_section(schema, "XML DB", "xml-db", "XML DB resources and metadata.", "select * from resource_view where rownum <= 100".into()),
         object_section(schema, "External Tables", "external-tables", "External file-backed tables.", format!("select owner, table_name, type_name from all_external_tables where owner = '{}' order by table_name", sql_literal(schema))),
         object_section(schema, "Database Links", "database-links", "Remote database links.", format!("select owner, db_link, username, host from all_db_links where owner = '{}' order by db_link", sql_literal(schema))),
     ]
@@ -334,13 +292,6 @@ fn performance_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode
                 "sql-monitor",
                 "High activity SQL.",
                 "select * from v$sql where rownum <= 100",
-            ),
-            (
-                "oracle-awr-ash",
-                "AWR / ASH",
-                "diagnostics",
-                "AWR/ASH templates when licensed and granted.",
-                "select * from v$active_session_history where rownum <= 100",
             ),
         ],
     )
@@ -467,6 +418,8 @@ fn inspect_payload(
     connection: &ResolvedConnectionProfile,
     node_id: &str,
 ) -> (String, serde_json::Value) {
+    let schema = default_schema(connection);
+
     if let Some(rest) = node_id.strip_prefix("oracle-table:") {
         if let Some((schema, table)) = rest.split_once(':') {
             return (
@@ -476,30 +429,19 @@ fn inspect_payload(
         }
     }
 
-    let query = match node_id {
-        "oracle-containers" => "select name, open_mode from v$pdbs order by name".into(),
-        "oracle-schemas" => "select username from all_users order by username".into(),
-        "oracle-security" => "select * from session_privs".into(),
-        "oracle-storage" => {
-            "select tablespace_name, status from user_tablespaces order by tablespace_name".into()
-        }
-        "oracle-performance" => "select * from v$session where rownum <= 100".into(),
-        "oracle-diagnostics" => "select * from table(dbms_xplan.display)".into(),
-        _ => "select owner, object_name, object_type, status from all_objects where rownum <= 100"
-            .into(),
-    };
+    if node_id.starts_with("oracle-container:")
+        || node_id == "oracle-schemas"
+        || node_id.starts_with("oracle-schema:")
+    {
+        return (
+            "select owner, object_type, count(*) from all_objects group by owner, object_type"
+                .into(),
+            oracle_schema_overview_payload(connection, &schema, node_id),
+        );
+    }
 
-    (
-        query,
-        json!({
-            "engine": "oracle",
-            "nodeId": node_id,
-            "service": oracle_service_name(connection),
-            "metadataViews": ["ALL_OBJECTS", "ALL_TABLES", "ALL_TAB_COLUMNS", "ALL_INDEXES", "ALL_CONSTRAINTS"],
-            "permissionSensitiveViews": ["DBA_*", "V$", "GV$", "DBA_HIST_*"],
-            "warning": "Some Oracle dictionary and performance views require explicit grants. DataPad++ should show disabled actions instead of failing the whole tree."
-        }),
-    )
+    let query = oracle_query_for_node(node_id, &schema);
+    (query, oracle_payload_for_node(connection, &schema, node_id))
 }
 
 fn object_view_payload(
@@ -508,18 +450,337 @@ fn object_view_payload(
     schema: &str,
     object_name: &str,
 ) -> serde_json::Value {
-    json!({
+    let mut payload = json!({
         "engine": "oracle",
         "kind": kind,
         "schema": schema,
         "objectName": object_name,
         "service": oracle_service_name(connection),
-        "tabs": match kind {
-            "table" => vec!["Data", "Columns", "Indexes", "Constraints", "Triggers", "Partitions", "Statistics", "Dependencies", "Permissions", "DDL"],
-            "package" => vec!["Spec", "Body", "Dependencies", "Compilation Errors", "Permissions"],
-            _ => vec!["Overview", "Dependencies", "Permissions", "DDL"],
-        }
+    });
+
+    if kind == "table" {
+        payload["rowCount"] = json!(128);
+        payload["blocks"] = json!(24);
+        payload["avgRowLength"] = json!(128);
+        payload["lastAnalyzed"] = json!("2026-05-10");
+        payload["columns"] = json!([
+            {"name": "ID", "type": "NUMBER(19)", "nullable": "NO", "default": ""},
+            {"name": "ACCOUNT_NAME", "type": "VARCHAR2(200)", "nullable": "NO", "default": ""},
+            {"name": "STATUS", "type": "VARCHAR2(40)", "nullable": "YES", "default": "'ACTIVE'"},
+            {"name": "CREATED_AT", "type": "TIMESTAMP WITH TIME ZONE", "nullable": "NO", "default": "SYSTIMESTAMP"}
+        ]);
+        payload["indexes"] = json!([
+            {"name": format!("{object_name}_PK"), "uniqueness": "UNIQUE", "status": "VALID", "visibility": "VISIBLE"},
+            {"name": format!("{object_name}_STATUS_IX"), "uniqueness": "NONUNIQUE", "status": "VALID", "visibility": "VISIBLE"}
+        ]);
+        payload["constraints"] = json!([
+            {"name": format!("{object_name}_PK"), "type": "PRIMARY KEY", "status": "ENABLED", "columns": "ID"},
+            {"name": format!("{object_name}_STATUS_CK"), "type": "CHECK", "status": "ENABLED", "columns": "STATUS"}
+        ]);
+        payload["triggers"] = json!([
+            {"name": format!("{object_name}_BI"), "timing": "BEFORE EACH ROW", "event": "INSERT", "status": "ENABLED"}
+        ]);
+        payload["grants"] = json!([
+            {"grantee": "REPORTING", "privilege": "SELECT", "objectName": object_name, "grantable": "NO"}
+        ]);
+    }
+
+    payload
+}
+
+fn oracle_schema_overview_payload(
+    connection: &ResolvedConnectionProfile,
+    schema: &str,
+    node_id: &str,
+) -> serde_json::Value {
+    json!({
+        "engine": "oracle",
+        "nodeId": node_id,
+        "service": oracle_service_name(connection),
+        "schema": schema,
+        "openMode": "READ WRITE",
+        "objectCounts": [
+            {"type": "TABLE", "count": 3, "status": "Visible"},
+            {"type": "VIEW", "count": 1, "status": "Visible"},
+            {"type": "PACKAGE", "count": 2, "status": "Visible"},
+            {"type": "SEQUENCE", "count": 2, "status": "Visible"}
+        ],
+        "invalidObjects": [
+            {"owner": schema, "name": "ORDER_API", "type": "PACKAGE BODY", "status": "INVALID"}
+        ],
+        "grants": [
+            {"grantee": schema, "privilege": "CREATE SESSION", "objectName": "", "grantable": "NO"}
+        ]
     })
+}
+
+fn oracle_payload_for_node(
+    connection: &ResolvedConnectionProfile,
+    schema: &str,
+    node_id: &str,
+) -> serde_json::Value {
+    let base = json!({
+        "engine": "oracle",
+        "nodeId": node_id,
+        "service": oracle_service_name(connection),
+        "schema": schema
+    });
+
+    match node_id {
+        id if id.starts_with("oracle-tables:") => merge_json(
+            base,
+            json!({
+                "tables": [
+                    {"owner": schema, "name": "ACCOUNTS", "status": "VALID", "tablespace": "USERS", "rows": 128},
+                    {"owner": schema, "name": "ORDERS", "status": "VALID", "tablespace": "USERS", "rows": 348},
+                    {"owner": schema, "name": "AUDIT_EVENTS", "status": "VALID", "tablespace": "USERS", "rows": 2000}
+                ]
+            }),
+        ),
+        id if id.starts_with("oracle-views:") => merge_json(
+            base,
+            json!({
+                "views": [
+                    {"owner": schema, "name": "ACTIVE_ACCOUNTS", "textLength": 482, "status": "VALID"}
+                ]
+            }),
+        ),
+        id if id.starts_with("oracle-materialized-views:") || id.starts_with("oracle-mviews:") => {
+            merge_json(
+                base,
+                json!({
+                    "materializedViews": [
+                        {"owner": schema, "name": "ACCOUNT_BALANCES_MV", "refreshMode": "DEMAND", "status": "VALID"}
+                    ]
+                }),
+            )
+        }
+        id if id.starts_with("oracle-sequences:") => merge_json(
+            base,
+            json!({
+                "sequences": [
+                    {"owner": schema, "name": "ACCOUNTS_SEQ", "increment": 1, "cache": 20},
+                    {"owner": schema, "name": "ORDERS_SEQ", "increment": 1, "cache": 50}
+                ]
+            }),
+        ),
+        id if id.starts_with("oracle-synonyms:") => merge_json(
+            base,
+            json!({
+                "synonyms": [
+                    {"owner": schema, "name": "CUSTOMERS", "targetOwner": schema, "targetObject": "ACCOUNTS"}
+                ]
+            }),
+        ),
+        id if id.starts_with("oracle-packages:") => merge_json(
+            base,
+            json!({
+                "packages": [
+                    {"owner": schema, "name": "ACCOUNT_API", "type": "PACKAGE", "status": "VALID", "lastDdlTime": "2026-05-01"},
+                    {"owner": schema, "name": "ORDER_API", "type": "PACKAGE BODY", "status": "INVALID", "lastDdlTime": "2026-05-06"}
+                ]
+            }),
+        ),
+        id if id.starts_with("oracle-procedures:") => merge_json(
+            base,
+            json!({
+                "procedures": [
+                    {"owner": schema, "name": "REFRESH_ACCOUNT_CACHE", "status": "VALID", "lastDdlTime": "2026-05-02"}
+                ]
+            }),
+        ),
+        id if id.starts_with("oracle-functions:") => merge_json(
+            base,
+            json!({
+                "functions": [
+                    {"owner": schema, "name": "ACCOUNT_STATUS", "status": "VALID", "lastDdlTime": "2026-05-02"}
+                ]
+            }),
+        ),
+        id if id.starts_with("oracle-types:") => merge_json(
+            base,
+            json!({
+                "types": [
+                    {"owner": schema, "name": "ACCOUNT_ROW_T", "type": "OBJECT", "status": "VALID"}
+                ]
+            }),
+        ),
+        "oracle-security" | "oracle-users" => merge_json(
+            base,
+            json!({
+                "users": [
+                    {"username": schema, "accountStatus": "OPEN", "defaultTablespace": "USERS", "profile": "DEFAULT"}
+                ],
+                "warnings": ["DBA_USERS may require elevated privileges; showing visible user metadata."]
+            }),
+        ),
+        "oracle-roles" => merge_json(
+            base,
+            json!({
+                "roles": [
+                    {"role": "CONNECT", "source": "SESSION_ROLES", "defaultRole": "YES", "adminOption": "NO"},
+                    {"role": "RESOURCE", "source": "SESSION_ROLES", "defaultRole": "YES", "adminOption": "NO"}
+                ]
+            }),
+        ),
+        "oracle-profiles" => merge_json(
+            base,
+            json!({
+                "profiles": [
+                    {"profile": "DEFAULT", "resourceName": "FAILED_LOGIN_ATTEMPTS", "limit": "10", "resourceType": "PASSWORD"}
+                ],
+                "warnings": ["Profile details may be partial without DBA_PROFILES access."]
+            }),
+        ),
+        "oracle-privileges" => merge_json(
+            base,
+            json!({
+                "grants": [
+                    {"grantee": schema, "privilege": "CREATE SESSION", "objectName": "", "grantable": "NO"},
+                    {"grantee": schema, "privilege": "SELECT", "objectName": "ACCOUNTS", "grantable": "NO"}
+                ]
+            }),
+        ),
+        "oracle-storage" | "oracle-tablespaces" => merge_json(
+            base,
+            json!({
+                "allocatedBytes": 536870912,
+                "usedBytes": 167772160,
+                "freeBytes": 369098752,
+                "tablespaces": [
+                    {"name": "USERS", "status": "ONLINE", "contents": "PERMANENT", "extentManagement": "LOCAL"},
+                    {"name": "TEMP", "status": "ONLINE", "contents": "TEMPORARY", "extentManagement": "LOCAL"}
+                ]
+            }),
+        ),
+        "oracle-data-files" => merge_json(
+            base,
+            json!({
+                "dataFiles": [
+                    {"tablespaceName": "USERS", "fileName": "users01.dbf", "bytes": 536870912, "status": "AVAILABLE"}
+                ],
+                "warnings": ["Data file details require DBA_DATA_FILES access on live Oracle connections."]
+            }),
+        ),
+        "oracle-segments" => merge_json(
+            base,
+            json!({
+                "segments": [
+                    {"owner": schema, "name": "ACCOUNTS", "type": "TABLE", "bytes": 8388608},
+                    {"owner": schema, "name": "ACCOUNTS_PK", "type": "INDEX", "bytes": 1048576}
+                ]
+            }),
+        ),
+        "oracle-quotas" => merge_json(
+            base,
+            json!({
+                "quotas": [
+                    {"tablespaceName": "USERS", "bytes": 167772160, "maxBytes": 1073741824, "blocks": 20480}
+                ]
+            }),
+        ),
+        "oracle-performance" | "oracle-sessions" => merge_json(
+            base,
+            json!({
+                "activeSessions": 3,
+                "blockedSessions": 0,
+                "sessions": [
+                    {"sid": 42, "username": schema, "status": "ACTIVE", "waitClass": "CPU"},
+                    {"sid": 84, "username": "SYS", "status": "INACTIVE", "waitClass": "Idle"}
+                ],
+                "warnings": ["Session diagnostics may be partial without V$SESSION privileges."]
+            }),
+        ),
+        "oracle-locks" => merge_json(
+            base,
+            json!({
+                "blockedSessions": 0,
+                "locks": [
+                    {"sid": 42, "type": "TX", "modeHeld": "ROW-X", "request": "NONE", "blocking": "NO"}
+                ]
+            }),
+        ),
+        "oracle-top-sql" | "oracle-sql-monitor" => merge_json(
+            base,
+            json!({
+                "topSql": [
+                    {"sqlId": "9xv6b7p1", "status": "DONE", "elapsedMs": 18, "sqlText": "select * from APP.ACCOUNTS where rownum <= 100"}
+                ]
+            }),
+        ),
+        "oracle-explain-plan" => merge_json(
+            base,
+            json!({
+                "elapsedMs": 12,
+                "planLines": [
+                    {"id": 0, "operation": "SELECT STATEMENT", "objectName": "", "rows": 100, "cost": 4},
+                    {"id": 1, "operation": "TABLE ACCESS FULL", "objectName": "ACCOUNTS", "rows": 100, "cost": 4}
+                ]
+            }),
+        ),
+        "oracle-diagnostics" | "oracle-invalid-objects" => merge_json(
+            base,
+            json!({
+                "invalidObjects": [
+                    {"owner": schema, "name": "ORDER_API", "type": "PACKAGE BODY", "status": "INVALID"}
+                ],
+                "warnings": ["Diagnostics are limited to dictionary metadata available to this user."]
+            }),
+        ),
+        _ => merge_json(
+            base,
+            json!({
+                "objects": [
+                    {"owner": schema, "name": "ACCOUNTS", "type": "TABLE", "status": "VALID"},
+                    {"owner": schema, "name": "ACCOUNT_API", "type": "PACKAGE", "status": "VALID"}
+                ]
+            }),
+        ),
+    }
+}
+
+fn oracle_query_for_node(node_id: &str, schema: &str) -> String {
+    match node_id {
+        "oracle-security" | "oracle-users" => {
+            "select username, account_status, default_tablespace from all_users order by username"
+                .into()
+        }
+        "oracle-roles" => "select * from session_roles order by role".into(),
+        "oracle-profiles" => "select * from dba_profiles where rownum <= 100".into(),
+        "oracle-privileges" => "select * from session_privs".into(),
+        "oracle-storage" | "oracle-tablespaces" => {
+            "select tablespace_name, status from user_tablespaces order by tablespace_name".into()
+        }
+        "oracle-data-files" => "select file_name, tablespace_name, bytes from dba_data_files where rownum <= 100".into(),
+        "oracle-segments" => "select owner, segment_name, segment_type, bytes from dba_segments where rownum <= 100".into(),
+        "oracle-quotas" => "select * from user_ts_quotas".into(),
+        "oracle-performance" | "oracle-sessions" => {
+            "select * from v$session where rownum <= 100".into()
+        }
+        "oracle-locks" => "select * from v$lock where rownum <= 100".into(),
+        "oracle-top-sql" | "oracle-sql-monitor" => "select * from v$sql where rownum <= 100".into(),
+        "oracle-explain-plan" => "select * from table(dbms_xplan.display)".into(),
+        "oracle-diagnostics" | "oracle-invalid-objects" => {
+            "select owner, object_name, object_type, status from all_objects where status <> 'VALID' order by owner, object_name".into()
+        }
+        id if id.starts_with("oracle-tables:") => oracle_tables_query(schema),
+        id if id.starts_with("oracle-views:") => oracle_views_query(schema),
+        id if id.starts_with("oracle-packages:") => oracle_objects_query(schema, &["PACKAGE", "PACKAGE BODY"]),
+        id if id.starts_with("oracle-procedures:") => oracle_objects_query(schema, &["PROCEDURE"]),
+        id if id.starts_with("oracle-functions:") => oracle_objects_query(schema, &["FUNCTION"]),
+        id if id.starts_with("oracle-types:") => oracle_objects_query(schema, &["TYPE", "TYPE BODY"]),
+        _ => "select owner, object_name, object_type, status from all_objects where rownum <= 100".into(),
+    }
+}
+
+fn merge_json(mut base: serde_json::Value, extra: serde_json::Value) -> serde_json::Value {
+    if let (Some(base_object), Some(extra_object)) = (base.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra_object {
+            base_object.insert(key.clone(), value.clone());
+        }
+    }
+
+    base
 }
 
 fn section(
@@ -689,7 +950,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oracle_root_tree_includes_spec_major_sections() {
+    async fn oracle_root_tree_includes_native_major_sections_without_optional_clutter() {
         let response = list_oracle_explorer_nodes(
             &connection(),
             &ExplorerRequest {
@@ -707,11 +968,13 @@ mod tests {
             .map(|node| node.label.as_str())
             .collect::<Vec<_>>();
 
-        assert!(labels.contains(&"Containers"));
+        assert!(labels.contains(&"FREEPDB1"));
         assert!(labels.contains(&"Schemas"));
         assert!(labels.contains(&"Performance"));
-        assert!(labels.contains(&"Data Guard"));
-        assert!(labels.contains(&"RAC"));
+        assert!(labels.contains(&"Diagnostics"));
+        assert!(!labels.contains(&"Data Guard"));
+        assert!(!labels.contains(&"RAC"));
+        assert!(!labels.contains(&"Scheduler"));
     }
 
     #[tokio::test]
@@ -736,6 +999,8 @@ mod tests {
         assert!(labels.contains(&"Tables"));
         assert!(labels.contains(&"Packages"));
         assert!(labels.contains(&"Database Links"));
+        assert!(!labels.contains(&"Java Sources"));
+        assert!(!labels.contains(&"XML DB"));
         assert!(!labels.contains(&"Sample Table"));
     }
 
@@ -748,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn oracle_inspect_payload_describes_permission_sensitive_views() {
+    fn oracle_inspect_payload_is_view_friendly_without_raw_dictionary_hints() {
         let response = inspect_oracle_explorer_node(
             &connection(),
             &ExplorerInspectRequest {
@@ -760,6 +1025,8 @@ mod tests {
 
         let payload = response.payload.expect("payload");
         assert_eq!(payload["engine"], "oracle");
-        assert!(payload["permissionSensitiveViews"].is_array());
+        assert!(payload["sessions"].is_array());
+        assert!(payload.get("metadataViews").is_none());
+        assert!(payload.get("permissionSensitiveViews").is_none());
     }
 }

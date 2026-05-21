@@ -1,7 +1,9 @@
+use std::sync::MutexGuard;
+
 use tauri::State;
 
 use crate::{
-    app::runtime::SharedAppState,
+    app::runtime::{ManagedAppState, SharedAppState},
     domain::{
         error::CommandError,
         health::AppHealth,
@@ -10,15 +12,26 @@ use crate::{
     security,
 };
 
+fn lock_state<'a, 'b>(
+    state: &'a State<'b, SharedAppState>,
+) -> Result<MutexGuard<'a, ManagedAppState>, CommandError> {
+    state.lock().map_err(|_| {
+        CommandError::new(
+            "workspace-state-unavailable",
+            "Workspace state is temporarily unavailable. Restart DataPad++ if this continues.",
+        )
+    })
+}
+
 #[tauri::command]
-pub fn get_app_health(state: State<'_, SharedAppState>) -> AppHealth {
-    let state = state.lock().unwrap();
-    state.health()
+pub fn get_app_health(state: State<'_, SharedAppState>) -> Result<AppHealth, CommandError> {
+    let state = lock_state(&state)?;
+    Ok(state.health())
 }
 
 #[tauri::command]
 pub fn bootstrap_app(state: State<'_, SharedAppState>) -> Result<BootstrapPayload, CommandError> {
-    let state = state.lock().unwrap();
+    let state = lock_state(&state)?;
     Ok(state.bootstrap_payload())
 }
 
@@ -26,7 +39,7 @@ pub fn bootstrap_app(state: State<'_, SharedAppState>) -> Result<BootstrapPayloa
 pub fn create_diagnostics_report(
     state: State<'_, SharedAppState>,
 ) -> Result<DiagnosticsReport, CommandError> {
-    let state = state.lock().unwrap();
+    let state = lock_state(&state)?;
     Ok(state.diagnostics())
 }
 
@@ -36,7 +49,7 @@ pub fn store_secret(
     secret_ref: SecretRef,
     secret: String,
 ) -> Result<bool, CommandError> {
-    let state = state.lock().unwrap();
+    let state = lock_state(&state)?;
     state.ensure_unlocked()?;
     security::store_secret_value(&secret_ref, &secret)?;
     Ok(true)

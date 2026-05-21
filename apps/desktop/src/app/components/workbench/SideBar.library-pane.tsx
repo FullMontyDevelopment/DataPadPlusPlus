@@ -12,7 +12,6 @@ import type {
   ExplorerNode,
   LibraryNode,
   ScopedQueryTarget,
-  WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 import {
@@ -22,16 +21,14 @@ import {
   EnvironmentsIcon,
   ExplorerIcon,
   ArrowLeftIcon,
-  LightThemeIcon,
   MoreIcon,
   PlayIcon,
   PlusIcon,
   QueryIcon,
   RenameIcon,
-  SettingsIcon,
-  ThemeIcon,
   TrashIcon,
 } from './icons'
+import { TreeFolderIcon, TreeFolderOpenIcon } from './FolderTreeIcons'
 import { ConnectionObjectTree } from './SideBar.connection-object-tree'
 import { sidebarSectionId } from './SideBar.helpers'
 import { EngineIcon } from './SideBar.node-icons'
@@ -41,14 +38,15 @@ interface LibraryPaneProps {
   activeEnvironmentId?: string
   adapterManifests?: AdapterManifest[]
   closedTabs: ClosedQueryTabSnapshot[]
-  connectionExplorerItems?: ExplorerNode[]
   connections?: ConnectionProfile[]
   environments: EnvironmentProfile[]
   explorerStatus?: 'idle' | 'loading' | 'ready'
+  getConnectionExplorerItems?(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
+  getConnectionExplorerStatus?(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
+  isExplorerScopeLoading?(connectionId: string, scope?: string, environmentId?: string): boolean
   libraryFilter: string
   libraryNodes: LibraryNode[]
   sectionStates: Record<string, boolean>
-  theme?: WorkspaceSnapshot['preferences']['theme']
   onCloneEnvironment?(environmentId: string): void
   onCollapseSidebar?(): void
   onCreateConnection?(parentId?: string): void
@@ -62,25 +60,22 @@ interface LibraryPaneProps {
   onDuplicateConnection?(connectionId: string): void
   onEditEnvironment?(environmentId: string): void
   onLibraryFilterChange(value: string): void
-  onLoadExplorerScope?(connectionId: string, scope?: string): void
+  onLoadExplorerScope?(connectionId: string, scope?: string, environmentId?: string): void
   onMoveNode(nodeId: string, parentId?: string): void
   onOpenConnectionDrawer?(connectionId: string): void
   onOpenConnectionExplorer?(connectionId: string): void
   onOpenConnectionMetrics?(connectionId: string): void
   onInspectExplorerNode?(node: ExplorerNode): void
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
-  onOpenSettings?(): void
   onOpenScopedQuery?(connectionId: string, target: ScopedQueryTarget): void
   onOpenLibraryItem(nodeId: string): void
   onRenameNode(nodeId: string, name: string): void
   onReopenClosedTab(closedTabId: string): void
-  onSaveCurrentQuery(): void
   onSelectConnection?(connectionId: string): void
   onSelectEnvironment?(environmentId: string): void
   onSetNodeEnvironment(nodeId: string, environmentId?: string): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
   onTestConnection?(connectionId: string): void
-  onToggleTheme?(): void
 }
 
 interface TreeNode {
@@ -135,14 +130,15 @@ export function LibraryPane({
   activeEnvironmentId = '',
   adapterManifests = [],
   closedTabs,
-  connectionExplorerItems = [],
   connections = [],
   environments,
   explorerStatus = 'idle',
+  getConnectionExplorerItems = () => undefined,
+  getConnectionExplorerStatus = () => 'idle',
+  isExplorerScopeLoading = () => false,
   libraryFilter,
   libraryNodes,
   sectionStates,
-  theme = 'dark',
   onCloneEnvironment = noop,
   onCollapseSidebar = noop,
   onCreateConnection = noop,
@@ -163,18 +159,15 @@ export function LibraryPane({
   onOpenConnectionMetrics = noop,
   onInspectExplorerNode = noop,
   onOpenObjectView = noop,
-  onOpenSettings = noop,
   onOpenScopedQuery = noop,
   onOpenLibraryItem,
   onRenameNode,
   onReopenClosedTab,
-  onSaveCurrentQuery,
   onSelectConnection = noop,
   onSelectEnvironment = noop,
   onSetNodeEnvironment,
   onSidebarSectionExpandedChange,
   onTestConnection = noop,
-  onToggleTheme = noop,
 }: LibraryPaneProps) {
   const [contextMenu, setContextMenu] = useState<LibraryContextMenuState>()
   const [environmentMenu, setEnvironmentMenu] = useState<EnvironmentContextMenuState>()
@@ -196,7 +189,6 @@ export function LibraryPane({
   const recentsCount = recentLibraryItems.length + closedTabs.length
   const recentsExpanded = sectionStates[RECENTS_SECTION_ID] ?? true
   const environmentsExpanded = sectionStates[ENVIRONMENTS_SECTION_ID] ?? true
-  const ThemeGlyph = theme === 'dark' ? LightThemeIcon : ThemeIcon
   const connectionById = useMemo(
     () => new Map(connections.map((connection) => [connection.id, connection])),
     [connections],
@@ -397,37 +389,6 @@ export function LibraryPane({
           >
             <ExplorerIcon className="sidebar-icon" />
           </button>
-          <button
-            type="button"
-            className="sidebar-icon-button"
-            aria-label="Save current query to library"
-            title="Save the active query tab to the Library."
-            onClick={onSaveCurrentQuery}
-          >
-            <PlusIcon className="sidebar-icon" />
-          </button>
-          <button
-            type="button"
-            className="sidebar-icon-button"
-            aria-label="Open settings"
-            title="Open settings, diagnostics, import/export, and support information."
-            onClick={onOpenSettings}
-          >
-            <SettingsIcon className="sidebar-icon" />
-          </button>
-          <button
-            type="button"
-            className="sidebar-icon-button"
-            aria-label="Toggle theme"
-            title={
-              theme === 'dark'
-                ? 'Switch to light theme for the desktop workspace.'
-                : 'Switch to dark theme for the desktop workspace.'
-            }
-            onClick={onToggleTheme}
-          >
-            <ThemeGlyph className="sidebar-icon" />
-          </button>
         </div>
       </div>
 
@@ -449,9 +410,18 @@ export function LibraryPane({
           data-library-drop-root="true"
         >
           {!hasLibraryNodes && recentsCount === 0 ? (
-            <div className="sidebar-empty">
+            <div className="sidebar-empty library-empty-placeholder">
               <DatabaseIcon className="empty-icon" />
-              <p>No Library items yet.</p>
+              <strong>Start your workspace</strong>
+              <p>Add your first datastore connection or create a folder to organize work.</p>
+              <div className="sidebar-empty-actions">
+                <button type="button" className="sidebar-empty-action" onClick={() => onCreateConnection()}>
+                  Add Connection
+                </button>
+                <button type="button" className="sidebar-empty-action" onClick={() => onCreateFolder()}>
+                  Add Folder
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -470,12 +440,15 @@ export function LibraryPane({
               <LibraryTreeItem
                 key={item.node.id}
                 activeConnectionId={activeConnectionId}
+                activeEnvironmentId={activeEnvironmentId}
                 adapterManifests={adapterManifests}
-                connectionExplorerItems={connectionExplorerItems}
                 connections={connections}
                 item={item}
                 environments={environments}
                 explorerStatus={explorerStatus}
+                getConnectionExplorerItems={getConnectionExplorerItems}
+                getConnectionExplorerStatus={getConnectionExplorerStatus}
+                isExplorerScopeLoading={isExplorerScopeLoading}
                 libraryNodes={libraryNodes}
                 draggedNodeId={draggedNodeId}
                 folderDropTargetId={folderDropTargetId}
@@ -673,6 +646,7 @@ export function LibraryPane({
                   <button
                     type="button"
                     className="library-environment-main"
+                    aria-label={`Open environment ${environment.label}`}
                     onClick={() => onSelectEnvironment(environment.id)}
                     title={`Use ${environment.label} as the active environment.`}
                   >
@@ -1050,12 +1024,15 @@ export function LibraryPane({
 
 function LibraryTreeItem({
   activeConnectionId,
+  activeEnvironmentId,
   adapterManifests,
-  connectionExplorerItems,
   connections,
   item,
   environments,
   explorerStatus,
+  getConnectionExplorerItems,
+  getConnectionExplorerStatus,
+  isExplorerScopeLoading,
   libraryNodes,
   draggedNodeId,
   folderDropTargetId,
@@ -1088,12 +1065,15 @@ function LibraryTreeItem({
   shouldSuppressOpenClick,
 }: {
   activeConnectionId: string
+  activeEnvironmentId: string
   adapterManifests: AdapterManifest[]
-  connectionExplorerItems: ExplorerNode[]
   connections: ConnectionProfile[]
   item: TreeNode
   environments: EnvironmentProfile[]
   explorerStatus: 'idle' | 'loading' | 'ready'
+  getConnectionExplorerItems(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
+  getConnectionExplorerStatus(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
+  isExplorerScopeLoading(connectionId: string, scope?: string, environmentId?: string): boolean
   libraryNodes: LibraryNode[]
   draggedNodeId?: string
   folderDropTargetId?: string
@@ -1110,7 +1090,7 @@ function LibraryTreeItem({
   onBeginPointerDrag(nodeId: string, event: ReactPointerEvent<HTMLElement>): void
   onClearDrag(): void
   onFinishPointerDrag(event: ReactPointerEvent<HTMLElement>): void
-  onLoadExplorerScope(connectionId: string, scope?: string): void
+  onLoadExplorerScope(connectionId: string, scope?: string, environmentId?: string): void
   onOpenConnectionDrawer(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
   onOpenConnectionMetrics(connectionId: string): void
@@ -1137,8 +1117,14 @@ function LibraryTreeItem({
   const expanded = optimisticExpanded ?? sectionStates[sectionId] ?? (isFolder && depth === 0)
   const environmentState = effectiveEnvironmentForNode(node, libraryNodes, environments)
   const environment = environmentState?.environment
+  const connectionEnvironmentId = environment?.id ?? activeEnvironmentId
+  const connectionExplorerStatus = connection
+    ? getConnectionExplorerStatus(connection.id, connectionEnvironmentId)
+    : explorerStatus
   const isLoadingMetadata = Boolean(
-    connection && connection.id === activeConnectionId && explorerStatus === 'loading',
+    connection &&
+      (isExplorerScopeLoading(connection.id, undefined, connectionEnvironmentId) ||
+        connectionExplorerStatus === 'loading'),
   )
   const canDropOnFolder =
     isFolder && Boolean(draggedNodeId) && canMoveLibraryNode(libraryNodes, draggedNodeId, node.id)
@@ -1184,8 +1170,7 @@ function LibraryTreeItem({
               setOptimisticExpanded(nextExpanded)
               onSidebarSectionExpandedChange(sectionId, nextExpanded)
               if (connection && nextExpanded) {
-                onSelectConnection(connection.id)
-                onLoadExplorerScope(connection.id)
+                onLoadExplorerScope(connection.id, undefined, connectionEnvironmentId)
               }
             }}
           >
@@ -1221,7 +1206,7 @@ function LibraryTreeItem({
             if (connection) {
               onSelectConnection(connection.id)
               if (expanded) {
-                onLoadExplorerScope(connection.id)
+                onLoadExplorerScope(connection.id, undefined, connectionEnvironmentId)
               }
               return
             }
@@ -1239,7 +1224,13 @@ function LibraryTreeItem({
               aria-hidden="true"
               className={`library-node-icon library-node-icon--${node.kind}`}
             >
-              {node.kind === 'query' ? (
+              {node.kind === 'folder' ? (
+                expanded ? (
+                  <TreeFolderOpenIcon className="library-node-kind-icon library-node-kind-icon--folder" />
+                ) : (
+                  <TreeFolderIcon className="library-node-kind-icon library-node-kind-icon--folder" />
+                )
+              ) : node.kind === 'query' ? (
                 <QueryIcon className="library-node-kind-icon" />
               ) : null}
             </span>
@@ -1286,10 +1277,16 @@ function LibraryTreeItem({
           connection={connection}
           environment={environment}
           explorerNodes={
-            connection.id === activeConnectionId ? connectionExplorerItems : undefined
+            getConnectionExplorerItems(connection.id, connectionEnvironmentId)
           }
-          explorerStatus={explorerStatus}
-          onLoadExplorerScope={onLoadExplorerScope}
+          explorerStatus={connectionExplorerStatus}
+          isExplorerScopeLoading={(connectionId, scope) =>
+            isExplorerScopeLoading(connectionId, scope, connectionEnvironmentId)
+          }
+          visualDepthOffset={depth}
+          onLoadExplorerScope={(connectionId, scope) =>
+            onLoadExplorerScope(connectionId, scope, connectionEnvironmentId)
+          }
           onInspectNode={onInspectExplorerNode}
           onOpenObjectView={onOpenObjectView}
           onOpenScopedQuery={onOpenScopedQuery}
@@ -1301,12 +1298,15 @@ function LibraryTreeItem({
             <LibraryTreeItem
               key={child.node.id}
               activeConnectionId={activeConnectionId}
+              activeEnvironmentId={activeEnvironmentId}
               adapterManifests={adapterManifests}
-              connectionExplorerItems={connectionExplorerItems}
               connections={connections}
               item={child}
               environments={environments}
               explorerStatus={explorerStatus}
+              getConnectionExplorerItems={getConnectionExplorerItems}
+              getConnectionExplorerStatus={getConnectionExplorerStatus}
+              isExplorerScopeLoading={isExplorerScopeLoading}
               libraryNodes={libraryNodes}
               draggedNodeId={draggedNodeId}
               folderDropTargetId={folderDropTargetId}

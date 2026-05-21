@@ -97,15 +97,11 @@ describe('browser explorer runtime', () => {
     const connection = oracleConnection()
 
     expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
-      'Containers',
+      'FREEPDB1',
       'Schemas',
       'Security',
       'Storage',
       'Performance',
-      'Scheduler',
-      'Queues',
-      'Data Guard',
-      'RAC',
       'Diagnostics',
     ])
 
@@ -128,15 +124,13 @@ describe('browser explorer runtime', () => {
       'Procedures',
       'Packages',
       'Types',
-      'Java Sources',
       'JSON Collections',
-      'XML DB',
       'External Tables',
       'Database Links',
     ])
   })
 
-  it('returns Oracle inspection payloads with object-view tab hints', () => {
+  it('returns Oracle inspection payloads that purpose-built views can render', () => {
     const connection = oracleConnection()
     const snapshot = {
       connections: [connection],
@@ -148,15 +142,16 @@ describe('browser explorer runtime', () => {
       nodeId: 'oracle-performance',
     })
 
-    expect(response.queryTemplate).toContain('all_objects')
+    expect(response.queryTemplate).toContain('v$session')
     expect(response.payload).toMatchObject({
       engine: 'oracle',
       service: 'FREEPDB1',
-      objectViews: {
-        table: expect.arrayContaining(['Data', 'DDL']),
-        package: expect.arrayContaining(['Spec', 'Compilation Errors']),
-      },
+      activeSessions: 3,
+      sessions: expect.arrayContaining([expect.objectContaining({ status: 'ACTIVE' })]),
     })
+    expect(response.payload).not.toHaveProperty('metadataViews')
+    expect(response.payload).not.toHaveProperty('permissionSensitiveViews')
+    expect(response.payload).not.toHaveProperty('objectViews')
   })
 })
 

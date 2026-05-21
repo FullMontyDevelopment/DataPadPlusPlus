@@ -15,6 +15,7 @@ type QueryTabActions = Pick<
   | 'createTab'
   | 'createExplorerTab'
   | 'createMetricsTab'
+  | 'createEnvironmentTab'
   | 'refreshMetricsTab'
   | 'createObjectViewTab'
   | 'refreshObjectViewTab'
@@ -93,6 +94,17 @@ export function useQueryTabActions({
         }
 
         applyPayload(await desktopClient.refreshMetricsTab(activeMetricsTab.id))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
+  const createEnvironmentTab = useCallback<Actions['createEnvironmentTab']>(
+    async (environmentId) => {
+      try {
+        applyPayload(await desktopClient.createEnvironmentTab(environmentId))
       } catch (error) {
         handleError(error)
       }
@@ -457,6 +469,7 @@ export function useQueryTabActions({
       createTab,
       createExplorerTab,
       createMetricsTab,
+      createEnvironmentTab,
       createObjectViewTab,
       refreshMetricsTab,
       refreshObjectViewTab,
@@ -484,6 +497,7 @@ export function useQueryTabActions({
     }),
     [
       closeTab,
+      createEnvironmentTab,
       createLibraryFolder,
       createExplorerTab,
       createMetricsTab,

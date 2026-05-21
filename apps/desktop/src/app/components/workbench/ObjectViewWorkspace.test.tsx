@@ -43,6 +43,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Schema Preview').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Understand document shape/i).length).toBeGreaterThan(0)
     expect(screen.getByText('inventory.available')).toBeInTheDocument()
     expect(screen.getByText('int32')).toBeInTheDocument()
     expect(screen.getByText('18')).toBeInTheDocument()
@@ -83,6 +84,8 @@ describe('ObjectViewWorkspace', () => {
       />,
     )
 
+    expect(screen.getAllByText('Index Manager').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Review collection access paths/i).length).toBeGreaterThan(0)
     expect(screen.getByText('_id_')).toBeInTheDocument()
     expect(screen.getByText('sku_1')).toBeInTheDocument()
     expect(screen.getByText('{"sku":1}')).toBeInTheDocument()
@@ -139,7 +142,7 @@ describe('ObjectViewWorkspace', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open Query' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open Sample Results' })[0] as HTMLElement)
 
     expect(onOpenQuery).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -181,9 +184,11 @@ describe('ObjectViewWorkspace', () => {
     const warningList = screen.getByText('not authorized on catalog to execute command usersInfo')
       .closest('.object-view-warning-list')
 
+    expect(screen.getAllByText(/Review database users/i).length).toBeGreaterThan(0)
     expect(warningList).not.toBeNull()
     expect(within(warningList as HTMLElement).getByText('usersInfo requires additional privileges')).toBeInTheDocument()
-    expect(screen.getByText('No security metadata was returned for this database.')).toBeInTheDocument()
+    expect(screen.getByText('No users were returned')).toBeInTheDocument()
+    expect(screen.getByText(/usersInfo privileges/i)).toBeInTheDocument()
   })
 
   it('previews Mongo user management operations from the users view', () => {
@@ -287,6 +292,195 @@ describe('ObjectViewWorkspace', () => {
       })],
     }))
   })
+
+  it('renders a Redis database overview with type distribution and key-browser handoff', () => {
+    const onOpenQuery = vi.fn()
+
+    render(
+      <ObjectViewWorkspace
+        connection={redisConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: redisConnection.id,
+          family: 'keyvalue',
+          title: 'DB 0',
+          objectViewState: {
+            connectionId: redisConnection.id,
+            environmentId: environment.id,
+            nodeId: 'redis:db:0',
+            label: 'DB 0',
+            kind: 'database',
+            path: ['Databases'],
+            summary: 'Inspection ready for redis:db:0.',
+            warnings: [],
+            payload: {
+              database: 0,
+              keyCount: 40010,
+              scannedKeys: 100,
+              typeCounts: [
+                { type: 'hash', count: 99, examples: ['perf:session:000143'] },
+                { type: 'zset', count: 1, examples: ['products:inventory'] },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={onOpenQuery}
+      />,
+    )
+
+    expect(screen.getAllByText('Redis DB Overview').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Inspect the selected logical database/i).length).toBeGreaterThan(0)
+    expect(screen.getByText('40010')).toBeInTheDocument()
+    expect(screen.getByText('hash')).toBeInTheDocument()
+    expect(screen.getByText('["products:inventory"]')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Browse DB Keys' })[0] as HTMLElement)
+    expect(onOpenQuery).toHaveBeenCalledWith(expect.objectContaining({
+      preferredBuilder: 'redis-key-browser',
+      queryTemplate: expect.stringContaining('"databaseIndex": 0'),
+    }))
+  })
+
+  it('renders Redis diagnostics as metrics instead of a generic payload dump', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={redisConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: redisConnection.id,
+          family: 'keyvalue',
+          title: 'INFO',
+          objectViewState: {
+            connectionId: redisConnection.id,
+            environmentId: environment.id,
+            nodeId: 'redis:diagnostics:info',
+            label: 'INFO',
+            kind: 'diagnostics',
+            path: ['Diagnostics'],
+            warnings: [],
+            payload: {
+              command: 'INFO',
+              text: '# Clients\nconnected_clients:1\n# Memory\nused_memory:7399232',
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('Redis Diagnostics').length).toBeGreaterThan(0)
+    expect(screen.getByText('Connected Clients')).toBeInTheDocument()
+    expect(screen.queryByText('used_memory')).not.toBeInTheDocument()
+    expect(screen.getByText('Used Memory')).toBeInTheDocument()
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
+
+  it('renders Oracle table metadata as a native object workspace', () => {
+    const onOpenQuery = vi.fn()
+
+    render(
+      <ObjectViewWorkspace
+        connection={oracleConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: oracleConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'ACCOUNTS',
+          objectViewState: {
+            connectionId: oracleConnection.id,
+            environmentId: environment.id,
+            nodeId: 'oracle-table:APP:ACCOUNTS',
+            label: 'ACCOUNTS',
+            kind: 'table',
+            path: ['FREEPDB1', 'APP', 'Tables'],
+            queryTemplate: 'select * from "APP"."ACCOUNTS" where rownum <= 100',
+            warnings: [],
+            payload: {
+              engine: 'oracle',
+              schema: 'APP',
+              objectName: 'ACCOUNTS',
+              service: 'FREEPDB1',
+              rowCount: 128,
+              columns: [
+                { name: 'ID', type: 'NUMBER(19)', nullable: 'NO' },
+                { name: 'STATUS', type: 'VARCHAR2(40)', nullable: 'YES' },
+              ],
+              indexes: [
+                { name: 'ACCOUNTS_PK', uniqueness: 'UNIQUE', status: 'VALID', visibility: 'VISIBLE' },
+              ],
+              constraints: [
+                { name: 'ACCOUNTS_PK', type: 'PRIMARY KEY', status: 'ENABLED', columns: 'ID' },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={onOpenQuery}
+      />,
+    )
+
+    expect(screen.getAllByText('Oracle Table').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Inspect table data entry points/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('ID').length).toBeGreaterThan(0)
+    expect(screen.getByText('NUMBER(19)')).toBeInTheDocument()
+    expect(screen.getAllByText('ACCOUNTS_PK').length).toBeGreaterThan(0)
+    expect(screen.queryByText('metadataViews')).not.toBeInTheDocument()
+    expect(screen.queryByText('permissionSensitiveViews')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open Data Query' })[0] as HTMLElement)
+    expect(onOpenQuery).toHaveBeenCalledWith(expect.objectContaining({
+      preferredBuilder: 'sql-select',
+      queryTemplate: expect.stringContaining('ACCOUNTS'),
+    }))
+  })
+
+  it('renders Oracle performance warnings and plan rows without raw payload dumps', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={oracleConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: oracleConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'Execution Plan',
+          objectViewState: {
+            connectionId: oracleConnection.id,
+            environmentId: environment.id,
+            nodeId: 'oracle-explain-plan',
+            label: 'Execution Plan',
+            kind: 'execution-plan',
+            path: ['Diagnostics'],
+            warnings: ['DBMS_XPLAN output is available only after EXPLAIN PLAN has run.'],
+            payload: {
+              engine: 'oracle',
+              service: 'FREEPDB1',
+              elapsedMs: 12,
+              planLines: [
+                { id: 0, operation: 'SELECT STATEMENT', rows: 100, cost: 4 },
+                { id: 1, operation: 'TABLE ACCESS FULL', objectName: 'ACCOUNTS', rows: 100, cost: 4 },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('Execution Plan').length).toBeGreaterThan(0)
+    expect(screen.getByText('TABLE ACCESS FULL')).toBeInTheDocument()
+    expect(screen.getByText('ACCOUNTS')).toBeInTheDocument()
+    expect(screen.getByText('DBMS_XPLAN output is available only after EXPLAIN PLAN has run.')).toBeInTheDocument()
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
 })
 
 function operationPlanResponse(operationId: string): OperationPlanResponse {
@@ -327,6 +521,56 @@ const mongoConnection: ConnectionProfile = {
   group: undefined,
   notes: undefined,
   auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const redisConnection: ConnectionProfile = {
+  id: 'conn-redis',
+  name: 'Redis',
+  engine: 'redis',
+  family: 'keyvalue',
+  host: 'localhost',
+  port: 6379,
+  database: '0',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'redis',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const oracleConnection: ConnectionProfile = {
+  id: 'conn-oracle',
+  name: 'Oracle',
+  engine: 'oracle',
+  family: 'sql',
+  host: 'localhost',
+  port: 1521,
+  database: 'FREEPDB1',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: true,
+  icon: 'oracle',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: { username: 'APP' },
+  oracleOptions: {
+    connectMode: 'service-name',
+    serviceName: 'FREEPDB1',
+  },
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 }

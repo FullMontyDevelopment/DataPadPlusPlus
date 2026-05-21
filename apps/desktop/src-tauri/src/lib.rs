@@ -102,6 +102,7 @@ pub fn run() {
             commands::workspace::collect_adapter_diagnostics,
             commands::workspace::create_library_folder,
             commands::workspace::create_local_database,
+            commands::workspace::create_environment_tab,
             commands::workspace::create_explorer_tab,
             commands::workspace::create_metrics_tab,
             commands::workspace::create_object_view_tab,

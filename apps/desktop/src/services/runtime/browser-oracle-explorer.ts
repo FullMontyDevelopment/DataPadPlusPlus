@@ -9,15 +9,11 @@ export function createOracleExplorerNodes(
 
   if (!scope) {
     return [
-      oracleNode('oracle-containers', 'Containers', 'containers', 'CDB/PDB containers', 'oracle:containers', ['Oracle'], true),
+      oracleNode(`oracle-container:${service}`, service, 'database', 'Selected Oracle service/PDB', `oracle:container:${service}`, ['Oracle'], true),
       oracleNode('oracle-schemas', 'Schemas', 'schemas', 'Users and object schemas', 'oracle:schemas', ['Oracle'], true),
       oracleNode('oracle-security', 'Security', 'security', 'Users, roles, profiles, privileges, and grants', 'oracle:security', ['Oracle'], true),
       oracleNode('oracle-storage', 'Storage', 'storage', 'Tablespaces, data files, segments, and quotas', 'oracle:storage', ['Oracle'], true),
-      oracleNode('oracle-performance', 'Performance', 'performance', 'Sessions, waits, SQL Monitor, AWR, and ASH', 'oracle:performance', ['Oracle'], true),
-      oracleNode('oracle-scheduler', 'Scheduler', 'scheduler', 'Jobs, programs, chains, and windows', 'oracle:scheduler', ['Oracle'], true),
-      oracleNode('oracle-queues', 'Queues', 'queues', 'Advanced Queuing objects', 'oracle:queues', ['Oracle'], true),
-      oracleNode('oracle-data-guard', 'Data Guard', 'data-guard', 'Data Guard status where available', 'oracle:data-guard', ['Oracle'], true),
-      oracleNode('oracle-rac', 'RAC', 'rac', 'Cluster instances and services where available', 'oracle:rac', ['Oracle'], true),
+      oracleNode('oracle-performance', 'Performance', 'performance', 'Sessions, waits, SQL Monitor, and lock diagnostics', 'oracle:performance', ['Oracle'], true),
       oracleNode('oracle-diagnostics', 'Diagnostics', 'diagnostics', 'Plans, locks, waits, and database health', 'oracle:diagnostics', ['Oracle'], true),
     ]
   }
@@ -89,21 +85,287 @@ export function oracleInspectQueryTemplate(nodeId: string) {
     return `select * from "${schema}"."${table}" where rownum <= 100;`
   }
 
+  if (nodeId === 'oracle-performance' || nodeId === 'oracle-sessions') {
+    return 'select * from v$session where rownum <= 100;'
+  }
+
+  if (nodeId === 'oracle-explain-plan') {
+    return 'select * from table(dbms_xplan.display);'
+  }
+
+  if (nodeId === 'oracle-storage' || nodeId === 'oracle-tablespaces') {
+    return 'select tablespace_name, status from user_tablespaces order by tablespace_name;'
+  }
+
+  if (nodeId === 'oracle-security' || nodeId === 'oracle-users') {
+    return 'select username, account_status, default_tablespace from all_users order by username;'
+  }
+
   return oracleInspectQueryTemplateForKind('object', nodeId)
 }
 
 export function oracleInspectPayload(connection: ConnectionProfile, nodeId: string) {
-  return {
+  const service = connection.database || connection.oracleOptions?.serviceName || 'ORCLPDB1'
+  const schema = connection.auth.username?.trim().toUpperCase() || 'APP'
+  const base = {
     engine: 'oracle',
     nodeId,
-    service: connection.database || connection.oracleOptions?.serviceName || 'ORCLPDB1',
-    metadataViews: ['ALL_OBJECTS', 'ALL_TABLES', 'ALL_TAB_COLUMNS', 'ALL_INDEXES', 'ALL_CONSTRAINTS'],
-    permissionSensitiveViews: ['DBA_*', 'V$', 'GV$', 'DBA_HIST_*'],
-    objectViews: {
-      table: ['Data', 'Columns', 'Indexes', 'Constraints', 'Triggers', 'Partitions', 'Statistics', 'Dependencies', 'Permissions', 'DDL'],
-      package: ['Spec', 'Body', 'Dependencies', 'Compilation Errors', 'Permissions'],
-      query: ['Results', 'Messages', 'Execution Plan', 'Statistics', 'SQL Monitor'],
-    },
+    service,
+  }
+
+  if (nodeId.startsWith('oracle-container:') || nodeId === 'oracle-schemas' || nodeId.startsWith('oracle-schema:')) {
+    return {
+      ...base,
+      schema,
+      openMode: 'READ WRITE',
+      objectCounts: [
+        { type: 'TABLE', count: 3, status: 'Visible' },
+        { type: 'VIEW', count: 1, status: 'Visible' },
+        { type: 'PACKAGE', count: 2, status: 'Visible' },
+        { type: 'SEQUENCE', count: 2, status: 'Visible' },
+      ],
+      invalidObjects: [
+        { owner: schema, name: 'ORDER_API', type: 'PACKAGE BODY', status: 'INVALID' },
+      ],
+      grants: [
+        { grantee: schema, privilege: 'CREATE SESSION', objectName: '', grantable: 'NO' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-tables:')) {
+    return { ...base, schema, tables: oracleTableRows(schema) }
+  }
+
+  if (nodeId.startsWith('oracle-views:')) {
+    return {
+      ...base,
+      schema,
+      views: [
+        { owner: schema, name: 'ACTIVE_ACCOUNTS', textLength: 482, status: 'VALID' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-mviews:')) {
+    return {
+      ...base,
+      schema,
+      materializedViews: [
+        { owner: schema, name: 'ACCOUNT_BALANCES_MV', refreshMode: 'DEMAND', status: 'VALID' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-sequences:')) {
+    return {
+      ...base,
+      schema,
+      sequences: [
+        { owner: schema, name: 'ACCOUNTS_SEQ', increment: 1, cache: 20 },
+        { owner: schema, name: 'ORDERS_SEQ', increment: 1, cache: 50 },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-synonyms:')) {
+    return {
+      ...base,
+      schema,
+      synonyms: [
+        { owner: schema, name: 'CUSTOMERS', targetOwner: schema, targetObject: 'ACCOUNTS' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-packages:')) {
+    return {
+      ...base,
+      schema,
+      packages: [
+        { owner: schema, name: 'ACCOUNT_API', type: 'PACKAGE', status: 'VALID', lastDdlTime: '2026-05-01' },
+        { owner: schema, name: 'ORDER_API', type: 'PACKAGE BODY', status: 'INVALID', lastDdlTime: '2026-05-06' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-procedures:')) {
+    return {
+      ...base,
+      schema,
+      procedures: [
+        { owner: schema, name: 'REFRESH_ACCOUNT_CACHE', status: 'VALID', lastDdlTime: '2026-05-02' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-functions:')) {
+    return {
+      ...base,
+      schema,
+      functions: [
+        { owner: schema, name: 'ACCOUNT_STATUS', status: 'VALID', lastDdlTime: '2026-05-02' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-types:')) {
+    return {
+      ...base,
+      schema,
+      types: [
+        { owner: schema, name: 'ACCOUNT_ROW_T', type: 'OBJECT', status: 'VALID' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-table:')) {
+    const [, owner = schema, table = 'ACCOUNTS'] = nodeId.split(':')
+    return oracleTablePayload(base, owner, table)
+  }
+
+  if (nodeId === 'oracle-security' || nodeId === 'oracle-users') {
+    return {
+      ...base,
+      users: [
+        { username: schema, accountStatus: 'OPEN', defaultTablespace: 'USERS', profile: 'DEFAULT' },
+      ],
+      warnings: ['DBA_USERS may require elevated privileges; showing visible user metadata.'],
+    }
+  }
+
+  if (nodeId === 'oracle-roles') {
+    return {
+      ...base,
+      roles: [
+        { role: 'CONNECT', source: 'SESSION_ROLES', defaultRole: 'YES', adminOption: 'NO' },
+        { role: 'RESOURCE', source: 'SESSION_ROLES', defaultRole: 'YES', adminOption: 'NO' },
+      ],
+    }
+  }
+
+  if (nodeId === 'oracle-profiles') {
+    return {
+      ...base,
+      profiles: [
+        { profile: 'DEFAULT', resourceName: 'FAILED_LOGIN_ATTEMPTS', limit: '10', resourceType: 'PASSWORD' },
+      ],
+      warnings: ['Profile details may be partial without DBA_PROFILES access.'],
+    }
+  }
+
+  if (nodeId === 'oracle-privileges') {
+    return {
+      ...base,
+      grants: [
+        { grantee: schema, privilege: 'CREATE SESSION', objectName: '', grantable: 'NO' },
+        { grantee: schema, privilege: 'SELECT', objectName: 'ACCOUNTS', grantable: 'NO' },
+      ],
+    }
+  }
+
+  if (nodeId === 'oracle-storage' || nodeId === 'oracle-tablespaces') {
+    return {
+      ...base,
+      allocatedBytes: 536870912,
+      usedBytes: 167772160,
+      freeBytes: 369098752,
+      tablespaces: [
+        { name: 'USERS', status: 'ONLINE', contents: 'PERMANENT', extentManagement: 'LOCAL' },
+        { name: 'TEMP', status: 'ONLINE', contents: 'TEMPORARY', extentManagement: 'LOCAL' },
+      ],
+    }
+  }
+
+  if (nodeId === 'oracle-data-files') {
+    return {
+      ...base,
+      dataFiles: [
+        { tablespaceName: 'USERS', fileName: 'users01.dbf', bytes: 536870912, status: 'AVAILABLE' },
+      ],
+      warnings: ['Data file details require DBA_DATA_FILES access on live Oracle connections.'],
+    }
+  }
+
+  if (nodeId === 'oracle-segments') {
+    return {
+      ...base,
+      segments: [
+        { owner: schema, name: 'ACCOUNTS', type: 'TABLE', bytes: 8388608 },
+        { owner: schema, name: 'ACCOUNTS_PK', type: 'INDEX', bytes: 1048576 },
+      ],
+    }
+  }
+
+  if (nodeId === 'oracle-quotas') {
+    return {
+      ...base,
+      quotas: [
+        { tablespaceName: 'USERS', bytes: 167772160, maxBytes: 1073741824, blocks: 20480 },
+      ],
+    }
+  }
+
+  if (nodeId === 'oracle-performance' || nodeId === 'oracle-sessions') {
+    return {
+      ...base,
+      activeSessions: 3,
+      blockedSessions: 0,
+      sessions: [
+        { sid: 42, username: schema, status: 'ACTIVE', waitClass: 'CPU' },
+        { sid: 84, username: 'SYS', status: 'INACTIVE', waitClass: 'Idle' },
+      ],
+      warnings: ['Session diagnostics may be partial without V$SESSION privileges.'],
+    }
+  }
+
+  if (nodeId === 'oracle-locks') {
+    return {
+      ...base,
+      blockedSessions: 0,
+      locks: [
+        { sid: 42, type: 'TX', modeHeld: 'ROW-X', request: 'NONE', blocking: 'NO' },
+      ],
+    }
+  }
+
+  if (nodeId === 'oracle-top-sql' || nodeId === 'oracle-sql-monitor') {
+    return {
+      ...base,
+      topSql: [
+        { sqlId: '9xv6b7p1', status: 'DONE', elapsedMs: 18, sqlText: 'select * from APP.ACCOUNTS where rownum <= 100' },
+      ],
+    }
+  }
+
+  if (nodeId === 'oracle-explain-plan') {
+    return {
+      ...base,
+      elapsedMs: 12,
+      planLines: [
+        { id: 0, operation: 'SELECT STATEMENT', objectName: '', rows: 100, cost: 4 },
+        { id: 1, operation: 'TABLE ACCESS FULL', objectName: 'ACCOUNTS', rows: 100, cost: 4 },
+      ],
+    }
+  }
+
+  if (nodeId === 'oracle-invalid-objects' || nodeId === 'oracle-diagnostics') {
+    return {
+      ...base,
+      invalidObjects: [
+        { owner: schema, name: 'ORDER_API', type: 'PACKAGE BODY', status: 'INVALID' },
+      ],
+      warnings: ['Diagnostics are limited to dictionary metadata available to this user.'],
+    }
+  }
+
+  return {
+    ...base,
+    schema,
+    objects: [
+      { owner: schema, name: 'ACCOUNTS', type: 'TABLE', status: 'VALID' },
+      { owner: schema, name: 'ACCOUNT_API', type: 'PACKAGE', status: 'VALID' },
+    ],
   }
 }
 
@@ -118,9 +380,7 @@ function oracleSchemaSections(schema: string, path: string[]): ExplorerNode[] {
     oracleNode(`oracle-procedures:${schema}`, 'Procedures', 'procedures', 'PL/SQL procedures', undefined, path),
     oracleNode(`oracle-packages:${schema}`, 'Packages', 'packages', 'PL/SQL package specs and bodies', undefined, path),
     oracleNode(`oracle-types:${schema}`, 'Types', 'types', 'Object and collection types', undefined, path),
-    oracleNode(`oracle-java:${schema}`, 'Java Sources', 'java-sources', 'Java stored source objects', undefined, path),
     oracleNode(`oracle-json:${schema}`, 'JSON Collections', 'json-collections', 'Oracle JSON collection-style objects', undefined, path),
-    oracleNode(`oracle-xdb:${schema}`, 'XML DB', 'xml-db', 'XML DB resources', undefined, path),
     oracleNode(`oracle-external:${schema}`, 'External Tables', 'external-tables', 'External file-backed tables', undefined, path),
     oracleNode(`oracle-dblinks:${schema}`, 'Database Links', 'database-links', 'Remote database links', undefined, path),
   ]
@@ -169,4 +429,49 @@ function oracleInspectQueryTemplateForKind(kind: string, label: string) {
   }
 
   return `select owner, object_name, object_type, status from all_objects where object_name = '${label}' or rownum <= 100;`
+}
+
+function oracleTableRows(schema: string) {
+  return [
+    { owner: schema, name: 'ACCOUNTS', status: 'VALID', tablespace: 'USERS', rows: 128 },
+    { owner: schema, name: 'ORDERS', status: 'VALID', tablespace: 'USERS', rows: 348 },
+    { owner: schema, name: 'AUDIT_EVENTS', status: 'VALID', tablespace: 'USERS', rows: 2000 },
+  ]
+}
+
+function oracleTablePayload(
+  base: { engine: string; nodeId: string; service: string },
+  schema: string,
+  table: string,
+) {
+  return {
+    ...base,
+    kind: 'table',
+    schema,
+    objectName: table,
+    rowCount: 128,
+    blocks: 24,
+    avgRowLength: 128,
+    lastAnalyzed: '2026-05-10',
+    columns: [
+      { name: 'ID', type: 'NUMBER(19)', nullable: 'NO', default: '' },
+      { name: 'ACCOUNT_NAME', type: 'VARCHAR2(200)', nullable: 'NO', default: '' },
+      { name: 'STATUS', type: 'VARCHAR2(40)', nullable: 'YES', default: "'ACTIVE'" },
+      { name: 'CREATED_AT', type: 'TIMESTAMP WITH TIME ZONE', nullable: 'NO', default: 'SYSTIMESTAMP' },
+    ],
+    indexes: [
+      { name: `${table}_PK`, uniqueness: 'UNIQUE', status: 'VALID', visibility: 'VISIBLE' },
+      { name: `${table}_STATUS_IX`, uniqueness: 'NONUNIQUE', status: 'VALID', visibility: 'VISIBLE' },
+    ],
+    constraints: [
+      { name: `${table}_PK`, type: 'PRIMARY KEY', status: 'ENABLED', columns: 'ID' },
+      { name: `${table}_STATUS_CK`, type: 'CHECK', status: 'ENABLED', columns: 'STATUS' },
+    ],
+    triggers: [
+      { name: `${table}_BI`, timing: 'BEFORE EACH ROW', event: 'INSERT', status: 'ENABLED' },
+    ],
+    grants: [
+      { grantee: 'REPORTING', privilege: 'SELECT', objectName: table, grantable: 'NO' },
+    ],
+  }
 }

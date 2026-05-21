@@ -148,7 +148,7 @@ pub(super) fn seed_fixture_secrets(secrets: &[(SecretRef, String)]) -> Result<()
     if !security::using_file_secret_store() {
         return Err(CommandError::new(
             "fixture-secret-store",
-            "Fixture workspace seeding requires DATAPADPLUSPLUS_SECRET_STORE=file.",
+            "Fixture workspace seeding requires DATAPADPLUSPLUS_SECRET_STORE=file, which stores encrypted secrets.",
         ));
     }
 

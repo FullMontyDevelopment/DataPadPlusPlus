@@ -2,8 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use super::library::effective_connection_environment_id;
 use super::query_tabs::{
-    build_explorer_tab, build_metrics_tab, build_object_view_tab, build_query_tab,
-    build_scoped_query_tab, next_query_tab_title, normalize_tab_title, query_tab_title_parts,
+    build_environment_tab, build_explorer_tab, build_metrics_tab, build_object_view_tab,
+    build_query_tab, build_scoped_query_tab, next_query_tab_title, normalize_tab_title,
+    query_tab_title_parts,
 };
 use super::ui::focus_query_tab;
 use super::{generate_id, timestamp_now, ManagedAppState};
@@ -178,6 +179,53 @@ impl ManagedAppState {
         focus_query_tab(&mut self.snapshot.ui, &tab);
         self.snapshot.ui.active_activity = "library".into();
         self.snapshot.ui.active_sidebar_pane = "library".into();
+        self.snapshot.ui.right_drawer = "none".into();
+        self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
+    pub fn create_environment_tab(
+        &mut self,
+        environment_id: &str,
+    ) -> Result<BootstrapPayload, CommandError> {
+        let environment = self
+            .snapshot
+            .environments
+            .iter()
+            .find(|item| item.id == environment_id)
+            .cloned()
+            .ok_or_else(|| {
+                CommandError::new("environment-missing", "Environment was not found.")
+            })?;
+
+        if let Some(existing_tab) = self
+            .snapshot
+            .tabs
+            .iter()
+            .find(|tab| {
+                tab.environment_id == environment.id
+                    && tab.tab_kind.as_deref() == Some("environment")
+            })
+            .cloned()
+        {
+            focus_query_tab(&mut self.snapshot.ui, &existing_tab);
+            self.snapshot.ui.active_activity = "library".into();
+            self.snapshot.ui.active_sidebar_pane = "library".into();
+            self.snapshot.ui.active_environment_id = environment.id;
+            self.snapshot.ui.right_drawer = "none".into();
+            self.snapshot.updated_at = timestamp_now();
+            self.persist()?;
+            return Ok(self.bootstrap_payload());
+        }
+
+        let tab = build_environment_tab(&self.snapshot, &environment);
+
+        self.snapshot.tabs.push(tab.clone());
+        focus_query_tab(&mut self.snapshot.ui, &tab);
+        self.snapshot.ui.active_activity = "library".into();
+        self.snapshot.ui.active_sidebar_pane = "library".into();
+        self.snapshot.ui.active_environment_id = environment.id;
         self.snapshot.ui.right_drawer = "none".into();
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;

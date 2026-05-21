@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createSeedSnapshot } from '../../test/fixtures/seed-workspace'
 import {
   createExplorerTabInSnapshot,
+  createEnvironmentTabInSnapshot,
   createMetricsTabInSnapshot,
   createObjectViewTabInSnapshot,
   createScopedQueryTabInSnapshot,
@@ -55,6 +56,29 @@ describe('browser tab runtime', () => {
 
     expect(reopened.tabs.filter((tab) => tab.tabKind === 'metrics')).toHaveLength(1)
     expect(reopened.ui.activeTabId).toBe(metricsTab?.id)
+  })
+
+  it('opens Environment as one saveable tab per environment', () => {
+    const snapshot = createSeedSnapshot()
+    const opened = createEnvironmentTabInSnapshot(snapshot, 'env-dev')
+    const environmentTab = opened.tabs.find((tab) => tab.tabKind === 'environment')
+
+    expect(environmentTab).toMatchObject({
+      environmentId: 'env-dev',
+      dirty: false,
+      editorLabel: 'Environment',
+      queryText: '',
+      title: 'Environment - Dev',
+    })
+    expect(environmentTab?.saveTarget).toBeUndefined()
+    expect(opened.ui.activeTabId).toBe(environmentTab?.id)
+    expect(opened.ui.activeEnvironmentId).toBe('env-dev')
+    expect(opened.ui.rightDrawer).toBe('none')
+
+    const reopened = createEnvironmentTabInSnapshot(opened, 'env-dev')
+
+    expect(reopened.tabs.filter((tab) => tab.tabKind === 'environment')).toHaveLength(1)
+    expect(reopened.ui.activeTabId).toBe(environmentTab?.id)
   })
 
   it('opens object views once per connection, environment, and object node', () => {

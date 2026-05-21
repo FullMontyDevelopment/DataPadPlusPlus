@@ -43,7 +43,7 @@ export function WelcomeSurface({
             Import Workspace
           </button>
           <button type="button" className="drawer-button" onClick={onOpenDiagnostics}>
-            Open Diagnostics
+            Open Settings
           </button>
         </div>
       </div>

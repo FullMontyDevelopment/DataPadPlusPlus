@@ -8,6 +8,7 @@ import {
   moveLibraryNode,
   openLibraryItem,
   saveQueryTabToLibrary,
+  saveQueryTabToLocalFile,
   setLibraryNodeEnvironment,
 } from './browser-library'
 import { connectionLibraryNodeId } from './library-connection-helpers'
@@ -183,6 +184,90 @@ describe('browser Library runtime', () => {
       kind: 'mongo-find',
       filters: [expect.objectContaining({ field: 'status', value: 'active' })],
     })
+  })
+
+  it('keeps the open tab results when saving to the Library', () => {
+    const snapshot = workspaceSnapshot()
+    snapshot.tabs[0] = {
+      ...snapshot.tabs[0]!,
+      dirty: true,
+      status: 'success',
+      lastRunAt: '2026-05-14T12:00:00.000Z',
+      result: {
+        id: 'result-1',
+        engine: 'postgresql',
+        summary: '1 row',
+        defaultRenderer: 'table',
+        rendererModes: ['table'],
+        payloads: [
+          {
+            renderer: 'table',
+            columns: ['ok'],
+            rows: [['1']],
+          },
+        ],
+        notices: [],
+        executedAt: '2026-05-14T12:00:00.000Z',
+        durationMs: 6,
+        truncated: false,
+        rowLimit: 100,
+      },
+    }
+
+    const saved = saveQueryTabToLibrary(snapshot, {
+      tabId: 'tab-existing',
+      itemId: 'library-query-1',
+      name: 'Orders',
+      kind: 'query',
+      tags: [],
+    })
+
+    expect(saved.tabs[0]?.dirty).toBe(false)
+    expect(saved.tabs[0]?.status).toBe('success')
+    expect(saved.tabs[0]?.result?.summary).toBe('1 row')
+    expect(saved.tabs[0]?.result?.payloads[0]).toMatchObject({
+      renderer: 'table',
+      rows: [['1']],
+    })
+    expect(saved.libraryNodes[0]).not.toHaveProperty('result')
+  })
+
+  it('keeps the open tab results when saving to a local file', () => {
+    const snapshot = workspaceSnapshot()
+    snapshot.tabs[0] = {
+      ...snapshot.tabs[0]!,
+      dirty: true,
+      status: 'success',
+      result: {
+        id: 'result-1',
+        engine: 'postgresql',
+        summary: '1 row',
+        defaultRenderer: 'table',
+        rendererModes: ['table'],
+        payloads: [
+          {
+            renderer: 'table',
+            columns: ['ok'],
+            rows: [['1']],
+          },
+        ],
+        notices: [],
+        executedAt: '2026-05-14T12:00:00.000Z',
+        durationMs: 6,
+        truncated: false,
+        rowLimit: 100,
+      },
+    }
+
+    const saved = saveQueryTabToLocalFile(snapshot, {
+      tabId: 'tab-existing',
+      path: 'C:\\temp\\orders.sql',
+    })
+
+    expect(saved.tabs[0]?.dirty).toBe(false)
+    expect(saved.tabs[0]?.title).toBe('orders.sql')
+    expect(saved.tabs[0]?.status).toBe('success')
+    expect(saved.tabs[0]?.result?.summary).toBe('1 row')
   })
 
   it('repairs connection library nodes before moving a newly saved connection into a folder', () => {

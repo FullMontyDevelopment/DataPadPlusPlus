@@ -9,7 +9,7 @@ import type {
   QueryBuilderState,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ColumnIcon,
   KeyValueIcon,
@@ -30,6 +30,10 @@ import {
 import {
   RedisKeyBrowserRows,
 } from './RedisKeyBrowserRows'
+import {
+  dataEditStatusMessage,
+  executeDataEditWithConfirmation,
+} from '../results/data-edit-confirmation'
 
 interface RedisKeyBrowserPanelProps {
   tab: QueryTabState
@@ -59,6 +63,7 @@ export function RedisKeyBrowserPanel({
   const [addKeyName, setAddKeyName] = useState('')
   const [addKeyType, setAddKeyType] = useState('string')
   const [addKeyValue, setAddKeyValue] = useState('')
+  const scanRequestIdRef = useRef(0)
   const [expandedPrefixes, setExpandedPrefixes] = useState<Set<string>>(
     () => new Set(builderState.expandedPrefixes ?? []),
   )
@@ -92,6 +97,8 @@ export function RedisKeyBrowserPanel({
         return
       }
 
+      const requestId = scanRequestIdRef.current + 1
+      scanRequestIdRef.current = requestId
       setLoading(true)
       const response = await onScanRedisKeys({
         tabId: tab.id,
@@ -106,6 +113,11 @@ export function RedisKeyBrowserPanel({
         pageSize: builderState.pageSize ?? 100,
         filters: builderState.filters,
       })
+
+      if (requestId !== scanRequestIdRef.current) {
+        return
+      }
+
       setLoading(false)
 
       if (!response) {
@@ -118,40 +130,27 @@ export function RedisKeyBrowserPanel({
         reset ? response.scannedCount : current + response.scannedCount,
       )
       setStatus(response.warnings[0] ?? '')
-      updateBuilder({
-        cursor: response.nextCursor ?? '0',
-        databaseIndex: response.databaseIndex ?? databaseIndex,
-        scanCursorByDb: {
-          ...(builderState.scanCursorByDb ?? {}),
-          [String(response.databaseIndex ?? databaseIndex)]: response.nextCursor ?? '0',
-        },
-        scannedCount: reset ? response.scannedCount : scannedCount + response.scannedCount,
-        lastRefreshAt: new Date().toISOString(),
-      })
     },
     [
       builderState.filters,
       builderState.pageSize,
       builderState.pattern,
-      builderState.scanCursorByDb,
       builderState.scanCount,
       builderState.typeFilter,
       cursor,
       databaseIndex,
       delimiter,
       onScanRedisKeys,
-      scannedCount,
       tab.connectionId,
       tab.environmentId,
       tab.id,
-      updateBuilder,
     ],
   )
 
   useEffect(() => {
     const scanTimer = window.setTimeout(() => {
       void scan({ reset: true })
-    }, 0)
+    }, 250)
     return () => window.clearTimeout(scanTimer)
     // Scan is intentionally tied to the stable query controls, not every status/cursor update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -182,17 +181,25 @@ export function RedisKeyBrowserPanel({
     }
 
     const value = addKeyType === 'string' ? addKeyValue : parseRedisInitialValue(addKeyValue)
-    const response = await onExecuteDataEdit({
-      connectionId: tab.connectionId,
-      environmentId: tab.environmentId,
-      editKind: 'set-key-value',
-      target: {
-        objectKind: 'key',
-        path: [],
-        key: addKeyName.trim(),
+    const keyName = addKeyName.trim()
+    const response = await executeDataEditWithConfirmation(
+      onExecuteDataEdit,
+      {
+        connectionId: tab.connectionId,
+        environmentId: tab.environmentId,
+        editKind: 'set-key-value',
+        target: {
+          objectKind: 'key',
+          path: [],
+          key: keyName,
+        },
+        changes: [{ value, valueType: addKeyType }],
       },
-      changes: [{ value, valueType: addKeyType }],
-    })
+      {
+        actionLabel: `Add Redis key ${keyName}.`,
+        confirmationTitle: 'Create this Redis key?',
+      },
+    )
 
     if (response?.executed) {
       setShowAddKey(false)
@@ -200,7 +207,7 @@ export function RedisKeyBrowserPanel({
       setAddKeyValue('')
       void scan({ reset: true })
     } else {
-      setStatus(response?.warnings.join(' ') || 'Unable to add Redis key.')
+      setStatus(dataEditStatusMessage(response, 'Unable to add Redis key.'))
     }
   }
 
@@ -213,23 +220,30 @@ export function RedisKeyBrowserPanel({
       return
     }
 
-    const response = await onExecuteDataEdit({
-      connectionId: tab.connectionId,
-      environmentId: tab.environmentId,
-      editKind: 'delete-key',
-      target: {
-        objectKind: 'key',
-        path: [],
-        key,
+    const response = await executeDataEditWithConfirmation(
+      onExecuteDataEdit,
+      {
+        connectionId: tab.connectionId,
+        environmentId: tab.environmentId,
+        editKind: 'delete-key',
+        target: {
+          objectKind: 'key',
+          path: [],
+          key,
+        },
+        changes: [],
       },
-      changes: [],
-    })
+      {
+        actionLabel: `Delete Redis key ${key}.`,
+        confirmationTitle: 'Delete this Redis key?',
+      },
+    )
 
     if (response?.executed) {
       setKeys((current) => current.filter((item) => item.key !== key))
       setStatus(`Deleted ${key}.`)
     } else {
-      setStatus(response?.warnings.join(' ') || `Unable to delete ${key}.`)
+      setStatus(dataEditStatusMessage(response, `Unable to delete ${key}.`))
     }
   }
 
@@ -279,7 +293,6 @@ export function RedisKeyBrowserPanel({
             onChange={(event) =>
               updateBuilder({
                 databaseIndex: Math.max(0, Number(event.target.value) || 0),
-                cursor: '0',
                 selectedKey: undefined,
               })
             }
@@ -291,7 +304,6 @@ export function RedisKeyBrowserPanel({
           onChange={(event) =>
             updateBuilder({
               typeFilter: event.target.value as RedisKeyBrowserState['typeFilter'],
-              cursor: '0',
               selectedKey: undefined,
             })
           }
@@ -311,7 +323,6 @@ export function RedisKeyBrowserPanel({
                 ...(builderState.filters ?? {}),
                 ttl: event.target.value as NonNullable<RedisKeyBrowserState['filters']>['ttl'],
               },
-              cursor: '0',
               selectedKey: undefined,
             })
           }
@@ -343,7 +354,6 @@ export function RedisKeyBrowserPanel({
             onChange={(event) =>
               updateBuilder({
                 pattern: event.target.value || '*',
-                cursor: '0',
                 selectedKey: undefined,
               })
             }

@@ -76,7 +76,7 @@ export type QuerySaveTarget =
 export interface QueryTabDefinition {
   id: string
   title: string
-  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics' | 'object-view'
+  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics' | 'object-view' | 'environment'
   connectionId: string
   environmentId: string
   family: DatastoreFamily
@@ -142,6 +142,7 @@ export type MongoFilterOperator =
   | 'gte'
   | 'lt'
   | 'lte'
+  | 'contains'
   | 'regex'
   | 'exists'
   | 'in'
@@ -210,6 +211,7 @@ export type SqlSelectFilterOperator =
   | 'gte'
   | 'lt'
   | 'lte'
+  | 'contains'
   | 'like'
   | 'in'
   | 'is-null'

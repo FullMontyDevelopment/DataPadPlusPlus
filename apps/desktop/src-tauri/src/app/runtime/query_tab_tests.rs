@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use super::{
     blank_workspace_snapshot,
-    query_tabs::{build_metrics_tab, build_query_tab, build_scoped_query_tab},
+    query_tabs::{
+        build_environment_tab, build_metrics_tab, build_query_tab, build_scoped_query_tab,
+    },
     timestamp_now,
     ui::{focus_query_tab, is_bottom_panel_tab},
 };
@@ -54,6 +56,42 @@ fn metrics_tab_is_unsaved_and_scoped_to_connection_environment() {
             .and_then(serde_json::Value::as_str),
         Some("conn-postgres")
     );
+}
+
+#[test]
+fn environment_tab_is_saveable_and_scoped_to_environment() {
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.ui.active_connection_id = "conn-postgres".into();
+    snapshot.connections.push(test_connection(
+        "conn-postgres",
+        "Postgres",
+        "postgresql",
+        "sql",
+    ));
+    let environment = EnvironmentProfile {
+        id: "env-qa".into(),
+        label: "QA".into(),
+        color: "#6366f1".into(),
+        risk: "medium".into(),
+        inherits_from: None,
+        variables: HashMap::new(),
+        sensitive_keys: Vec::new(),
+        requires_confirmation: false,
+        safe_mode: false,
+        exportable: true,
+        created_at: timestamp_now(),
+        updated_at: timestamp_now(),
+    };
+    let tab = build_environment_tab(&snapshot, &environment);
+
+    assert_eq!(tab.tab_kind.as_deref(), Some("environment"));
+    assert_eq!(tab.title, "Environment - QA");
+    assert_eq!(tab.connection_id, "conn-postgres");
+    assert_eq!(tab.environment_id, "env-qa");
+    assert_eq!(tab.editor_label, "Environment");
+    assert_eq!(tab.query_text, "");
+    assert!(!tab.dirty);
+    assert!(tab.save_target.is_none());
 }
 
 #[test]

@@ -17,6 +17,19 @@ export function CloseSavedTabDialog({
   onDiscard(): void
   onSaveAndClose(): void
 }) {
+  const closeTarget =
+    tab.tabKind === 'environment'
+      ? {
+          eyebrow: 'Unsaved Environment',
+          description:
+            'has environment edits that have not been saved. Save keeps the workspace environment updated; discard closes the tab without applying the draft.',
+        }
+      : {
+          eyebrow: 'Unsaved Library Item',
+          description:
+            'has edits that are not saved to its Library item or local file. Ephemeral tabs close immediately, but saved items need an explicit choice.',
+        }
+
   return (
     <div className="workbench-modal-overlay" role="presentation">
       <section
@@ -25,12 +38,10 @@ export function CloseSavedTabDialog({
         aria-modal="true"
         aria-labelledby="close-tab-dialog-title"
       >
-        <p className="sidebar-eyebrow">Unsaved Library Item</p>
+        <p className="sidebar-eyebrow">{closeTarget.eyebrow}</p>
         <h2 id="close-tab-dialog-title">Save changes before closing?</h2>
         <p>
-          {tab.title} has edits that are not saved to its Library item or local
-          file. Ephemeral tabs close immediately, but saved items need an
-          explicit choice.
+          {tab.title} {closeTarget.description}
         </p>
         <div className="workbench-dialog-actions">
           <button type="button" className="drawer-button" onClick={onCancel}>
@@ -64,7 +75,7 @@ export function SaveQueryDialog({
   onCancel(): void
   onSaveLocal(): void
   onSaveToLibrary(request: {
-    folderId: string
+    folderId?: string
     itemId?: string
     name: string
   }): void
@@ -91,7 +102,7 @@ export function SaveQueryDialog({
     existingNode?.parentId ??
       folders.find((folder) => folder.id === defaultFolderId)?.id ??
       folders[0]?.id ??
-      defaultFolderId,
+      '',
   )
   const [name, setName] = useState(existingNode?.name ?? displayLibraryNameForTab(tab.title))
   const itemLabel = tab.tabKind === 'test-suite' || tab.testSuite ? 'Test Suite' : 'Query'
@@ -119,6 +130,7 @@ export function SaveQueryDialog({
           <label>
             <span>Folder</span>
             <select value={folderId} onChange={(event) => setFolderId(event.target.value)}>
+              <option value="">Library root</option>
               {folders.map((folder) => (
                 <option key={folder.id} value={folder.id}>
                   {libraryNodePath(libraryNodes, folder)}
@@ -138,10 +150,10 @@ export function SaveQueryDialog({
           <button
             type="button"
             className="drawer-button drawer-button--primary"
-            disabled={!name.trim() || !folderId}
+            disabled={!name.trim()}
             onClick={() =>
               onSaveToLibrary({
-                folderId,
+                folderId: folderId || undefined,
                 itemId: existingLibraryItemId,
                 name: name.trim(),
               })

@@ -70,8 +70,8 @@ export function StatusBar({
         <button
           type="button"
           className="status-button"
-          aria-label="Open diagnostics drawer"
-          title="Open diagnostics, import/export, runtime health, and support information."
+          aria-label="Open settings"
+          title="Open settings, workspace backup, restore, and health information."
           onClick={onOpenDiagnostics}
         >
           <SettingsIcon className="status-icon" />

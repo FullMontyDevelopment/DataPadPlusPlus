@@ -1,5 +1,6 @@
 import type { MongoBuilderValueType, MongoFindFilterGroup, MongoFindFilterRow, MongoFilterOperator } from '@datapadplusplus/shared-types'
 import { BuilderSection } from './BuilderSection'
+import { TrashIcon } from '../icons'
 import type { MongoFindSectionProps } from './MongoBuilderSection.types'
 import { rowId } from './MongoBuilderSection.types'
 import { defaultFilterGroup } from './mongo-find-defaults'
@@ -12,6 +13,7 @@ const FILTER_OPERATORS: Array<{ value: MongoFilterOperator; label: string }> = [
   { value: 'gte', label: '>=' },
   { value: 'lt', label: '<' },
   { value: 'lte', label: '<=' },
+  { value: 'contains', label: 'Contains' },
   { value: 'regex', label: 'Regex' },
   { value: 'exists', label: 'Exists' },
   { value: 'in', label: 'In' },
@@ -20,6 +22,7 @@ const FILTER_OPERATORS: Array<{ value: MongoFilterOperator; label: string }> = [
 const VALUE_TYPES: MongoBuilderValueType[] = ['string', 'number', 'boolean', 'null', 'json']
 
 export function MongoFilterBuilderSection({
+  dragActive,
   draft,
   filterGroups,
   updateDraft,
@@ -31,6 +34,8 @@ export function MongoFilterBuilderSection({
       title="Filters"
       actionLabel="Add Group"
       dropHint="Drop a result field to filter"
+      dropZone="filters"
+      dragActive={dragActive}
       secondaryActionLabel="Add Filter"
       onDropField={(field, payload) =>
         updateDraft({
@@ -137,8 +142,9 @@ function FilterGroup({
         {filterGroups.length > 1 ? (
           <button
             type="button"
-            className="query-builder-remove"
+            className="query-builder-remove query-builder-remove--icon"
             aria-label={`Remove ${group.label}`}
+            title={`Remove ${group.label}`}
             onClick={() =>
               updateDraft({
                 filterGroups: filterGroups.filter((item) => item.id !== group.id),
@@ -148,7 +154,7 @@ function FilterGroup({
               })
             }
           >
-            Remove Group
+            <TrashIcon className="toolbar-icon" />
           </button>
         ) : null}
       </div>
@@ -181,6 +187,7 @@ function FilterRows({
           <label className="query-builder-toggle">
             <input
               aria-label={`Apply filter ${row.field || row.id}`}
+              title={row.enabled === false ? 'Enable filter' : 'Disable filter'}
               type="checkbox"
               checked={row.enabled ?? true}
               onChange={(event) =>
@@ -192,7 +199,6 @@ function FilterRows({
                 })
               }
             />
-            <span>{row.enabled === false ? 'Off' : 'On'}</span>
           </label>
           <input
             aria-label="Filter field"
@@ -263,8 +269,9 @@ function FilterRows({
           />
           <button
             type="button"
-            className="query-builder-remove"
+            className="query-builder-remove query-builder-remove--icon"
             aria-label="Remove filter"
+            title="Remove filter"
             onClick={() =>
               updateDraft({
                 filterGroups,
@@ -272,7 +279,7 @@ function FilterRows({
               })
             }
           >
-            Remove
+            <TrashIcon className="toolbar-icon" />
           </button>
         </div>
       ))}

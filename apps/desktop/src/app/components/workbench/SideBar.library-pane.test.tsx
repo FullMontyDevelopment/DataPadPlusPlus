@@ -3,10 +3,12 @@ import type {
   ClosedQueryTabSnapshot,
   ConnectionProfile,
   EnvironmentProfile,
+  ExplorerNode,
   LibraryNode,
 } from '@datapadplusplus/shared-types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LibraryPane } from './SideBar.library-pane'
+import { sidebarSectionId } from './SideBar.helpers'
 
 const nodes: LibraryNode[] = [
   folder('library-root-queries', 'Queries'),
@@ -56,6 +58,103 @@ describe('LibraryPane', () => {
     expect(
       screen.getByRole('status', { name: 'Loading metadata for Fixture PostgreSQL' }),
     ).toBeInTheDocument()
+  })
+
+  it('indents live connection metadata under nested connection rows', () => {
+    renderLibraryPane(vi.fn(), {
+      activeConnectionId: 'connection-mongo',
+      activeEnvironmentId: 'env-dev',
+      connections: [mongoConnection()],
+      connectionExplorerItems: [
+        {
+          id: 'database:catalog',
+          label: 'catalog',
+          kind: 'database',
+          detail: '',
+          family: 'document',
+          scope: 'database:catalog',
+        },
+      ],
+      explorerStatus: 'ready',
+      libraryNodes: [
+        folder('folder-qa', 'QA'),
+        folder('folder-mongodb', 'MongoDB', 'folder-qa'),
+        connectionNode('library-connection-mongo', 'MongoDB', 'connection-mongo', 'folder-mongodb'),
+      ],
+      sectionStates: {
+        [sidebarSectionId('library', 'node', 'folder-qa')]: true,
+        [sidebarSectionId('library', 'node', 'folder-mongodb')]: true,
+        [sidebarSectionId('library', 'node', 'library-connection-mongo')]: true,
+      },
+    })
+
+    const catalogRow = screen.getByText('catalog').closest('[role="treeitem"]')
+
+    expect(catalogRow).toHaveStyle({ '--tree-depth': '3' })
+  })
+
+  it('renders live metadata for expanded connections even when another connection is active', () => {
+    renderLibraryPane(vi.fn(), {
+      activeConnectionId: 'connection-postgres',
+      activeEnvironmentId: 'env-dev',
+      connections: [connection(), mongoConnection()],
+      getConnectionExplorerItems: (connectionId) =>
+        connectionId === 'connection-mongo'
+          ? [
+              {
+                id: 'database:catalog',
+                label: 'catalog',
+                kind: 'database',
+                detail: '',
+                family: 'document',
+                scope: 'database:catalog',
+              },
+            ]
+          : undefined,
+      getConnectionExplorerStatus: (connectionId) =>
+        connectionId === 'connection-mongo' ? 'ready' : 'idle',
+      libraryNodes: [
+        connectionNode('library-connection-postgres', 'Fixture PostgreSQL', 'connection-postgres'),
+        connectionNode('library-connection-mongo', 'MongoDB', 'connection-mongo'),
+      ],
+      sectionStates: {
+        [sidebarSectionId('library', 'node', 'library-connection-mongo')]: true,
+      },
+    })
+
+    expect(screen.getByText('catalog')).toBeInTheDocument()
+  })
+
+  it('loads expanded connection metadata with the inherited environment without selecting it', () => {
+    const onLoadExplorerScope = vi.fn()
+    const onSelectConnection = vi.fn()
+
+    renderLibraryPane(vi.fn(), {
+      activeConnectionId: 'connection-postgres',
+      activeEnvironmentId: 'env-dev',
+      connections: [connection(), mongoConnection()],
+      environments,
+      libraryNodes: [
+        folder('folder-prod', 'Prod Folder', undefined, 'env-prod'),
+        connectionNode('library-connection-mongo', 'MongoDB', 'connection-mongo', 'folder-prod'),
+      ],
+      onLoadExplorerScope,
+      onSelectConnection,
+      sectionStates: {
+        [sidebarSectionId('library', 'node', 'folder-prod')]: true,
+      },
+    })
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Expand connection MongoDB' }),
+    )
+
+    expect(onLoadExplorerScope).toHaveBeenCalledWith(
+      'connection-mongo',
+      undefined,
+      'env-prod',
+    )
+    expect(onSelectConnection).not.toHaveBeenCalled()
   })
 
   it('moves items to root when dropped on empty library tree space', () => {
@@ -228,29 +327,24 @@ describe('LibraryPane', () => {
     expect(onDeleteEnvironment).toHaveBeenCalledWith('env-prod')
   })
 
-  it('exposes connection, settings, and theme controls from the Library toolbar', () => {
+  it('keeps the Library toolbar focused on navigation and creation actions', () => {
     const onCreateConnection = vi.fn()
-    const onOpenSettings = vi.fn()
-    const onToggleTheme = vi.fn()
 
     renderLibraryPane(vi.fn(), {
       onCreateConnection,
-      onOpenSettings,
-      onToggleTheme,
-      theme: 'light',
     })
 
     expect(screen.queryByLabelText('Activity bar')).not.toBeInTheDocument()
     expect(screen.getByRole('toolbar', { name: 'Library actions' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { level: 1, name: 'Library' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('New library folder')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Save current query to library')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Open settings')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Toggle theme')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('New datastore connection'))
-    fireEvent.click(screen.getByLabelText('Open settings'))
-    fireEvent.click(screen.getByLabelText('Toggle theme'))
 
     expect(onCreateConnection).toHaveBeenCalledTimes(1)
-    expect(onOpenSettings).toHaveBeenCalledTimes(1)
-    expect(onToggleTheme).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -259,33 +353,44 @@ function renderLibraryPane(
   overrides: Partial<{
     closedTabs: ClosedQueryTabSnapshot[]
     activeConnectionId: string
+    activeEnvironmentId: string
+    connectionExplorerItems: ExplorerNode[]
     connections: ConnectionProfile[]
     environments: EnvironmentProfile[]
     explorerStatus: 'idle' | 'loading' | 'ready'
+    getConnectionExplorerItems: (connectionId: string, environmentId?: string) => ExplorerNode[] | undefined
+    getConnectionExplorerStatus: (connectionId: string, environmentId?: string) => 'idle' | 'loading' | 'ready'
     libraryNodes: LibraryNode[]
     onCreateConnection: () => void
     onCloneEnvironment: (environmentId: string) => void
     onDeleteEnvironment: (environmentId: string) => void
     onEditEnvironment: (environmentId: string) => void
-    onOpenSettings: () => void
+    onLoadExplorerScope: (connectionId: string, scope?: string, environmentId?: string) => void
     onSelectEnvironment: (environmentId: string) => void
+    onSelectConnection: (connectionId: string) => void
     onSetEnvironment: (nodeId: string, environmentId?: string) => void
-    onToggleTheme: () => void
     sectionStates: Record<string, boolean>
-    theme: 'system' | 'dark' | 'light'
   }> = {},
 ) {
   return render(
     <LibraryPane
       activeConnectionId={overrides.activeConnectionId ?? ''}
+      activeEnvironmentId={overrides.activeEnvironmentId ?? ''}
       closedTabs={overrides.closedTabs ?? []}
+      getConnectionExplorerItems={
+        overrides.getConnectionExplorerItems ??
+        (() => overrides.connectionExplorerItems)
+      }
+      getConnectionExplorerStatus={
+        overrides.getConnectionExplorerStatus ??
+        (() => overrides.explorerStatus ?? 'idle')
+      }
       connections={overrides.connections ?? []}
       environments={overrides.environments ?? []}
       explorerStatus={overrides.explorerStatus ?? 'idle'}
       libraryFilter=""
       libraryNodes={overrides.libraryNodes ?? nodes}
       sectionStates={overrides.sectionStates ?? {}}
-      theme={overrides.theme ?? 'dark'}
       onCreateConnection={overrides.onCreateConnection ?? vi.fn()}
       onCloneEnvironment={overrides.onCloneEnvironment ?? vi.fn()}
       onCreateFolder={vi.fn()}
@@ -293,16 +398,15 @@ function renderLibraryPane(
       onDeleteNode={vi.fn()}
       onEditEnvironment={overrides.onEditEnvironment ?? vi.fn()}
       onLibraryFilterChange={vi.fn()}
+      onLoadExplorerScope={overrides.onLoadExplorerScope ?? vi.fn()}
       onMoveNode={onMoveNode}
-      onOpenSettings={overrides.onOpenSettings ?? vi.fn()}
       onOpenLibraryItem={vi.fn()}
       onRenameNode={vi.fn()}
       onReopenClosedTab={vi.fn()}
-      onSaveCurrentQuery={vi.fn()}
+      onSelectConnection={overrides.onSelectConnection ?? vi.fn()}
       onSelectEnvironment={overrides.onSelectEnvironment ?? vi.fn()}
       onSetNodeEnvironment={overrides.onSetEnvironment ?? vi.fn()}
       onSidebarSectionExpandedChange={vi.fn()}
-      onToggleTheme={overrides.onToggleTheme ?? vi.fn()}
     />,
   )
 }
@@ -438,13 +542,39 @@ function item(id: string, name: string, parentId?: string): LibraryNode {
   }
 }
 
-function connectionNode(id: string, name: string, connectionId: string): LibraryNode {
+function connectionNode(
+  id: string,
+  name: string,
+  connectionId: string,
+  parentId?: string,
+): LibraryNode {
   return {
     id,
     kind: 'connection',
+    parentId,
     name,
     connectionId,
     tags: [],
+    createdAt: '2026-05-14T00:00:00.000Z',
+    updatedAt: '2026-05-14T00:00:00.000Z',
+  }
+}
+
+function mongoConnection(): ConnectionProfile {
+  return {
+    id: 'connection-mongo',
+    name: 'MongoDB',
+    engine: 'mongodb',
+    family: 'document',
+    host: 'localhost',
+    port: 27017,
+    database: 'catalog',
+    environmentIds: [],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'mongodb',
+    auth: {},
     createdAt: '2026-05-14T00:00:00.000Z',
     updatedAt: '2026-05-14T00:00:00.000Z',
   }

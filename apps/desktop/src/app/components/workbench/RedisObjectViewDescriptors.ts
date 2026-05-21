@@ -1,0 +1,206 @@
+export type RedisObjectViewDescriptor = {
+  kind: string
+  menuLabel: string
+  title: string
+  purpose: string
+  emptyTitle: string
+  emptyDescription: string
+  primaryQueryLabel?: string
+}
+
+const DESCRIPTORS: Record<string, RedisObjectViewDescriptor> = {
+  databases: {
+    kind: 'databases',
+    menuLabel: 'View Databases',
+    title: 'Redis Databases',
+    purpose: 'Review logical Redis databases, key counts, and jump into a database-scoped key browser.',
+    emptyTitle: 'No Redis databases are visible',
+    emptyDescription: 'Refresh databases or check whether the selected database currently has keys.',
+    primaryQueryLabel: 'Browse Keys',
+  },
+  database: {
+    kind: 'database',
+    menuLabel: 'Open DB Overview',
+    title: 'Redis DB Overview',
+    purpose: 'Inspect the selected logical database by key type, key count, scan progress, and metadata-safe browser entry points.',
+    emptyTitle: 'No key metadata is loaded',
+    emptyDescription: 'Refresh this database or open the key browser to scan keys with safe bounds.',
+    primaryQueryLabel: 'Browse DB Keys',
+  },
+  keys: {
+    kind: 'keys',
+    menuLabel: 'Browse Keys',
+    title: 'All Keys',
+    purpose: 'Browse every Redis key type in this database using SCAN, filters, and bounded key metadata.',
+    emptyTitle: 'No keys were loaded',
+    emptyDescription: 'Refresh or open the key browser with a wider pattern.',
+    primaryQueryLabel: 'Open Key Browser',
+  },
+  string: typeDescriptor('string', 'Browse Strings', 'Redis Strings', 'String, bitmap, binary, and HyperLogLog-style values.'),
+  hash: typeDescriptor('hash', 'Browse Hashes', 'Redis Hashes', 'Field/value maps with metadata and type-aware editing in Results.'),
+  list: typeDescriptor('list', 'Browse Lists', 'Redis Lists', 'Ordered values with length, range, push/pop, and trim workflows.'),
+  set: typeDescriptor('set', 'Browse Sets', 'Redis Sets', 'Unique members with set algebra and member-management workflows.'),
+  zset: typeDescriptor('zset', 'Browse Sorted Sets', 'Redis Sorted Sets', 'Scored members with ranks, ranges, and score editing workflows.'),
+  stream: typeDescriptor('stream', 'Browse Streams', 'Redis Streams', 'Append-only stream entries, consumer groups, pending messages, and stream metrics.'),
+  json: typeDescriptor('json', 'Browse JSON Keys', 'Redis JSON', 'RedisJSON documents with path-aware browsing and editing when the module is available.'),
+  timeseries: typeDescriptor('timeseries', 'Browse Time Series', 'Redis Time Series', 'Time-series keys, labels, retention, and bounded sample inspection when RedisTimeSeries is available.'),
+  bloom: typeDescriptor('bloom', 'Browse Bloom Filters', 'Bloom Filters', 'Probabilistic filter keys and module capability status.'),
+  'search-index': typeDescriptor('search-index', 'Manage Search Indexes', 'Search Indexes', 'RediSearch indexes, schema, document coverage, and disabled-state reasons when unavailable.'),
+  vectorset: typeDescriptor('vectorset', 'Browse Vector Indexes', 'Vector Indexes', 'Vector search structures and capability status when the server supports them.'),
+  pubsub: {
+    kind: 'pubsub',
+    menuLabel: 'Open Pub/Sub',
+    title: 'Redis Pub/Sub',
+    purpose: 'Inspect channels, patterns, subscribers, and Pub/Sub capability state without starting hidden monitoring.',
+    emptyTitle: 'No Pub/Sub metadata is available',
+    emptyDescription: 'Refresh channels or open a console command such as PUBSUB CHANNELS.',
+  },
+  cluster: {
+    kind: 'cluster',
+    menuLabel: 'Open Cluster Status',
+    title: 'Redis Cluster',
+    purpose: 'Inspect cluster mode, node metadata, slots, and failover state when this connection targets a cluster deployment.',
+    emptyTitle: 'Cluster metadata is unavailable',
+    emptyDescription: 'This server may not have cluster mode enabled, or the connected user cannot run CLUSTER commands.',
+  },
+  sentinel: {
+    kind: 'sentinel',
+    menuLabel: 'Open Sentinel Status',
+    title: 'Redis Sentinel',
+    purpose: 'Inspect Sentinel masters, replicas, peer sentinels, and failover state when the deployment supports Sentinel.',
+    emptyTitle: 'Sentinel metadata is unavailable',
+    emptyDescription: 'This connection is not configured as Sentinel, or Sentinel commands are not available.',
+  },
+  'lua-scripts': {
+    kind: 'lua-scripts',
+    menuLabel: 'Manage Lua Scripts',
+    title: 'Lua Scripts',
+    purpose: 'Review script-related surfaces and plan script workflows while keeping saved scripts in Library.',
+    emptyTitle: 'No script metadata is available',
+    emptyDescription: 'Redis does not list loaded script bodies; use script SHA and Library scripts for repeatable workflows.',
+  },
+  functions: {
+    kind: 'functions',
+    menuLabel: 'Manage Functions',
+    title: 'Redis Functions',
+    purpose: 'Review Redis function libraries, when supported, without changing function state from the explorer.',
+    emptyTitle: 'No function metadata is available',
+    emptyDescription: 'FUNCTION LIST may be unavailable on this Redis version or blocked by ACL permissions.',
+  },
+  security: {
+    kind: 'security',
+    menuLabel: 'Manage ACL / Security',
+    title: 'ACL / Security',
+    purpose: 'Review ACL users, categories, and the current authenticated user with clear permission warnings.',
+    emptyTitle: 'No ACL metadata is available',
+    emptyDescription: 'ACL commands may be unavailable or blocked by the connected user permissions.',
+  },
+  diagnostics: {
+    kind: 'diagnostics',
+    menuLabel: 'Open Diagnostics',
+    title: 'Redis Diagnostics',
+    purpose: 'Inspect INFO, SLOWLOG, command stats, latency, memory, clients, persistence, and replication metadata.',
+    emptyTitle: 'No diagnostics are loaded',
+    emptyDescription: 'Refresh diagnostics to collect read-only server metadata.',
+  },
+  slowlog: {
+    kind: 'slowlog',
+    menuLabel: 'Open SLOWLOG',
+    title: 'Redis SLOWLOG',
+    purpose: 'Review slow commands using bounded SLOWLOG reads so performance issues are visible without monitoring.',
+    emptyTitle: 'No slowlog entries were returned',
+    emptyDescription: 'The slowlog may be empty or unavailable to this user.',
+  },
+  metrics: {
+    kind: 'metrics',
+    menuLabel: 'Open Command Stats',
+    title: 'Redis Command Stats',
+    purpose: 'Review command counters and runtime statistics from INFO commandstats where available.',
+    emptyTitle: 'No command stats were returned',
+    emptyDescription: 'Refresh diagnostics or check that INFO commandstats is available.',
+  },
+  latency: {
+    kind: 'latency',
+    menuLabel: 'Open Latency',
+    title: 'Redis Latency',
+    purpose: 'Review Redis latency samples when LATENCY commands are enabled on the server.',
+    emptyTitle: 'No latency samples were returned',
+    emptyDescription: 'Latency monitoring may be disabled or unsupported by this Redis deployment.',
+  },
+  memory: {
+    kind: 'memory',
+    menuLabel: 'Open Memory Analysis',
+    title: 'Memory Analysis',
+    purpose: 'Review memory usage, fragmentation, allocator statistics, and high-signal memory facts.',
+    emptyTitle: 'No memory metadata was returned',
+    emptyDescription: 'MEMORY STATS may be unavailable or blocked by this user.',
+  },
+  clients: {
+    kind: 'clients',
+    menuLabel: 'Open Clients',
+    title: 'Redis Clients',
+    purpose: 'Review connected clients and connection metadata from safe CLIENT LIST reads.',
+    emptyTitle: 'No client metadata was returned',
+    emptyDescription: 'CLIENT LIST may be blocked by ACL permissions.',
+  },
+  persistence: {
+    kind: 'persistence',
+    menuLabel: 'Open Persistence',
+    title: 'Persistence',
+    purpose: 'Review RDB/AOF status and persistence health from INFO persistence.',
+    emptyTitle: 'No persistence metadata was returned',
+    emptyDescription: 'Refresh diagnostics or check INFO persistence support.',
+  },
+  replication: {
+    kind: 'replication',
+    menuLabel: 'Open Replication',
+    title: 'Replication',
+    purpose: 'Review role, replica links, offsets, and replication health from INFO replication.',
+    emptyTitle: 'No replication metadata was returned',
+    emptyDescription: 'Refresh diagnostics or check INFO replication support.',
+  },
+}
+
+const DEFAULT_DESCRIPTOR: RedisObjectViewDescriptor = {
+  kind: 'object',
+  menuLabel: 'Inspect Redis Metadata',
+  title: 'Redis Metadata',
+  purpose: 'Inspect Redis metadata and open the closest native Redis workflow for this object.',
+  emptyTitle: 'Redis metadata is not available',
+  emptyDescription: 'Refresh this object or check whether the connected user can inspect it.',
+}
+
+export function getRedisObjectViewDescriptor(kind: string | undefined): RedisObjectViewDescriptor {
+  if (!kind) {
+    return DEFAULT_DESCRIPTOR
+  }
+
+  return DESCRIPTORS[kind] ?? DEFAULT_DESCRIPTOR
+}
+
+export function redisObjectViewMenuLabel(kind: string | undefined): string {
+  return getRedisObjectViewDescriptor(kind).menuLabel
+}
+
+export function isRedisObjectViewKind(kind: string | undefined): boolean {
+  return Boolean(kind && DESCRIPTORS[kind])
+}
+
+export const REDIS_OBJECT_VIEW_KINDS = Object.freeze(Object.keys(DESCRIPTORS))
+
+function typeDescriptor(
+  kind: string,
+  menuLabel: string,
+  title: string,
+  purpose: string,
+): RedisObjectViewDescriptor {
+  return {
+    kind,
+    menuLabel,
+    title,
+    purpose,
+    emptyTitle: `No ${title.toLowerCase()} were loaded`,
+    emptyDescription: 'Open the key browser or refresh this type folder to collect bounded key metadata.',
+    primaryQueryLabel: `Browse ${title}`,
+  }
+}

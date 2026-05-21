@@ -113,7 +113,7 @@ describe('migrateWorkspaceSnapshot', () => {
     expect(migrated.ui.explorerFilter).toBe('orders')
     expect(migrated.ui.connectionGroupMode).toBe('none')
     expect(migrated.ui.sidebarSectionStates).toEqual({})
-    expect(migrated.libraryNodes.some((node) => node.id === 'library-root-tests')).toBe(true)
+    expect(migrated.libraryNodes.some((node) => node.id === 'library-root-tests')).toBe(false)
   })
 
   it('migrates legacy saved work into Library nodes and maps saved-work UI state', () => {
@@ -228,7 +228,7 @@ describe('migrateWorkspaceSnapshot', () => {
     expect(migrated.tabs).toHaveLength(0)
     expect(migrated.closedTabs).toHaveLength(0)
     expect(migrated.savedWork).toHaveLength(0)
-    expect(migrated.libraryNodes).toHaveLength(5)
+    expect(migrated.libraryNodes).toHaveLength(0)
     expect(migrated.explorerNodes).toHaveLength(0)
     expect(migrated.guardrails).toHaveLength(0)
     expect(migrated.ui.activeConnectionId).toBe('')

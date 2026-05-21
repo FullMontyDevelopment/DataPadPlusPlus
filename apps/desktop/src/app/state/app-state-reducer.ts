@@ -3,15 +3,18 @@ import {
   applyExecutionToPayload,
   applyResultPageToPayload,
   createWorkbenchMessage,
+  explorerCacheKey,
+  explorerRequestKey,
   markTabExecutionFailed,
   markTabExecutionLoading,
-  mergeExplorerResponse,
+  mergeExplorerCacheEntry,
   openMessagesPayload,
 } from './app-state-reducer-helpers'
 
 export const initialState: StateShape = {
   status: 'booting',
   explorerStatus: 'idle',
+  explorerLoadingRequests: {},
   structureStatus: 'idle',
   executionStatus: 'idle',
   connectionTests: {},
@@ -59,21 +62,47 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
       return {
         ...state,
         explorerStatus: 'loading',
+        explorerLoadingRequests: {
+          ...state.explorerLoadingRequests,
+          [explorerRequestKey(action.request)]: true,
+        },
         explorerError: undefined,
       }
-    case 'EXPLORER_READY':
+    case 'EXPLORER_READY': {
+      const cacheKey = explorerCacheKey(
+        action.explorer.connectionId,
+        action.explorer.environmentId,
+      )
+      const cacheEntry = mergeExplorerCacheEntry(
+        state.explorerCache?.[cacheKey],
+        action.explorer,
+      )
+      const loadingRequests = { ...state.explorerLoadingRequests }
+      delete loadingRequests[explorerRequestKey(action.explorer)]
+
       return {
         ...state,
-        explorerStatus: 'ready',
-        explorer: mergeExplorerResponse(state.explorer, action.explorer),
+        explorerStatus: Object.keys(loadingRequests).length ? 'loading' : 'ready',
+        explorer: cacheEntry.response,
+        explorerCache: {
+          ...(state.explorerCache ?? {}),
+          [cacheKey]: cacheEntry,
+        },
+        explorerLoadingRequests: loadingRequests,
         explorerError: undefined,
       }
-    case 'EXPLORER_ERROR':
+    }
+    case 'EXPLORER_ERROR': {
+      const loadingRequests = { ...state.explorerLoadingRequests }
+      delete loadingRequests[explorerRequestKey(action.request)]
+
       return {
         ...state,
-        explorerStatus: 'ready',
+        explorerStatus: Object.keys(loadingRequests).length ? 'loading' : 'ready',
+        explorerLoadingRequests: loadingRequests,
         explorerError: action.message,
       }
+    }
     case 'EXPLORER_INSPECTION_READY':
       return {
         ...state,
@@ -135,6 +164,7 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         status: state.payload ? 'ready' : 'error',
         payload: openMessagesPayload(state.payload),
         explorerStatus: state.explorerStatus === 'loading' ? 'idle' : state.explorerStatus,
+        explorerLoadingRequests: {},
         structureStatus: state.structureStatus === 'loading' ? 'idle' : state.structureStatus,
         executionStatus:
           state.executionStatus === 'loading' ? 'idle' : state.executionStatus,

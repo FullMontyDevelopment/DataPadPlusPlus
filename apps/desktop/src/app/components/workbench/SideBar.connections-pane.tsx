@@ -41,6 +41,7 @@ export function ConnectionsPane({
   environments,
   explorerNodes,
   explorerStatus,
+  isExplorerScopeLoading = () => false,
   sectionStates,
   onConnectionFilterChange,
   onConnectionGroupModeChange,
@@ -63,8 +64,9 @@ export function ConnectionsPane({
   connectionGroupMode: ConnectionGroupMode
   connectionGroups: Record<string, ConnectionProfile[]>
   environments: EnvironmentProfile[]
-  explorerNodes: ExplorerNode[]
+  explorerNodes?: ExplorerNode[]
   explorerStatus: 'idle' | 'loading' | 'ready'
+  isExplorerScopeLoading?(connectionId: string, scope?: string): boolean
   sectionStates: Record<string, boolean>
   onConnectionFilterChange(value: string): void
   onConnectionGroupModeChange(value: ConnectionGroupMode): void
@@ -196,7 +198,8 @@ export function ConnectionsPane({
                 const environmentStyle = environmentAccentVariables(environment)
                 const expanded = Boolean(expandedConnections[connection.id])
                 const isLoadingMetadata =
-                  connection.id === activeConnectionId && explorerStatus === 'loading'
+                  isExplorerScopeLoading(connection.id) ||
+                  (connection.id === activeConnectionId && explorerStatus === 'loading')
 
                 return (
                   <div key={connection.id} className="connection-tree-block">
@@ -283,11 +286,12 @@ export function ConnectionsPane({
                         connection={connection}
                         environment={environment}
                         explorerNodes={
-                          connection.id === activeConnectionId ? explorerNodes : []
+                          connection.id === activeConnectionId ? explorerNodes : undefined
                         }
                         explorerStatus={
                           connection.id === activeConnectionId ? explorerStatus : 'idle'
                         }
+                        isExplorerScopeLoading={isExplorerScopeLoading}
                         onLoadExplorerScope={onLoadExplorerScope}
                         onOpenObjectView={onOpenObjectView}
                         onOpenScopedQuery={onOpenScopedQuery}

@@ -9,7 +9,6 @@ import {
   ObjectConstraintIcon,
   ObjectDatabaseIcon,
   ObjectDocumentIcon,
-  ObjectFolderIcon,
   ObjectFunctionIcon,
   ObjectGenericIcon,
   ObjectGraphIcon,
@@ -23,7 +22,6 @@ import {
   ObjectMetricIcon,
   ObjectPackageIcon,
   ObjectPartitionIcon,
-  ObjectPrefixIcon,
   ObjectProcedureIcon,
   ObjectRelationshipIcon,
   ObjectRoleIcon,
@@ -42,11 +40,17 @@ import {
   ObjectWarehouseIcon,
 } from './icons'
 import { DatastoreIcon } from './DatastoreIcon'
+import {
+  TreeFolderIcon,
+  TreeFolderOpenIcon,
+  TreePrefixIcon,
+} from './FolderTreeIcons'
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>
 
 interface IconDescriptor {
   Icon: IconComponent
+  OpenIcon?: IconComponent
   tone: string
 }
 
@@ -80,7 +84,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
   ],
   [
     ['folder', 'folders', 'group', 'groups', 'category', 'categories'],
-    { Icon: ObjectFolderIcon, tone: 'folder' },
+    { Icon: TreeFolderIcon, OpenIcon: TreeFolderOpenIcon, tone: 'folder' },
   ],
   [
     [
@@ -209,7 +213,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
   ],
   [
     ['prefix', 'prefixes', 'key-prefix', 'key-prefixes'],
-    { Icon: ObjectPrefixIcon, tone: 'prefix' },
+    { Icon: TreePrefixIcon, OpenIcon: TreeFolderOpenIcon, tone: 'prefix' },
   ],
   [
     ['list', 'lists', 'queue', 'queues', 'queue-table', 'queue-tables'],
@@ -228,7 +232,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectRelationshipIcon, tone: 'relationship' },
   ],
   [
-    ['metric', 'metrics', 'measurement', 'measurements', 'series'],
+    ['diagnostic', 'diagnostics', 'metric', 'metrics', 'measurement', 'measurements', 'series'],
     { Icon: ObjectMetricIcon, tone: 'metric' },
   ],
   [
@@ -297,9 +301,16 @@ export function EngineIcon({ connection }: { connection: ConnectionProfile }) {
   )
 }
 
-export function ExplorerNodeIcon({ kind }: { connection?: ConnectionProfile; kind: string }) {
+export function ExplorerNodeIcon({
+  expanded = false,
+  kind,
+}: {
+  connection?: ConnectionProfile
+  expanded?: boolean
+  kind: string
+}) {
   const descriptor = iconDescriptorForKind(kind)
-  const Icon = descriptor.Icon
+  const Icon = expanded && descriptor.OpenIcon ? descriptor.OpenIcon : descriptor.Icon
 
   return (
     <Icon

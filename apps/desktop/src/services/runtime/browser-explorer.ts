@@ -23,6 +23,10 @@ export function createExplorerNodes(
     return createOracleExplorerNodes(connection, scope)
   }
 
+  if (connection.engine === 'redis' || connection.engine === 'valkey') {
+    return createRedisExplorerNodes(connection, scope)
+  }
+
   if (connection.family === 'document') {
     const database = connection.database || connection.name
 
@@ -377,6 +381,8 @@ export function inspectExplorerNodeLocally(
     ? mongoInspectQueryTemplate(connection, request.nodeId)
     : connection.engine === 'oracle'
       ? oracleInspectQueryTemplate(request.nodeId)
+      : connection.engine === 'redis' || connection.engine === 'valkey'
+      ? redisInspectQueryTemplate(request.nodeId)
       : connection.engine === 'sqlite'
       ? sqliteInspectQueryTemplate(request.nodeId)
       : request.nodeId.includes('collection')
@@ -394,6 +400,8 @@ export function inspectExplorerNodeLocally(
         ? mongoInspectPayload(connection, request.nodeId)
         : connection.engine === 'oracle'
           ? oracleInspectPayload(connection, request.nodeId)
+        : connection.engine === 'redis' || connection.engine === 'valkey'
+          ? redisInspectPayload(request.nodeId)
         : connection.engine === 'sqlite'
           ? sqliteInspectPayload(request.nodeId)
         : connection.family === 'document'
@@ -451,6 +459,329 @@ function sqliteInspectPayload(nodeId: string) {
           ? 'pragma'
           : 'database',
   }
+}
+
+function createRedisExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
+  if (!scope) {
+    return [
+      redisNode(connection, 'redis:databases', 'Databases', 'databases', 'Logical Redis databases', 'databases', true),
+      redisNode(connection, 'redis:cluster', 'Cluster', 'cluster', 'Cluster status and nodes', 'cluster', true),
+      redisNode(connection, 'redis:sentinel', 'Sentinel', 'sentinel', 'Sentinel masters and failover status', 'sentinel', true),
+      redisNode(connection, 'redis:pubsub', 'Pub/Sub', 'pubsub', 'Channels and patterns', 'pubsub', true),
+      redisNode(connection, 'redis:lua-scripts', 'Lua Scripts', 'lua-scripts', 'Script workflow surfaces', 'lua-scripts', true),
+      redisNode(connection, 'redis:functions', 'Functions', 'functions', 'Redis function libraries', 'functions', true),
+      redisNode(connection, 'redis:acl', 'ACL / Security', 'security', 'ACL users and categories', 'acl', true),
+      redisNode(connection, 'redis:diagnostics', 'Diagnostics', 'diagnostics', 'INFO, SLOWLOG, memory, latency, clients', 'diagnostics', true),
+    ]
+  }
+
+  if (scope === 'databases') {
+    return [
+      redisNode(connection, 'redis:db:0', 'DB 0', 'database', '40,010 keys', 'db:0', true),
+      redisNode(connection, 'redis:db:1', 'DB 1', 'database', '0 keys', 'db:1', true),
+    ]
+  }
+
+  if (scope.startsWith('db:') && !scope.includes(':type:')) {
+    const database = redisDatabaseFromScope(scope)
+    return REDIS_BROWSER_TYPES.map((type) =>
+      redisNode(
+        connection,
+        `redis:db:${database}:${type.kind}`,
+        type.label,
+        type.kind,
+        type.detail,
+        `db:${database}:type:${type.kind}`,
+        type.kind !== 'pubsub' && type.kind !== 'search-index',
+      ),
+    )
+  }
+
+  if (scope.startsWith('db:') && scope.includes(':type:')) {
+    const database = redisDatabaseFromScope(scope)
+    const type = scope.split(':type:')[1] ?? 'keys'
+    return previewRedisKeysForType(type).map((key) => ({
+      id: `key:${database}:${key.key}`,
+      family: 'keyvalue',
+      label: key.key,
+      kind: key.type,
+      detail: `${key.type} / ${key.length} item(s)`,
+      path: [connection.name, `DB ${database}`, redisTypeFolderLabel(type)],
+      queryTemplate: `TYPE ${key.key}\nTTL ${key.key}`,
+    }))
+  }
+
+  if (scope === 'cluster') {
+    return [
+      redisNode(connection, 'redis:cluster:info', 'Cluster Info', 'cluster', 'CLUSTER INFO'),
+      redisNode(connection, 'redis:cluster:nodes', 'Nodes', 'cluster-node', 'CLUSTER NODES'),
+      redisNode(connection, 'redis:cluster:slots', 'Slots', 'cluster-slots', 'Hash slot allocation'),
+      redisNode(connection, 'redis:cluster:failover', 'Failover Status', 'cluster-failover', 'Failover metadata'),
+    ]
+  }
+
+  if (scope === 'sentinel') {
+    return [
+      redisNode(connection, 'redis:sentinel:masters', 'Masters', 'sentinel-masters', 'SENTINEL MASTERS'),
+      redisNode(connection, 'redis:sentinel:replicas', 'Replicas', 'sentinel-replicas', 'SENTINEL REPLICAS'),
+      redisNode(connection, 'redis:sentinel:sentinels', 'Sentinels', 'sentinel-peers', 'SENTINEL SENTINELS'),
+      redisNode(connection, 'redis:sentinel:failover', 'Failover Status', 'sentinel-failover', 'Failover metadata'),
+    ]
+  }
+
+  if (scope === 'pubsub') {
+    return [
+      redisNode(connection, 'redis:pubsub:channels', 'Channels', 'pubsub-channel', 'PUBSUB CHANNELS'),
+      redisNode(connection, 'redis:pubsub:patterns', 'Patterns', 'pubsub-pattern', 'PUBSUB NUMPAT'),
+      redisNode(connection, 'redis:pubsub:subscribers', 'Subscribers', 'pubsub-subscriber', 'PUBSUB NUMSUB'),
+    ]
+  }
+
+  if (scope === 'lua-scripts') {
+    return [
+      redisNode(connection, 'redis:lua:scripts', 'Loaded Scripts', 'lua-script', 'Script SHA workflow'),
+      redisNode(connection, 'redis:lua:history', 'Script History', 'history', 'Saved script history lives in Library'),
+    ]
+  }
+
+  if (scope === 'functions') {
+    return [
+      redisNode(connection, 'redis:functions:list', 'Libraries', 'functions', 'FUNCTION LIST'),
+    ]
+  }
+
+  if (scope === 'acl') {
+    return [
+      redisNode(connection, 'redis:acl:users', 'Users', 'users', 'ACL LIST'),
+      redisNode(connection, 'redis:acl:categories', 'Categories', 'permissions', 'ACL CAT'),
+      redisNode(connection, 'redis:acl:whoami', 'Current User', 'user', 'ACL WHOAMI'),
+    ]
+  }
+
+  if (scope === 'diagnostics') {
+    return [
+      redisNode(connection, 'redis:diagnostics:info', 'INFO', 'diagnostics', 'Server INFO sections'),
+      redisNode(connection, 'redis:diagnostics:slowlog', 'SLOWLOG', 'slowlog', 'Slow command log'),
+      redisNode(connection, 'redis:diagnostics:commandstats', 'Command Stats', 'metrics', 'INFO commandstats'),
+      redisNode(connection, 'redis:diagnostics:latency', 'Latency', 'latency', 'LATENCY LATEST'),
+      redisNode(connection, 'redis:diagnostics:memory', 'Memory Analysis', 'memory', 'MEMORY STATS'),
+      redisNode(connection, 'redis:diagnostics:clients', 'Clients', 'clients', 'CLIENT LIST'),
+      redisNode(connection, 'redis:diagnostics:persistence', 'Persistence', 'persistence', 'INFO persistence'),
+      redisNode(connection, 'redis:diagnostics:replication', 'Replication', 'replication', 'INFO replication'),
+    ]
+  }
+
+  return []
+}
+
+const REDIS_BROWSER_TYPES = [
+  { kind: 'keys', label: 'Keys', detail: 'All key types' },
+  { kind: 'string', label: 'Strings', detail: 'String, bitmap, and HyperLogLog values' },
+  { kind: 'hash', label: 'Hashes', detail: 'Hash maps' },
+  { kind: 'list', label: 'Lists', detail: 'Ordered list values' },
+  { kind: 'set', label: 'Sets', detail: 'Set values' },
+  { kind: 'zset', label: 'Sorted Sets', detail: 'Scored set values' },
+  { kind: 'stream', label: 'Streams', detail: 'Append-only stream values' },
+  { kind: 'json', label: 'JSON', detail: 'RedisJSON values when the module is installed' },
+  { kind: 'timeseries', label: 'Time Series', detail: 'RedisTimeSeries values when available' },
+  { kind: 'bloom', label: 'Bloom Filters', detail: 'RedisBloom probabilistic values when available' },
+  { kind: 'search-index', label: 'Search Indexes', detail: 'RediSearch indexes' },
+  { kind: 'vectorset', label: 'Vector Indexes', detail: 'Vector search structures' },
+  { kind: 'pubsub', label: 'Pub/Sub', detail: 'Channels, patterns, and subscribers' },
+] as const
+
+function redisInspectQueryTemplate(nodeId: string) {
+  if (nodeId.startsWith('key:')) {
+    const key = nodeId.split(':').slice(2).join(':')
+    return `TYPE ${key}\nTTL ${key}`
+  }
+
+  if (nodeId.includes(':slowlog')) {
+    return 'SLOWLOG GET 128'
+  }
+
+  if (nodeId.includes(':memory')) {
+    return 'MEMORY STATS'
+  }
+
+  if (nodeId.includes(':clients')) {
+    return 'CLIENT LIST'
+  }
+
+  if (nodeId.includes(':replication')) {
+    return 'INFO replication'
+  }
+
+  if (nodeId.includes(':persistence')) {
+    return 'INFO persistence'
+  }
+
+  if (nodeId.includes(':latency')) {
+    return 'LATENCY LATEST'
+  }
+
+  if (nodeId.includes(':acl')) {
+    return 'ACL LIST'
+  }
+
+  if (nodeId.includes(':cluster')) {
+    return 'CLUSTER INFO'
+  }
+
+  return 'INFO'
+}
+
+function redisInspectPayload(nodeId: string) {
+  if (nodeId === 'redis:databases') {
+    return {
+      databases: [
+        { database: 0, keys: 40010, expires: 39992, avgTtl: '12m' },
+        { database: 1, keys: 0, expires: 0, avgTtl: 'n/a' },
+      ],
+      configuredDatabase: 0,
+    }
+  }
+
+  if (nodeId.startsWith('redis:db:')) {
+    const [, , database = '0', type] = nodeId.split(':')
+    const typeCounts = [
+      { type: 'hash', count: 39992, examples: ['perf:session:000143'] },
+      { type: 'zset', count: 1, examples: ['products:inventory'] },
+      { type: 'string', count: 17, examples: ['account:1'] },
+    ]
+
+    if (type) {
+      const keys = previewRedisKeysForType(type)
+      return {
+        database: Number.parseInt(database, 10),
+        type,
+        pattern: '*',
+        scannedKeys: keys.length,
+        keys,
+      }
+    }
+
+    return {
+      database: Number.parseInt(database, 10),
+      keyCount: 40010,
+      scannedKeys: 100,
+      typeCounts,
+    }
+  }
+
+  if (nodeId.startsWith('key:')) {
+    const [, database = '0', ...keyParts] = nodeId.split(':')
+    const key = keyParts.join(':')
+    return {
+      database: Number.parseInt(database, 10),
+      key,
+      type: key.includes('inventory') ? 'zset' : key.includes('orders') ? 'list' : 'hash',
+      ttlSeconds: key.startsWith('perf:') ? -1 : 600,
+      memoryUsageBytes: 144,
+      length: 4,
+      preview: {
+        status: 'active',
+        updatedAt: '2026-05-20T12:00:00.000Z',
+      },
+    }
+  }
+
+  if (nodeId.includes('diagnostics:info')) {
+    return {
+      command: 'INFO',
+      text: '# Server\nredis_version:7.2.5\nuptime_in_seconds:3600\n# Clients\nconnected_clients:1\n# Memory\nused_memory:7399232\nmem_fragmentation_ratio:2.35\n# Stats\ninstantaneous_ops_per_sec:0\nkeyspace_hits:31449\nkeyspace_misses:0\n# Keyspace\ndb0:keys=40010,expires=39992,avg_ttl=720000',
+    }
+  }
+
+  if (nodeId.includes('slowlog')) {
+    return {
+      command: 'SLOWLOG GET 128',
+      value: [
+        { id: 1, durationMicros: 1200, command: 'HGETALL perf:session:000143' },
+      ],
+    }
+  }
+
+  if (nodeId.includes('acl')) {
+    return {
+      command: 'ACL LIST',
+      value: ['user default on nopass ~* &* +@all'],
+    }
+  }
+
+  if (nodeId.includes('cluster')) {
+    return {
+      command: 'CLUSTER INFO',
+      warning: 'Cluster commands are unavailable on this standalone preview server.',
+      value: 'cluster_enabled:0',
+    }
+  }
+
+  return {
+    command: redisInspectQueryTemplate(nodeId),
+    warning: 'Preview metadata is deterministic. Refresh against a live connection for server-specific details.',
+    value: [],
+  }
+}
+
+function redisNode(
+  connection: ConnectionProfile,
+  id: string,
+  label: string,
+  kind: string,
+  detail: string,
+  scope?: string,
+  expandable?: boolean,
+): ExplorerNode {
+  return {
+    id,
+    family: 'keyvalue',
+    label,
+    kind,
+    detail,
+    scope,
+    path: [connection.name],
+    expandable,
+  }
+}
+
+function redisDatabaseFromScope(scope: string) {
+  const match = /^db:(\d+)/.exec(scope)
+  return match?.[1] ?? '0'
+}
+
+function previewRedisKeysForType(type: string) {
+  switch (type) {
+    case 'hash':
+      return [
+        { key: 'perf:session:000143', type: 'hash', ttlSeconds: -1, memoryUsageBytes: 144, length: 4 },
+        { key: 'perf:session:000561', type: 'hash', ttlSeconds: -1, memoryUsageBytes: 128, length: 4 },
+      ]
+    case 'zset':
+      return [
+        { key: 'products:inventory', type: 'zset', ttlSeconds: -1, memoryUsageBytes: 120, length: 3 },
+      ]
+    case 'list':
+      return [
+        { key: 'orders:recent', type: 'list', ttlSeconds: 600, memoryUsageBytes: 512, length: 20 },
+      ]
+    case 'string':
+      return [
+        { key: 'account:1', type: 'string', ttlSeconds: -1, memoryUsageBytes: 48, length: 1 },
+      ]
+    case 'keys':
+      return [
+        { key: 'perf:session:000143', type: 'hash', ttlSeconds: -1, memoryUsageBytes: 144, length: 4 },
+        { key: 'products:inventory', type: 'zset', ttlSeconds: -1, memoryUsageBytes: 120, length: 3 },
+        { key: 'account:1', type: 'string', ttlSeconds: -1, memoryUsageBytes: 48, length: 1 },
+      ]
+    default:
+      return []
+  }
+}
+
+function redisTypeFolderLabel(type: string) {
+  return REDIS_BROWSER_TYPES.find((entry) => entry.kind === type)?.label ?? 'Keys'
 }
 
 function createMongoExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {

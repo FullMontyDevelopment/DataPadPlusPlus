@@ -25,9 +25,6 @@ export function upsertSavedWork(
       tab.queryText = updated.queryText ?? tab.queryText
       tab.title = updated.name
       tab.dirty = false
-      tab.result = undefined
-      tab.error = undefined
-      tab.status = 'idle'
     }
   }
 
@@ -50,9 +47,6 @@ export function saveQueryTab(
     tab.title = item.name
     tab.queryText = item.queryText ?? tab.queryText
     tab.dirty = false
-    tab.result = undefined
-    tab.error = undefined
-    tab.status = 'idle'
   }
 
   next.updatedAt = new Date().toISOString()
@@ -113,4 +107,3 @@ export function openSavedWork(
 
   return upsertTab(next, tab)
 }
-

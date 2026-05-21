@@ -13,6 +13,7 @@ const SQL_OPERATORS: Record<Exclude<SqlSelectFilterOperator, 'is-null' | 'is-not
   gte: '>=',
   lt: '<',
   lte: '<=',
+  contains: 'like',
   like: 'like',
   in: 'in',
 }
@@ -151,6 +152,10 @@ function sqlPredicate(
     return `${identifier} is not null`
   }
 
+  if (row.operator === 'contains') {
+    return `${identifier} like ${sqlStringLiteral(`%${escapeSqlLikeValue(row.value)}%`)} escape '\\'`
+  }
+
   const value = sqlLiteral(row.value, row.valueType, row.operator)
   return `${identifier} ${SQL_OPERATORS[row.operator]} ${value}`
 }
@@ -237,6 +242,17 @@ function sqlLiteral(
   }
 
   return `'${value.replaceAll("'", "''")}'`
+}
+
+function sqlStringLiteral(value: string) {
+  return `'${value.replaceAll("'", "''")}'`
+}
+
+function escapeSqlLikeValue(value: string) {
+  return value
+    .replaceAll('\\', '\\\\')
+    .replaceAll('%', '\\%')
+    .replaceAll('_', '\\_')
 }
 
 function stripSqlComments(queryText: string) {

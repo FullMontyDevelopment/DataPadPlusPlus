@@ -1,9 +1,11 @@
 import type { MongoFindBuilderState } from '@datapadplusplus/shared-types'
 import { BuilderSection } from './BuilderSection'
+import { TrashIcon } from '../icons'
 import type { MongoFindSectionProps } from './MongoBuilderSection.types'
 import { rowId } from './MongoBuilderSection.types'
 
 export function MongoProjectionBuilderSection({
+  dragActive,
   draft,
   filterGroups,
   updateDraft,
@@ -13,6 +15,8 @@ export function MongoProjectionBuilderSection({
       title="Projection"
       actionLabel="Add Field"
       dropHint="Drop a result field to project"
+      dropZone="projection"
+      dragActive={dragActive}
       onDropField={(field) =>
         updateDraft({
           filterGroups,
@@ -61,8 +65,9 @@ export function MongoProjectionBuilderSection({
           </select>
           <button
             type="button"
-            className="query-builder-remove"
+            className="query-builder-remove query-builder-remove--icon"
             aria-label="Remove projection field"
+            title="Remove projection field"
             onClick={() =>
               updateDraft({
                 filterGroups,
@@ -70,7 +75,7 @@ export function MongoProjectionBuilderSection({
               })
             }
           >
-            Remove
+            <TrashIcon className="toolbar-icon" />
           </button>
         </div>
       ))}

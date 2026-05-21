@@ -1,11 +1,103 @@
 import type {
   BootstrapPayload,
+  ExplorerRequest,
   ExplorerResponse,
   ResultPageResponse,
   ResultPayload,
 } from '@datapadplusplus/shared-types'
 import { createId } from './helpers'
-import type { AppAction, WorkbenchMessage, WorkbenchMessageSeverity } from './app-state-types'
+import type {
+  AppAction,
+  ExplorerCacheEntry,
+  WorkbenchMessage,
+  WorkbenchMessageSeverity,
+} from './app-state-types'
+
+const ROOT_EXPLORER_SCOPE = '__root__'
+
+export function explorerCacheKey(connectionId: string, environmentId: string) {
+  return `${connectionId}::${environmentId}`
+}
+
+export function explorerScopeKey(scope: string | undefined) {
+  return scope?.trim() || ROOT_EXPLORER_SCOPE
+}
+
+export function explorerRequestKey(request: ExplorerRequest) {
+  return `${explorerCacheKey(request.connectionId, request.environmentId)}::${explorerScopeKey(
+    request.scope,
+  )}`
+}
+
+export function isExplorerRequestLoading(
+  loadingRequests: Record<string, true> | undefined,
+  connectionId: string | undefined,
+  environmentId: string | undefined,
+  scope?: string,
+) {
+  if (!loadingRequests || !connectionId || !environmentId) {
+    return false
+  }
+
+  return Boolean(
+    loadingRequests[
+      explorerRequestKey({
+        connectionId,
+        environmentId,
+        scope,
+      })
+    ],
+  )
+}
+
+export function hasExplorerScope(
+  entry: ExplorerCacheEntry | undefined,
+  scope?: string,
+) {
+  return Boolean(entry?.scopes[explorerScopeKey(scope)])
+}
+
+export function mergeExplorerCacheEntry(
+  current: ExplorerCacheEntry | undefined,
+  incoming: ExplorerResponse,
+): ExplorerCacheEntry {
+  const scopeKey = explorerScopeKey(incoming.scope)
+  const scopes =
+    current &&
+    current.connectionId === incoming.connectionId &&
+    current.environmentId === incoming.environmentId
+      ? {
+          ...current.scopes,
+          [scopeKey]: incoming,
+        }
+      : {
+          [scopeKey]: incoming,
+        }
+  const nodesById = new Map<string, ExplorerResponse['nodes'][number]>()
+  const scopedResponses = [
+    scopes[ROOT_EXPLORER_SCOPE],
+    ...Object.entries(scopes)
+      .filter(([key]) => key !== ROOT_EXPLORER_SCOPE)
+      .map(([, response]) => response),
+  ].filter((response): response is ExplorerResponse => Boolean(response))
+
+  for (const response of scopedResponses) {
+    for (const node of response.nodes) {
+      nodesById.set(node.id, node)
+    }
+  }
+
+  return {
+    connectionId: incoming.connectionId,
+    environmentId: incoming.environmentId,
+    scopes,
+    response: {
+      ...incoming,
+      scope: undefined,
+      nodes: Array.from(nodesById.values()),
+    },
+  }
+}
 
 export function createWorkbenchMessage(
   message: string,
@@ -47,7 +139,11 @@ export function applyExecutionToPayload(
   const index = next.snapshot.tabs.findIndex((item) => item.id === execution.tab.id)
 
   if (index >= 0) {
-    next.snapshot.tabs[index] = execution.tab
+    const currentTab = next.snapshot.tabs[index]
+    next.snapshot.tabs[index] = {
+      ...execution.tab,
+      dirty: currentTab?.dirty ?? execution.tab.dirty,
+    }
   } else {
     next.snapshot.tabs.push(execution.tab)
   }

@@ -9,7 +9,6 @@ import type {
   LibraryNode,
   ScopedQueryTarget,
   UiState,
-  WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { ExplorerPane } from './SideBar.explorer-pane'
 import { LibraryPane } from './SideBar.library-pane'
@@ -17,21 +16,20 @@ import { LibraryPane } from './SideBar.library-pane'
 interface SideBarProps {
   ui: UiState
   width: number
-  theme: WorkspaceSnapshot['preferences']['theme']
   connections: ConnectionProfile[]
   adapterManifests: AdapterManifest[]
   environments: EnvironmentProfile[]
   libraryNodes: LibraryNode[]
   closedTabs: ClosedQueryTabSnapshot[]
   explorerItems: ExplorerNode[]
-  connectionExplorerItems: ExplorerNode[]
+  getConnectionExplorerItems?(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
+  getConnectionExplorerStatus?(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
   explorerSummary?: string
   explorerStatus: 'idle' | 'loading' | 'ready'
+  isExplorerScopeLoading?(connectionId: string, scope?: string, environmentId?: string): boolean
   activeConnectionId: string
   activeEnvironmentId: string
   onSelectConnection(connectionId: string): void
-  onOpenSettings(): void
-  onToggleTheme(): void
   onSelectEnvironment(environmentId: string): void
   onCreateConnection(parentId?: string): void
   onCreateEnvironment(): void
@@ -46,13 +44,12 @@ interface SideBarProps {
   onOpenConnectionMetrics(connectionId: string): void
   onOpenConnectionDrawer(connectionId: string): void
   onTestConnection(connectionId: string): void
-  onLoadExplorerScope(connectionId: string, scope?: string): void
+  onLoadExplorerScope(connectionId: string, scope?: string, environmentId?: string): void
   onOpenObjectView(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onCreateTab(connectionId?: string): void
   onCreateTestSuite(connectionId?: string): void
   onOpenTestSuiteTemplate(connectionId: string, templateId: string): void
-  onSaveCurrentQuery(): void
   onCreateLibraryFolder(parentId?: string): void
   onDeleteLibraryNode(nodeId: string): void
   onMoveLibraryNode(nodeId: string, parentId?: string): void
@@ -71,21 +68,20 @@ interface SideBarProps {
 export function SideBar({
   ui,
   width,
-  theme,
   connections,
   adapterManifests,
   environments,
   libraryNodes,
   closedTabs,
   explorerItems,
-  connectionExplorerItems,
+  getConnectionExplorerItems,
+  getConnectionExplorerStatus,
   explorerSummary,
   explorerStatus,
+  isExplorerScopeLoading,
   activeConnectionId,
   activeEnvironmentId,
   onSelectConnection,
-  onOpenSettings,
-  onToggleTheme,
   onSelectEnvironment,
   onCreateConnection,
   onCreateEnvironment,
@@ -104,7 +100,6 @@ export function SideBar({
   onOpenScopedQuery,
   onCreateTab,
   onCreateTestSuite,
-  onSaveCurrentQuery,
   onCreateLibraryFolder,
   onDeleteLibraryNode,
   onMoveLibraryNode,
@@ -251,14 +246,15 @@ export function SideBar({
           activeEnvironmentId={activeEnvironmentId}
           adapterManifests={adapterManifests}
           closedTabs={closedTabs}
-          connectionExplorerItems={connectionExplorerItems}
+          getConnectionExplorerItems={getConnectionExplorerItems}
+          getConnectionExplorerStatus={getConnectionExplorerStatus}
           connections={connections}
           environments={environments}
           explorerStatus={explorerStatus}
+          isExplorerScopeLoading={isExplorerScopeLoading}
           libraryFilter={libraryFilter}
           libraryNodes={libraryNodes}
           sectionStates={sidebarSectionStates}
-          theme={theme}
           onCloneEnvironment={onCloneEnvironment}
           onCreateConnection={onCreateConnection}
           onCreateEnvironment={onCreateEnvironment}
@@ -277,7 +273,6 @@ export function SideBar({
           onOpenConnectionMetrics={onOpenConnectionMetrics}
           onInspectExplorerNode={onInspectExplorerNode}
           onOpenObjectView={onOpenObjectView}
-          onOpenSettings={onOpenSettings}
           onOpenScopedQuery={onOpenScopedQuery}
           onOpenLibraryItem={onOpenLibraryItem}
           onRenameNode={onRenameLibraryNode}
@@ -286,11 +281,9 @@ export function SideBar({
           onSelectConnection={onSelectConnection}
           onSelectEnvironment={onSelectEnvironment}
           onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
-          onSaveCurrentQuery={onSaveCurrentQuery}
           onLibraryFilterChange={setLibraryFilter}
           onCollapseSidebar={onCollapseSidebar}
           onTestConnection={onTestConnection}
-          onToggleTheme={onToggleTheme}
         />
       ) : null}
     </aside>

@@ -57,6 +57,17 @@ impl ManagedAppState {
         &mut self,
         profile: ConnectionProfile,
     ) -> Result<BootstrapPayload, CommandError> {
+        if profile
+            .connection_string
+            .as_deref()
+            .is_some_and(security::connection_string_contains_secret)
+        {
+            return Err(CommandError::new(
+                "connection-string-secret",
+                "Connection strings with embedded passwords, tokens, or keys are not saved. Put the secret in the password/secret field so DataPad++ can store it in the encrypted secret store.",
+            ));
+        }
+
         if let Some(index) = self
             .snapshot
             .connections
@@ -207,11 +218,21 @@ impl ManagedAppState {
             connection.updated_at = updated_at.clone();
         }
 
+        self.snapshot.tabs.retain(|tab| {
+            !(tab.tab_kind.as_deref() == Some("environment")
+                && tab.environment_id == environment_id)
+        });
+
         for tab in &mut self.snapshot.tabs {
             if tab.environment_id == environment_id {
                 tab.environment_id = fallback_environment_id.clone();
             }
         }
+
+        self.snapshot.closed_tabs.retain(|closed_tab| {
+            !(closed_tab.tab.tab_kind.as_deref() == Some("environment")
+                && closed_tab.tab.environment_id == environment_id)
+        });
 
         for closed_tab in &mut self.snapshot.closed_tabs {
             if closed_tab.tab.environment_id == environment_id {
@@ -235,6 +256,21 @@ impl ManagedAppState {
 
         if self.snapshot.ui.active_environment_id == environment_id {
             self.snapshot.ui.active_environment_id = fallback_environment_id;
+        }
+
+        if !self
+            .snapshot
+            .tabs
+            .iter()
+            .any(|tab| tab.id == self.snapshot.ui.active_tab_id)
+        {
+            if let Some(active_tab) = self.snapshot.tabs.first().cloned() {
+                self.snapshot.ui.active_tab_id = active_tab.id;
+                self.snapshot.ui.active_connection_id = active_tab.connection_id;
+                self.snapshot.ui.active_environment_id = active_tab.environment_id;
+            } else {
+                self.snapshot.ui.active_tab_id = String::new();
+            }
         }
 
         self.snapshot.updated_at = updated_at;

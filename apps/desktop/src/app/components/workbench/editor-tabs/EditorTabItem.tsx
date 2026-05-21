@@ -10,7 +10,7 @@ import type {
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { DatastoreIcon } from '../DatastoreIcon'
-import { CloseIcon, DatabaseIcon, RefreshIcon, WarningIcon } from '../icons'
+import { CloseIcon, DatabaseIcon, EnvironmentsIcon, RefreshIcon, WarningIcon } from '../icons'
 import { colorWithAlpha, normalizeTabDisplayTitle } from './tab-title'
 
 export interface EditorTabDropTarget {
@@ -75,7 +75,10 @@ export function EditorTabItem({
   const tabCanBeSaved =
     tab.tabKind !== 'explorer' && tab.tabKind !== 'metrics' && tab.tabKind !== 'object-view'
   const showUnsavedChanges = tabCanBeSaved && tab.dirty
-  const connectionName = connection?.name ?? 'Unknown connection'
+  const connectionName =
+    tab.tabKind === 'environment'
+      ? 'Workspace environment'
+      : connection?.name ?? 'Unknown connection'
   const environmentName = environment?.label ?? 'No environment'
   const tooltip = `${tab.title}\nConnection: ${connectionName}\nEnvironment: ${environmentName}${
     tab.status === 'queued' || tab.status === 'running' ? `\nStatus: ${tab.status}` : ''
@@ -111,7 +114,12 @@ export function EditorTabItem({
       onDragEnd={onDragEnd}
       onKeyDown={(event) => onKeyDown(event, tab)}
     >
-      {connection ? (
+      {tab.tabKind === 'environment' ? (
+        <EnvironmentsIcon
+          className="editor-tab-fallback-icon"
+          aria-label="Environment icon"
+        />
+      ) : connection ? (
         <DatastoreIcon
           className="editor-tab-datastore-icon"
           decorative={false}

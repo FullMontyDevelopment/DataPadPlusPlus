@@ -49,3 +49,25 @@ export function resolveEnvironmentPreview(
 export function normalizeColor(value: string | undefined) {
   return /^#[0-9a-f]{6}$/i.test(value ?? '') ? value! : '#2dbf9b'
 }
+
+export function comparableEnvironment(environment: EnvironmentProfile | undefined) {
+  if (!environment) {
+    return ''
+  }
+
+  return JSON.stringify({
+    color: environment.color,
+    exportable: environment.exportable,
+    inheritsFrom: environment.inheritsFrom ?? '',
+    label: environment.label,
+    requiresConfirmation: environment.requiresConfirmation,
+    risk: environment.risk,
+    safeMode: environment.safeMode,
+    sensitiveKeys: [...environment.sensitiveKeys].sort(),
+    variables: Object.fromEntries(
+      Object.entries(environment.variables).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ),
+  })
+}

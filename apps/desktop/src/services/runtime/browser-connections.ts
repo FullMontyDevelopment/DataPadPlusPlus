@@ -1,5 +1,5 @@
 import type { ConnectionProfile, EnvironmentProfile, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
-import { cloneSnapshot } from './browser-store'
+import { cloneSnapshot, connectionStringContainsPlainSecret } from './browser-store'
 import { createQueryTabForConnection } from './browser-tabs'
 import {
   effectiveConnectionEnvironmentId,
@@ -36,12 +36,16 @@ export function upsertConnection(
   profile: ConnectionProfile,
 ): WorkspaceSnapshot {
   const next = cloneSnapshot(snapshot)
-  const index = next.connections.findIndex((item) => item.id === profile.id)
+  const safeProfile =
+    profile.connectionString && connectionStringContainsPlainSecret(profile.connectionString)
+      ? { ...profile, connectionString: undefined }
+      : profile
+  const index = next.connections.findIndex((item) => item.id === safeProfile.id)
 
   if (index >= 0) {
-    next.connections[index] = profile
+    next.connections[index] = safeProfile
   } else {
-    next.connections.push(profile)
+    next.connections.push(safeProfile)
   }
 
   ensureConnectionLibraryNodes(next)
@@ -139,14 +143,20 @@ export function deleteEnvironment(
     }
   })
 
-  next.tabs = next.tabs.map((tab) =>
-    tab.environmentId === environmentId
-      ? { ...tab, environmentId: fallbackEnvironmentId }
-      : tab,
-  )
-  next.closedTabs = next.closedTabs.map((tab) =>
-    tab.environmentId === environmentId ? { ...tab, environmentId: fallbackEnvironmentId } : tab,
-  )
+  next.tabs = next.tabs
+    .filter((tab) => !(tab.tabKind === 'environment' && tab.environmentId === environmentId))
+    .map((tab) =>
+      tab.environmentId === environmentId
+        ? { ...tab, environmentId: fallbackEnvironmentId }
+        : tab,
+    )
+  next.closedTabs = next.closedTabs
+    .filter((tab) => !(tab.tabKind === 'environment' && tab.environmentId === environmentId))
+    .map((tab) =>
+      tab.environmentId === environmentId
+        ? { ...tab, environmentId: fallbackEnvironmentId }
+        : tab,
+    )
   next.libraryNodes = next.libraryNodes.map((node) =>
     node.environmentId === environmentId
       ? { ...node, environmentId: undefined, updatedAt: new Date().toISOString() }
@@ -160,6 +170,13 @@ export function deleteEnvironment(
 
   if (next.ui.activeEnvironmentId === environmentId) {
     next.ui.activeEnvironmentId = fallbackEnvironmentId
+  }
+
+  if (!next.tabs.some((tab) => tab.id === next.ui.activeTabId)) {
+    const activeTab = next.tabs[0]
+    next.ui.activeTabId = activeTab?.id ?? ''
+    next.ui.activeConnectionId = activeTab?.connectionId ?? next.ui.activeConnectionId
+    next.ui.activeEnvironmentId = activeTab?.environmentId ?? next.ui.activeEnvironmentId
   }
 
   next.updatedAt = new Date().toISOString()

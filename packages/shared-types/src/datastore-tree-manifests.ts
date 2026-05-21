@@ -303,13 +303,9 @@ function mysqlTree(): DatastoreTreeNodeManifest[] {
 
 function oracleTree(): DatastoreTreeNodeManifest[] {
   return [
-    node('containers', 'Containers', 'containers', 'Oracle CDB/PDB containers', {
-      children: [
-        node('selected-container', '{{database:ORCLPDB1}}', 'database', 'Selected Oracle container or service', {
-          children: oracleSchemaChildren(),
-          defaultDatabase: 'ORCLPDB1',
-        }),
-      ],
+    node('selected-container', '{{database:ORCLPDB1}}', 'database', 'Selected Oracle service or PDB', {
+      children: oracleSchemaChildren(),
+      defaultDatabase: 'ORCLPDB1',
     }),
     node('schemas', 'Schemas', 'schemas', 'Oracle users and object schemas', {
       children: oracleSchemaChildren(),
@@ -323,9 +319,13 @@ function oracleTree(): DatastoreTreeNodeManifest[] {
       ],
     }),
     node('storage', 'Storage', 'storage', 'Tablespaces, data files, segments, and quotas'),
-    node('performance', 'Performance', 'performance', 'Sessions, waits, SQL Monitor, AWR, and ASH'),
-    node('scheduler', 'Scheduler', 'scheduler', 'Jobs, programs, chains, and windows'),
-    node('queues', 'Queues', 'queues', 'Advanced Queuing objects'),
+    node('performance', 'Performance', 'performance', 'Sessions, waits, SQL Monitor, and lock diagnostics'),
+    node('scheduler', 'Scheduler', 'scheduler', 'Jobs, programs, chains, and windows', {
+      optionalWhenLiveMetadata: true,
+    }),
+    node('queues', 'Queues', 'queues', 'Advanced Queuing objects', {
+      optionalWhenLiveMetadata: true,
+    }),
     node('replication', 'Replication', 'replication', 'Replication and GoldenGate metadata', {
       optionalWhenLiveMetadata: true,
     }),

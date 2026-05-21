@@ -48,7 +48,19 @@ pub(super) fn apply_environment_guards_to_data_edit_plan(
         return;
     }
 
-    apply_environment_confirmation_to_plan(plan, environment, global_safe_mode, true);
+    let destructive_or_adapter_guarded = plan.destructive || plan.confirmation_text.is_some();
+    let requires_environment_confirmation = environment.safe_mode
+        || environment.requires_confirmation
+        || matches!(environment.risk.as_str(), "high" | "critical");
+    let requires_confirmation = destructive_or_adapter_guarded || requires_environment_confirmation;
+    let apply_global_safe_mode = global_safe_mode && destructive_or_adapter_guarded;
+
+    apply_environment_confirmation_to_plan(
+        plan,
+        environment,
+        apply_global_safe_mode,
+        requires_confirmation,
+    );
 }
 
 fn apply_environment_confirmation_to_plan(
@@ -285,12 +297,12 @@ mod tests {
     }
 
     #[test]
-    fn data_edits_use_environment_confirmation_when_adapter_plan_has_none() {
+    fn data_edits_use_environment_confirmation_when_environment_requires_it() {
         let mut plan = data_edit_plan();
 
         apply_environment_guards_to_data_edit_plan(
             &mut plan,
-            &environment("high", false, false),
+            &environment("low", false, true),
             &resolved_environment(Vec::new()),
             false,
         );
@@ -299,7 +311,41 @@ mod tests {
         assert!(plan
             .warnings
             .iter()
-            .any(|warning| warning.contains("high risk")));
+            .any(|warning| warning.contains("requires confirmation")));
+    }
+
+    #[test]
+    fn data_edits_do_not_prompt_for_low_risk_environment_just_because_global_safe_mode_is_on() {
+        let mut plan = data_edit_plan();
+
+        apply_environment_guards_to_data_edit_plan(
+            &mut plan,
+            &environment("low", false, false),
+            &resolved_environment(Vec::new()),
+            true,
+        );
+
+        assert!(plan.confirmation_text.is_none());
+        assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn destructive_data_edits_still_use_global_safe_mode_confirmation() {
+        let mut plan = data_edit_plan();
+        plan.destructive = true;
+
+        apply_environment_guards_to_data_edit_plan(
+            &mut plan,
+            &environment("low", false, false),
+            &resolved_environment(Vec::new()),
+            true,
+        );
+
+        assert_eq!(plan.confirmation_text.as_deref(), Some("CONFIRM Prod"));
+        assert!(plan
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Global safe mode")));
     }
 
     #[test]

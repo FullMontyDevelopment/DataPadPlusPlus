@@ -19,6 +19,10 @@ import {
 import { DocumentGridRowView } from './DocumentGridRowView'
 import { DocumentVirtualGridRows } from './DocumentVirtualGridRows'
 import { documentResultBehaviorForConnection } from './datastore-result-behaviors'
+import {
+  dataEditStatusMessage,
+  executeDataEditWithConfirmation,
+} from './data-edit-confirmation'
 import { editablePermissions } from './document-edit-permissions'
 import {
   buildRows,
@@ -202,11 +206,18 @@ export function DocumentResultsView({
           return
         }
 
-        const response = await onExecuteDataEdit(request)
-        const failureMessage =
-          response?.warnings.at(-1) ??
-          response?.messages.at(-1) ??
-          'Datastore did not confirm the edit.'
+        const response = await executeDataEditWithConfirmation(
+          onExecuteDataEdit,
+          request,
+          {
+            actionLabel: successMessage,
+            confirmationTitle: 'Apply this document edit?',
+          },
+        )
+        const failureMessage = dataEditStatusMessage(
+          response,
+          'Datastore did not confirm the edit.',
+        )
 
         if (!response?.executed) {
           setCopyMessage(failureMessage)

@@ -10,7 +10,7 @@ import { normalizeFilterGroups } from './mongo-find-defaults'
 export { defaultFilterGroup, normalizeFilterGroups } from './mongo-find-defaults'
 export { parseMongoFindQueryText } from './mongo-find-parser'
 
-const OPERATOR_MAP: Record<Exclude<MongoFilterOperator, 'eq'>, string> = {
+const OPERATOR_MAP: Record<Exclude<MongoFilterOperator, 'eq' | 'contains'>, string> = {
   ne: '$ne',
   gt: '$gt',
   gte: '$gte',
@@ -113,6 +113,10 @@ function buildMongoFilterExpression(row: MongoFindFilterRow): Record<string, unk
 
   if (!field) {
     return {}
+  }
+
+  if (row.operator === 'contains') {
+    return { [field]: { $regex: escapeMongoRegex(row.value) } }
   }
 
   const value = coerceMongoValue(row.value, row.valueType, row.operator)
@@ -243,6 +247,10 @@ function parseBoolean(value: string, fallback: boolean) {
   }
 
   return fallback
+}
+
+function escapeMongoRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

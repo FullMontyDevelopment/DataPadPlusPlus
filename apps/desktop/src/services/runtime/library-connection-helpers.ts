@@ -73,10 +73,10 @@ export function defaultLibraryFolderForConnection(
   connectionId: string | undefined,
 ) {
   if (!connectionId) {
-    return 'library-root-queries'
+    return undefined
   }
 
-  return libraryNodeForConnection(snapshot.libraryNodes, connectionId)?.parentId ?? 'library-root-queries'
+  return libraryNodeForConnection(snapshot.libraryNodes, connectionId)?.parentId
 }
 
 export function effectiveConnectionEnvironmentId(

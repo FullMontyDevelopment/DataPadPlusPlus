@@ -2,8 +2,12 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { useState } from 'react'
 import type { ComponentProps } from 'react'
 import type { QueryBuilderState, QueryTabState } from '@datapadplusplus/shared-types'
-import { describe, expect, it, vi } from 'vitest'
-import { FIELD_DRAG_MIME, FIELD_DRAG_PAYLOAD_MIME } from '../results/field-drag'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  FIELD_DRAG_MIME,
+  FIELD_DRAG_PAYLOAD_MIME,
+  clearFieldDragData,
+} from '../results/field-drag'
 import { ResultPayloadView } from '../results/ResultPayloadView'
 import { createDefaultCqlPartitionBuilderState } from './cql-partition'
 import { createDefaultDynamoDbKeyConditionBuilderState } from './dynamodb-key-condition'
@@ -15,6 +19,10 @@ import { createDefaultSearchDslBuilderState } from './search-dsl'
 import { createDefaultSqlSelectBuilderState } from './sql-select'
 
 describe('QueryBuilderPanel', () => {
+  afterEach(() => {
+    clearFieldDragData()
+  })
+
   it('adds dragged result fields to filter, projection, and sort sections', () => {
     const onBuilderStateChange = vi.fn()
     const tab = mongoTab()
@@ -68,6 +76,9 @@ describe('QueryBuilderPanel', () => {
     fireEvent.click(rootAddFilterButton)
 
     expect(screen.getByLabelText('Filter field')).toHaveValue('')
+    expect(within(screen.getByLabelText('Filter operator')).getByRole('option', {
+      name: 'Contains',
+    })).toBeInTheDocument()
     expect(screen.getByLabelText(/^Apply filter/)).toBeChecked()
     expect(screen.queryByLabelText('Filter group logic Group 1')).not.toBeInTheDocument()
     expect(onBuilderStateChange).toHaveBeenCalledOnce()
@@ -139,17 +150,114 @@ describe('QueryBuilderPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand product-1' }))
     fireEvent.click(screen.getByRole('button', { name: 'Expand profile' }))
 
-    dragDocumentFieldToSection('profile.status', 'Filters', { stripCustomDropPayload: true })
+    pointerDragDocumentFieldToTarget('profile.status', section('Filters'))
     expect(screen.getByLabelText('Filter field')).toHaveValue('profile.status')
     expect(screen.getByLabelText('Value type')).toHaveValue('string')
     expect(screen.getByLabelText('Filter value')).toHaveValue('active')
 
-    dragDocumentFieldToSection('profile.name', 'Projection')
+    pointerDragDocumentFieldToTarget('profile.name', section('Projection'))
     expect(screen.getByLabelText('Projection field')).toHaveValue('profile.name')
 
-    dragDocumentFieldToSection('createdAt', 'Sort')
+    pointerDragDocumentFieldToTarget('createdAt', section('Sort'))
     expect(screen.getByLabelText('Sort field')).toHaveValue('createdAt')
     expect(onBuilderStateChange).toHaveBeenCalledTimes(3)
+  })
+
+  it('accepts document field pointer drops when native drag data is not involved', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(
+      <div>
+        <ResultPayloadView
+          payload={{
+            renderer: 'document',
+            documents: [{ _id: 'product-1', sku: 'luna-lamp' }],
+          }}
+        />
+        <BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />
+      </div>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand product-1' }))
+
+    pointerDragDocumentFieldToTarget('sku', screen.getByLabelText('Collection'))
+
+    expect(screen.getByLabelText('Filter field')).toHaveValue('sku')
+    expect(screen.getByLabelText('Filter value')).toHaveValue('luna-lamp')
+    expect(onBuilderStateChange).toHaveBeenCalledOnce()
+  })
+
+  it('drops document fields on nested filter inputs before native controls can swallow the drop', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(
+      <div>
+        <ResultPayloadView
+          payload={{
+            renderer: 'document',
+            documents: [{ _id: 'product-1', sku: 'luna-lamp', category: 'lighting' }],
+          }}
+        />
+        <BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />
+      </div>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand product-1' }))
+    dropField(section('Filters'), 'sku')
+
+    pointerDragDocumentFieldToTarget('category', screen.getByLabelText('Filter value'))
+
+    expect(screen.getAllByLabelText('Filter field').at(-1)).toHaveValue('category')
+    expect(screen.getAllByLabelText('Filter value').at(-1)).toHaveValue('lighting')
+    expect(onBuilderStateChange).toHaveBeenCalledTimes(2)
+  })
+
+  it('routes fallback builder drops to the nearest Mongo section', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(
+      <div>
+        <ResultPayloadView
+          payload={{
+            renderer: 'document',
+            documents: [{ _id: 'product-1', createdAt: '2026-01-01T00:00:00.000Z' }],
+          }}
+        />
+        <BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />
+      </div>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand product-1' }))
+
+    pointerDragDocumentFieldToTarget('createdAt', section('Sort'))
+
+    expect(screen.getByLabelText('Sort field')).toHaveValue('createdAt')
+    expect(onBuilderStateChange).toHaveBeenCalledOnce()
+  })
+
+  it('does not reuse a stale document field after drag state is cleared', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(<BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />)
+
+    const builder = screen.getByLabelText('MongoDB query builder')
+    fireEvent.dragOver(builder, {
+      dataTransfer: createFieldDataTransfer('', {
+        includeCustomPayload: false,
+        includeFieldMime: false,
+        includeText: false,
+      }),
+    })
+    fireEvent.drop(builder, {
+      dataTransfer: createFieldDataTransfer('', {
+        includeCustomPayload: false,
+        includeFieldMime: false,
+        includeText: false,
+      }),
+    })
+
+    expect(screen.queryByLabelText('Filter field')).not.toBeInTheDocument()
+    expect(onBuilderStateChange).not.toHaveBeenCalled()
   })
 
   it('renders a SQL SELECT builder with drag targets and compact table controls', () => {
@@ -568,41 +676,78 @@ function dropField(target: HTMLElement, field: string) {
   fireEvent.drop(target, { dataTransfer })
 }
 
-function dragDocumentFieldToSection(
-  field: string,
-  sectionTitle: string,
-  options: { stripCustomDropPayload?: boolean } = {},
-) {
+function pointerDragDocumentFieldToTarget(field: string, target: HTMLElement) {
   const source = screen.getAllByTitle(`Drag ${field} to the query builder`).at(-1) as HTMLElement
-  const dataTransfer = createFieldDataTransfer()
-  const target = section(sectionTitle)
-  const dropDataTransfer = options.stripCustomDropPayload
-    ? createFieldDataTransfer(field, { includeCustomPayload: false })
-    : dataTransfer
+  const builder = screen.getByLabelText('MongoDB query builder') as HTMLElement
+  const builderRect = vi.spyOn(builder, 'getBoundingClientRect').mockReturnValue({
+    bottom: 500,
+    height: 500,
+    left: 0,
+    right: 500,
+    toJSON: () => ({}),
+    top: 0,
+    width: 500,
+    x: 0,
+    y: 0,
+  })
+  const originalElementFromPoint = document.elementFromPoint
+  const elementFromPoint = vi.fn().mockReturnValue(target)
+  Object.defineProperty(document, 'elementFromPoint', {
+    configurable: true,
+    value: elementFromPoint,
+  })
 
-  fireEvent.dragStart(source, { dataTransfer })
-  fireEvent.dragOver(target, { dataTransfer: dropDataTransfer })
-  fireEvent.drop(target, { dataTransfer: dropDataTransfer })
+  fireEvent.pointerDown(source, { button: 0, clientX: 10, clientY: 600, pointerId: 3 })
+  fireEvent.pointerMove(window, { clientX: 18, clientY: 590, pointerId: 3 })
+  fireEvent.pointerMove(window, { clientX: 40, clientY: 40, pointerId: 3 })
+
+  expect(builder).toHaveClass('is-drag-over')
+
+  fireEvent.pointerUp(window, { clientX: 40, clientY: 40, pointerId: 3 })
+
+  builderRect.mockRestore()
+  if (originalElementFromPoint) {
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: originalElementFromPoint,
+    })
+  } else {
+    Reflect.deleteProperty(document, 'elementFromPoint')
+  }
 }
 
 function createFieldDataTransfer(
   field = '',
-  options: { includeCustomPayload?: boolean } = {},
+  options: {
+    includeCustomPayload?: boolean
+    includeFieldMime?: boolean
+    includeText?: boolean
+  } = {},
 ) {
   const includeCustomPayload = options.includeCustomPayload ?? true
-  const data = new Map<string, string>([
-    [FIELD_DRAG_MIME, field],
-    ['text/plain', field],
-  ])
+  const includeFieldMime = options.includeFieldMime ?? true
+  const includeText = options.includeText ?? true
+  const data = new Map<string, string>()
+
+  if (includeFieldMime) {
+    data.set(FIELD_DRAG_MIME, field)
+  }
+
+  if (includeText) {
+    data.set('text/plain', field)
+  }
 
   return {
     effectAllowed: '',
     dropEffect: 'copy',
+    types: Array.from(data.keys()),
     getData: (type: string) =>
       includeCustomPayload || type !== FIELD_DRAG_PAYLOAD_MIME
         ? data.get(type) ?? ''
         : '',
-    setData: (type: string, value: string) => data.set(type, value),
+    setData: (type: string, value: string) => {
+      data.set(type, value)
+    },
   }
 }
 

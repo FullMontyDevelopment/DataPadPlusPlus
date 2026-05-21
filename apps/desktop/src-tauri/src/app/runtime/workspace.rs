@@ -45,7 +45,7 @@ impl ManagedAppState {
 
     pub fn health(&self) -> AppHealth {
         let secret_storage = if security::using_file_secret_store() {
-            "file"
+            "encrypted-file"
         } else {
             "keyring"
         };
@@ -119,6 +119,7 @@ impl ManagedAppState {
 
     pub fn export_bundle(&self, passphrase: &str) -> Result<ExportBundle, CommandError> {
         self.ensure_unlocked()?;
+        validate_bundle_passphrase(passphrase)?;
         let serialized = serde_json::to_string_pretty(&sanitize_snapshot(&self.snapshot))?;
         let encrypted_payload = security::encrypt_export_payload(passphrase, &serialized)?;
         Ok(ExportBundle {
@@ -134,6 +135,7 @@ impl ManagedAppState {
         encrypted_payload: &str,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        validate_bundle_passphrase(passphrase)?;
         let decrypted = security::decrypt_export_payload(passphrase, encrypted_payload)?;
         let snapshot = serde_json::from_str::<WorkspaceSnapshot>(&decrypted)?;
         self.snapshot = migrate_snapshot(snapshot);
@@ -142,8 +144,21 @@ impl ManagedAppState {
     }
 }
 
+fn validate_bundle_passphrase(passphrase: &str) -> Result<(), CommandError> {
+    if passphrase.trim().len() < 8 {
+        Err(CommandError::new(
+            "weak-workspace-bundle-passphrase",
+            "Use a workspace backup passphrase with at least 8 characters.",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn sanitize_snapshot(snapshot: &WorkspaceSnapshot) -> WorkspaceSnapshot {
     let mut sanitized = snapshot.clone();
+
+    strip_secret_bearing_connection_strings(&mut sanitized);
 
     for tab in &mut sanitized.tabs {
         tab.result = None;
@@ -183,6 +198,7 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     snapshot.lock_state.locked_at = None;
     strip_demo_records(&mut snapshot);
     migrate_connection_modes(&mut snapshot);
+    strip_secret_bearing_connection_strings(&mut snapshot);
     ensure_library_nodes(&mut snapshot);
 
     for tab in &mut snapshot.tabs {
@@ -196,6 +212,18 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     snapshot.ui = normalize_ui_state(&snapshot);
 
     snapshot
+}
+
+fn strip_secret_bearing_connection_strings(snapshot: &mut WorkspaceSnapshot) {
+    for connection in &mut snapshot.connections {
+        if connection
+            .connection_string
+            .as_deref()
+            .is_some_and(security::connection_string_contains_secret)
+        {
+            connection.connection_string = None;
+        }
+    }
 }
 
 fn migrate_connection_modes(snapshot: &mut WorkspaceSnapshot) {

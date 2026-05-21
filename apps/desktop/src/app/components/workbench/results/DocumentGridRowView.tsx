@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { DragEvent, KeyboardEvent } from 'react'
+import type { KeyboardEvent, PointerEvent } from 'react'
 import {
   coerceValue,
   editableValue,
@@ -7,7 +7,13 @@ import {
   type DocumentGridRow,
   type DocumentValueType,
 } from './document-grid-model'
-import { writeFieldDragData } from './field-drag'
+import {
+  beginFieldPointerDrag,
+  cancelFieldPointerDrag,
+  dropFieldPointerDrag,
+  moveFieldPointerDrag,
+  type FieldDragPayload,
+} from './field-drag'
 
 const TYPE_OPTIONS: DocumentValueType[] = ['string', 'number', 'boolean', 'null', 'object', 'array']
 
@@ -46,13 +52,11 @@ export function DocumentGridRowView({
   const draggedValue = draggableRowValue(row)
   const draggedValueType = documentDragValueType(draggedValue, row.type)
   const draggedValueLabel = String(row.path.length === 0 ? row.label : row.valueLabel)
-  const writeRowDragData = (event: DragEvent<HTMLElement>) => {
-    event.stopPropagation()
-    writeFieldDragData(event, row.fieldPath, {
-      value: draggedValue,
-      valueLabel: draggedValueLabel,
-      valueType: draggedValueType,
-    })
+  const fieldDragPayload: FieldDragPayload = {
+    fieldPath: row.fieldPath,
+    value: draggedValue,
+    valueLabel: draggedValueLabel,
+    valueType: draggedValueType,
   }
 
   const handleTypeKeyDown = (event: KeyboardEvent<HTMLSelectElement>) => {
@@ -64,10 +68,19 @@ export function DocumentGridRowView({
 
   return (
     <div
-      className={`document-data-grid-row${matched ? ' is-search-match' : ''}`}
       role="row"
       aria-level={row.depth + 1}
       aria-expanded={row.expandable ? expanded : undefined}
+      className={`document-data-grid-row${matched ? ' is-search-match' : ''}${
+        row.fieldPath && !editingField && !editingType && !editingValue
+          ? ' is-field-draggable'
+          : ''
+      }`}
+      onPointerDown={(event) => {
+        if (!editingField && !editingType && !editingValue) {
+          startDocumentFieldPointerDrag(event, fieldDragPayload)
+        }
+      }}
       onContextMenu={(event) => {
         event.preventDefault()
         onContextMenu(row, event.clientX, event.clientY)
@@ -76,10 +89,8 @@ export function DocumentGridRowView({
       <div
         className="document-data-grid-cell document-data-grid-cell--id"
         role="gridcell"
-        draggable={Boolean(row.fieldPath) && !editingField}
         style={{ paddingLeft: 8 + row.depth * 18 }}
         title={row.fieldPath ? `Drag ${row.fieldPath} to the query builder` : row.label}
-        onDragStart={writeRowDragData}
       >
         {row.expandable ? (
           <button
@@ -102,10 +113,8 @@ export function DocumentGridRowView({
         ) : (
           <span
             className="document-data-grid-field"
-            draggable={Boolean(row.fieldPath)}
             data-field-path={row.fieldPath || undefined}
             title={row.fieldPath ? `Drag ${row.fieldPath} to the query builder` : row.label}
-            onDragStart={writeRowDragData}
             onDoubleClick={() => onBeginEditing(row, 'field')}
           >
             {row.label}
@@ -156,14 +165,12 @@ export function DocumentGridRowView({
           <button
             type="button"
             className="document-data-grid-value"
-            draggable={Boolean(row.fieldPath)}
             title={
               row.fieldPath
                 ? `Drag ${row.fieldPath} with value ${draggedValueLabel} to the query builder`
                 : 'Copy value'
             }
             onClick={() => onScheduleCopyValue(row.value)}
-            onDragStart={writeRowDragData}
             onDoubleClick={() => {
               onCancelScheduledCopy()
               onBeginEditing(row, 'value')
@@ -175,6 +182,79 @@ export function DocumentGridRowView({
       </div>
     </div>
   )
+}
+
+const POINTER_DRAG_THRESHOLD_PX = 4
+
+function startDocumentFieldPointerDrag(
+  event: PointerEvent<HTMLElement>,
+  payload: FieldDragPayload,
+) {
+  if (!payload.fieldPath || event.button !== 0 || shouldIgnorePointerDrag(event.target)) {
+    return
+  }
+
+  const pointerId = event.pointerId
+  const startX = event.clientX
+  const startY = event.clientY
+  let dragging = false
+
+  const removeListeners = () => {
+    window.removeEventListener('pointermove', handlePointerMove)
+    window.removeEventListener('pointerup', handlePointerUp)
+    window.removeEventListener('pointercancel', handlePointerCancel)
+  }
+
+  const handlePointerMove = (nextEvent: globalThis.PointerEvent) => {
+    if (nextEvent.pointerId !== pointerId) {
+      return
+    }
+
+    const movedX = nextEvent.clientX - startX
+    const movedY = nextEvent.clientY - startY
+
+    if (!dragging && Math.hypot(movedX, movedY) < POINTER_DRAG_THRESHOLD_PX) {
+      return
+    }
+
+    if (!dragging) {
+      dragging = true
+      beginFieldPointerDrag(payload)
+    }
+
+    nextEvent.preventDefault()
+    moveFieldPointerDrag(nextEvent.clientX, nextEvent.clientY)
+  }
+
+  const handlePointerUp = (nextEvent: globalThis.PointerEvent) => {
+    if (nextEvent.pointerId !== pointerId) {
+      return
+    }
+
+    removeListeners()
+
+    if (dragging) {
+      nextEvent.preventDefault()
+      dropFieldPointerDrag(nextEvent.clientX, nextEvent.clientY)
+    }
+  }
+
+  const handlePointerCancel = (nextEvent: globalThis.PointerEvent) => {
+    if (nextEvent.pointerId !== pointerId) {
+      return
+    }
+
+    removeListeners()
+    cancelFieldPointerDrag()
+  }
+
+  window.addEventListener('pointermove', handlePointerMove, { passive: false })
+  window.addEventListener('pointerup', handlePointerUp)
+  window.addEventListener('pointercancel', handlePointerCancel)
+}
+
+function shouldIgnorePointerDrag(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest('input, select, textarea'))
 }
 
 function draggableRowValue(row: DocumentGridRow) {

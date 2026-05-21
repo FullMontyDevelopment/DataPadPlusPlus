@@ -1,8 +1,10 @@
 import { BuilderSection } from './BuilderSection'
+import { TrashIcon } from '../icons'
 import type { MongoFindSectionProps } from './MongoBuilderSection.types'
 import { rowId } from './MongoBuilderSection.types'
 
 export function MongoSortBuilderSection({
+  dragActive,
   draft,
   filterGroups,
   updateDraft,
@@ -12,6 +14,8 @@ export function MongoSortBuilderSection({
       title="Sort"
       actionLabel="Add Sort"
       dropHint="Drop a result field to order"
+      dropZone="sort"
+      dragActive={dragActive}
       onDropField={(field) =>
         updateDraft({
           filterGroups,
@@ -60,8 +64,9 @@ export function MongoSortBuilderSection({
           </select>
           <button
             type="button"
-            className="query-builder-remove"
+            className="query-builder-remove query-builder-remove--icon"
             aria-label="Remove sort"
+            title="Remove sort"
             onClick={() =>
               updateDraft({
                 filterGroups,
@@ -69,7 +74,7 @@ export function MongoSortBuilderSection({
               })
             }
           >
-            Remove
+            <TrashIcon className="toolbar-icon" />
           </button>
         </div>
       ))}

@@ -67,9 +67,6 @@ impl ManagedAppState {
                 }
                 tab.title = saved_query_name.clone();
                 tab.dirty = false;
-                tab.result = None;
-                tab.error = None;
-                tab.status = "idle".into();
             }
         }
 

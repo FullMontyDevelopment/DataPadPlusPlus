@@ -1,5 +1,6 @@
 import type {
   BootstrapPayload,
+  ExecutionResponse,
   ExplorerResponse,
   ResultPageResponse,
   ResultPayload,
@@ -7,8 +8,12 @@ import type {
 import { describe, expect, it } from 'vitest'
 import { createSeedBootstrapPayload } from '../../test/fixtures/seed-workspace'
 import {
+  applyExecutionToPayload,
   applyResultPageToPayload,
   createWorkbenchMessage,
+  hasExplorerScope,
+  isExplorerRequestLoading,
+  mergeExplorerCacheEntry,
   mergeExplorerResponse,
   openMessagesPayload,
 } from './app-state-reducer-helpers'
@@ -117,6 +122,92 @@ describe('openMessagesPayload', () => {
 
   it('preserves undefined payloads for startup errors before workspace load', () => {
     expect(openMessagesPayload(undefined)).toBeUndefined()
+  })
+})
+
+describe('applyExecutionToPayload', () => {
+  function executionFor(payload: BootstrapPayload, dirty: boolean): ExecutionResponse {
+    const tab = payload.snapshot.tabs[0]
+
+    if (!tab) {
+      throw new Error('Seed fixture must include at least one tab')
+    }
+
+    const result: ExecutionResponse['result'] = {
+      id: 'result-1',
+      engine: 'mongodb',
+      summary: '1 row',
+      defaultRenderer: 'table',
+      rendererModes: ['table'],
+      payloads: [
+        {
+          renderer: 'table',
+          columns: ['ok'],
+          rows: [['1']],
+        },
+      ],
+      notices: [],
+      executedAt: '2026-05-13T12:00:00.000Z',
+      durationMs: 8,
+      truncated: false,
+      rowLimit: 20,
+    }
+
+    return {
+      executionId: 'execution-1',
+      tab: {
+        ...tab,
+        dirty,
+        status: 'success',
+        lastRunAt: '2026-05-13T12:00:00.000Z',
+        result,
+      },
+      result,
+      guardrail: {
+        status: 'allow',
+        reasons: [],
+        safeModeApplied: false,
+      },
+      diagnostics: [],
+    }
+  }
+
+  it('does not mark a clean tab dirty when execution only changes results', () => {
+    const payload = createSeedBootstrapPayload()
+    const tab = payload.snapshot.tabs[0]
+
+    if (!tab) {
+      throw new Error('Seed fixture must include at least one tab')
+    }
+
+    payload.snapshot.tabs[0] = {
+      ...tab,
+      dirty: false,
+    }
+
+    const next = applyExecutionToPayload(payload, executionFor(payload, true))
+
+    expect(next?.snapshot.tabs[0]?.dirty).toBe(false)
+    expect(next?.snapshot.tabs[0]?.status).toBe('success')
+    expect(next?.snapshot.ui.activeBottomPanelTab).toBe('results')
+  })
+
+  it('does not clear an existing dirty tab when execution completes', () => {
+    const payload = createSeedBootstrapPayload()
+    const tab = payload.snapshot.tabs[0]
+
+    if (!tab) {
+      throw new Error('Seed fixture must include at least one tab')
+    }
+
+    payload.snapshot.tabs[0] = {
+      ...tab,
+      dirty: true,
+    }
+
+    const next = applyExecutionToPayload(payload, executionFor(payload, false))
+
+    expect(next?.snapshot.tabs[0]?.dirty).toBe(true)
   })
 })
 
@@ -368,5 +459,115 @@ describe('mergeExplorerResponse', () => {
 
     expect(mergeExplorerResponse(current, incoming)).toBe(incoming)
     expect(mergeExplorerResponse(undefined, incoming)).toBe(incoming)
+  })
+})
+
+describe('mergeExplorerCacheEntry', () => {
+  const rootResponse: ExplorerResponse = {
+    connectionId: 'conn-1',
+    environmentId: 'env-dev',
+    summary: 'Mongo databases',
+    capabilities: {
+      canCancel: true,
+      canExplain: false,
+      supportsLiveMetadata: true,
+      editorLanguage: 'javascript',
+      defaultRowLimit: 100,
+    },
+    nodes: [
+      {
+        id: 'database:catalog',
+        family: 'document',
+        label: 'catalog',
+        kind: 'database',
+        detail: 'MongoDB database',
+        scope: 'database:catalog',
+      },
+      {
+        id: 'database:orders',
+        family: 'document',
+        label: 'orders',
+        kind: 'database',
+        detail: 'MongoDB database',
+        scope: 'database:orders',
+      },
+    ],
+  }
+
+  it('keeps root metadata when a scoped branch load arrives', () => {
+    const scopedResponse: ExplorerResponse = {
+      ...rootResponse,
+      scope: 'database:catalog',
+      summary: 'Catalog collections',
+      nodes: [
+        {
+          id: 'collection:catalog.products',
+          family: 'document',
+          label: 'products',
+          kind: 'collection',
+          detail: 'collection',
+          path: ['catalog', 'Collections'],
+          scope: 'collection:catalog:products',
+        },
+      ],
+    }
+
+    const rootEntry = mergeExplorerCacheEntry(undefined, rootResponse)
+    const mergedEntry = mergeExplorerCacheEntry(rootEntry, scopedResponse)
+
+    expect(hasExplorerScope(mergedEntry)).toBe(true)
+    expect(hasExplorerScope(mergedEntry, 'database:catalog')).toBe(true)
+    expect(mergedEntry.response.nodes.map((node) => node.id)).toEqual([
+      'database:catalog',
+      'database:orders',
+      'collection:catalog.products',
+    ])
+  })
+
+  it('replaces only the requested scope when the same scope refreshes empty', () => {
+    const entry = mergeExplorerCacheEntry(
+      mergeExplorerCacheEntry(undefined, rootResponse),
+      {
+        ...rootResponse,
+        scope: 'database:catalog',
+        nodes: [
+          {
+            id: 'collection:catalog.products',
+            family: 'document',
+            label: 'products',
+            kind: 'collection',
+            detail: 'collection',
+          },
+        ],
+      },
+    )
+    const refreshed = mergeExplorerCacheEntry(entry, {
+      ...rootResponse,
+      scope: 'database:catalog',
+      summary: 'No collections',
+      nodes: [],
+    })
+
+    expect(refreshed.response.nodes.map((node) => node.id)).toEqual([
+      'database:catalog',
+      'database:orders',
+    ])
+  })
+})
+
+describe('isExplorerRequestLoading', () => {
+  it('tracks loading by connection, environment, and scope', () => {
+    const loadingRequests: Record<string, true> = {
+      'conn-1::env-dev::__root__': true,
+      'conn-1::env-dev::database:catalog': true,
+    }
+
+    expect(isExplorerRequestLoading(loadingRequests, 'conn-1', 'env-dev')).toBe(true)
+    expect(
+      isExplorerRequestLoading(loadingRequests, 'conn-1', 'env-dev', 'database:catalog'),
+    ).toBe(true)
+    expect(
+      isExplorerRequestLoading(loadingRequests, 'conn-1', 'env-dev', 'database:orders'),
+    ).toBe(false)
   })
 })

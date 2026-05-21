@@ -10,6 +10,10 @@ import {
   buildDataGridRowInsertRequest,
   buildDataGridRowDeleteRequest,
 } from './data-grid-edit-requests'
+import {
+  dataEditStatusMessage,
+  executeDataEditWithConfirmation,
+} from './data-edit-confirmation'
 
 export interface EditingCell {
   sourceIndex: number
@@ -102,11 +106,18 @@ export function useDataGridEditing({
     }
 
     try {
-      const response = await onExecuteDataEdit(request)
-      const failureMessage =
-        response?.warnings.at(-1) ??
-        response?.messages.at(-1) ??
-        'Datastore did not confirm the edit.'
+      const response = await executeDataEditWithConfirmation(
+        onExecuteDataEdit,
+        request,
+        {
+          actionLabel: 'Update this cell.',
+          confirmationTitle: 'Apply this row edit?',
+        },
+      )
+      const failureMessage = dataEditStatusMessage(
+        response,
+        'Datastore did not confirm the edit.',
+      )
 
       if (!response?.executed) {
         setStatusMessage(failureMessage)
@@ -173,11 +184,18 @@ export function useDataGridEditing({
       }
 
       try {
-        const response = await onExecuteDataEdit(request)
-        const failureMessage =
-          response?.warnings.at(-1) ??
-          response?.messages.at(-1) ??
-          'Datastore did not confirm the insert.'
+        const response = await executeDataEditWithConfirmation(
+          onExecuteDataEdit,
+          request,
+          {
+            actionLabel: 'Insert this row.',
+            confirmationTitle: 'Insert this row?',
+          },
+        )
+        const failureMessage = dataEditStatusMessage(
+          response,
+          'Datastore did not confirm the insert.',
+        )
 
         if (!response?.executed) {
           setStatusMessage(failureMessage)
@@ -224,11 +242,18 @@ export function useDataGridEditing({
       }
 
       try {
-        const response = await onExecuteDataEdit(request)
-        const failureMessage =
-          response?.warnings.at(-1) ??
-          response?.messages.at(-1) ??
-          'Datastore did not confirm the delete.'
+        const response = await executeDataEditWithConfirmation(
+          onExecuteDataEdit,
+          request,
+          {
+            actionLabel: 'Delete this row.',
+            confirmationTitle: 'Delete this row?',
+          },
+        )
+        const failureMessage = dataEditStatusMessage(
+          response,
+          'Datastore did not confirm the delete.',
+        )
 
         if (!response?.executed) {
           setStatusMessage(failureMessage)

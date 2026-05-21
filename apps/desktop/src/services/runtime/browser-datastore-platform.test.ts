@@ -84,7 +84,7 @@ describe('browser datastore platform contracts', () => {
     expect(plan.plan.requestLanguage).toBe('mongodb')
     expect(plan.plan.generatedRequest).toContain('"collection": "products"')
     expect(plan.plan.generatedRequest).toContain('"$rename"')
-    expect(plan.plan.confirmationText).toContain('CONFIRM MONGODB')
+    expect(plan.plan.confirmationText).toBeUndefined()
   })
 
   it('plans MongoDB unset edits with nested paths and stable document-id filters', () => {
@@ -254,7 +254,9 @@ describe('browser datastore platform contracts', () => {
     expect(response.executed).toBe(false)
     expect(response.plan.destructive).toBe(true)
     expect(response.warnings.join(' ')).toContain('read-only')
-    expect(response.warnings.join(' ')).toContain('Type `CONFIRM REDIS DELETE-KEY`')
+    expect(response.warnings.join(' ')).toContain(
+      'This data edit requires confirmation before it can run',
+    )
   })
 
   it('plans Mongo document uploads without requiring an existing document id', () => {

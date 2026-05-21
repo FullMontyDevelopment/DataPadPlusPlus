@@ -20,10 +20,8 @@ const ROOT_FOLDERS: &[(&str, &str)] = &[
 ];
 
 pub(super) fn ensure_library_nodes(snapshot: &mut WorkspaceSnapshot) {
-    let created_at = timestamp_now();
-    ensure_default_library_folders(&mut snapshot.library_nodes, &created_at);
-
     if !snapshot.saved_work.is_empty() {
+        let created_at = timestamp_now();
         migrate_saved_work(
             &mut snapshot.library_nodes,
             &snapshot.saved_work,
@@ -49,6 +47,7 @@ pub(super) fn ensure_library_nodes(snapshot: &mut WorkspaceSnapshot) {
     }
 
     ensure_connection_library_nodes(snapshot);
+    prune_empty_default_library_roots(&mut snapshot.library_nodes);
 }
 
 fn normalize_query_view_mode(query_view_mode: &mut Option<String>) {
@@ -81,34 +80,6 @@ fn migrate_tab_save_target(tab: &mut QueryTabState) {
                 kind: "library".into(),
                 library_item_id: Some(saved_query_id),
                 path: None,
-            });
-        }
-    }
-}
-
-fn ensure_default_library_folders(nodes: &mut Vec<LibraryNode>, created_at: &str) {
-    for (id, name) in ROOT_FOLDERS {
-        if nodes.iter().all(|node| node.id != *id) {
-            nodes.push(LibraryNode {
-                id: (*id).into(),
-                kind: "folder".into(),
-                parent_id: None,
-                name: (*name).into(),
-                summary: Some("Workspace library folder.".into()),
-                tags: Vec::new(),
-                favorite: None,
-                created_at: created_at.into(),
-                updated_at: created_at.into(),
-                last_opened_at: None,
-                connection_id: None,
-                environment_id: None,
-                language: None,
-                query_text: None,
-                query_view_mode: None,
-                builder_state: None,
-                script_text: None,
-                test_suite: None,
-                snapshot_result_id: None,
             });
         }
     }
@@ -214,6 +185,30 @@ fn ensure_legacy_folder(
     }
 
     parent_id.unwrap_or_else(|| "library-root-queries".into())
+}
+
+fn prune_empty_default_library_roots(nodes: &mut Vec<LibraryNode>) {
+    let parents: HashSet<String> = nodes
+        .iter()
+        .filter_map(|node| node.parent_id.clone())
+        .collect();
+
+    nodes.retain(|node| !(is_unmodified_default_library_root(node) && !parents.contains(&node.id)));
+}
+
+fn is_unmodified_default_library_root(node: &LibraryNode) -> bool {
+    node.kind == "folder"
+        && node.parent_id.is_none()
+        && node.connection_id.is_none()
+        && node.environment_id.is_none()
+        && node.query_text.is_none()
+        && node.script_text.is_none()
+        && node.test_suite.is_none()
+        && node.tags.is_empty()
+        && node.favorite.is_none()
+        && ROOT_FOLDERS
+            .iter()
+            .any(|(id, name)| node.id == *id && node.name == *name)
 }
 
 fn library_folder_id(path: &[String]) -> String {
@@ -370,7 +365,7 @@ pub(super) fn remove_connection_library_nodes(
 pub(super) fn default_library_folder_for_connection(
     snapshot: &WorkspaceSnapshot,
     connection_id: &str,
-) -> String {
+) -> Option<String> {
     snapshot
         .library_nodes
         .iter()
@@ -378,7 +373,6 @@ pub(super) fn default_library_folder_for_connection(
             node.kind == "connection" && node.connection_id.as_deref() == Some(connection_id)
         })
         .and_then(|node| node.parent_id.clone())
-        .unwrap_or_else(|| "library-root-queries".into())
 }
 
 pub(super) fn effective_connection_environment_id(
@@ -646,9 +640,9 @@ impl ManagedAppState {
             .unwrap_or_else(|| generate_id("library-item"));
         let now = timestamp_now();
         let kind = request.kind.unwrap_or_else(|| "query".into());
-        let folder_id = request.folder_id.unwrap_or_else(|| {
-            default_library_folder_for_connection(&self.snapshot, &tab.connection_id)
-        });
+        let folder_id = request
+            .folder_id
+            .or_else(|| default_library_folder_for_connection(&self.snapshot, &tab.connection_id));
         let connection = self.connection_by_id(&tab.connection_id)?;
         let query_text = if matches!(kind.as_str(), "script" | "test-suite") {
             None
@@ -662,7 +656,7 @@ impl ManagedAppState {
         let node = LibraryNode {
             id: item_id.clone(),
             kind,
-            parent_id: Some(folder_id),
+            parent_id: folder_id,
             name: name.into(),
             summary: Some(connection.name.clone()),
             tags: request.tags,
@@ -702,9 +696,6 @@ impl ManagedAppState {
         tab.saved_query_id = Some(item_id);
         tab.title = name.into();
         tab.dirty = false;
-        tab.result = None;
-        tab.error = None;
-        tab.status = "idle".into();
 
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;
@@ -734,11 +725,12 @@ impl ManagedAppState {
             .iter_mut()
             .find(|tab| tab.id == request.tab_id)
             .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
+        let file_content = local_file_content_for_tab(tab);
 
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&path, &tab.query_text)?;
+        fs::write(&path, file_content)?;
 
         tab.save_target = Some(QuerySaveTarget {
             kind: "local-file".into(),
@@ -750,9 +742,6 @@ impl ManagedAppState {
             tab.title = file_name.into();
         }
         tab.dirty = false;
-        tab.result = None;
-        tab.error = None;
-        tab.status = "idle".into();
 
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;
@@ -915,9 +904,29 @@ fn library_item_matches_tab(tab: &QueryTabState, library_item_id: &str) -> bool 
             .is_some_and(|saved_query_id| saved_query_id == library_item_id)
 }
 
+fn local_file_content_for_tab(tab: &QueryTabState) -> String {
+    if tab.tab_kind.as_deref() == Some("test-suite") {
+        if let Some(test_suite) = &tab.test_suite {
+            return serde_json::to_string_pretty(test_suite)
+                .unwrap_or_else(|_| tab.query_text.clone());
+        }
+    }
+
+    if tab.query_view_mode.as_deref() == Some("script") {
+        return tab
+            .script_text
+            .clone()
+            .filter(|script_text| !script_text.trim().is_empty())
+            .unwrap_or_else(|| tab.query_text.clone());
+    }
+
+    tab.query_text.clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn effective_library_environment_uses_closest_parent_assignment() {
@@ -949,6 +958,35 @@ mod tests {
             effective_library_environment_id_for_nodes(&nodes, "first"),
             None
         );
+    }
+
+    #[test]
+    fn local_file_content_uses_script_text_for_script_tabs() {
+        let tab = QueryTabState {
+            query_text: "{ \"collection\": \"products\" }".into(),
+            query_view_mode: Some("script".into()),
+            script_text: Some("db.products.find({ sku: 'luna-lamp' })".into()),
+            ..QueryTabState::default()
+        };
+
+        assert_eq!(
+            local_file_content_for_tab(&tab),
+            "db.products.find({ sku: 'luna-lamp' })"
+        );
+    }
+
+    #[test]
+    fn local_file_content_serializes_test_suite_tabs() {
+        let tab = QueryTabState {
+            tab_kind: Some("test-suite".into()),
+            query_text: "stale raw text".into(),
+            test_suite: Some(json!({ "name": "Smoke", "cases": [] })),
+            ..QueryTabState::default()
+        };
+
+        let content = local_file_content_for_tab(&tab);
+        assert!(content.contains("\"name\": \"Smoke\""));
+        assert!(!content.contains("stale raw text"));
     }
 
     fn test_node(id: &str, parent_id: Option<&str>, environment_id: Option<&str>) -> LibraryNode {

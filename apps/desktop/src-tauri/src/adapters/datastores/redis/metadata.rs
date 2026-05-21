@@ -18,11 +18,8 @@ pub(crate) async fn load_redis_structure(
         .query_async(&mut redis)
         .await?;
     let database = connection.database.clone().unwrap_or_else(|| "0".into());
-    let mut prefix_counts = BTreeMap::<String, u32>::new();
-    let mut nodes = Vec::new();
+    let mut type_counts = BTreeMap::<String, RedisTypeSummary>::new();
     for key in keys.iter().take(limit as usize) {
-        let prefix = redis_prefix(key);
-        *prefix_counts.entry(prefix.clone()).or_default() += 1;
         let key_type: String = redis::cmd("TYPE")
             .arg(key)
             .query_async(&mut redis)
@@ -39,57 +36,78 @@ pub(crate) async fn load_redis_structure(
             .query_async(&mut redis)
             .await
             .ok();
-        nodes.push(StructureNode {
-            id: key.clone(),
-            family: "keyvalue".into(),
-            label: key.clone(),
-            kind: key_type,
-            group_id: Some(prefix),
-            detail: Some("Redis key".into()),
-            metrics: vec![
-                structure_metric("TTL", ttl.to_string()),
-                structure_metric(
-                    "Memory",
-                    memory
-                        .map(|value| format!("{value} bytes"))
-                        .unwrap_or_else(|| "n/a".into()),
-                ),
-            ],
-            fields: Vec::new(),
-            sample: None,
-        });
+        let entry = type_counts
+            .entry(normalize_redis_type(&key_type))
+            .or_default();
+        entry.count += 1;
+        if entry.examples.len() < 5 {
+            entry.examples.push(key.clone());
+        }
+        if ttl >= 0 {
+            entry.expiring += 1;
+        }
+        entry.memory_bytes += memory.unwrap_or_default();
     }
-    let groups = prefix_counts
-        .into_iter()
-        .map(|(prefix, count)| StructureGroup {
-            id: prefix.clone(),
-            label: format!("{prefix}:*"),
-            kind: "prefix".into(),
-            detail: Some(format!("{count} key(s) in loaded metadata")),
-            color: None,
+    let nodes = type_counts
+        .iter()
+        .map(|(redis_type, summary)| StructureNode {
+            id: format!("db:{database}:{redis_type}"),
+            family: "keyvalue".into(),
+            label: redis_type_label(redis_type).into(),
+            kind: redis_type.clone(),
+            group_id: Some(format!("db:{database}")),
+            detail: Some("Bounded keyspace type summary".into()),
+            metrics: vec![
+                structure_metric("Keys", summary.count.to_string()),
+                structure_metric("Expiring", summary.expiring.to_string()),
+                structure_metric("Memory", format!("{} bytes", summary.memory_bytes)),
+            ],
+            fields: summary
+                .examples
+                .iter()
+                .map(|key| {
+                    structure_field(
+                        key.as_str(),
+                        redis_type.as_str(),
+                        Some("Example key".into()),
+                        None,
+                        None,
+                    )
+                })
+                .collect(),
+            sample: None,
         })
-        .collect::<Vec<StructureGroup>>();
+        .collect::<Vec<_>>();
 
     Ok(make_structure_response(
         request,
         connection,
         StructureResponseInput {
-            summary: format!("Loaded {} Redis key metadata item(s).", nodes.len()),
-            groups: if groups.is_empty() {
+            summary: format!(
+                "Loaded {} Redis key type group(s) from bounded metadata.",
+                nodes.len()
+            ),
+            groups: if nodes.is_empty() {
                 vec![StructureGroup {
                     id: format!("db:{database}"),
                     label: format!("DB {database}"),
                     kind: "database".into(),
-                    detail: Some("No key prefixes loaded".into()),
+                    detail: Some("No keys loaded".into()),
                     color: None,
                 }]
             } else {
-                groups
+                vec![StructureGroup {
+                    id: format!("db:{database}"),
+                    label: format!("DB {database}"),
+                    kind: "database".into(),
+                    detail: Some("Logical Redis database".into()),
+                    color: None,
+                }]
             },
             nodes,
             edges: Vec::new(),
             metrics: vec![structure_metric(
-                "Loaded keys",
+                "Scanned keys",
                 nodes_count_hint(limit, keys.len()),
             )],
             truncated: keys.len() > limit as usize,
@@ -97,10 +115,35 @@ pub(crate) async fn load_redis_structure(
     ))
 }
 
-fn redis_prefix(key: &str) -> String {
-    key.split(':')
-        .next()
-        .filter(|value| !value.is_empty())
-        .unwrap_or("root")
-        .into()
+#[derive(Default)]
+struct RedisTypeSummary {
+    count: u32,
+    expiring: u32,
+    memory_bytes: u64,
+    examples: Vec<String>,
+}
+
+fn normalize_redis_type(value: &str) -> String {
+    match value.to_ascii_lowercase().as_str() {
+        "rejson-rl" | "json" => "json".into(),
+        "tsdb-type" | "timeseries" => "timeseries".into(),
+        "zset" => "zset".into(),
+        "string" | "hash" | "list" | "set" | "stream" | "none" => value.to_ascii_lowercase(),
+        _ => "module".into(),
+    }
+}
+
+fn redis_type_label(redis_type: &str) -> &'static str {
+    match redis_type {
+        "string" => "Strings",
+        "hash" => "Hashes",
+        "list" => "Lists",
+        "set" => "Sets",
+        "zset" => "Sorted Sets",
+        "stream" => "Streams",
+        "json" => "JSON",
+        "timeseries" => "Time Series",
+        "module" => "Module Keys",
+        _ => "Keys",
+    }
 }

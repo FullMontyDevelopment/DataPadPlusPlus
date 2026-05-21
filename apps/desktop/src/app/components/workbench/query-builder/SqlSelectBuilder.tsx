@@ -27,6 +27,7 @@ const FILTER_OPERATORS: Array<{ value: SqlSelectFilterOperator; label: string }>
   { value: 'gte', label: '>=' },
   { value: 'lt', label: '<' },
   { value: 'lte', label: '<=' },
+  { value: 'contains', label: 'Contains' },
   { value: 'like', label: 'LIKE' },
   { value: 'in', label: 'IN' },
   { value: 'is-null', label: 'IS NULL' },

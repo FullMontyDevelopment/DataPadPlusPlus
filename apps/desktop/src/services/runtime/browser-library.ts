@@ -191,9 +191,6 @@ export function saveQueryTabToLibrary(
   tab.savedQueryId = itemId
   tab.title = name
   tab.dirty = false
-  tab.result = undefined
-  tab.error = undefined
-  tab.status = 'idle'
   next.updatedAt = timestamp
   return next
 }
@@ -214,9 +211,6 @@ export function saveQueryTabToLocalFile(
   tab.savedQueryId = undefined
   tab.title = path.split(/[\\/]/).pop() || tab.title
   tab.dirty = false
-  tab.result = undefined
-  tab.error = undefined
-  tab.status = 'idle'
   next.updatedAt = new Date().toISOString()
   return next
 }

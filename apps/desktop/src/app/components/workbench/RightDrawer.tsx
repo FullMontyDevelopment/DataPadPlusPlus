@@ -43,7 +43,7 @@ interface RightDrawerProps {
   onTestConnection(profile: ConnectionProfile, environmentId: string, secret?: string): void
   onRefreshDiagnostics(): void
   onExportWorkspace(): void
-  onImportWorkspace(): void
+  onImportWorkspace(encryptedPayload: string): void
   onApplyTemplate(queryTemplate?: string): void
   onToggleTheme(): void
   onPickLocalDatabaseFile(request: LocalDatabasePickRequest): Promise<LocalDatabasePickResult>
@@ -132,8 +132,10 @@ export function RightDrawer({
     }
   }, [])
 
+  const drawerLabel = view === 'diagnostics' ? 'settings drawer' : `${view} drawer`
+
   return (
-    <aside className="workbench-drawer" aria-label={`${view} drawer`}>
+    <aside className="workbench-drawer" aria-label={drawerLabel}>
       <div
         role="separator"
         tabIndex={0}

@@ -44,4 +44,32 @@ describe('browser execution runtime', () => {
 
     expect(executed.tabs.find((item) => item.id === tab.id)?.dirty).toBe(false)
   })
+
+  it('returns deterministic MongoDB explain plan payloads in browser preview', () => {
+    const snapshot = createSeedSnapshot()
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-mongo-catalog')
+
+    if (!tab) {
+      throw new Error('Expected seed MongoDB query tab.')
+    }
+
+    const { snapshot: executed } = applyExecutionRequestLocally(snapshot, {
+      tabId: tab.id,
+      connectionId: tab.connectionId,
+      environmentId: tab.environmentId,
+      language: tab.language,
+      queryText: tab.queryText,
+      mode: 'explain',
+    })
+    const result = executed.tabs.find((item) => item.id === tab.id)?.result
+
+    expect(result?.defaultRenderer).toBe('plan')
+    expect(result?.rendererModes).toEqual(['plan', 'json', 'raw'])
+    expect(result?.payloads[0]).toMatchObject({
+      renderer: 'plan',
+      format: 'json',
+      summary: 'MongoDB execution plan',
+    })
+    expect(result?.explainPayload).toMatchObject({ renderer: 'plan' })
+  })
 })

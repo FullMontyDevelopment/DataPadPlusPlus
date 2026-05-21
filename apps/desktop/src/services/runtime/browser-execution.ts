@@ -1,4 +1,4 @@
-import type { ExecutionRequest, ExecutionResponse, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import type { ExecutionRequest, ExecutionResponse, ResultPayload, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { createId, evaluateGuardrails, resolveEnvironment, simulateExecution } from '../../app/state/helpers'
 import { cloneSnapshot, confirmationGuardrailId, findConnection, findEnvironment, findTab } from './browser-store'
 
@@ -91,7 +91,28 @@ export function applyExecutionRequestLocally(
   let result = guardrail.status === 'block' ? undefined : simulated.result
   const diagnostics: string[] = []
 
-  if (request.mode === 'explain' && result) {
+  if (request.mode === 'explain' && result && connection.engine === 'mongodb') {
+    const explain = mongoExplainPreview()
+    const planPayload: ResultPayload = {
+      renderer: 'plan',
+      format: 'json',
+      value: explain,
+      summary: 'MongoDB execution plan',
+    }
+    result = {
+      ...result,
+      id: createId('result'),
+      summary: `MongoDB explain plan prepared for ${connection.name}.`,
+      defaultRenderer: 'plan',
+      rendererModes: ['plan', 'json', 'raw'],
+      payloads: [
+        planPayload,
+        { renderer: 'json', value: explain },
+        { renderer: 'raw', text: JSON.stringify(explain, null, 2) },
+      ],
+      explainPayload: planPayload,
+    }
+  } else if (request.mode === 'explain' && result) {
     const explainText =
       connection.family === 'sql'
         ? `Explain plan preview for ${connection.engine}\n\n${queryText}`
@@ -156,5 +177,67 @@ export function applyExecutionRequestLocally(
       guardrail,
       diagnostics,
     },
+  }
+}
+
+function mongoExplainPreview() {
+  return {
+    queryPlanner: {
+      namespace: 'catalog.products',
+      parsedQuery: { sku: { $eq: 'luna-lamp' } },
+      winningPlan: {
+        stage: 'FETCH',
+        filter: { 'inventory.available': { $gt: 0 } },
+        inputStage: {
+          stage: 'IXSCAN',
+          indexName: 'sku_1',
+          direction: 'forward',
+          keyPattern: { sku: 1 },
+          indexBounds: { sku: ['["luna-lamp", "luna-lamp"]'] },
+          isMultiKey: false,
+        },
+      },
+      rejectedPlans: [
+        {
+          stage: 'FETCH',
+          inputStage: {
+            stage: 'IXSCAN',
+            indexName: 'inventory_available_1',
+            direction: 'forward',
+            keyPattern: { 'inventory.available': 1 },
+          },
+        },
+      ],
+    },
+    executionStats: {
+      executionSuccess: true,
+      nReturned: 1,
+      executionTimeMillis: 3,
+      totalKeysExamined: 1,
+      totalDocsExamined: 1,
+      executionStages: {
+        stage: 'FETCH',
+        nReturned: 1,
+        works: 2,
+        advanced: 1,
+        docsExamined: 1,
+        inputStage: {
+          stage: 'IXSCAN',
+          nReturned: 1,
+          works: 2,
+          advanced: 1,
+          keysExamined: 1,
+          indexName: 'sku_1',
+          direction: 'forward',
+          keyPattern: { sku: 1 },
+          indexBounds: { sku: ['["luna-lamp", "luna-lamp"]'] },
+        },
+      },
+    },
+    serverInfo: {
+      host: 'browser-preview',
+      version: '7.0.0-preview',
+    },
+    ok: 1,
   }
 }

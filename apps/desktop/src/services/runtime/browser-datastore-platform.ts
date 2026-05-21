@@ -59,14 +59,17 @@ export function planDataEditLocally(
     'Preview mode generates guarded data-edit plans without mutating the datastore.',
     ...browserDataEditWarnings(connection, request),
   ]
-  const confirmationText = `CONFIRM ${connection.engine.toUpperCase()} ${request.editKind.toUpperCase()}`
+  const destructive = request.editKind.includes('delete')
+  const confirmationText = destructive
+    ? `CONFIRM ${connection.engine.toUpperCase()} ${request.editKind.toUpperCase()}`
+    : undefined
   const plan: DataEditPlanResponse['plan'] = {
     operationId: `${connection.engine}.data-edit.${request.editKind}`,
     engine: connection.engine,
     summary: `${request.editKind} data edit plan prepared for ${connection.name}.`,
     generatedRequest,
     requestLanguage: languageForConnection(connection),
-    destructive: request.editKind.includes('delete'),
+    destructive,
     estimatedCost: 'Single-object edit; cost depends on the engine and indexes.',
     estimatedScanImpact: browserDataEditScanImpact(request),
     requiredPermissions: [browserDataEditPermission(connection, request)],
@@ -116,7 +119,9 @@ export function executeDataEditLocally(
   }
 
   if (planResponse.plan.confirmationText && request.confirmationText !== planResponse.plan.confirmationText) {
-    warnings.push(`Type \`${planResponse.plan.confirmationText}\` before executing this data edit.`)
+    warnings.push(
+      `This data edit requires confirmation before it can run (${planResponse.plan.confirmationText}).`,
+    )
   }
 
   if (snapshot && environmentHasUnresolvedVariables(snapshot, request.environmentId)) {
@@ -152,8 +157,9 @@ function applyEnvironmentGuardsToDataEditPlan(
     return
   }
 
+  const destructiveOrAdapterGuarded = plan.destructive || Boolean(plan.confirmationText)
   const reasons = [
-    snapshot.preferences.safeModeEnabled
+    snapshot.preferences.safeModeEnabled && destructiveOrAdapterGuarded
       ? 'Global safe mode requires confirmation for risky work.'
       : '',
     environment.safeMode

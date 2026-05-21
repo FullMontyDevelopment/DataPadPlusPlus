@@ -108,20 +108,92 @@ pub(super) async fn inspect_redis_explorer_node(
         });
     }
 
-    let payload = match request.node_id.as_str() {
-        "redis:diagnostics:info" => redis_info_payload(connection).await?,
-        "redis:diagnostics:slowlog" => redis_slowlog_payload(connection).await?,
-        "redis:acl:users" => redis_acl_payload(connection).await?,
-        "redis:cluster:info" => redis_command_payload(connection, &["CLUSTER", "INFO"]).await?,
-        "redis:cluster:nodes" => redis_command_payload(connection, &["CLUSTER", "NODES"]).await?,
-        "redis:pubsub:channels" => {
-            redis_command_payload(connection, &["PUBSUB", "CHANNELS"]).await?
+    let payload = if request.node_id == "redis:databases" {
+        redis_databases_payload(connection).await?
+    } else if let Some((database, requested_type)) = parse_database_node_id(&request.node_id) {
+        if let Some(requested_type) = requested_type {
+            redis_type_overview_payload(connection, database, &requested_type).await?
+        } else {
+            redis_database_overview_payload(connection, database).await?
         }
-        "redis:functions:list" => redis_command_payload(connection, &["FUNCTION", "LIST"]).await?,
-        _ => json!({
-            "node": request.node_id,
-            "message": "This Redis object view is available as a structured workspace section."
-        }),
+    } else {
+        match request.node_id.as_str() {
+            "redis:diagnostics" => redis_info_payload(connection).await?,
+            "redis:diagnostics:info" => redis_info_payload(connection).await?,
+            "redis:diagnostics:slowlog" => redis_slowlog_payload(connection).await?,
+            "redis:diagnostics:commandstats" => {
+                redis_info_section_payload(connection, "commandstats").await?
+            }
+            "redis:diagnostics:latency" => {
+                redis_command_payload(connection, &["LATENCY", "LATEST"]).await?
+            }
+            "redis:diagnostics:memory" => {
+                redis_command_payload(connection, &["MEMORY", "STATS"]).await?
+            }
+            "redis:diagnostics:clients" => {
+                redis_command_payload(connection, &["CLIENT", "LIST"]).await?
+            }
+            "redis:diagnostics:persistence" => {
+                redis_info_section_payload(connection, "persistence").await?
+            }
+            "redis:diagnostics:replication" => {
+                redis_info_section_payload(connection, "replication").await?
+            }
+            "redis:acl" => redis_acl_payload(connection).await?,
+            "redis:acl:users" => redis_acl_payload(connection).await?,
+            "redis:acl:categories" => redis_command_payload(connection, &["ACL", "CAT"]).await?,
+            "redis:acl:whoami" => redis_command_payload(connection, &["ACL", "WHOAMI"]).await?,
+            "redis:cluster" => redis_command_payload(connection, &["CLUSTER", "INFO"]).await?,
+            "redis:cluster:info" => redis_command_payload(connection, &["CLUSTER", "INFO"]).await?,
+            "redis:cluster:nodes" => {
+                redis_command_payload(connection, &["CLUSTER", "NODES"]).await?
+            }
+            "redis:cluster:slots" => {
+                redis_command_payload(connection, &["CLUSTER", "SLOTS"]).await?
+            }
+            "redis:sentinel" => json!({
+                "warning": "Sentinel commands are available only on Redis Sentinel deployments.",
+                "value": []
+            }),
+            "redis:sentinel:masters" => {
+                redis_command_payload(connection, &["SENTINEL", "MASTERS"]).await?
+            }
+            "redis:sentinel:replicas" => json!({
+                "command": "SENTINEL REPLICAS <master>",
+                "warning": "Choose a Sentinel master before loading replicas.",
+                "value": []
+            }),
+            "redis:sentinel:sentinels" => json!({
+                "command": "SENTINEL SENTINELS <master>",
+                "warning": "Choose a Sentinel master before loading peer sentinels.",
+                "value": []
+            }),
+            "redis:pubsub" => redis_command_payload(connection, &["PUBSUB", "CHANNELS"]).await?,
+            "redis:pubsub:channels" => {
+                redis_command_payload(connection, &["PUBSUB", "CHANNELS"]).await?
+            }
+            "redis:pubsub:patterns" => {
+                redis_command_payload(connection, &["PUBSUB", "NUMPAT"]).await?
+            }
+            "redis:pubsub:subscribers" => json!({
+                "command": "PUBSUB NUMSUB <channel>",
+                "warning": "Choose one or more channels before loading subscriber counts.",
+                "value": []
+            }),
+            "redis:lua-scripts" | "redis:lua:scripts" => json!({
+                "command": "SCRIPT EXISTS <sha>",
+                "warning": "Redis does not list loaded script bodies. Save reusable scripts in Library and execute them through guarded workflows.",
+                "value": []
+            }),
+            "redis:functions" => redis_command_payload(connection, &["FUNCTION", "LIST"]).await?,
+            "redis:functions:list" => {
+                redis_command_payload(connection, &["FUNCTION", "LIST"]).await?
+            }
+            _ => json!({
+                "node": request.node_id,
+                "message": "Redis metadata for this object is unavailable from the current connection."
+            }),
+        }
     };
 
     Ok(ExplorerInspectResponse {
@@ -577,6 +649,187 @@ fn parse_key_node_id(node_id: &str) -> Option<(u32, String)> {
     let rest = node_id.strip_prefix("key:")?;
     let (database, key) = rest.split_once(':')?;
     Some((database.parse().ok()?, key.into()))
+}
+
+fn parse_database_node_id(node_id: &str) -> Option<(u32, Option<String>)> {
+    let rest = node_id.strip_prefix("redis:db:")?;
+    let (database, requested_type) = rest
+        .split_once(':')
+        .map_or((rest, None), |(database, requested_type)| {
+            (database, Some(requested_type.to_string()))
+        });
+    Some((database.parse().ok()?, requested_type))
+}
+
+async fn redis_databases_payload(
+    connection: &ResolvedConnectionProfile,
+) -> Result<serde_json::Value, CommandError> {
+    let mut redis = redis_connection(connection).await?;
+    let info = redis::cmd("INFO")
+        .arg("keyspace")
+        .query_async::<String>(&mut redis)
+        .await
+        .unwrap_or_default();
+    let databases = parse_keyspace_databases(&info)
+        .into_iter()
+        .map(|(database, detail)| {
+            let parsed = parse_keyspace_detail(&detail);
+            json!({
+                "database": database,
+                "keys": parsed.get("keys").cloned().unwrap_or_default(),
+                "expires": parsed.get("expires").cloned().unwrap_or_default(),
+                "avgTtl": parsed.get("avg_ttl").cloned().unwrap_or_default(),
+                "detail": detail,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(json!({
+        "databases": databases,
+        "configuredDatabase": configured_database_index(connection).unwrap_or(0),
+    }))
+}
+
+async fn redis_database_overview_payload(
+    connection: &ResolvedConnectionProfile,
+    database: u32,
+) -> Result<serde_json::Value, CommandError> {
+    let mut redis = redis_connection(connection).await?;
+    select_redis_database(&mut redis, Some(database)).await?;
+    let key_count: u64 = redis::cmd("DBSIZE")
+        .query_async(&mut redis)
+        .await
+        .unwrap_or_default();
+    let (_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+        .arg(0)
+        .arg("MATCH")
+        .arg("*")
+        .arg("COUNT")
+        .arg(250)
+        .query_async(&mut redis)
+        .await
+        .unwrap_or((0, Vec::new()));
+    let type_counts = redis_type_counts(&mut redis, &keys).await;
+
+    Ok(json!({
+        "database": database,
+        "keyCount": key_count,
+        "scannedKeys": keys.len(),
+        "typeCounts": type_counts,
+    }))
+}
+
+async fn redis_type_overview_payload(
+    connection: &ResolvedConnectionProfile,
+    database: u32,
+    requested_type: &str,
+) -> Result<serde_json::Value, CommandError> {
+    let mut redis = redis_connection(connection).await?;
+    select_redis_database(&mut redis, Some(database)).await?;
+    let scan_type = redis_scan_type_argument(requested_type);
+    let (_cursor, keys): (u64, Vec<String>) = {
+        let mut command = redis::cmd("SCAN");
+        command.arg(0).arg("MATCH").arg("*").arg("COUNT").arg(100);
+        if let Some(scan_type) = scan_type {
+            command.arg("TYPE").arg(scan_type);
+        }
+        command
+            .query_async(&mut redis)
+            .await
+            .unwrap_or((0, Vec::new()))
+    };
+    let mut summaries = Vec::new();
+    for key in keys.into_iter().take(100) {
+        let key_type: String = redis::cmd("TYPE")
+            .arg(&key)
+            .query_async(&mut redis)
+            .await
+            .unwrap_or_else(|_| "unknown".into());
+        let normalized_type = normalize_redis_type(&key_type);
+        if requested_type != "keys" && requested_type != normalized_type {
+            continue;
+        }
+        let ttl: i64 = redis::cmd("TTL")
+            .arg(&key)
+            .query_async(&mut redis)
+            .await
+            .unwrap_or(-1);
+        let memory_usage: Option<u64> = redis::cmd("MEMORY")
+            .arg("USAGE")
+            .arg(&key)
+            .query_async(&mut redis)
+            .await
+            .ok();
+        summaries.push(json!({
+            "key": key,
+            "type": normalized_type,
+            "ttlSeconds": ttl,
+            "memoryUsageBytes": memory_usage,
+        }));
+    }
+
+    Ok(json!({
+        "database": database,
+        "type": requested_type,
+        "pattern": "*",
+        "scannedKeys": summaries.len(),
+        "keys": summaries,
+    }))
+}
+
+async fn redis_type_counts(
+    redis: &mut redis::aio::MultiplexedConnection,
+    keys: &[String],
+) -> Vec<serde_json::Value> {
+    let mut counts = std::collections::BTreeMap::<String, (usize, Vec<String>)>::new();
+    for key in keys {
+        let key_type: String = redis::cmd("TYPE")
+            .arg(key)
+            .query_async(redis)
+            .await
+            .unwrap_or_else(|_| "unknown".into());
+        let normalized_type = normalize_redis_type(&key_type);
+        let entry = counts
+            .entry(normalized_type)
+            .or_insert_with(|| (0, Vec::new()));
+        entry.0 += 1;
+        if entry.1.len() < 3 {
+            entry.1.push(key.clone());
+        }
+    }
+
+    counts
+        .into_iter()
+        .map(|(redis_type, (count, examples))| {
+            json!({
+                "type": redis_type,
+                "count": count,
+                "examples": examples,
+            })
+        })
+        .collect()
+}
+
+fn parse_keyspace_detail(detail: &str) -> std::collections::BTreeMap<String, String> {
+    detail
+        .split(',')
+        .filter_map(|part| {
+            let (key, value) = part.trim().split_once('=')?;
+            Some((key.trim().to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+async fn redis_info_section_payload(
+    connection: &ResolvedConnectionProfile,
+    section: &str,
+) -> Result<serde_json::Value, CommandError> {
+    let mut redis = redis_connection(connection).await?;
+    let info = redis::cmd("INFO")
+        .arg(section)
+        .query_async::<String>(&mut redis)
+        .await?;
+    Ok(json!({ "command": format!("INFO {section}"), "text": info }))
 }
 
 fn redis_scan_type_argument(type_filter: &str) -> Option<&'static str> {

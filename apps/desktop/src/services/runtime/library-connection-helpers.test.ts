@@ -12,6 +12,19 @@ import {
 } from './library-connection-helpers'
 
 describe('Library connection helpers', () => {
+  it('does not invent a default folder for fresh or root-level connections', () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    const connection = createConnectionProfile('')
+
+    expect(snapshot.libraryNodes).toEqual([])
+
+    snapshot.connections.push(connection)
+    ensureConnectionLibraryNodes(snapshot)
+
+    expect(defaultLibraryFolderForConnection(snapshot, undefined)).toBeUndefined()
+    expect(defaultLibraryFolderForConnection(snapshot, connection.id)).toBeUndefined()
+  })
+
   it('creates stable Library connection nodes and resolves inherited environments', () => {
     const snapshot = createBlankBootstrapPayload().snapshot
     const environment = createEnvironmentProfile()

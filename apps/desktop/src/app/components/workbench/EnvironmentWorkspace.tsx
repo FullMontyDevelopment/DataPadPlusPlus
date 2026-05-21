@@ -1,24 +1,30 @@
 import { useState } from 'react'
 import type { EnvironmentProfile } from '@datapadplusplus/shared-types'
-import { normalizeColor, resolveEnvironmentPreview } from './EnvironmentWorkspace.helpers'
+import {
+  comparableEnvironment,
+  normalizeColor,
+  resolveEnvironmentPreview,
+} from './EnvironmentWorkspace.helpers'
 
 export function EnvironmentWorkspace({
   activeEnvironment,
   environments,
   onCreateEnvironment,
   onCloneEnvironment,
+  onEnvironmentChange,
   onSaveEnvironment,
 }: {
   activeEnvironment?: EnvironmentProfile
   environments: EnvironmentProfile[]
   onCreateEnvironment(): void
   onCloneEnvironment(environment: EnvironmentProfile): void
+  onEnvironmentChange(environment: EnvironmentProfile): void
   onSaveEnvironment(environment: EnvironmentProfile): void
 }) {
-  const [environmentDraft, setEnvironmentDraft] = useState(activeEnvironment)
   const [newVariableKey, setNewVariableKey] = useState('')
   const [newVariableValue, setNewVariableValue] = useState('')
   const [newVariableSecret, setNewVariableSecret] = useState(false)
+  const environmentDraft = activeEnvironment
 
   if (!environmentDraft) {
     return (
@@ -55,26 +61,32 @@ export function EnvironmentWorkspace({
   const unresolvedKeys = new Set(resolvedPreview.unresolvedKeys)
   const hasEnvironmentChanges =
     Boolean(activeEnvironment) &&
-    comparableEnvironment(environmentDraft) !== comparableEnvironment(activeEnvironment)
+    comparableEnvironment(environmentDraft) !==
+      comparableEnvironment(environments.find((item) => item.id === environmentDraft.id))
 
-  const updateDraft = (patch: Partial<EnvironmentProfile>) => {
-    setEnvironmentDraft((current) =>
-      current
-        ? {
-            ...current,
-            ...patch,
+  const commitDraft = (
+    updater:
+      | Partial<EnvironmentProfile>
+      | ((current: EnvironmentProfile) => EnvironmentProfile),
+  ) => {
+    const nextEnvironment =
+      typeof updater === 'function'
+        ? updater(environmentDraft)
+        : {
+            ...environmentDraft,
+            ...updater,
             updatedAt: new Date().toISOString(),
           }
-        : current,
-    )
+
+    onEnvironmentChange(nextEnvironment)
+  }
+
+  const updateDraft = (patch: Partial<EnvironmentProfile>) => {
+    commitDraft(patch)
   }
 
   const updateVariableKey = (currentKey: string, nextKey: string) => {
-    setEnvironmentDraft((current) => {
-      if (!current) {
-        return current
-      }
-
+    commitDraft((current) => {
       const variables = { ...current.variables }
       const value = variables[currentKey] ?? ''
       delete variables[currentKey]
@@ -95,32 +107,24 @@ export function EnvironmentWorkspace({
   }
 
   const updateVariableValue = (key: string, value: string) => {
-    setEnvironmentDraft((current) =>
-      current
-        ? {
-            ...current,
-            variables: {
-              ...current.variables,
-              [key]: value,
-            },
-            updatedAt: new Date().toISOString(),
-          }
-        : current,
-    )
+    commitDraft((current) => ({
+      ...current,
+      variables: {
+        ...current.variables,
+        [key]: value,
+      },
+      updatedAt: new Date().toISOString(),
+    }))
   }
 
   const toggleSensitiveKey = (key: string) => {
-    setEnvironmentDraft((current) =>
-      current
-        ? {
-            ...current,
-            sensitiveKeys: current.sensitiveKeys.includes(key)
-              ? current.sensitiveKeys.filter((item) => item !== key)
-              : [...current.sensitiveKeys, key],
-            updatedAt: new Date().toISOString(),
-          }
-        : current,
-    )
+    commitDraft((current) => ({
+      ...current,
+      sensitiveKeys: current.sensitiveKeys.includes(key)
+        ? current.sensitiveKeys.filter((item) => item !== key)
+        : [...current.sensitiveKeys, key],
+      updatedAt: new Date().toISOString(),
+    }))
   }
 
   const deleteVariable = (key: string) => {
@@ -128,11 +132,7 @@ export function EnvironmentWorkspace({
       return
     }
 
-    setEnvironmentDraft((current) => {
-      if (!current) {
-        return current
-      }
-
+    commitDraft((current) => {
       const variables = { ...current.variables }
       delete variables[key]
 
@@ -155,22 +155,18 @@ export function EnvironmentWorkspace({
     const shouldMarkSensitive =
       newVariableSecret || /password|secret|token|key|pwd/i.test(key)
 
-    setEnvironmentDraft((current) =>
-      current
-        ? {
-            ...current,
-            variables: {
-              ...current.variables,
-              [key]: newVariableValue,
-            },
-            sensitiveKeys:
-              shouldMarkSensitive && !current.sensitiveKeys.includes(key)
-                ? [...current.sensitiveKeys, key]
-                : current.sensitiveKeys,
-            updatedAt: new Date().toISOString(),
-          }
-        : current,
-    )
+    commitDraft((current) => ({
+      ...current,
+      variables: {
+        ...current.variables,
+        [key]: newVariableValue,
+      },
+      sensitiveKeys:
+        shouldMarkSensitive && !current.sensitiveKeys.includes(key)
+          ? [...current.sensitiveKeys, key]
+          : current.sensitiveKeys,
+      updatedAt: new Date().toISOString(),
+    }))
     setNewVariableKey('')
     setNewVariableValue('')
     setNewVariableSecret(false)
@@ -390,26 +386,4 @@ export function EnvironmentWorkspace({
       </div>
     </section>
   )
-}
-
-function comparableEnvironment(environment: EnvironmentProfile | undefined) {
-  if (!environment) {
-    return ''
-  }
-
-  return JSON.stringify({
-    color: environment.color,
-    exportable: environment.exportable,
-    inheritsFrom: environment.inheritsFrom ?? '',
-    label: environment.label,
-    requiresConfirmation: environment.requiresConfirmation,
-    risk: environment.risk,
-    safeMode: environment.safeMode,
-    sensitiveKeys: [...environment.sensitiveKeys].sort(),
-    variables: Object.fromEntries(
-      Object.entries(environment.variables).sort(([left], [right]) =>
-        left.localeCompare(right),
-      ),
-    ),
-  })
 }

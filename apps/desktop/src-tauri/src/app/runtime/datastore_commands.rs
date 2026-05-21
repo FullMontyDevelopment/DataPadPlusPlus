@@ -345,7 +345,7 @@ impl ManagedAppState {
                     &request,
                     plan_response,
                     vec![format!(
-                        "Type `{expected}` before executing this data edit."
+                        "This data edit requires confirmation before it can run ({expected})."
                     )],
                 ));
             }
