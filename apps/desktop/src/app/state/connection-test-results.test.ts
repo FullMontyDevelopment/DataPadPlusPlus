@@ -41,7 +41,7 @@ describe('connection test results', () => {
       'DataPad++ Docker fixtures expose MongoDB on localhost:27018.',
       'Fixture database is "catalog".',
       'Fixture user is "datapadplusplus".',
-      'Fixture password is "datapadplusplus".',
+      'Fixture credentials require a password in the secret field.',
     ])
 
     expect(

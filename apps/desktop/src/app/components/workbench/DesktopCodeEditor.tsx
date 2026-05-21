@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ComponentType, DragEvent } from 'react'
+import type { DragEvent, ElementType } from 'react'
 import {
   acceptFieldDrag,
   clearFieldDragData,
@@ -49,7 +49,7 @@ export function DesktopCodeEditor({
       }
     | undefined
   >()
-  const [LoadedEditor, setLoadedEditor] = useState<null | ComponentType<{
+  const [LoadedEditor, setLoadedEditor] = useState<null | ElementType<{
     height: string
     language: string
     value: string
@@ -71,7 +71,15 @@ export function DesktopCodeEditor({
     void import('@monaco-editor/react')
       .then((module) => {
         if (mounted) {
-          setLoadedEditor(() => module.default)
+          setLoadedEditor(() => module.default as ElementType<{
+            height: string
+            language: string
+            value: string
+            theme: string
+            options: Record<string, unknown>
+            onChange(value: string | undefined): void
+            onMount?(editor: MonacoEditorLike, monaco: MonacoApiLike): void
+          }>)
         }
       })
       .catch(() => {

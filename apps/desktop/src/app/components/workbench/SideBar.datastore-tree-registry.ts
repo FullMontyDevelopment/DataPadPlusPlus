@@ -482,11 +482,21 @@ function sqlPlacement(
     return sqlitePlacement(connection, node, kind, normalizedPath)
   }
 
+  if (isPostgresFamily(connection) && isSqlCategoryExplorerNode(node, normalizedPath)) {
+    const [, schema] = node.scope?.split(':') ?? []
+
+    if (schema) {
+      return [sqlSchemaRootLabel(connection, schema), schema]
+    }
+
+    return normalizedPath
+  }
+
   if (isSqlCategoryExplorerNode(node, normalizedPath)) {
     return normalizedPath
   }
 
-  if (kind === 'schema' && !isSqlSystemSchema(connection, node.label)) {
+  if (kind === 'schema') {
     return [sqlSchemaRootLabel(connection, node.label)]
   }
 
@@ -498,11 +508,19 @@ function sqlPlacement(
     return ['Extensions']
   }
 
+  if (kind === 'security') {
+    return []
+  }
+
   if (kind === 'role' || kind === 'roles' || kind === 'grant' || kind === 'permission') {
     return ['Security']
   }
 
-  if (kind === 'diagnostic' || kind === 'diagnostics' || kind === 'session' || kind === 'lock') {
+  if (kind === 'diagnostics') {
+    return []
+  }
+
+  if (kind === 'diagnostic' || kind === 'session' || kind === 'lock') {
     return ['Diagnostics']
   }
 
@@ -1835,6 +1853,14 @@ function isSqlSystemSchema(connection: ConnectionProfile, schema: string | undef
   }
 
   return name === 'information_schema'
+}
+
+function isPostgresFamily(connection: ConnectionProfile) {
+  return (
+    connection.engine === 'postgresql' ||
+    connection.engine === 'cockroachdb' ||
+    connection.engine === 'timescaledb'
+  )
 }
 
 function sqlObjectPartsFromExplorerNode(

@@ -32,6 +32,7 @@
     "release:test": "node --test tests/release/*.test.mjs",
     "release:dry-run": "node tests/release/release-dry-run.mjs",
     "quality:test": "node --test tests/quality/*.test.mjs",
+    "security:audit": "npm audit --omit=dev",
     "fixtures:up": "node tests/fixtures/compose.mjs up",
     "fixtures:up:profile": "node tests/fixtures/compose.mjs up-profile",
     "fixtures:up:all": "node tests/fixtures/compose.mjs up-all",

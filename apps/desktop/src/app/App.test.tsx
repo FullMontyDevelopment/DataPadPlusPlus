@@ -827,7 +827,7 @@ describe('App', () => {
     fireEvent.click(within(sqlTree).getByLabelText('Expand public'))
 
     await waitFor(() => {
-      expect(within(sqlTree).getByText('Tables')).toBeInTheDocument()
+      expect(within(sqlTree).getAllByText('Tables').length).toBeGreaterThan(0)
     })
 
     expect(within(sqlTree).queryByText('accounts')).not.toBeInTheDocument()
@@ -835,7 +835,8 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(within(sqlTree).getByText('accounts')).toBeInTheDocument()
-      expect(within(sqlTree).getByText('transactions')).toBeInTheDocument()
+      expect(within(sqlTree).getByText('orders')).toBeInTheDocument()
+      expect(within(sqlTree).getByText('products')).toBeInTheDocument()
     })
 
     fireEvent.click(within(sqlTree).getByLabelText('Collapse Tables'))
@@ -1619,7 +1620,7 @@ describe('App', () => {
     })
     fireEvent.click(within(sqlTree).getByLabelText('Expand public'))
     await waitFor(() => {
-      expect(within(sqlTree).getByText('Tables')).toBeInTheDocument()
+      expect(within(sqlTree).getAllByText('Tables').length).toBeGreaterThan(0)
     })
     fireEvent.click(within(sqlTree).getByLabelText('Expand Tables'))
     await waitFor(() => {
@@ -1642,7 +1643,7 @@ describe('App', () => {
     expect(screen.queryByRole('region', { name: 'SQL SELECT builder' })).not.toBeInTheDocument()
 
     expect(screen.getByLabelText('Query editor')).toHaveValue(
-      'select * from public.accounts limit 100;',
+      'select * from "public"."accounts" limit 100;',
     )
   })
 

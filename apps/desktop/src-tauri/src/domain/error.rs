@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+const SECRET_REPLACEMENT: &str = "********";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandError {
@@ -9,11 +11,212 @@ pub struct CommandError {
 
 impl CommandError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        let message = message.into();
+
         Self {
             code: code.into(),
-            message: message.into(),
+            message: redact_sensitive_text(&message),
         }
     }
+}
+
+fn redact_sensitive_text(value: &str) -> String {
+    redact_auth_headers(&redact_secret_assignments(&redact_url_credentials(value)))
+}
+
+fn redact_url_credentials(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut cursor = 0;
+
+    while let Some(relative_scheme_end) = value[cursor..].find("://") {
+        let scheme_end = cursor + relative_scheme_end;
+        let authority_start = scheme_end + 3;
+        let authority_end = value[authority_start..]
+            .find(['/', '?', '#', ' ', '\n', '\r', '\t'])
+            .map(|index| authority_start + index)
+            .unwrap_or(value.len());
+
+        let authority = &value[authority_start..authority_end];
+        let Some(userinfo_end) = authority.rfind('@') else {
+            output.push_str(&value[cursor..authority_start]);
+            cursor = authority_start;
+            continue;
+        };
+
+        output.push_str(&value[cursor..authority_start]);
+        output.push_str(SECRET_REPLACEMENT);
+        output.push_str(&authority[userinfo_end..]);
+        cursor = authority_end;
+    }
+
+    output.push_str(&value[cursor..]);
+    output
+}
+
+fn redact_secret_assignments(value: &str) -> String {
+    [
+        "shared access key",
+        "sharedaccesskey",
+        "access_token",
+        "access-token",
+        "auth_token",
+        "auth-token",
+        "secret key",
+        "secretkey",
+        "api_key",
+        "api-key",
+        "api key",
+        "password",
+        "token",
+        "secret",
+        "pwd",
+        "pass",
+    ]
+    .iter()
+    .fold(value.to_string(), |redacted, key| {
+        redact_secret_assignment_key(&redacted, key)
+    })
+}
+
+fn redact_secret_assignment_key(value: &str, key: &str) -> String {
+    let mut output = value.to_string();
+    let mut search_from = 0;
+
+    loop {
+        let lower = output.to_lowercase();
+        let Some(relative_position) = lower[search_from..].find(key) else {
+            return output;
+        };
+        let key_start = search_from + relative_position;
+        let key_end = key_start + key.len();
+
+        if !is_assignment_key_boundary(&output, key_start, key_end) {
+            search_from = key_end;
+            continue;
+        }
+
+        let Some((value_start, value_end)) = assignment_value_range(&output, key_end) else {
+            search_from = key_end;
+            continue;
+        };
+
+        output.replace_range(value_start..value_end, SECRET_REPLACEMENT);
+        search_from = value_start + SECRET_REPLACEMENT.len();
+    }
+}
+
+fn is_assignment_key_boundary(value: &str, start: usize, end: usize) -> bool {
+    let before_ok = value[..start]
+        .chars()
+        .next_back()
+        .is_none_or(|character| !is_identifier_character(character));
+    let after_ok = value[end..]
+        .chars()
+        .next()
+        .is_none_or(|character| character.is_whitespace() || matches!(character, ':' | '='));
+
+    before_ok && after_ok
+}
+
+fn assignment_value_range(value: &str, key_end: usize) -> Option<(usize, usize)> {
+    let mut cursor = key_end;
+    cursor += value[cursor..]
+        .chars()
+        .take_while(|character| character.is_whitespace())
+        .map(char::len_utf8)
+        .sum::<usize>();
+
+    let separator = value[cursor..].chars().next()?;
+    if !matches!(separator, ':' | '=') {
+        return None;
+    }
+
+    cursor += separator.len_utf8();
+    cursor += value[cursor..]
+        .chars()
+        .take_while(|character| character.is_whitespace())
+        .map(char::len_utf8)
+        .sum::<usize>();
+
+    let value_start = cursor;
+    let first = value[cursor..].chars().next()?;
+    if matches!(first, '"' | '\'') {
+        cursor += first.len_utf8();
+        for character in value[cursor..].chars() {
+            cursor += character.len_utf8();
+            if character == first {
+                break;
+            }
+        }
+        return Some((value_start, cursor));
+    }
+
+    for character in value[cursor..].chars() {
+        if character.is_whitespace() || matches!(character, ';' | ',' | '}' | ']') {
+            break;
+        }
+        cursor += character.len_utf8();
+    }
+
+    (cursor > value_start).then_some((value_start, cursor))
+}
+
+fn redact_auth_headers(value: &str) -> String {
+    ["Bearer", "Basic"]
+        .iter()
+        .fold(value.to_string(), |redacted, scheme| {
+            redact_auth_header_scheme(&redacted, scheme)
+        })
+}
+
+fn redact_auth_header_scheme(value: &str, scheme: &str) -> String {
+    let mut output = value.to_string();
+    let mut search_from = 0;
+
+    loop {
+        let lower = output.to_lowercase();
+        let Some(relative_position) = lower[search_from..].find(&scheme.to_lowercase()) else {
+            return output;
+        };
+        let scheme_start = search_from + relative_position;
+        let scheme_end = scheme_start + scheme.len();
+
+        if !is_assignment_key_boundary(&output, scheme_start, scheme_end) {
+            search_from = scheme_end;
+            continue;
+        }
+
+        let token_start = scheme_end
+            + output[scheme_end..]
+                .chars()
+                .take_while(|character| character.is_whitespace())
+                .map(char::len_utf8)
+                .sum::<usize>();
+        if token_start == scheme_end {
+            search_from = scheme_end;
+            continue;
+        }
+
+        let mut token_end = token_start;
+        for character in output[token_start..].chars() {
+            if character.is_whitespace() || matches!(character, ';' | ',') {
+                break;
+            }
+            token_end += character.len_utf8();
+        }
+
+        if token_end == token_start {
+            search_from = scheme_end;
+            continue;
+        }
+
+        output.replace_range(token_start..token_end, SECRET_REPLACEMENT);
+        search_from = token_start + SECRET_REPLACEMENT.len();
+    }
+}
+
+fn is_identifier_character(character: char) -> bool {
+    character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
 }
 
 impl From<std::io::Error> for CommandError {
@@ -285,5 +488,22 @@ mod tests {
 
         assert_eq!(error.code, "sqlserver-invalid-object-name");
         assert!(error.message.contains("selected database"));
+    }
+
+    #[test]
+    fn command_errors_redact_common_secret_shapes() {
+        let error = CommandError::new(
+            "test",
+            "password=hunter2 token: abc123 Authorization: Bearer secret mongodb://user:pass@localhost/db",
+        );
+
+        assert!(!error.message.contains("hunter2"));
+        assert!(!error.message.contains("abc123"));
+        assert!(!error.message.contains("Bearer secret"));
+        assert!(!error.message.contains("user:pass"));
+        assert!(error.message.contains("password=********"));
+        assert!(error.message.contains("token: ********"));
+        assert!(error.message.contains("Bearer ********"));
+        assert!(error.message.contains("mongodb://********@localhost/db"));
     }
 }

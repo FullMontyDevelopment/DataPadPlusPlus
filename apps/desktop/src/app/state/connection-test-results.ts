@@ -9,7 +9,7 @@ interface FixtureEndpointHint {
   port: number
   database?: string
   username?: string
-  password?: string
+  requiresSecret?: boolean
 }
 
 const FIXTURE_ENDPOINTS: Partial<Record<ConnectionProfile['engine'], FixtureEndpointHint>> = {
@@ -18,28 +18,28 @@ const FIXTURE_ENDPOINTS: Partial<Record<ConnectionProfile['engine'], FixtureEndp
     port: 54329,
     database: 'datapadplusplus',
     username: 'datapadplusplus',
-    password: 'datapadplusplus',
+    requiresSecret: true,
   },
   mysql: {
     label: 'MySQL',
     port: 33060,
     database: 'commerce',
     username: 'datapadplusplus',
-    password: 'datapadplusplus',
+    requiresSecret: true,
   },
   sqlserver: {
     label: 'SQL Server',
     port: 14333,
     database: 'datapadplusplus',
     username: 'sa',
-    password: 'DataPadPlusPlus_pwd_123',
+    requiresSecret: true,
   },
   mongodb: {
     label: 'MongoDB',
     port: 27018,
     database: 'catalog',
     username: 'datapadplusplus',
-    password: 'datapadplusplus',
+    requiresSecret: true,
   },
   redis: {
     label: 'Redis',
@@ -92,8 +92,8 @@ export function fixtureWarningsForConnection(
     warnings.push(`Fixture user is "${endpoint.username}".`)
   }
 
-  if (endpoint.password && !profile.auth.secretRef && !secret?.trim()) {
-    warnings.push(`Fixture password is "${endpoint.password}".`)
+  if (endpoint.requiresSecret && !profile.auth.secretRef && !secret?.trim()) {
+    warnings.push('Fixture credentials require a password in the secret field.')
   }
 
   return warnings

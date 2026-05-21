@@ -306,16 +306,36 @@ function mergeConnectionTreeNode(
   structuralNode: ConnectionTreeNode,
   liveNode: ConnectionTreeNode,
 ): ConnectionTreeNode {
-  const children = mergeConnectionTrees(
-    structuralNode.children ?? [],
-    liveNode.children ?? [],
-  )
+  const children = shouldPreferLiveSchemaChildren(structuralNode, liveNode)
+    ? (liveNode.children ?? []).map(cloneConnectionTreeNode)
+    : mergeConnectionTrees(
+        structuralNode.children ?? [],
+        liveNode.children ?? [],
+      )
 
   return {
     ...structuralNode,
     ...liveNode,
     children: children.length ? children : undefined,
   }
+}
+
+function shouldPreferLiveSchemaChildren(
+  structuralNode: ConnectionTreeNode,
+  liveNode: ConnectionTreeNode,
+) {
+  if (!['User Schemas', 'System Schemas', 'Schemas'].includes(liveNode.label)) {
+    return false
+  }
+
+  const hasLiveSchemaChildren = Boolean(
+    liveNode.children?.some((child) => child.kind === 'schema'),
+  )
+  const hasStructuralCategoryChildren = Boolean(
+    structuralNode.children?.some((child) => child.category || child.kind.endsWith('s')),
+  )
+
+  return hasLiveSchemaChildren && hasStructuralCategoryChildren
 }
 
 function cloneConnectionTreeNode(node: ConnectionTreeNode): ConnectionTreeNode {
@@ -395,7 +415,7 @@ function ConnectionObjectTreeNode({
     const nextExpanded = !expanded
     onToggleNode(nodeKey)
 
-    if (nextExpanded && canLoadChildren && children.length === 0) {
+    if (nextExpanded && shouldLoadScopedChildren(node, children, branchLoading)) {
       onLoadExplorerScope?.(connection.id, node.scope)
     }
   }
@@ -585,6 +605,22 @@ function ConnectionObjectTreeNode({
       ) : null}
     </>
   )
+}
+
+function shouldLoadScopedChildren(
+  node: ConnectionTreeNode,
+  children: ConnectionTreeNode[],
+  branchLoading: boolean,
+) {
+  if (!node.expandable || !node.scope || branchLoading) {
+    return false
+  }
+
+  if (children.length === 0) {
+    return true
+  }
+
+  return children.every((child) => !child.scope || child.scope === node.scope)
 }
 
 function openObjectMenuFromButton(

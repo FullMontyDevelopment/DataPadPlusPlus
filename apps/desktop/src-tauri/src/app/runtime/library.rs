@@ -1,4 +1,8 @@
-use std::{collections::HashSet, fs, path::PathBuf};
+use std::{
+    collections::HashSet,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use super::{generate_id, timestamp_now, ManagedAppState};
 use crate::domain::{
@@ -193,7 +197,7 @@ fn prune_empty_default_library_roots(nodes: &mut Vec<LibraryNode>) {
         .filter_map(|node| node.parent_id.clone())
         .collect();
 
-    nodes.retain(|node| !(is_unmodified_default_library_root(node) && !parents.contains(&node.id)));
+    nodes.retain(|node| !is_unmodified_default_library_root(node) || parents.contains(&node.id));
 }
 
 fn is_unmodified_default_library_root(node: &LibraryNode) -> bool {
@@ -719,6 +723,7 @@ impl ManagedAppState {
                 )
             })?;
         let path = PathBuf::from(path);
+        validate_local_save_path(&path)?;
         let tab = self
             .snapshot
             .tabs
@@ -728,7 +733,12 @@ impl ManagedAppState {
         let file_content = local_file_content_for_tab(tab);
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            if !parent.exists() {
+                return Err(CommandError::new(
+                    "local-save-folder-missing",
+                    "Choose an existing folder before saving a local file.",
+                ));
+            }
         }
         fs::write(&path, file_content)?;
 
@@ -870,6 +880,24 @@ impl ManagedAppState {
     }
 }
 
+fn validate_local_save_path(path: &Path) -> Result<(), CommandError> {
+    if !path.is_absolute() {
+        return Err(CommandError::new(
+            "local-save-path-invalid",
+            "Local file saves require an absolute file path selected by the save dialog.",
+        ));
+    }
+
+    if path.file_name().is_none() {
+        return Err(CommandError::new(
+            "local-save-file-name-required",
+            "Choose a file name before saving.",
+        ));
+    }
+
+    Ok(())
+}
+
 fn effective_library_environment_id_for_nodes(
     nodes: &[LibraryNode],
     node_id: &str,
@@ -987,6 +1015,12 @@ mod tests {
         let content = local_file_content_for_tab(&tab);
         assert!(content.contains("\"name\": \"Smoke\""));
         assert!(!content.contains("stale raw text"));
+    }
+
+    #[test]
+    fn local_save_path_requires_absolute_file_path() {
+        assert!(validate_local_save_path(&PathBuf::from("relative.sql")).is_err());
+        assert!(validate_local_save_path(&std::env::temp_dir().join("query.sql")).is_ok());
     }
 
     fn test_node(id: &str, parent_id: Option<&str>, environment_id: Option<&str>) -> LibraryNode {

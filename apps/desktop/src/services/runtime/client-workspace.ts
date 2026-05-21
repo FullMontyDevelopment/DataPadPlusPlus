@@ -5,6 +5,7 @@ import { decodeBase64, encodeBase64, buildBrowserPayload, cloneSnapshot, hashPas
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 
 const WORKSPACE_BUNDLE_PASSPHRASE_MIN_LENGTH = 8
+const MAX_WORKSPACE_BUNDLE_BYTES = 25 * 1024 * 1024
 
 export const clientWorkspace = {
   async bootstrapApp(): Promise<BootstrapPayload> {
@@ -64,6 +65,7 @@ export const clientWorkspace = {
     encryptedPayload: string,
   ): Promise<BootstrapPayload> {
     validateWorkspaceBundlePassphrase(passphrase)
+    validateWorkspaceBundlePayload(encryptedPayload)
 
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('import_workspace_bundle', {
@@ -118,5 +120,15 @@ export const clientWorkspace = {
 function validateWorkspaceBundlePassphrase(passphrase: string) {
   if (passphrase.trim().length < WORKSPACE_BUNDLE_PASSPHRASE_MIN_LENGTH) {
     throw new Error('Use a workspace backup passphrase with at least 8 characters.')
+  }
+}
+
+function validateWorkspaceBundlePayload(encryptedPayload: string) {
+  if (!encryptedPayload.trim()) {
+    throw new Error('Choose a workspace bundle before importing.')
+  }
+
+  if (encryptedPayload.length > MAX_WORKSPACE_BUNDLE_BYTES) {
+    throw new Error('Workspace bundle is too large to import safely.')
   }
 }

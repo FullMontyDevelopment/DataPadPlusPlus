@@ -5,25 +5,10 @@ import type {
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { createId } from './helpers'
+import { redactErrorMessage } from './security-redaction'
 
 export function toUserMessage(error: unknown, fallback: string) {
-  if (error instanceof Error) {
-    return error.message
-  }
-
-  if (typeof error === 'string') {
-    return error
-  }
-
-  if (error && typeof error === 'object' && 'message' in error) {
-    const message = (error as { message?: unknown }).message
-
-    if (typeof message === 'string' && message.length > 0) {
-      return message
-    }
-  }
-
-  return fallback
+  return redactErrorMessage(error, fallback)
 }
 
 export function findConnection(

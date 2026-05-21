@@ -627,10 +627,13 @@ fn fixture_connection_warnings(connection: &ResolvedConnectionProfile) -> Vec<St
         }
     }
 
-    if let Some(password) = endpoint.password {
-        if connection.password.as_deref() != Some(password) {
-            warnings.push(format!("Fixture password is \"{password}\"."));
-        }
+    if endpoint.requires_password
+        && connection
+            .password
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+    {
+        warnings.push("Fixture credentials require a password in the secret field.".into());
     }
 
     warnings
@@ -641,7 +644,7 @@ struct FixtureEndpoint {
     port: u16,
     database: Option<&'static str>,
     username: Option<&'static str>,
-    password: Option<&'static str>,
+    requires_password: bool,
 }
 
 fn fixture_endpoint_for_engine(engine: &str) -> Option<FixtureEndpoint> {
@@ -651,35 +654,35 @@ fn fixture_endpoint_for_engine(engine: &str) -> Option<FixtureEndpoint> {
             port: 54329,
             database: Some("datapadplusplus"),
             username: Some("datapadplusplus"),
-            password: Some("datapadplusplus"),
+            requires_password: true,
         }),
         "mysql" => Some(FixtureEndpoint {
             label: "MySQL",
             port: 33060,
             database: Some("commerce"),
             username: Some("datapadplusplus"),
-            password: Some("datapadplusplus"),
+            requires_password: true,
         }),
         "sqlserver" => Some(FixtureEndpoint {
             label: "SQL Server",
             port: 14333,
             database: Some("datapadplusplus"),
             username: Some("sa"),
-            password: Some("DataPadPlusPlus_pwd_123"),
+            requires_password: true,
         }),
         "mongodb" => Some(FixtureEndpoint {
             label: "MongoDB",
             port: 27018,
             database: Some("catalog"),
             username: Some("datapadplusplus"),
-            password: Some("datapadplusplus"),
+            requires_password: true,
         }),
         "redis" => Some(FixtureEndpoint {
             label: "Redis",
             port: 6380,
             database: Some("0"),
             username: None,
-            password: None,
+            requires_password: false,
         }),
         _ => None,
     }
@@ -708,7 +711,7 @@ mod tests {
                 "DataPad++ Docker fixtures expose MongoDB on localhost:27018.",
                 "Fixture database is \"catalog\".",
                 "Fixture user is \"datapadplusplus\".",
-                "Fixture password is \"datapadplusplus\".",
+                "Fixture credentials require a password in the secret field.",
             ]
         );
     }
@@ -720,7 +723,7 @@ mod tests {
             27017,
             Some("catalog"),
             Some("datapadplusplus"),
-            Some("datapadplusplus"),
+            Some("provided-secret"),
         );
 
         assert_eq!(

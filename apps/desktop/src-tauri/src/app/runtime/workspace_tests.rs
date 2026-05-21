@@ -7,6 +7,7 @@ use super::{
     tabs::reorder_query_tabs_in_place,
     timestamp_now,
     workspace::migrate_snapshot,
+    workspace::{validate_bundle_passphrase, validate_bundle_payload_size},
 };
 use crate::domain::models::{ConnectionAuth, ConnectionProfile, QueryTabState};
 
@@ -173,6 +174,15 @@ fn migration_strips_connection_strings_with_plaintext_secrets() {
     let migrated = migrate_snapshot(snapshot);
 
     assert!(migrated.connections[0].connection_string.is_none());
+}
+
+#[test]
+fn workspace_bundle_validation_rejects_weak_empty_or_oversized_inputs() {
+    assert!(validate_bundle_passphrase("short").is_err());
+    assert!(validate_bundle_payload_size("").is_err());
+    assert!(validate_bundle_payload_size(&"x".repeat(25 * 1024 * 1024 + 1)).is_err());
+    assert!(validate_bundle_passphrase("long-enough").is_ok());
+    assert!(validate_bundle_payload_size("encrypted").is_ok());
 }
 
 #[test]

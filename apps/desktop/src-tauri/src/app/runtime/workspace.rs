@@ -23,6 +23,9 @@ use crate::{
     persistence, security,
 };
 
+const MAX_WORKSPACE_BUNDLE_BYTES: usize = 25 * 1024 * 1024;
+const MAX_DECRYPTED_WORKSPACE_BYTES: usize = 50 * 1024 * 1024;
+
 impl ManagedAppState {
     pub fn load(app: AppHandle) -> Self {
         let loaded_snapshot = persistence::load_snapshot(&app)
@@ -136,7 +139,14 @@ impl ManagedAppState {
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
         validate_bundle_passphrase(passphrase)?;
+        validate_bundle_payload_size(encrypted_payload)?;
         let decrypted = security::decrypt_export_payload(passphrase, encrypted_payload)?;
+        if decrypted.len() > MAX_DECRYPTED_WORKSPACE_BYTES {
+            return Err(CommandError::new(
+                "workspace-bundle-too-large",
+                "Workspace bundle is too large to import safely.",
+            ));
+        }
         let snapshot = serde_json::from_str::<WorkspaceSnapshot>(&decrypted)?;
         self.snapshot = migrate_snapshot(snapshot);
         self.persist()?;
@@ -144,7 +154,7 @@ impl ManagedAppState {
     }
 }
 
-fn validate_bundle_passphrase(passphrase: &str) -> Result<(), CommandError> {
+pub(super) fn validate_bundle_passphrase(passphrase: &str) -> Result<(), CommandError> {
     if passphrase.trim().len() < 8 {
         Err(CommandError::new(
             "weak-workspace-bundle-passphrase",
@@ -153,6 +163,24 @@ fn validate_bundle_passphrase(passphrase: &str) -> Result<(), CommandError> {
     } else {
         Ok(())
     }
+}
+
+pub(super) fn validate_bundle_payload_size(encrypted_payload: &str) -> Result<(), CommandError> {
+    if encrypted_payload.trim().is_empty() {
+        return Err(CommandError::new(
+            "workspace-bundle-required",
+            "Choose a workspace bundle before importing.",
+        ));
+    }
+
+    if encrypted_payload.len() > MAX_WORKSPACE_BUNDLE_BYTES {
+        return Err(CommandError::new(
+            "workspace-bundle-too-large",
+            "Workspace bundle is too large to import safely.",
+        ));
+    }
+
+    Ok(())
 }
 
 fn sanitize_snapshot(snapshot: &WorkspaceSnapshot) -> WorkspaceSnapshot {
