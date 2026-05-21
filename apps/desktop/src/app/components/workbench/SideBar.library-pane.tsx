@@ -26,6 +26,7 @@ import {
   PlusIcon,
   QueryIcon,
   RenameIcon,
+  RefreshIcon,
   TrashIcon,
 } from './icons'
 import { TreeFolderIcon, TreeFolderOpenIcon } from './FolderTreeIcons'
@@ -347,6 +348,9 @@ export function LibraryPane({
   const contextMenuConnection = contextMenu?.node.kind === 'connection' && contextMenu.node.connectionId
     ? connectionById.get(contextMenu.node.connectionId)
     : undefined
+  const contextMenuEnvironmentId = contextMenu
+    ? effectiveEnvironmentForNode(contextMenu.node, libraryNodes, environments)?.environment.id ?? activeEnvironmentId
+    : activeEnvironmentId
   const contextMenuAdapter = contextMenuConnection
     ? adapterManifests.find((manifest) => manifest.engine === contextMenuConnection.engine)
     : undefined
@@ -821,6 +825,25 @@ export function LibraryPane({
                 >
                   <DatabaseIcon className="connection-context-menu-icon" />
                   <span>Metrics</span>
+                </button>
+              ) : null}
+              {onLoadExplorerScope ? (
+                <button
+                  type="button"
+                  className="connection-context-menu-item"
+                  role="menuitem"
+                  aria-label={`Refresh metadata for ${contextMenuConnection.name}`}
+                  onClick={() => {
+                    onLoadExplorerScope(
+                      contextMenuConnection.id,
+                      undefined,
+                      contextMenuEnvironmentId,
+                    )
+                    setContextMenu(undefined)
+                  }}
+                >
+                  <RefreshIcon className="connection-context-menu-icon" />
+                  <span>Refresh Metadata</span>
                 </button>
               ) : null}
               <button

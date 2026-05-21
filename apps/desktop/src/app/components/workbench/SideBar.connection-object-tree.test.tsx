@@ -67,6 +67,15 @@ describe('ConnectionObjectTree', () => {
     expect(screen.getByText('Change Tracking')).toBeInTheDocument()
     expect(screen.getByText('Service Broker')).toBeInTheDocument()
     expect(screen.getByText('SQL Server Agent')).toBeInTheDocument()
+
+    expect(screen.queryByText('Linked Servers')).not.toBeInTheDocument()
+    expandTreeItem('Server Objects')
+    expect(screen.getByText('Linked Servers')).toBeInTheDocument()
+    expect(screen.getByText('Endpoints')).toBeInTheDocument()
+
+    expect(screen.queryByText('Availability Groups')).not.toBeInTheDocument()
+    expandTreeItem('Always On High Availability')
+    expect(screen.getByText('Availability Groups')).toBeInTheDocument()
   })
 
   it('does not nest live SQL Server category folders inside duplicate category folders', () => {
@@ -165,6 +174,82 @@ describe('ConnectionObjectTree', () => {
     const menu = screen.getByRole('menu', { name: 'Object options for Packages' })
     expect(within(menu).getByRole('menuitem', { name: 'Create Package...' })).toBeInTheDocument()
     expect(within(menu).queryByRole('menuitem', { name: 'Refresh Packages' })).not.toBeInTheDocument()
+  })
+
+  it('uses CockroachDB-owned cluster and database folders', () => {
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(cockroachConnection())}
+        connection={cockroachConnection()}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('defaultdb')
+    expandTreeItem('User Schemas')
+
+    expect(screen.getByText('Tables')).toBeInTheDocument()
+    expect(screen.getByText('Views')).toBeInTheDocument()
+    expect(screen.getByText('Sequences')).toBeInTheDocument()
+    expect(screen.getByText('Zone Configurations')).toBeInTheDocument()
+
+    expandTreeItem('Cluster')
+
+    expect(screen.getByText('Nodes')).toBeInTheDocument()
+    expect(screen.getByText('Ranges')).toBeInTheDocument()
+    expect(screen.getByText('Regions / Localities')).toBeInTheDocument()
+    expect(screen.getByText('Jobs')).toBeInTheDocument()
+    expect(screen.getByText('Cluster Settings')).toBeInTheDocument()
+  })
+
+  it('uses CockroachDB-specific object view labels instead of generic Open View', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={cockroachConnection()}
+        explorerNodes={[
+          {
+            id: 'cockroach:cluster',
+            label: 'Cluster',
+            kind: 'cluster',
+            detail: 'Nodes, ranges, regions, and jobs',
+            family: 'sql',
+            path: ['Fixture Cockroach'],
+            scope: 'cockroach:cluster',
+            expandable: true,
+          },
+          {
+            id: 'cockroach:cluster:ranges',
+            label: 'Ranges',
+            kind: 'ranges',
+            detail: 'Range distribution',
+            family: 'sql',
+            path: ['Fixture Cockroach', 'Cluster'],
+          },
+        ]}
+        explorerStatus="ready"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Cluster')
+    fireEvent.contextMenu(treeItemForLabel('Ranges'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Ranges' })
+    expect(within(menu).getByRole('menuitem', { name: 'Review Ranges' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Review Ranges' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-cockroach',
+      expect.objectContaining({
+        id: 'cockroach:cluster:ranges',
+        kind: 'ranges',
+      }),
+    )
   })
 
   it('uses Oracle-specific object view labels instead of generic Open View', () => {
@@ -639,6 +724,110 @@ describe('ConnectionObjectTree', () => {
     expect(onLoadExplorerScope).toHaveBeenCalledWith('conn-postgres', 'table:public.accounts')
   })
 
+  it('uses PostgreSQL-specific object view labels instead of generic Open View', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={postgresConnection()}
+        explorerNodes={[
+          {
+            id: 'schema-public',
+            label: 'public',
+            kind: 'schema',
+            detail: 'User schema',
+            family: 'sql',
+            path: ['Fixture Postgres', 'User Schemas'],
+            scope: 'schema:public',
+            expandable: true,
+          },
+          {
+            id: 'public.accounts',
+            label: 'accounts',
+            kind: 'table',
+            family: 'sql',
+            path: ['Fixture Postgres', 'User Schemas', 'public', 'Tables'],
+            scope: 'table:public.accounts',
+            detail: 'table',
+          },
+        ]}
+        explorerStatus="ready"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('User Schemas')
+    expandTreeItem('public')
+    expandTreeItem('Tables')
+    fireEvent.contextMenu(treeItemForLabel('accounts'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for accounts' })
+    expect(within(menu).getByRole('menuitem', { name: 'Open Table' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open Table' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-postgres',
+      expect.objectContaining({
+        id: 'public.accounts',
+        kind: 'table',
+      }),
+    )
+  })
+
+  it('uses SQL Server-specific object view labels instead of generic Open View', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={sqlServerConnection()}
+        explorerNodes={[
+          {
+            id: 'database:datapadplusplus',
+            label: 'datapadplusplus',
+            kind: 'database',
+            detail: 'ONLINE',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases'],
+            scope: 'database:datapadplusplus',
+            expandable: true,
+          },
+          {
+            id: 'sqlserver:datapadplusplus:query-store',
+            label: 'Query Store',
+            kind: 'query-store',
+            detail: 'Runtime stats and plans',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases', 'datapadplusplus'],
+            scope: 'sqlserver:datapadplusplus:query-store',
+            expandable: true,
+          },
+        ]}
+        explorerStatus="ready"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('datapadplusplus')
+    fireEvent.contextMenu(treeItemForLabel('Query Store'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Query Store' })
+    expect(within(menu).getByRole('menuitem', { name: 'Open Query Store' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open Query Store' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-sqlserver',
+      expect.objectContaining({
+        id: 'sqlserver:datapadplusplus:query-store',
+        kind: 'query-store',
+      }),
+    )
+  })
+
   it('does not show query actions for non-queryable object groups', () => {
     render(
       <ConnectionObjectTree
@@ -777,6 +966,137 @@ describe('ConnectionObjectTree', () => {
     ).not.toBeNull()
   })
 
+  it('uses SQL Server-specific icons instead of the generic fallback for SSMS folders', () => {
+    render(
+      <ConnectionObjectTree
+        connection={sqlServerConnection()}
+        nodes={[
+          { id: 'replication', label: 'Replication', kind: 'replication' },
+          { id: 'management', label: 'Management', kind: 'management' },
+          { id: 'agent', label: 'SQL Server Agent', kind: 'sql-server-agent' },
+          { id: 'events', label: 'Extended Events', kind: 'extended-events' },
+          { id: 'profiler', label: 'XEvent Profiler', kind: 'xevent-profiler' },
+          { id: 'ssis', label: 'Integration Services Catalogs', kind: 'integration-services-catalogs' },
+          { id: 'ssas', label: 'Analysis Services', kind: 'analysis-services' },
+          { id: 'ssrs', label: 'Reporting Services', kind: 'reporting-services' },
+        ]}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    for (const label of [
+      'Replication',
+      'Management',
+      'SQL Server Agent',
+      'Extended Events',
+      'XEvent Profiler',
+      'Integration Services Catalogs',
+      'Analysis Services',
+      'Reporting Services',
+    ]) {
+      expect(treeItemForLabel(label).querySelector('.tree-kind-icon--generic')).toBeNull()
+    }
+  })
+
+  it('uses Oracle-specific icons instead of the generic fallback for SQL Developer folders', () => {
+    render(
+      <ConnectionObjectTree
+        connection={oracleConnection()}
+        nodes={[
+          { id: 'performance', label: 'Performance', kind: 'performance' },
+          { id: 'statistics', label: 'Statistics', kind: 'statistics' },
+          { id: 'synonyms', label: 'Synonyms', kind: 'synonyms' },
+          { id: 'sequences', label: 'Sequences', kind: 'sequences' },
+          { id: 'database-links', label: 'Database Links', kind: 'database-links' },
+          { id: 'json-collections', label: 'JSON Collections', kind: 'json-collections' },
+          { id: 'data-guard', label: 'Data Guard', kind: 'data-guard' },
+          { id: 'ddl', label: 'DDL', kind: 'ddl' },
+          { id: 'dependencies', label: 'Dependencies', kind: 'dependencies' },
+          { id: 'compilation-errors', label: 'Compilation Errors', kind: 'compilation-errors' },
+        ]}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    for (const label of [
+      'Performance',
+      'Statistics',
+      'Synonyms',
+      'Sequences',
+      'Database Links',
+      'JSON Collections',
+      'Data Guard',
+      'DDL',
+      'Dependencies',
+      'Compilation Errors',
+    ]) {
+      expect(treeItemForLabel(label).querySelector('.tree-kind-icon--generic')).toBeNull()
+    }
+  })
+
+  it('uses CockroachDB-specific icons instead of the generic fallback for cluster folders', () => {
+    render(
+      <ConnectionObjectTree
+        connection={cockroachConnection()}
+        nodes={[
+          { id: 'cluster', label: 'Cluster', kind: 'cluster' },
+          { id: 'nodes', label: 'Nodes', kind: 'nodes' },
+          { id: 'ranges', label: 'Ranges', kind: 'ranges' },
+          { id: 'regions', label: 'Regions / Localities', kind: 'regions' },
+          { id: 'jobs', label: 'Jobs', kind: 'jobs' },
+          { id: 'contention', label: 'Contention', kind: 'contention' },
+          { id: 'transactions', label: 'Transactions', kind: 'transactions' },
+          { id: 'statements', label: 'Statement Stats', kind: 'statements' },
+          { id: 'cluster-settings', label: 'Cluster Settings', kind: 'cluster-settings' },
+          { id: 'zone-configurations', label: 'Zone Configurations', kind: 'zone-configurations' },
+        ]}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    for (const label of [
+      'Cluster',
+      'Nodes',
+      'Ranges',
+      'Regions / Localities',
+      'Jobs',
+      'Contention',
+      'Transactions',
+      'Statement Stats',
+      'Cluster Settings',
+      'Zone Configurations',
+    ]) {
+      expect(treeItemForLabel(label).querySelector('.tree-kind-icon--generic')).toBeNull()
+    }
+  })
+
+  it('offers refresh on every object row and falls back to root metadata when no scope exists', () => {
+    const onLoadExplorerScope = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={postgresConnection()}
+        nodes={[
+          {
+            id: 'structural-root',
+            label: 'Structural Root',
+            kind: 'folder',
+            detail: 'Manifest-only grouping',
+          },
+        ]}
+        onLoadExplorerScope={onLoadExplorerScope}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    fireEvent.contextMenu(treeItemForLabel('Structural Root'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Structural Root' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Refresh folder' }))
+
+    expect(onLoadExplorerScope).toHaveBeenCalledWith('conn-postgres', undefined)
+  })
+
   it('loads large child collections in batches of 100', () => {
     const nodes: ConnectionTreeNode[] = [
       {
@@ -870,6 +1190,31 @@ function postgresConnection(): ConnectionProfile {
     favorite: false,
     readOnly: false,
     icon: 'postgresql',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function cockroachConnection(): ConnectionProfile {
+  return {
+    id: 'conn-cockroach',
+    name: 'Fixture Cockroach',
+    engine: 'cockroachdb',
+    family: 'sql',
+    host: 'localhost',
+    port: 26257,
+    database: 'defaultdb',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'cockroachdb',
     color: undefined,
     group: undefined,
     notes: undefined,

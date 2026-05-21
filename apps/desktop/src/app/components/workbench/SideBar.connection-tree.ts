@@ -538,16 +538,27 @@ function sqlServerConnectionTree(connection: ConnectionProfile): ConnectionTreeN
         ]),
       ]),
     ]),
-    ...SQL_SERVER_SERVER_LEVEL_GROUPS.map((label) =>
-      branch(
-        label.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        label,
-        label.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        `SQL Server ${label.toLowerCase()}`,
-        [],
-      ),
-    ),
+    ...SQL_SERVER_SERVER_LEVEL_GROUPS.map((label) => sqlServerServerLevelBranch(label)),
   ]
+}
+
+function sqlServerServerLevelBranch(label: string) {
+  const kind = label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+
+  if (label === 'Server Objects') {
+    return branch('server-objects', 'Server Objects', 'server-objects', 'Linked servers, endpoints, and server-level objects', [
+      branch('linked-servers', 'Linked Servers', 'linked-servers', 'Remote server definitions and providers', []),
+      branch('endpoints', 'Endpoints', 'endpoints', 'Database mirroring, service broker, and TDS endpoints', []),
+    ])
+  }
+
+  if (label === 'Always On High Availability') {
+    return branch('always-on-high-availability', label, 'always-on-high-availability', 'Availability groups and replicas', [
+      branch('availability-groups', 'Availability Groups', 'availability-groups', 'Always On availability groups and replicas', []),
+    ])
+  }
+
+  return branch(kind, label, kind, `SQL Server ${label.toLowerCase()}`, [])
 }
 
 function sqlServerProgrammabilityBranch() {

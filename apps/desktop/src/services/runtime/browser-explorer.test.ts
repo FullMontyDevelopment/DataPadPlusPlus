@@ -153,6 +153,244 @@ describe('browser explorer runtime', () => {
     expect(response.payload).not.toHaveProperty('permissionSensitiveViews')
     expect(response.payload).not.toHaveProperty('objectViews')
   })
+
+  it('mirrors a PostgreSQL schema-first tree without live dependencies', () => {
+    const connection = postgresConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'public',
+      'observability',
+      'pg_catalog',
+      'Security',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'schema:public').map((node) => node.label)).toEqual([
+      'Tables',
+      'Views',
+      'Materialized Views',
+      'Indexes',
+      'Functions',
+      'Procedures',
+      'Sequences',
+      'Types',
+    ])
+
+    expect(createExplorerNodes(connection, 'postgres:public:tables')).toEqual([
+      expect.objectContaining({
+        label: 'accounts',
+        kind: 'table',
+        scope: 'table:public.accounts',
+        queryTemplate: 'select * from "public"."accounts" limit 100;',
+      }),
+      expect.objectContaining({
+        label: 'orders',
+        kind: 'table',
+        scope: 'table:public.orders',
+      }),
+      expect.objectContaining({
+        label: 'products',
+        kind: 'table',
+        scope: 'table:public.products',
+      }),
+    ])
+
+    expect(createExplorerNodes(connection, 'table:public.accounts').map((node) => node.label)).toEqual([
+      'Columns',
+      'Indexes',
+      'Constraints',
+      'Triggers',
+      'Statistics',
+      'Permissions',
+      'Definition',
+    ])
+  })
+
+  it('returns PostgreSQL inspection payloads for table and diagnostics object views', () => {
+    const connection = postgresConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const tableResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'table:public.accounts',
+    })
+
+    expect(tableResponse.queryTemplate).toBe('select * from "public"."accounts" limit 100;')
+    expect(tableResponse.payload).toMatchObject({
+      engine: 'postgresql',
+      schema: 'public',
+      objectName: 'accounts',
+      columns: expect.arrayContaining([expect.objectContaining({ name: 'id' })]),
+      indexes: expect.arrayContaining([expect.objectContaining({ name: 'accounts_pkey' })]),
+    })
+
+    const diagnosticsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'postgres:diagnostics',
+    })
+
+    expect(diagnosticsResponse.payload).toMatchObject({
+      engine: 'postgresql',
+      activeSessions: 4,
+      sessions: expect.arrayContaining([expect.objectContaining({ state: 'active' })]),
+    })
+  })
+
+  it('mirrors a CockroachDB database and cluster tree without live dependencies', () => {
+    const connection = cockroachConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'defaultdb',
+      'Cluster',
+      'Security',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'database:defaultdb').map((node) => node.label)).toEqual([
+      'public',
+      'crdb_internal',
+      'pg_catalog',
+    ])
+
+    expect(createExplorerNodes(connection, 'schema:public').map((node) => node.label)).toEqual([
+      'Tables',
+      'Views',
+      'Indexes',
+      'Sequences',
+      'Types',
+      'Functions',
+      'Zone Configurations',
+    ])
+
+    expect(createExplorerNodes(connection, 'cockroach:cluster').map((node) => node.label)).toEqual([
+      'Nodes',
+      'Ranges',
+      'Regions / Localities',
+      'Jobs',
+      'Cluster Settings',
+    ])
+
+    expect(createExplorerNodes(connection, 'cockroach:diagnostics').map((node) => node.label)).toEqual([
+      'Sessions',
+      'Statement Stats',
+      'Transactions',
+      'Contention',
+      'Locks',
+      'Statistics',
+    ])
+  })
+
+  it('returns CockroachDB inspection payloads for cluster object views', () => {
+    const connection = cockroachConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const clusterResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cockroach:cluster',
+    })
+
+    expect(clusterResponse.queryTemplate).toBe('select * from crdb_internal.gossip_nodes limit 100;')
+    expect(clusterResponse.payload).toMatchObject({
+      engine: 'cockroachdb',
+      nodeCount: 3,
+      rangeCount: 184,
+      nodes: expect.arrayContaining([expect.objectContaining({ nodeId: 1 })]),
+      ranges: expect.arrayContaining([expect.objectContaining({ rangeId: 42 })]),
+      clusterSettings: expect.arrayContaining([expect.objectContaining({ name: 'kv.rangefeed.enabled' })]),
+    })
+
+    const diagnosticsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cockroach:diagnostics',
+    })
+
+    expect(diagnosticsResponse.payload).toMatchObject({
+      engine: 'cockroachdb',
+      activeSessions: 5,
+      statements: expect.arrayContaining([expect.objectContaining({ retries: 1 })]),
+      contention: expect.arrayContaining([expect.objectContaining({ durationMs: 18 })]),
+    })
+  })
+
+  it('mirrors an SSMS-style SQL Server tree without live dependencies', () => {
+    const connection = sqlServerConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'master',
+      'model',
+      'msdb',
+      'tempdb',
+      'datapadplusplus',
+    ])
+
+    expect(createExplorerNodes(connection, 'database:datapadplusplus').map((node) => node.label)).toEqual([
+      'Tables',
+      'Views',
+      'Stored Procedures',
+      'Functions',
+      'Synonyms',
+      'Sequences',
+      'Types',
+      'Security',
+      'Query Store',
+      'Storage',
+      'Extended Events',
+      'Agent',
+    ])
+
+    expect(createExplorerNodes(connection, 'sqlserver:datapadplusplus:tables')).toEqual([
+      expect.objectContaining({
+        label: 'dbo.accounts',
+        kind: 'table',
+        scope: 'table:datapadplusplus:dbo:accounts',
+        queryTemplate: 'use [datapadplusplus];\nselect top 100 * from [dbo].[accounts];',
+      }),
+      expect.objectContaining({ label: 'dbo.orders', kind: 'table' }),
+      expect.objectContaining({ label: 'dbo.products', kind: 'table' }),
+    ])
+  })
+
+  it('returns SQL Server inspection payloads for object-view workspaces', () => {
+    const connection = sqlServerConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const tableResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'table:datapadplusplus:dbo:accounts',
+    })
+
+    expect(tableResponse.queryTemplate).toBe('use [datapadplusplus];\nselect top 100 * from [dbo].[accounts];')
+    expect(tableResponse.payload).toMatchObject({
+      engine: 'sqlserver',
+      database: 'datapadplusplus',
+      schema: 'dbo',
+      objectName: 'accounts',
+      columns: expect.arrayContaining([expect.objectContaining({ name: 'id' })]),
+    })
+
+    const queryStoreResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'query-store:datapadplusplus:top',
+    })
+
+    expect(queryStoreResponse.payload).toMatchObject({
+      engine: 'sqlserver',
+      database: 'datapadplusplus',
+      queryStore: expect.arrayContaining([expect.objectContaining({ name: 'Top Queries' })]),
+    })
+  })
 })
 
 function mongoConnection(database: string | undefined): ConnectionProfile {
@@ -204,6 +442,81 @@ function oracleConnection(): ConnectionProfile {
       connectMode: 'service-name',
       serviceName: 'FREEPDB1',
     },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function postgresConnection(): ConnectionProfile {
+  return {
+    id: 'conn-postgres',
+    name: 'PostgreSQL',
+    engine: 'postgresql',
+    family: 'sql',
+    host: 'localhost',
+    port: 5432,
+    database: 'datapadplusplus',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'postgresql',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'app' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function cockroachConnection(): ConnectionProfile {
+  return {
+    id: 'conn-cockroach',
+    name: 'CockroachDB',
+    engine: 'cockroachdb',
+    family: 'sql',
+    host: 'localhost',
+    port: 26257,
+    database: 'defaultdb',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'cockroachdb',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'root' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function sqlServerConnection(): ConnectionProfile {
+  return {
+    id: 'conn-sqlserver',
+    name: 'SQL Server',
+    engine: 'sqlserver',
+    family: 'sql',
+    host: 'localhost',
+    port: 1433,
+    database: 'datapadplusplus',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'sqlserver',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'sa' },
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }

@@ -18,6 +18,10 @@ import {
   RefreshIcon,
 } from './icons'
 import {
+  cockroachObjectViewMenuLabel,
+  isCockroachObjectViewKind,
+} from './CockroachObjectViewDescriptors'
+import {
   mongoObjectViewMenuLabel,
   mongoScopedQueryMenuLabel,
 } from './MongoObjectViewDescriptors'
@@ -26,9 +30,17 @@ import {
   oracleObjectViewMenuLabel,
 } from './OracleObjectViewDescriptors'
 import {
+  isPostgresObjectViewKind,
+  postgresObjectViewMenuLabel,
+} from './PostgresObjectViewDescriptors'
+import {
   isRedisObjectViewKind,
   redisObjectViewMenuLabel,
 } from './RedisObjectViewDescriptors'
+import {
+  isSqlServerObjectViewKind,
+  sqlServerObjectViewMenuLabel,
+} from './SqlServerObjectViewDescriptors'
 import {
   buildConnectionObjectTree,
   buildConnectionObjectTreeFromExplorerNodes,
@@ -253,7 +265,15 @@ interface ConnectionObjectContextMenuState {
 }
 
 function shouldOverlayLiveExplorer(connection: ConnectionProfile) {
-  return connection.engine === 'redis' || connection.engine === 'valkey'
+  return (
+    connection.engine === 'redis' ||
+    connection.engine === 'valkey' ||
+    connection.engine === 'postgresql' ||
+    connection.engine === 'cockroachdb' ||
+    connection.engine === 'timescaledb' ||
+    connection.engine === 'sqlserver' ||
+    connection.engine === 'sqlite'
+  )
 }
 
 function mergeConnectionTrees(
@@ -587,6 +607,18 @@ function isObjectViewNode(connection: ConnectionProfile, node: ConnectionTreeNod
     return isOracleObjectViewKind(node.kind)
   }
 
+  if (connection.engine === 'cockroachdb') {
+    return isCockroachObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'postgresql' || connection.engine === 'timescaledb') {
+    return isPostgresObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'sqlserver') {
+    return isSqlServerObjectViewKind(node.kind)
+  }
+
   return isMongoObjectViewNode(connection, node)
 }
 
@@ -844,6 +876,18 @@ function objectViewMenuLabel(connection: ConnectionProfile, kind: string | undef
     return oracleObjectViewMenuLabel(kind)
   }
 
+  if (connection.engine === 'cockroachdb') {
+    return cockroachObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'postgresql' || connection.engine === 'timescaledb') {
+    return postgresObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'sqlserver') {
+    return sqlServerObjectViewMenuLabel(kind)
+  }
+
   if (connection.engine === 'redis' || connection.engine === 'valkey') {
     return redisObjectViewMenuLabel(kind)
   }
@@ -864,7 +908,7 @@ function scopedQueryMenuLabel(connection: ConnectionProfile, kind: string | unde
 }
 
 function canRefreshTreeNode(node: ConnectionTreeNode) {
-  return Boolean(node.scope || node.refreshScope)
+  return Boolean(node)
 }
 
 function isInspectableTreeNode(node: ConnectionTreeNode) {

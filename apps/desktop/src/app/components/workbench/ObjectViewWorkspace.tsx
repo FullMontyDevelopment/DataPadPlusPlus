@@ -29,6 +29,7 @@ import {
   type MongoObjectViewDescriptor,
 } from './MongoObjectViewDescriptors'
 import { OracleObjectViewWorkspace } from './OracleObjectViewWorkspace'
+import { RelationalObjectViewWorkspace } from './RelationalObjectViewWorkspace'
 import { executeDataEditWithConfirmation } from './results/data-edit-confirmation'
 import { RedisObjectViewWorkspace } from './RedisObjectViewWorkspace'
 import { ExplorerNodeIcon } from './SideBar.node-icons'
@@ -91,6 +92,23 @@ export function ObjectViewWorkspace({
   if (connection.engine === 'oracle') {
     return (
       <OracleObjectViewWorkspace
+        connection={connection}
+        environment={environment}
+        tab={tab}
+        onRefresh={onRefresh}
+        onOpenQuery={onOpenQuery}
+      />
+    )
+  }
+
+  if (
+    connection.engine === 'postgresql' ||
+    connection.engine === 'cockroachdb' ||
+    connection.engine === 'timescaledb' ||
+    connection.engine === 'sqlserver'
+  ) {
+    return (
+      <RelationalObjectViewWorkspace
         connection={connection}
         environment={environment}
         tab={tab}

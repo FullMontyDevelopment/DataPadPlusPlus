@@ -33,8 +33,9 @@ function rootsForEngine(
       return mysqlTree()
     case 'oracle':
       return oracleTree()
-    case 'postgresql':
     case 'cockroachdb':
+      return cockroachTree()
+    case 'postgresql':
     case 'timescaledb':
       return postgresFamilyTree(engine)
     case 'elasticsearch':
@@ -166,12 +167,19 @@ function sqlServerTree(): DatastoreTreeNodeManifest[] {
         }),
       ],
     }),
-    node('linked-servers', 'Linked Servers', 'linked-servers', 'Remote server definitions and providers'),
-    node('availability-groups', 'Availability Groups', 'availability-groups', 'Always On availability groups and replicas'),
     node('security', 'Security', 'security', 'Server logins, roles, and credentials'),
-    node('server-objects', 'Server Objects', 'server-objects', 'Linked servers and endpoints'),
+    node('server-objects', 'Server Objects', 'server-objects', 'Linked servers, endpoints, and server-level objects', {
+      children: [
+        node('linked-servers', 'Linked Servers', 'linked-servers', 'Remote server definitions and providers'),
+        node('endpoints', 'Endpoints', 'endpoints', 'Database mirroring, service broker, and TDS endpoints'),
+      ],
+    }),
     node('replication', 'Replication', 'replication', 'Replication publications and subscriptions'),
-    node('always-on', 'Always On High Availability', 'always-on-high-availability', 'Availability groups and replicas'),
+    node('always-on', 'Always On High Availability', 'always-on-high-availability', 'Availability groups and replicas', {
+      children: [
+        node('availability-groups', 'Availability Groups', 'availability-groups', 'Always On availability groups and replicas'),
+      ],
+    }),
     node('management', 'Management', 'management', 'Maintenance, policies, and data collection'),
     node('sql-agent', 'SQL Server Agent', 'sql-server-agent', 'Jobs, alerts, and operators'),
     node('extended-events', 'Extended Events', 'extended-events', 'Extended Events sessions and traces'),
@@ -278,6 +286,62 @@ function postgresFamilyTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[
     node('system-schemas', 'System Schemas', 'system-schemas', 'pg_catalog, information_schema, and extension internals'),
     node('security', 'Security', 'security', 'Roles and permissions'),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'Sessions, locks, stats, and health metadata'),
+  ]
+}
+
+function cockroachTree(): DatastoreTreeNodeManifest[] {
+  return [
+    node('databases', 'Databases', 'databases', 'CockroachDB database namespaces', {
+      children: [
+        node('selected-database', '{{database:defaultdb}}', 'database', 'Selected CockroachDB database', {
+          children: [
+            node('user-schemas', 'User Schemas', 'user-schemas', 'User-created object namespaces', {
+              children: cockroachSchemaChildren(),
+            }),
+            node('system-schemas', 'System Schemas', 'system-schemas', 'crdb_internal, pg_catalog, information_schema, and system metadata'),
+          ],
+          defaultDatabase: 'defaultdb',
+        }),
+      ],
+    }),
+    node('cluster', 'Cluster', 'cluster', 'Nodes, ranges, regions, jobs, and cluster configuration', {
+      children: [
+        node('nodes', 'Nodes', 'nodes', 'Node liveness, locality, capacity, and range counts'),
+        node('ranges', 'Ranges', 'ranges', 'Range distribution, replicas, and leaseholders'),
+        node('regions', 'Regions / Localities', 'regions', 'Regional placement and locality tiers'),
+        node('jobs', 'Jobs', 'jobs', 'Schema changes, backups, imports, restores, and changefeeds'),
+        node('cluster-settings', 'Cluster Settings', 'cluster-settings', 'Runtime cluster settings and safety knobs'),
+      ],
+    }),
+    node('security', 'Security', 'security', 'Roles, grants, default privileges, and certificates', {
+      children: [
+        node('roles', 'Roles', 'roles', 'Users, roles, memberships, and options'),
+        node('grants', 'Grants', 'grants', 'Database, schema, table, sequence, and type privileges'),
+        node('certificates', 'Certificates', 'certificates', 'Client and node certificate metadata where available'),
+      ],
+    }),
+    node('diagnostics', 'Diagnostics', 'diagnostics', 'Sessions, statement stats, transactions, contention, and range health', {
+      children: [
+        node('sessions', 'Sessions', 'sessions', 'Active SQL sessions and client metadata'),
+        node('statements', 'Statement Stats', 'statements', 'Statement fingerprints, latency, rows, and retries'),
+        node('transactions', 'Transactions', 'transactions', 'Transaction state, retry pressure, and contention hints'),
+        node('contention', 'Contention', 'contention', 'Waiting keys and blocking transaction metadata'),
+        node('locks', 'Locks', 'locks', 'Visible locks and waiters where available'),
+        node('statistics', 'Statistics', 'statistics', 'Table, range, and database statistics'),
+      ],
+    }),
+  ]
+}
+
+function cockroachSchemaChildren(): DatastoreTreeNodeManifest[] {
+  return [
+    node('tables', 'Tables', 'tables', 'Base and regional tables'),
+    node('views', 'Views', 'views', 'Stored query projections'),
+    node('indexes', 'Indexes', 'indexes', 'Primary, secondary, partial, inverted, and vector indexes'),
+    node('sequences', 'Sequences', 'sequences', 'Generated numeric sequences'),
+    node('types', 'Types', 'types', 'Enum and user-defined types'),
+    node('functions', 'Functions', 'functions', 'User-defined SQL functions'),
+    node('zone-configurations', 'Zone Configurations', 'zone-configurations', 'Replication, constraints, lease preferences, and GC settings'),
   ]
 }
 

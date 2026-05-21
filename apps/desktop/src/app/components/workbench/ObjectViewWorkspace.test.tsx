@@ -481,6 +481,156 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText('DBMS_XPLAN output is available only after EXPLAIN PLAN has run.')).toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
   })
+
+  it('renders PostgreSQL table metadata as a purpose-built catalog workspace', () => {
+    const onOpenQuery = vi.fn()
+
+    render(
+      <ObjectViewWorkspace
+        connection={postgresConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: postgresConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'accounts',
+          objectViewState: {
+            connectionId: postgresConnection.id,
+            environmentId: environment.id,
+            nodeId: 'table:public.accounts',
+            label: 'accounts',
+            kind: 'table',
+            path: ['User Schemas', 'public', 'Tables'],
+            queryTemplate: 'select * from "public"."accounts" limit 100;',
+            warnings: [],
+            payload: {
+              engine: 'postgresql',
+              schema: 'public',
+              objectName: 'accounts',
+              rowCount: 128,
+              size: '96 KB',
+              columns: [
+                { name: 'id', type: 'bigint', nullable: false },
+                { name: 'updated_at', type: 'timestamp with time zone', nullable: false },
+              ],
+              indexes: [
+                { name: 'accounts_pkey', type: 'btree', columns: 'id', unique: true, valid: true },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={onOpenQuery}
+      />,
+    )
+
+    expect(screen.getAllByText('PostgreSQL Table').length).toBeGreaterThan(0)
+    expect(screen.getByText(/Inspect table columns, indexes/i)).toBeInTheDocument()
+    expect(screen.getByText('updated_at')).toBeInTheDocument()
+    expect(screen.getByText('timestamp with time zone')).toBeInTheDocument()
+    expect(screen.getByText('accounts_pkey')).toBeInTheDocument()
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Data Query' }))
+    expect(onOpenQuery).toHaveBeenCalledWith(expect.objectContaining({
+      queryTemplate: expect.stringContaining('accounts'),
+    }))
+  })
+
+  it('renders SQL Server Query Store and security surfaces without generic inspection text', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={sqlServerConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: sqlServerConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'Query Store',
+          objectViewState: {
+            connectionId: sqlServerConnection.id,
+            environmentId: environment.id,
+            nodeId: 'sqlserver:datapadplusplus:query-store',
+            label: 'Query Store',
+            kind: 'query-store',
+            path: ['Databases', 'datapadplusplus'],
+            warnings: [],
+            payload: {
+              engine: 'sqlserver',
+              database: 'datapadplusplus',
+              queryStore: [
+                { name: 'Top Queries', status: 'available', durationMs: 18, executions: 14, planState: 'not forced' },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('Query Store').length).toBeGreaterThan(0)
+    expect(screen.getByText(/Review top queries, regressed queries/i)).toBeInTheDocument()
+    expect(screen.getByText('Top Queries')).toBeInTheDocument()
+    expect(screen.getByText('18')).toBeInTheDocument()
+    expect(screen.queryByText('Open View')).not.toBeInTheDocument()
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
+
+  it('renders CockroachDB cluster diagnostics as a native cluster workspace', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={cockroachConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: cockroachConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'Cluster',
+          objectViewState: {
+            connectionId: cockroachConnection.id,
+            environmentId: environment.id,
+            nodeId: 'cockroach:cluster',
+            label: 'Cluster',
+            kind: 'cluster',
+            path: ['Cluster'],
+            warnings: [],
+            payload: {
+              engine: 'cockroachdb',
+              nodeCount: 3,
+              rangeCount: 184,
+              jobCount: 2,
+              nodes: [
+                { nodeId: 1, address: 'n1.local:26257', locality: 'region=us-east', ranges: 68, liveBytes: '1.4 GB', status: 'live' },
+              ],
+              ranges: [
+                { rangeId: 42, table: 'public.accounts', replicas: '1,2,3', leaseholder: 1, qps: 18, size: '64 MB' },
+              ],
+              jobs: [
+                { id: 901, type: 'SCHEMA CHANGE', status: 'succeeded', fractionCompleted: '100%', created: '2026-05-18' },
+              ],
+              clusterSettings: [
+                { name: 'kv.rangefeed.enabled', value: 'true', type: 'b', description: 'rangefeed support' },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('CockroachDB Cluster').length).toBeGreaterThan(0)
+    expect(screen.getByText(/Review nodes, ranges, regions, jobs/i)).toBeInTheDocument()
+    expect(screen.getByText('n1.local:26257')).toBeInTheDocument()
+    expect(screen.getByText('public.accounts')).toBeInTheDocument()
+    expect(screen.getByText('kv.rangefeed.enabled')).toBeInTheDocument()
+    expect(screen.queryByText('Open View')).not.toBeInTheDocument()
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
 })
 
 function operationPlanResponse(operationId: string): OperationPlanResponse {
@@ -571,6 +721,75 @@ const oracleConnection: ConnectionProfile = {
     connectMode: 'service-name',
     serviceName: 'FREEPDB1',
   },
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const postgresConnection: ConnectionProfile = {
+  id: 'conn-postgres',
+  name: 'PostgreSQL',
+  engine: 'postgresql',
+  family: 'sql',
+  host: 'localhost',
+  port: 5432,
+  database: 'datapadplusplus',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'postgresql',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: { username: 'app' },
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const cockroachConnection: ConnectionProfile = {
+  id: 'conn-cockroach',
+  name: 'CockroachDB',
+  engine: 'cockroachdb',
+  family: 'sql',
+  host: 'localhost',
+  port: 26257,
+  database: 'defaultdb',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'cockroachdb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: { username: 'root' },
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const sqlServerConnection: ConnectionProfile = {
+  id: 'conn-sqlserver',
+  name: 'SQL Server',
+  engine: 'sqlserver',
+  family: 'sql',
+  host: 'localhost',
+  port: 1433,
+  database: 'datapadplusplus',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'sqlserver',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: { username: 'sa' },
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 }

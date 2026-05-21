@@ -84,6 +84,21 @@ describe('sidebar connection tree helpers', () => {
     )
   })
 
+  it('builds CockroachDB structural folders for databases and cluster diagnostics', () => {
+    const connection = cockroachConnection()
+    const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
+
+    expect(findNodeByLabel(tree, 'Databases')).toMatchObject({ label: 'Databases' })
+    expect(findNodeByLabel(tree, 'defaultdb')).toMatchObject({ label: 'defaultdb' })
+    expect(findNodeByLabel(tree, 'User Schemas')).toMatchObject({ label: 'User Schemas' })
+    expect(findNodeByLabel(tree, 'Zone Configurations')).toMatchObject({ label: 'Zone Configurations' })
+    expect(findNodeByLabel(tree, 'Cluster')).toMatchObject({ label: 'Cluster' })
+    expect(findNodeByLabel(tree, 'Ranges')).toMatchObject({ label: 'Ranges' })
+    expect(findNodeByLabel(tree, 'Regions / Localities')).toMatchObject({ label: 'Regions / Localities' })
+    expect(findNodeByLabel(tree, 'Cluster Settings')).toMatchObject({ label: 'Cluster Settings' })
+    expect(findNodeByLabel(tree, 'Contention')).toMatchObject({ label: 'Contention' })
+  })
+
   it('builds Mongo structural folders without invented collection leaves', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')
@@ -419,7 +434,19 @@ describe('sidebar connection tree helpers', () => {
         }),
       ]),
     )
-    expect(findNode(tree, 'server-objects')).toMatchObject({ label: 'Server Objects' })
+    const serverObjects = findNode(tree, 'server-objects')
+    const alwaysOn = findNode(tree, 'always-on-high-availability')
+    expect(serverObjects).toMatchObject({ label: 'Server Objects' })
+    expect(serverObjects?.children?.map((node) => node.label)).toEqual([
+      'Linked Servers',
+      'Endpoints',
+    ])
+    expect(alwaysOn).toMatchObject({ label: 'Always On High Availability' })
+    expect(alwaysOn?.children?.map((node) => node.label)).toEqual([
+      'Availability Groups',
+    ])
+    expect(tree.some((node) => node.label === 'Linked Servers')).toBe(false)
+    expect(tree.some((node) => node.label === 'Availability Groups')).toBe(false)
   })
 
   it('organizes live SQL Server metadata into SSMS-style database folders', () => {
@@ -470,7 +497,7 @@ describe('sidebar connection tree helpers', () => {
     expect(findNode(tree, 'dbo.accounts')).toMatchObject({
       label: 'dbo.accounts',
       kind: 'table',
-      queryTemplate: 'select top 100 * from dbo.accounts;',
+      queryTemplate: 'select top 100 * from [dbo].[accounts];',
     })
     expect(findNode(tree, 'category:conn-orders:Databases/orders/Views')).toMatchObject({
       label: 'Views',
@@ -510,6 +537,28 @@ function oracleConnection(): ConnectionProfile {
     group: 'Connections',
     auth: { username: 'APP' },
     oracleOptions: { connectMode: 'service-name', serviceName: 'FREEPDB1' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function cockroachConnection(): ConnectionProfile {
+  return {
+    id: 'conn-cockroach',
+    name: 'CockroachDB',
+    engine: 'cockroachdb',
+    family: 'sql',
+    host: 'localhost',
+    port: 26257,
+    database: 'defaultdb',
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'cockroachdb',
+    group: 'Connections',
+    auth: { username: 'root' },
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }

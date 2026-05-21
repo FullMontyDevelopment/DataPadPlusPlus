@@ -140,6 +140,16 @@ const CATEGORY_DETAILS: Record<string, string> = {
   'Analysis Services': 'SSAS endpoints and model metadata',
   'Reporting Services': 'SSRS catalog metadata',
   Diagnostics: 'Health and performance metadata',
+  Cluster: 'Cluster-level health, topology, and configuration',
+  Nodes: 'Cluster nodes, locality, and liveness',
+  Ranges: 'Range distribution, replicas, and leaseholders',
+  'Regions / Localities': 'Regional placement and locality tiers',
+  'Cluster Settings': 'Runtime cluster configuration',
+  'Zone Configurations': 'Replication and placement configuration',
+  Grants: 'Granted privileges and default privilege surfaces',
+  'Statement Stats': 'Statement fingerprints, latency, rows, and retries',
+  Transactions: 'Transaction state, retry pressure, and contention',
+  Contention: 'Waiting keys and blocking transaction metadata',
   Containers: 'Oracle CDB/PDB containers',
   Performance: 'Sessions, waits, SQL Monitor, AWR, and ASH',
   Scheduler: 'Jobs, programs, chains, and windows',
@@ -355,7 +365,7 @@ export function sqlObjectQueryTemplate(
   objectName: string,
 ) {
   if (connection.engine === 'sqlserver') {
-    return `select top 100 * from ${schema}.${objectName};`
+    return `select top 100 * from [${schema.replace(/]/g, ']]')}].[${objectName.replace(/]/g, ']]')}];`
   }
 
   if (connection.engine === 'sqlite') {
@@ -464,8 +474,16 @@ function sqlPlacement(
     return sqlServerPlacement(connection, node, kind, normalizedPath)
   }
 
+  if (connection.engine === 'cockroachdb') {
+    return cockroachPlacement(connection, node, kind, normalizedPath)
+  }
+
   if (connection.engine === 'sqlite') {
     return sqlitePlacement(connection, node, kind, normalizedPath)
+  }
+
+  if (isSqlCategoryExplorerNode(node, normalizedPath)) {
+    return normalizedPath
   }
 
   if (kind === 'schema' && !isSqlSystemSchema(connection, node.label)) {
@@ -524,6 +542,83 @@ function sqlPlacement(
   }
 
   return [schemaRoot, schema, category]
+}
+
+function cockroachPlacement(
+  connection: ConnectionProfile,
+  node: ExplorerNode,
+  kind: string,
+  normalizedPath: string[],
+) {
+  const database = cockroachDatabaseName(connection, normalizedPath)
+
+  if (kind === 'database' || kind === 'catalog') {
+    return ['Databases']
+  }
+
+  if (kind === 'schema') {
+    return ['Databases', database, isSqlSystemSchema(connection, node.label) ? 'System Schemas' : 'User Schemas']
+  }
+
+  if (kind === 'cluster' || ['nodes', 'ranges', 'regions', 'jobs', 'cluster-settings'].includes(kind)) {
+    return kind === 'cluster' ? [] : ['Cluster']
+  }
+
+  if (kind === 'security' || kind === 'roles' || kind === 'grants' || kind === 'permission' || kind === 'certificates') {
+    return kind === 'security' ? [] : ['Security']
+  }
+
+  if (kind === 'diagnostic' || kind === 'diagnostics' || ['sessions', 'statements', 'transactions', 'contention', 'locks', 'statistics'].includes(kind)) {
+    return kind === 'diagnostics' ? [] : ['Diagnostics']
+  }
+
+  if (isSqlCategoryExplorerNode(node, normalizedPath)) {
+    return normalizedPath
+  }
+
+  const objectParts = sqlObjectPartsFromExplorerNode(connection, node, normalizedPath)
+  const schema = objectParts.schema
+  const schemaRoot = isSqlSystemSchema(connection, schema) ? 'System Schemas' : 'User Schemas'
+  const table = objectParts.table ?? objectParts.objectName
+  const schemaPath = ['Databases', database, schemaRoot, schema]
+
+  if (kind === 'column') {
+    return [...schemaPath, 'Tables', table || 'Object', 'Columns']
+  }
+
+  if (kind === 'index') {
+    return table ? [...schemaPath, 'Tables', table, 'Indexes'] : [...schemaPath, 'Indexes']
+  }
+
+  if (kind === 'constraint') {
+    return table ? [...schemaPath, 'Tables', table, 'Constraints'] : [...schemaPath, 'Constraints']
+  }
+
+  if (SQL_TABLE_KINDS.has(kind)) {
+    return [...schemaPath, 'Tables']
+  }
+
+  if (SQL_VIEW_KINDS.has(kind)) {
+    return [...schemaPath, 'Views']
+  }
+
+  if (kind === 'function') {
+    return [...schemaPath, 'Functions']
+  }
+
+  if (kind === 'sequence') {
+    return [...schemaPath, 'Sequences']
+  }
+
+  if (kind === 'type') {
+    return [...schemaPath, 'Types']
+  }
+
+  if (kind === 'zone-configuration') {
+    return [...schemaPath, 'Zone Configurations']
+  }
+
+  return [...schemaPath, sqlCategoryForKind(connection, kind, node.label, schema)]
 }
 
 function sqlitePlacement(
@@ -689,6 +784,10 @@ function sqlServerPlacement(
 }
 
 function isSqlServerCategoryExplorerNode(node: ExplorerNode, normalizedPath: string[]) {
+  return isSqlCategoryExplorerNode(node, normalizedPath)
+}
+
+function isSqlCategoryExplorerNode(node: ExplorerNode, normalizedPath: string[]) {
   return Boolean(
     normalizedPath.length > 0 &&
       node.expandable &&
@@ -1141,6 +1240,20 @@ function sqlServerDatabaseName(connection: ConnectionProfile, normalizedPath: st
   }
 
   return connection.database?.trim() || 'master'
+}
+
+function cockroachDatabaseName(connection: ConnectionProfile, normalizedPath: string[]) {
+  const databasesIndex = normalizedPath.indexOf('Databases')
+  const pathDatabase =
+    databasesIndex >= 0 && normalizedPath[databasesIndex + 1]
+      ? normalizedPath[databasesIndex + 1]
+      : undefined
+
+  if (pathDatabase && !isCategoryLabel(pathDatabase)) {
+    return pathDatabase
+  }
+
+  return connection.database?.trim() || 'defaultdb'
 }
 
 function sqlServerTableCategoryForKind(

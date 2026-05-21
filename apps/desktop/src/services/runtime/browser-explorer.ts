@@ -27,6 +27,18 @@ export function createExplorerNodes(
     return createRedisExplorerNodes(connection, scope)
   }
 
+  if (connection.engine === 'cockroachdb') {
+    return createCockroachExplorerNodes(connection, scope)
+  }
+
+  if (isPostgresLike(connection)) {
+    return createPostgresExplorerNodes(connection, scope)
+  }
+
+  if (connection.engine === 'sqlserver') {
+    return createSqlServerExplorerNodes(connection, scope)
+  }
+
   if (connection.family === 'document') {
     const database = connection.database || connection.name
 
@@ -189,23 +201,496 @@ export function createExplorerNodes(
     },
   ]
 
-  if (connection.engine === 'sqlserver') {
-    sqlSchemaNodes.push({
-      id: 'schema-dbo',
-      family: 'sql',
-      label: 'dbo',
-      kind: 'schema',
-      detail: 'Default SQL Server schema',
-      scope: 'schema:dbo',
-      path: [connection.name],
-      expandable: true,
-      queryTemplate: sqlTableListQueryForSchema('dbo'),
-    })
-  }
-
   return [
     ...sqlSchemaNodes,
   ]
+}
+
+function isPostgresLike(connection: ConnectionProfile) {
+  return ['postgresql', 'cockroachdb', 'timescaledb'].includes(connection.engine)
+}
+
+function createCockroachExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
+  const database = connection.database || 'defaultdb'
+
+  if (!scope) {
+    return [
+      postgresNode(connection, `database:${database}`, database, 'database', 'CockroachDB database', `database:${database}`, ['Databases'], true),
+      postgresNode(connection, 'cockroach:cluster', 'Cluster', 'cluster', 'Nodes, ranges, regions, jobs, and cluster settings', 'cockroach:cluster', [], true),
+      postgresNode(connection, 'cockroach:security', 'Security', 'security', 'Roles, grants, and certificates', 'cockroach:security', [], true),
+      postgresNode(connection, 'cockroach:diagnostics', 'Diagnostics', 'diagnostics', 'Sessions, statement stats, transactions, and contention', 'cockroach:diagnostics', [], true),
+    ]
+  }
+
+  if (scope.startsWith('database:')) {
+    return [
+      postgresNode(connection, 'schema:public', 'public', 'schema', 'User schema', 'schema:public', ['Databases', database, 'User Schemas'], true),
+      postgresNode(connection, 'schema:crdb_internal', 'crdb_internal', 'schema', 'System schema', 'schema:crdb_internal', ['Databases', database, 'System Schemas'], true),
+      postgresNode(connection, 'schema:pg_catalog', 'pg_catalog', 'schema', 'System schema', 'schema:pg_catalog', ['Databases', database, 'System Schemas'], true),
+    ]
+  }
+
+  if (scope.startsWith('schema:')) {
+    const schema = scope.replace('schema:', '') || 'public'
+    return cockroachSchemaFolders(connection, database, schema)
+  }
+
+  if (scope.startsWith('cockroach:')) {
+    const [, section = 'cluster', schema = 'public', subsection = ''] = scope.split(':')
+
+    if (section === 'cluster') {
+      return [
+        postgresNode(connection, 'cockroach:cluster:nodes', 'Nodes', 'nodes', 'Node liveness, locality, and capacity', undefined, ['Cluster']),
+        postgresNode(connection, 'cockroach:cluster:ranges', 'Ranges', 'ranges', 'Range distribution and leaseholders', undefined, ['Cluster']),
+        postgresNode(connection, 'cockroach:cluster:regions', 'Regions / Localities', 'regions', 'Regional placement and locality tiers', undefined, ['Cluster']),
+        postgresNode(connection, 'cockroach:cluster:jobs', 'Jobs', 'jobs', 'Schema changes, backups, imports, and changefeeds', undefined, ['Cluster']),
+        postgresNode(connection, 'cockroach:cluster:cluster-settings', 'Cluster Settings', 'cluster-settings', 'Runtime cluster settings', undefined, ['Cluster']),
+      ]
+    }
+
+    if (section === 'security') {
+      return [
+        postgresNode(connection, 'cockroach:security:roles', 'Roles', 'roles', 'Users, roles, and memberships', undefined, ['Security']),
+        postgresNode(connection, 'cockroach:security:grants', 'Grants', 'grants', 'Visible privileges and default privileges', undefined, ['Security']),
+        postgresNode(connection, 'cockroach:security:certificates', 'Certificates', 'certificates', 'Client and node certificate metadata', undefined, ['Security']),
+      ]
+    }
+
+    if (section === 'diagnostics') {
+      return [
+        postgresNode(connection, 'cockroach:diagnostics:sessions', 'Sessions', 'sessions', 'Active SQL sessions', undefined, ['Diagnostics']),
+        postgresNode(connection, 'cockroach:diagnostics:statements', 'Statement Stats', 'statements', 'Statement fingerprints, latency, and retries', undefined, ['Diagnostics']),
+        postgresNode(connection, 'cockroach:diagnostics:transactions', 'Transactions', 'transactions', 'Transaction state and retry pressure', undefined, ['Diagnostics']),
+        postgresNode(connection, 'cockroach:diagnostics:contention', 'Contention', 'contention', 'Waiting keys and blocking transactions', undefined, ['Diagnostics']),
+        postgresNode(connection, 'cockroach:diagnostics:locks', 'Locks', 'locks', 'Visible lock waits', undefined, ['Diagnostics']),
+        postgresNode(connection, 'cockroach:diagnostics:statistics', 'Statistics', 'statistics', 'Table and database statistics', undefined, ['Diagnostics']),
+      ]
+    }
+
+    return cockroachObjectsForSection(connection, database, schema, subsection || section)
+  }
+
+  if (scope.startsWith('table:')) {
+    const { schema, objectName } = parsePostgresObjectScope(scope)
+    return postgresTableSections(connection, schema, objectName)
+  }
+
+  return []
+}
+
+function cockroachSchemaFolders(
+  connection: ConnectionProfile,
+  database: string,
+  schema: string,
+): ExplorerNode[] {
+  const path = [connection.name, 'Databases', database, isPostgresSystemSchema(schema) ? 'System Schemas' : 'User Schemas', schema]
+  const folder = (id: string, label: string, kind: string, detail: string) =>
+    postgresNode(connection, `cockroach:${database}:${schema}:${id}`, label, kind, detail, `cockroach:${database}:${schema}:${id}`, path, true)
+
+  return [
+    folder('tables', 'Tables', 'tables', 'Base and regional tables'),
+    folder('views', 'Views', 'views', 'Stored SELECT definitions'),
+    folder('indexes', 'Indexes', 'indexes', 'Schema-level index list'),
+    folder('sequences', 'Sequences', 'sequences', 'Sequence generators'),
+    folder('types', 'Types', 'types', 'Enum and user-defined types'),
+    folder('functions', 'Functions', 'functions', 'User-defined SQL functions'),
+    folder('zone-configurations', 'Zone Configurations', 'zone-configurations', 'Replication and placement rules'),
+  ]
+}
+
+function cockroachObjectsForSection(
+  connection: ConnectionProfile,
+  database: string,
+  schema: string,
+  section: string,
+): ExplorerNode[] {
+  const path = [
+    connection.name,
+    'Databases',
+    database,
+    isPostgresSystemSchema(schema) ? 'System Schemas' : 'User Schemas',
+    schema,
+    cockroachSectionLabel(section),
+  ]
+
+  if (section === 'tables') {
+    return ['accounts', 'orders', 'products'].map((table) =>
+      postgresNode(connection, `table:${schema}.${table}`, table, 'table', 'Regional table', `table:${schema}.${table}`, path, true, `select * from "${schema}"."${table}" limit 100;`),
+    )
+  }
+
+  if (section === 'views') {
+    return [
+      postgresNode(connection, `view:${schema}:active_accounts`, 'active_accounts', 'view', 'View definition', undefined, path, false, `select * from "${schema}"."active_accounts" limit 100;`),
+    ]
+  }
+
+  if (section === 'indexes') {
+    return [
+      postgresNode(connection, `index:${schema}:accounts_pkey`, 'accounts_pkey', 'index', 'primary / unique', undefined, path),
+      postgresNode(connection, `index:${schema}:products_sku_idx`, 'products_sku_idx', 'index', 'secondary index', undefined, path),
+    ]
+  }
+
+  if (section === 'sequences') {
+    return [
+      postgresNode(connection, `sequence:${schema}:accounts_id_seq`, 'accounts_id_seq', 'sequence', 'int8 sequence', undefined, path),
+    ]
+  }
+
+  if (section === 'types') {
+    return [
+      postgresNode(connection, `type:${schema}:account_status_t`, 'account_status_t', 'type', 'enum type', undefined, path),
+    ]
+  }
+
+  if (section === 'functions') {
+    return [
+      postgresNode(connection, `function:${schema}:account_status`, 'account_status', 'function', 'SQL function', undefined, path),
+    ]
+  }
+
+  if (section === 'zone-configurations') {
+    return [
+      postgresNode(connection, `zone-config:${schema}:accounts`, 'accounts', 'zone-configuration', 'Replication and lease preferences', undefined, path),
+    ]
+  }
+
+  return []
+}
+
+function createPostgresExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
+  if (!scope) {
+    return [
+      postgresNode(connection, 'schema:public', 'public', 'schema', 'User schema', 'schema:public', ['User Schemas'], true),
+      postgresNode(connection, 'schema:observability', 'observability', 'schema', 'User schema', 'schema:observability', ['User Schemas'], true),
+      postgresNode(connection, 'schema:pg_catalog', 'pg_catalog', 'schema', 'System schema', 'schema:pg_catalog', ['System Schemas'], true),
+      postgresNode(connection, 'postgres:security', 'Security', 'security', 'Roles, grants, and privileges', 'postgres:security', [], true),
+      postgresNode(connection, 'postgres:diagnostics', 'Diagnostics', 'diagnostics', 'Sessions, locks, stats, and health metadata', 'postgres:diagnostics', [], true),
+    ]
+  }
+
+  if (scope.startsWith('schema:')) {
+    const schema = scope.replace('schema:', '') || 'public'
+    return postgresSchemaFolders(connection, schema)
+  }
+
+  if (scope.startsWith('postgres:')) {
+    const [, schemaOrSection = 'public', section = ''] = scope.split(':')
+    if (schemaOrSection === 'security') {
+      return [
+        postgresNode(connection, 'postgres:security:roles', 'Roles', 'roles', 'Login and group roles', undefined, ['Security']),
+        postgresNode(connection, 'postgres:security:permissions', 'Permissions', 'permissions', 'Visible grants and privileges', undefined, ['Security']),
+      ]
+    }
+    if (schemaOrSection === 'diagnostics') {
+      return [
+        postgresNode(connection, 'postgres:diagnostics:sessions', 'Sessions', 'sessions', 'pg_stat_activity sessions', undefined, ['Diagnostics']),
+        postgresNode(connection, 'postgres:diagnostics:locks', 'Locks', 'locks', 'pg_locks and blocking hints', undefined, ['Diagnostics']),
+        postgresNode(connection, 'postgres:diagnostics:statistics', 'Statistics', 'statistics', 'pg_stat relation and database stats', undefined, ['Diagnostics']),
+      ]
+    }
+
+    return postgresObjectsForSection(connection, schemaOrSection, section)
+  }
+
+  if (scope.startsWith('table:')) {
+    const { schema, objectName } = parsePostgresObjectScope(scope)
+    return postgresTableSections(connection, schema, objectName)
+  }
+
+  return []
+}
+
+function postgresSchemaFolders(connection: ConnectionProfile, schema: string): ExplorerNode[] {
+  const path = [connection.name, isPostgresSystemSchema(schema) ? 'System Schemas' : 'User Schemas', schema]
+  const folder = (id: string, label: string, kind: string, detail: string) =>
+    postgresNode(connection, `postgres:${schema}:${id}`, label, kind, detail, `postgres:${schema}:${id}`, path, true)
+
+  return [
+    folder('tables', 'Tables', 'tables', 'Base and partitioned tables'),
+    folder('views', 'Views', 'views', 'Stored SELECT definitions'),
+    folder('materialized-views', 'Materialized Views', 'materialized-views', 'Persisted query projections'),
+    folder('indexes', 'Indexes', 'indexes', 'Schema-level index list'),
+    folder('functions', 'Functions', 'functions', 'Stored functions'),
+    folder('procedures', 'Procedures', 'procedures', 'Stored procedures'),
+    folder('sequences', 'Sequences', 'sequences', 'Sequence generators'),
+    folder('types', 'Types', 'types', 'Enum, composite, domain, and range types'),
+  ]
+}
+
+function postgresObjectsForSection(
+  connection: ConnectionProfile,
+  schema: string,
+  section: string,
+): ExplorerNode[] {
+  const path = [
+    connection.name,
+    isPostgresSystemSchema(schema) ? 'System Schemas' : 'User Schemas',
+    schema,
+    postgresSectionLabel(section),
+  ]
+
+  if (section === 'tables') {
+    return ['accounts', 'orders', 'products'].map((table) =>
+      postgresNode(
+        connection,
+        `table:${schema}.${table}`,
+        table,
+        'table',
+        'Base table',
+        `table:${schema}.${table}`,
+        path,
+        true,
+        `select * from "${schema}"."${table}" limit 100;`,
+      ),
+    )
+  }
+
+  if (section === 'views') {
+    return [
+      postgresNode(connection, `view:${schema}:active_accounts`, 'active_accounts', 'view', 'View definition', undefined, path, false, `select * from "${schema}"."active_accounts" limit 100;`),
+    ]
+  }
+
+  if (section === 'materialized-views') {
+    return [
+      postgresNode(connection, `materialized-view:${schema}:daily_product_metrics`, 'daily_product_metrics', 'materialized-view', 'Materialized view', undefined, path, false, `select * from "${schema}"."daily_product_metrics" limit 100;`),
+    ]
+  }
+
+  if (section === 'indexes') {
+    return [
+      postgresNode(connection, `index:${schema}:accounts_pkey`, 'accounts_pkey', 'index', 'btree / unique', undefined, path),
+      postgresNode(connection, `index:${schema}:products_sku_idx`, 'products_sku_idx', 'index', 'btree', undefined, path),
+    ]
+  }
+
+  if (section === 'functions') {
+    return [
+      postgresNode(connection, `function:${schema}:account_status`, 'account_status', 'function', 'stable function', undefined, path),
+    ]
+  }
+
+  if (section === 'procedures') {
+    return [
+      postgresNode(connection, `procedure:${schema}:refresh_rollups`, 'refresh_rollups', 'procedure', 'plpgsql procedure', undefined, path),
+    ]
+  }
+
+  if (section === 'sequences') {
+    return [
+      postgresNode(connection, `sequence:${schema}:accounts_id_seq`, 'accounts_id_seq', 'sequence', 'bigint sequence', undefined, path),
+    ]
+  }
+
+  if (section === 'types') {
+    return [
+      postgresNode(connection, `type:${schema}:account_status_t`, 'account_status_t', 'type', 'enum type', undefined, path),
+    ]
+  }
+
+  return []
+}
+
+function postgresTableSections(
+  connection: ConnectionProfile,
+  schema: string,
+  table: string,
+): ExplorerNode[] {
+  const path = [connection.name, isPostgresSystemSchema(schema) ? 'System Schemas' : 'User Schemas', schema, 'Tables', table]
+  return [
+    postgresNode(connection, `columns:${schema}:${table}`, 'Columns', 'columns', 'Column definitions', undefined, path),
+    postgresNode(connection, `indexes:${schema}:${table}`, 'Indexes', 'indexes', 'Table indexes', undefined, path),
+    postgresNode(connection, `constraints:${schema}:${table}`, 'Constraints', 'constraints', 'Table constraints', undefined, path),
+    postgresNode(connection, `triggers:${schema}:${table}`, 'Triggers', 'triggers', 'Table triggers', undefined, path),
+    postgresNode(connection, `statistics:${schema}:${table}`, 'Statistics', 'statistics', 'Row estimates and vacuum/analyze health', undefined, path),
+    postgresNode(connection, `permissions:${schema}:${table}`, 'Permissions', 'permissions', 'Object grants', undefined, path),
+    postgresNode(connection, `ddl:${schema}:${table}`, 'Definition', 'ddl', 'Object definition', undefined, path),
+  ]
+}
+
+function postgresNode(
+  connection: ConnectionProfile,
+  id: string,
+  label: string,
+  kind: string,
+  detail: string,
+  scope?: string,
+  path: string[] = [connection.name],
+  expandable = false,
+  queryTemplate?: string,
+): ExplorerNode {
+  return {
+    id,
+    family: 'sql',
+    label,
+    kind,
+    detail,
+    scope,
+    path,
+    queryTemplate,
+    expandable,
+  }
+}
+
+function createSqlServerExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
+  const database = connection.database || 'datapadplusplus'
+
+  if (!scope) {
+    return ['master', 'model', 'msdb', 'tempdb', database]
+      .filter((item, index, items) => items.indexOf(item) === index)
+      .map((name) =>
+        sqlServerNode(
+          connection,
+          `database:${name}`,
+          name,
+          isSqlServerSystemDatabase(name) ? 'system-database' : 'database',
+          isSqlServerSystemDatabase(name) ? 'ONLINE / system' : 'ONLINE',
+          `database:${name}`,
+          [connection.name, 'Databases'],
+          true,
+          `use [${name.replace(/]/g, ']]')}];\nselect db_name() as database_name;`,
+        ),
+      )
+  }
+
+  if (scope.startsWith('database:')) {
+    return sqlServerDatabaseFolders(connection, scope.replace('database:', '') || database)
+  }
+
+  if (scope.startsWith('sqlserver:')) {
+    const [, scopedDatabase = database, section = 'tables'] = scope.split(':')
+    return sqlServerObjectsForSection(connection, scopedDatabase, section)
+  }
+
+  if (scope.startsWith('table:')) {
+    const { database: scopedDatabase, schema, objectName } = parseSqlServerObjectScope(scope)
+    return sqlServerTableSections(connection, scopedDatabase, schema, objectName)
+  }
+
+  return []
+}
+
+function sqlServerDatabaseFolders(connection: ConnectionProfile, database: string): ExplorerNode[] {
+  const path = [connection.name, 'Databases', database]
+  const folder = (id: string, label: string, kind: string, detail: string) =>
+    sqlServerNode(connection, `sqlserver:${database}:${id}`, label, kind, detail, `sqlserver:${database}:${id}`, path, true)
+
+  return [
+    folder('tables', 'Tables', 'tables', 'Base, system, external, and graph tables'),
+    folder('views', 'Views', 'views', 'Stored query projections'),
+    folder('stored-procedures', 'Stored Procedures', 'stored-procedures', 'T-SQL and CLR procedures'),
+    folder('functions', 'Functions', 'functions', 'Scalar, table-valued, aggregate, and CLR functions'),
+    folder('synonyms', 'Synonyms', 'synonyms', 'Object aliases'),
+    folder('sequences', 'Sequences', 'sequences', 'Sequence generators'),
+    folder('types', 'Types', 'types', 'User-defined and table types'),
+    folder('security', 'Security', 'security', 'Users, roles, schemas, certificates, and credentials'),
+    folder('query-store', 'Query Store', 'query-store', 'Runtime stats, plans, and regressed queries'),
+    folder('storage', 'Storage', 'storage', 'Files, filegroups, and partitions'),
+    folder('extended-events', 'Extended Events', 'extended-events', 'Database-scoped event sessions'),
+    folder('agent', 'Agent', 'sql-server-agent', 'Jobs, schedules, alerts, and operators'),
+  ]
+}
+
+function sqlServerObjectsForSection(
+  connection: ConnectionProfile,
+  database: string,
+  section: string,
+): ExplorerNode[] {
+  const path = [connection.name, 'Databases', database, sqlServerSectionLabel(section)]
+
+  if (section === 'tables') {
+    return ['accounts', 'orders', 'products'].map((table) =>
+      sqlServerNode(connection, `table:${database}:dbo:${table}`, `dbo.${table}`, 'table', 'base table', `table:${database}:dbo:${table}`, path, true, `use [${database}];\nselect top 100 * from [dbo].[${table}];`),
+    )
+  }
+
+  if (section === 'views') {
+    return [
+      sqlServerNode(connection, `view:${database}:dbo:active_accounts`, 'dbo.active_accounts', 'view', 'view', undefined, path, false, `use [${database}];\nselect top 100 * from [dbo].[active_accounts];`),
+    ]
+  }
+
+  if (section === 'stored-procedures') {
+    return [
+      sqlServerNode(connection, `procedure:${database}:dbo:refresh_account_cache`, 'dbo.refresh_account_cache', 'procedure', 'SQL stored procedure', undefined, path),
+    ]
+  }
+
+  if (section === 'functions') {
+    return [
+      sqlServerNode(connection, `function:${database}:dbo:account_status`, 'dbo.account_status', 'function', 'Scalar-valued function', undefined, path),
+    ]
+  }
+
+  if (section === 'security') {
+    return [
+      sqlServerNode(connection, `users:${database}`, 'Users', 'users', 'Database users', undefined, path),
+      sqlServerNode(connection, `roles:${database}`, 'Roles', 'roles', 'Database roles', undefined, path),
+      sqlServerNode(connection, `schemas:${database}`, 'Schemas', 'schemas', 'Database schemas', undefined, path),
+    ]
+  }
+
+  if (section === 'query-store') {
+    return [
+      sqlServerNode(connection, `query-store:${database}:top`, 'Top Queries', 'query-store-view', 'Runtime stats and plans', undefined, path),
+      sqlServerNode(connection, `query-store:${database}:regressed`, 'Regressed Queries', 'query-store-view', 'Queries with worse recent performance', undefined, path),
+      sqlServerNode(connection, `query-store:${database}:forced`, 'Forced Plans', 'query-store-view', 'Plan forcing state', undefined, path),
+    ]
+  }
+
+  if (section === 'storage') {
+    return [
+      sqlServerNode(connection, `files:${database}`, 'Files', 'files', 'Database files', undefined, path),
+      sqlServerNode(connection, `filegroups:${database}`, 'Filegroups', 'filegroups', 'Database filegroups', undefined, path),
+    ]
+  }
+
+  return []
+}
+
+function sqlServerTableSections(
+  connection: ConnectionProfile,
+  database: string,
+  schema: string,
+  table: string,
+): ExplorerNode[] {
+  const path = [connection.name, 'Databases', database, 'Tables', `${schema}.${table}`]
+  return [
+    sqlServerNode(connection, `columns:${database}:${schema}:${table}`, 'Columns', 'columns', 'Column definitions', undefined, path),
+    sqlServerNode(connection, `keys:${database}:${schema}:${table}`, 'Keys', 'keys', 'Primary, foreign, and unique keys', undefined, path),
+    sqlServerNode(connection, `constraints:${database}:${schema}:${table}`, 'Constraints', 'constraints', 'Check and default constraints', undefined, path),
+    sqlServerNode(connection, `indexes:${database}:${schema}:${table}`, 'Indexes', 'indexes', 'Indexes and included columns', undefined, path),
+    sqlServerNode(connection, `triggers:${database}:${schema}:${table}`, 'Triggers', 'triggers', 'DML triggers', undefined, path),
+    sqlServerNode(connection, `statistics:${database}:${schema}:${table}`, 'Statistics', 'statistics', 'Statistics objects and histograms', undefined, path),
+    sqlServerNode(connection, `permissions:${database}:${schema}:${table}`, 'Permissions', 'permissions', 'Object permissions', undefined, path),
+    sqlServerNode(connection, `scripts:${database}:${schema}:${table}`, 'Scripts', 'scripts', 'Create/alter/drop templates', undefined, path),
+  ]
+}
+
+function sqlServerNode(
+  connection: ConnectionProfile,
+  id: string,
+  label: string,
+  kind: string,
+  detail: string,
+  scope?: string,
+  path: string[] = [connection.name],
+  expandable = false,
+  queryTemplate?: string,
+): ExplorerNode {
+  return {
+    id,
+    family: 'sql',
+    label,
+    kind,
+    detail,
+    scope,
+    path,
+    queryTemplate,
+    expandable,
+  }
 }
 
 function createSqliteExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
@@ -383,6 +868,12 @@ export function inspectExplorerNodeLocally(
       ? oracleInspectQueryTemplate(request.nodeId)
       : connection.engine === 'redis' || connection.engine === 'valkey'
       ? redisInspectQueryTemplate(request.nodeId)
+      : connection.engine === 'cockroachdb'
+      ? cockroachInspectQueryTemplate(connection, request.nodeId)
+      : isPostgresLike(connection)
+      ? postgresInspectQueryTemplate(connection, request.nodeId)
+      : connection.engine === 'sqlserver'
+      ? sqlServerInspectQueryTemplate(connection, request.nodeId)
       : connection.engine === 'sqlite'
       ? sqliteInspectQueryTemplate(request.nodeId)
       : request.nodeId.includes('collection')
@@ -402,6 +893,12 @@ export function inspectExplorerNodeLocally(
           ? oracleInspectPayload(connection, request.nodeId)
         : connection.engine === 'redis' || connection.engine === 'valkey'
           ? redisInspectPayload(request.nodeId)
+        : connection.engine === 'cockroachdb'
+          ? cockroachInspectPayload(connection, request.nodeId)
+        : isPostgresLike(connection)
+          ? postgresInspectPayload(connection, request.nodeId)
+        : connection.engine === 'sqlserver'
+          ? sqlServerInspectPayload(connection, request.nodeId)
         : connection.engine === 'sqlite'
           ? sqliteInspectPayload(request.nodeId)
         : connection.family === 'document'
@@ -458,6 +955,566 @@ function sqliteInspectPayload(nodeId: string) {
         : nodeId.startsWith('pragma:')
           ? 'pragma'
           : 'database',
+  }
+}
+
+function cockroachInspectQueryTemplate(connection: ConnectionProfile, nodeId: string) {
+  const { schema, objectName } = parseCockroachNodeId(connection, nodeId)
+
+  if (['table:', 'view:'].some((prefix) => nodeId.startsWith(prefix)) && objectName) {
+    return `select * from "${schema}"."${objectName}" limit 100;`
+  }
+
+  if (nodeId.includes('cluster-settings')) {
+    return 'show cluster settings;'
+  }
+
+  if (nodeId.includes('jobs')) {
+    return 'show jobs;'
+  }
+
+  if (nodeId.includes('cluster') || nodeId.includes('nodes') || nodeId.includes('ranges') || nodeId.includes('regions')) {
+    return 'select * from crdb_internal.gossip_nodes limit 100;'
+  }
+
+  if (nodeId.includes('contention') || nodeId.includes('transactions') || nodeId.includes('statements')) {
+    return 'select * from crdb_internal.cluster_statement_statistics limit 100;'
+  }
+
+  if (nodeId.includes('security') || nodeId.includes('roles') || nodeId.includes('grants')) {
+    return 'show roles;'
+  }
+
+  if (nodeId.includes('diagnostics') || nodeId.includes('sessions')) {
+    return 'show sessions;'
+  }
+
+  return `show tables from "${schema}";`
+}
+
+function cockroachInspectPayload(connection: ConnectionProfile, nodeId: string) {
+  const { schema, objectName } = parseCockroachNodeId(connection, nodeId)
+  const database = connection.database || 'defaultdb'
+  const base = {
+    engine: 'cockroachdb',
+    database,
+    schema,
+    objectName,
+  }
+
+  const clusterPayload = {
+    nodeCount: 3,
+    rangeCount: 184,
+    regionCount: 2,
+    jobCount: 3,
+    nodes: [
+      { nodeId: 1, address: 'n1.local:26257', locality: 'region=us-east,az=a', ranges: 68, liveBytes: '1.4 GB', status: 'live' },
+      { nodeId: 2, address: 'n2.local:26257', locality: 'region=us-east,az=b', ranges: 61, liveBytes: '1.1 GB', status: 'live' },
+      { nodeId: 3, address: 'n3.local:26257', locality: 'region=eu-west,az=a', ranges: 55, liveBytes: '948 MB', status: 'live' },
+    ],
+    ranges: [
+      { rangeId: 42, table: `${schema}.accounts`, replicas: '1,2,3', leaseholder: 1, qps: 18, size: '64 MB' },
+      { rangeId: 43, table: `${schema}.orders`, replicas: '1,2,3', leaseholder: 2, qps: 7, size: '91 MB' },
+    ],
+    regions: [
+      { region: 'us-east', locality: 'region=us-east', nodes: 2, survivalGoal: 'zone failure', constraints: '+region=us-east' },
+      { region: 'eu-west', locality: 'region=eu-west', nodes: 1, survivalGoal: 'region failure', constraints: '+region=eu-west' },
+    ],
+    jobs: [
+      { id: 901, type: 'SCHEMA CHANGE', status: 'succeeded', fractionCompleted: '100%', created: '2026-05-18', modified: '2026-05-18' },
+      { id: 902, type: 'BACKUP', status: 'running', fractionCompleted: '42%', created: '2026-05-21', modified: '2026-05-21' },
+    ],
+    clusterSettings: [
+      { name: 'kv.rangefeed.enabled', value: 'true', type: 'b', description: 'rangefeed support' },
+      { name: 'sql.defaults.results_buffer.size', value: '16KiB', type: 'z', description: 'SQL result buffering' },
+    ],
+  }
+
+  if (nodeId.includes('cluster') || nodeId.includes('nodes') || nodeId.includes('ranges') || nodeId.includes('regions') || nodeId.includes('jobs') || nodeId.includes('cluster-settings')) {
+    return {
+      ...base,
+      ...clusterPayload,
+      warnings: ['CockroachDB browser-preview metadata is deterministic and does not contact a live cluster.'],
+    }
+  }
+
+  if (nodeId.startsWith('table:')) {
+    return {
+      ...base,
+      rowCount: 128,
+      size: '96 KB',
+      rangeCount: 4,
+      columns: postgresColumns(),
+      indexes: [
+        { name: `${objectName}_pkey`, type: 'primary', columns: 'id', unique: true, valid: true, size: '16 KB' },
+        { name: `${objectName}_updated_at_idx`, type: 'secondary', columns: 'updated_at', unique: false, valid: true, size: '16 KB' },
+      ],
+      constraints: [
+        { name: `${objectName}_pkey`, type: 'PRIMARY KEY', columns: 'id', status: 'validated' },
+      ],
+      statistics: [
+        { name: objectName, rows: 128, scans: 6, size: '96 KB' },
+      ],
+      permissions: [
+        { principal: 'reporting', privilege: 'SELECT', object: `${schema}.${objectName}`, state: 'granted', grantor: 'app' },
+      ],
+      ranges: [
+        { rangeId: 42, table: `${schema}.${objectName}`, replicas: '1,2,3', leaseholder: 1, qps: 18, size: '64 MB' },
+      ],
+    }
+  }
+
+  if (nodeId.includes('security') || nodeId.includes('roles') || nodeId.includes('grants')) {
+    return {
+      ...base,
+      roles: [
+        { name: 'root', login: true, superuser: true, inherit: true, memberships: 'admin' },
+        { name: 'app', login: true, superuser: false, inherit: true, memberships: 'reporting' },
+      ],
+      permissions: [
+        { principal: 'reporting', privilege: 'SELECT', object: `${schema}.accounts`, state: 'granted', grantor: 'admin' },
+      ],
+    }
+  }
+
+  if (nodeId.includes('diagnostics') || nodeId.includes('sessions') || nodeId.includes('locks') || nodeId.includes('statements') || nodeId.includes('transactions') || nodeId.includes('contention')) {
+    return {
+      ...base,
+      activeSessions: 5,
+      blockedSessions: 1,
+      retryCount: 2,
+      sessions: [
+        { sessionId: 's1', user: 'app', database, state: 'active', wait: 'CPU', blockedBy: '' },
+        { sessionId: 's2', user: 'reporting', database, state: 'idle', wait: 'Client', blockedBy: '' },
+      ],
+      statements: [
+        { query: 'select * from public.accounts', count: 42, meanMs: 12, p99Ms: 44, rows: 128, retries: 1 },
+      ],
+      transactions: [
+        { id: 'txn-01', state: 'active', age: '2.1s', priority: 'normal', retries: 1 },
+      ],
+      contention: [
+        { key: '/Table/104/1', table: `${schema}.accounts`, waiter: 'txn-01', durationMs: 18, blockingTxn: 'txn-00' },
+      ],
+      locks: [
+        { sessionId: 's1', object: `${schema}.accounts`, mode: 'shared', granted: true, blocking: 'No' },
+      ],
+      statistics: [
+        { name: `${schema}.accounts`, rows: 128, scans: 9, size: '96 KB' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('schema:') || nodeId.startsWith('cockroach:')) {
+    return {
+      ...base,
+      tableCount: 3,
+      indexCount: 8,
+      tables: [
+        { schema, name: 'accounts', type: 'regional table', rows: 128, size: '96 KB', owner: 'app' },
+        { schema, name: 'orders', type: 'regional table', rows: 348, size: '184 KB', owner: 'app' },
+        { schema, name: 'products', type: 'global table', rows: 3, size: '48 KB', owner: 'app' },
+      ],
+      views: [
+        { schema, name: 'active_accounts', status: 'valid', definition: 'Visible in view definition.' },
+      ],
+      sequences: [
+        { schema, name: 'accounts_id_seq', dataType: 'INT8', increment: 1, cache: 1, cycles: false },
+      ],
+      types: [
+        { schema, name: 'account_status_t', type: 'enum', owner: 'app' },
+      ],
+      functions: [
+        { schema, name: 'account_status', arguments: 'account_id INT8', returns: 'STRING', language: 'SQL', volatility: 'stable' },
+      ],
+      zoneConfigurations: [
+        { target: `${schema}.accounts`, numReplicas: 3, constraints: '+region=us-east', leasePreferences: '+region=us-east', gcTtlSeconds: 90000 },
+      ],
+    }
+  }
+
+  return {
+    ...base,
+    objects: [
+      { schema, name: objectName || 'accounts', type: nodeId.split(':')[0] || 'object', status: 'visible' },
+    ],
+  }
+}
+
+function postgresInspectQueryTemplate(connection: ConnectionProfile, nodeId: string) {
+  const { schema, objectName } = parsePostgresNodeId(connection, nodeId)
+
+  if (['table:', 'view:', 'materialized-view:'].some((prefix) => nodeId.startsWith(prefix)) && objectName) {
+    return `select * from "${schema}"."${objectName}" limit 100;`
+  }
+
+  if (nodeId.includes('diagnostics') || nodeId.includes('sessions')) {
+    return 'select pid, usename, datname, state, wait_event_type, wait_event from pg_stat_activity order by query_start desc nulls last limit 100;'
+  }
+
+  if (nodeId.includes('locks')) {
+    return 'select locktype, mode, granted, relation::regclass::text as relation from pg_locks limit 100;'
+  }
+
+  if (nodeId.includes('security') || nodeId.includes('roles')) {
+    return 'select rolname, rolcanlogin, rolsuper, rolinherit from pg_roles order by rolname;'
+  }
+
+  return `select schemaname, tablename from pg_catalog.pg_tables where schemaname = '${schema.replace(/'/g, "''")}' order by tablename;`
+}
+
+function postgresInspectPayload(connection: ConnectionProfile, nodeId: string) {
+  const { schema, objectName } = parsePostgresNodeId(connection, nodeId)
+  const base = {
+    engine: connection.engine,
+    database: connection.database || 'datapadplusplus',
+    schema,
+    objectName,
+  }
+
+  if (nodeId.startsWith('table:')) {
+    return {
+      ...base,
+      rowCount: 128,
+      size: '96 KB',
+      columns: postgresColumns(),
+      indexes: [
+        { name: `${objectName}_pkey`, type: 'btree', columns: 'id', unique: true, valid: true, size: '16 KB' },
+        { name: `${objectName}_updated_at_idx`, type: 'btree', columns: 'updated_at', unique: false, valid: true, size: '16 KB' },
+      ],
+      constraints: [
+        { name: `${objectName}_pkey`, type: 'PRIMARY KEY', columns: 'id', status: 'validated' },
+      ],
+      triggers: [
+        { name: `${objectName}_updated_at_trg`, timing: 'BEFORE', event: 'UPDATE', enabled: true, function: 'set_updated_at()' },
+      ],
+      statistics: [
+        { name: objectName, rows: 128, scans: 6, lastVacuum: '2026-05-10', lastAnalyze: '2026-05-16', size: '96 KB' },
+      ],
+      permissions: [
+        { principal: 'reporting', privilege: 'SELECT', object: `${schema}.${objectName}`, state: 'granted', grantor: schema },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('schema:') || nodeId.startsWith('postgres:') && !nodeId.includes(':diagnostics') && !nodeId.includes(':security')) {
+    return {
+      ...base,
+      tableCount: 3,
+      indexCount: 8,
+      tables: [
+        { schema, name: 'accounts', type: 'base table', rows: 128, size: '96 KB', owner: 'app' },
+        { schema, name: 'orders', type: 'base table', rows: 348, size: '184 KB', owner: 'app' },
+        { schema, name: 'products', type: 'base table', rows: 3, size: '48 KB', owner: 'app' },
+      ],
+      views: [
+        { schema, name: 'active_accounts', status: 'valid', definition: 'Visible in view definition.' },
+      ],
+      functions: [
+        { schema, name: 'account_status', arguments: 'account_id bigint', returns: 'text', language: 'plpgsql', volatility: 'stable' },
+      ],
+      extensions: [
+        { name: 'pg_stat_statements', version: '1.10', schema: 'public', description: 'Track planning and execution statistics.' },
+      ],
+    }
+  }
+
+  if (nodeId.includes('security') || nodeId.includes('roles')) {
+    return {
+      ...base,
+      roles: [
+        { name: 'app', login: true, superuser: false, inherit: true, memberships: 'reporting' },
+        { name: 'reporting', login: false, superuser: false, inherit: true, memberships: '' },
+      ],
+      permissions: [
+        { principal: 'reporting', privilege: 'SELECT', object: `${schema}.accounts`, state: 'granted', grantor: 'app' },
+      ],
+    }
+  }
+
+  if (nodeId.includes('diagnostics') || nodeId.includes('sessions') || nodeId.includes('locks')) {
+    return {
+      ...base,
+      activeSessions: 4,
+      blockedSessions: 0,
+      sessions: [
+        { pid: 101, user: 'app', database: base.database, state: 'active', wait: 'CPU', blockedBy: '' },
+        { pid: 102, user: 'reporting', database: base.database, state: 'idle', wait: 'Client', blockedBy: '' },
+      ],
+      locks: [
+        { pid: 101, object: `${schema}.accounts`, mode: 'AccessShareLock', granted: true, blocking: 'No' },
+      ],
+      statistics: [
+        { name: `${schema}.accounts`, rows: 128, scans: 9, lastAnalyze: '2026-05-16', size: '96 KB' },
+      ],
+      warnings: ['Diagnostics are limited to catalog views available to the current role.'],
+    }
+  }
+
+  return {
+    ...base,
+    objects: [
+      { schema, name: objectName || 'accounts', type: 'table', status: 'visible' },
+    ],
+  }
+}
+
+function sqlServerInspectQueryTemplate(connection: ConnectionProfile, nodeId: string) {
+  const { database, schema, objectName } = parseSqlServerNodeId(connection, nodeId)
+
+  if (['table:', 'view:'].some((prefix) => nodeId.startsWith(prefix)) && objectName) {
+    return `use [${database}];\nselect top 100 * from [${schema}].[${objectName}];`
+  }
+
+  if (nodeId.includes('query-store')) {
+    return `use [${database}];\nselect top 50 * from sys.query_store_runtime_stats order by last_execution_time desc;`
+  }
+
+  if (nodeId.includes('security') || nodeId.includes('users') || nodeId.includes('roles')) {
+    return `use [${database}];\nselect name, type_desc from sys.database_principals order by name;`
+  }
+
+  return `use [${database}];\nselect db_name() as database_name;`
+}
+
+function sqlServerInspectPayload(connection: ConnectionProfile, nodeId: string) {
+  const { database, schema, objectName } = parseSqlServerNodeId(connection, nodeId)
+  const base = {
+    engine: 'sqlserver',
+    database,
+    schema,
+    objectName,
+  }
+
+  if (nodeId.startsWith('table:')) {
+    return {
+      ...base,
+      rowCount: 128,
+      size: '160 KB',
+      columns: [
+        { name: 'id', type: 'bigint', nullable: false, identity: true },
+        { name: 'sku', type: 'nvarchar(80)', nullable: false, collation: 'database default' },
+        { name: 'updated_at', type: 'datetimeoffset', nullable: false },
+      ],
+      indexes: [
+        { name: `PK_${objectName}`, type: 'CLUSTERED', columns: 'id', unique: true, usage: 'seek 14 / scan 1' },
+        { name: `IX_${objectName}_sku`, type: 'NONCLUSTERED', columns: 'sku', unique: false, usage: 'seek 8 / scan 0' },
+      ],
+      constraints: [
+        { name: `PK_${objectName}`, type: 'PRIMARY KEY', columns: 'id', status: 'enabled' },
+      ],
+      triggers: [
+        { name: `TR_${objectName}_audit`, event: 'INSERT, UPDATE', enabled: true, timing: 'AFTER' },
+      ],
+      statistics: [
+        { name: objectName, rows: 128, scans: 6, size: '160 KB' },
+      ],
+      permissions: [
+        { principal: 'reporting', privilege: 'SELECT', object: `${schema}.${objectName}`, state: 'GRANT', grantor: 'dbo' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('database:') || nodeId.includes(':tables') || nodeId.includes(':views')) {
+    return {
+      ...base,
+      databaseSize: '32 MB',
+      tableCount: 3,
+      indexCount: 7,
+      tables: [
+        { schema: 'dbo', name: 'accounts', type: 'base table', rows: 128, size: '160 KB', owner: 'dbo' },
+        { schema: 'dbo', name: 'orders', type: 'base table', rows: 348, size: '240 KB', owner: 'dbo' },
+        { schema: 'dbo', name: 'products', type: 'base table', rows: 3, size: '80 KB', owner: 'dbo' },
+      ],
+      views: [
+        { schema: 'dbo', name: 'active_accounts', status: 'valid', definition: 'Visible in sys.sql_modules.' },
+      ],
+      queryStore: [
+        { name: 'Top Queries', status: 'available', durationMs: 18, executions: 14, planState: 'not forced' },
+      ],
+    }
+  }
+
+  if (nodeId.includes('security') || nodeId.includes('users') || nodeId.includes('roles')) {
+    return {
+      ...base,
+      users: [
+        { name: 'dbo', type: 'SQL_USER', defaultSchema: 'dbo', authenticationType: 'INSTANCE' },
+        { name: 'reporting', type: 'DATABASE_ROLE', defaultSchema: '', authenticationType: '' },
+      ],
+      roles: [
+        { name: 'db_datareader', type: 'DATABASE_ROLE', defaultSchema: '', authenticationType: '' },
+      ],
+      permissions: [
+        { principal: 'reporting', privilege: 'SELECT', object: 'dbo.accounts', state: 'GRANT', grantor: 'dbo' },
+      ],
+    }
+  }
+
+  if (nodeId.includes('query-store')) {
+    return {
+      ...base,
+      queryStore: [
+        { name: 'Top Queries', status: 'available', durationMs: 18, executions: 14, planState: 'not forced' },
+        { name: 'Regressed Queries', status: 'no regressions', durationMs: 0, executions: 0, planState: '' },
+      ],
+    }
+  }
+
+  if (nodeId.includes('storage') || nodeId.includes('files') || nodeId.includes('filegroups')) {
+    return {
+      ...base,
+      files: [
+        { name: `${database}`, type: 'ROWS', size: '32 MB', growth: '64 MB', state: 'ONLINE' },
+        { name: `${database}_log`, type: 'LOG', size: '16 MB', growth: '64 MB', state: 'ONLINE' },
+      ],
+      filegroups: [
+        { name: 'PRIMARY', type: 'ROWS_FILEGROUP', default: true, readOnly: false },
+      ],
+    }
+  }
+
+  return {
+    ...base,
+    objects: [
+      { schema, name: objectName || database, type: nodeId.split(':')[0] || 'object', status: 'visible' },
+    ],
+  }
+}
+
+function parsePostgresObjectScope(scope: string) {
+  const value = scope.replace(/^table:/, '')
+  const [schema = 'public', objectName = 'object'] = value.includes('.')
+    ? value.split('.', 2)
+    : ['public', value]
+
+  return { schema, objectName }
+}
+
+function parsePostgresNodeId(connection: ConnectionProfile, nodeId: string) {
+  if (nodeId.startsWith('table:')) {
+    return parsePostgresObjectScope(nodeId)
+  }
+
+  if (nodeId.startsWith('schema:')) {
+    return { schema: nodeId.replace('schema:', '') || 'public', objectName: '' }
+  }
+
+  const parts = nodeId.split(':')
+  if (parts.length >= 3) {
+    return { schema: parts[1] || 'public', objectName: parts[2] || '' }
+  }
+
+  return { schema: connection.database || 'public', objectName: '' }
+}
+
+function parseCockroachNodeId(connection: ConnectionProfile, nodeId: string) {
+  if (nodeId.startsWith('cockroach:')) {
+    const [, maybeDatabase = connection.database || 'defaultdb', maybeSchema = 'public', maybeObject = ''] = nodeId.split(':')
+    if (['cluster', 'security', 'diagnostics'].includes(maybeDatabase)) {
+      return { schema: 'public', objectName: maybeSchema || '' }
+    }
+    return { schema: maybeSchema || 'public', objectName: maybeObject || '' }
+  }
+
+  return parsePostgresNodeId(connection, nodeId)
+}
+
+function isPostgresSystemSchema(schema: string) {
+  const normalized = schema.trim().toLowerCase()
+  return normalized === 'information_schema' || normalized.startsWith('pg_')
+}
+
+function postgresSectionLabel(section: string) {
+  switch (section) {
+    case 'materialized-views':
+      return 'Materialized Views'
+    case 'functions':
+      return 'Functions'
+    case 'procedures':
+      return 'Procedures'
+    case 'sequences':
+      return 'Sequences'
+    case 'types':
+      return 'Types'
+    case 'indexes':
+      return 'Indexes'
+    case 'views':
+      return 'Views'
+    default:
+      return 'Tables'
+  }
+}
+
+function cockroachSectionLabel(section: string) {
+  switch (section) {
+    case 'zone-configurations':
+      return 'Zone Configurations'
+    case 'cluster-settings':
+      return 'Cluster Settings'
+    case 'statements':
+      return 'Statement Stats'
+    default:
+      return postgresSectionLabel(section)
+  }
+}
+
+function postgresColumns() {
+  return [
+    { name: 'id', type: 'bigint', nullable: false, default: "nextval('id_seq')" },
+    { name: 'sku', type: 'text', nullable: false, default: '' },
+    { name: 'updated_at', type: 'timestamp with time zone', nullable: false, default: 'now()' },
+  ]
+}
+
+function parseSqlServerObjectScope(scope: string) {
+  const value = scope.replace(/^table:/, '')
+  const [database = 'datapadplusplus', schema = 'dbo', objectName = 'object'] = value.split(':')
+  return { database, schema, objectName }
+}
+
+function parseSqlServerNodeId(connection: ConnectionProfile, nodeId: string) {
+  if (nodeId.startsWith('table:') || nodeId.startsWith('view:') || nodeId.startsWith('procedure:') || nodeId.startsWith('function:')) {
+    const [, database = connection.database || 'datapadplusplus', schema = 'dbo', objectName = 'object'] = nodeId.split(':')
+    return { database, schema, objectName }
+  }
+
+  if (nodeId.startsWith('database:')) {
+    return { database: nodeId.replace('database:', '') || connection.database || 'datapadplusplus', schema: 'dbo', objectName: '' }
+  }
+
+  const parts = nodeId.split(':')
+  return {
+    database: parts[1] || connection.database || 'datapadplusplus',
+    schema: parts[2] || 'dbo',
+    objectName: parts[3] || '',
+  }
+}
+
+function isSqlServerSystemDatabase(database: string) {
+  return ['master', 'model', 'msdb', 'tempdb'].includes(database.trim().toLowerCase())
+}
+
+function sqlServerSectionLabel(section: string) {
+  switch (section) {
+    case 'stored-procedures':
+      return 'Stored Procedures'
+    case 'query-store':
+      return 'Query Store'
+    case 'extended-events':
+      return 'Extended Events'
+    case 'security':
+      return 'Security'
+    case 'storage':
+      return 'Storage'
+    case 'agent':
+      return 'Agent'
+    case 'functions':
+      return 'Functions'
+    case 'views':
+      return 'Views'
+    default:
+      return 'Tables'
   }
 }
 

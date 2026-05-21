@@ -157,6 +157,33 @@ describe('LibraryPane', () => {
     expect(onSelectConnection).not.toHaveBeenCalled()
   })
 
+  it('refreshes connection metadata from the connection context menu', () => {
+    const onLoadExplorerScope = vi.fn()
+
+    renderLibraryPane(vi.fn(), {
+      activeEnvironmentId: 'env-dev',
+      connections: [mongoConnection()],
+      environments,
+      libraryNodes: [
+        folder('folder-prod', 'Prod Folder', undefined, 'env-prod'),
+        connectionNode('library-connection-mongo', 'MongoDB', 'connection-mongo', 'folder-prod'),
+      ],
+      onLoadExplorerScope,
+      sectionStates: {
+        [sidebarSectionId('library', 'node', 'folder-prod')]: true,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions for MongoDB' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Refresh metadata for MongoDB' }))
+
+    expect(onLoadExplorerScope).toHaveBeenCalledWith(
+      'connection-mongo',
+      undefined,
+      'env-prod',
+    )
+  })
+
   it('moves items to root when dropped on empty library tree space', () => {
     const onMoveNode = vi.fn()
     renderLibraryPane(onMoveNode)
