@@ -5,6 +5,7 @@ import type {
   ExplorerInspectResponse,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
+import { InspectionPayloadSummary } from '../InspectionPayloadSummary'
 
 interface DetailsViewProps {
   activeConnection: ConnectionProfile
@@ -65,25 +66,24 @@ export function DetailsView({
               disabled={!canApplyInspectionTemplate}
               title={
                 canApplyInspectionTemplate
-                  ? 'Apply this inspection query template to the active query tab.'
-                  : 'Open a query tab before applying this inspection query template.'
+                  ? 'Apply this starter query to the active query tab.'
+                  : 'Open a query tab before applying this starter query.'
               }
               onClick={() => onApplyInspectionTemplate(explorerInspection.queryTemplate)}
             >
-              Apply template
+              Apply starter query
             </button>
           ) : null}
         </div>
         <p>{explorerInspection?.summary ?? 'No object selected.'}</p>
         {explorerInspection?.queryTemplate ? (
-          <pre className="drawer-code">
-            <code>{explorerInspection.queryTemplate}</code>
-          </pre>
+          <p className="panel-footnote">
+            A starter query is available for this object. Apply it to the active query tab to
+            review or run.
+          </p>
         ) : null}
         {explorerInspection?.payload ? (
-          <pre className="drawer-code">
-            <code>{JSON.stringify(explorerInspection.payload, null, 2)}</code>
-          </pre>
+          <InspectionPayloadSummary payload={explorerInspection.payload} />
         ) : null}
       </div>
     </div>

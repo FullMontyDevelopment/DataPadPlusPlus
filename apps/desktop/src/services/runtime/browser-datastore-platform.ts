@@ -10,16 +10,22 @@ import type {
 import {
   DATASTORE_TEST_ASSERTIONS,
   DATAPADPLUSPLUS_ADAPTER_MANIFESTS,
+  datastoreCompletenessForEngine,
   datastoreTreeForEngine,
   datastoreBacklogByEngine,
   datastoreTestTemplatesForEngine,
 } from '@datapadplusplus/shared-types'
 import { languageForConnection, resolveEnvironment } from '../../app/state/helpers'
+import { redactSensitiveText } from '../../app/state/security-redaction'
 import {
   browserDataEditPermission,
   browserDataEditRequest,
   browserDataEditWarnings,
 } from './browser-data-edit-requests'
+import {
+  redactDataEditPlanForEnvironment,
+  redactDataEditResponseForEnvironment,
+} from './browser-response-redaction'
 
 export function buildDatastoreExperiences(): DatastoreExperienceManifest[] {
   return DATAPADPLUSPLUS_ADAPTER_MANIFESTS.map((manifest) => {
@@ -45,6 +51,7 @@ export function buildDatastoreExperiences(): DatastoreExperienceManifest[] {
       tree: datastoreTreeForEngine(manifest.engine, family),
       testTemplates: datastoreTestTemplatesForEngine(manifest.engine, family),
       testAssertions: DATASTORE_TEST_ASSERTIONS,
+      completeness: datastoreCompletenessForEngine(manifest.engine),
     }
   })
 }
@@ -54,7 +61,7 @@ export function planDataEditLocally(
   request: DataEditPlanRequest,
   snapshot?: WorkspaceSnapshot,
 ): DataEditPlanResponse {
-  const generatedRequest = browserDataEditRequest(connection, request)
+  const generatedRequest = redactSensitiveText(browserDataEditRequest(connection, request))
   const warnings = [
     'Preview mode generates guarded data-edit plans without mutating the datastore.',
     ...browserDataEditWarnings(connection, request),
@@ -81,13 +88,20 @@ export function planDataEditLocally(
     applyEnvironmentGuardsToDataEditPlan(snapshot, request.environmentId, plan)
   }
 
-  return {
+  const response: DataEditPlanResponse = {
     connectionId: request.connectionId,
     environmentId: request.environmentId,
     editKind: request.editKind,
     executionSupport: 'plan-only',
     plan,
   }
+
+  return snapshot
+    ? redactDataEditPlanForEnvironment(
+        response,
+        resolveEnvironment(snapshot.environments, request.environmentId),
+      )
+    : response
 }
 
 function browserDataEditScanImpact(request: DataEditPlanRequest) {
@@ -128,7 +142,7 @@ export function executeDataEditLocally(
     warnings.push('Unresolved environment variables must be fixed before this data edit can run.')
   }
 
-  return {
+  const response: DataEditExecutionResponse = {
     connectionId: request.connectionId,
     environmentId: request.environmentId,
     editKind: request.editKind,
@@ -138,6 +152,13 @@ export function executeDataEditLocally(
     messages,
     warnings,
   }
+
+  return snapshot
+    ? redactDataEditResponseForEnvironment(
+        response,
+        resolveEnvironment(snapshot.environments, request.environmentId),
+      )
+    : response
 }
 
 function applyEnvironmentGuardsToDataEditPlan(

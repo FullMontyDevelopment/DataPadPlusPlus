@@ -79,8 +79,19 @@ const CATEGORY_DETAILS: Record<string, string> = {
   'Validation Rules': 'Collection validation rules',
   Aggregations: 'Aggregation pipelines and templates',
   GridFS: 'GridFS file and chunk collections',
+  'File Storage': 'LiteDB stored files and chunk metadata',
+  Account: 'Cosmos DB account topology and API surface',
+  Containers: 'Cosmos DB containers and partitioned item stores',
+  Items: 'Container item query surface',
+  'Partition Key': 'Container partition key and routing posture',
+  'Indexing Policy': 'Container indexing policy',
+  Throughput: 'Request-unit throughput and throttling posture',
+  'Change Feed': 'Change feed processor readiness',
+  'Conflict Feed': 'Multi-region conflict metadata',
+  Consistency: 'Cosmos DB consistency settings',
+  Regions: 'Read and write region topology',
   Pipeline: 'View backing aggregation pipeline',
-  'Sample Results': 'View sample query results',
+  'Results Preview': 'Bounded view results query',
   'Key Prefixes': 'SCAN-friendly key groups',
   Keys: 'Individual cache keys',
   Streams: 'Append-only event streams',
@@ -150,7 +161,6 @@ const CATEGORY_DETAILS: Record<string, string> = {
   'Statement Stats': 'Statement fingerprints, latency, rows, and retries',
   Transactions: 'Transaction state, retry pressure, and contention',
   Contention: 'Waiting keys and blocking transaction metadata',
-  Containers: 'Oracle CDB/PDB containers',
   Performance: 'Sessions, waits, SQL Monitor, AWR, and ASH',
   Scheduler: 'Jobs, programs, chains, and windows',
   Queues: 'Advanced Queuing objects',
@@ -303,6 +313,15 @@ export function branchNodeForPath(
     node.scope = `collection:${database}:${label}`
     node.queryable = true
     node.builderKind = 'mongo-find'
+    node.queryTemplate = documentFindQueryTemplate(label, 20, database)
+  }
+
+  if (connection.engine === 'cosmosdb' && parentLabel === 'Containers') {
+    const database = cosmosDatabaseFromPlacementPath(connection, path)
+    node.kind = 'container'
+    node.scope = `cosmos:container:${database}:${label}`
+    node.expandable = true
+    node.queryable = true
     node.queryTemplate = documentFindQueryTemplate(label, 20, database)
   }
 
@@ -482,6 +501,10 @@ function sqlPlacement(
     return sqlitePlacement(connection, node, kind, normalizedPath)
   }
 
+  if (connection.engine === 'duckdb') {
+    return duckDbPlacement(kind, normalizedPath)
+  }
+
   if (isPostgresFamily(connection) && isSqlCategoryExplorerNode(node, normalizedPath)) {
     const [, schema] = node.scope?.split(':') ?? []
 
@@ -560,6 +583,60 @@ function sqlPlacement(
   }
 
   return [schemaRoot, schema, category]
+}
+
+function duckDbPlacement(kind: string, normalizedPath: string[]) {
+  if (kind === 'database') {
+    return ['Main Database']
+  }
+
+  if (kind === 'schema') {
+    return ['Main Database', 'Schemas']
+  }
+
+  const schema = normalizedPath.find((segment) => !isCategoryLabel(segment)) ?? 'main'
+
+  if (kind === 'table') {
+    return ['Main Database', 'Schemas', schema, 'Tables']
+  }
+
+  if (kind === 'view') {
+    return ['Main Database', 'Schemas', schema, 'Views']
+  }
+
+  if (kind === 'index') {
+    return ['Main Database', 'Schemas', schema, 'Indexes']
+  }
+
+  if (kind === 'function') {
+    return ['Main Database', 'Schemas', schema, 'Functions & Macros']
+  }
+
+  if (kind === 'extension') {
+    return ['Main Database', 'Extensions']
+  }
+
+  if (kind === 'attached-databases') {
+    return ['Main Database', 'Attached Databases']
+  }
+
+  if (kind === 'files') {
+    return ['Main Database', 'Files']
+  }
+
+  if (kind === 'pragmas' || kind === 'pragma') {
+    return ['Main Database', 'Pragmas']
+  }
+
+  if (kind === 'statistics') {
+    return ['Main Database', 'Statistics']
+  }
+
+  if (kind === 'diagnostics') {
+    return []
+  }
+
+  return normalizedPath.length ? ['Main Database', ...normalizedPath] : ['Main Database']
 }
 
 function cockroachPlacement(
@@ -823,6 +900,14 @@ function documentPlacement(
     return mongoPlacement(connection, node, kind, normalizedPath)
   }
 
+  if (connection.engine === 'litedb') {
+    return liteDbPlacement(connection, node, kind, normalizedPath)
+  }
+
+  if (connection.engine === 'cosmosdb') {
+    return cosmosPlacement(connection, node, kind, normalizedPath)
+  }
+
   const database =
     kind === 'database'
       ? undefined
@@ -844,6 +929,222 @@ function documentPlacement(
   }
 
   return ['Databases', database ?? defaultDocumentDatabase(connection)].filter(Boolean)
+}
+
+function cosmosPlacement(
+  connection: ConnectionProfile,
+  node: ExplorerNode,
+  kind: string,
+  normalizedPath: string[],
+): string[] {
+  const account = cosmosAccountFromNode(connection, normalizedPath)
+
+  if (node.id === 'cosmos:account' || kind === 'account') {
+    return []
+  }
+
+  if (['databases', 'regions', 'consistency', 'security', 'diagnostics'].includes(kind)) {
+    return [account]
+  }
+
+  if (node.id.startsWith('cosmos:database:') || kind === 'database') {
+    return [account, 'Databases']
+  }
+
+  const database = cosmosDatabaseFromNode(connection, node, normalizedPath)
+
+  if (node.id.startsWith('cosmos:containers:') || kind === 'containers') {
+    return [account, 'Databases', database]
+  }
+
+  if (node.id.startsWith('cosmos:container:') || kind === 'container') {
+    return [account, 'Databases', database, 'Containers']
+  }
+
+  const container = cosmosContainerFromNode(node, normalizedPath)
+
+  if (['items', 'partition-key', 'indexing-policy', 'throughput', 'change-feed', 'stored-procedures', 'triggers', 'udfs', 'conflicts'].includes(kind)) {
+    const base = container
+      ? [account, 'Databases', database, 'Containers', container]
+      : [account, 'Databases', database]
+
+    return kind === 'throughput' && !container ? [account, 'Databases', database] : base
+  }
+
+  return normalizedPath.length ? normalizedPath : [account]
+}
+
+function cosmosAccountFromNode(connection: ConnectionProfile, normalizedPath: string[]) {
+  const account = normalizedPath.find((segment) => !isCategoryLabel(segment))
+
+  return account ?? connection.host?.split('.').at(0) ?? connection.name ?? 'Account'
+}
+
+function cosmosDatabaseFromNode(
+  connection: ConnectionProfile,
+  node: ExplorerNode,
+  normalizedPath: string[],
+) {
+  const databasesIndex = normalizedPath.indexOf('Databases')
+
+  if (databasesIndex >= 0 && normalizedPath[databasesIndex + 1]) {
+    return normalizedPath[databasesIndex + 1] ?? 'catalog'
+  }
+
+  const parts = node.id.split(':')
+  const database = (() => {
+    if (node.id.startsWith('cosmos:database:') || node.id.startsWith('cosmos:containers:')) {
+      return parts.at(-1)
+    }
+
+    if (
+      node.id.startsWith('cosmos:container:') ||
+      node.id.startsWith('cosmos:items:') ||
+      node.id.startsWith('cosmos:partition-key:') ||
+      node.id.startsWith('cosmos:indexing-policy:') ||
+      node.id.startsWith('cosmos:throughput:') ||
+      node.id.startsWith('cosmos:change-feed:') ||
+      node.id.startsWith('cosmos:stored-procedures:') ||
+      node.id.startsWith('cosmos:triggers:') ||
+      node.id.startsWith('cosmos:udfs:') ||
+      node.id.startsWith('cosmos:conflicts:')
+    ) {
+      return parts.at(-2)
+    }
+
+    return undefined
+  })()
+
+  if (database && !isCategoryLabel(database)) {
+    return database
+  }
+
+  return connection.database?.trim() || 'catalog'
+}
+
+function cosmosContainerFromNode(node: ExplorerNode, normalizedPath: string[]) {
+  const containersIndex = normalizedPath.indexOf('Containers')
+
+  if (containersIndex >= 0 && normalizedPath[containersIndex + 1]) {
+    return normalizedPath[containersIndex + 1] ?? undefined
+  }
+
+  if (node.id.startsWith('cosmos:container:') || node.id.startsWith('cosmos:items:')) {
+    return node.id.split(':').at(-1)
+  }
+
+  return undefined
+}
+
+function cosmosDatabaseFromPlacementPath(connection: ConnectionProfile, path: string[]) {
+  const databasesIndex = path.indexOf('Databases')
+
+  if (databasesIndex >= 0 && path[databasesIndex + 1]) {
+    return path[databasesIndex + 1] ?? 'catalog'
+  }
+
+  return connection.database?.trim() || 'catalog'
+}
+
+function liteDbPlacement(
+  connection: ConnectionProfile,
+  node: ExplorerNode,
+  kind: string,
+  normalizedPath: string[],
+): string[] {
+  const database = liteDbDatabaseLabel(connection, normalizedPath)
+
+  if (node.id === 'litedb:database' || kind === 'database') {
+    return []
+  }
+
+  if (node.id === 'litedb:diagnostics' || kind === 'diagnostics') {
+    return []
+  }
+
+  if (node.id === 'litedb:collections' || kind === 'collections') {
+    return [database]
+  }
+
+  if (node.id.startsWith('litedb:collection:') || kind === 'collection') {
+    return [database, 'Collections']
+  }
+
+  if (node.id.startsWith('litedb:documents:') || kind === 'documents') {
+    return [database, 'Collections', liteDbCollectionFromNode(node, normalizedPath)]
+  }
+
+  if (node.id.startsWith('litedb:schema:') || kind === 'schema') {
+    return [database, 'Collections', liteDbCollectionFromNode(node, normalizedPath)]
+  }
+
+  if (node.id === 'litedb:indexes') {
+    return [database]
+  }
+
+  if (node.id.startsWith('litedb:collection-indexes:')) {
+    return [database, 'Collections', liteDbCollectionFromNode(node, normalizedPath)]
+  }
+
+  if (node.id.startsWith('litedb:index:') || kind === 'index') {
+    const collection = node.id.startsWith('litedb:index:')
+      ? node.id.split(':').at(-2)
+      : liteDbCollectionFromNode(node, normalizedPath)
+
+    return collection
+      ? [database, 'Collections', collection, 'Indexes']
+      : [database, 'Indexes']
+  }
+
+  if (node.id === 'litedb:file-storage' || kind === 'file-storage') {
+    return [database]
+  }
+
+  if (node.id === 'litedb:files' || kind === 'files') {
+    return [database, 'File Storage']
+  }
+
+  if (node.id === 'litedb:chunks' || kind === 'chunks') {
+    return [database, 'File Storage']
+  }
+
+  if (node.id === 'litedb:storage' || node.id.startsWith('litedb:collection-storage:') || kind === 'storage') {
+    return node.id.startsWith('litedb:collection-storage:')
+      ? [database, 'Collections', liteDbCollectionFromNode(node, normalizedPath)]
+      : [database]
+  }
+
+  if (node.id === 'litedb:settings' || kind === 'settings') {
+    return [database]
+  }
+
+  return normalizedPath.length ? normalizedPath : compactPath(database)
+}
+
+function liteDbDatabaseLabel(connection: ConnectionProfile, normalizedPath: string[]) {
+  const root = normalizedPath.find((segment) => !isCategoryLabel(segment))
+
+  if (root) {
+    return root
+  }
+
+  return fileName(connection.database || connection.host || connection.name || 'local.db')
+}
+
+function liteDbCollectionFromNode(node: ExplorerNode, normalizedPath: string[]): string {
+  const collectionIndex = normalizedPath.indexOf('Collections')
+
+  if (collectionIndex >= 0 && normalizedPath[collectionIndex + 1]) {
+    return normalizedPath[collectionIndex + 1] ?? 'collection'
+  }
+
+  const scopedCollection = node.id.split(':').at(-1)
+
+  if (scopedCollection && scopedCollection !== node.id) {
+    return scopedCollection
+  }
+
+  return node.label || 'collection'
 }
 
 function mongoPlacement(
@@ -902,7 +1203,16 @@ function compactPath(...segments: Array<string | undefined>) {
   return segments.filter((segment): segment is string => Boolean(segment))
 }
 
+function fileName(value: string) {
+  return value.split(/[\\/]/).filter(Boolean).at(-1) ?? value
+}
+
 function keyValuePlacement(node: ExplorerNode, kind: string, normalizedPath: string[]) {
+  const memcachedPath = memcachedPlacement(node)
+  if (memcachedPath) {
+    return memcachedPath
+  }
+
   const redisRootPath = redisRootPlacement(node)
   if (redisRootPath) {
     return redisRootPath
@@ -939,6 +1249,32 @@ function keyValuePlacement(node: ExplorerNode, kind: string, normalizedPath: str
   }
 
   return ['Diagnostics']
+}
+
+function memcachedPlacement(node: ExplorerNode): string[] | undefined {
+  if (node.id === 'memcached:server' || node.id === 'memcached:diagnostics') {
+    return []
+  }
+
+  if (
+    node.id === 'memcached:stats' ||
+    node.id === 'memcached:slabs' ||
+    node.id === 'memcached:items' ||
+    node.id === 'memcached:settings' ||
+    node.id === 'memcached:connections'
+  ) {
+    return ['Server']
+  }
+
+  if (node.id.startsWith('memcached:slab:')) {
+    return ['Server', 'Slabs']
+  }
+
+  if (node.id.startsWith('memcached:item-class:')) {
+    return ['Server', 'Item Classes']
+  }
+
+  return undefined
 }
 
 function redisRootPlacement(node: ExplorerNode): string[] | undefined {
@@ -1092,6 +1428,20 @@ function wideColumnPlacement(
 }
 
 function graphPlacement(kind: string, normalizedPath: string[]) {
+  if ([
+    'graphs',
+    'node-labels',
+    'relationship-types',
+    'property-keys',
+    'indexes',
+    'constraints',
+    'procedures',
+    'security',
+    'diagnostics',
+  ].includes(kind)) {
+    return []
+  }
+
   if (kind === 'database') {
     return ['Databases']
   }
@@ -1113,7 +1463,7 @@ function graphPlacement(kind: string, normalizedPath: string[]) {
   }
 
   if (kind === 'constraint' || kind === 'index') {
-    return ['Indexes']
+    return kind === 'constraint' ? ['Constraints'] : ['Indexes']
   }
 
   return normalizedPath.length ? normalizedPath : ['Graphs']
@@ -1125,11 +1475,26 @@ function timeseriesPlacement(
   normalizedPath: string[],
 ) {
   if (connection.engine === 'prometheus') {
+    if ([
+      'metrics',
+      'labels',
+      'targets',
+      'rules',
+      'alerts',
+      'service-discovery',
+      'tsdb',
+      'diagnostics',
+    ].includes(kind)) {
+      return []
+    }
     if (kind === 'metric') {
       return ['Metrics']
     }
     if (kind === 'label') {
       return ['Labels']
+    }
+    if (kind === 'series') {
+      return normalizedPath.length ? normalizedPath : ['Metrics']
     }
     if (kind === 'target') {
       return ['Targets']
@@ -1142,8 +1507,59 @@ function timeseriesPlacement(
     }
   }
 
+  if (connection.engine === 'opentsdb') {
+    if ([
+      'metrics',
+      'tags',
+      'aggregators',
+      'downsampling',
+      'uid-metadata',
+      'trees',
+      'stats',
+      'diagnostics',
+    ].includes(kind)) {
+      return []
+    }
+    if (kind === 'metric') {
+      return ['Metrics']
+    }
+    if (kind === 'tag') {
+      return normalizedPath.length ? normalizedPath : ['Tags']
+    }
+    if (kind === 'aggregator') {
+      return ['Aggregators']
+    }
+    if (kind === 'downsampler') {
+      return ['Downsampling']
+    }
+    if (kind === 'uid') {
+      return ['UID Metadata']
+    }
+    if (kind === 'tree') {
+      return ['Trees']
+    }
+    if (kind === 'stat') {
+      return ['Stats']
+    }
+  }
+
   if (kind === 'bucket') {
     return ['Buckets']
+  }
+
+  if (connection.engine === 'influxdb') {
+    if (['buckets', 'security', 'diagnostics'].includes(kind)) {
+      return []
+    }
+
+    if (kind === 'retention-policies' || kind === 'retention') {
+      const bucket = normalizedPath.find((segment) => !isCategoryLabel(segment))
+      return bucket ? ['Buckets', bucket, 'Retention Policies'] : ['Retention Policies']
+    }
+
+    if (kind === 'tasks' || kind === 'task') {
+      return ['Tasks']
+    }
   }
 
   const bucket = normalizedPath.find((segment) => !isCategoryLabel(segment))
@@ -1493,6 +1909,14 @@ function documentActions(
     return mongoActions(connection, node, kind)
   }
 
+  if (connection.engine === 'litedb') {
+    return liteDbActions(node, kind)
+  }
+
+  if (connection.engine === 'cosmosdb') {
+    return cosmosActions(connection, node, kind)
+  }
+
   if (kind !== 'collection') {
     if (kind === 'index' || kind === 'indexes') {
       return [
@@ -1511,6 +1935,220 @@ function documentActions(
     templateAction('rename-collection', 'Rename Collection...', mongoCommandTemplate(connection, node, { renameCollection: collection, to: `${collection}_new` })),
     templateAction('drop-collection', 'Drop Collection...', mongoCommandTemplate(connection, node, { drop: collection }), true),
   ]
+}
+
+function cosmosActions(
+  connection: ConnectionProfile,
+  node: ConnectionTreeNode,
+  kind: string,
+): ConnectionTreeAction[] {
+  const target = cosmosTreeTarget(connection, node)
+  const database = target.database
+  const container = target.container ?? node.label
+
+  if (kind === 'databases') {
+    return [
+      templateAction('create-database', 'Create Database...', cosmosOperationTemplate('createDatabase', {
+        database: 'new_database',
+        throughput: 'shared 400 RU/s',
+      })),
+    ]
+  }
+
+  if (kind === 'database' || kind === 'containers') {
+    return [
+      templateAction('create-container', 'Create Container...', cosmosOperationTemplate('createContainer', {
+        database,
+        container: 'new_container',
+        partitionKey: '/tenantId',
+        throughput: '400 RU/s',
+      })),
+    ]
+  }
+
+  if (kind === 'container') {
+    return [
+      templateAction('open-items', 'Open Items Query', documentFindQueryTemplate(container, 20, database)),
+      templateAction('update-throughput', 'Update Throughput...', cosmosOperationTemplate('updateThroughput', {
+        database,
+        container,
+        mode: 'autoscale',
+        maxRuPerSecond: 4000,
+      })),
+      templateAction('update-indexing-policy', 'Update Indexing Policy...', cosmosOperationTemplate('updateIndexingPolicy', {
+        database,
+        container,
+        includedPaths: ['/*'],
+        excludedPaths: ['/"_etag"/?'],
+      })),
+      templateAction('drop-container', 'Delete Container...', cosmosOperationTemplate('deleteContainer', {
+        database,
+        container,
+      }), true),
+    ]
+  }
+
+  if (kind === 'items') {
+    return [
+      templateAction('open-items', 'Open Items Query', documentFindQueryTemplate(container, 20, database)),
+    ]
+  }
+
+  if (kind === 'stored-procedures' || kind === 'triggers' || kind === 'udfs') {
+    return [
+      templateAction('create-script', 'Create Script...', cosmosOperationTemplate('createScript', {
+        database,
+        container,
+        scriptType: kind,
+        name: 'new_script',
+      })),
+    ]
+  }
+
+  if (kind === 'throughput') {
+    return [
+      templateAction('update-throughput', 'Update Throughput...', cosmosOperationTemplate('updateThroughput', {
+        database,
+        container: target.container,
+        mode: 'manual',
+        ruPerSecond: 1000,
+      })),
+    ]
+  }
+
+  return []
+}
+
+function cosmosTreeTarget(connection: ConnectionProfile, node: ConnectionTreeNode) {
+  const path = node.path ?? []
+  const scopeParts = node.scope?.split(':') ?? []
+  const databaseFromScope = scopeParts.length >= 3 ? scopeParts.at(-2) : undefined
+  const containerFromScope =
+    node.scope?.startsWith('cosmos:container:') || node.scope?.startsWith('cosmos:items:')
+      ? scopeParts.at(-1)
+      : undefined
+  const databaseIndex = path.indexOf('Databases')
+  const containerIndex = path.indexOf('Containers')
+
+  return {
+    database:
+      databaseFromScope ||
+      (databaseIndex >= 0 ? path[databaseIndex + 1] : undefined) ||
+      connection.database?.trim() ||
+      'catalog',
+    container:
+      containerFromScope ||
+      (containerIndex >= 0 ? path[containerIndex + 1] : undefined),
+  }
+}
+
+function cosmosOperationTemplate(operation: string, values: Record<string, unknown>) {
+  return JSON.stringify({ engine: 'cosmosdb', operation, ...values }, null, 2)
+}
+
+function liteDbActions(node: ConnectionTreeNode, kind: string): ConnectionTreeAction[] {
+  const collection = liteDbCollectionFromTreeNode(node)
+
+  if (kind === 'collections') {
+    return [
+      templateAction('create-collection', 'Create Collection...', liteDbOperationTemplate('createCollection', {
+        collection: 'new_collection',
+      })),
+    ]
+  }
+
+  if (kind === 'collection') {
+    return [
+      templateAction('open-documents', 'Open Documents', JSON.stringify({ collection, filter: {}, limit: 20 }, null, 2)),
+      templateAction('create-index', 'Create Index...', liteDbOperationTemplate('createIndex', {
+        collection,
+        name: 'field_1',
+        expression: '$.field',
+        unique: false,
+      })),
+      templateAction('rename-collection', 'Rename Collection...', liteDbOperationTemplate('renameCollection', {
+        collection,
+        newName: `${collection}_new`,
+      })),
+      templateAction('drop-collection', 'Drop Collection...', liteDbOperationTemplate('dropCollection', {
+        collection,
+      }), true),
+    ]
+  }
+
+  if (kind === 'documents') {
+    return [
+      templateAction('open-documents', 'Open Documents', JSON.stringify({ collection, filter: {}, limit: 20 }, null, 2)),
+    ]
+  }
+
+  if (kind === 'indexes') {
+    return [
+      templateAction('create-index', 'Create Index...', liteDbOperationTemplate('createIndex', {
+        collection,
+        name: 'field_1',
+        expression: '$.field',
+        unique: false,
+      })),
+    ]
+  }
+
+  if (kind === 'index') {
+    return [
+      templateAction('drop-index', 'Drop Index...', liteDbOperationTemplate('dropIndex', {
+        collection,
+        name: node.label.split('.').at(-1) ?? node.label,
+      }), true),
+    ]
+  }
+
+  if (kind === 'file-storage' || kind === 'files') {
+    return [
+      templateAction('download-file', 'Export File...', liteDbOperationTemplate('exportFile', {
+        fileId: 'file_id',
+      })),
+      templateAction('upload-file', 'Upload File...', liteDbOperationTemplate('uploadFile', {
+        fileId: 'file_id',
+        sourcePath: 'choose file',
+      })),
+    ]
+  }
+
+  if (kind === 'storage' || kind === 'diagnostics') {
+    return [
+      templateAction('shrink-preview', 'Preview Shrink...', liteDbOperationTemplate('shrinkDatabase', {
+        mode: 'preview',
+      })),
+      templateAction('rebuild-preview', 'Preview Rebuild...', liteDbOperationTemplate('rebuildIndexes', {
+        scope: collection || 'database',
+      })),
+    ]
+  }
+
+  return []
+}
+
+function liteDbCollectionFromTreeNode(node: ConnectionTreeNode) {
+  const path = node.path ?? []
+  const collectionIndex = path.indexOf('Collections')
+
+  if (collectionIndex >= 0 && path[collectionIndex + 1]) {
+    return path[collectionIndex + 1]
+  }
+
+  if (node.scope?.startsWith('litedb:collection:') || node.scope?.startsWith('litedb:documents:')) {
+    return node.scope.split(':').at(-1) ?? node.label
+  }
+
+  if (node.id.startsWith('litedb:collection:') || node.id.startsWith('litedb:documents:')) {
+    return node.id.split(':').at(-1) ?? node.label
+  }
+
+  return node.label
+}
+
+function liteDbOperationTemplate(operation: string, values: Record<string, unknown>) {
+  return JSON.stringify({ engine: 'litedb', operation, ...values }, null, 2)
 }
 
 function mongoActions(
@@ -1548,15 +2186,12 @@ function mongoActions(
   }
 
   if (kind === 'schema-preview') {
-    return [
-      templateAction('sample-schema', 'Sample Schema Preview', documentFindQueryTemplate(collection, 20, database)),
-    ]
+    return []
   }
 
   if (kind === 'indexes') {
     return [
       templateAction('create-index', 'Create Index...', mongoCommandTemplateForDatabase(database, { createIndexes: collection, indexes: [{ key: { field: 1 }, name: 'field_1' }] })),
-      templateAction('list-indexes', 'List Indexes', mongoCommandTemplateForDatabase(database, { listIndexes: collection })),
     ]
   }
 
@@ -1567,9 +2202,7 @@ function mongoActions(
   }
 
   if (kind === 'validation-rules') {
-    return [
-      templateAction('update-validator', 'Update Validation Rules...', mongoCommandTemplateForDatabase(database, { collMod: collection, validator: {} })),
-    ]
+    return []
   }
 
   if (kind === 'aggregations') {
@@ -1580,14 +2213,14 @@ function mongoActions(
 
   if (kind === 'view') {
     return [
-      templateAction('sample-view', 'Sample Results', documentFindQueryTemplate(collection, 20, database)),
+      templateAction('preview-view-results', 'Open Results Preview', documentFindQueryTemplate(collection, 20, database)),
       templateAction('drop-view', 'Drop View...', mongoCommandTemplateForDatabase(database, { drop: collection }), true),
     ]
   }
 
   if (kind === 'pipeline') {
     return [
-      templateAction('sample-view', 'Sample Results', documentFindQueryTemplate(collection, 20, database)),
+      templateAction('preview-view-results', 'Open Results Preview', documentFindQueryTemplate(collection, 20, database)),
     ]
   }
 
@@ -1680,8 +2313,11 @@ function timeseriesActions(node: ConnectionTreeNode, kind: string): ConnectionTr
   }
 
   if (kind === 'measurement') {
+    const bucket = node.path?.includes('Buckets')
+      ? node.path[node.path.indexOf('Buckets') + 1] ?? 'bucket'
+      : 'bucket'
     return [
-      templateAction('query-measurement', 'Query Measurement', `from(bucket: "bucket")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == "${node.label}")`),
+      templateAction('query-measurement', 'Query Measurement', `from(bucket: "${bucket}")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == "${node.label}")`),
     ]
   }
 

@@ -20,7 +20,7 @@ impl CommandError {
     }
 }
 
-fn redact_sensitive_text(value: &str) -> String {
+pub(crate) fn redact_sensitive_text(value: &str) -> String {
     redact_auth_headers(&redact_secret_assignments(&redact_url_credentials(value)))
 }
 
@@ -110,16 +110,24 @@ fn is_assignment_key_boundary(value: &str, start: usize, end: usize) -> bool {
         .chars()
         .next_back()
         .is_none_or(|character| !is_identifier_character(character));
-    let after_ok = value[end..]
-        .chars()
-        .next()
-        .is_none_or(|character| character.is_whitespace() || matches!(character, ':' | '='));
+    let after = &value[end..];
+    let after_ok = match after.chars().next() {
+        Some(quote @ ('"' | '\'')) => after[quote.len_utf8()..]
+            .chars()
+            .next()
+            .is_none_or(|character| character.is_whitespace() || matches!(character, ':' | '=')),
+        Some(character) => character.is_whitespace() || matches!(character, ':' | '='),
+        None => true,
+    };
 
     before_ok && after_ok
 }
 
 fn assignment_value_range(value: &str, key_end: usize) -> Option<(usize, usize)> {
     let mut cursor = key_end;
+    if let Some(quote @ ('"' | '\'')) = value[cursor..].chars().next() {
+        cursor += quote.len_utf8();
+    }
     cursor += value[cursor..]
         .chars()
         .take_while(|character| character.is_whitespace())
@@ -142,17 +150,21 @@ fn assignment_value_range(value: &str, key_end: usize) -> Option<(usize, usize)>
     let first = value[cursor..].chars().next()?;
     if matches!(first, '"' | '\'') {
         cursor += first.len_utf8();
+        let inner_start = cursor;
         for character in value[cursor..].chars() {
-            cursor += character.len_utf8();
             if character == first {
-                break;
+                return Some((inner_start, cursor));
             }
+            cursor += character.len_utf8();
         }
-        return Some((value_start, cursor));
+        return Some((inner_start, cursor));
+    }
+    if matches!(first, '{' | '[') {
+        return None;
     }
 
     for character in value[cursor..].chars() {
-        if character.is_whitespace() || matches!(character, ';' | ',' | '}' | ']') {
+        if character.is_whitespace() || matches!(character, ';' | ',' | '}' | ']' | '&') {
             break;
         }
         cursor += character.len_utf8();
@@ -494,16 +506,32 @@ mod tests {
     fn command_errors_redact_common_secret_shapes() {
         let error = CommandError::new(
             "test",
-            "password=hunter2 token: abc123 Authorization: Bearer secret mongodb://user:pass@localhost/db",
+            "password=hunter2 token: abc123 Authorization: Bearer secret mongodb://user:pass@localhost/db?access_token=query-secret&ssl=true",
         );
 
         assert!(!error.message.contains("hunter2"));
         assert!(!error.message.contains("abc123"));
         assert!(!error.message.contains("Bearer secret"));
         assert!(!error.message.contains("user:pass"));
+        assert!(!error.message.contains("query-secret"));
         assert!(error.message.contains("password=********"));
         assert!(error.message.contains("token: ********"));
         assert!(error.message.contains("Bearer ********"));
-        assert!(error.message.contains("mongodb://********@localhost/db"));
+        assert!(error
+            .message
+            .contains("mongodb://********@localhost/db?access_token=********&ssl=true"));
+    }
+
+    #[test]
+    fn command_redaction_preserves_object_valued_secret_like_schema_fields() {
+        let error = CommandError::new(
+            "test",
+            r#"{ "properties": { "password": { "bsonType": "string" } }, "pwd": 42 }"#,
+        );
+
+        assert!(error
+            .message
+            .contains(r#""password": { "bsonType": "string" }"#));
+        assert!(error.message.contains(r#""pwd": ********"#));
     }
 }

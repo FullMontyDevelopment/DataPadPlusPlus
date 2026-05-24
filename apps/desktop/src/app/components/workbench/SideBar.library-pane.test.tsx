@@ -338,10 +338,9 @@ describe('LibraryPane', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Environment actions for Prod' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Use environment Prod' }))
-    expect(onSelectEnvironment).toHaveBeenCalledWith('env-prod')
+    expect(screen.queryByRole('menuitem', { name: 'Use environment Prod' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Use Environment')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Environment actions for Prod' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Edit environment Prod' }))
     expect(onEditEnvironment).toHaveBeenCalledWith('env-prod')
 

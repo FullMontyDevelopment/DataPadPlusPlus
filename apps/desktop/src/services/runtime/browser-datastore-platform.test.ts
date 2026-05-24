@@ -17,6 +17,13 @@ describe('browser datastore platform contracts', () => {
       expect.arrayContaining(['mongo-find', 'mongo-aggregation']),
     )
     expect(mongodb?.editableScopes[0]?.editKinds).toContain('rename-field')
+    expect(mongodb?.completeness).toMatchObject({
+      readiness: 'near-native',
+      targetPhase: 1,
+    })
+    expect(
+      mongodb?.completeness?.criteria.find((item) => item.criterion === 'object-views')?.status,
+    ).toBe('strong')
     expect(mongodb?.tree?.roots.map((item) => item.label)).toContain('{{database}}')
     expect(
       mongodb?.tree?.roots
@@ -60,6 +67,7 @@ describe('browser datastore platform contracts', () => {
       expect(experience?.safetyRules.join(' '), `${engine} safety`).toContain('Read-only')
       expect(experience?.tree?.emptyState, `${engine} tree empty state`).toBe('structural-folders')
       expect(experience?.tree?.roots.length, `${engine} tree roots`).toBeGreaterThan(0)
+      expect(experience?.completeness?.criteria.length, `${engine} completeness`).toBeGreaterThan(0)
     }
   })
 
@@ -279,6 +287,58 @@ describe('browser datastore platform contracts', () => {
       collection: 'products',
       operation: 'insertOne',
       document: { sku: 'nova', name: 'Nova Chair' },
+    })
+  })
+
+  it('redacts secret-shaped values from browser data-edit previews', () => {
+    const mongoPlan = planDataEditLocally(connectionProfile('mongodb', 'document'), {
+      connectionId: 'conn-mongodb',
+      environmentId: 'env-dev',
+      editKind: 'insert-document',
+      target: {
+        objectKind: 'document',
+        path: ['catalog', 'users'],
+        collection: 'users',
+      },
+      changes: [{
+        value: { username: 'testuser', password: 'open-sesame', token: 'abc123' },
+        valueType: 'json',
+      }],
+    })
+    const redisPlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'hash-set-field',
+      target: {
+        objectKind: 'key',
+        path: ['account:1'],
+        key: 'account:1',
+      },
+      changes: [{ field: 'password', value: 'open-sesame' }],
+    })
+    const dynamoPlan = planDataEditLocally(connectionProfile('dynamodb', 'widecolumn'), {
+      connectionId: 'conn-dynamodb',
+      environmentId: 'env-dev',
+      editKind: 'update-item',
+      target: {
+        objectKind: 'item',
+        path: ['users', 'user-1'],
+        table: 'users',
+        itemKey: { pk: 'USER#1' },
+      },
+      changes: [{ field: 'accessToken', value: 'abc123' }],
+    })
+
+    expect(mongoPlan.plan.generatedRequest).not.toContain('open-sesame')
+    expect(mongoPlan.plan.generatedRequest).not.toContain('abc123')
+    expect(JSON.parse(mongoPlan.plan.generatedRequest).document).toMatchObject({
+      username: 'testuser',
+      password: '********',
+      token: '********',
+    })
+    expect(redisPlan.plan.generatedRequest).toBe('HSET account:1 password ********')
+    expect(JSON.parse(dynamoPlan.plan.generatedRequest).ExpressionAttributeValues).toEqual({
+      ':value': '********',
     })
   })
 })

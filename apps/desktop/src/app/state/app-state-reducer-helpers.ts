@@ -30,7 +30,7 @@ export function explorerRequestKey(request: ExplorerRequest) {
 }
 
 export function isExplorerRequestLoading(
-  loadingRequests: Record<string, true> | undefined,
+  loadingRequests: Record<string, string> | undefined,
   connectionId: string | undefined,
   environmentId: string | undefined,
   scope?: string,

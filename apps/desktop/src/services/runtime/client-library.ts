@@ -20,6 +20,7 @@ import {
 } from './browser-library'
 import { buildBrowserPayload, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
+import { validateSaveQueryTabToLocalFileRequest } from './request-validation'
 
 export const clientLibrary = {
   async createLibraryFolder(request: LibraryCreateFolderRequest): Promise<BootstrapPayload> {
@@ -99,6 +100,7 @@ export const clientLibrary = {
   async saveQueryTabToLocalFile(
     request: SaveQueryTabToLocalFileRequest,
   ): Promise<BootstrapPayload> {
+    request = validateSaveQueryTabToLocalFileRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('save_query_tab_to_local_file', { request })
     }

@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use super::super::super::*;
 use super::catalog::influxdb_execution_capabilities;
@@ -10,29 +10,20 @@ pub(super) async fn list_influxdb_explorer_nodes(
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
     let nodes = match request.scope.as_deref() {
-        Some("influxdb:measurements") => {
-            query_value_nodes(
-                connection,
-                request.limit,
-                "SHOW MEASUREMENTS",
-                "measurement",
-            )
-            .await?
+        Some("influx:buckets") => bucket_nodes(connection, request.limit).await?,
+        Some(scope) if scope.starts_with("bucket:") => bucket_child_nodes(connection, scope),
+        Some(scope) if scope.starts_with("measurements:") => {
+            measurement_nodes(connection, scope, request.limit).await?
         }
-        Some("influxdb:retention-policies") => {
-            query_value_nodes(
-                connection,
-                request.limit,
-                "SHOW RETENTION POLICIES",
-                "retention-policy",
-            )
-            .await?
+        Some(scope) if scope.starts_with("measurement:") => measurement_child_nodes(scope),
+        Some(scope) if scope.starts_with("tags:") => {
+            tag_nodes(connection, scope, request.limit).await?
         }
-        Some("influxdb:field-keys") => {
-            query_value_nodes(connection, request.limit, "SHOW FIELD KEYS", "field").await?
+        Some(scope) if scope.starts_with("fields:") => {
+            field_nodes(connection, scope, request.limit).await?
         }
-        Some("influxdb:tag-keys") => {
-            query_value_nodes(connection, request.limit, "SHOW TAG KEYS", "tag").await?
+        Some(scope) if scope.starts_with("retention:") => {
+            retention_nodes(connection, scope, request.limit).await?
         }
         Some(_) => Vec::new(),
         None => root_nodes(connection),
@@ -52,136 +43,551 @@ pub(super) async fn list_influxdb_explorer_nodes(
     })
 }
 
-pub(super) fn inspect_influxdb_explorer_node(
+pub(super) async fn inspect_influxdb_explorer_node(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerInspectRequest,
-) -> ExplorerInspectResponse {
-    let query_template = request
-        .node_id
-        .strip_prefix("influxdb-measurement:")
-        .map(|measurement| {
-            format!(
-                "SELECT * FROM {} ORDER BY time DESC LIMIT 100",
-                quote_influx_identifier(measurement)
-            )
-        })
-        .unwrap_or_else(|| match request.node_id.as_str() {
-            "influxdb-measurements" => "SHOW MEASUREMENTS".into(),
-            "influxdb-retention-policies" => "SHOW RETENTION POLICIES".into(),
-            "influxdb-field-keys" => "SHOW FIELD KEYS".into(),
-            "influxdb-tag-keys" => "SHOW TAG KEYS".into(),
-            _ => "SHOW MEASUREMENTS".into(),
-        });
+) -> Result<ExplorerInspectResponse, CommandError> {
+    let query_template = influx_query_template(connection, &request.node_id);
+    let payload = influx_inspection_payload(connection, &request.node_id).await;
 
-    ExplorerInspectResponse {
+    Ok(ExplorerInspectResponse {
         node_id: request.node_id.clone(),
         summary: format!(
-            "InfluxQL template ready for {} on {}.",
+            "InfluxDB metadata view ready for {} on {}.",
             request.node_id, connection.name
         ),
         query_template: Some(query_template),
-        payload: Some(json!({
-            "engine": "influxdb",
-            "nodeId": request.node_id,
-            "api": ["/ping", "/query"],
-            "database": influxdb_database(connection)
-        })),
-    }
+        payload: Some(payload),
+    })
 }
 
-fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    [
-        (
-            "influxdb-measurements",
-            "Measurements",
-            "measurements",
-            "Time-series measurement names",
-            "influxdb:measurements",
-            "SHOW MEASUREMENTS",
+fn root_nodes(_connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    vec![
+        influx_node(
+            "influx:buckets",
+            "Buckets",
+            "buckets",
+            "Databases, retention scopes, measurements, tags, and fields",
+            Some("influx:buckets"),
+            true,
+            Some("SHOW DATABASES".into()),
+            vec![],
         ),
-        (
-            "influxdb-retention-policies",
-            "Retention Policies",
-            "retention-policies",
-            "Retention policy names and shard durations",
-            "influxdb:retention-policies",
-            "SHOW RETENTION POLICIES",
-        ),
-        (
-            "influxdb-field-keys",
-            "Field Keys",
-            "field-keys",
-            "Measurement field names and value types",
-            "influxdb:field-keys",
-            "SHOW FIELD KEYS",
-        ),
-        (
-            "influxdb-tag-keys",
-            "Tag Keys",
-            "tag-keys",
-            "Tag dimensions for filtering and grouping",
-            "influxdb:tag-keys",
-            "SHOW TAG KEYS",
+        influx_node(
+            "influx:diagnostics",
+            "Diagnostics",
+            "diagnostics",
+            "Schema visibility, retention coverage, and query health",
+            Some("influx:diagnostics"),
+            false,
+            Some("SHOW DIAGNOSTICS".into()),
+            vec![],
         ),
     ]
-    .into_iter()
-    .map(|(id, label, kind, detail, scope, query)| ExplorerNode {
-        id: id.into(),
-        family: "timeseries".into(),
-        label: label.into(),
-        kind: kind.into(),
-        detail: detail.into(),
-        scope: Some(scope.into()),
-        path: Some(vec![connection.name.clone(), "InfluxDB".into()]),
-        query_template: Some(query.into()),
-        expandable: Some(true),
-    })
-    .collect()
 }
 
-async fn query_value_nodes(
+async fn bucket_nodes(
     connection: &ResolvedConnectionProfile,
     limit: Option<u32>,
-    query: &str,
-    kind: &str,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
     let database = influxdb_database(connection);
-    let response = influxdb_get(connection, &influxdb_query_path(&database, query)).await?;
-    let value = parse_influxdb_json(&response.body)?;
+    let values = query_first_column_values(connection, &database, "SHOW DATABASES").await?;
+    let values = if values.is_empty() {
+        vec![database.clone()]
+    } else {
+        values
+    };
     let limit = bounded_page_size(limit.or(Some(100))) as usize;
 
-    Ok(first_column_values(&value)
+    Ok(values
         .into_iter()
         .take(limit)
-        .map(|label| {
-            let node_id = if kind == "measurement" {
-                format!("influxdb-measurement:{label}")
-            } else {
-                format!("influxdb-{kind}:{label}")
-            };
-            ExplorerNode {
-                id: node_id,
-                family: "timeseries".into(),
-                label: label.clone(),
-                kind: kind.into(),
-                detail: format!("InfluxDB {kind}"),
-                scope: None,
-                path: Some(vec![connection.name.clone(), kind.into()]),
-                query_template: Some(if kind == "measurement" {
-                    format!(
-                        "SELECT * FROM {} ORDER BY time DESC LIMIT 100",
-                        quote_influx_identifier(&label)
-                    )
-                } else {
-                    query.into()
-                }),
-                expandable: Some(false),
-            }
+        .map(|bucket| {
+            influx_node(
+                &format!("bucket:{bucket}"),
+                &bucket,
+                "bucket",
+                "InfluxDB database or bucket scope",
+                Some(&format!("bucket:{bucket}")),
+                true,
+                Some(format!(
+                    "SHOW MEASUREMENTS ON {}",
+                    quote_influx_identifier(&bucket)
+                )),
+                vec!["Buckets".into()],
+            )
         })
         .collect())
 }
 
+fn bucket_child_nodes(connection: &ResolvedConnectionProfile, scope: &str) -> Vec<ExplorerNode> {
+    let bucket = bucket_from_scope(connection, scope);
+    vec![
+        influx_node(
+            &format!("measurements:{bucket}"),
+            "Measurements",
+            "measurements",
+            "Measurement schema and query entry points",
+            Some(&format!("measurements:{bucket}")),
+            true,
+            Some("SHOW MEASUREMENTS".into()),
+            vec!["Buckets".into(), bucket.clone()],
+        ),
+        influx_node(
+            &format!("tags:{bucket}"),
+            "Tags",
+            "tags",
+            "Indexed tag dimensions",
+            Some(&format!("tags:{bucket}")),
+            true,
+            Some("SHOW TAG KEYS".into()),
+            vec!["Buckets".into(), bucket.clone()],
+        ),
+        influx_node(
+            &format!("fields:{bucket}"),
+            "Fields",
+            "fields",
+            "Measurement value fields",
+            Some(&format!("fields:{bucket}")),
+            true,
+            Some("SHOW FIELD KEYS".into()),
+            vec!["Buckets".into(), bucket.clone()],
+        ),
+        influx_node(
+            &format!("retention:{bucket}"),
+            "Retention Policies",
+            "retention-policies",
+            "Retention duration, shard groups, and default policy",
+            Some(&format!("retention:{bucket}")),
+            true,
+            Some("SHOW RETENTION POLICIES".into()),
+            vec!["Buckets".into(), bucket],
+        ),
+    ]
+}
+
+async fn measurement_nodes(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let bucket = bucket_from_scope(connection, scope);
+    let values = query_first_column_values(connection, &bucket, "SHOW MEASUREMENTS").await?;
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+
+    Ok(values
+        .into_iter()
+        .take(limit)
+        .map(|measurement| {
+            influx_node(
+                &format!("measurement:{bucket}:{measurement}"),
+                &measurement,
+                "measurement",
+                "Measurement fields, tags, and recent samples",
+                Some(&format!("measurement:{bucket}:{measurement}")),
+                true,
+                Some(measurement_query(&bucket, &measurement)),
+                vec!["Buckets".into(), bucket.clone(), "Measurements".into()],
+            )
+        })
+        .collect())
+}
+
+fn measurement_child_nodes(scope: &str) -> Vec<ExplorerNode> {
+    let (_, bucket, measurement) = measurement_scope_parts(scope);
+    vec![
+        influx_node(
+            &format!("tags:{bucket}:{measurement}"),
+            "Tags",
+            "tags",
+            "Tag keys used by this measurement",
+            Some(&format!("tags:{bucket}:{measurement}")),
+            true,
+            Some(format!(
+                "SHOW TAG KEYS FROM {}",
+                quote_influx_identifier(&measurement)
+            )),
+            vec![
+                "Buckets".into(),
+                bucket.clone(),
+                "Measurements".into(),
+                measurement.clone(),
+            ],
+        ),
+        influx_node(
+            &format!("fields:{bucket}:{measurement}"),
+            "Fields",
+            "fields",
+            "Field keys used by this measurement",
+            Some(&format!("fields:{bucket}:{measurement}")),
+            true,
+            Some(format!(
+                "SHOW FIELD KEYS FROM {}",
+                quote_influx_identifier(&measurement)
+            )),
+            vec!["Buckets".into(), bucket, "Measurements".into(), measurement],
+        ),
+    ]
+}
+
+async fn tag_nodes(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let (bucket, measurement) = scoped_bucket_and_measurement(connection, scope, "tags");
+    let query = measurement
+        .as_ref()
+        .map(|measurement| {
+            format!(
+                "SHOW TAG KEYS FROM {}",
+                quote_influx_identifier(measurement)
+            )
+        })
+        .unwrap_or_else(|| "SHOW TAG KEYS".into());
+    let values = query_first_column_values(connection, &bucket, &query).await?;
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+
+    Ok(values
+        .into_iter()
+        .take(limit)
+        .map(|tag| {
+            influx_node(
+                &format!("tag:{bucket}:{tag}"),
+                &tag,
+                "tag",
+                "Tag key and representative value metadata",
+                Some(&format!("tag:{bucket}:{tag}")),
+                false,
+                Some(format!(
+                    "SHOW TAG VALUES WITH KEY = {}",
+                    quote_influx_string(&tag)
+                )),
+                vec!["Buckets".into(), bucket.clone(), "Tags".into()],
+            )
+        })
+        .collect())
+}
+
+async fn field_nodes(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let (bucket, measurement) = scoped_bucket_and_measurement(connection, scope, "fields");
+    let query = measurement
+        .as_ref()
+        .map(|measurement| {
+            format!(
+                "SHOW FIELD KEYS FROM {}",
+                quote_influx_identifier(measurement)
+            )
+        })
+        .unwrap_or_else(|| "SHOW FIELD KEYS".into());
+    let records = query_records(connection, &bucket, &query).await?;
+    let values = records
+        .iter()
+        .filter_map(|record| {
+            record
+                .get("fieldKey")
+                .or_else(|| record.get("field_key"))
+                .or_else(|| record.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect::<Vec<_>>();
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+
+    Ok(values
+        .into_iter()
+        .take(limit)
+        .map(|field| {
+            influx_node(
+                &format!("field:{bucket}:{field}"),
+                &field,
+                "field",
+                "Field key, type, and measurement usage",
+                Some(&format!("field:{bucket}:{field}")),
+                false,
+                Some(format!(
+                    "SELECT {} FROM /.*/ ORDER BY time DESC LIMIT 100",
+                    quote_influx_identifier(&field)
+                )),
+                vec!["Buckets".into(), bucket.clone(), "Fields".into()],
+            )
+        })
+        .collect())
+}
+
+async fn retention_nodes(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let bucket = bucket_from_scope(connection, scope);
+    let records = query_records(connection, &bucket, "SHOW RETENTION POLICIES").await?;
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+
+    Ok(records
+        .into_iter()
+        .take(limit)
+        .filter_map(|record| {
+            let name = record
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)?;
+            let duration = record
+                .get("duration")
+                .and_then(Value::as_str)
+                .unwrap_or("retention policy");
+            Some(influx_node(
+                &format!("retention:{bucket}:{name}"),
+                &name,
+                "retention",
+                duration,
+                Some(&format!("retention:{bucket}:{name}")),
+                false,
+                Some("SHOW RETENTION POLICIES".into()),
+                vec![
+                    "Buckets".into(),
+                    bucket.clone(),
+                    "Retention Policies".into(),
+                ],
+            ))
+        })
+        .collect())
+}
+
+async fn influx_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &str) -> Value {
+    let bucket = bucket_from_node(connection, node_id);
+    let object_view = influx_object_view(node_id);
+    let mut warnings = Vec::<String>::new();
+    let buckets = if node_id == "influx:buckets"
+        || node_id == "influx:diagnostics"
+        || object_view == "bucket"
+    {
+        optional_bucket_records(connection, &mut warnings).await
+    } else {
+        Vec::new()
+    };
+    let measurements =
+        optional_records(connection, &bucket, "SHOW MEASUREMENTS", &mut warnings).await;
+    let tags = optional_records(connection, &bucket, "SHOW TAG KEYS", &mut warnings).await;
+    let fields = optional_records(connection, &bucket, "SHOW FIELD KEYS", &mut warnings).await;
+    let retention_policies = optional_records(
+        connection,
+        &bucket,
+        "SHOW RETENTION POLICIES",
+        &mut warnings,
+    )
+    .await;
+    let diagnostics = diagnostic_records(
+        &bucket,
+        buckets.len(),
+        measurements.len(),
+        tags.len(),
+        fields.len(),
+        retention_policies.len(),
+    );
+
+    let mut payload = json!({
+        "engine": "influxdb",
+        "version": "v1-compatible query API",
+        "bucket": bucket,
+        "objectView": object_view,
+        "measurementCount": measurements.len(),
+        "seriesCount": "-",
+        "retention": retention_label(&retention_policies),
+        "storage": "-",
+        "taskCount": 0,
+        "buckets": buckets,
+        "measurements": measurements,
+        "tags": tags,
+        "fields": fields,
+        "retentionPolicies": retention_policies,
+        "diagnostics": diagnostics,
+        "warnings": warnings,
+    });
+
+    filter_influx_payload_for_node(&mut payload, node_id);
+    payload
+}
+
+async fn optional_bucket_records(
+    connection: &ResolvedConnectionProfile,
+    warnings: &mut Vec<String>,
+) -> Vec<Value> {
+    let database = influxdb_database(connection);
+    let records = optional_records(connection, &database, "SHOW DATABASES", warnings).await;
+
+    if records.is_empty() {
+        return vec![json!({
+            "name": database,
+            "org": "-",
+            "retention": "-",
+            "measurements": "-",
+            "series": "-",
+            "storage": "-",
+        })];
+    }
+
+    records
+        .into_iter()
+        .map(|record| {
+            let name = record
+                .get("name")
+                .or_else(|| record.get("database"))
+                .and_then(Value::as_str)
+                .unwrap_or("-");
+            json!({
+                "name": name,
+                "org": "-",
+                "retention": "-",
+                "measurements": "-",
+                "series": "-",
+                "storage": "-",
+            })
+        })
+        .collect()
+}
+
+async fn optional_records(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    query: &str,
+    warnings: &mut Vec<String>,
+) -> Vec<Value> {
+    match query_records(connection, database, query).await {
+        Ok(records) => records,
+        Err(error) => {
+            warnings.push(format!(
+                "{} metadata is unavailable: {}",
+                query.replace("SHOW ", "").to_ascii_lowercase(),
+                error.message
+            ));
+            Vec::new()
+        }
+    }
+}
+
+fn filter_influx_payload_for_node(payload: &mut Value, node_id: &str) {
+    if let Some((_, bucket, measurement)) = node_id
+        .strip_prefix("measurement:")
+        .and_then(|_| Some(measurement_scope_parts(node_id)))
+    {
+        filter_payload_array(payload, "measurements", "name", &measurement);
+        payload["bucket"] = json!(bucket);
+        payload["measurement"] = json!(measurement);
+        return;
+    }
+
+    if node_id.starts_with("measurements:") {
+        payload["tags"] = json!([]);
+        payload["fields"] = json!([]);
+        payload["retentionPolicies"] = json!([]);
+        return;
+    }
+
+    if let Some(tag) = node_id.strip_prefix("tag:").and_then(|rest| {
+        let parts = rest.split(':').collect::<Vec<_>>();
+        parts.get(1).map(|value| value.to_string())
+    }) {
+        filter_payload_array(payload, "tags", "name", &tag);
+        payload["objectView"] = json!("tag");
+        return;
+    }
+
+    if node_id.starts_with("tags:") {
+        payload["fields"] = json!([]);
+        payload["retentionPolicies"] = json!([]);
+        return;
+    }
+
+    if let Some(field) = node_id.strip_prefix("field:").and_then(|rest| {
+        let parts = rest.split(':').collect::<Vec<_>>();
+        parts.get(1).map(|value| value.to_string())
+    }) {
+        filter_payload_array(payload, "fields", "name", &field);
+        payload["objectView"] = json!("field");
+        return;
+    }
+
+    if node_id.starts_with("fields:") {
+        payload["tags"] = json!([]);
+        payload["retentionPolicies"] = json!([]);
+        return;
+    }
+
+    if node_id.starts_with("retention:") {
+        payload["measurements"] = json!([]);
+        payload["tags"] = json!([]);
+        payload["fields"] = json!([]);
+    }
+}
+
+fn filter_payload_array(payload: &mut Value, key: &str, field: &str, expected: &str) {
+    let filtered = payload
+        .get(key)
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|row| row.get(field).and_then(Value::as_str) == Some(expected))
+        .collect::<Vec<_>>();
+    payload[key] = json!(filtered);
+}
+
+async fn query_first_column_values(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    query: &str,
+) -> Result<Vec<String>, CommandError> {
+    let value = query_value(connection, database, query).await?;
+    Ok(first_column_values(&value))
+}
+
+async fn query_records(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    query: &str,
+) -> Result<Vec<Value>, CommandError> {
+    let value = query_value(connection, database, query).await?;
+    Ok(series_table_records(&value))
+}
+
+async fn query_value(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    query: &str,
+) -> Result<Value, CommandError> {
+    let response = influxdb_get(connection, &influxdb_query_path(database, query)).await?;
+    parse_influxdb_json(&response.body)
+}
+
 pub(crate) fn first_column_values(value: &Value) -> Vec<String> {
+    series_table_records(value)
+        .into_iter()
+        .filter_map(|record| record.as_object().cloned())
+        .filter_map(|record| {
+            ["name", "fieldKey", "field_key", "tagKey", "tag_key"]
+                .into_iter()
+                .find_map(|key| record.get(key))
+                .or_else(|| record.values().next())
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+pub(crate) fn quote_influx_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\\\""))
+}
+
+fn quote_influx_string(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "\\'"))
+}
+
+fn series_table_records(value: &Value) -> Vec<Value> {
     value
         .get("results")
         .and_then(Value::as_array)
@@ -194,32 +600,270 @@ pub(crate) fn first_column_values(value: &Value) -> Vec<String> {
                 .into_iter()
                 .flatten()
         })
-        .flat_map(|series| {
-            series
-                .get("values")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-        })
-        .filter_map(|row| row.as_array().and_then(|items| items.first()))
-        .map(|value| {
-            value
-                .as_str()
-                .map(str::to_string)
-                .unwrap_or_else(|| value.to_string())
+        .flat_map(series_records)
+        .collect()
+}
+
+fn series_records(series: &Value) -> Vec<Value> {
+    let columns = series
+        .get("columns")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(normalize_column_name)
+        .collect::<Vec<_>>();
+
+    series
+        .get("values")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_array)
+        .map(|values| {
+            let mut record = Map::new();
+            for (index, column) in columns.iter().enumerate() {
+                if let Some(value) = values.get(index) {
+                    record.insert(column.clone(), value.clone());
+                }
+            }
+            Value::Object(record)
         })
         .collect()
 }
 
-pub(crate) fn quote_influx_identifier(identifier: &str) -> String {
-    format!("\"{}\"", identifier.replace('"', "\\\""))
+fn normalize_column_name(column: &str) -> String {
+    match column {
+        "fieldKey" | "field_key" => "name".into(),
+        "fieldType" | "field_type" => "type".into(),
+        "tagKey" | "tag_key" => "name".into(),
+        "shardGroupDuration" | "shard_group_duration" => "shardGroupDuration".into(),
+        "replicaN" | "replica_n" => "replication".into(),
+        other => other.into(),
+    }
+}
+
+fn diagnostic_records(
+    bucket: &str,
+    bucket_count: usize,
+    measurement_count: usize,
+    tag_count: usize,
+    field_count: usize,
+    retention_count: usize,
+) -> Vec<Value> {
+    vec![
+        json!({
+            "signal": "Bucket Visibility",
+            "value": bucket_count,
+            "status": if bucket_count > 0 { "healthy" } else { "watch" },
+            "guidance": format!("Current bucket/database scope is {bucket}."),
+        }),
+        json!({
+            "signal": "Measurement Count",
+            "value": measurement_count,
+            "status": if measurement_count > 0 { "healthy" } else { "watch" },
+            "guidance": "Measurements are the primary query entry point.",
+        }),
+        json!({
+            "signal": "Schema Width",
+            "value": format!("{tag_count} tag(s), {field_count} field(s)"),
+            "status": if tag_count + field_count > 0 { "healthy" } else { "watch" },
+            "guidance": "Use tags for filters and fields for measured values.",
+        }),
+        json!({
+            "signal": "Retention Policies",
+            "value": retention_count,
+            "status": if retention_count > 0 { "healthy" } else { "watch" },
+            "guidance": "Retention policy metadata helps explain data lifecycle and shard layout.",
+        }),
+    ]
+}
+
+fn retention_label(records: &[Value]) -> String {
+    records
+        .iter()
+        .find(|record| record.get("default").and_then(Value::as_bool) == Some(true))
+        .or_else(|| records.first())
+        .and_then(|record| {
+            let name = record.get("name").and_then(Value::as_str)?;
+            let duration = record
+                .get("duration")
+                .and_then(Value::as_str)
+                .unwrap_or("-");
+            Some(format!("{name} / {duration}"))
+        })
+        .unwrap_or_else(|| "-".into())
+}
+
+fn influx_query_template(connection: &ResolvedConnectionProfile, node_id: &str) -> String {
+    if let Some((_, bucket, measurement)) = node_id
+        .strip_prefix("measurement:")
+        .and_then(|_| Some(measurement_scope_parts(node_id)))
+    {
+        return measurement_query(&bucket, &measurement);
+    }
+
+    if let Some(field) = node_id.strip_prefix("field:").and_then(|rest| {
+        let parts = rest.split(':').collect::<Vec<_>>();
+        parts.get(1).map(|value| value.to_string())
+    }) {
+        return format!(
+            "SELECT {} FROM /.*/ ORDER BY time DESC LIMIT 100",
+            quote_influx_identifier(&field)
+        );
+    }
+
+    match influx_object_view(node_id) {
+        "buckets" => "SHOW DATABASES".into(),
+        "measurements" => "SHOW MEASUREMENTS".into(),
+        "tags" | "tag" => "SHOW TAG KEYS".into(),
+        "fields" | "field" => "SHOW FIELD KEYS".into(),
+        "retention-policies" | "retention" => "SHOW RETENTION POLICIES".into(),
+        _ => format!(
+            "SELECT * FROM /.*/ WHERE time > now() - 1h LIMIT 100 /* {} */",
+            influxdb_database(connection)
+        ),
+    }
+}
+
+fn measurement_query(bucket: &str, measurement: &str) -> String {
+    format!(
+        "SELECT * FROM {} ORDER BY time DESC LIMIT 100 /* bucket: {} */",
+        quote_influx_identifier(measurement),
+        bucket
+    )
+}
+
+fn influx_object_view(node_id: &str) -> &'static str {
+    if node_id == "influx:buckets" {
+        return "buckets";
+    }
+    if node_id.starts_with("bucket:") {
+        return "bucket";
+    }
+    if node_id.starts_with("measurements:") {
+        return "measurements";
+    }
+    if node_id.starts_with("measurement:") {
+        return "measurement";
+    }
+    if node_id.starts_with("tags:") {
+        return "tags";
+    }
+    if node_id.starts_with("tag:") {
+        return "tag";
+    }
+    if node_id.starts_with("fields:") {
+        return "fields";
+    }
+    if node_id.starts_with("field:") {
+        return "field";
+    }
+    if node_id.starts_with("retention:") {
+        return "retention-policies";
+    }
+    "diagnostics"
+}
+
+fn bucket_from_node(connection: &ResolvedConnectionProfile, node_id: &str) -> String {
+    if let Some(rest) = node_id.strip_prefix("bucket:") {
+        return first_scope_part(rest).unwrap_or_else(|| influxdb_database(connection));
+    }
+
+    for prefix in [
+        "measurements:",
+        "measurement:",
+        "tags:",
+        "tag:",
+        "fields:",
+        "field:",
+        "retention:",
+    ] {
+        if let Some(rest) = node_id.strip_prefix(prefix) {
+            return first_scope_part(rest).unwrap_or_else(|| influxdb_database(connection));
+        }
+    }
+
+    influxdb_database(connection)
+}
+
+fn bucket_from_scope(connection: &ResolvedConnectionProfile, scope: &str) -> String {
+    scope
+        .split_once(':')
+        .and_then(|(_, value)| first_scope_part(value))
+        .unwrap_or_else(|| influxdb_database(connection))
+}
+
+fn scoped_bucket_and_measurement(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+    prefix: &str,
+) -> (String, Option<String>) {
+    let rest = scope
+        .strip_prefix(&format!("{prefix}:"))
+        .unwrap_or_default();
+    let parts = rest.split(':').collect::<Vec<_>>();
+    let bucket = parts
+        .first()
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| influxdb_database(connection));
+    let measurement = parts
+        .get(1)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+    (bucket, measurement)
+}
+
+fn measurement_scope_parts(scope: &str) -> (String, String, String) {
+    let parts = scope.split(':').collect::<Vec<_>>();
+    (
+        parts.first().copied().unwrap_or("measurement").into(),
+        parts.get(1).copied().unwrap_or("_internal").into(),
+        parts.get(2).copied().unwrap_or("measurement").into(),
+    )
+}
+
+fn first_scope_part(value: &str) -> Option<String> {
+    value
+        .split(':')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+}
+
+fn influx_node(
+    id: &str,
+    label: &str,
+    kind: &str,
+    detail: &str,
+    scope: Option<&str>,
+    expandable: bool,
+    query_template: Option<String>,
+    path: Vec<String>,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: id.into(),
+        family: "timeseries".into(),
+        label: label.into(),
+        kind: kind.into(),
+        detail: detail.into(),
+        scope: scope.map(str::to_string),
+        path: Some(path),
+        query_template,
+        expandable: Some(expandable),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
-    use super::{first_column_values, quote_influx_identifier};
+    use super::{
+        bucket_child_nodes, diagnostic_records, first_column_values, influx_object_view,
+        quote_influx_identifier, retention_label, root_nodes, series_table_records,
+    };
+    use crate::domain::models::ResolvedConnectionProfile;
 
     #[test]
     fn influxdb_first_column_values_reads_show_results() {
@@ -238,5 +882,103 @@ mod tests {
     #[test]
     fn influxdb_identifier_quote_escapes_quotes() {
         assert_eq!(quote_influx_identifier("cpu\"load"), "\"cpu\\\"load\"");
+    }
+
+    #[test]
+    fn influxdb_root_uses_native_bucket_and_diagnostics_sections() {
+        let nodes = root_nodes(&connection());
+        let labels = nodes
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(labels, vec!["Buckets", "Diagnostics"]);
+        assert_eq!(nodes[0].id, "influx:buckets");
+        assert_eq!(nodes[0].scope.as_deref(), Some("influx:buckets"));
+    }
+
+    #[test]
+    fn influxdb_bucket_children_match_object_view_sections() {
+        let nodes = bucket_child_nodes(&connection(), "bucket:telemetry");
+        let labels = nodes
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            labels,
+            vec!["Measurements", "Tags", "Fields", "Retention Policies"]
+        );
+        assert_eq!(nodes[0].scope.as_deref(), Some("measurements:telemetry"));
+    }
+
+    #[test]
+    fn influxdb_show_results_normalize_to_records() {
+        let value = json!({
+            "results": [{
+                "series": [{
+                    "columns": ["fieldKey", "fieldType"],
+                    "values": [["usage_user", "float"]]
+                }]
+            }]
+        });
+        let records = series_table_records(&value);
+
+        assert_eq!(records[0]["name"], "usage_user");
+        assert_eq!(records[0]["type"], "float");
+    }
+
+    #[test]
+    fn influxdb_retention_label_prefers_default_policy() {
+        let label = retention_label(&[
+            json!({ "name": "short", "duration": "1h", "default": false }),
+            json!({ "name": "autogen", "duration": "0s", "default": true }),
+        ]);
+
+        assert_eq!(label, "autogen / 0s");
+    }
+
+    #[test]
+    fn influxdb_node_ids_map_to_object_views() {
+        assert_eq!(influx_object_view("influx:buckets"), "buckets");
+        assert_eq!(influx_object_view("bucket:telemetry"), "bucket");
+        assert_eq!(
+            influx_object_view("measurement:telemetry:cpu"),
+            "measurement"
+        );
+        assert_eq!(influx_object_view("tag:telemetry:host"), "tag");
+        assert_eq!(influx_object_view("field:telemetry:value"), "field");
+        assert_eq!(
+            influx_object_view("retention:telemetry:autogen"),
+            "retention-policies"
+        );
+    }
+
+    #[test]
+    fn influxdb_diagnostics_are_view_friendly() {
+        let diagnostics = diagnostic_records("telemetry", 1, 2, 3, 4, 1);
+
+        assert_eq!(diagnostics[0]["signal"], "Bucket Visibility");
+        assert_eq!(diagnostics[2]["value"], "3 tag(s), 4 field(s)");
+    }
+
+    fn connection() -> ResolvedConnectionProfile {
+        ResolvedConnectionProfile {
+            id: "conn-influx".into(),
+            name: "InfluxDB".into(),
+            engine: "influxdb".into(),
+            family: "timeseries".into(),
+            host: "localhost".into(),
+            port: Some(8086),
+            database: Some("telemetry".into()),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            read_only: true,
+        }
     }
 }

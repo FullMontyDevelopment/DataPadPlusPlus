@@ -1,13 +1,29 @@
 import type { AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, DataEditExecutionRequest, DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse, DatastoreExperienceResponse, ExecutionResponse, ExecutionResultEnvelope, ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse, OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse, OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse, ResultRenderer, RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, StructureRequest, StructureResponse } from '@datapadplusplus/shared-types'
 import { buildDatastoreExperiences, executeDataEditLocally, planDataEditLocally } from './browser-datastore-platform'
-import { createExplorerNodes, inspectExplorerNodeLocally } from './browser-explorer'
 import { buildOperationManifestsForConnection, collectDiagnosticsLocally, executeOperationLocally, inspectPermissionsLocally, planOperationLocally } from './browser-operations'
+import { redactExecutionResultForEnvironment, redactForEnvironment } from './browser-response-redaction'
 import { createStructureResponseLocally } from './browser-structure'
 import { buildExecutionCapabilities, findConnection, loadBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
+import { resolveEnvironment } from '../../app/state/helpers'
+import {
+  validateAdapterDiagnosticsRequest,
+  validateDataEditExecutionRequest,
+  validateDataEditPlanRequest,
+  validateExplorerInspectRequest,
+  validateExplorerRequest,
+  validateOperationExecutionRequest,
+  validateOperationManifestRequest,
+  validateOperationPlanRequest,
+  validatePermissionInspectionRequest,
+  validateRedisKeyInspectRequest,
+  validateRedisKeyScanRequest,
+  validateStructureRequest,
+} from './request-validation'
 
 export const clientAdapters = {
   async loadExplorer(request: ExplorerRequest): Promise<ExplorerResponse> {
+    request = validateExplorerRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<ExplorerResponse>('list_explorer_nodes', { request })
     }
@@ -19,6 +35,7 @@ export const clientAdapters = {
       throw new Error('Connection was not found.')
     }
 
+    const { createExplorerNodes } = await import('./browser-explorer')
     const nodes = createExplorerNodes(connection, request.scope).slice(
       0,
       request.limit ?? 50,
@@ -35,6 +52,7 @@ export const clientAdapters = {
   },
 
   async loadStructureMap(request: StructureRequest): Promise<StructureResponse> {
+    request = validateStructureRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<StructureResponse>('load_structure_map', { request })
     }
@@ -43,6 +61,7 @@ export const clientAdapters = {
   },
 
   async scanRedisKeys(request: RedisKeyScanRequest): Promise<RedisKeyScanResponse> {
+    request = validateRedisKeyScanRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<RedisKeyScanResponse>('scan_redis_keys', { request })
     }
@@ -76,6 +95,7 @@ export const clientAdapters = {
   },
 
   async inspectRedisKey(request: RedisKeyInspectRequest): Promise<ExecutionResponse> {
+    request = validateRedisKeyInspectRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<ExecutionResponse>('inspect_redis_key', { request })
     }
@@ -104,7 +124,7 @@ export const clientAdapters = {
       disabledActions: {},
     }
     const rendererModes: ResultRenderer[] = ['keyvalue', 'json', 'raw']
-    const result: ExecutionResultEnvelope = {
+    const result: ExecutionResultEnvelope = redactExecutionResultForEnvironment({
       id: `result-${Date.now()}`,
       engine: connection.engine,
       summary: `Redis key \`${request.key}\` loaded as ${value.type}.`,
@@ -126,7 +146,7 @@ export const clientAdapters = {
         bufferedRows: Object.keys(value.entries).length,
         hasMore: false,
       },
-    }
+    }, resolveEnvironment(snapshot.environments, request.environmentId))!
     const nextTab = {
       ...tab,
       status: 'success' as const,
@@ -143,22 +163,24 @@ export const clientAdapters = {
       ],
     }
 
-    return {
+    return redactForEnvironment({
       executionId: `execution-${Date.now()}`,
       tab: nextTab,
       result,
       guardrail: { status: 'allow', reasons: [], safeModeApplied: false },
       diagnostics: [],
-    }
+    }, resolveEnvironment(snapshot.environments, request.environmentId))
   },
 
   async inspectExplorer(
     request: ExplorerInspectRequest,
   ): Promise<ExplorerInspectResponse> {
+    request = validateExplorerInspectRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<ExplorerInspectResponse>('inspect_explorer_node', { request })
     }
 
+    const { inspectExplorerNodeLocally } = await import('./browser-explorer')
     return inspectExplorerNodeLocally(loadBrowserSnapshot(), request)
   },
 
@@ -173,6 +195,7 @@ export const clientAdapters = {
   async listDatastoreOperations(
     request: OperationManifestRequest,
   ): Promise<OperationManifestResponse> {
+    request = validateOperationManifestRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<OperationManifestResponse>('list_datastore_operations', { request })
     }
@@ -195,6 +218,7 @@ export const clientAdapters = {
   async planDatastoreOperation(
     request: OperationPlanRequest,
   ): Promise<OperationPlanResponse> {
+    request = validateOperationPlanRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<OperationPlanResponse>('plan_datastore_operation', { request })
     }
@@ -205,6 +229,7 @@ export const clientAdapters = {
   async executeDatastoreOperation(
     request: OperationExecutionRequest,
   ): Promise<OperationExecutionResponse> {
+    request = validateOperationExecutionRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<OperationExecutionResponse>('execute_datastore_operation', {
         request,
@@ -215,6 +240,7 @@ export const clientAdapters = {
   },
 
   async planDataEdit(request: DataEditPlanRequest): Promise<DataEditPlanResponse> {
+    request = validateDataEditPlanRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<DataEditPlanResponse>('plan_data_edit', { request })
     }
@@ -232,6 +258,7 @@ export const clientAdapters = {
   async executeDataEdit(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse> {
+    request = validateDataEditExecutionRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<DataEditExecutionResponse>('execute_data_edit', { request })
     }
@@ -249,6 +276,7 @@ export const clientAdapters = {
   async inspectConnectionPermissions(
     request: PermissionInspectionRequest,
   ): Promise<PermissionInspectionResponse> {
+    request = validatePermissionInspectionRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<PermissionInspectionResponse>(
         'inspect_connection_permissions',
@@ -256,17 +284,26 @@ export const clientAdapters = {
       )
     }
 
-    return inspectPermissionsLocally(loadBrowserSnapshot(), request)
+    const snapshot = loadBrowserSnapshot()
+    return redactForEnvironment(
+      inspectPermissionsLocally(snapshot, request),
+      resolveEnvironment(snapshot.environments, request.environmentId),
+    )
   },
 
   async collectAdapterDiagnostics(
     request: AdapterDiagnosticsRequest,
   ): Promise<AdapterDiagnosticsResponse> {
+    request = validateAdapterDiagnosticsRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<AdapterDiagnosticsResponse>('collect_adapter_diagnostics', { request })
     }
 
-    return collectDiagnosticsLocally(loadBrowserSnapshot(), request)
+    const snapshot = loadBrowserSnapshot()
+    return redactForEnvironment(
+      collectDiagnosticsLocally(snapshot, request),
+      resolveEnvironment(snapshot.environments, request.environmentId),
+    )
   },
 }
 

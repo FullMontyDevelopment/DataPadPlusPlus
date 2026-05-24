@@ -1,5 +1,3 @@
-use serde_json::{json, Value};
-
 use super::super::super::*;
 
 pub(super) async fn test_oracle_connection(
@@ -95,72 +93,9 @@ pub(super) fn oracle_connect_descriptor(connection: &ResolvedConnectionProfile) 
     format!("{host}:{port}/{}", oracle_service_name(connection))
 }
 
-pub(super) fn oracle_request_payload(
-    connection: &ResolvedConnectionProfile,
-    statement: &str,
-    row_limit: u32,
-    explain: bool,
-) -> Value {
-    json!({
-        "driver": "oracle-oci-or-thin",
-        "connectDescriptor": oracle_connect_descriptor(connection),
-        "schema": connection.username.clone().unwrap_or_else(|| "CURRENT_SCHEMA".into()),
-        "connectionOptions": oracle_driver_options(connection),
-        "statement": if explain {
-            format!("EXPLAIN PLAN FOR {}", strip_sql_semicolon(statement))
-        } else {
-            statement.to_string()
-        },
-        "rowLimit": row_limit,
-        "guardrails": {
-            "mutationPreviewOnly": true,
-            "dictionaryViewPermissionsRequired": true
-        }
-    })
-}
-
-fn oracle_driver_options(connection: &ResolvedConnectionProfile) -> Value {
-    let Some(options) = connection.oracle_options.as_ref() else {
-        return json!({
-            "connectMode": "service-name",
-            "serviceName": oracle_service_name(connection)
-        });
-    };
-
-    json!({
-        "connectMode": options.connect_mode.as_deref().unwrap_or("service-name"),
-        "serviceName": options.service_name,
-        "sid": options.sid,
-        "tnsAlias": options.tns_alias,
-        "connectionRole": options.connection_role,
-        "proxyUser": options.proxy_user,
-        "clientIdentifier": options.client_identifier,
-        "applicationName": options.application_name,
-        "edition": options.edition,
-        "nlsLanguage": options.nls_language,
-        "nlsTerritory": options.nls_territory,
-        "statementCacheSize": options.statement_cache_size,
-        "fetchSize": options.fetch_size,
-        "connectionTimeoutMs": options.connection_timeout_ms,
-        "requestTimeoutMs": options.request_timeout_ms,
-        "poolMin": options.pool_min,
-        "poolMax": options.pool_max,
-        "validateConnection": options.validate_connection,
-        "highAvailabilityEvents": options.high_availability_events,
-        "loadBalancing": options.load_balancing,
-        "failover": options.failover,
-        "useTls": options.use_tls,
-        "walletPath": options.wallet_path,
-        "caCertificatePath": options.ca_certificate_path,
-        "clientCertificatePath": options.client_certificate_path,
-        "clientKeyPath": options.client_key_path,
-        "traceDirectory": options.trace_directory
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{oracle_connect_descriptor, oracle_request_payload, oracle_service_name};
+    use super::{oracle_connect_descriptor, oracle_service_name};
     use crate::domain::models::{OracleConnectionOptions, ResolvedConnectionProfile};
 
     fn connection() -> ResolvedConnectionProfile {
@@ -193,15 +128,6 @@ mod tests {
     }
 
     #[test]
-    fn oracle_request_payload_wraps_explain_plan() {
-        let payload = oracle_request_payload(&connection(), "select * from dual", 25, true);
-
-        assert_eq!(payload["schema"], "APP");
-        assert_eq!(payload["rowLimit"], 25);
-        assert_eq!(payload["statement"], "EXPLAIN PLAN FOR select * from dual");
-    }
-
-    #[test]
     fn oracle_descriptor_supports_sid_and_tns_modes() {
         let mut sid = connection();
         sid.oracle_options = Some(OracleConnectionOptions {
@@ -221,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn oracle_request_payload_includes_non_secret_driver_options() {
+    fn oracle_descriptor_supports_cloud_wallet_service() {
         let mut connection = connection();
         connection.oracle_options = Some(OracleConnectionOptions {
             connect_mode: Some("cloud-wallet".into()),
@@ -231,17 +157,10 @@ mod tests {
             fetch_size: Some(250),
             ..Default::default()
         });
-        let payload = oracle_request_payload(&connection, "select * from dual", 10, false);
 
         assert_eq!(
-            payload["connectDescriptor"],
+            oracle_connect_descriptor(&connection),
             "tcps://dbhost:1521/sales_high"
         );
-        assert_eq!(
-            payload["connectionOptions"]["walletPath"],
-            "C:/wallets/sales"
-        );
-        assert_eq!(payload["connectionOptions"]["applicationName"], "DataPad++");
-        assert_eq!(payload["connectionOptions"]["fetchSize"], 250);
     }
 }

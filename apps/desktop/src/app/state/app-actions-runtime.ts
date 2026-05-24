@@ -61,15 +61,17 @@ export function useRuntimeActions({
 
   const loadExplorer = useCallback<Actions['loadExplorer']>(
     async (request) => {
+      const requestId = `explorer-${Date.now()}-${Math.random().toString(36).slice(2)}`
       try {
         ensureWorkspaceUnlocked(state.payload)
-        dispatch({ type: 'EXPLORER_LOADING', request })
+        dispatch({ type: 'EXPLORER_LOADING', request, requestId })
         const explorer = await desktopClient.loadExplorer(request)
-        dispatch({ type: 'EXPLORER_READY', explorer })
+        dispatch({ type: 'EXPLORER_READY', explorer, requestId })
       } catch (error) {
         dispatch({
           type: 'EXPLORER_ERROR',
           request,
+          requestId,
           message: toUserMessage(error, 'Unable to load live explorer metadata.'),
         })
       }

@@ -7,6 +7,7 @@ use super::query_tabs::{
     query_tab_title_parts,
 };
 use super::ui::focus_query_tab;
+use super::validators::validate_create_object_view_tab_request;
 use super::{generate_id, timestamp_now, ManagedAppState};
 use crate::domain::{
     error::CommandError,
@@ -236,6 +237,7 @@ impl ManagedAppState {
         &mut self,
         request: CreateObjectViewTabRequest,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_create_object_view_tab_request(&request)?;
         let connection = self
             .snapshot
             .connections

@@ -83,7 +83,7 @@ describe('MetricsWorkspace', () => {
     expect(screen.queryByText(/should not render/i)).not.toBeInTheDocument()
   })
 
-  it('shows a clear empty state when an adapter returns no metrics', () => {
+  it('shows a clear empty state when a connection returns no metrics', () => {
     render(
       <MetricsWorkspace
         connection={connection}
@@ -110,7 +110,7 @@ describe('MetricsWorkspace', () => {
     )
 
     expect(screen.getByText('No live metrics yet')).toBeInTheDocument()
-    expect(screen.getByText('No live metrics were returned by this adapter.')).toBeInTheDocument()
+    expect(screen.getByText('No live metrics were returned for this connection.')).toBeInTheDocument()
   })
 })
 

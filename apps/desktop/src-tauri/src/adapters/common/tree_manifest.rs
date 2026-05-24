@@ -12,6 +12,7 @@ fn tree_roots(engine: &str, family: &str) -> Vec<DatastoreTreeNodeManifest> {
     match engine {
         "mongodb" => mongo_tree(),
         "redis" | "valkey" => redis_tree(),
+        "memcached" => memcached_tree(),
         "sqlserver" => sqlserver_tree(),
         "sqlite" => sqlite_tree(),
         "duckdb" => embedded_sql_tree(engine),
@@ -22,11 +23,13 @@ fn tree_roots(engine: &str, family: &str) -> Vec<DatastoreTreeNodeManifest> {
         "dynamodb" => dynamodb_tree(),
         "cassandra" => cassandra_tree(),
         "prometheus" => prometheus_tree(),
-        "influxdb" | "opentsdb" => timeseries_tree(),
+        "influxdb" => influx_tree(),
+        "opentsdb" => open_tsdb_tree(),
         "neo4j" | "neptune" | "arango" | "janusgraph" => graph_tree(engine),
         "bigquery" => bigquery_tree(),
         "snowflake" | "clickhouse" => warehouse_tree(engine),
-        "litedb" | "cosmosdb" => document_tree(engine),
+        "cosmosdb" => cosmos_tree(),
+        "litedb" => litedb_tree(),
         _ => generic_tree(family),
     }
 }
@@ -204,6 +207,56 @@ fn redis_tree() -> Vec<DatastoreTreeNodeManifest> {
             "Diagnostics",
             "diagnostics",
             "INFO, SLOWLOG, memory, and latency metadata",
+        ),
+    ]
+}
+
+fn memcached_tree() -> Vec<DatastoreTreeNodeManifest> {
+    vec![
+        node_with(
+            "server",
+            "Server",
+            "server",
+            "Memcached cache server overview",
+            vec![
+                node(
+                    "stats",
+                    "Stats",
+                    "stats",
+                    "Operational counters, hit rate, item count, and memory use",
+                ),
+                node(
+                    "slabs",
+                    "Slabs",
+                    "slabs",
+                    "Slab classes, chunk sizes, pages, and allocation pressure",
+                ),
+                node(
+                    "items",
+                    "Item Classes",
+                    "items",
+                    "Item-class counts, ages, evictions, and reclaim signals",
+                ),
+                node(
+                    "settings",
+                    "Settings",
+                    "settings",
+                    "Cache limits, protocol flags, and LRU behavior",
+                ),
+                node(
+                    "connections",
+                    "Connections",
+                    "connections",
+                    "Client connection pressure and rejected clients",
+                ),
+            ],
+            NodeOptions::default(),
+        ),
+        node(
+            "diagnostics",
+            "Diagnostics",
+            "diagnostics",
+            "Hit ratio, evictions, memory pressure, and connection pressure",
         ),
     ]
 }
@@ -1195,13 +1248,13 @@ fn prometheus_tree() -> Vec<DatastoreTreeNodeManifest> {
     ]
 }
 
-fn timeseries_tree() -> Vec<DatastoreTreeNodeManifest> {
+fn influx_tree() -> Vec<DatastoreTreeNodeManifest> {
     vec![
         node_with(
             "buckets",
             "Buckets",
             "buckets",
-            "Time-series storage scopes",
+            "InfluxDB buckets",
             vec![
                 node(
                     "measurements",
@@ -1209,23 +1262,62 @@ fn timeseries_tree() -> Vec<DatastoreTreeNodeManifest> {
                     "measurements",
                     "Measurement names",
                 ),
-                node("tags", "Tags", "tags", "Indexed dimensions"),
-                node("fields", "Fields", "fields", "Field values"),
+                node("tags", "Tags", "tags", "Indexed tag keys and values"),
+                node("fields", "Fields", "fields", "Field keys and value types"),
                 node(
                     "retention-policies",
                     "Retention Policies",
                     "retention-policies",
-                    "Retention rules",
+                    "Retention and shard groups",
                 ),
-                node("tasks", "Tasks", "tasks", "Scheduled processing tasks"),
             ],
             NodeOptions::default(),
+        ),
+        node("tasks", "Tasks", "tasks", "Scheduled Flux tasks"),
+        node(
+            "security",
+            "Tokens",
+            "security",
+            "Authorizations and bucket scopes",
         ),
         node(
             "diagnostics",
             "Diagnostics",
             "diagnostics",
-            "Cardinality, storage, and query metadata",
+            "Cardinality, storage, and query health",
+        ),
+    ]
+}
+
+fn open_tsdb_tree() -> Vec<DatastoreTreeNodeManifest> {
+    vec![
+        node("metrics", "Metrics", "metrics", "OpenTSDB metric names"),
+        node("tags", "Tags", "tags", "Tag keys and values"),
+        node(
+            "aggregators",
+            "Aggregators",
+            "aggregators",
+            "Supported aggregation functions",
+        ),
+        node(
+            "downsampling",
+            "Downsampling",
+            "downsampling",
+            "Downsample windows and fill policies",
+        ),
+        node(
+            "uid-metadata",
+            "UID Metadata",
+            "uid-metadata",
+            "Metric and tag UID metadata",
+        ),
+        node("trees", "Trees", "trees", "OpenTSDB tree definitions"),
+        node("stats", "Stats", "stats", "Runtime stats"),
+        node(
+            "diagnostics",
+            "Diagnostics",
+            "diagnostics",
+            "Backend health and query metadata",
         ),
     ]
 }
@@ -1362,13 +1454,13 @@ fn warehouse_tree(engine: &str) -> Vec<DatastoreTreeNodeManifest> {
     ]
 }
 
-fn document_tree(engine: &str) -> Vec<DatastoreTreeNodeManifest> {
+fn litedb_tree() -> Vec<DatastoreTreeNodeManifest> {
     vec![
         node_with(
-            "databases",
-            "Databases",
-            "databases",
-            &format!("{engine} document databases"),
+            "database",
+            "Local Database",
+            "database",
+            "LiteDB local database file",
             vec![
                 node(
                     "collections",
@@ -1376,22 +1468,154 @@ fn document_tree(engine: &str) -> Vec<DatastoreTreeNodeManifest> {
                     "collections",
                     "Document collections",
                 ),
-                node("views", "Views", "views", "Views where supported"),
-                node("indexes", "Indexes", "indexes", "Index definitions"),
+                node(
+                    "indexes",
+                    "Indexes",
+                    "indexes",
+                    "Collection index definitions",
+                ),
+                node(
+                    "file-storage",
+                    "File Storage",
+                    "file-storage",
+                    "LiteDB file storage metadata",
+                ),
+                node(
+                    "storage",
+                    "Storage",
+                    "storage",
+                    "Page allocation and maintenance health",
+                ),
+                node(
+                    "settings",
+                    "Settings",
+                    "settings",
+                    "Local file connection options",
+                ),
             ],
             NodeOptions::default(),
-        ),
-        node(
-            "security",
-            "Security",
-            "security",
-            "Users, roles, and permissions",
         ),
         node(
             "diagnostics",
             "Diagnostics",
             "diagnostics",
-            "Collection and server diagnostics",
+            "File health, index coverage, and storage warnings",
+        ),
+    ]
+}
+
+fn cosmos_tree() -> Vec<DatastoreTreeNodeManifest> {
+    vec![node_with(
+        "account",
+        "Account",
+        "account",
+        "Cosmos DB account topology and API surface",
+        vec![
+            node_with(
+                "databases",
+                "Databases",
+                "databases",
+                "Cosmos DB databases",
+                vec![node_with(
+                    "selected-database",
+                    "{{database:catalog}}",
+                    "database",
+                    "Selected Cosmos DB database",
+                    cosmos_database_children(),
+                    NodeOptions::default_database("catalog"),
+                )],
+                NodeOptions::default(),
+            ),
+            node("regions", "Regions", "regions", "Read and write regions"),
+            node(
+                "consistency",
+                "Consistency",
+                "consistency",
+                "Default consistency and session behavior",
+            ),
+            node(
+                "security",
+                "Security",
+                "security",
+                "RBAC, keys, and networking",
+            ),
+            node(
+                "diagnostics",
+                "Diagnostics",
+                "diagnostics",
+                "RU, throttles, latency, and storage signals",
+            ),
+        ],
+        NodeOptions::default(),
+    )]
+}
+
+fn cosmos_database_children() -> Vec<DatastoreTreeNodeManifest> {
+    vec![
+        node_with(
+            "containers",
+            "Containers",
+            "containers",
+            "Cosmos DB containers",
+            vec![
+                node("items", "Items", "items", "Container items"),
+                node(
+                    "partition-key",
+                    "Partition Key",
+                    "partition-key",
+                    "Partition key path and routing guidance",
+                ),
+                node(
+                    "indexing-policy",
+                    "Indexing Policy",
+                    "indexing-policy",
+                    "Included, excluded, composite, and spatial paths",
+                ),
+                node(
+                    "throughput",
+                    "Throughput",
+                    "throughput",
+                    "Manual or autoscale RU/s",
+                ),
+                node(
+                    "change-feed",
+                    "Change Feed",
+                    "change-feed",
+                    "Change feed readiness",
+                ),
+                node(
+                    "stored-procedures",
+                    "Stored Procedures",
+                    "stored-procedures",
+                    "Server-side JavaScript stored procedures",
+                ),
+                node("triggers", "Triggers", "triggers", "Pre and post triggers"),
+                node(
+                    "udfs",
+                    "User Defined Functions",
+                    "udfs",
+                    "Server-side JavaScript UDFs",
+                ),
+                node(
+                    "conflicts",
+                    "Conflict Feed",
+                    "conflicts",
+                    "Multi-region conflict metadata",
+                ),
+            ],
+            NodeOptions::default(),
+        ),
+        node(
+            "throughput",
+            "Throughput",
+            "throughput",
+            "Shared database throughput where configured",
+        ),
+        node(
+            "security",
+            "Security",
+            "security",
+            "Database users, roles, and access",
         ),
     ]
 }
@@ -1581,6 +1805,74 @@ mod tests {
         assert!(db_children.contains(&"JSON"));
         assert!(db_children.contains(&"Search Indexes"));
         assert!(db_children.contains(&"Vector Indexes"));
+    }
+
+    #[test]
+    fn cosmos_tree_describes_account_database_and_container_views() {
+        let tree = datastore_tree_manifest("cosmosdb", "document");
+        let account = tree
+            .roots
+            .iter()
+            .find(|node| node.id == "account")
+            .expect("account root");
+        let databases = account
+            .children
+            .iter()
+            .find(|node| node.id == "databases")
+            .expect("databases section");
+        let selected_database = databases
+            .children
+            .iter()
+            .find(|node| node.id == "selected-database")
+            .expect("selected database");
+        let containers = selected_database
+            .children
+            .iter()
+            .find(|node| node.id == "containers")
+            .expect("containers section");
+        let container_children = containers
+            .children
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(account.label, "Account");
+        assert!(container_children.contains(&"Items"));
+        assert!(container_children.contains(&"Partition Key"));
+        assert!(container_children.contains(&"Indexing Policy"));
+        assert!(container_children.contains(&"Stored Procedures"));
+        assert!(!container_children.contains(&"Collections"));
+    }
+
+    #[test]
+    fn secondary_tree_manifests_are_native_not_generic() {
+        let memcached = datastore_tree_manifest("memcached", "keyvalue");
+        let litedb = datastore_tree_manifest("litedb", "document");
+        let influx = datastore_tree_manifest("influxdb", "timeseries");
+        let opentsdb = datastore_tree_manifest("opentsdb", "timeseries");
+
+        assert_eq!(memcached.roots[0].label, "Server");
+        assert!(memcached.roots[0]
+            .children
+            .iter()
+            .any(|node| node.label == "Slabs"));
+        assert_eq!(litedb.roots[0].label, "Local Database");
+        assert!(litedb.roots[0]
+            .children
+            .iter()
+            .any(|node| node.label == "File Storage"));
+        assert!(influx.roots.iter().any(|node| node.label == "Buckets"));
+        assert!(influx.roots.iter().any(|node| node.label == "Tokens"));
+        assert!(opentsdb
+            .roots
+            .iter()
+            .any(|node| node.label == "Aggregators"));
+        assert!(opentsdb
+            .roots
+            .iter()
+            .any(|node| node.label == "UID Metadata"));
+        assert!(!memcached.roots.iter().any(|node| node.label == "Objects"));
+        assert!(!litedb.roots.iter().any(|node| node.label == "Objects"));
     }
 
     #[test]

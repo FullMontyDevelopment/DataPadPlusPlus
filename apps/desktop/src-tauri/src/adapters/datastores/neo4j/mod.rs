@@ -43,7 +43,7 @@ impl DatastoreAdapter for Neo4jAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_neo4j_explorer_node(connection, request))
+        inspect_neo4j_explorer_node(connection, request).await
     }
 
     async fn execute(

@@ -1,4 +1,8 @@
 import type { EnvironmentProfile } from '@datapadplusplus/shared-types'
+import {
+  resolveEnvironmentVariablesForPreview,
+  sanitizeEnvironmentProfile,
+} from '../../state/environment-variables'
 
 export function resolveEnvironmentPreview(
   environments: EnvironmentProfile[],
@@ -21,27 +25,15 @@ export function resolveEnvironmentPreview(
       : undefined
   }
 
-  const variables: Record<string, string> = {}
   const inheritedChain: string[] = []
-  const sensitiveKeys = new Set<string>()
 
   for (const environment of resolvedChain) {
     inheritedChain.push(environment.label)
-    Object.assign(variables, environment.variables)
-
-    for (const key of environment.sensitiveKeys) {
-      sensitiveKeys.add(key)
-    }
   }
-
-  const unresolvedKeys = Object.entries(variables)
-    .filter(([, value]) => value.includes('${'))
-    .map(([key]) => key)
+  const resolved = resolveEnvironmentVariablesForPreview(resolvedChain)
 
   return {
-    variables,
-    sensitiveKeys: [...sensitiveKeys],
-    unresolvedKeys,
+    ...resolved,
     inheritedChain,
   }
 }
@@ -63,11 +55,27 @@ export function comparableEnvironment(environment: EnvironmentProfile | undefine
     requiresConfirmation: environment.requiresConfirmation,
     risk: environment.risk,
     safeMode: environment.safeMode,
-    sensitiveKeys: [...environment.sensitiveKeys].sort(),
+    ...comparableVariables(environment),
+  })
+}
+
+function comparableVariables(environment: EnvironmentProfile) {
+  const sanitized = sanitizeEnvironmentProfile(environment)
+
+  return {
+    sensitiveKeys: [...sanitized.sensitiveKeys].sort(),
     variables: Object.fromEntries(
-      Object.entries(environment.variables).sort(([left], [right]) =>
+      Object.entries(sanitized.variables).sort(([left], [right]) =>
         left.localeCompare(right),
       ),
     ),
-  })
+    variableDefinitions: [...(sanitized.variableDefinitions ?? [])]
+      .map((definition) => ({
+        key: definition.key,
+        kind: definition.kind,
+        value: definition.kind === 'secret' ? undefined : definition.value ?? '',
+        secretRef: definition.secretRef?.id ?? '',
+      }))
+      .sort((left, right) => left.key.localeCompare(right.key)),
+  }
 }

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import type { ConnectionProfile, EnvironmentProfile, QueryTabState } from '@datapadplusplus/shared-types'
 import type { ComponentProps, CSSProperties } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultCapabilities } from '../../workspace-helpers'
@@ -137,6 +138,40 @@ describe('BottomPanel resizing', () => {
     fireEvent.pointerUp(handle, { pointerId: 1, clientX: 700 })
     expect(onResize).toHaveBeenCalledWith(620)
   })
+
+  it('summarizes inspection metadata without dumping raw payloads in Details', () => {
+    renderBottomPanel({
+      activePanelTab: 'details',
+      activeConnection: testConnection,
+      activeEnvironment: testEnvironment,
+      activeTab: testQueryTab,
+      explorerInspection: {
+        nodeId: 'mongodb:database:catalog:collection:products',
+        summary: 'Products collection metadata is loaded.',
+        queryTemplate: '{ "collection": "products", "filter": {} }',
+        payload: {
+          collectionName: 'products',
+          password: 'super-secret',
+          connectionString: 'mongodb://admin:secret-pass@localhost:27017/catalog?token=abc123',
+          indexes: [{ name: '_id_' }, { name: 'sku_1' }],
+          validationRules: { required: ['sku'] },
+        },
+      },
+    })
+
+    expect(screen.getByText('Products collection metadata is loaded.')).toBeInTheDocument()
+    expect(screen.getByText('A starter query is available for this object. Apply it to the active query tab to review or run.')).toBeInTheDocument()
+    expect(screen.getByText('Collection Name')).toBeInTheDocument()
+    expect(screen.getByText('products')).toBeInTheDocument()
+    expect(screen.getByText('Stored securely')).toBeInTheDocument()
+    expect(screen.getByText('mongodb://admin:<redacted>@localhost:27017/catalog?token=<redacted>')).toBeInTheDocument()
+    expect(screen.queryByText(/super-secret/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/secret-pass/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/abc123/)).not.toBeInTheDocument()
+    expect(screen.getByText('2 item(s)')).toBeInTheDocument()
+    expect(screen.queryByText(/"collection"/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/"indexes"/)).not.toBeInTheDocument()
+  })
 })
 
 function renderBottomPanel(overrides: Partial<BottomPanelProps> = {}) {
@@ -215,4 +250,51 @@ function restoreProperty<T extends object, K extends keyof T>(
     configurable: true,
     value,
   })
+}
+
+const testConnection: ConnectionProfile = {
+  id: 'conn-mongo',
+  name: 'MongoDB',
+  engine: 'mongodb',
+  family: 'document',
+  host: 'localhost',
+  port: 27017,
+  database: 'catalog',
+  environmentIds: [],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'mongodb',
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const testEnvironment: EnvironmentProfile = {
+  id: 'env-local',
+  label: 'Local',
+  color: '#5dd6b0',
+  risk: 'low',
+  variables: {},
+  sensitiveKeys: [],
+  requiresConfirmation: false,
+  safeMode: false,
+  exportable: true,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const testQueryTab: QueryTabState = {
+  id: 'tab-query',
+  title: 'Products Query',
+  tabKind: 'query',
+  connectionId: testConnection.id,
+  environmentId: testEnvironment.id,
+  family: 'document',
+  language: 'json',
+  editorLabel: 'MongoDB / Local',
+  queryText: '{ "collection": "products", "filter": {} }',
+  status: 'idle',
+  dirty: false,
+  history: [],
 }

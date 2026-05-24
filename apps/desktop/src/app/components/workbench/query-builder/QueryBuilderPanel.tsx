@@ -37,7 +37,9 @@ import {
   MongoSortBuilderSection,
 } from './MongoFindBuilderSections'
 import { rowId } from './MongoBuilderSection.types'
+import { MongoScopeSummary } from './MongoScopeSummary'
 import { mongoFilterRowFromDroppedField } from './mongo-filter-row'
+import { mongoQueryScopeForTab } from './mongo-query-scope'
 import { isSqlSelectBuilderState } from './sql-select'
 import { SqlSelectBuilder } from './SqlSelectBuilder'
 import { isSearchDslBuilderState } from './search-dsl'
@@ -76,6 +78,7 @@ export function QueryBuilderPanel({
     return (
       <MongoFindBuilder
         key={tab.id}
+        connection={connection}
         tab={tab}
         builderState={resolvedBuilderState}
         collectionOptions={collectionOptions}
@@ -88,6 +91,7 @@ export function QueryBuilderPanel({
     return (
       <MongoAggregationBuilder
         key={tab.id}
+        connection={connection}
         tab={tab}
         builderState={resolvedBuilderState}
         collectionOptions={collectionOptions}
@@ -163,11 +167,13 @@ export function QueryBuilderPanel({
 }
 
 function MongoFindBuilder({
+  connection,
   tab,
   builderState,
   collectionOptions,
   onBuilderStateChange,
 }: {
+  connection?: ConnectionProfile
   tab: QueryTabState
   builderState: MongoFindBuilderState
   collectionOptions: string[]
@@ -182,6 +188,11 @@ function MongoFindBuilder({
     draft.collection,
     ...collectionOptions,
   ]).filter(Boolean)
+  const scope = mongoQueryScopeForTab({
+    builderState: draft,
+    connection,
+    tab,
+  })
 
   const updateDraft = useCallback((patch: Partial<MongoFindBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
@@ -327,6 +338,7 @@ function MongoFindBuilder({
       onDragLeave={handleBuilderDragLeave}
       onDropCapture={handleBuilderDrop}
     >
+      <MongoScopeSummary scope={scope} />
       <div className="query-builder-grid">
         <label className="query-builder-field">
           <span>Collection</span>

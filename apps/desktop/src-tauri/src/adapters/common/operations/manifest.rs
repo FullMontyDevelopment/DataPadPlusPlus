@@ -75,7 +75,16 @@ pub(crate) fn operation_manifests_for_manifest(
             "query",
             "read",
             &["supports_result_snapshots"],
-            &["table", "json", "document", "keyvalue", "graph", "series", "searchHits", "raw"],
+            &[
+                "table",
+                "json",
+                "document",
+                "keyvalue",
+                "graph",
+                "series",
+                "searchHits",
+                "raw",
+            ],
             "Run a read-oriented query through the native adapter and normalize the returned payloads.",
             false,
         ),
@@ -160,6 +169,91 @@ pub(crate) fn operation_manifests_for_manifest(
                 "Drop an index or access path after previewing the exact generated request.",
                 true,
             ),
+            operation_manifest(
+                manifest,
+                "index.hide",
+                "Hide Index",
+                "index",
+                "write",
+                &["supports_index_management"],
+                &["diff", "raw"],
+                "Hide an index from the query planner without dropping it.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "index.unhide",
+                "Unhide Index",
+                "index",
+                "write",
+                &["supports_index_management"],
+                &["diff", "raw"],
+                "Make a hidden index visible to the query planner again.",
+                true,
+            ),
+        ]);
+    }
+
+    if manifest.engine == "mongodb" && manifest_has(manifest, "supports_admin_operations") {
+        operations.push(operation_manifest(
+            manifest,
+            "validation.update",
+            "Update Validation Rules",
+            "schema",
+            "write",
+            &["supports_admin_operations"],
+            &["schema", "diff", "raw"],
+            "Preview a guarded MongoDB collection validator update.",
+            true,
+        ));
+    }
+
+    if manifest.engine == "mongodb" && manifest_has(manifest, "supports_user_role_browser") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "user.create",
+                "Create User",
+                "user",
+                "write",
+                &["supports_user_role_browser"],
+                &["diff", "raw"],
+                "Preview creating a MongoDB database user with assigned roles.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "user.drop",
+                "Drop User",
+                "user",
+                "destructive",
+                &["supports_user_role_browser"],
+                &["diff", "raw"],
+                "Preview dropping a MongoDB database user.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "role.create",
+                "Create Role",
+                "role",
+                "write",
+                &["supports_user_role_browser"],
+                &["diff", "raw"],
+                "Preview creating a MongoDB role with privileges and inherited roles.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "role.drop",
+                "Drop Role",
+                "role",
+                "destructive",
+                &["supports_user_role_browser"],
+                &["diff", "raw"],
+                "Preview dropping a MongoDB database role.",
+                true,
+            ),
         ]);
     }
 
@@ -228,4 +322,51 @@ pub(crate) fn operation_manifests_for_manifest(
                 .all(|capability| manifest_has(manifest, capability))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::operation_manifests_for_manifest;
+    use crate::domain::models::AdapterManifest;
+
+    #[test]
+    fn mongodb_operation_manifest_exposes_native_management_previews() {
+        let manifest = AdapterManifest {
+            id: "adapter-mongodb".into(),
+            engine: "mongodb".into(),
+            family: "document".into(),
+            label: "MongoDB".into(),
+            maturity: "stable".into(),
+            capabilities: vec![
+                "supports_schema_browser".into(),
+                "supports_result_snapshots".into(),
+                "supports_admin_operations".into(),
+                "supports_index_management".into(),
+                "supports_user_role_browser".into(),
+            ],
+            default_language: "mongodb".into(),
+            local_database: None,
+            tree: None,
+        };
+
+        let operations = operation_manifests_for_manifest(&manifest);
+        let operation_ids = operations
+            .iter()
+            .map(|operation| operation.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(operation_ids.contains(&"mongodb.index.hide"));
+        assert!(operation_ids.contains(&"mongodb.validation.update"));
+        assert!(operation_ids.contains(&"mongodb.user.create"));
+        assert!(operation_ids.contains(&"mongodb.user.drop"));
+        assert!(operation_ids.contains(&"mongodb.role.create"));
+        assert!(operation_ids.contains(&"mongodb.role.drop"));
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "mongodb.user.drop")
+                .map(|operation| operation.risk.as_str()),
+            Some("destructive")
+        );
+    }
 }

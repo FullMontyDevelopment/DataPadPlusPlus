@@ -72,7 +72,15 @@ pub(super) async fn list_timescale_explorer_nodes(
 }
 
 pub(crate) fn timescale_select_template(schema: &str, table: &str) -> String {
-    format!("select * from {schema}.{table} limit 100;")
+    format!(
+        "select * from {}.{} limit 100;",
+        quote_pg_identifier(schema),
+        quote_pg_identifier(table)
+    )
+}
+
+fn quote_pg_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
 #[cfg(test)]
@@ -83,7 +91,15 @@ mod tests {
     fn timescale_select_template_keeps_schema_context() {
         assert_eq!(
             timescale_select_template("metrics", "cpu"),
-            "select * from metrics.cpu limit 100;"
+            "select * from \"metrics\".\"cpu\" limit 100;"
+        );
+    }
+
+    #[test]
+    fn timescale_select_template_escapes_identifiers() {
+        assert_eq!(
+            timescale_select_template("metrics-prod", "cpu\"daily"),
+            "select * from \"metrics-prod\".\"cpu\"\"daily\" limit 100;"
         );
     }
 }

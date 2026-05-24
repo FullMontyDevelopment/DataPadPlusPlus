@@ -73,8 +73,8 @@ export function MetricsWorkspace({
             <DatabaseIcon className="metrics-strip-icon" />
             <span>
               {diagnostics
-                ? 'No live metrics were returned by this adapter.'
-                : 'Refresh to collect adapter metrics.'}
+                ? 'No live metrics were returned for this connection.'
+                : 'Refresh to collect connection metrics.'}
             </span>
           </div>
         )}
@@ -111,7 +111,7 @@ export function MetricsWorkspace({
           <MetricsIcon className="metrics-empty-icon" />
           <strong>No live metrics yet</strong>
           <span>
-            Refresh the tab. If this message stays here, the adapter could connect but the
+            Refresh the tab. If this message stays here, DataPad++ could connect but the
             database did not expose metrics to the current user.
           </span>
         </div>

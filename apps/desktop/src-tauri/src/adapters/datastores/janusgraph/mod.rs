@@ -43,7 +43,7 @@ impl DatastoreAdapter for JanusGraphAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_janusgraph_explorer_node(connection, request))
+        inspect_janusgraph_explorer_node(connection, request).await
     }
 
     async fn execute(

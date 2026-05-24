@@ -64,11 +64,15 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         explorerStatus: 'loading',
         explorerLoadingRequests: {
           ...state.explorerLoadingRequests,
-          [explorerRequestKey(action.request)]: true,
+          [explorerRequestKey(action.request)]: action.requestId,
         },
         explorerError: undefined,
       }
     case 'EXPLORER_READY': {
+      const requestKey = explorerRequestKey(action.explorer)
+      if (state.explorerLoadingRequests[requestKey] !== action.requestId) {
+        return state
+      }
       const cacheKey = explorerCacheKey(
         action.explorer.connectionId,
         action.explorer.environmentId,
@@ -78,7 +82,7 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         action.explorer,
       )
       const loadingRequests = { ...state.explorerLoadingRequests }
-      delete loadingRequests[explorerRequestKey(action.explorer)]
+      delete loadingRequests[requestKey]
 
       return {
         ...state,
@@ -93,8 +97,15 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
       }
     }
     case 'EXPLORER_ERROR': {
+      const requestKey = explorerRequestKey(action.request)
+      if (
+        action.requestId &&
+        state.explorerLoadingRequests[requestKey] !== action.requestId
+      ) {
+        return state
+      }
       const loadingRequests = { ...state.explorerLoadingRequests }
-      delete loadingRequests[explorerRequestKey(action.request)]
+      delete loadingRequests[requestKey]
 
       return {
         ...state,

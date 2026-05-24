@@ -38,6 +38,7 @@ import {
   Layers3,
   List,
   LockKeyhole,
+  LockKeyholeOpen,
   MemoryStick,
   Moon,
   MoreVertical,
@@ -130,6 +131,8 @@ export const ObjectBucketIcon = adapt(Archive)
 export const ObjectJobIcon = adapt(Clock)
 export const ObjectRoleIcon = adapt(UserRound)
 export const ObjectSecurityIcon = adapt(LockKeyhole)
+export const LockIcon = adapt(LockKeyhole)
+export const UnlockIcon = adapt(LockKeyholeOpen)
 export const ObjectStageIcon = adapt(Box)
 export const ObjectWarehouseIcon = adapt(HardDrive)
 export const ObjectServerIcon = adapt(ServerCog)

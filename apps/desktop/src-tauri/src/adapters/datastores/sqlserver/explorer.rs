@@ -1,4 +1,7 @@
-use serde_json::json;
+use serde_json::{json, Value};
+use tiberius::{Client as TdsClient, Row as TdsRow};
+use tokio::net::TcpStream;
+use tokio_util::compat::Compat;
 
 use super::super::super::*;
 use super::connection::sqlserver_client;
@@ -712,7 +715,8 @@ pub(super) async fn inspect_sqlserver_explorer_node(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerInspectRequest,
 ) -> Result<ExplorerInspectResponse, CommandError> {
-    let query_template = inspect_query_template(&request.node_id);
+    let query_template = inspect_query_template(connection, &request.node_id);
+    let payload = sqlserver_inspect_payload(connection, &request.node_id, &query_template).await;
     Ok(ExplorerInspectResponse {
         node_id: request.node_id.clone(),
         summary: format!(
@@ -720,20 +724,16 @@ pub(super) async fn inspect_sqlserver_explorer_node(
             request.node_id, connection.name
         ),
         query_template: Some(query_template.clone()),
-        payload: Some(json!({
-            "nodeId": request.node_id,
-            "engine": connection.engine,
-            "objectViews": object_views_for_node(&request.node_id),
-            "queryTemplate": query_template,
-        })),
+        payload: Some(payload),
     })
 }
 
-fn inspect_query_template(node_id: &str) -> String {
+fn inspect_query_template(connection: &ResolvedConnectionProfile, node_id: &str) -> String {
     if let Some(scope) = node_id.strip_prefix("table:") {
-        if let Some((_database, schema, table)) = parse_three_part_scope(scope) {
+        if let Some((database, schema, table)) = parse_three_part_scope(scope) {
             return format!(
-                "select top 100 * from {}.{};",
+                "use {};\nselect top 100 * from {}.{};",
+                quote_identifier(&database),
                 quote_identifier(&schema),
                 quote_identifier(&table)
             );
@@ -741,9 +741,10 @@ fn inspect_query_template(node_id: &str) -> String {
     }
 
     if let Some(scope) = node_id.strip_prefix("view:") {
-        if let Some((_database, schema, view)) = parse_three_part_scope(scope) {
+        if let Some((database, schema, view)) = parse_three_part_scope(scope) {
             return format!(
-                "select top 100 * from {}.{};",
+                "use {};\nselect top 100 * from {}.{};",
+                quote_identifier(&database),
                 quote_identifier(&schema),
                 quote_identifier(&view)
             );
@@ -756,6 +757,26 @@ fn inspect_query_template(node_id: &str) -> String {
             "select top 100 * from {}.{};",
             quote_identifier(schema),
             quote_identifier(object_name)
+        );
+    }
+
+    if let Some(database) = node_id.strip_prefix("database:") {
+        return format!(
+            "use {};\nselect db_name() as database_name;",
+            quote_identifier(database)
+        );
+    }
+
+    if let Some(scope) = node_id.strip_prefix("sqlserver:") {
+        let database = scope
+            .split(':')
+            .next()
+            .filter(|value| !value.is_empty())
+            .or(connection.database.as_deref())
+            .unwrap_or("master");
+        return format!(
+            "use {};\nselect db_name() as database_name;",
+            quote_identifier(database)
         );
     }
 
@@ -798,6 +819,726 @@ fn object_views_for_node(node_id: &str) -> Vec<&'static str> {
     }
 
     Vec::new()
+}
+
+async fn sqlserver_inspect_payload(
+    connection: &ResolvedConnectionProfile,
+    node_id: &str,
+    query_template: &str,
+) -> Value {
+    let target = SqlServerObjectTarget::parse(connection, node_id);
+    let base = sqlserver_base_payload(connection, node_id, query_template, &target, Vec::new());
+    let mut client = match sqlserver_client(connection).await {
+        Ok(client) => client,
+        Err(error) => {
+            return sqlserver_base_payload(
+                connection,
+                node_id,
+                query_template,
+                &target,
+                vec![format!(
+                    "Live SQL Server metadata is unavailable for this view: {}",
+                    compact_error(&error.message)
+                )],
+            );
+        }
+    };
+
+    let details = match target.object_view.as_str() {
+        "database" => sqlserver_database_payload(&mut client, &target.database).await,
+        "table" | "columns" | "keys" | "constraints" | "indexes" | "triggers" | "statistics"
+        | "permissions" | "data" | "scripts" => {
+            sqlserver_table_payload(
+                &mut client,
+                &target.database,
+                &target.schema,
+                &target.object_name,
+            )
+            .await
+        }
+        "view" => {
+            sqlserver_view_payload(
+                &mut client,
+                &target.database,
+                &target.schema,
+                &target.object_name,
+            )
+            .await
+        }
+        "procedure" | "function" => {
+            sqlserver_routine_payload(
+                &mut client,
+                &target.database,
+                &target.schema,
+                &target.object_name,
+            )
+            .await
+        }
+        "security" | "users" | "roles" | "schemas" => {
+            sqlserver_security_payload(&mut client, &target.database).await
+        }
+        "storage" | "files" | "filegroups" => {
+            sqlserver_storage_payload(&mut client, &target.database).await
+        }
+        "query-store" | "query-store-view" => {
+            sqlserver_query_store_payload(&mut client, &target.database).await
+        }
+        _ => json!({
+            "objects": [{
+                "schema": target.schema,
+                "name": if target.object_name.is_empty() { target.database.as_str() } else { target.object_name.as_str() },
+                "type": target.object_view,
+                "status": "visible",
+            }],
+        }),
+    };
+
+    merge_json_objects(base, details)
+}
+
+async fn sqlserver_database_payload(client: &mut SqlServerClient, database: &str) -> Value {
+    let tables = sqlserver_rows(
+        client,
+        database,
+        "SELECT s.name AS schema_name, t.name AS object_name, t.type_desc, SUM(COALESCE(p.rows, 0)) AS row_count
+         FROM sys.tables t
+         JOIN sys.schemas s ON s.schema_id = t.schema_id
+         LEFT JOIN sys.partitions p ON p.object_id = t.object_id AND p.index_id IN (0, 1)
+         GROUP BY s.name, t.name, t.type_desc
+         ORDER BY s.name, t.name",
+        |row| {
+            json!({
+                "schema": row.get::<&str, _>("schema_name").unwrap_or("dbo"),
+                "name": row.get::<&str, _>("object_name").unwrap_or_default(),
+                "type": row.get::<&str, _>("type_desc").unwrap_or("USER_TABLE"),
+                "rows": row.get::<i64, _>("row_count").unwrap_or_default(),
+                "owner": row.get::<&str, _>("schema_name").unwrap_or("dbo"),
+            })
+        },
+    )
+    .await;
+    let views = sqlserver_rows(
+        client,
+        database,
+        "SELECT s.name AS schema_name, v.name AS object_name, v.type_desc
+         FROM sys.views v
+         JOIN sys.schemas s ON s.schema_id = v.schema_id
+         ORDER BY s.name, v.name",
+        |row| {
+            json!({
+                "schema": row.get::<&str, _>("schema_name").unwrap_or("dbo"),
+                "name": row.get::<&str, _>("object_name").unwrap_or_default(),
+                "status": row.get::<&str, _>("type_desc").unwrap_or("VIEW"),
+                "definition": "Visible in the view definition workspace.",
+            })
+        },
+    )
+    .await;
+    let procedures = sqlserver_rows(client, database, procedure_query().as_str(), |row| {
+        json!({
+            "schema": row.get::<&str, _>("schema_name").unwrap_or("dbo"),
+            "name": row.get::<&str, _>("object_name").unwrap_or_default(),
+            "type": row.get::<&str, _>("detail").unwrap_or("SQL_STORED_PROCEDURE"),
+            "language": "T-SQL",
+            "security": "",
+        })
+    })
+    .await;
+
+    json!({
+        "database": database,
+        "databaseSize": "",
+        "tableCount": tables.len(),
+        "tables": tables,
+        "views": views,
+        "procedures": procedures,
+    })
+}
+
+async fn sqlserver_table_payload(
+    client: &mut SqlServerClient,
+    database: &str,
+    schema: &str,
+    table: &str,
+) -> Value {
+    let columns = sqlserver_rows(
+        client,
+        database,
+        &format!(
+            "SELECT c.name,
+                    TYPE_NAME(c.user_type_id) AS data_type,
+                    c.is_nullable,
+                    c.is_identity,
+                    dc.definition AS default_definition,
+                    c.collation_name
+             FROM sys.columns c
+             JOIN sys.objects o ON o.object_id = c.object_id
+             JOIN sys.schemas s ON s.schema_id = o.schema_id
+             LEFT JOIN sys.default_constraints dc ON dc.parent_object_id = o.object_id AND dc.parent_column_id = c.column_id
+             WHERE s.name = '{}' AND o.name = '{}'
+             ORDER BY c.column_id",
+            sql_literal(schema),
+            sql_literal(table)
+        ),
+        |row| {
+            json!({
+                "name": row.get::<&str, _>("name").unwrap_or_default(),
+                "type": row.get::<&str, _>("data_type").unwrap_or_default(),
+                "nullable": row.get::<bool, _>("is_nullable").unwrap_or(false),
+                "identity": row.get::<bool, _>("is_identity").unwrap_or(false),
+                "default": row.get::<&str, _>("default_definition").unwrap_or_default(),
+                "collation": row.get::<&str, _>("collation_name").unwrap_or_default(),
+            })
+        },
+    )
+    .await;
+    let indexes = sqlserver_rows(
+        client,
+        database,
+        &format!(
+            "SELECT i.name,
+                    i.type_desc,
+                    i.is_unique,
+                    i.is_disabled,
+                    STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal) AS columns
+             FROM sys.indexes i
+             JOIN sys.objects o ON o.object_id = i.object_id
+             JOIN sys.schemas s ON s.schema_id = o.schema_id
+             LEFT JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0
+             LEFT JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+             WHERE s.name = '{}' AND o.name = '{}' AND i.name IS NOT NULL
+             GROUP BY i.name, i.type_desc, i.is_unique, i.is_disabled
+             ORDER BY i.name",
+            sql_literal(schema),
+            sql_literal(table)
+        ),
+        |row| {
+            json!({
+                "name": row.get::<&str, _>("name").unwrap_or_default(),
+                "type": row.get::<&str, _>("type_desc").unwrap_or_default(),
+                "columns": row.get::<&str, _>("columns").unwrap_or_default(),
+                "unique": row.get::<bool, _>("is_unique").unwrap_or(false),
+                "valid": !row.get::<bool, _>("is_disabled").unwrap_or(false),
+                "usage": "",
+            })
+        },
+    )
+    .await;
+    let constraints = sqlserver_rows(
+        client,
+        database,
+        &format!(
+            "SELECT kc.name, kc.type_desc, 'enabled' AS state_desc
+             FROM sys.key_constraints kc
+             JOIN sys.objects o ON o.object_id = kc.parent_object_id
+             JOIN sys.schemas s ON s.schema_id = o.schema_id
+             WHERE s.name = '{}' AND o.name = '{}'
+             UNION ALL
+             SELECT cc.name, 'CHECK_CONSTRAINT', CASE WHEN cc.is_disabled = 1 THEN 'disabled' ELSE 'enabled' END
+             FROM sys.check_constraints cc
+             JOIN sys.objects o ON o.object_id = cc.parent_object_id
+             JOIN sys.schemas s ON s.schema_id = o.schema_id
+             WHERE s.name = '{}' AND o.name = '{}'
+             ORDER BY name",
+            sql_literal(schema),
+            sql_literal(table),
+            sql_literal(schema),
+            sql_literal(table)
+        ),
+        |row| {
+            json!({
+                "name": row.get::<&str, _>("name").unwrap_or_default(),
+                "type": row.get::<&str, _>("type_desc").unwrap_or_default(),
+                "columns": "",
+                "status": row.get::<&str, _>("state_desc").unwrap_or_default(),
+            })
+        },
+    )
+    .await;
+    let triggers = sqlserver_rows(
+        client,
+        database,
+        &format!(
+            "SELECT tr.name, CASE WHEN tr.is_disabled = 1 THEN 'disabled' ELSE 'enabled' END AS enabled_state
+             FROM sys.triggers tr
+             JOIN sys.objects o ON o.object_id = tr.parent_id
+             JOIN sys.schemas s ON s.schema_id = o.schema_id
+             WHERE s.name = '{}' AND o.name = '{}'
+             ORDER BY tr.name",
+            sql_literal(schema),
+            sql_literal(table)
+        ),
+        |row| {
+            json!({
+                "name": row.get::<&str, _>("name").unwrap_or_default(),
+                "timing": "AFTER",
+                "event": "DML",
+                "enabled": row.get::<&str, _>("enabled_state").unwrap_or_default() == "enabled",
+            })
+        },
+    )
+    .await;
+    let statistics = sqlserver_rows(
+        client,
+        database,
+        &format!(
+            "SELECT st.name,
+                    SUM(COALESCE(p.rows, 0)) AS row_count
+             FROM sys.stats st
+             JOIN sys.objects o ON o.object_id = st.object_id
+             JOIN sys.schemas s ON s.schema_id = o.schema_id
+             LEFT JOIN sys.partitions p ON p.object_id = o.object_id AND p.index_id IN (0, 1)
+             WHERE s.name = '{}' AND o.name = '{}'
+             GROUP BY st.name
+             ORDER BY st.name",
+            sql_literal(schema),
+            sql_literal(table)
+        ),
+        |row| {
+            json!({
+                "name": row.get::<&str, _>("name").unwrap_or_default(),
+                "rows": row.get::<i64, _>("row_count").unwrap_or_default(),
+                "scans": "",
+                "size": "",
+            })
+        },
+    )
+    .await;
+    let permissions = sqlserver_object_permissions(client, database, schema, table).await;
+
+    json!({
+        "database": database,
+        "schema": schema,
+        "objectName": table,
+        "rowCount": statistics.first().and_then(|row| row.get("rows")).cloned().unwrap_or(Value::Null),
+        "columns": columns,
+        "indexes": indexes,
+        "constraints": constraints,
+        "triggers": triggers,
+        "statistics": statistics,
+        "permissions": permissions,
+    })
+}
+
+async fn sqlserver_view_payload(
+    client: &mut SqlServerClient,
+    database: &str,
+    schema: &str,
+    view: &str,
+) -> Value {
+    let views = sqlserver_rows(
+        client,
+        database,
+        &format!(
+            "SELECT s.name AS schema_name, v.name AS object_name, m.definition
+             FROM sys.views v
+             JOIN sys.schemas s ON s.schema_id = v.schema_id
+             LEFT JOIN sys.sql_modules m ON m.object_id = v.object_id
+             WHERE s.name = '{}' AND v.name = '{}'",
+            sql_literal(schema),
+            sql_literal(view)
+        ),
+        |row| {
+            json!({
+                "schema": row.get::<&str, _>("schema_name").unwrap_or("dbo"),
+                "name": row.get::<&str, _>("object_name").unwrap_or_default(),
+                "definition": row.get::<&str, _>("definition").unwrap_or_default(),
+                "status": "valid",
+            })
+        },
+    )
+    .await;
+
+    json!({
+        "database": database,
+        "schema": schema,
+        "objectName": view,
+        "views": views,
+        "permissions": sqlserver_object_permissions(client, database, schema, view).await,
+    })
+}
+
+async fn sqlserver_routine_payload(
+    client: &mut SqlServerClient,
+    database: &str,
+    schema: &str,
+    routine: &str,
+) -> Value {
+    let routines = sqlserver_rows(
+        client,
+        database,
+        &format!(
+            "SELECT s.name AS schema_name, o.name AS object_name, o.type_desc, m.definition
+             FROM sys.objects o
+             JOIN sys.schemas s ON s.schema_id = o.schema_id
+             LEFT JOIN sys.sql_modules m ON m.object_id = o.object_id
+             WHERE s.name = '{}' AND o.name = '{}'",
+            sql_literal(schema),
+            sql_literal(routine)
+        ),
+        |row| {
+            json!({
+                "schema": row.get::<&str, _>("schema_name").unwrap_or("dbo"),
+                "name": row.get::<&str, _>("object_name").unwrap_or_default(),
+                "type": row.get::<&str, _>("type_desc").unwrap_or_default(),
+                "language": "T-SQL",
+                "definition": row.get::<&str, _>("definition").unwrap_or_default(),
+            })
+        },
+    )
+    .await;
+
+    json!({
+        "database": database,
+        "schema": schema,
+        "objectName": routine,
+        "routines": routines,
+        "permissions": sqlserver_object_permissions(client, database, schema, routine).await,
+    })
+}
+
+async fn sqlserver_security_payload(client: &mut SqlServerClient, database: &str) -> Value {
+    let users = sqlserver_rows(
+        client,
+        database,
+        "SELECT name, type_desc, default_schema_name, authentication_type_desc
+         FROM sys.database_principals
+         WHERE type IN ('S','U','G','E','X')
+         ORDER BY name",
+        |row| {
+            json!({
+                "name": row.get::<&str, _>("name").unwrap_or_default(),
+                "type": row.get::<&str, _>("type_desc").unwrap_or_default(),
+                "defaultSchema": row.get::<&str, _>("default_schema_name").unwrap_or_default(),
+                "authenticationType": row.get::<&str, _>("authentication_type_desc").unwrap_or_default(),
+            })
+        },
+    )
+    .await;
+    let roles = sqlserver_rows(
+        client,
+        database,
+        "SELECT name, type_desc
+         FROM sys.database_principals
+         WHERE type = 'R'
+         ORDER BY name",
+        |row| {
+            json!({
+                "name": row.get::<&str, _>("name").unwrap_or_default(),
+                "type": row.get::<&str, _>("type_desc").unwrap_or_default(),
+            })
+        },
+    )
+    .await;
+
+    json!({
+        "database": database,
+        "users": users,
+        "roles": roles,
+        "permissions": sqlserver_database_permissions(client, database).await,
+    })
+}
+
+async fn sqlserver_storage_payload(client: &mut SqlServerClient, database: &str) -> Value {
+    let files = sqlserver_rows(
+        client,
+        database,
+        "SELECT name, type_desc, size * 8 / 1024 AS size_mb, growth, state_desc
+         FROM sys.database_files
+         ORDER BY file_id",
+        |row| {
+            json!({
+                "name": row.get::<&str, _>("name").unwrap_or_default(),
+                "type": row.get::<&str, _>("type_desc").unwrap_or_default(),
+                "size": format!("{} MB", row.get::<i32, _>("size_mb").unwrap_or_default()),
+                "growth": row.get::<i32, _>("growth").unwrap_or_default(),
+                "state": row.get::<&str, _>("state_desc").unwrap_or_default(),
+            })
+        },
+    )
+    .await;
+    let filegroups = sqlserver_rows(
+        client,
+        database,
+        "SELECT name, type_desc, is_default, is_read_only
+         FROM sys.filegroups
+         ORDER BY name",
+        |row| {
+            json!({
+                "name": row.get::<&str, _>("name").unwrap_or_default(),
+                "type": row.get::<&str, _>("type_desc").unwrap_or_default(),
+                "default": row.get::<bool, _>("is_default").unwrap_or(false),
+                "readOnly": row.get::<bool, _>("is_read_only").unwrap_or(false),
+            })
+        },
+    )
+    .await;
+
+    json!({
+        "database": database,
+        "files": files,
+        "filegroups": filegroups,
+    })
+}
+
+async fn sqlserver_query_store_payload(client: &mut SqlServerClient, database: &str) -> Value {
+    let query_store = sqlserver_rows(
+        client,
+        database,
+        "SELECT TOP 50
+                CONVERT(nvarchar(120), q.query_id) AS name,
+                'query' AS status,
+                TRY_CONVERT(float, rs.avg_duration / 1000.0) AS duration_ms,
+                rs.count_executions AS executions,
+                CASE WHEN p.is_forced_plan = 1 THEN 'forced' ELSE 'not forced' END AS plan_state
+         FROM sys.query_store_query q
+         JOIN sys.query_store_plan p ON p.query_id = q.query_id
+         JOIN sys.query_store_runtime_stats rs ON rs.plan_id = p.plan_id
+         ORDER BY rs.last_execution_time DESC",
+        |row| {
+            json!({
+                "name": row.get::<&str, _>("name").unwrap_or_default(),
+                "status": row.get::<&str, _>("status").unwrap_or_default(),
+                "durationMs": row.get::<f64, _>("duration_ms").unwrap_or_default(),
+                "executions": row.get::<i64, _>("executions").unwrap_or_default(),
+                "planState": row.get::<&str, _>("plan_state").unwrap_or_default(),
+            })
+        },
+    )
+    .await;
+
+    json!({
+        "database": database,
+        "queryStore": query_store,
+        "warnings": if query_store.is_empty() {
+            vec!["Query Store metadata is unavailable, disabled, or empty for this database."]
+        } else {
+            Vec::<&str>::new()
+        },
+    })
+}
+
+async fn sqlserver_object_permissions(
+    client: &mut SqlServerClient,
+    database: &str,
+    schema: &str,
+    object_name: &str,
+) -> Vec<Value> {
+    sqlserver_rows(
+        client,
+        database,
+        &format!(
+            "SELECT USER_NAME(dp.grantee_principal_id) AS principal,
+                    dp.permission_name,
+                    s.name + '.' + o.name AS object_name,
+                    dp.state_desc,
+                    USER_NAME(dp.grantor_principal_id) AS grantor
+             FROM sys.database_permissions dp
+             JOIN sys.objects o ON o.object_id = dp.major_id
+             JOIN sys.schemas s ON s.schema_id = o.schema_id
+             WHERE s.name = '{}' AND o.name = '{}'
+             ORDER BY principal, dp.permission_name",
+            sql_literal(schema),
+            sql_literal(object_name)
+        ),
+        |row| {
+            json!({
+                "principal": row.get::<&str, _>("principal").unwrap_or_default(),
+                "privilege": row.get::<&str, _>("permission_name").unwrap_or_default(),
+                "object": row.get::<&str, _>("object_name").unwrap_or_default(),
+                "state": row.get::<&str, _>("state_desc").unwrap_or_default(),
+                "grantor": row.get::<&str, _>("grantor").unwrap_or_default(),
+            })
+        },
+    )
+    .await
+}
+
+async fn sqlserver_database_permissions(
+    client: &mut SqlServerClient,
+    database: &str,
+) -> Vec<Value> {
+    sqlserver_rows(
+        client,
+        database,
+        "SELECT USER_NAME(grantee_principal_id) AS principal,
+                permission_name,
+                class_desc AS object_name,
+                state_desc,
+                USER_NAME(grantor_principal_id) AS grantor
+         FROM sys.database_permissions
+         ORDER BY principal, permission_name",
+        |row| {
+            json!({
+                "principal": row.get::<&str, _>("principal").unwrap_or_default(),
+                "privilege": row.get::<&str, _>("permission_name").unwrap_or_default(),
+                "object": row.get::<&str, _>("object_name").unwrap_or_default(),
+                "state": row.get::<&str, _>("state_desc").unwrap_or_default(),
+                "grantor": row.get::<&str, _>("grantor").unwrap_or_default(),
+            })
+        },
+    )
+    .await
+}
+
+type SqlServerClient = TdsClient<Compat<TcpStream>>;
+
+async fn sqlserver_rows<F>(
+    client: &mut SqlServerClient,
+    database: &str,
+    query: &str,
+    map_row: F,
+) -> Vec<Value>
+where
+    F: Fn(&TdsRow) -> Value,
+{
+    let batch = use_database_batch(database, query);
+    let Ok(stream) = client.simple_query(batch).await else {
+        return Vec::new();
+    };
+    let Ok(results) = stream.into_results().await else {
+        return Vec::new();
+    };
+
+    results
+        .into_iter()
+        .find(|rows| !rows.is_empty())
+        .unwrap_or_default()
+        .iter()
+        .map(map_row)
+        .collect()
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SqlServerObjectTarget {
+    object_view: String,
+    database: String,
+    schema: String,
+    object_name: String,
+}
+
+impl SqlServerObjectTarget {
+    fn parse(connection: &ResolvedConnectionProfile, node_id: &str) -> Self {
+        if let Some(database) = node_id.strip_prefix("database:") {
+            return Self::new("database", database, "dbo", "");
+        }
+
+        for prefix in [
+            "table",
+            "view",
+            "procedure",
+            "function",
+            "columns",
+            "keys",
+            "constraints",
+            "indexes",
+            "triggers",
+            "statistics",
+            "permissions",
+            "data",
+            "scripts",
+        ] {
+            if let Some(scope) = node_id.strip_prefix(&format!("{prefix}:")) {
+                if let Some((database, schema, object_name)) = parse_three_part_scope(scope) {
+                    return Self::new(prefix, database, schema, object_name);
+                }
+            }
+        }
+
+        if let Some(scope) = node_id.strip_prefix("sqlserver:") {
+            let mut parts = scope.split(':');
+            let database = parts
+                .next()
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .or_else(|| connection.database.clone())
+                .unwrap_or_else(|| "master".into());
+            let category = parts.next().unwrap_or("database").replace('.', "-");
+            return Self::new(category, database, "dbo", "");
+        }
+
+        if node_id.matches('.').count() == 1 {
+            let (schema, object_name) = node_id.split_once('.').unwrap_or(("dbo", node_id));
+            return Self::new(
+                "table",
+                connection
+                    .database
+                    .clone()
+                    .unwrap_or_else(|| "master".into()),
+                schema,
+                object_name,
+            );
+        }
+
+        Self::new(
+            "object",
+            connection
+                .database
+                .clone()
+                .unwrap_or_else(|| "master".into()),
+            "dbo",
+            "",
+        )
+    }
+
+    fn new(
+        object_view: impl Into<String>,
+        database: impl Into<String>,
+        schema: impl Into<String>,
+        object_name: impl Into<String>,
+    ) -> Self {
+        Self {
+            object_view: object_view.into(),
+            database: database.into(),
+            schema: schema.into(),
+            object_name: object_name.into(),
+        }
+    }
+}
+
+fn sqlserver_base_payload(
+    connection: &ResolvedConnectionProfile,
+    node_id: &str,
+    query_template: &str,
+    target: &SqlServerObjectTarget,
+    warnings: Vec<String>,
+) -> Value {
+    json!({
+        "nodeId": node_id,
+        "engine": connection.engine,
+        "database": target.database,
+        "schema": target.schema,
+        "objectName": target.object_name,
+        "objectView": target.object_view,
+        "objectViews": object_views_for_node(node_id),
+        "queryTemplate": query_template,
+        "warnings": warnings,
+    })
+}
+
+fn merge_json_objects(mut base: Value, details: Value) -> Value {
+    if let (Some(base), Some(details)) = (base.as_object_mut(), details.as_object()) {
+        for (key, value) in details {
+            if key == "warnings" {
+                let mut warnings = base
+                    .get("warnings")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                if let Some(items) = value.as_array() {
+                    warnings.extend(items.iter().cloned());
+                }
+                base.insert("warnings".into(), Value::Array(warnings));
+            } else {
+                base.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    base
+}
+
+fn compact_error(error: &str) -> String {
+    error.lines().next().unwrap_or(error).trim().to_string()
 }
 
 fn section<'a>(
@@ -951,40 +1692,44 @@ fn cell_to_string(value: Option<&str>) -> String {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn inspect_sqlserver_explorer_node_uses_select_1_for_unresolved_nodes() {
+    #[test]
+    fn inspect_sqlserver_explorer_node_uses_select_1_for_unresolved_nodes() {
         let connection = connection();
-        let response = inspect_sqlserver_explorer_node(
-            &connection,
-            &ExplorerInspectRequest {
-                connection_id: "conn".into(),
-                environment_id: "env".into(),
-                node_id: "orders".into(),
-            },
-        )
-        .await
-        .expect("inspection response");
+        let query = inspect_query_template(&connection, "orders");
 
-        assert_eq!(response.query_template.as_deref(), Some("select 1;"));
+        assert_eq!(query, "select 1;");
     }
 
-    #[tokio::test]
-    async fn inspect_sqlserver_explorer_node_quotes_explicit_table_when_available() {
+    #[test]
+    fn inspect_sqlserver_explorer_node_quotes_explicit_table_when_available() {
         let connection = connection();
-        let response = inspect_sqlserver_explorer_node(
-            &connection,
-            &ExplorerInspectRequest {
-                connection_id: "conn".into(),
-                environment_id: "env".into(),
-                node_id: "dbo.orders".into(),
-            },
-        )
-        .await
-        .expect("inspection response");
+        let query = inspect_query_template(&connection, "dbo.orders");
+
+        assert_eq!(query, "select top 100 * from [dbo].[orders];");
+    }
+
+    #[test]
+    fn inspect_sqlserver_explorer_node_includes_database_for_scoped_tables() {
+        let connection = connection();
+        let query = inspect_query_template(&connection, "table:datapadplusplus:dbo:orders");
 
         assert_eq!(
-            response.query_template.as_deref(),
-            Some("select top 100 * from [dbo].[orders];")
+            query,
+            "use [datapadplusplus];\nselect top 100 * from [dbo].[orders];"
+        );
+    }
+
+    #[test]
+    fn sqlserver_target_parses_object_view_nodes() {
+        let connection = connection();
+
+        assert_eq!(
+            SqlServerObjectTarget::parse(&connection, "table:datapadplusplus:dbo:orders"),
+            SqlServerObjectTarget::new("table", "datapadplusplus", "dbo", "orders")
+        );
+        assert_eq!(
+            SqlServerObjectTarget::parse(&connection, "sqlserver:datapadplusplus:query-store"),
+            SqlServerObjectTarget::new("query-store", "datapadplusplus", "dbo", "")
         );
     }
 

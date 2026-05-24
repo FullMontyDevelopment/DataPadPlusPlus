@@ -327,13 +327,13 @@ function NativeConnectionFields({
         />
       </FormField>
 
-      <FormField label="Password / Secret">
+      <FormField label="Password / Credential">
         <input
           type="password"
           autoComplete="new-password"
           value={secretDraft}
           placeholder={
-            connectionDraft.auth.secretRef ? 'Stored in OS keyring' : 'Optional password'
+            connectionDraft.auth.secretRef ? 'Stored credential' : 'Optional credential'
           }
           onChange={(event) => onSecretDraftChange(event.target.value)}
         />
@@ -616,7 +616,7 @@ function ConnectionStringFields({
         />
       </FormField>
       <p className="connection-mode-help">
-        Use environment variables such as ${'${DB_PASSWORD}'} for sensitive values. Native
+        Reference variables such as ${'{{DB_PASSWORD}}'} for sensitive values. Native
         host, port, user, and database fields are ignored while this method is active.
       </p>
     </>
@@ -696,7 +696,7 @@ function CloudConnectionFields({
           value={secretDraft}
           placeholder={
             connectionDraft.auth.secretRef
-              ? 'Stored in OS keyring'
+              ? 'Stored credential'
               : 'Optional token, API key, or local mock secret'
           }
           onChange={(event) => onSecretDraftChange(event.target.value)}

@@ -13,6 +13,7 @@ import type {
   ExecutionCapabilities,
 } from './capabilities'
 import type { GuardrailDecision } from './security'
+import type { DatastoreCompletenessSummary } from './datastore-completeness'
 import type {
   ExecutionResultEnvelope,
   ExplorerNode,
@@ -177,6 +178,7 @@ export interface DatastoreExperienceManifest {
   tree?: DatastoreTreeManifest
   testTemplates: DatastoreTestTemplate[]
   testAssertions: DatastoreTestAssertionKind[]
+  completeness?: DatastoreCompletenessSummary
 }
 
 export interface DatastoreExperienceResponse {

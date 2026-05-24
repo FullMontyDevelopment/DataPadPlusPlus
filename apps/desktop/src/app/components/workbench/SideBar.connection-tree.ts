@@ -70,8 +70,11 @@ export function buildConnectionObjectTree(
     case 'search':
       return searchConnectionTree(connection)
     case 'warehouse':
-    case 'embedded-olap':
       return analyticsConnectionTree(connection)
+    case 'embedded-olap':
+      return connection.engine === 'duckdb'
+        ? duckDbConnectionTree(connection)
+        : analyticsConnectionTree(connection)
     case 'sql':
     default:
       return sqlConnectionTree(connection)
@@ -116,16 +119,184 @@ function connectionTreeNodeFromManifestNode(
 
   return [
     {
-      id: `manifest:${connection.id}:${[...parentPath, label, manifestNode.id].join('/')}`,
+      id: manifestTreeNodeId(connection, manifestNode, label, parentPath),
       label,
       kind: normalizeExplorerKind(connection, manifestNode.kind),
       detail: manifestNode.detail,
+      scope: manifestTreeNodeScope(connection, manifestNode, label),
       path: [...parentPath, label],
       category: true,
       expandable: children.length > 0,
       children,
     },
   ]
+}
+
+function manifestTreeNodeId(
+  connection: ConnectionProfile,
+  manifestNode: DatastoreTreeNodeManifest,
+  label: string,
+  parentPath: string[],
+) {
+  if (connection.engine === 'memcached') {
+    return memcachedManifestNodeId(manifestNode.kind, label)
+  }
+
+  if (connection.engine === 'litedb') {
+    return liteDbManifestNodeId(manifestNode.kind, label)
+  }
+
+  if (connection.engine === 'cosmosdb') {
+    return cosmosManifestNodeId(connection, manifestNode.kind, label, parentPath)
+  }
+
+  return `manifest:${connection.id}:${[...parentPath, label, manifestNode.id].join('/')}`
+}
+
+function manifestTreeNodeScope(
+  connection: ConnectionProfile,
+  manifestNode: DatastoreTreeNodeManifest,
+  label: string,
+) {
+  if (connection.engine === 'memcached') {
+    return memcachedManifestNodeId(manifestNode.kind, label)
+  }
+
+  if (connection.engine === 'litedb') {
+    return liteDbManifestNodeId(manifestNode.kind, label)
+  }
+
+  if (connection.engine === 'cosmosdb') {
+    return cosmosManifestNodeId(connection, manifestNode.kind, label, [])
+  }
+
+  return undefined
+}
+
+function memcachedManifestNodeId(kind: string, label: string) {
+  const normalizedKind = kind.trim().toLowerCase().replace(/[_\s]+/g, '-')
+  const normalizedLabel = label.trim().toLowerCase().replace(/[_\s]+/g, '-')
+
+  if (normalizedKind === 'server') {
+    return 'memcached:server'
+  }
+
+  if (normalizedKind === 'diagnostics') {
+    return 'memcached:diagnostics'
+  }
+
+  if (['stats', 'slabs', 'items', 'settings', 'connections'].includes(normalizedKind)) {
+    return `memcached:${normalizedKind}`
+  }
+
+  if (normalizedLabel === 'item-classes') {
+    return 'memcached:items'
+  }
+
+  return `memcached:${normalizedKind || normalizedLabel || 'object'}`
+}
+
+function liteDbManifestNodeId(kind: string, label: string) {
+  const normalizedKind = kind.trim().toLowerCase().replace(/[_\s]+/g, '-')
+  const normalizedLabel = label.trim().toLowerCase().replace(/[_\s]+/g, '-')
+
+  if (normalizedKind === 'database') {
+    return 'litedb:database'
+  }
+
+  if (normalizedKind === 'diagnostics') {
+    return 'litedb:diagnostics'
+  }
+
+  if (['collections', 'indexes', 'file-storage', 'storage', 'settings'].includes(normalizedKind)) {
+    return `litedb:${normalizedKind}`
+  }
+
+  if (normalizedKind === 'files' || normalizedLabel === 'files') {
+    return 'litedb:files'
+  }
+
+  if (normalizedKind === 'chunks' || normalizedLabel === 'chunks') {
+    return 'litedb:chunks'
+  }
+
+  return `litedb:${normalizedKind || normalizedLabel || 'object'}`
+}
+
+function cosmosManifestNodeId(
+  connection: ConnectionProfile,
+  kind: string,
+  label: string,
+  parentPath: string[],
+) {
+  const normalizedKind = kind.trim().toLowerCase().replace(/[_\s]+/g, '-')
+  const normalizedLabel = label.trim().toLowerCase().replace(/[_\s]+/g, '-')
+  const database =
+    parentPath.find((segment) => !isCosmosCategory(segment)) ||
+    connection.database?.trim() ||
+    'catalog'
+
+  if (normalizedKind === 'account') {
+    return 'cosmos:account'
+  }
+
+  if (normalizedKind === 'databases') {
+    return 'cosmos:databases'
+  }
+
+  if (normalizedKind === 'database') {
+    return `cosmos:database:${label || database}`
+  }
+
+  if (normalizedKind === 'containers') {
+    return `cosmos:containers:${database}`
+  }
+
+  if ([
+    'regions',
+    'consistency',
+    'security',
+    'diagnostics',
+  ].includes(normalizedKind)) {
+    return `cosmos:${normalizedKind}`
+  }
+
+  if ([
+    'items',
+    'partition-key',
+    'indexing-policy',
+    'throughput',
+    'change-feed',
+    'stored-procedures',
+    'triggers',
+    'udfs',
+    'conflicts',
+  ].includes(normalizedKind)) {
+    return `cosmos:${normalizedKind}:${database}:container`
+  }
+
+  return `cosmos:${normalizedKind || normalizedLabel || 'object'}`
+}
+
+function isCosmosCategory(label: string) {
+  return [
+    'Account',
+    'Databases',
+    'Containers',
+    'Items',
+    'Partition Key',
+    'Indexing Policy',
+    'Throughput',
+    'Change Feed',
+    'Stored Procedures',
+    'Triggers',
+    'User Defined Functions',
+    'Conflict Feed',
+    'Regions',
+    'Consistency',
+    'Security',
+    'Diagnostics',
+  ].includes(label)
 }
 
 function resolveManifestTreeLabel(
@@ -220,6 +391,18 @@ function explorerNodeToConnectionTreeNode(
       normalizedKind,
     )
   const isRedisPrefix = isRedisLikeConnection(connection) && normalizedKind === 'prefix'
+  const isSearchBuilderNode =
+    connection.family === 'search' &&
+    ['index', 'data-stream', 'documents'].includes(normalizedKind)
+  const isDynamoBuilderNode =
+    connection.engine === 'dynamodb' &&
+    ['table', 'items'].includes(normalizedKind)
+  const isCassandraBuilderNode =
+    connection.engine === 'cassandra' &&
+    ['table', 'data', 'materialized-view'].includes(normalizedKind)
+  const isGraphQueryNode =
+    connection.family === 'graph' &&
+    ['graph', 'node-label', 'relationship'].includes(normalizedKind)
   const redisPattern = isRedisPrefix ? redisPatternFromExplorerNode(node) : undefined
   const label = sqlDisplayLabelForExplorerNode(connection, node, normalizedKind)
 
@@ -235,7 +418,7 @@ function explorerNodeToConnectionTreeNode(
       redisPattern !== undefined
         ? redisKeyBrowserQueryTemplate(redisPattern)
         : (node.queryTemplate ?? fallbackExplorerQueryTemplate(connection, node)),
-    queryable: isRedisPrefix || isExplorerNodeQueryable(connection, node),
+    queryable: isRedisPrefix || isGraphQueryNode || isExplorerNodeQueryable(connection, node),
     expandable: node.expandable,
     builderKind: isMongoBuilderNode
       ? normalizedKind === 'aggregations'
@@ -243,6 +426,12 @@ function explorerNodeToConnectionTreeNode(
         : 'mongo-find'
       : isRedisPrefix
         ? 'redis-key-browser'
+        : isSearchBuilderNode
+          ? 'search-dsl'
+          : isDynamoBuilderNode
+            ? 'dynamodb-key-condition'
+          : isCassandraBuilderNode
+            ? 'cql-partition'
         : undefined,
   }
 }
@@ -443,12 +632,24 @@ function isExplorerNodeQueryable(connection: ConnectionProfile, node: ExplorerNo
     )
   }
 
+  if (connection.engine === 'litedb') {
+    return ['collection', 'documents'].includes(kind)
+  }
+
+  if (connection.engine === 'cosmosdb') {
+    return ['container', 'items'].includes(kind)
+  }
+
   return Boolean(
     ['table', 'hypertable', 'view', 'materialized-view'].includes(kind) ||
       (['elasticsearch', 'opensearch'].includes(connection.engine) &&
-        ['index', 'data-stream'].includes(kind)) ||
-      (connection.engine === 'dynamodb' && kind === 'table') ||
-      (connection.engine === 'cassandra' && kind === 'table'),
+        ['index', 'data-stream', 'documents'].includes(kind)) ||
+      (connection.engine === 'dynamodb' && ['table', 'items'].includes(kind)) ||
+      (connection.engine === 'cassandra' && ['table', 'data', 'materialized-view'].includes(kind)) ||
+      (connection.family === 'graph' && ['graph', 'node-label', 'relationship'].includes(kind)) ||
+      (connection.engine === 'prometheus' && ['metric', 'series'].includes(kind)) ||
+      (connection.engine === 'influxdb' && ['measurement'].includes(kind)) ||
+      (connection.engine === 'opentsdb' && ['metric'].includes(kind)),
   )
 }
 
@@ -502,6 +703,30 @@ function sqliteConnectionTree(): ConnectionTreeNode[] {
     branch('main-database', 'Main Database', 'database', 'SQLite main database file', databaseChildren),
     branch('attached-databases-root', 'Attached Databases', 'attached-databases', 'Database files attached to this connection', []),
     branch('diagnostics', 'Diagnostics', 'diagnostics', 'PRAGMA, explain, integrity, and storage metadata', []),
+  ]
+}
+
+function duckDbConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
+  const database = connection.database || 'local DuckDB file'
+
+  return [
+    branch('main-database', 'Main Database', 'database', database, [
+      branch('schemas', 'Schemas', 'schemas', 'Attached schemas and namespaces', [
+        branch('main-schema', 'main', 'schema', 'Main DuckDB schema', [
+          branch('tables', 'Tables', 'tables', 'Analytical row/column tables', []),
+          branch('views', 'Views', 'views', 'Saved analytical projections', []),
+          branch('indexes', 'Indexes', 'indexes', 'DuckDB secondary indexes', []),
+          branch('functions', 'Functions & Macros', 'functions', 'Scalar/table functions and macros', []),
+        ]),
+        branch('temp-schema', 'temp', 'schema', 'Temporary DuckDB schema', []),
+      ]),
+      branch('attached-databases', 'Attached Databases', 'attached-databases', 'Other DuckDB files attached to this session', []),
+      branch('extensions', 'Extensions', 'extensions', 'Installed and loadable extensions', []),
+      branch('files', 'Files', 'files', 'Parquet, CSV, and JSON file sources', []),
+      branch('pragmas', 'Pragmas', 'pragmas', 'DuckDB settings and checks', []),
+      branch('statistics', 'Statistics', 'statistics', 'Storage and column statistics', []),
+    ]),
+    branch('diagnostics', 'Diagnostics', 'diagnostics', 'Memory, threads, storage, and extension health', []),
   ]
 }
 
@@ -616,7 +841,15 @@ function documentConnectionTree(connection: ConnectionProfile): ConnectionTreeNo
     ]
   }
 
-  const database = connection.database || (connection.engine === 'litedb' ? 'local file' : 'admin')
+  if (connection.engine === 'litedb') {
+    return liteDbConnectionTree(connection)
+  }
+
+  if (connection.engine === 'cosmosdb') {
+    return cosmosConnectionTree(connection)
+  }
+
+  const database = connection.database || 'admin'
 
   return [
     branch('databases', 'Databases', 'databases', 'Document database namespaces', [
@@ -628,14 +861,55 @@ function documentConnectionTree(connection: ConnectionProfile): ConnectionTreeNo
   ]
 }
 
+function liteDbConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
+  const database = fileName(connection.database || connection.host || 'local.db')
+
+  return [
+    branch('litedb-database', database, 'database', 'LiteDB local database file', [
+      branch('litedb-collections', 'Collections', 'collections', 'Document collections', []),
+      branch('litedb-indexes', 'Indexes', 'indexes', 'Collection index definitions', []),
+      branch('litedb-file-storage', 'File Storage', 'file-storage', 'Stored files and chunks', [
+        branch('litedb-files', 'Files', 'files', 'File metadata and chunk counts', []),
+        branch('litedb-chunks', 'Chunks', 'chunks', 'File chunk distribution and health', []),
+      ]),
+      branch('litedb-storage', 'Storage', 'storage', 'Pages, free space, and maintenance health', []),
+      branch('litedb-settings', 'Settings', 'settings', 'Local file connection options', []),
+    ]),
+    branch('litedb-diagnostics', 'Diagnostics', 'diagnostics', 'File health, index coverage, and storage warnings', []),
+  ]
+}
+
+function cosmosConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
+  const database = connection.database?.trim() || 'catalog'
+
+  return [
+    branch('cosmos-account', 'Account', 'account', 'Cosmos DB account topology and API surface', [
+      branch('cosmos-databases', 'Databases', 'databases', 'Cosmos DB databases', [
+        branch(`cosmos-database-${database}`, database, 'database', 'Selected Cosmos DB database', [
+          branch('cosmos-containers', 'Containers', 'containers', 'Containers and partitioned item stores', []),
+          branch('cosmos-throughput', 'Throughput', 'throughput', 'Shared database throughput where configured', []),
+          branch('cosmos-security', 'Security', 'security', 'Database access posture', []),
+        ]),
+      ]),
+      branch('cosmos-regions', 'Regions', 'regions', 'Read and write region topology', []),
+      branch('cosmos-consistency', 'Consistency', 'consistency', 'Default consistency and session behavior', []),
+      branch('cosmos-security-root', 'Security', 'security', 'RBAC, keys, networking, and access posture', []),
+      branch('cosmos-diagnostics', 'Diagnostics', 'diagnostics', 'RU, throttles, latency, and storage signals', []),
+    ]),
+  ]
+}
+
 function keyValueConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
   if (connection.engine === 'memcached') {
     return [
-      branch('namespaces', 'Namespaces', 'namespaces', 'Application key prefixes', []),
-      branch('diagnostics', 'Diagnostics', 'diagnostics', 'Runtime cache metadata', [
-        leaf('stats-slabs', 'slabs', 'metric', 'slab stats'),
-        leaf('stats-items', 'items', 'metric', 'item stats'),
+      branch('server', 'Server', 'server', 'Memcached cache server overview', [
+        branch('stats', 'Stats', 'stats', 'Operational counters, hit rate, item count, and memory use', []),
+        branch('slabs', 'Slabs', 'slabs', 'Slab classes, chunk sizes, and allocation pressure', []),
+        branch('items', 'Item Classes', 'items', 'Item-class counts, ages, evictions, and reclaim signals', []),
+        branch('settings', 'Settings', 'settings', 'Cache limits, protocol flags, and LRU behavior', []),
+        branch('connections', 'Connections', 'connections', 'Client connection pressure and rejected clients', []),
       ]),
+      branch('diagnostics', 'Diagnostics', 'diagnostics', 'Hit ratio, evictions, memory pressure, and connection pressure', []),
     ]
   }
 
@@ -649,16 +923,22 @@ function keyValueConnectionTree(connection: ConnectionProfile): ConnectionTreeNo
 }
 
 function graphConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
-  const database = connection.database || 'graph'
+  const database = connection.database || (connection.engine === 'neo4j' ? 'neo4j' : 'graph')
+  const rootLabel = connection.engine === 'arango' ? 'Graphs' : 'Databases'
 
   return [
-    branch('graphs', 'Graphs', 'graphs', 'Graph databases or named graphs', [
+    branch('graphs', rootLabel, 'graphs', 'Graph databases or named graphs', [
       branch(`graph-${database}`, database, 'graph', `${connection.engine} graph`, [
         branch('node-labels', 'Node Labels', 'node-labels', 'Vertex/node categories', []),
-        branch('relationships', 'Relationship Types', 'relationships', 'Edges and relationship types', []),
-        branch('constraints', 'Indexes & Constraints', 'constraints', 'Graph lookup and uniqueness rules', []),
+        branch('relationship-types', 'Relationship Types', 'relationship-types', 'Edges and relationship types', []),
+        branch('property-keys', 'Property Keys', 'property-keys', 'Graph property definitions', []),
+        branch('indexes', 'Indexes', 'indexes', 'Graph lookup indexes', []),
+        branch('constraints', 'Constraints', 'constraints', 'Graph uniqueness and existence rules', []),
       ]),
     ]),
+    branch('procedures', connection.engine === 'neptune' ? 'Loader Jobs' : connection.engine === 'arango' ? 'Services' : 'Procedures', 'procedures', 'Procedures, services, algorithms, or loader jobs', []),
+    branch('security', 'Security', 'security', 'Users, roles, IAM, and graph permissions', []),
+    branch('diagnostics', 'Diagnostics', 'diagnostics', 'Query, storage, and schema health', []),
   ]
 }
 
@@ -667,7 +947,42 @@ function timeseriesConnectionTree(connection: ConnectionProfile): ConnectionTree
     return [
       branch('metrics', 'Metrics', 'metrics', 'PromQL metric families', []),
       branch('labels', 'Labels', 'labels', 'Metric dimensions', []),
+      branch('targets', 'Targets', 'targets', 'Scrape targets', []),
       branch('rules', 'Rules', 'rules', 'Alerting and recording rules', []),
+      branch('alerts', 'Alerts', 'alerts', 'Alert state', []),
+      branch('service-discovery', 'Service Discovery', 'service-discovery', 'Discovered and dropped targets', []),
+      branch('tsdb', 'TSDB / Storage', 'tsdb', 'Head blocks, WAL, and retention status', []),
+      branch('diagnostics', 'Diagnostics', 'diagnostics', 'Runtime and status metadata', []),
+    ]
+  }
+
+  if (connection.engine === 'influxdb') {
+    const bucket = connection.database || 'telemetry'
+    return [
+      branch('buckets', 'Buckets', 'buckets', 'InfluxDB buckets and retention scopes', [
+        branch(`bucket-${bucket}`, bucket, 'bucket', 'InfluxDB bucket', [
+          branch('measurements', 'Measurements', 'measurements', 'Measurement schema', []),
+          branch('tags', 'Tags', 'tags', 'Indexed dimensions', []),
+          branch('fields', 'Fields', 'fields', 'Value fields', []),
+          branch('retention-policies', 'Retention Policies', 'retention-policies', 'Retention and shard groups', []),
+        ]),
+      ]),
+      branch('tasks', 'Tasks', 'tasks', 'Scheduled Flux tasks', []),
+      branch('security', 'Tokens', 'security', 'Authorizations and bucket scopes', []),
+      branch('diagnostics', 'Diagnostics', 'diagnostics', 'Cardinality, storage, and query health', []),
+    ]
+  }
+
+  if (connection.engine === 'opentsdb') {
+    return [
+      branch('metrics', 'Metrics', 'metrics', 'OpenTSDB metric names', []),
+      branch('tags', 'Tags', 'tags', 'Tag keys and values', []),
+      branch('aggregators', 'Aggregators', 'aggregators', 'Supported aggregation functions', []),
+      branch('downsampling', 'Downsampling', 'downsampling', 'Downsample windows and fill policies', []),
+      branch('uid-metadata', 'UID Metadata', 'uid-metadata', 'Metric and tag UID metadata', []),
+      branch('trees', 'Trees', 'trees', 'OpenTSDB tree definitions', []),
+      branch('stats', 'Stats', 'stats', 'OpenTSDB runtime stats', []),
+      branch('diagnostics', 'Diagnostics', 'diagnostics', 'Backend health and query risk', []),
     ]
   }
 
@@ -774,4 +1089,8 @@ function leaf(
   options: Partial<ConnectionTreeNode> = {},
 ): ConnectionTreeNode {
   return { id, label, kind, detail, ...options }
+}
+
+function fileName(value: string) {
+  return value.split(/[\\/]/).filter(Boolean).at(-1) ?? value
 }

@@ -193,7 +193,7 @@ pub(crate) fn snowflake_profile_payload(response: &Value, live: bool) -> Value {
         if live {
             "Snowflake SQL API/profile payload."
         } else {
-            "Snowflake profile placeholder for request-builder mode."
+            "Snowflake request profile and cost readiness."
         },
         json!({
             "statementHandle": response.get("statementHandle").cloned().unwrap_or(Value::Null),

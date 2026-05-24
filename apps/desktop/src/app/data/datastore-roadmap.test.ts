@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   ADAPTER_CAPABILITIES,
   DATASTORE_ENGINES,
+  DATASTORE_COMPLETENESS_CRITERIA,
+  DATASTORE_COMPLETENESS_MATRIX,
   DATASTORE_FAMILIES,
   DATASTORE_FEATURE_BACKLOG,
   BETA_ADAPTER_ENGINES,
@@ -10,6 +12,8 @@ import {
   QUERY_LANGUAGES,
   RESULT_RENDERERS,
   datastoreBacklogByEngine,
+  datastoreCompletenessForEngine,
+  incompleteCriteriaForEngine,
 } from '@datapadplusplus/shared-types'
 import { adapterManifests } from './workspace-factory'
 
@@ -150,6 +154,46 @@ describe('datastore roadmap catalog', () => {
     )
     expect(datastoreBacklogByEngine('litedb')?.capabilities).toEqual(
       expect.arrayContaining(['supports_document_view', 'supports_index_management']),
+    )
+  })
+
+  it('publishes a native-completeness matrix for every datastore engine', () => {
+    const matrixEngines = DATASTORE_COMPLETENESS_MATRIX.map((entry) => entry.engine)
+
+    expect(new Set(matrixEngines).size).toBe(matrixEngines.length)
+    expect([...matrixEngines].sort()).toEqual([...DATASTORE_ENGINES].sort())
+
+    for (const entry of DATASTORE_COMPLETENESS_MATRIX) {
+      expect(entry.nativeScore).toBeGreaterThanOrEqual(0)
+      expect(entry.nativeScore).toBeLessThanOrEqual(5)
+      expect(entry.targetPhase).toBeGreaterThan(0)
+      expect(entry.summary.trim().length).toBeGreaterThan(20)
+      expect(entry.criteria.map((criterion) => criterion.criterion)).toEqual([
+        ...DATASTORE_COMPLETENESS_CRITERIA,
+      ])
+      for (const criterion of entry.criteria) {
+        expect(criterion.note.trim().length, `${entry.engine}.${criterion.criterion} note`).toBeGreaterThan(20)
+        expect(criterion.next.length, `${entry.engine}.${criterion.criterion} next steps`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('identifies MongoDB as the first near-native reference target without hiding remaining gaps', () => {
+    const mongo = datastoreCompletenessForEngine('mongodb')
+
+    expect(mongo).toMatchObject({
+      readiness: 'near-native',
+      nativeScore: 4,
+      targetPhase: 1,
+    })
+    expect(mongo?.criteria.find((item) => item.criterion === 'object-views')?.status).toBe(
+      'strong',
+    )
+    expect(mongo?.criteria.find((item) => item.criterion === 'safe-editing')?.status).toBe(
+      'partial',
+    )
+    expect(incompleteCriteriaForEngine('mongodb').map((item) => item.criterion)).toEqual(
+      expect.arrayContaining(['safe-editing', 'diagnostics-performance', 'import-export']),
     )
   })
 })

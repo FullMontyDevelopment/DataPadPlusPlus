@@ -43,7 +43,7 @@ pub(super) async fn execute_cassandra_query(
     let (columns, rows) = normalize_cassandra_response(&response, row_limit);
     let row_count = rows.len() as u32;
     let profile_payload = payload_profile(
-        "Cassandra tracing/profile placeholder.",
+        "Cassandra tracing and partition-key guardrails.",
         json!({
             "contactPoint": cassandra_contact_point(connection),
             "keyspace": cassandra_keyspace(connection),

@@ -135,11 +135,19 @@ pub(super) async fn list_mongodb_explorer_nodes(
         }
         Some(scope) if scope.starts_with("search-indexes:") => {
             let database_name = scoped_database(scope, "search-indexes:", &fallback_database);
-            mongo_unavailable_node(&database_name, "Search Indexes", "Atlas Search index metadata is available through Atlas APIs or `$listSearchIndexes` on supported clusters.")
+            mongo_unavailable_node(
+                &database_name,
+                "Search Indexes",
+                "Atlas Search index metadata is available through Atlas APIs or `$listSearchIndexes` on supported clusters.",
+            )
         }
         Some(scope) if scope.starts_with("vector-indexes:") => {
             let database_name = scoped_database(scope, "vector-indexes:", &fallback_database);
-            mongo_unavailable_node(&database_name, "Vector Indexes", "Vector search indexes are listed when the connected MongoDB deployment exposes Atlas Search metadata.")
+            mongo_unavailable_node(
+                &database_name,
+                "Vector Indexes",
+                "Vector search indexes are listed when the connected MongoDB deployment exposes Atlas Search metadata.",
+            )
         }
         Some(scope) if scope.starts_with("users:") => {
             let database_name = scoped_database(scope, "users:", &fallback_database);
@@ -379,6 +387,45 @@ pub(super) async fn inspect_mongodb_explorer_node(
         .await);
     }
 
+    if let Some(database_name) = node_id.strip_prefix("database:") {
+        let database = client.database(database_name);
+        let infos = list_collection_infos(&database).await?;
+        let stats = database
+            .run_command(doc! { "dbStats": 1, "scale": 1 })
+            .await;
+        let gridfs_buckets = gridfs_buckets_from_infos(&infos);
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("Database overview ready for {database_name}."),
+            query_template: Some(mongodb_command_query_template(
+                database_name,
+                doc! { "dbStats": 1, "scale": 1 },
+            )),
+            payload: Some(json!({
+                "database": database_name,
+                "collections": infos.iter()
+                    .filter(|item| item.collection_type == "collection" && !item.is_time_series() && !item.is_capped() && !is_gridfs_collection(&item.name))
+                    .map(collection_info_payload)
+                    .collect::<Vec<_>>(),
+                "views": infos.iter()
+                    .filter(|item| item.collection_type == "view")
+                    .map(collection_info_payload)
+                    .collect::<Vec<_>>(),
+                "timeSeriesCollections": infos.iter()
+                    .filter(|item| item.is_time_series())
+                    .map(collection_info_payload)
+                    .collect::<Vec<_>>(),
+                "cappedCollections": infos.iter()
+                    .filter(|item| item.is_capped())
+                    .map(collection_info_payload)
+                    .collect::<Vec<_>>(),
+                "gridfsBuckets": gridfs_buckets,
+                "statistics": stats.ok(),
+            })),
+        });
+    }
+
     if let Some(rest) = node_id
         .strip_prefix("collection:")
         .or_else(|| node_id.strip_prefix("documents:"))
@@ -393,7 +440,19 @@ pub(super) async fn inspect_mongodb_explorer_node(
             .await?
             .try_collect::<Vec<Document>>()
             .await?;
-        let index_names = collection.list_index_names().await?;
+        let indexes = client
+            .database(&database_name)
+            .run_command(doc! { "listIndexes": &collection_name })
+            .await
+            .ok();
+        let info =
+            collection_info_by_name(&client.database(&database_name), &collection_name).await?;
+        let validator = info.and_then(|item| item.options.get_document("validator").ok().cloned());
+        let statistics = client
+            .database(&database_name)
+            .run_command(doc! { "collStats": &collection_name, "scale": 1 })
+            .await
+            .ok();
 
         return Ok(ExplorerInspectResponse {
             node_id: request.node_id.clone(),
@@ -406,7 +465,9 @@ pub(super) async fn inspect_mongodb_explorer_node(
             payload: Some(json!({
                 "database": database_name,
                 "collection": collection_name,
-                "indexes": index_names,
+                "indexes": indexes,
+                "validator": validator,
+                "statistics": statistics,
                 "sampleDocuments": sample_documents,
             })),
         });
@@ -1198,8 +1259,44 @@ async fn collection_info_by_name(
         .find(|item| item.name == collection_name))
 }
 
+fn collection_info_payload(info: &MongoCollectionInfo) -> Value {
+    json!({
+        "name": info.name,
+        "type": info.collection_type,
+        "options": info.options,
+        "pipeline": info.options.get_array("pipeline").cloned().unwrap_or_default(),
+    })
+}
+
+fn is_gridfs_collection(collection_name: &str) -> bool {
+    collection_name.ends_with(".files") || collection_name.ends_with(".chunks")
+}
+
+fn gridfs_buckets_from_infos(infos: &[MongoCollectionInfo]) -> Vec<Value> {
+    let mut buckets = infos
+        .iter()
+        .filter_map(|info| info.name.strip_suffix(".files"))
+        .map(|bucket| {
+            json!({
+                "name": bucket,
+                "filesCollection": format!("{bucket}.files"),
+                "chunksCollection": format!("{bucket}.chunks"),
+            })
+        })
+        .collect::<Vec<_>>();
+    buckets.sort_by_key(|item| item["name"].as_str().unwrap_or_default().to_string());
+    buckets
+}
+
+#[derive(Default)]
+struct SchemaFieldSummary {
+    count: usize,
+    type_distribution: BTreeMap<String, usize>,
+    examples: Vec<Value>,
+}
+
 fn infer_schema_fields(documents: &[Document]) -> Vec<Value> {
-    let mut fields = BTreeMap::<String, (String, usize)>::new();
+    let mut fields = BTreeMap::<String, SchemaFieldSummary>::new();
 
     for document in documents {
         collect_document_fields("", document, &mut fields);
@@ -1207,11 +1304,21 @@ fn infer_schema_fields(documents: &[Document]) -> Vec<Value> {
 
     fields
         .into_iter()
-        .map(|(path, (bson_type, count))| {
+        .map(|(path, summary)| {
+            let primary_type = summary
+                .type_distribution
+                .iter()
+                .max_by_key(|(_, count)| *count)
+                .map(|(bson_type, _)| bson_type.clone())
+                .unwrap_or_else(|| "unknown".into());
             json!({
                 "path": path,
-                "type": bson_type,
-                "count": count,
+                "type": primary_type,
+                "types": summary.type_distribution.keys().cloned().collect::<Vec<_>>(),
+                "typeDistribution": summary.type_distribution,
+                "count": summary.count,
+                "presenceCount": summary.count,
+                "examples": summary.examples,
             })
         })
         .collect()
@@ -1220,7 +1327,7 @@ fn infer_schema_fields(documents: &[Document]) -> Vec<Value> {
 fn collect_document_fields(
     prefix: &str,
     document: &Document,
-    fields: &mut BTreeMap<String, (String, usize)>,
+    fields: &mut BTreeMap<String, SchemaFieldSummary>,
 ) {
     for (key, value) in document {
         let path = if prefix.is_empty() {
@@ -1228,10 +1335,17 @@ fn collect_document_fields(
         } else {
             format!("{prefix}.{key}")
         };
-        let entry = fields
-            .entry(path.clone())
-            .or_insert_with(|| (bson_type_name(value).into(), 0));
-        entry.1 += 1;
+        let entry = fields.entry(path.clone()).or_default();
+        entry.count += 1;
+        *entry
+            .type_distribution
+            .entry(bson_type_name(value).into())
+            .or_default() += 1;
+        if entry.examples.len() < 3 && !matches!(value, Bson::Document(_)) {
+            entry
+                .examples
+                .push(serde_json::to_value(value).unwrap_or_else(|_| json!(bson_type_name(value))));
+        }
 
         if let Bson::Document(child) = value {
             collect_document_fields(&path, child, fields);
@@ -1328,8 +1442,9 @@ fn mongodb_command_query_template(database_name: &str, command: Document) -> Str
 #[cfg(test)]
 mod tests {
     use super::{
-        infer_schema_fields, mongodb_collection_children, mongodb_collection_node,
-        mongodb_database_children, mongodb_root_database_nodes,
+        collection_info_payload, gridfs_buckets_from_infos, infer_schema_fields,
+        is_gridfs_collection, mongodb_collection_children, mongodb_collection_node,
+        mongodb_database_children, mongodb_root_database_nodes, MongoCollectionInfo,
     };
     use crate::domain::models::ResolvedConnectionProfile;
     use mongodb::bson::doc;
@@ -1434,10 +1549,18 @@ mod tests {
 
     #[test]
     fn mongodb_schema_preview_infers_nested_bson_fields() {
-        let fields = infer_schema_fields(&[doc! {
-            "_id": "p1",
-            "inventory": { "available": 3_i32 },
-        }]);
+        let fields = infer_schema_fields(&[
+            doc! {
+                "_id": "p1",
+                "sku": "luna-lamp",
+                "inventory": { "available": 3_i32 },
+            },
+            doc! {
+                "_id": "p2",
+                "sku": "aurora-desk",
+                "inventory": { "available": 8_i64 },
+            },
+        ]);
         let paths = fields
             .iter()
             .map(|field| field["path"].as_str().unwrap_or_default())
@@ -1446,6 +1569,43 @@ mod tests {
         assert!(paths.contains(&"_id"));
         assert!(paths.contains(&"inventory"));
         assert!(paths.contains(&"inventory.available"));
+        let inventory = fields
+            .iter()
+            .find(|field| field["path"] == "inventory.available")
+            .unwrap();
+        assert_eq!(inventory["presenceCount"], 2);
+        assert_eq!(inventory["typeDistribution"]["int32"], 1);
+        assert_eq!(inventory["typeDistribution"]["int64"], 1);
+        let sku = fields.iter().find(|field| field["path"] == "sku").unwrap();
+        assert_eq!(sku["examples"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn mongodb_database_overview_helpers_classify_collections() {
+        let infos = vec![
+            MongoCollectionInfo {
+                name: "products".into(),
+                collection_type: "collection".into(),
+                options: doc! {},
+            },
+            MongoCollectionInfo {
+                name: "fs.files".into(),
+                collection_type: "collection".into(),
+                options: doc! {},
+            },
+            MongoCollectionInfo {
+                name: "active_products".into(),
+                collection_type: "view".into(),
+                options: doc! { "pipeline": [{ "$match": { "active": true } }] },
+            },
+        ];
+
+        assert!(!is_gridfs_collection(&infos[0].name));
+        assert!(is_gridfs_collection(&infos[1].name));
+        assert_eq!(gridfs_buckets_from_infos(&infos)[0]["name"], "fs");
+        let view = collection_info_payload(&infos[2]);
+        assert_eq!(view["name"], "active_products");
+        assert_eq!(view["pipeline"].as_array().unwrap().len(), 1);
     }
 
     fn resolved_connection(database: Option<&str>) -> ResolvedConnectionProfile {

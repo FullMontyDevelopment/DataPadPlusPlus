@@ -1,9 +1,12 @@
 import type { BootstrapPayload, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateQueryBuilderStateRequest } from '@datapadplusplus/shared-types'
+import { resolveEnvironment } from '../../app/state/helpers'
 import { closeQueryTab, createEnvironmentTabInSnapshot, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createObjectViewTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, upsertTab } from './browser-tabs'
 import { collectDiagnosticsLocally } from './browser-operation-inspection'
-import { inspectExplorerNodeLocally } from './browser-explorer'
+import { redactForEnvironment } from './browser-response-redaction'
 import { buildBrowserPayload, cloneSnapshot, findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
+import { redactErrorMessage } from '../../app/state/security-redaction'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
+import { validateCreateObjectViewTabRequest, validateRequiredTabId } from './request-validation'
 
 export const clientTabs = {
   async setActiveTab(tabId: string): Promise<BootstrapPayload> {
@@ -119,16 +122,20 @@ export const clientTabs = {
   async createObjectViewTab(
     request: CreateObjectViewTabRequest,
   ): Promise<BootstrapPayload> {
+    const normalizedRequest = validateCreateObjectViewTabRequest(request)
     if (isTauriRuntime()) {
-      return invokeDesktop<BootstrapPayload>('create_object_view_tab', { request })
+      return invokeDesktop<BootstrapPayload>('create_object_view_tab', {
+        request: normalizedRequest,
+      })
     }
 
-    const snapshot = createObjectViewTabInSnapshot(loadBrowserSnapshot(), request)
+    const snapshot = createObjectViewTabInSnapshot(loadBrowserSnapshot(), normalizedRequest)
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
   },
 
   async refreshObjectViewTab(tabId: string): Promise<BootstrapPayload> {
+    validateRequiredTabId(tabId)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('refresh_object_view_tab', { tabId })
     }
@@ -141,17 +148,22 @@ export const clientTabs = {
     }
 
     try {
+      const { inspectExplorerNodeLocally } = await import('./browser-explorer')
       const response = inspectExplorerNodeLocally(next, {
         connectionId: tab.connectionId,
         environmentId: tab.environmentId,
         nodeId: tab.objectViewState.nodeId,
       })
+      const redactedResponse = redactForEnvironment(
+        response,
+        resolveEnvironment(next.environments, tab.environmentId),
+      )
       const refreshedAt = new Date().toISOString()
       tab.objectViewState = {
         ...tab.objectViewState,
-        summary: response.summary,
-        queryTemplate: response.queryTemplate,
-        payload: response.payload,
+        summary: redactedResponse.summary,
+        queryTemplate: redactedResponse.queryTemplate,
+        payload: redactedResponse.payload,
         lastRefreshedAt: refreshedAt,
         warnings: [],
       }
@@ -160,7 +172,7 @@ export const clientTabs = {
       tab.dirty = false
       tab.lastRunAt = refreshedAt
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to refresh object view.'
+      const message = redactErrorMessage(error, 'Unable to refresh object view.')
       tab.objectViewState = {
         ...tab.objectViewState,
         lastRefreshedAt: new Date().toISOString(),
@@ -198,20 +210,24 @@ export const clientTabs = {
         environmentId: tab.environmentId,
         scope: 'connection',
       })
+      const diagnostics = redactForEnvironment(
+        response.diagnostics,
+        resolveEnvironment(next.environments, tab.environmentId),
+      )
       const refreshedAt = new Date().toISOString()
       tab.metricsState = {
         connectionId: tab.connectionId,
         environmentId: tab.environmentId,
         lastRefreshedAt: refreshedAt,
-        diagnostics: response.diagnostics,
-        warnings: response.diagnostics.warnings,
+        diagnostics,
+        warnings: diagnostics.warnings,
       }
       tab.status = 'success'
       tab.error = undefined
       tab.dirty = false
       tab.lastRunAt = refreshedAt
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to refresh metrics.'
+      const message = redactErrorMessage(error, 'Unable to refresh metrics.')
       tab.metricsState = {
         connectionId: tab.connectionId,
         environmentId: tab.environmentId,

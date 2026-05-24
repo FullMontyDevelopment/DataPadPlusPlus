@@ -1,8 +1,11 @@
 use crate::{
-    domain::models::{
-        DataEditExecutionRequest, DataEditExecutionResponse, DataEditPlanResponse,
-        DatastoreOperationManifest, EnvironmentProfile, OperationExecutionRequest,
-        OperationExecutionResponse, OperationPlan, ResolvedEnvironment,
+    domain::{
+        error::redact_sensitive_text,
+        models::{
+            DataEditExecutionRequest, DataEditExecutionResponse, DataEditPlanResponse,
+            DatastoreOperationManifest, EnvironmentProfile, OperationExecutionRequest,
+            OperationExecutionResponse, OperationPlan, ResolvedEnvironment,
+        },
     },
     security,
 };
@@ -104,6 +107,7 @@ pub(super) fn operation_execution_blocked_response(
     for warning in warnings {
         push_unique_warning(&mut plan.warnings, warning);
     }
+    plan.generated_request = redact_sensitive_text(&plan.generated_request);
 
     OperationExecutionResponse {
         connection_id: request.connection_id.clone(),
@@ -129,6 +133,8 @@ pub(super) fn data_edit_execution_blocked_response(
     for warning in warnings {
         push_unique_warning(&mut plan_response.plan.warnings, warning);
     }
+    plan_response.plan.generated_request =
+        redact_sensitive_text(&plan_response.plan.generated_request);
 
     DataEditExecutionResponse {
         connection_id: request.connection_id.clone(),
@@ -146,21 +152,23 @@ pub(super) fn data_edit_execution_blocked_response(
 
 pub(super) fn merge_environment_plan_into_operation_response(
     response: &mut OperationExecutionResponse,
-    plan: OperationPlan,
+    mut plan: OperationPlan,
 ) {
     for warning in &plan.warnings {
         push_unique_warning(&mut response.warnings, warning.clone());
     }
+    plan.generated_request = redact_sensitive_text(&plan.generated_request);
     response.plan = plan;
 }
 
 pub(super) fn merge_environment_plan_into_data_edit_response(
     response: &mut DataEditExecutionResponse,
-    plan: OperationPlan,
+    mut plan: OperationPlan,
 ) {
     for warning in &plan.warnings {
         push_unique_warning(&mut response.warnings, warning.clone());
     }
+    plan.generated_request = redact_sensitive_text(&plan.generated_request);
     response.plan = plan;
 }
 
@@ -179,6 +187,7 @@ mod tests {
             inherits_from: None,
             variables: HashMap::new(),
             sensitive_keys: Vec::new(),
+            variable_definitions: Vec::new(),
             requires_confirmation,
             safe_mode,
             exportable: true,
@@ -196,6 +205,7 @@ mod tests {
             unresolved_keys,
             inherited_chain: Vec::new(),
             sensitive_keys: Vec::new(),
+            variable_definitions: Vec::new(),
         }
     }
 

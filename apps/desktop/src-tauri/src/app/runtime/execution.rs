@@ -1,9 +1,17 @@
 use sha2::{Digest, Sha256};
 
 use super::{
+    environments::resolve_string_template,
     generate_id,
+    response_redaction::{
+        redact_execution_result_for_environment, redact_result_page_for_environment,
+    },
     sql_hints::{enrich_sql_execution_error, sql_dialect_hint_message},
-    timestamp_now, ManagedAppState,
+    timestamp_now,
+    validators::{
+        validate_cancel_execution_request, validate_execution_request, validate_result_page_request,
+    },
+    ManagedAppState,
 };
 use crate::{
     adapters,
@@ -21,9 +29,10 @@ use crate::{
 impl ManagedAppState {
     pub async fn execute_query(
         &mut self,
-        request: ExecutionRequest,
+        mut request: ExecutionRequest,
     ) -> Result<ExecutionResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_execution_request(&mut request)?;
         let tab_index = self
             .snapshot
             .tabs
@@ -34,7 +43,21 @@ impl ManagedAppState {
         let environment = self.environment_by_id(&request.environment_id)?;
         let (resolved_connection, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        let query_text = adapters::selected_query(&request).to_string();
+        let query_template = adapters::selected_query(&request).to_string();
+        let query_text = resolve_string_template(&query_template, &resolved_environment.variables)?;
+        let mut resolved_request = request.clone();
+        resolved_request.query_text =
+            resolve_string_template(&request.query_text, &resolved_environment.variables)?;
+        resolved_request.selected_text = request
+            .selected_text
+            .as_deref()
+            .map(|value| resolve_string_template(value, &resolved_environment.variables))
+            .transpose()?;
+        resolved_request.script_text = request
+            .script_text
+            .as_deref()
+            .map(|value| resolve_string_template(value, &resolved_environment.variables))
+            .transpose()?;
         let mut guardrail = security::evaluate_guardrails(
             &profile,
             &environment,
@@ -67,7 +90,7 @@ impl ManagedAppState {
                         0,
                         QueryHistoryEntry {
                             id: generate_id("history"),
-                            query_text,
+                            query_text: query_template,
                             executed_at,
                             status: "blocked".into(),
                         },
@@ -127,9 +150,17 @@ impl ManagedAppState {
         let result = if guardrail.status == "block" {
             None
         } else {
-            match adapters::execute(&resolved_connection, &request, execution_notices.clone()).await
+            match adapters::execute(
+                &resolved_connection,
+                &resolved_request,
+                execution_notices.clone(),
+            )
+            .await
             {
-                Ok(result) => Some(result),
+                Ok(result) => Some(redact_execution_result_for_environment(
+                    result,
+                    &resolved_environment,
+                )),
                 Err(error) => {
                     return Err(enrich_sql_execution_error(
                         &resolved_connection,
@@ -162,7 +193,7 @@ impl ManagedAppState {
                 0,
                 QueryHistoryEntry {
                     id: generate_id("history"),
-                    query_text,
+                    query_text: query_template,
                     executed_at,
                     status: status.clone(),
                 },
@@ -206,6 +237,7 @@ impl ManagedAppState {
         request: CancelExecutionRequest,
     ) -> Result<CancelExecutionResult, CommandError> {
         self.ensure_unlocked()?;
+        validate_cancel_execution_request(&request)?;
         let tab = request
             .tab_id
             .as_ref()
@@ -221,13 +253,26 @@ impl ManagedAppState {
 
     pub async fn fetch_result_page(
         &self,
-        request: ResultPageRequest,
+        mut request: ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_result_page_request(&mut request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
-        let (resolved, _, _) =
+        let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        adapters::fetch_result_page(&resolved, &request).await
+        let mut resolved_request = request.clone();
+        resolved_request.query_text =
+            resolve_string_template(&request.query_text, &resolved_environment.variables)?;
+        resolved_request.selected_text = request
+            .selected_text
+            .as_deref()
+            .map(|value| resolve_string_template(value, &resolved_environment.variables))
+            .transpose()?;
+        let response = adapters::fetch_result_page(&resolved, &resolved_request).await?;
+        Ok(redact_result_page_for_environment(
+            response,
+            &resolved_environment,
+        ))
     }
 }
 

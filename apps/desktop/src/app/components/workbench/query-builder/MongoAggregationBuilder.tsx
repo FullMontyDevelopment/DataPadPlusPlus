@@ -1,4 +1,5 @@
 import type {
+  ConnectionProfile,
   MongoAggregationBuilderState,
   MongoAggregationStageRow,
   QueryBuilderState,
@@ -6,6 +7,8 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { BuilderSection } from './BuilderSection'
 import { buildMongoAggregationQueryText } from './mongo-aggregation'
+import { mongoQueryScopeForTab } from './mongo-query-scope'
+import { MongoScopeSummary } from './MongoScopeSummary'
 
 const STAGE_OPTIONS = [
   '$match',
@@ -21,6 +24,7 @@ const STAGE_OPTIONS = [
 ]
 
 interface MongoAggregationBuilderProps {
+  connection?: ConnectionProfile
   tab: QueryTabState
   builderState: MongoAggregationBuilderState
   collectionOptions: string[]
@@ -28,6 +32,7 @@ interface MongoAggregationBuilderProps {
 }
 
 export function MongoAggregationBuilder({
+  connection,
   tab,
   builderState,
   collectionOptions,
@@ -37,6 +42,11 @@ export function MongoAggregationBuilder({
   const resolvedCollectionOptions = Array.from(
     new Set([draft.collection, ...collectionOptions].map((item) => item.trim()).filter(Boolean)),
   )
+  const scope = mongoQueryScopeForTab({
+    builderState: draft,
+    connection,
+    tab,
+  })
 
   const updateDraft = (patch: Partial<MongoAggregationBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
@@ -90,6 +100,7 @@ export function MongoAggregationBuilder({
 
   return (
     <section className="query-builder-panel" aria-label="MongoDB aggregation builder">
+      <MongoScopeSummary scope={scope} />
       <div className="query-builder-grid">
         <label className="query-builder-field">
           <span>Collection</span>

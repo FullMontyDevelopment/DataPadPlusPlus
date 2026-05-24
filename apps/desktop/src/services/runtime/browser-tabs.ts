@@ -346,6 +346,59 @@ export function createScopedQueryTabInSnapshot(
               viewMode: 'tree',
               lastAppliedQueryText: queryText,
             }
+        : builderKind === 'dynamodb-key-condition'
+          ? {
+              kind: 'dynamodb-key-condition',
+              table: targetLabel,
+              partitionKey: {
+                id: 'pk',
+                enabled: true,
+                field: 'pk',
+                operator: 'eq',
+                value: '',
+                valueType: 'string',
+              },
+              filters: [],
+              projectionFields: [],
+              limit: 20,
+              lastAppliedQueryText: queryText,
+            }
+        : builderKind === 'cql-partition'
+          ? {
+              kind: 'cql-partition',
+              keyspace: cassandraKeyspaceFromTarget(request.target, connection),
+              table: targetLabel,
+              projectionFields: [],
+              partitionKeys: [
+                {
+                  id: 'partition-key',
+                  enabled: true,
+                  field: cassandraPartitionKeyFromTarget(request.target),
+                  operator: 'eq',
+                  value: '',
+                  valueType: 'string',
+                },
+              ],
+              clusteringKeys: [],
+              filters: [],
+              limit: 20,
+              lastAppliedQueryText: queryText,
+            }
+        : builderKind === 'search-dsl'
+          ? {
+              kind: 'search-dsl',
+              index: targetLabel,
+              queryMode: 'match-all',
+              field: '',
+              value: '',
+              valueType: 'string',
+              filters: [],
+              sourceFields: [],
+              sort: [],
+              aggregations: [],
+              size: 20,
+              lastAppliedQueryText: queryText,
+            }
         : undefined,
     status: 'idle',
     dirty: true,
@@ -374,7 +427,46 @@ function scopedBuilderKind(
     return 'redis-key-browser'
   }
 
+  if (
+    connection.engine === 'dynamodb' &&
+    target.preferredBuilder === 'dynamodb-key-condition'
+  ) {
+    return 'dynamodb-key-condition'
+  }
+
+  if (connection.engine === 'cassandra' && target.preferredBuilder === 'cql-partition') {
+    return 'cql-partition'
+  }
+
+  if (
+    (connection.engine === 'elasticsearch' || connection.engine === 'opensearch') &&
+    target.preferredBuilder === 'search-dsl'
+  ) {
+    return 'search-dsl'
+  }
+
   return undefined
+}
+
+function cassandraKeyspaceFromTarget(
+  target: ScopedQueryTarget,
+  connection: ConnectionProfile,
+) {
+  const scoped = target.scope?.replace('table:', '')
+  const scopedKeyspace = scoped?.includes('.') ? scoped.split('.')[0] : undefined
+  const pathKeyspace = target.path?.find(
+    (segment) =>
+      !['Keyspaces', 'Tables', 'Data', 'Materialized Views'].includes(segment) &&
+      segment !== target.label,
+  )
+
+  return scopedKeyspace || pathKeyspace || connection.database || 'app'
+}
+
+function cassandraPartitionKeyFromTarget(target: ScopedQueryTarget) {
+  const queryText = target.queryTemplate ?? ''
+  const match = /\bwhere\s+"?([A-Za-z_][\w]*)"?\s*=/i.exec(queryText)
+  return match?.[1] ?? (target.label.includes('product') ? 'sku' : 'customer_id')
 }
 
 function uniqueExplorerTabTitle(snapshot: WorkspaceSnapshot, connection: ConnectionProfile) {

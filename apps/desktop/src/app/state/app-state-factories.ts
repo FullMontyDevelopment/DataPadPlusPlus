@@ -95,6 +95,7 @@ export function createEnvironmentProfile(source?: Partial<EnvironmentProfile>): 
     inheritsFrom: source?.inheritsFrom,
     variables: source?.variables ?? {},
     sensitiveKeys: source?.sensitiveKeys ?? [],
+    variableDefinitions: source?.variableDefinitions ?? [],
     requiresConfirmation: source?.requiresConfirmation ?? false,
     safeMode: source?.safeMode ?? false,
     exportable: source?.exportable ?? true,

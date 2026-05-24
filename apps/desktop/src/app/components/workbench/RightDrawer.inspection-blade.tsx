@@ -3,6 +3,7 @@ import type {
   ExplorerInspectResponse,
 } from '@datapadplusplus/shared-types'
 import { ExplorerIcon } from './icons'
+import { InspectionPayloadSummary } from './InspectionPayloadSummary'
 import { DrawerHeader } from './RightDrawer.primitives'
 
 export function InspectionBlade({
@@ -19,8 +20,8 @@ export function InspectionBlade({
   return (
     <>
       <DrawerHeader
-        title="Inspection"
-        subtitle="Object"
+        title="Object Details"
+        subtitle="Selected object"
         icon={ExplorerIcon}
         onClose={onClose}
       />
@@ -35,7 +36,7 @@ export function InspectionBlade({
               disabled={!inspection?.queryTemplate}
               onClick={() => onApplyTemplate(inspection?.queryTemplate)}
             >
-              Apply template
+              Apply starter query
             </button>
           </div>
 
@@ -44,30 +45,39 @@ export function InspectionBlade({
           </p>
 
           {inspection?.queryTemplate ? (
-            <pre className="drawer-code">
-              <code>{inspection.queryTemplate}</code>
-            </pre>
+            <p className="drawer-copy">
+              A starter query is available for this object. Apply it to review the query in an
+              editor.
+            </p>
           ) : null}
 
           {inspection?.payload ? (
-            <pre className="drawer-code">
-              <code>{JSON.stringify(inspection.payload, null, 2)}</code>
-            </pre>
+            <InspectionPayloadSummary drawer payload={inspection.payload} />
           ) : null}
         </div>
 
         <div className="drawer-section">
           <div className="drawer-section-header">
-            <strong>Capabilities</strong>
-            <span>adapter</span>
+            <strong>Available actions</strong>
+            <span>connection</span>
           </div>
           <div className="drawer-pill-row">
-            <span className="drawer-pill">Metadata {capabilities.supportsLiveMetadata ? 'yes' : 'no'}</span>
-            <span className="drawer-pill">Cancel {capabilities.canCancel ? 'yes' : 'no'}</span>
-            <span className="drawer-pill">Explain {capabilities.canExplain ? 'yes' : 'no'}</span>
+            <span className="drawer-pill">
+              Live metadata {availabilityLabel(capabilities.supportsLiveMetadata)}
+            </span>
+            <span className="drawer-pill">
+              Cancel running work {availabilityLabel(capabilities.canCancel)}
+            </span>
+            <span className="drawer-pill">
+              Explain plans {availabilityLabel(capabilities.canExplain)}
+            </span>
           </div>
         </div>
       </div>
     </>
   )
+}
+
+function availabilityLabel(available: boolean) {
+  return available ? 'available' : 'unavailable'
 }

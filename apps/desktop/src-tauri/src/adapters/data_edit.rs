@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::domain::error::redact_sensitive_text;
+
 use super::*;
 
 mod requests;
@@ -22,7 +24,7 @@ pub(crate) fn default_data_edit_plan(
                 && scope.live_execution
         });
     let validation_warnings = validate_edit_target(connection, request);
-    let generated_request = generated_edit_request(connection, request);
+    let generated_request = redact_sensitive_text(&generated_edit_request(connection, request));
     let confirmation_text = confirmation_text(connection, request, live_execution);
     let mut warnings = vec![
         "Data edits are routed through guarded operation plans before any adapter may execute them."

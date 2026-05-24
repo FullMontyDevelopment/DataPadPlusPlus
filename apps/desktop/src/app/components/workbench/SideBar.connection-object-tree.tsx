@@ -18,29 +18,86 @@ import {
   RefreshIcon,
 } from './icons'
 import {
+  cassandraObjectViewMenuLabel,
+  isCassandraObjectViewKind,
+} from './CassandraObjectViewDescriptors'
+import {
+  dynamoObjectViewMenuLabel,
+  isDynamoObjectViewKind,
+} from './DynamoObjectViewDescriptors'
+import {
+  cosmosObjectViewMenuLabel,
+  isCosmosObjectViewKind,
+} from './CosmosObjectViewDescriptors'
+import {
+  duckDbObjectViewMenuLabel,
+  isDuckDbObjectViewKind,
+} from './DuckDbObjectViewDescriptors'
+import {
+  graphObjectViewMenuLabel,
+  isGraphObjectViewKind,
+} from './GraphObjectViewDescriptors'
+import {
+  influxObjectViewMenuLabel,
+  isInfluxObjectViewKind,
+} from './InfluxObjectViewDescriptors'
+import {
   cockroachObjectViewMenuLabel,
   isCockroachObjectViewKind,
 } from './CockroachObjectViewDescriptors'
 import {
+  isMongoObjectViewKind,
   mongoObjectViewMenuLabel,
   mongoScopedQueryMenuLabel,
 } from './MongoObjectViewDescriptors'
+import {
+  isLiteDbObjectViewKind,
+  liteDbObjectViewMenuLabel,
+} from './LiteDbObjectViewDescriptors'
+import {
+  isMemcachedObjectViewKind,
+  memcachedObjectViewMenuLabel,
+} from './MemcachedObjectViewDescriptors'
+import {
+  isMysqlObjectViewKind,
+  mysqlObjectViewMenuLabel,
+} from './MysqlObjectViewDescriptors'
 import {
   isOracleObjectViewKind,
   oracleObjectViewMenuLabel,
 } from './OracleObjectViewDescriptors'
 import {
+  isOpenTsdbObjectViewKind,
+  openTsdbObjectViewMenuLabel,
+} from './OpenTsdbObjectViewDescriptors'
+import {
   isPostgresObjectViewKind,
   postgresObjectViewMenuLabel,
 } from './PostgresObjectViewDescriptors'
+import {
+  isPrometheusObjectViewKind,
+  prometheusObjectViewMenuLabel,
+} from './PrometheusObjectViewDescriptors'
 import {
   isRedisObjectViewKind,
   redisObjectViewMenuLabel,
 } from './RedisObjectViewDescriptors'
 import {
+  isSearchObjectViewKind,
+  searchObjectViewMenuLabel,
+} from './SearchObjectViewDescriptors'
+import {
   isSqlServerObjectViewKind,
   sqlServerObjectViewMenuLabel,
 } from './SqlServerObjectViewDescriptors'
+import {
+  isSqliteObjectViewKind,
+  sqliteObjectViewMenuLabel,
+} from './SqliteObjectViewDescriptors'
+import {
+  isWarehouseObjectViewKind,
+  warehouseObjectViewMenuLabel,
+} from './WarehouseObjectViewDescriptors'
 import {
   buildConnectionObjectTree,
   buildConnectionObjectTreeFromExplorerNodes,
@@ -272,7 +329,16 @@ function shouldOverlayLiveExplorer(connection: ConnectionProfile) {
     connection.engine === 'cockroachdb' ||
     connection.engine === 'timescaledb' ||
     connection.engine === 'sqlserver' ||
-    connection.engine === 'sqlite'
+    connection.engine === 'sqlite' ||
+    connection.engine === 'duckdb' ||
+    connection.engine === 'cassandra' ||
+    connection.engine === 'litedb' ||
+    connection.family === 'graph' ||
+    connection.family === 'warehouse' ||
+    connection.engine === 'prometheus' ||
+    connection.engine === 'influxdb' ||
+    connection.engine === 'opentsdb' ||
+    connection.engine === 'memcached'
   )
 }
 
@@ -639,6 +705,18 @@ function isObjectViewNode(connection: ConnectionProfile, node: ConnectionTreeNod
     return isRedisObjectViewNode(node)
   }
 
+  if (connection.engine === 'memcached') {
+    return isMemcachedObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'litedb') {
+    return isLiteDbObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'cosmosdb') {
+    return isCosmosObjectViewKind(node.kind)
+  }
+
   if (connection.engine === 'oracle') {
     return isOracleObjectViewKind(node.kind)
   }
@@ -655,6 +733,50 @@ function isObjectViewNode(connection: ConnectionProfile, node: ConnectionTreeNod
     return isSqlServerObjectViewKind(node.kind)
   }
 
+  if (connection.engine === 'sqlite') {
+    return isSqliteObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'duckdb') {
+    return isDuckDbObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'mysql' || connection.engine === 'mariadb') {
+    return isMysqlObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'elasticsearch' || connection.engine === 'opensearch') {
+    return isSearchObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'dynamodb') {
+    return isDynamoObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'cassandra') {
+    return isCassandraObjectViewKind(node.kind)
+  }
+
+  if (connection.family === 'graph') {
+    return isGraphObjectViewKind(node.kind)
+  }
+
+  if (connection.family === 'warehouse') {
+    return isWarehouseObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'prometheus') {
+    return isPrometheusObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'influxdb') {
+    return isInfluxObjectViewKind(node.kind)
+  }
+
+  if (connection.engine === 'opentsdb') {
+    return isOpenTsdbObjectViewKind(node.kind)
+  }
+
   return isMongoObjectViewNode(connection, node)
 }
 
@@ -663,26 +785,7 @@ function isMongoObjectViewNode(connection: ConnectionProfile, node: ConnectionTr
     return false
   }
 
-  return [
-    'database',
-    'collection',
-    'view',
-    'schema-preview',
-    'indexes',
-    'validation-rules',
-    'collection-statistics',
-    'database-statistics',
-    'permissions',
-    'scripts',
-    'pipeline',
-    'gridfs',
-    'gridfs-buckets',
-    'gridfs-bucket',
-    'users',
-    'roles',
-    'search-indexes',
-    'vector-indexes',
-  ].includes(node.kind)
+  return isMongoObjectViewKind(node.kind)
 }
 
 function isRedisObjectViewNode(node: ConnectionTreeNode) {
@@ -896,7 +999,7 @@ function isDuplicatePrimaryMongoAction(
     return false
   }
 
-  if (['open-documents', 'sample-view', 'open-aggregation'].includes(action.id)) {
+  if (['open-documents', 'preview-view-results', 'open-aggregation'].includes(action.id)) {
     return true
   }
 
@@ -924,8 +1027,64 @@ function objectViewMenuLabel(connection: ConnectionProfile, kind: string | undef
     return sqlServerObjectViewMenuLabel(kind)
   }
 
+  if (connection.engine === 'sqlite') {
+    return sqliteObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'duckdb') {
+    return duckDbObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'mysql' || connection.engine === 'mariadb') {
+    return mysqlObjectViewMenuLabel(kind)
+  }
+
   if (connection.engine === 'redis' || connection.engine === 'valkey') {
     return redisObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'memcached') {
+    return memcachedObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'litedb') {
+    return liteDbObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'cosmosdb') {
+    return cosmosObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'elasticsearch' || connection.engine === 'opensearch') {
+    return searchObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'dynamodb') {
+    return dynamoObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'cassandra') {
+    return cassandraObjectViewMenuLabel(kind)
+  }
+
+  if (connection.family === 'graph') {
+    return graphObjectViewMenuLabel(kind)
+  }
+
+  if (connection.family === 'warehouse') {
+    return warehouseObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'prometheus') {
+    return prometheusObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'influxdb') {
+    return influxObjectViewMenuLabel(kind)
+  }
+
+  if (connection.engine === 'opentsdb') {
+    return openTsdbObjectViewMenuLabel(kind)
   }
 
   return 'Open View'
@@ -938,6 +1097,36 @@ function scopedQueryMenuLabel(connection: ConnectionProfile, kind: string | unde
 
   if (connection.engine === 'redis' || connection.engine === 'valkey') {
     return 'Open Key Browser'
+  }
+
+  if (connection.engine === 'prometheus') {
+    return 'Open PromQL Query'
+  }
+
+  if (connection.engine === 'influxdb') {
+    return 'Open Time-Series Query'
+  }
+
+  if (connection.engine === 'opentsdb') {
+    return 'Open OpenTSDB Query'
+  }
+
+  if (connection.family === 'graph') {
+    return connection.engine === 'arango'
+      ? 'Open AQL Query'
+      : connection.engine === 'neptune' || connection.engine === 'janusgraph'
+        ? 'Open Gremlin Query'
+        : 'Open Cypher Query'
+  }
+
+  if (connection.family === 'warehouse') {
+    return connection.engine === 'bigquery'
+      ? 'Open BigQuery SQL'
+      : connection.engine === 'snowflake'
+        ? 'Open Snowflake SQL'
+        : connection.engine === 'clickhouse'
+          ? 'Open ClickHouse SQL'
+          : 'Open SQL Query'
   }
 
   return 'Open Query'

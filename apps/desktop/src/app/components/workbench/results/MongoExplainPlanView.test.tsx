@@ -108,6 +108,25 @@ describe('MongoExplainPlanView', () => {
     expect(screen.getByText('PostgreSQL plan')).toBeInTheDocument()
     expect(screen.queryByText('MongoDB Explain')).not.toBeInTheDocument()
   })
+
+  it('keeps unfamiliar MongoDB explain details behind a disclosure', () => {
+    render(
+      <ResultPayloadView
+        connection={connection('mongodb')}
+        payload={{
+          renderer: 'plan',
+          format: 'json',
+          value: { ok: 1, unexpected: { nested: true } },
+          summary: 'MongoDB execution plan',
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Explain details')).toBeInTheDocument()
+    expect(screen.queryByText('Raw explain payload')).not.toBeInTheDocument()
+    expect(screen.getByText('View unparsed details')).toBeInTheDocument()
+    expect(screen.queryByText('unexpected')).not.toBeInTheDocument()
+  })
 })
 
 function findExplain() {

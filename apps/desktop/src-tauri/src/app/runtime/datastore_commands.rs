@@ -1,7 +1,13 @@
 use std::collections::BTreeMap;
 
-use serde_json::json;
-
+use super::validators::{
+    validate_adapter_diagnostics_request, validate_data_edit_execution_request,
+    validate_data_edit_plan_request, validate_explorer_inspect_request, validate_explorer_request,
+    validate_operation_execution_request, validate_operation_manifest_request,
+    validate_operation_plan_request, validate_permission_inspection_request,
+    validate_redis_key_inspect_request, validate_redis_key_scan_request,
+    validate_structure_request,
+};
 use super::{
     environment_guards::{
         apply_environment_guards_to_data_edit_plan, apply_environment_guards_to_operation_plan,
@@ -9,12 +15,18 @@ use super::{
         merge_environment_plan_into_data_edit_response,
         merge_environment_plan_into_operation_response, operation_execution_blocked_response,
     },
+    response_redaction::{
+        redact_adapter_diagnostics_for_environment, redact_data_edit_plan_response_for_environment,
+        redact_data_edit_response_for_environment, redact_execution_result_for_environment,
+        redact_explorer_inspection_for_environment, redact_operation_plan_response_for_environment,
+        redact_operation_response_for_environment,
+    },
     timestamp_now, ManagedAppState,
 };
 use crate::{
     adapters,
     domain::{
-        error::CommandError,
+        error::{redact_sensitive_text, CommandError},
         models::{
             AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, DataEditExecutionRequest,
             DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse,
@@ -24,7 +36,6 @@ use crate::{
             OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest,
             PermissionInspectionResponse, QueryHistoryEntry, RedisKeyInspectRequest,
             RedisKeyScanRequest, RedisKeyScanResponse, StructureRequest, StructureResponse,
-            UserFacingError,
         },
     },
 };
@@ -32,9 +43,10 @@ use crate::{
 impl ManagedAppState {
     pub async fn list_explorer_nodes(
         &mut self,
-        request: ExplorerRequest,
+        mut request: ExplorerRequest,
     ) -> Result<ExplorerResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_explorer_request(&mut request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let (resolved, _, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
@@ -54,17 +66,23 @@ impl ManagedAppState {
         request: ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_explorer_inspect_request(&request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
-        let (resolved, _, _) =
+        let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        adapters::inspect_explorer_node(&resolved, &request).await
+        let response = adapters::inspect_explorer_node(&resolved, &request).await?;
+        Ok(redact_explorer_inspection_for_environment(
+            response,
+            &resolved_environment,
+        ))
     }
 
     pub async fn load_structure_map(
         &self,
-        request: StructureRequest,
+        mut request: StructureRequest,
     ) -> Result<StructureResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_structure_request(&mut request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let (resolved, _, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
@@ -73,9 +91,10 @@ impl ManagedAppState {
 
     pub async fn scan_redis_keys(
         &self,
-        request: RedisKeyScanRequest,
+        mut request: RedisKeyScanRequest,
     ) -> Result<RedisKeyScanResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_redis_key_scan_request(&mut request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let (resolved, _, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
@@ -84,9 +103,10 @@ impl ManagedAppState {
 
     pub async fn inspect_redis_key(
         &mut self,
-        request: RedisKeyInspectRequest,
+        mut request: RedisKeyInspectRequest,
     ) -> Result<crate::domain::models::ExecutionResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_redis_key_inspect_request(&mut request)?;
         let tab_index = self
             .snapshot
             .tabs
@@ -94,9 +114,12 @@ impl ManagedAppState {
             .position(|item| item.id == request.tab_id)
             .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
         let profile = self.connection_by_id(&request.connection_id)?;
-        let (resolved, _, _) =
+        let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        let result = adapters::inspect_redis_key(&resolved, &request).await?;
+        let result = redact_execution_result_for_environment(
+            adapters::inspect_redis_key(&resolved, &request).await?,
+            &resolved_environment,
+        );
         let executed_at = timestamp_now();
         let tab_response = {
             let tab = &mut self.snapshot.tabs[tab_index];
@@ -151,6 +174,7 @@ impl ManagedAppState {
         request: OperationManifestRequest,
     ) -> Result<OperationManifestResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_operation_manifest_request(&request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let (resolved, _, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
@@ -169,6 +193,7 @@ impl ManagedAppState {
         request: OperationPlanRequest,
     ) -> Result<OperationPlanResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_operation_plan_request(&request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let environment = self.environment_by_id(&request.environment_id)?;
         let (resolved, resolved_environment, _) =
@@ -196,19 +221,25 @@ impl ManagedAppState {
             &resolved_environment,
             self.snapshot.preferences.safe_mode_enabled,
         );
+        plan.generated_request = redact_sensitive_text(&plan.generated_request);
 
-        Ok(OperationPlanResponse {
+        let response = OperationPlanResponse {
             connection_id: request.connection_id,
             environment_id: request.environment_id,
             plan,
-        })
+        };
+        Ok(redact_operation_plan_response_for_environment(
+            response,
+            &resolved_environment,
+        ))
     }
 
     pub async fn execute_operation(
         &self,
-        request: OperationExecutionRequest,
+        mut request: OperationExecutionRequest,
     ) -> Result<OperationExecutionResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_operation_execution_request(&mut request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let environment = self.environment_by_id(&request.environment_id)?;
         let (resolved, resolved_environment, _) =
@@ -236,9 +267,10 @@ impl ManagedAppState {
             &resolved_environment,
             self.snapshot.preferences.safe_mode_enabled,
         );
+        plan.generated_request = redact_sensitive_text(&plan.generated_request);
 
         if environment_execution_blocked(&resolved_environment) {
-            return Ok(operation_execution_blocked_response(
+            let response = operation_execution_blocked_response(
                 &request,
                 operation
                     .as_ref()
@@ -249,12 +281,16 @@ impl ManagedAppState {
                     "Unresolved environment variables must be fixed before this operation can run."
                         .into(),
                 ],
+            );
+            return Ok(redact_operation_response_for_environment(
+                response,
+                &resolved_environment,
             ));
         }
 
         if let Some(expected) = plan.confirmation_text.clone() {
             if request.confirmation_text.as_deref() != Some(expected.as_str()) {
-                return Ok(operation_execution_blocked_response(
+                let response = operation_execution_blocked_response(
                     &request,
                     operation
                         .as_ref()
@@ -264,13 +300,20 @@ impl ManagedAppState {
                     vec![format!(
                         "Type `{expected}` before executing this operation."
                     )],
+                );
+                return Ok(redact_operation_response_for_environment(
+                    response,
+                    &resolved_environment,
                 ));
             }
         }
 
         let mut response = adapters::execute_operation(&resolved, &request).await?;
         merge_environment_plan_into_operation_response(&mut response, plan);
-        Ok(response)
+        Ok(redact_operation_response_for_environment(
+            response,
+            &resolved_environment,
+        ))
     }
 
     pub async fn plan_data_edit(
@@ -278,6 +321,7 @@ impl ManagedAppState {
         request: DataEditPlanRequest,
     ) -> Result<DataEditPlanResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_data_edit_plan_request(&request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let environment = self.environment_by_id(&request.environment_id)?;
         let (resolved, resolved_environment, _) =
@@ -289,7 +333,11 @@ impl ManagedAppState {
             &resolved_environment,
             self.snapshot.preferences.safe_mode_enabled,
         );
-        Ok(response)
+        response.plan.generated_request = redact_sensitive_text(&response.plan.generated_request);
+        Ok(redact_data_edit_plan_response_for_environment(
+            response,
+            &resolved_environment,
+        ))
     }
 
     pub async fn execute_data_edit(
@@ -297,6 +345,7 @@ impl ManagedAppState {
         mut request: DataEditExecutionRequest,
     ) -> Result<DataEditExecutionResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_data_edit_execution_request(&request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let environment = self.environment_by_id(&request.environment_id)?;
         let (resolved, resolved_environment, _) =
@@ -327,33 +376,46 @@ impl ManagedAppState {
             &resolved_environment,
             self.snapshot.preferences.safe_mode_enabled,
         );
+        plan_response.plan.generated_request =
+            redact_sensitive_text(&plan_response.plan.generated_request);
 
         if environment_execution_blocked(&resolved_environment) {
-            return Ok(data_edit_execution_blocked_response(
+            let response = data_edit_execution_blocked_response(
                 &request,
                 plan_response,
                 vec![
                     "Unresolved environment variables must be fixed before this data edit can run."
                         .into(),
                 ],
+            );
+            return Ok(redact_data_edit_response_for_environment(
+                response,
+                &resolved_environment,
             ));
         }
 
         if let Some(expected) = plan_response.plan.confirmation_text.clone() {
             if request.confirmation_text.as_deref() != Some(expected.as_str()) {
-                return Ok(data_edit_execution_blocked_response(
+                let response = data_edit_execution_blocked_response(
                     &request,
                     plan_response,
                     vec![format!(
                         "This data edit requires confirmation before it can run ({expected})."
                     )],
+                );
+                return Ok(redact_data_edit_response_for_environment(
+                    response,
+                    &resolved_environment,
                 ));
             }
         }
 
         let mut response = adapters::execute_data_edit(&resolved, &request).await?;
         merge_environment_plan_into_data_edit_response(&mut response, plan_response.plan);
-        Ok(response)
+        Ok(redact_data_edit_response_for_environment(
+            response,
+            &resolved_environment,
+        ))
     }
 
     pub async fn inspect_permissions(
@@ -361,6 +423,7 @@ impl ManagedAppState {
         request: PermissionInspectionRequest,
     ) -> Result<PermissionInspectionResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_permission_inspection_request(&request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let (resolved, _, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
@@ -378,8 +441,9 @@ impl ManagedAppState {
         request: AdapterDiagnosticsRequest,
     ) -> Result<AdapterDiagnosticsResponse, CommandError> {
         self.ensure_unlocked()?;
+        validate_adapter_diagnostics_request(&request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
-        let (resolved, _, _) =
+        let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
         let diagnostics =
             adapters::collect_diagnostics(&resolved, request.scope.as_deref()).await?;
@@ -387,189 +451,11 @@ impl ManagedAppState {
         Ok(AdapterDiagnosticsResponse {
             connection_id: request.connection_id,
             environment_id: request.environment_id,
-            diagnostics,
+            diagnostics: redact_adapter_diagnostics_for_environment(
+                diagnostics,
+                &resolved_environment,
+            ),
         })
-    }
-
-    pub async fn refresh_metrics_tab(
-        &mut self,
-        tab_id: &str,
-    ) -> Result<crate::domain::models::BootstrapPayload, CommandError> {
-        self.ensure_unlocked()?;
-        let tab_index = self
-            .snapshot
-            .tabs
-            .iter()
-            .position(|item| item.id == tab_id)
-            .ok_or_else(|| CommandError::new("tab-missing", "Metrics tab was not found."))?;
-        let tab = self.snapshot.tabs[tab_index].clone();
-
-        if tab.tab_kind.as_deref() != Some("metrics") {
-            return Err(CommandError::new(
-                "tab-kind-invalid",
-                "Only Metrics tabs can refresh connection metrics.",
-            ));
-        }
-
-        let profile = self.connection_by_id(&tab.connection_id)?;
-        let (resolved, _, _) = self.resolve_connection_profile(&profile, &tab.environment_id)?;
-        let refreshed_at = timestamp_now();
-        let diagnostics_result = adapters::collect_diagnostics(&resolved, Some("connection")).await;
-
-        {
-            let tab = &mut self.snapshot.tabs[tab_index];
-            tab.last_run_at = Some(refreshed_at.clone());
-            tab.dirty = false;
-            tab.result = None;
-            match diagnostics_result {
-                Ok(diagnostics) => {
-                    let warnings = diagnostics.warnings.clone();
-                    tab.status = "success".into();
-                    tab.error = None;
-                    tab.metrics_state = Some(json!({
-                        "connectionId": tab.connection_id.clone(),
-                        "environmentId": tab.environment_id.clone(),
-                        "lastRefreshedAt": refreshed_at,
-                        "diagnostics": diagnostics,
-                        "warnings": warnings,
-                    }));
-                }
-                Err(error) => {
-                    tab.status = "error".into();
-                    tab.error = Some(UserFacingError {
-                        code: error.code.clone(),
-                        message: error.message.clone(),
-                    });
-                    tab.metrics_state = Some(json!({
-                        "connectionId": tab.connection_id.clone(),
-                        "environmentId": tab.environment_id.clone(),
-                        "lastRefreshedAt": refreshed_at,
-                        "warnings": [error.message],
-                    }));
-                }
-            }
-        }
-
-        self.snapshot.ui.active_tab_id = tab_id.into();
-        self.snapshot.ui.active_connection_id = tab.connection_id;
-        self.snapshot.ui.active_environment_id = tab.environment_id;
-        self.snapshot.ui.right_drawer = "none".into();
-        self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
-        Ok(self.bootstrap_payload())
-    }
-
-    pub async fn refresh_object_view_tab(
-        &mut self,
-        tab_id: &str,
-    ) -> Result<crate::domain::models::BootstrapPayload, CommandError> {
-        self.ensure_unlocked()?;
-        let tab_index = self
-            .snapshot
-            .tabs
-            .iter()
-            .position(|item| item.id == tab_id)
-            .ok_or_else(|| CommandError::new("tab-missing", "Object view tab was not found."))?;
-        let tab = self.snapshot.tabs[tab_index].clone();
-
-        if tab.tab_kind.as_deref() != Some("object-view") {
-            return Err(CommandError::new(
-                "tab-kind-invalid",
-                "Only object-view tabs can refresh object metadata.",
-            ));
-        }
-
-        let object_view_state = tab.object_view_state.clone().ok_or_else(|| {
-            CommandError::new(
-                "object-view-state-missing",
-                "Object view tab is missing its target metadata.",
-            )
-        })?;
-        let node_id = object_view_state
-            .get("nodeId")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| {
-                CommandError::new(
-                    "object-view-node-missing",
-                    "Object view tab is missing its target node id.",
-                )
-            })?
-            .to_string();
-        let label = object_view_state
-            .get("label")
-            .and_then(|value| value.as_str())
-            .unwrap_or("Object")
-            .to_string();
-        let kind = object_view_state
-            .get("kind")
-            .and_then(|value| value.as_str())
-            .unwrap_or("object")
-            .to_string();
-        let path = object_view_state.get("path").cloned();
-
-        let profile = self.connection_by_id(&tab.connection_id)?;
-        let (resolved, _, _) = self.resolve_connection_profile(&profile, &tab.environment_id)?;
-        let refreshed_at = timestamp_now();
-        let inspect_result = adapters::inspect_explorer_node(
-            &resolved,
-            &ExplorerInspectRequest {
-                connection_id: tab.connection_id.clone(),
-                environment_id: tab.environment_id.clone(),
-                node_id: node_id.clone(),
-            },
-        )
-        .await;
-
-        {
-            let tab = &mut self.snapshot.tabs[tab_index];
-            tab.last_run_at = Some(refreshed_at.clone());
-            tab.dirty = false;
-            tab.result = None;
-            match inspect_result {
-                Ok(inspection) => {
-                    tab.status = "success".into();
-                    tab.error = None;
-                    tab.object_view_state = Some(json!({
-                        "connectionId": tab.connection_id.clone(),
-                        "environmentId": tab.environment_id.clone(),
-                        "nodeId": node_id,
-                        "label": label,
-                        "kind": kind,
-                        "path": path,
-                        "summary": inspection.summary,
-                        "queryTemplate": inspection.query_template,
-                        "payload": inspection.payload,
-                        "lastRefreshedAt": refreshed_at,
-                        "warnings": []
-                    }));
-                }
-                Err(error) => {
-                    tab.status = "error".into();
-                    tab.error = Some(UserFacingError {
-                        code: error.code.clone(),
-                        message: error.message.clone(),
-                    });
-                    tab.object_view_state = Some(json!({
-                        "connectionId": tab.connection_id.clone(),
-                        "environmentId": tab.environment_id.clone(),
-                        "nodeId": node_id,
-                        "label": label,
-                        "kind": kind,
-                        "path": path,
-                        "lastRefreshedAt": refreshed_at,
-                        "warnings": [error.message]
-                    }));
-                }
-            }
-        }
-
-        self.snapshot.ui.active_tab_id = tab_id.into();
-        self.snapshot.ui.active_connection_id = tab.connection_id;
-        self.snapshot.ui.active_environment_id = tab.environment_id;
-        self.snapshot.ui.right_drawer = "none".into();
-        self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
-        Ok(self.bootstrap_payload())
     }
 }
 

@@ -89,7 +89,7 @@ export function DatastoreEngineSelect({
                     disabled={planned}
                     title={
                       planned
-                        ? `${option.label} is planned and not selectable yet.`
+                        ? `${option.label} is coming soon and is not selectable yet.`
                         : `Use ${option.label} for this connection.`
                     }
                     onClick={() => {
@@ -106,7 +106,7 @@ export function DatastoreEngineSelect({
                       <strong>{option.label}</strong>
                       <small>
                         {option.family}
-                        {planned ? ' / planned' : ''}
+                        {planned ? ' / Coming soon' : ''}
                       </small>
                     </span>
                   </button>

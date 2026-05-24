@@ -1,28 +1,25 @@
 import type { CSSProperties, ReactNode } from 'react'
 import type { DatastoreEngine } from '@datapadplusplus/shared-types'
 import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
-import {
-  siApachecassandra,
-  siArangodb,
-  siClickhouse,
-  siCockroachlabs,
-  siDuckdb,
-  siElasticsearch,
-  siGooglebigquery,
-  siInfluxdb,
-  siMariadb,
-  siMongodb,
-  siMysql,
-  siNeo4j,
-  siOpensearch,
-  siPostgresql,
-  siPrometheus,
-  siRedis,
-  siSnowflake,
-  siSqlite,
-  siTimescale,
-  type SimpleIcon,
-} from 'simple-icons'
+import apacheCassandraIcon from 'simple-icons/icons/apachecassandra.svg?raw'
+import arangoDbIcon from 'simple-icons/icons/arangodb.svg?raw'
+import clickHouseIcon from 'simple-icons/icons/clickhouse.svg?raw'
+import cockroachLabsIcon from 'simple-icons/icons/cockroachlabs.svg?raw'
+import duckDbIcon from 'simple-icons/icons/duckdb.svg?raw'
+import elasticsearchIcon from 'simple-icons/icons/elasticsearch.svg?raw'
+import googleBigQueryIcon from 'simple-icons/icons/googlebigquery.svg?raw'
+import influxDbIcon from 'simple-icons/icons/influxdb.svg?raw'
+import mariaDbIcon from 'simple-icons/icons/mariadb.svg?raw'
+import mongoDbIcon from 'simple-icons/icons/mongodb.svg?raw'
+import mySqlIcon from 'simple-icons/icons/mysql.svg?raw'
+import neo4jIcon from 'simple-icons/icons/neo4j.svg?raw'
+import openSearchIcon from 'simple-icons/icons/opensearch.svg?raw'
+import postgreSqlIcon from 'simple-icons/icons/postgresql.svg?raw'
+import prometheusIcon from 'simple-icons/icons/prometheus.svg?raw'
+import redisIcon from 'simple-icons/icons/redis.svg?raw'
+import snowflakeIcon from 'simple-icons/icons/snowflake.svg?raw'
+import sqliteIcon from 'simple-icons/icons/sqlite.svg?raw'
+import timescaleIcon from 'simple-icons/icons/timescale.svg?raw'
 
 type IconVariant =
   | 'analytics-bars'
@@ -54,47 +51,59 @@ interface DatastoreIconMeta {
   color: string
   accent: string
   variant?: IconVariant
-  brandIcon?: SimpleIcon
+  brandIcon?: BrandIcon
+}
+
+interface BrandIcon {
+  hex: string
+  path: string
 }
 
 const DATASTORE_ICON_META: Record<DatastoreEngine, DatastoreIconMeta> = {
-  arango: brandIcon(siArangodb, '#a6df5b'),
-  bigquery: brandIcon(siGooglebigquery, '#fbbc04'),
-  cassandra: brandIcon(siApachecassandra, '#7fd8ff'),
-  clickhouse: brandIcon(siClickhouse, '#d9362b'),
-  cockroachdb: brandIcon(siCockroachlabs, '#b59cff'),
+  arango: brandIcon(arangoDbIcon, 'DDDF72', '#a6df5b'),
+  bigquery: brandIcon(googleBigQueryIcon, '669DF6', '#fbbc04'),
+  cassandra: brandIcon(apacheCassandraIcon, '1287B1', '#7fd8ff'),
+  clickhouse: brandIcon(clickHouseIcon, 'FFCC01', '#d9362b'),
+  cockroachdb: brandIcon(cockroachLabsIcon, '6933FF', '#b59cff'),
   cosmosdb: { color: '#0078d4', accent: '#7fd8ff', variant: 'atom' },
-  duckdb: brandIcon(siDuckdb, '#2f2f2f'),
+  duckdb: brandIcon(duckDbIcon, 'FFF000', '#2f2f2f'),
   dynamodb: { color: '#ff9900', accent: '#5a35f0', variant: 'cloud-table' },
-  elasticsearch: brandIcon(siElasticsearch, '#f6d74a'),
-  influxdb: brandIcon(siInfluxdb, '#17d4ff'),
+  elasticsearch: brandIcon(elasticsearchIcon, '005571', '#f6d74a'),
+  influxdb: brandIcon(influxDbIcon, '22ADF6', '#17d4ff'),
   janusgraph: { color: '#6f7c91', accent: '#b7c4d8', variant: 'graph-orbit' },
   litedb: { color: '#8d6e63', accent: '#d7ccc8', variant: 'document-file' },
-  mariadb: brandIcon(siMariadb, '#1f6b82'),
+  mariadb: brandIcon(mariaDbIcon, '003545', '#1f6b82'),
   memcached: { color: '#4e9a06', accent: '#b7e06a', variant: 'cache-chip' },
-  mongodb: brandIcon(siMongodb, '#8cc84b'),
-  mysql: brandIcon(siMysql, '#f29111'),
-  neo4j: brandIcon(siNeo4j, '#79c000'),
+  mongodb: brandIcon(mongoDbIcon, '47A248', '#8cc84b'),
+  mysql: brandIcon(mySqlIcon, '4479A1', '#f29111'),
+  neo4j: brandIcon(neo4jIcon, '4581C3', '#79c000'),
   neptune: { color: '#5c6bc0', accent: '#00bcd4', variant: 'graph-orbit' },
-  opensearch: brandIcon(siOpensearch, '#00a3e0'),
+  opensearch: brandIcon(openSearchIcon, '005EB8', '#00a3e0'),
   opentsdb: { color: '#34495e', accent: '#f39c12', variant: 'waveform' },
   oracle: { color: '#f80000', accent: '#ffb3b3', variant: 'oracle-ring' },
-  postgresql: brandIcon(siPostgresql, '#8db3d3'),
-  prometheus: brandIcon(siPrometheus, '#f9a03f'),
-  redis: brandIcon(siRedis, '#ffb000'),
-  snowflake: brandIcon(siSnowflake, '#b8f0ff'),
-  sqlite: brandIcon(siSqlite, '#8fd1ff'),
+  postgresql: brandIcon(postgreSqlIcon, '4169E1', '#8db3d3'),
+  prometheus: brandIcon(prometheusIcon, 'E6522C', '#f9a03f'),
+  redis: brandIcon(redisIcon, 'FF4438', '#ffb000'),
+  snowflake: brandIcon(snowflakeIcon, '29B5E8', '#b8f0ff'),
+  sqlite: brandIcon(sqliteIcon, '003B57', '#8fd1ff'),
   sqlserver: { color: '#cc2927', accent: '#f2c94c', variant: 'sql-cylinder' },
-  timescaledb: brandIcon(siTimescale, '#274690'),
+  timescaledb: brandIcon(timescaleIcon, 'FDB515', '#274690'),
   valkey: { color: '#1f9d8a', accent: '#65d6c3', variant: 'stacked-layers' },
 }
 
-function brandIcon(icon: SimpleIcon, accent: string): DatastoreIconMeta {
+function brandIcon(svg: string, hex: string, accent: string): DatastoreIconMeta {
   return {
-    color: `#${icon.hex}`,
+    color: `#${hex}`,
     accent,
-    brandIcon: icon,
+    brandIcon: {
+      hex,
+      path: svgPath(svg),
+    },
   }
+}
+
+function svgPath(svg: string) {
+  return /<path d="([^"]+)"/.exec(svg)?.[1] ?? ''
 }
 
 export function DatastoreIcon({
@@ -139,7 +148,7 @@ export function DatastoreIcon({
   )
 }
 
-function renderBrandIcon(icon: SimpleIcon): ReactNode {
+function renderBrandIcon(icon: BrandIcon): ReactNode {
   return <path className="datastore-icon-brand-path" d={icon.path} />
 }
 

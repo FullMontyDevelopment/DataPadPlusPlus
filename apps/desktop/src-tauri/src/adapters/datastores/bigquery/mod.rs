@@ -43,7 +43,7 @@ impl DatastoreAdapter for BigQueryAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_bigquery_explorer_node(connection, request))
+        inspect_bigquery_explorer_node(connection, request).await
     }
 
     async fn execute(

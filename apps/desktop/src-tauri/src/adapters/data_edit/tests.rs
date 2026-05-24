@@ -180,6 +180,75 @@ fn mongo_insert_document_preview_does_not_require_existing_document_id() {
 }
 
 #[test]
+fn data_edit_previews_redact_secret_shaped_values() {
+    let mongo_plan = default_data_edit_plan(
+        &connection("mongodb", "document", false),
+        &experience(&["insert-document"], true),
+        &request(
+            "insert-document",
+            DataEditTarget {
+                object_kind: "document".into(),
+                collection: Some("users".into()),
+                ..Default::default()
+            },
+            vec![DataEditChange {
+                value: Some(json!({
+                    "username": "testuser",
+                    "password": "open-sesame",
+                    "token": "abc123"
+                })),
+                value_type: Some("json".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+    let redis_plan = default_data_edit_plan(
+        &connection("redis", "keyvalue", false),
+        &experience(&["hash-set-field"], true),
+        &request(
+            "hash-set-field",
+            DataEditTarget {
+                object_kind: "key".into(),
+                key: Some("account:1".into()),
+                ..Default::default()
+            },
+            vec![change("password", json!("open-sesame"))],
+        ),
+    );
+    let dynamo_plan = default_data_edit_plan(
+        &connection("dynamodb", "widecolumn", false),
+        &experience(&["update-item"], true),
+        &request(
+            "update-item",
+            DataEditTarget {
+                object_kind: "item".into(),
+                table: Some("users".into()),
+                item_key: Some(HashMap::from([("pk".into(), json!("USER#1"))])),
+                ..Default::default()
+            },
+            vec![change("accessToken", json!("abc123"))],
+        ),
+    );
+
+    for plan in [&mongo_plan, &redis_plan, &dynamo_plan] {
+        assert!(!plan.plan.generated_request.contains("open-sesame"));
+        assert!(!plan.plan.generated_request.contains("abc123"));
+    }
+    assert!(mongo_plan
+        .plan
+        .generated_request
+        .contains("\"password\": \"********\""));
+    assert_eq!(
+        redis_plan.plan.generated_request,
+        "HSET account:1 password ********"
+    );
+    assert!(dynamo_plan
+        .plan
+        .generated_request
+        .contains("\":value\": \"********\""));
+}
+
+#[test]
 fn keyvalue_delete_is_destructive_and_confirmation_gated() {
     let connection = connection("redis", "keyvalue", false);
     let plan = default_data_edit_plan(

@@ -34,6 +34,7 @@ describe('QueryBuilderPanel', () => {
     expect(screen.queryByRole('heading', { name: 'products' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('Collection')).toHaveValue('products')
     expect(screen.getByLabelText('Fetch size')).toHaveValue(20)
+    expect(within(screen.getByLabelText('Mongo query scope')).getByText('products')).toBeInTheDocument()
     expect(screen.queryByLabelText('Filter group logic Group 1')).not.toBeInTheDocument()
 
     dropField(section('Filters'), 'profile.status')
@@ -61,6 +62,25 @@ describe('QueryBuilderPanel', () => {
     dropField(section('Sort'), 'createdAt')
     expect(screen.getByLabelText('Sort field')).toHaveValue('createdAt')
     expect(onBuilderStateChange).toHaveBeenCalled()
+  })
+
+  it('shows the Mongo database and collection for scoped query tabs', () => {
+    render(
+      <BuilderHarness
+        onBuilderStateChange={vi.fn()}
+        tab={mongoTab({
+          scopedTarget: {
+            kind: 'collection',
+            label: 'products',
+            scope: 'collection:catalog:products',
+          },
+        })}
+      />,
+    )
+
+    const scope = screen.getByLabelText('Mongo query scope')
+    expect(within(scope).getByText('catalog')).toBeInTheDocument()
+    expect(within(scope).getByText('products')).toBeInTheDocument()
   })
 
   it('adds a Mongo filter from the Filters section header', () => {
@@ -751,7 +771,7 @@ function createFieldDataTransfer(
   }
 }
 
-function mongoTab(): QueryTabState {
+function mongoTab(overrides: Partial<QueryTabState> = {}): QueryTabState {
   const builderState: QueryBuilderState = createDefaultMongoFindBuilderState('products')
 
   return {
@@ -767,5 +787,6 @@ function mongoTab(): QueryTabState {
     dirty: false,
     history: [],
     builderState,
+    ...overrides,
   }
 }

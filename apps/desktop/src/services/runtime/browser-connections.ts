@@ -1,5 +1,7 @@
 import type { ConnectionProfile, EnvironmentProfile, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
-import { cloneSnapshot, connectionStringContainsPlainSecret } from './browser-store'
+import { sanitizeEnvironmentProfile } from '../../app/state/environment-variables'
+import { connectionStringContainsPlainSecret } from '../../app/state/security-redaction'
+import { cloneSnapshot } from './browser-store'
 import { createQueryTabForConnection } from './browser-tabs'
 import {
   effectiveConnectionEnvironmentId,
@@ -96,12 +98,13 @@ export function upsertEnvironment(
   profile: EnvironmentProfile,
 ): WorkspaceSnapshot {
   const next = cloneSnapshot(snapshot)
-  const index = next.environments.findIndex((item) => item.id === profile.id)
+  const safeProfile = sanitizeEnvironmentProfile(profile)
+  const index = next.environments.findIndex((item) => item.id === safeProfile.id)
 
   if (index >= 0) {
-    next.environments[index] = profile
+    next.environments[index] = safeProfile
   } else {
-    next.environments.push(profile)
+    next.environments.push(safeProfile)
   }
 
   next.updatedAt = new Date().toISOString()

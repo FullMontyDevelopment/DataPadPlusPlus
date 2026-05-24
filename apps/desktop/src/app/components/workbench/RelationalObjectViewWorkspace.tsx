@@ -20,20 +20,35 @@ import {
   type CockroachObjectViewDescriptor,
 } from './CockroachObjectViewDescriptors'
 import {
+  getDuckDbObjectViewDescriptor,
+  type DuckDbObjectViewDescriptor,
+} from './DuckDbObjectViewDescriptors'
+import {
   getPostgresObjectViewDescriptor,
   type PostgresObjectViewDescriptor,
 } from './PostgresObjectViewDescriptors'
 import {
+  getMysqlObjectViewDescriptor,
+  type MysqlObjectViewDescriptor,
+} from './MysqlObjectViewDescriptors'
+import {
   getSqlServerObjectViewDescriptor,
   type SqlServerObjectViewDescriptor,
 } from './SqlServerObjectViewDescriptors'
+import {
+  getSqliteObjectViewDescriptor,
+  type SqliteObjectViewDescriptor,
+} from './SqliteObjectViewDescriptors'
 import { ExplorerNodeIcon } from './SideBar.node-icons'
 
 type JsonRecord = Record<string, unknown>
 type RelationalObjectViewDescriptor =
   | CockroachObjectViewDescriptor
+  | DuckDbObjectViewDescriptor
+  | MysqlObjectViewDescriptor
   | PostgresObjectViewDescriptor
   | SqlServerObjectViewDescriptor
+  | SqliteObjectViewDescriptor
 
 interface RelationalObjectViewWorkspaceProps {
   connection: ConnectionProfile
@@ -95,6 +110,14 @@ export function RelationalObjectViewWorkspace({
       <WarningList warnings={objectViewWarnings(tab, payload)} />
 
       <div className="object-view-body">
+        <RelationalWorkflowStrip
+          connection={connection}
+          kind={kind}
+          queryTarget={queryTarget}
+          descriptor={descriptor}
+          onOpenQuery={onOpenQuery}
+        />
+
         {cards.length ? (
           <section className="object-view-section">
             <ObjectViewSectionHeading
@@ -203,6 +226,149 @@ function ObjectViewSectionHeading({
   )
 }
 
+function RelationalWorkflowStrip({
+  connection,
+  kind,
+  queryTarget,
+  descriptor,
+  onOpenQuery,
+}: {
+  connection: ConnectionProfile
+  kind: string
+  queryTarget?: ScopedQueryTarget
+  descriptor: RelationalObjectViewDescriptor
+  onOpenQuery(target: ScopedQueryTarget): void
+}) {
+  const workflows = relationalWorkflows(connection, kind, descriptor, Boolean(queryTarget))
+  if (!workflows.length) {
+    return null
+  }
+
+  return (
+    <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
+      <div className="object-view-action-chips">
+        {workflows.map((workflow) => {
+          const chip = (
+            <>
+              <ObjectViewSectionHeadingIcon icon={workflow.icon} />
+              <span>{workflow.label}</span>
+            </>
+          )
+
+          return workflow.action === 'query' && queryTarget ? (
+            <button
+              key={workflow.label}
+              type="button"
+              className="object-view-action-chip object-view-action-chip--button"
+              title={workflow.title}
+              onClick={() => onOpenQuery(queryTarget)}
+            >
+              {chip}
+            </button>
+          ) : (
+            <span
+              key={workflow.label}
+              className="object-view-action-chip"
+              title={workflow.title}
+            >
+              {chip}
+            </span>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function ObjectViewSectionHeadingIcon({ icon }: { icon: 'table' | 'index' | 'security' | 'job' }) {
+  const Icon =
+    icon === 'index'
+      ? ObjectIndexIcon
+      : icon === 'security'
+        ? ObjectSecurityIcon
+        : icon === 'job'
+          ? ObjectJobIcon
+          : ObjectTableIcon
+
+  return <Icon className="panel-inline-icon" />
+}
+
+function relationalWorkflows(
+  connection: ConnectionProfile,
+  kind: string,
+  descriptor: RelationalObjectViewDescriptor,
+  hasQueryTarget: boolean,
+) {
+  const workflows: Array<{
+    label: string
+    title: string
+    icon: 'table' | 'index' | 'security' | 'job'
+    action?: 'query'
+  }> = []
+
+  if (hasQueryTarget) {
+    workflows.push({
+      label: 'Data',
+      title: descriptor.primaryQueryLabel ?? 'Open a bounded data query',
+      icon: 'table',
+      action: 'query',
+    })
+  }
+
+  if (['table', 'view', 'materialized-view', 'hypertable'].includes(kind)) {
+    workflows.push(
+      { label: 'Columns', title: 'Review columns and types', icon: 'table' },
+      { label: 'Indexes', title: 'Review access paths and index health', icon: 'index' },
+      { label: 'Grants', title: 'Review object permissions', icon: 'security' },
+    )
+  }
+
+  if (['procedure', 'function', 'stored-procedures', 'functions'].includes(kind)) {
+    workflows.push(
+      { label: connection.engine === 'sqlserver' ? 'T-SQL' : 'Source', title: 'Review routine source summary', icon: 'table' },
+      { label: 'Params', title: 'Review parameters and signatures', icon: 'table' },
+      { label: 'Grants', title: 'Review execute permissions', icon: 'security' },
+    )
+  }
+
+  if (['security', 'roles', 'users', 'permissions', 'schemas'].includes(kind)) {
+    workflows.push(
+      { label: 'Users', title: 'Review users and principals', icon: 'security' },
+      { label: 'Roles', title: 'Review role membership', icon: 'security' },
+      { label: 'Grants', title: 'Review effective permissions', icon: 'security' },
+    )
+  }
+
+  if (['diagnostics', 'query-store', 'query-store-view', 'cluster'].includes(kind)) {
+    workflows.push(
+      { label: 'Sessions', title: 'Review active sessions', icon: 'job' },
+      { label: 'Waits', title: 'Review waits and blocking signals', icon: 'job' },
+      { label: connection.engine === 'cockroachdb' ? 'Jobs' : 'Plans', title: 'Review workload health signals', icon: 'job' },
+    )
+  }
+
+  if (['indexes', 'index'].includes(kind)) {
+    workflows.push(
+      { label: 'Usage', title: 'Review index usage', icon: 'index' },
+      { label: 'Health', title: 'Review validity and fragmentation hints', icon: 'job' },
+      { label: 'Preview', title: 'Plan guarded index maintenance', icon: 'security' },
+    )
+  }
+
+  return dedupeWorkflows(workflows).slice(0, 5)
+}
+
+function dedupeWorkflows<T extends { label: string }>(workflows: T[]) {
+  const seen = new Set<string>()
+  return workflows.filter((workflow) => {
+    if (seen.has(workflow.label)) {
+      return false
+    }
+    seen.add(workflow.label)
+    return true
+  })
+}
+
 function relationalSections(
   kind: string,
   payload: JsonRecord,
@@ -249,21 +415,36 @@ function sectionCandidates(kind: string) {
     section('schemas', 'Schemas', ['name', 'owner', 'type', 'objectCount'], 'No schemas were returned.'),
     section('tables', 'Tables', ['schema', 'name', 'type', 'rows', 'size', 'owner'], 'No tables were returned.'),
     section('views', 'Views', ['schema', 'name', 'definition', 'status'], 'No views were returned.'),
+    section('pragmas', 'Pragmas', ['name', 'value', 'status', 'detail'], 'No PRAGMA rows were returned.'),
+    section('attachedDatabases', 'Attached Databases', ['seq', 'name', 'file', 'status'], 'No attached databases were returned.'),
+    section('schemaObjects', 'Schema Objects', ['type', 'name', 'tableName', 'definition'], 'No schema objects were returned.'),
+    section('virtualTables', 'Virtual Tables', ['schema', 'name', 'module', 'detail'], 'No virtual tables were returned.'),
+    section('generatedColumns', 'Generated Columns', ['table', 'name', 'type', 'generated', 'hidden'], 'No generated columns were returned.'),
     section('materializedViews', 'Materialized Views', ['schema', 'name', 'rows', 'size', 'lastRefresh'], 'No materialized views were returned.'),
     section('columns', 'Columns', ['name', 'type', 'nullable', 'default', 'identity', 'collation'], 'No columns were returned.'),
     section('indexes', 'Indexes', ['name', 'type', 'columns', 'unique', 'valid', 'size', 'usage'], 'No indexes were returned.', 'index' as const),
     section('constraints', 'Constraints', ['name', 'type', 'columns', 'status', 'definition'], 'No constraints were returned.'),
     section('triggers', 'Triggers', ['name', 'timing', 'event', 'enabled', 'function'], 'No triggers were returned.'),
+    section('foreignKeys', 'Foreign Keys', ['id', 'from', 'table', 'to', 'onUpdate', 'onDelete'], 'No foreign keys were returned.'),
+    section('parameters', 'Parameters', ['name', 'type', 'mode', 'default', 'ordinal'], 'No parameters were returned.'),
+    section('dependencies', 'Dependencies', ['name', 'type', 'referencedName', 'referencedType', 'direction'], 'No dependencies were returned.'),
+    section('partitions', 'Partitions', ['name', 'number', 'rows', 'range', 'compression', 'size'], 'No partitions were returned.'),
     section('functions', 'Functions', ['schema', 'name', 'arguments', 'returns', 'language', 'volatility'], 'No functions were returned.'),
     section('procedures', 'Procedures', ['schema', 'name', 'arguments', 'language', 'security'], 'No procedures were returned.'),
     section('routines', 'Routines', ['schema', 'name', 'type', 'arguments', 'returns', 'language'], 'No routines were returned.'),
+    section('events', 'Events', ['schema', 'name', 'status', 'schedule', 'lastExecuted', 'definer'], 'No events were returned.', 'job' as const),
     section('sequences', 'Sequences', ['schema', 'name', 'dataType', 'increment', 'cache', 'cycles'], 'No sequences were returned.'),
     section('types', 'Types', ['schema', 'name', 'type', 'owner'], 'No types were returned.'),
     section('extensions', 'Extensions', ['name', 'version', 'schema', 'description'], 'No extensions were returned.'),
+    section('files', 'Files', ['name', 'type', 'path', 'format', 'rows', 'size'], 'No external file metadata was returned.'),
     section('statistics', 'Statistics', ['name', 'rows', 'scans', 'lastVacuum', 'lastAnalyze', 'size'], 'No statistics were returned.'),
+    section('checks', 'Checks', ['name', 'status', 'detail'], 'No checks were returned.'),
+    section('histograms', 'Histograms', ['name', 'step', 'rangeHiKey', 'equalRows', 'rangeRows', 'distinctRangeRows'], 'No histogram rows were returned.'),
     section('permissions', 'Permissions', ['principal', 'privilege', 'object', 'state', 'grantor'], 'No permissions were returned.', 'security' as const),
+    section('grants', 'Grants', ['principal', 'privilege', 'object', 'state', 'grantor'], 'No grants were returned.', 'security' as const),
     section('roles', 'Roles', ['name', 'login', 'superuser', 'inherit', 'memberships'], 'No roles were returned.', 'security' as const),
     section('users', 'Users', ['name', 'type', 'defaultSchema', 'authenticationType'], 'No users were returned.', 'security' as const),
+    section('replication', 'Replication', ['channel', 'role', 'state', 'lagSeconds', 'sourceHost', 'gtid'], 'No replication rows were returned.', 'job' as const),
     section('nodes', 'Nodes', ['nodeId', 'address', 'locality', 'ranges', 'liveBytes', 'status'], 'No nodes were returned.', 'job' as const),
     section('ranges', 'Ranges', ['rangeId', 'table', 'replicas', 'leaseholder', 'qps', 'size'], 'No ranges were returned.', 'job' as const),
     section('regions', 'Regions / Localities', ['region', 'locality', 'nodes', 'survivalGoal', 'constraints'], 'No regions were returned.', 'job' as const),
@@ -276,8 +457,11 @@ function sectionCandidates(kind: string) {
     section('sessions', 'Sessions', ['pid', 'sessionId', 'user', 'database', 'state', 'wait', 'blockedBy'], 'No sessions were returned.', 'job' as const),
     section('locks', 'Locks', ['pid', 'sessionId', 'object', 'mode', 'granted', 'blocking'], 'No locks were returned.', 'job' as const),
     section('queryStore', 'Query Store', ['name', 'status', 'durationMs', 'executions', 'planState'], 'No Query Store rows were returned.', 'job' as const),
+    section('waits', 'Waits', ['waitType', 'waitingTasks', 'waitMs', 'signalWaitMs', 'resource'], 'No wait stats were returned.', 'job' as const),
+    section('missingIndexes', 'Missing Indexes', ['table', 'equalityColumns', 'inequalityColumns', 'includedColumns', 'impact'], 'No missing-index hints were returned.', 'index' as const),
     section('files', 'Files', ['name', 'type', 'size', 'growth', 'state'], 'No files were returned.'),
     section('filegroups', 'Filegroups', ['name', 'type', 'default', 'readOnly'], 'No filegroups were returned.'),
+    section('engines', 'Storage Engines', ['name', 'support', 'transactions', 'xa', 'savepoints'], 'No storage engines were returned.'),
   ]
 
   if (kind === 'cluster') {
@@ -288,7 +472,7 @@ function sectionCandidates(kind: string) {
 
   if (kind === 'diagnostics') {
     return common.filter((candidate) =>
-      ['sessions', 'locks', 'statistics', 'queryStore', 'statements', 'transactions', 'contention'].includes(candidate.key),
+      ['sessions', 'locks', 'statistics', 'queryStore', 'statements', 'transactions', 'contention', 'waits', 'missingIndexes'].includes(candidate.key),
     )
   }
 
@@ -297,7 +481,45 @@ function sectionCandidates(kind: string) {
   }
 
   if (kind === 'storage') {
-    return common.filter((candidate) => ['files', 'filegroups', 'statistics'].includes(candidate.key))
+    return common.filter((candidate) => ['files', 'filegroups', 'statistics', 'engines'].includes(candidate.key))
+  }
+
+  if (kind === 'database') {
+    return common.filter((candidate) =>
+      ['attachedDatabases', 'tables', 'views', 'indexes', 'triggers', 'pragmas', 'schemaObjects', 'procedures', 'functions', 'events', 'permissions', 'statistics'].includes(candidate.key),
+    )
+  }
+
+  if (kind === 'pragmas' || kind === 'pragma') {
+    return common.filter((candidate) => ['pragmas', 'checks', 'attachedDatabases', 'extensions'].includes(candidate.key))
+  }
+
+  if (kind === 'schema') {
+    return common.filter((candidate) => ['schemaObjects'].includes(candidate.key))
+  }
+
+  if (kind === 'virtual-tables' || kind === 'fts-tables' || kind === 'rtree-tables') {
+    return common.filter((candidate) => ['virtualTables'].includes(candidate.key))
+  }
+
+  if (kind === 'generated-columns') {
+    return common.filter((candidate) => ['generatedColumns', 'columns'].includes(candidate.key))
+  }
+
+  if (kind === 'events' || kind === 'event') {
+    return common.filter((candidate) => ['events'].includes(candidate.key))
+  }
+
+  if (kind === 'extensions' || kind === 'extension') {
+    return common.filter((candidate) => ['extensions', 'diagnostics'].includes(candidate.key))
+  }
+
+  if (kind === 'files') {
+    return common.filter((candidate) => ['files', 'tables', 'diagnostics'].includes(candidate.key))
+  }
+
+  if (kind === 'replication') {
+    return common.filter((candidate) => ['replication'].includes(candidate.key))
   }
 
   return common
@@ -381,6 +603,18 @@ function descriptorForConnection(
     return getSqlServerObjectViewDescriptor(kind)
   }
 
+  if (connection.engine === 'sqlite') {
+    return getSqliteObjectViewDescriptor(kind)
+  }
+
+  if (connection.engine === 'duckdb') {
+    return getDuckDbObjectViewDescriptor(kind)
+  }
+
+  if (connection.engine === 'mysql' || connection.engine === 'mariadb') {
+    return getMysqlObjectViewDescriptor(kind)
+  }
+
   if (connection.engine === 'cockroachdb') {
     return getCockroachObjectViewDescriptor(kind)
   }
@@ -399,6 +633,22 @@ function relationalEngineLabel(connection: ConnectionProfile) {
 
   if (connection.engine === 'timescaledb') {
     return 'TimescaleDB'
+  }
+
+  if (connection.engine === 'mysql') {
+    return 'MySQL'
+  }
+
+  if (connection.engine === 'mariadb') {
+    return 'MariaDB'
+  }
+
+  if (connection.engine === 'sqlite') {
+    return 'SQLite'
+  }
+
+  if (connection.engine === 'duckdb') {
+    return 'DuckDB'
   }
 
   return 'PostgreSQL'
@@ -474,7 +724,7 @@ function preferredColumns(rows: JsonRecord[], preferred: string[]) {
 
 function tableRows(rows: JsonRecord[], preferred: string[]) {
   const columns = preferredColumns(rows, preferred)
-  return rows.map((row) => columns.map((column) => displayValue(row[column])))
+  return rows.map((row) => columns.map((column) => displayCellValue(column, row[column])))
 }
 
 function arrayOfRecords(value: unknown) {
@@ -515,6 +765,29 @@ function displayValue(value: unknown): string {
   return Object.entries(asRecord(value))
     .map(([key, nested]) => `${key}: ${displayValue(nested)}`)
     .join(', ')
+}
+
+function displayCellValue(column: string, value: unknown) {
+  if (isSqlTextColumn(column)) {
+    return sqlTextSummary(value)
+  }
+
+  return displayValue(value)
+}
+
+function isSqlTextColumn(column: string) {
+  return /definition|sql|query|text/i.test(column)
+}
+
+function sqlTextSummary(value: unknown) {
+  const text = displayValue(value).replace(/\s+/g, ' ').trim()
+  if (!text) {
+    return ''
+  }
+
+  const keyword = text.match(/\b(select|insert|update|delete|merge|create|alter|drop|exec|execute|with)\b/i)?.[1]
+  const label = keyword ? `${keyword.toUpperCase()} statement` : 'SQL text'
+  return `${label} (${text.length.toLocaleString()} chars)`
 }
 
 function labelForColumn(column: string) {

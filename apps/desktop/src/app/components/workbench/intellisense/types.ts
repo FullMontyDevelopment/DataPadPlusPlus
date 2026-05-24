@@ -20,6 +20,7 @@ export type CompletionItemKind =
   | 'function'
   | 'snippet'
   | 'value'
+  | 'variable'
 
 export interface CompletionSchema {
   name: string

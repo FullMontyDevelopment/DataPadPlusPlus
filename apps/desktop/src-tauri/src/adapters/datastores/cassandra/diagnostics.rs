@@ -27,7 +27,7 @@ pub(super) async fn collect_cassandra_diagnostics(
         }
     ])));
     diagnostics.profiles.push(payload_profile(
-        "Cassandra tracing profile placeholders.",
+        "Cassandra tracing readiness and system table diagnostics.",
         json!({
             "templates": ["tracing on", "select * from system_traces.sessions limit 100"],
             "nativeTracing": false

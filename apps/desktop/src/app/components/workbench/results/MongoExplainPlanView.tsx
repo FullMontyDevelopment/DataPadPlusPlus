@@ -51,10 +51,17 @@ export function MongoExplainPlanView({ payload }: { payload: PlanPayload }) {
       {model.fallbackReason && !model.winningPlan ? (
         <div className="mongo-explain-panel">
           <header className="mongo-explain-section-header">
-            <strong>Raw explain payload</strong>
+            <strong>Explain details</strong>
             <span>{model.fallbackReason}</span>
           </header>
-          <JsonTreeView value={model.raw} label="explain" />
+          <p className="panel-footnote">
+            DataPad++ could not map this explain shape into the visual plan dashboard. The
+            original sections are still available for troubleshooting.
+          </p>
+          <details className="mongo-explain-raw-details">
+            <summary>View unparsed details</summary>
+            <JsonTreeView value={model.raw} label="explain" />
+          </details>
         </div>
       ) : null}
 
@@ -87,7 +94,7 @@ export function GenericPlanPayloadView({ payload }: { payload: PlanPayload }) {
             <ExplainIcon className="panel-inline-icon" />
             Execution Plan
           </span>
-          <h3>{payload.summary ?? 'Plan payload'}</h3>
+          <h3>{payload.summary ?? 'Execution plan'}</h3>
         </div>
         <span className="mongo-explain-verbosity">{payload.format}</span>
       </header>
@@ -162,7 +169,7 @@ function PlanNodeView({ depth, node }: { depth: number; node: MongoExplainPlanNo
         </div>
       ) : null}
       <details className="mongo-explain-raw-details">
-        <summary>View raw section</summary>
+        <summary>View stage details</summary>
         <JsonTreeView value={node.raw} label={node.stage} />
       </details>
       {node.children.map((child) => (

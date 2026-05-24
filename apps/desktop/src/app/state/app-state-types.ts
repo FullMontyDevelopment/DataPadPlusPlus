@@ -80,7 +80,7 @@ export interface StateShape {
   explorerStatus: RemoteStatus
   explorer?: ExplorerResponse
   explorerCache?: Record<string, ExplorerCacheEntry>
-  explorerLoadingRequests: Record<string, true>
+  explorerLoadingRequests: Record<string, string>
   explorerError?: string
   explorerInspection?: ExplorerInspectResponse
   structureStatus: RemoteStatus
@@ -100,9 +100,9 @@ export type AppAction =
   | { type: 'DIAGNOSTICS_READY'; diagnostics: DiagnosticsReport }
   | { type: 'EXPORT_READY'; exportBundle: ExportBundle }
   | { type: 'CONNECTION_TEST_READY'; profileId: string; result: ConnectionTestResult }
-  | { type: 'EXPLORER_LOADING'; request: ExplorerRequest }
-  | { type: 'EXPLORER_READY'; explorer: ExplorerResponse }
-  | { type: 'EXPLORER_ERROR'; request: ExplorerRequest; message: string }
+  | { type: 'EXPLORER_LOADING'; request: ExplorerRequest; requestId: string }
+  | { type: 'EXPLORER_READY'; explorer: ExplorerResponse; requestId: string }
+  | { type: 'EXPLORER_ERROR'; request: ExplorerRequest; requestId?: string; message: string }
   | { type: 'EXPLORER_INSPECTION_READY'; inspection: ExplorerInspectResponse }
   | { type: 'STRUCTURE_LOADING' }
   | { type: 'STRUCTURE_READY'; structure: StructureResponse }
@@ -127,7 +127,7 @@ export interface Actions {
   deleteConnection(connectionId: string): Promise<void>
   saveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
   createEnvironment(): Promise<void>
-  saveEnvironment(profile: EnvironmentProfile): Promise<void>
+  saveEnvironment(profile: EnvironmentProfile, secretDrafts?: Record<string, string>): Promise<void>
   deleteEnvironment(environmentId: string): Promise<void>
   createTab(connectionId: string): Promise<void>
   createExplorerTab(connectionId: string): Promise<void>

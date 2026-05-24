@@ -19,6 +19,7 @@ export interface MonacoWordLike {
 export interface MonacoModelLike {
   getValue(): string
   getOffsetAt(position: MonacoPositionLike): number
+  getPositionAt?(offset: number): MonacoPositionLike
   getWordUntilPosition(position: MonacoPositionLike): MonacoWordLike
 }
 
@@ -28,6 +29,20 @@ export interface MonacoDisposableLike {
 
 export interface MonacoEditorLike {
   addCommand?(keybinding: number, handler: () => void): void
+  deltaDecorations?(
+    oldDecorations: string[],
+    newDecorations: Array<{
+      range: {
+        startLineNumber: number
+        startColumn: number
+        endLineNumber: number
+        endColumn: number
+      }
+      options: { inlineClassName: string; hoverMessage?: { value: string } }
+    }>,
+  ): string[]
+  getModel?(): MonacoModelLike | null
+  onDidChangeModelContent?(handler: () => void): MonacoDisposableLike
   trigger?(source: string, handlerId: string, payload: unknown): void
 }
 
@@ -87,7 +102,7 @@ export function registerDatastoreCompletionProvider({
   registerCtrlSpaceCommand(editor, monaco, onRequestCompletionRefresh)
 
   return monaco.languages.registerCompletionItemProvider(language, {
-    triggerCharacters: ['.', '"', '$', ':', ' ', '['],
+    triggerCharacters: ['.', '"', '$', ':', ' ', '[', '{'],
     provideCompletionItems(model, position) {
       const context = getContext()
 
@@ -183,6 +198,8 @@ function monacoKind(kind: CompletionItemKind, monaco: MonacoApiLike) {
       return completionKinds.Snippet ?? 1
     case 'value':
       return completionKinds.Value ?? completionKinds.Constant ?? 1
+    case 'variable':
+      return completionKinds.Variable ?? completionKinds.Value ?? completionKinds.Constant ?? 1
     default:
       return completionKinds.Text ?? 1
   }
@@ -204,9 +221,11 @@ function sortPrefix(kind: CompletionItemKind) {
     case 'operator':
     case 'function':
       return '3-'
-    case 'snippet':
+    case 'variable':
       return '4-'
-    default:
+    case 'snippet':
       return '5-'
+    default:
+      return '6-'
   }
 }

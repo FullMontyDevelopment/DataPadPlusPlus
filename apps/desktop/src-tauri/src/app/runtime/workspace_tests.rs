@@ -174,6 +174,10 @@ fn migration_strips_connection_strings_with_plaintext_secrets() {
     let migrated = migrate_snapshot(snapshot);
 
     assert!(migrated.connections[0].connection_string.is_none());
+    assert_eq!(
+        migrated.connections[0].connection_mode.as_deref(),
+        Some("native")
+    );
 }
 
 #[test]

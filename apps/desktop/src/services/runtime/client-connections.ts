@@ -1,5 +1,6 @@
 import type { BootstrapPayload, ConnectionProfile, ConnectionTestRequest, ConnectionTestResult, EnvironmentProfile, SecretRef } from '@datapadplusplus/shared-types'
 import { resolveEnvironment } from '../../app/state/helpers'
+import { interpolateEnvironmentVariables } from '../../app/state/environment-variables'
 import {
   deleteConnection,
   deleteEnvironment,
@@ -86,17 +87,13 @@ export const clientConnections = {
       request.environmentId,
     )
 
-    const host = request.profile.host.replaceAll(
-      '${DB_HOST}',
-      resolvedEnvironment.variables.DB_HOST ?? request.profile.host,
+    const resolvedHost = interpolateEnvironmentVariables(
+      request.profile.host,
+      resolvedEnvironment.variables,
     )
-    const resolvedHost = Object.entries(resolvedEnvironment.variables).reduce(
-      (current, [key, value]) => current.replaceAll(`\${${key}}`, value),
-      host,
-    )
-    const resolvedDatabase = Object.entries(resolvedEnvironment.variables).reduce(
-      (current, [key, value]) => current.replaceAll(`\${${key}}`, value),
+    const resolvedDatabase = interpolateEnvironmentVariables(
       request.profile.database ?? '',
+      resolvedEnvironment.variables,
     )
 
     const warnings =

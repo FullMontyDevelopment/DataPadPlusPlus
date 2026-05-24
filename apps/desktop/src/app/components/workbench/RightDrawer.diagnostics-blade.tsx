@@ -48,6 +48,7 @@ export function DiagnosticsBlade({
 }) {
   const [bundleMessage, setBundleMessage] = useState('')
   const [exportPassphraseUsed, setExportPassphraseUsed] = useState('')
+  const [showBundleText, setShowBundleText] = useState(false)
   const exportedBundleText = useMemo(
     () => (exportBundle ? JSON.stringify(exportBundle, null, 2) : ''),
     [exportBundle],
@@ -126,8 +127,11 @@ export function DiagnosticsBlade({
             </button>
           </div>
           <div className="details-grid details-grid--drawer settings-overview-grid">
-            <DrawerDetailRow label="Current theme" value={theme} />
-            <DrawerDetailRow label="Secret storage" value={health.secretStorage} />
+            <DrawerDetailRow label="Current theme" value={formatThemeLabel(theme)} />
+            <DrawerDetailRow
+              label="Credential storage"
+              value={formatSecretStorageStatus(health.secretStorage)}
+            />
           </div>
         </section>
 
@@ -167,6 +171,7 @@ export function DiagnosticsBlade({
               disabled={!passphraseReady}
               onClick={() => {
                 setBundleMessage('')
+                setShowBundleText(false)
                 setExportPassphraseUsed(exportPassphrase)
                 onExportWorkspace()
               }}
@@ -196,17 +201,31 @@ export function DiagnosticsBlade({
           {exportedBundleText ? (
             <div className="settings-bundle-preview">
               <div className="drawer-section-header">
-                <strong>Backup bundle ready</strong>
-                <span>encrypted</span>
+                <div>
+                  <strong>Backup bundle ready</strong>
+                  <p className="settings-helper-text">
+                    The bundle is encrypted and ready to download or copy. Secrets are not included.
+                  </p>
+                </div>
+                <span>{formatBundleSize(exportedBundleText)}</span>
               </div>
               {bundlePassphraseChanged ? (
                 <p className="settings-helper-text">
                   This bundle was created before the passphrase field changed.
                 </p>
               ) : null}
-              <pre className="drawer-code settings-bundle-code">
-                <code>{exportedBundleText}</code>
-              </pre>
+              <button
+                type="button"
+                className="drawer-link-button"
+                onClick={() => setShowBundleText((current) => !current)}
+              >
+                {showBundleText ? 'Hide encrypted bundle text' : 'Show encrypted bundle text'}
+              </button>
+              {showBundleText ? (
+                <pre className="drawer-code settings-bundle-code" aria-label="Encrypted workspace bundle">
+                  <code>{exportedBundleText}</code>
+                </pre>
+              ) : null}
             </div>
           ) : null}
         </section>
@@ -230,7 +249,7 @@ export function DiagnosticsBlade({
                 setBundleMessage('')
                 onImportPayloadChange(event.target.value)
               }}
-              placeholder="Paste the full .dppbundle JSON or encrypted payload"
+              placeholder="Paste your DataPad++ backup bundle"
             />
           </FormField>
 
@@ -317,8 +336,37 @@ function normalizeBundlePayload(value: string) {
       return parsed.encryptedPayload.trim()
     }
   } catch {
-    // Raw encrypted payloads are still accepted for older copied bundles.
+    // Older copied bundles may be the encrypted string itself instead of JSON.
   }
 
   return trimmed
+}
+
+function formatBundleSize(value: string) {
+  const bytes = new Blob([value]).size
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function formatThemeLabel(theme: WorkspaceSnapshot['preferences']['theme']) {
+  return theme === 'system' ? 'Use system setting' : theme === 'light' ? 'Light' : 'Dark'
+}
+
+function formatSecretStorageStatus(status: AppHealth['secretStorage']) {
+  if (status === 'keyring' || status === 'ready') {
+    return 'Secure store ready'
+  }
+
+  if (status === 'file') {
+    return 'Encrypted local store'
+  }
+
+  return 'Preview mode'
 }

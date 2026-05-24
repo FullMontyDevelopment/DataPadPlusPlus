@@ -3,9 +3,15 @@ import { applyExecutionRequestLocally } from './browser-execution'
 import { fetchResultPageLocally } from './browser-structure'
 import { findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
+import {
+  validateCancelExecutionRequest,
+  validateExecutionRequest,
+  validateResultPageRequest,
+} from './request-validation'
 
 export const clientExecution = {
   async executeQuery(request: ExecutionRequest): Promise<ExecutionResponse> {
+    request = validateExecutionRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<ExecutionResponse>('execute_query_request', { request })
     }
@@ -19,6 +25,7 @@ export const clientExecution = {
   },
 
   async fetchResultPage(request: ResultPageRequest): Promise<ResultPageResponse> {
+    request = validateResultPageRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<ResultPageResponse>('fetch_result_page', { request })
     }
@@ -29,6 +36,7 @@ export const clientExecution = {
   async cancelExecution(
     request: { executionId: string; tabId?: string },
   ): Promise<{ ok: boolean; supported: boolean; message: string }> {
+    request = validateCancelExecutionRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop('cancel_execution_request', { request })
     }

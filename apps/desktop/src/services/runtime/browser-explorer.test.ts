@@ -70,11 +70,69 @@ describe('browser explorer runtime', () => {
     ])
   })
 
+  it('does not invent sample nodes for unimplemented preview families', () => {
+    const documentNodes = createExplorerNodes(genericPreviewConnection('arango', 'document'))
+    const keyValueNodes = createExplorerNodes(genericPreviewConnection('neptune', 'keyvalue'))
+    const sqlNodes = createExplorerNodes(genericPreviewConnection('bigquery', 'sql'))
+
+    expect(documentNodes).toEqual([])
+    expect(keyValueNodes).toEqual([])
+    expect(sqlNodes).toEqual([])
+    expect(createExplorerNodes(genericPreviewConnection('bigquery', 'sql'), 'schema:public')).toEqual([])
+    expect(createExplorerNodes(genericPreviewConnection('neptune', 'keyvalue'), 'prefix:session:')).toEqual([])
+  })
+
+  it('does not invent sample inspection payloads for unimplemented preview families', () => {
+    const connection = genericPreviewConnection('arango', 'document')
+    const response = inspectExplorerNodeLocally({
+      connections: [connection],
+    } as WorkspaceSnapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'collection:catalog:products',
+    })
+
+    expect(response.queryTemplate).toBeUndefined()
+    expect(response.payload).toEqual(expect.objectContaining({
+      objectView: 'unavailable',
+      warnings: ['Preview metadata is not available for this datastore adapter yet.'],
+    }))
+    expect(JSON.stringify(response.payload)).not.toContain('sku')
+    expect(JSON.stringify(response.payload)).not.toContain('userId')
+    expect(JSON.stringify(response.payload)).not.toContain('updated_at')
+  })
+
   it('returns focused Mongo inspection payloads for admin nodes', () => {
     const connection = mongoConnection('catalog')
     const snapshot = {
       connections: [connection],
     } as WorkspaceSnapshot
+
+    const databaseResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'database:catalog',
+    })
+
+    expect(databaseResponse.payload).toMatchObject({
+      database: 'catalog',
+      collections: expect.arrayContaining([expect.objectContaining({ name: 'products' })]),
+      views: expect.arrayContaining([expect.objectContaining({ name: 'active_products' })]),
+      gridfsBuckets: expect.arrayContaining([expect.objectContaining({ name: 'fs' })]),
+    })
+
+    const collectionResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'collection:catalog:products',
+    })
+
+    expect(collectionResponse.payload).toMatchObject({
+      database: 'catalog',
+      collection: 'products',
+      indexes: expect.arrayContaining([expect.objectContaining({ name: 'sku_1' })]),
+      sampleDocuments: expect.arrayContaining([expect.objectContaining({ sku: 'luna-lamp' })]),
+    })
 
     const response = inspectExplorerNodeLocally(snapshot, {
       connectionId: connection.id,
@@ -90,6 +148,24 @@ describe('browser explorer runtime', () => {
         expect.objectContaining({ name: '_id_' }),
         expect.objectContaining({ name: 'sku_1' }),
       ],
+    })
+
+    const schemaResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'schema-preview:catalog:products',
+    })
+
+    expect(schemaResponse.payload).toMatchObject({
+      database: 'catalog',
+      collection: 'products',
+      sampleSize: 20,
+      fields: expect.arrayContaining([
+        expect.objectContaining({
+          path: 'inventory.available',
+          typeDistribution: expect.objectContaining({ int32: 18, int64: 2 }),
+        }),
+      ]),
     })
   })
 
@@ -391,6 +467,1052 @@ describe('browser explorer runtime', () => {
       queryStore: expect.arrayContaining([expect.objectContaining({ name: 'Top Queries' })]),
     })
   })
+
+  it('returns SQLite tree and inspection payloads for native object views', () => {
+    const connection = sqliteConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'Main Database',
+      'Attached Databases',
+    ])
+
+    expect(createExplorerNodes(connection, 'database:main').map((node) => node.label)).toEqual([
+      'Tables',
+      'Views',
+      'Indexes',
+      'Triggers',
+      'Virtual Tables',
+      'FTS Tables',
+      'RTree Tables',
+      'Generated Columns',
+      'Attached Databases',
+      'Pragmas',
+      'Schema',
+    ])
+
+    const tableResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'table:main:accounts',
+    })
+    expect(tableResponse.queryTemplate).toBe('select * from [main].[accounts] limit 100;')
+    expect(tableResponse.payload).toMatchObject({
+      engine: 'sqlite',
+      schema: 'main',
+      objectName: 'accounts',
+      columns: expect.arrayContaining([expect.objectContaining({ name: 'id' })]),
+      indexes: expect.arrayContaining([expect.objectContaining({ name: 'accounts_pkey' })]),
+    })
+    expect(tableResponse.payload).not.toHaveProperty('pragmas')
+
+    const pragmaResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'pragma:main:quick_check',
+    })
+    expect(pragmaResponse.payload).toMatchObject({
+      engine: 'sqlite',
+      objectView: 'pragma',
+      pragmas: [expect.objectContaining({ name: 'quick_check', value: 'ok' })],
+      checks: [expect.objectContaining({ status: 'ok' })],
+    })
+    expect(JSON.stringify(pragmaResponse.payload)).not.toContain('PRAGMA quick_check')
+  })
+
+  it('returns LiteDB local-file tree and object-view payloads without generic document clutter', () => {
+    const connection = liteDbConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'catalog.db',
+      'Diagnostics',
+    ])
+    expect(createExplorerNodes(connection).map((node) => node.label)).not.toContain('Security')
+
+    expect(createExplorerNodes(connection, 'litedb:database').map((node) => node.label)).toEqual([
+      'Collections',
+      'Indexes',
+      'File Storage',
+      'Storage',
+      'Settings',
+    ])
+
+    expect(createExplorerNodes(connection, 'litedb:collections')).toEqual([
+      expect.objectContaining({
+        id: 'litedb:collection:products',
+        label: 'products',
+        kind: 'collection',
+        queryTemplate: expect.stringContaining('"collection": "products"'),
+      }),
+      expect.objectContaining({ label: 'accounts' }),
+      expect.objectContaining({ label: 'auditLog' }),
+    ])
+
+    expect(createExplorerNodes(connection, 'litedb:collection:products').map((node) => node.label)).toEqual([
+      'Documents',
+      'Schema Preview',
+      'Indexes',
+      'Storage',
+    ])
+
+    const collectionResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'litedb:collection:products',
+    })
+
+    expect(collectionResponse.queryTemplate).toContain('"collection": "products"')
+    expect(collectionResponse.payload).toMatchObject({
+      engine: 'litedb',
+      objectView: 'collection',
+      collection: 'products',
+      fields: expect.arrayContaining([expect.objectContaining({ path: 'sku' })]),
+      indexes: expect.arrayContaining([expect.objectContaining({ name: 'sku' })]),
+    })
+    expect(collectionResponse.payload).not.toHaveProperty('command')
+    expect(collectionResponse.payload).not.toHaveProperty('raw')
+
+    const fileStorageResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'litedb:file-storage',
+    })
+
+    expect(fileStorageResponse.payload).toMatchObject({
+      objectView: 'file-storage',
+      files: expect.arrayContaining([expect.objectContaining({ filename: 'invoice-001.pdf' })]),
+      chunks: expect.arrayContaining([expect.objectContaining({ status: 'ok' })]),
+    })
+  })
+
+  it('returns Cosmos DB account, database, and container metadata without generic document fallbacks', () => {
+    const connection = cosmosConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'datapad-cosmos',
+      'Databases',
+      'Regions',
+      'Consistency',
+      'Security',
+      'Diagnostics',
+    ])
+    expect(createExplorerNodes(connection).map((node) => node.label)).not.toContain('products')
+
+    expect(createExplorerNodes(connection, 'cosmos:databases')).toEqual([
+      expect.objectContaining({
+        id: 'cosmos:database:catalog',
+        label: 'catalog',
+        kind: 'database',
+      }),
+      expect.objectContaining({ label: 'audit' }),
+    ])
+
+    expect(createExplorerNodes(connection, 'cosmos:database:catalog').map((node) => node.label)).toEqual([
+      'Containers',
+      'Throughput',
+      'Security',
+    ])
+
+    expect(createExplorerNodes(connection, 'cosmos:container:catalog:products').map((node) => node.label)).toEqual([
+      'Items',
+      'Partition Key',
+      'Indexing Policy',
+      'Throughput',
+      'Change Feed',
+      'Stored Procedures',
+      'Triggers',
+      'User Defined Functions',
+      'Conflict Feed',
+    ])
+
+    const containerResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cosmos:container:catalog:products',
+    })
+
+    expect(containerResponse.queryTemplate).toContain('"collection": "products"')
+    expect(containerResponse.payload).toMatchObject({
+      engine: 'cosmosdb',
+      objectView: 'container',
+      database: 'catalog',
+      container: 'products',
+      partitionKeys: [expect.objectContaining({ path: '/tenantId' })],
+      indexingPolicy: expect.arrayContaining([expect.objectContaining({ path: '/*' })]),
+      throughput: expect.arrayContaining([expect.objectContaining({ mode: 'autoscale' })]),
+    })
+    expect(containerResponse.payload).not.toHaveProperty('command')
+    expect(containerResponse.payload).not.toHaveProperty('raw')
+
+    const securityResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cosmos:security',
+    })
+
+    expect(securityResponse.payload).toMatchObject({
+      objectView: 'security',
+      security: expect.arrayContaining([expect.objectContaining({ name: 'ReadOnlyApp' })]),
+    })
+  })
+
+  it('mirrors MySQL and MariaDB database trees without system clutter', () => {
+    const connection = mysqlConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'datapadplusplus',
+      'System Schemas',
+      'Users / Privileges',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'database:datapadplusplus').map((node) => node.label)).toEqual([
+      'Tables',
+      'Views',
+      'Stored Procedures',
+      'Functions',
+      'Events',
+      'Triggers',
+      'Indexes',
+      'Storage',
+    ])
+
+    expect(createExplorerNodes(connection, 'mysql:datapadplusplus:tables')).toEqual([
+      expect.objectContaining({
+        label: 'accounts',
+        kind: 'table',
+        scope: 'table:datapadplusplus:accounts',
+        queryTemplate: 'select * from `datapadplusplus`.`accounts` limit 100;',
+      }),
+      expect.objectContaining({ label: 'orders', kind: 'table' }),
+      expect.objectContaining({ label: 'products', kind: 'table' }),
+    ])
+
+    expect(createExplorerNodes(mysqlConnection('mariadb')).map((node) => node.label)).toEqual([
+      'datapadplusplus',
+      'System Schemas',
+      'Users / Privileges',
+      'Diagnostics',
+    ])
+  })
+
+  it('returns MySQL inspection payloads for native object-view workspaces', () => {
+    const connection = mysqlConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const tableResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'table:datapadplusplus:accounts',
+    })
+
+    expect(tableResponse.queryTemplate).toBe('select * from `datapadplusplus`.`accounts` limit 100;')
+    expect(tableResponse.payload).toMatchObject({
+      engine: 'mysql',
+      database: 'datapadplusplus',
+      schema: 'datapadplusplus',
+      objectName: 'accounts',
+      columns: expect.arrayContaining([expect.objectContaining({ name: 'id', identity: 'auto_increment' })]),
+      indexes: expect.arrayContaining([expect.objectContaining({ name: 'PRIMARY' })]),
+    })
+
+    const storageResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'mysql:datapadplusplus:storage',
+    })
+
+    expect(storageResponse.payload).toMatchObject({
+      engine: 'mysql',
+      objectView: 'storage',
+      engines: expect.arrayContaining([expect.objectContaining({ name: 'InnoDB' })]),
+    })
+    expect(JSON.stringify(storageResponse.payload)).not.toContain('SHOW')
+
+    const diagnosticsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'mysql:diagnostics',
+    })
+
+    expect(diagnosticsResponse.payload).toMatchObject({
+      engine: 'mysql',
+      sessions: expect.arrayContaining([expect.objectContaining({ state: 'executing' })]),
+      replication: expect.arrayContaining([expect.objectContaining({ state: 'not configured' })]),
+    })
+  })
+
+  it('mirrors Elasticsearch and OpenSearch object trees without SQL fallbacks', () => {
+    const connection = searchConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'Cluster',
+      'Indices',
+      'Data Streams',
+      'Aliases',
+      'Templates',
+      'Pipelines',
+      'Security',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'search:indices')).toEqual([
+      expect.objectContaining({
+        label: 'products-v1',
+        kind: 'index',
+        scope: 'index:products-v1',
+        queryTemplate: expect.stringContaining('"index": "products-v1"'),
+      }),
+      expect.objectContaining({ label: 'orders-v1', kind: 'index' }),
+    ])
+
+    expect(createExplorerNodes(connection, 'index:products-v1').map((node) => node.label)).toEqual([
+      'Documents',
+      'Mappings',
+      'Settings',
+      'Aliases',
+      'Shards',
+      'Segments',
+    ])
+
+    expect(createExplorerNodes(searchConnection('opensearch')).map((node) => node.label)).toContain('Diagnostics')
+  })
+
+  it('returns search inspection payloads for purpose-built object views', () => {
+    const connection = searchConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const indexResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'index:products-v1',
+    })
+
+    expect(indexResponse.queryTemplate).toContain('"match_all"')
+    expect(indexResponse.payload).toMatchObject({
+      engine: 'elasticsearch',
+      objectView: 'index',
+      index: 'products-v1',
+      fields: expect.arrayContaining([expect.objectContaining({ path: 'sku', type: 'keyword' })]),
+      shards: expect.arrayContaining([expect.objectContaining({ index: 'products-v1' })]),
+    })
+
+    const diagnosticsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'search:diagnostics',
+    })
+
+    expect(diagnosticsResponse.payload).toMatchObject({
+      engine: 'elasticsearch',
+      objectView: 'diagnostics',
+      nodes: expect.arrayContaining([expect.objectContaining({ name: 'node-a' })]),
+      lifecyclePolicies: expect.arrayContaining([expect.objectContaining({ type: 'ILM' })]),
+    })
+    expect(JSON.stringify(diagnosticsResponse.payload)).not.toContain('_cat')
+  })
+
+  it('mirrors DynamoDB tables, access, and diagnostics without live AWS dependencies', () => {
+    const connection = dynamoConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'Tables',
+      'Access',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'dynamodb:tables')).toEqual([
+      expect.objectContaining({
+        label: 'Orders',
+        kind: 'table',
+        scope: 'table:Orders',
+        queryTemplate: expect.stringContaining('"tableName": "Orders"'),
+      }),
+      expect.objectContaining({ label: 'Products', kind: 'table' }),
+    ])
+
+    expect(createExplorerNodes(connection, 'table:Orders').map((node) => node.label)).toEqual([
+      'Items',
+      'Keys',
+      'Global Secondary Indexes',
+      'Local Secondary Indexes',
+      'Streams',
+      'TTL',
+      'Capacity',
+      'Permissions',
+    ])
+  })
+
+  it('returns DynamoDB inspection payloads for table and diagnostics workspaces', () => {
+    const connection = dynamoConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const tableResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'table:Orders',
+    })
+
+    expect(tableResponse.queryTemplate).toContain('"operation": "Query"')
+    expect(tableResponse.payload).toMatchObject({
+      engine: 'dynamodb',
+      objectView: 'table',
+      tableName: 'Orders',
+      keys: expect.arrayContaining([expect.objectContaining({ attribute: 'pk', keyRole: 'partition' })]),
+      globalSecondaryIndexes: expect.arrayContaining([expect.objectContaining({ name: 'customer-status-index' })]),
+      ttl: expect.arrayContaining([expect.objectContaining({ status: 'ENABLED' })]),
+    })
+
+    const diagnosticsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'dynamodb:diagnostics',
+    })
+
+    expect(diagnosticsResponse.payload).toMatchObject({
+      engine: 'dynamodb',
+      objectView: 'diagnostics',
+      capacity: expect.arrayContaining([expect.objectContaining({ resource: 'Orders' })]),
+      hotPartitions: expect.arrayContaining([expect.objectContaining({ partitionKey: 'CUSTOMER#123' })]),
+      alarms: expect.arrayContaining([expect.objectContaining({ state: 'ALARM' })]),
+    })
+  })
+
+  it('mirrors Cassandra keyspaces, tables, and diagnostics without live cluster dependencies', () => {
+    const connection = cassandraConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'app',
+      'System Keyspaces',
+      'Cluster',
+      'Security',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'keyspace:app').map((node) => node.label)).toEqual([
+      'Tables',
+      'Materialized Views',
+      'Indexes',
+      'Types',
+      'Functions',
+      'Aggregates',
+      'Permissions',
+    ])
+
+    expect(createExplorerNodes(connection, 'cassandra:app:tables')).toEqual([
+      expect.objectContaining({
+        label: 'orders_by_customer',
+        kind: 'table',
+        scope: 'table:app.orders_by_customer',
+        queryTemplate: expect.stringContaining('where customer_id = ?'),
+      }),
+      expect.objectContaining({ label: 'products_by_sku', kind: 'table' }),
+    ])
+
+    expect(createExplorerNodes(connection, 'table:app.orders_by_customer').map((node) => node.label)).toEqual([
+      'Data',
+      'Columns',
+      'Primary Key',
+      'Indexes',
+      'Compaction',
+      'Statistics',
+      'Permissions',
+    ])
+  })
+
+  it('returns Cassandra inspection payloads for table and diagnostics workspaces', () => {
+    const connection = cassandraConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const tableResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'table:app:orders_by_customer',
+    })
+
+    expect(tableResponse.queryTemplate).toContain('where customer_id = ?')
+    expect(tableResponse.payload).toMatchObject({
+      engine: 'cassandra',
+      objectView: 'table',
+      tableName: 'orders_by_customer',
+      primaryKey: expect.arrayContaining([expect.objectContaining({ name: 'customer_id' })]),
+      indexes: expect.arrayContaining([expect.objectContaining({ name: 'orders_status_sai' })]),
+      options: expect.arrayContaining([expect.objectContaining({ option: 'compaction' })]),
+    })
+
+    const diagnosticsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cassandra:diagnostics',
+    })
+
+    expect(diagnosticsResponse.payload).toMatchObject({
+      engine: 'cassandra',
+      objectView: 'diagnostics',
+      diagnostics: expect.arrayContaining([expect.objectContaining({ signal: 'Read latency p95' })]),
+      warningRows: expect.arrayContaining([expect.objectContaining({ scope: 'tracing' })]),
+    })
+  })
+
+  it('mirrors a Prometheus native metrics and operations tree', () => {
+    const connection = prometheusConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'Metrics',
+      'Labels',
+      'Targets',
+      'Rules',
+      'Alerts',
+      'Service Discovery',
+      'TSDB / Storage',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'prometheus:metrics')).toEqual([
+      expect.objectContaining({
+        label: 'up',
+        kind: 'metric',
+        scope: 'metric:up',
+        queryTemplate: 'up',
+      }),
+      expect.objectContaining({
+        label: 'http_requests_total',
+        kind: 'metric',
+        scope: 'metric:http_requests_total',
+      }),
+      expect.any(Object),
+      expect.any(Object),
+    ])
+
+    expect(createExplorerNodes(connection, 'metric:http_requests_total').map((node) => node.label)).toEqual([
+      'Series',
+      'Labels',
+      'Related Alerts',
+    ])
+  })
+
+  it('returns Prometheus inspection payloads without raw API command dumps', () => {
+    const connection = prometheusConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'metric:http_requests_total',
+    })
+
+    expect(response.queryTemplate).toBe('http_requests_total')
+    expect(response.payload).toMatchObject({
+      engine: 'prometheus',
+      objectView: 'metric',
+      metric: 'http_requests_total',
+      metrics: [
+        expect.objectContaining({ name: 'http_requests_total', type: 'counter' }),
+      ],
+      series: expect.arrayContaining([expect.objectContaining({ metric: 'http_requests_total' })]),
+    })
+    expect(response.payload).not.toHaveProperty('command')
+    expect(response.payload).not.toHaveProperty('raw')
+
+    const targetsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'prometheus:targets',
+    })
+
+    expect(targetsResponse.payload).toMatchObject({
+      targets: expect.arrayContaining([expect.objectContaining({ health: 'down' })]),
+      warnings: expect.arrayContaining([expect.stringContaining('target is down')]),
+    })
+  })
+
+  it('mirrors an InfluxDB bucket and measurement tree', () => {
+    const connection = influxConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'Buckets',
+      'Tasks',
+      'Tokens',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'influx:buckets')).toEqual([
+      expect.objectContaining({
+        label: 'telemetry',
+        kind: 'bucket',
+        scope: 'bucket:telemetry',
+      }),
+      expect.objectContaining({
+        label: 'system',
+        kind: 'bucket',
+        scope: 'bucket:system',
+      }),
+    ])
+
+    expect(createExplorerNodes(connection, 'bucket:telemetry').map((node) => node.label)).toEqual([
+      'Measurements',
+      'Tags',
+      'Fields',
+      'Retention Policies',
+    ])
+
+    expect(createExplorerNodes(connection, 'measurements:telemetry')).toEqual([
+      expect.objectContaining({
+        label: 'cpu',
+        kind: 'measurement',
+        scope: 'measurement:telemetry:cpu',
+        queryTemplate: expect.stringContaining('_measurement == "cpu"'),
+      }),
+      expect.objectContaining({ label: 'memory', kind: 'measurement' }),
+      expect.objectContaining({ label: 'http_requests', kind: 'measurement' }),
+    ])
+  })
+
+  it('returns InfluxDB inspection payloads without raw API command dumps', () => {
+    const connection = influxConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'measurement:telemetry:cpu',
+    })
+
+    expect(response.queryTemplate).toContain('_measurement == "cpu"')
+    expect(response.payload).toMatchObject({
+      engine: 'influxdb',
+      objectView: 'measurement',
+      measurement: 'cpu',
+      measurements: [
+        expect.objectContaining({ name: 'cpu', bucket: 'telemetry' }),
+      ],
+      tags: expect.arrayContaining([expect.objectContaining({ name: 'host' })]),
+      fields: expect.arrayContaining([expect.objectContaining({ name: 'usage_user' })]),
+    })
+    expect(response.payload).not.toHaveProperty('command')
+    expect(response.payload).not.toHaveProperty('raw')
+
+    const securityResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'influx:security',
+    })
+
+    expect(securityResponse.payload).toMatchObject({
+      tokens: expect.arrayContaining([expect.objectContaining({ name: 'read-telemetry' })]),
+      permissionWarnings: expect.arrayContaining([expect.objectContaining({ scope: 'tokens' })]),
+    })
+  })
+
+  it('mirrors an OpenTSDB metric and metadata tree', () => {
+    const connection = openTsdbConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'Metrics',
+      'Tags',
+      'Aggregators',
+      'Downsampling',
+      'UID Metadata',
+      'Trees',
+      'Stats',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'opentsdb:metrics')).toEqual([
+      expect.objectContaining({
+        label: 'sys.cpu.user',
+        kind: 'metric',
+        scope: 'metric:sys.cpu.user',
+        queryTemplate: expect.stringContaining('"metric": "sys.cpu.user"'),
+      }),
+      expect.objectContaining({ label: 'http.requests', kind: 'metric' }),
+      expect.objectContaining({ label: 'jvm.memory.used', kind: 'metric' }),
+    ])
+
+    expect(createExplorerNodes(connection, 'metric:http.requests').map((node) => node.label)).toEqual([
+      'Tags',
+      'UID Metadata',
+      'Stats',
+    ])
+  })
+
+  it('returns OpenTSDB inspection payloads without raw API command dumps', () => {
+    const connection = openTsdbConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'metric:http.requests',
+    })
+
+    expect(response.queryTemplate).toContain('"metric": "http.requests"')
+    expect(response.payload).toMatchObject({
+      engine: 'opentsdb',
+      objectView: 'metric',
+      metric: 'http.requests',
+      metrics: [
+        expect.objectContaining({ name: 'http.requests', cardinality: 'high' }),
+      ],
+      tags: expect.arrayContaining([expect.objectContaining({ name: 'endpoint' })]),
+      uidMetadata: expect.arrayContaining([expect.objectContaining({ name: 'http.requests' })]),
+    })
+    expect(response.payload).not.toHaveProperty('command')
+    expect(response.payload).not.toHaveProperty('raw')
+
+    const statsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'opentsdb:stats',
+    })
+
+    expect(statsResponse.payload).toMatchObject({
+      stats: expect.arrayContaining([expect.objectContaining({ name: 'tsd.http.query.latency_95pct' })]),
+      diagnostics: expect.arrayContaining([expect.objectContaining({ signal: 'UID Cache' })]),
+    })
+  })
+
+  it('mirrors a graph-native schema and diagnostics tree', () => {
+    const connection = neo4jConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'Databases',
+      'Node Labels',
+      'Relationship Types',
+      'Property Keys',
+      'Indexes',
+      'Constraints',
+      'Procedures',
+      'Security',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'graph:node-labels')).toEqual([
+      expect.objectContaining({
+        label: 'Account',
+        kind: 'node-label',
+        scope: 'node-label:Account',
+        queryTemplate: 'MATCH (n:`Account`) RETURN n LIMIT 25',
+      }),
+      expect.objectContaining({ label: 'Order', kind: 'node-label' }),
+      expect.objectContaining({ label: 'Product', kind: 'node-label' }),
+    ])
+
+    expect(createExplorerNodes(connection, 'graph:relationship-types')).toEqual([
+      expect.objectContaining({
+        label: 'PLACED',
+        kind: 'relationship',
+        queryTemplate: 'MATCH ()-[r:`PLACED`]->() RETURN r LIMIT 25',
+      }),
+      expect.objectContaining({ label: 'CONTAINS', kind: 'relationship' }),
+      expect.objectContaining({ label: 'RELATED_TO', kind: 'relationship' }),
+    ])
+  })
+
+  it('returns graph inspection payloads without raw command dumps', () => {
+    const connection = neo4jConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'node-label:Account',
+    })
+
+    expect(response.queryTemplate).toBe('MATCH (n:`Account`) RETURN n LIMIT 25')
+    expect(response.payload).toMatchObject({
+      engine: 'neo4j',
+      objectView: 'node-label',
+      nodeLabels: [
+        expect.objectContaining({ label: 'Account', indexedProperties: 'id, email' }),
+      ],
+      relationshipTypes: expect.arrayContaining([expect.objectContaining({ type: 'PLACED' })]),
+      indexes: expect.arrayContaining([expect.objectContaining({ name: 'account_email_lookup' })]),
+    })
+    expect(response.payload).not.toHaveProperty('command')
+    expect(response.payload).not.toHaveProperty('raw')
+
+    const security = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'graph:security',
+    })
+
+    expect(security.payload).toMatchObject({
+      security: expect.arrayContaining([expect.objectContaining({ principal: 'reader' })]),
+      permissionWarnings: expect.arrayContaining([expect.objectContaining({ scope: 'security' })]),
+    })
+  })
+
+  it('mirrors a warehouse-native tree for cloud warehouse engines', () => {
+    const connection = snowflakeConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'Databases',
+      'Tables',
+      'Views',
+      'Warehouses',
+      'Tasks & Query History',
+      'Security',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'warehouse:tables')).toEqual([
+      expect.objectContaining({
+        label: 'orders',
+        kind: 'table',
+        scope: 'table:ANALYTICS:orders',
+        queryTemplate: 'select * from "ANALYTICS"."orders" limit 100;',
+      }),
+      expect.objectContaining({ label: 'accounts', kind: 'table' }),
+      expect.objectContaining({ label: 'products', kind: 'table' }),
+    ])
+
+    expect(createExplorerNodes(connection, 'warehouse:warehouses')).toEqual([
+      expect.objectContaining({
+        label: 'ANALYTICS_XS',
+        kind: 'warehouse',
+        scope: 'warehouse-compute:ANALYTICS_XS',
+      }),
+      expect.objectContaining({ label: 'LOAD_WH', kind: 'warehouse' }),
+    ])
+  })
+
+  it('returns warehouse inspection payloads without raw command dumps', () => {
+    const connection = snowflakeConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'table:ANALYTICS:orders',
+    })
+
+    expect(response.queryTemplate).toBe('select * from "ANALYTICS"."orders" limit 100;')
+    expect(response.payload).toMatchObject({
+      engine: 'snowflake',
+      objectView: 'table',
+      tables: [
+        expect.objectContaining({ name: 'orders', partitioning: 'order_date' }),
+      ],
+      columns: expect.arrayContaining([expect.objectContaining({ name: 'created_at' })]),
+      diagnostics: expect.arrayContaining([expect.objectContaining({ signal: 'Broad Scan Risk' })]),
+    })
+    expect(response.payload).not.toHaveProperty('command')
+    expect(response.payload).not.toHaveProperty('raw')
+
+    const security = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'warehouse:security',
+    })
+
+    expect(security.payload).toMatchObject({
+      security: expect.arrayContaining([expect.objectContaining({ principal: 'ANALYST_ROLE' })]),
+      permissionWarnings: expect.arrayContaining([expect.objectContaining({ scope: 'security' })]),
+    })
+  })
+
+  it('mirrors a DuckDB-local analytics tree', () => {
+    const connection = duckDbConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'datapad.duckdb',
+      'Attached Databases',
+      'Extensions',
+      'Files',
+      'Pragmas',
+      'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(connection, 'schema:main')).toEqual([
+      expect.objectContaining({ label: 'Tables', kind: 'tables', scope: 'tables:main' }),
+      expect.objectContaining({ label: 'Views', kind: 'views', scope: 'views:main' }),
+      expect.objectContaining({ label: 'Indexes', kind: 'indexes', scope: 'indexes:main' }),
+      expect.objectContaining({ label: 'Functions & Macros', kind: 'functions', scope: 'functions:main' }),
+    ])
+
+    expect(createExplorerNodes(connection, 'tables:main')).toEqual([
+      expect.objectContaining({
+        label: 'orders',
+        kind: 'table',
+        scope: 'table:main:orders',
+        queryTemplate: 'select * from "main"."orders" limit 100;',
+      }),
+      expect.objectContaining({ label: 'accounts', kind: 'table' }),
+      expect.objectContaining({ label: 'products', kind: 'table' }),
+    ])
+  })
+
+  it('returns DuckDB inspection payloads without raw command dumps', () => {
+    const connection = duckDbConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'table:main:orders',
+    })
+
+    expect(response.queryTemplate).toBe('select * from "main"."orders" limit 100;')
+    expect(response.payload).toMatchObject({
+      engine: 'duckdb',
+      objectView: 'table',
+      tables: [
+        expect.objectContaining({ name: 'orders', type: 'BASE TABLE' }),
+      ],
+      columns: expect.arrayContaining([expect.objectContaining({ name: 'created_at' })]),
+      indexes: expect.arrayContaining([expect.objectContaining({ name: 'orders_id_idx' })]),
+    })
+    expect(response.payload).not.toHaveProperty('command')
+    expect(response.payload).not.toHaveProperty('raw')
+
+    const extensions = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'duckdb:extensions',
+    })
+
+    expect(extensions.payload).toMatchObject({
+      extensions: expect.arrayContaining([expect.objectContaining({ name: 'parquet' })]),
+      diagnostics: expect.arrayContaining([expect.objectContaining({ signal: 'External File Access' })]),
+    })
+  })
+
+  it('returns Redis object-view metadata without raw command-shaped payloads', () => {
+    const connection = redisConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const pubsubNodes = createExplorerNodes(connection, 'pubsub')
+    expect(pubsubNodes.map((node) => node.detail)).toEqual([
+      'Active channel names',
+      'Pattern subscription count',
+      'Channel subscriber counts',
+    ])
+    expect(pubsubNodes.map((node) => node.detail).join(' ')).not.toContain('PUBSUB')
+
+    const pubsub = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'redis:pubsub',
+    })
+    expect(pubsub.payload).toMatchObject({
+      kind: 'pubsub',
+      channels: [],
+      patterns: [],
+      subscribers: [],
+    })
+    expect(pubsub.payload).not.toHaveProperty('command')
+    expect(pubsub.payload).not.toHaveProperty('value')
+
+    const slowlog = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'redis:diagnostics:slowlog',
+    })
+    expect(slowlog.payload).toMatchObject({
+      kind: 'slowlog',
+      entries: [expect.objectContaining({ commandName: 'HGETALL' })],
+    })
+    expect(JSON.stringify(slowlog.payload)).not.toContain('SLOWLOG GET')
+
+    const security = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'redis:acl:users',
+    })
+    expect(security.payload).toMatchObject({
+      kind: 'security',
+      users: [expect.objectContaining({ name: 'default', enabled: true })],
+    })
+    expect(security.payload).not.toHaveProperty('command')
+    expect(security.payload).not.toHaveProperty('value')
+  })
+
+  it('returns Memcached native metadata without fake key-prefix browsing', () => {
+    const connection = memcachedConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'Server',
+      'Diagnostics',
+    ])
+    expect(createExplorerNodes(connection).map((node) => node.label).join(' ')).not.toContain('session:*')
+    expect(createExplorerNodes(connection).map((node) => node.label).join(' ')).not.toContain('cache:*')
+
+    expect(createExplorerNodes(connection, 'memcached:server').map((node) => node.label)).toEqual([
+      'Stats',
+      'Slabs',
+      'Item Classes',
+      'Settings',
+      'Connections',
+    ])
+    expect(createExplorerNodes(connection, 'memcached:slabs').map((node) => node.label)).toEqual([
+      'Class 1',
+      'Class 2',
+      'Class 3',
+    ])
+
+    const stats = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'memcached:stats',
+    })
+
+    expect(stats.queryTemplate).toBe('stats')
+    expect(stats.payload).toMatchObject({
+      engine: 'memcached',
+      objectView: 'stats',
+      stats: expect.arrayContaining([expect.objectContaining({ metric: 'curr_items' })]),
+      diagnostics: expect.arrayContaining([expect.objectContaining({ signal: 'Hit Rate' })]),
+    })
+    expect(stats.payload).not.toHaveProperty('command')
+    expect(stats.payload).not.toHaveProperty('raw')
+
+    const slabs = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'memcached:slabs',
+    })
+
+    expect(slabs.payload).toMatchObject({
+      objectView: 'slabs',
+      slabs: expect.arrayContaining([expect.objectContaining({ classId: '2' })]),
+    })
+    expect(JSON.stringify(slabs.payload)).not.toContain('stats slabs')
+  })
 })
 
 function mongoConnection(database: string | undefined): ConnectionProfile {
@@ -409,6 +1531,31 @@ function mongoConnection(database: string | undefined): ConnectionProfile {
     favorite: false,
     readOnly: false,
     icon: 'mongodb',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function genericPreviewConnection(engine: ConnectionProfile['engine'], family: ConnectionProfile['family']): ConnectionProfile {
+  return {
+    id: `conn-${engine}`,
+    name: engine,
+    engine,
+    family,
+    host: 'localhost',
+    port: undefined,
+    database: undefined,
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: true,
+    icon: engine,
     color: undefined,
     group: undefined,
     notes: undefined,
@@ -517,6 +1664,381 @@ function sqlServerConnection(): ConnectionProfile {
     group: undefined,
     notes: undefined,
     auth: { username: 'sa' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function sqliteConnection(): ConnectionProfile {
+  return {
+    id: 'conn-sqlite',
+    name: 'SQLite',
+    engine: 'sqlite',
+    family: 'sql',
+    host: 'localhost',
+    port: undefined,
+    database: 'datapadplusplus.sqlite',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'sqlite',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function mysqlConnection(engine: 'mysql' | 'mariadb' = 'mysql'): ConnectionProfile {
+  return {
+    id: `conn-${engine}`,
+    name: engine === 'mariadb' ? 'MariaDB' : 'MySQL',
+    engine,
+    family: 'sql',
+    host: 'localhost',
+    port: engine === 'mariadb' ? 3307 : 3306,
+    database: 'datapadplusplus',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: engine,
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'app' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function searchConnection(engine: 'elasticsearch' | 'opensearch' = 'elasticsearch'): ConnectionProfile {
+  return {
+    id: `conn-${engine}`,
+    name: engine === 'opensearch' ? 'OpenSearch' : 'Elasticsearch',
+    engine,
+    family: 'search',
+    host: 'localhost',
+    port: engine === 'opensearch' ? 9201 : 9200,
+    database: engine === 'opensearch' ? 'opensearch-local' : 'elasticsearch-local',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: engine,
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'elastic' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function dynamoConnection(): ConnectionProfile {
+  return {
+    id: 'conn-dynamodb',
+    name: 'DynamoDB',
+    engine: 'dynamodb',
+    family: 'widecolumn',
+    host: 'localhost',
+    port: 8000,
+    database: 'local',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'dynamodb',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'local' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function cassandraConnection(): ConnectionProfile {
+  return {
+    id: 'conn-cassandra',
+    name: 'Cassandra',
+    engine: 'cassandra',
+    family: 'widecolumn',
+    host: 'localhost',
+    port: 9042,
+    database: 'app',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'cassandra',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'cassandra' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function prometheusConnection(): ConnectionProfile {
+  return {
+    id: 'conn-prometheus',
+    name: 'Prometheus',
+    engine: 'prometheus',
+    family: 'timeseries',
+    host: 'localhost',
+    port: 9090,
+    database: undefined,
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: true,
+    icon: 'prometheus',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function influxConnection(): ConnectionProfile {
+  return {
+    id: 'conn-influxdb',
+    name: 'InfluxDB',
+    engine: 'influxdb',
+    family: 'timeseries',
+    host: 'localhost',
+    port: 8086,
+    database: 'telemetry',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: true,
+    icon: 'influxdb',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function openTsdbConnection(): ConnectionProfile {
+  return {
+    id: 'conn-opentsdb',
+    name: 'OpenTSDB',
+    engine: 'opentsdb',
+    family: 'timeseries',
+    host: 'localhost',
+    port: 4242,
+    database: undefined,
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: true,
+    icon: 'opentsdb',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function neo4jConnection(): ConnectionProfile {
+  return {
+    id: 'conn-neo4j',
+    name: 'Neo4j',
+    engine: 'neo4j',
+    family: 'graph',
+    host: 'localhost',
+    port: 7687,
+    database: 'neo4j',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: true,
+    icon: 'neo4j',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'neo4j' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function snowflakeConnection(): ConnectionProfile {
+  return {
+    id: 'conn-snowflake',
+    name: 'Snowflake',
+    engine: 'snowflake',
+    family: 'warehouse',
+    host: 'account.snowflakecomputing.com',
+    port: undefined,
+    database: 'ANALYTICS',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: true,
+    icon: 'snowflake',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'analyst' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function duckDbConnection(): ConnectionProfile {
+  return {
+    id: 'conn-duckdb',
+    name: 'DuckDB',
+    engine: 'duckdb',
+    family: 'embedded-olap',
+    host: 'tests/fixtures/duckdb/datapad.duckdb',
+    port: undefined,
+    database: 'tests/fixtures/duckdb/datapad.duckdb',
+    connectionString: undefined,
+    connectionMode: 'local-file',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'duckdb',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function liteDbConnection(): ConnectionProfile {
+  return {
+    id: 'conn-litedb',
+    name: 'LiteDB',
+    engine: 'litedb',
+    family: 'document',
+    host: 'tests/fixtures/litedb/catalog.db',
+    port: undefined,
+    database: 'tests/fixtures/litedb/catalog.db',
+    connectionString: undefined,
+    connectionMode: 'local-file',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'litedb',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function cosmosConnection(): ConnectionProfile {
+  return {
+    id: 'conn-cosmos',
+    name: 'Cosmos DB',
+    engine: 'cosmosdb',
+    family: 'document',
+    host: 'datapad-cosmos.documents.azure.com',
+    port: 443,
+    database: 'catalog',
+    connectionString: undefined,
+    connectionMode: 'connection-string',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'cosmosdb',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function redisConnection(): ConnectionProfile {
+  return {
+    id: 'conn-redis',
+    name: 'Redis',
+    engine: 'redis',
+    family: 'keyvalue',
+    host: 'localhost',
+    port: 6379,
+    database: '0',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'redis',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function memcachedConnection(): ConnectionProfile {
+  return {
+    id: 'conn-memcached',
+    name: 'Memcached',
+    engine: 'memcached',
+    family: 'keyvalue',
+    host: 'localhost',
+    port: 11211,
+    database: undefined,
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'memcached',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }

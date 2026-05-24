@@ -43,7 +43,7 @@ impl DatastoreAdapter for CosmosDbAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_cosmosdb_explorer_node(connection, request))
+        inspect_cosmosdb_explorer_node(connection, request).await
     }
 
     async fn execute(

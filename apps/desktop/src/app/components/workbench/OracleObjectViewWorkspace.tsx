@@ -28,6 +28,7 @@ import {
   type OracleObjectViewDescriptor,
 } from './OracleObjectViewDescriptors'
 import { ExplorerNodeIcon } from './SideBar.node-icons'
+import { redactSensitiveText } from '../../state/security-redaction'
 
 type JsonRecord = Record<string, unknown>
 
@@ -321,31 +322,59 @@ function OracleSourceView({
   const sourceLines = sourceLinesFromPayload(payload)
   const errors = arrayOfRecords(payload.errors)
   const dependencies = arrayOfRecords(payload.dependencies)
+  const [showSource, setShowSource] = useState(false)
 
   return (
     <div className="object-view-section">
       <SectionHeading Icon={oracleIconForKind(kind)} title={descriptor.title} unit={stringValue(payload.objectName ?? payload.schema)} />
       <p className="object-view-note">{descriptor.purpose}</p>
+      <MetricCards rows={[
+        ['Source lines', String(sourceLines.length)],
+        ['Compile errors', String(errors.length)],
+        ['Dependencies', String(dependencies.length)],
+      ]} />
       <ObjectViewTable
         columns={objects.columns}
         rows={objects.rows}
         emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`}
       />
       {sourceLines.length ? (
-        <div className="object-view-table-wrap">
-          <table className="object-view-table">
-            <thead>
-              <tr><th>Line</th><th>Source</th></tr>
-            </thead>
-            <tbody>
-              {sourceLines.map((line) => (
-                <tr key={`${line.line}:${line.text}`}>
-                  <td>{line.line}</td>
-                  <td><code>{line.text}</code></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="object-view-management">
+          <strong>Source Outline</strong>
+          <p className="object-view-note">
+            Review the object shape first. Open source only when you need the PL/SQL text.
+          </p>
+          <ObjectViewTable
+            columns={['Line', 'Declaration']}
+            rows={oracleSourceOutline(sourceLines)}
+            emptyText="No declarations were detected in the loaded source."
+          />
+          <div className="object-view-disclosure">
+            <button
+              type="button"
+              className="drawer-button"
+              onClick={() => setShowSource((current) => !current)}
+            >
+              {showSource ? 'Hide source' : 'Show source'}
+            </button>
+            {showSource ? (
+              <div className="object-view-table-wrap">
+                <table className="object-view-table">
+                  <thead>
+                    <tr><th>Line</th><th>Source</th></tr>
+                  </thead>
+                  <tbody>
+                    {sourceLines.map((line) => (
+                      <tr key={`${line.line}:${line.text}`}>
+                        <td>{line.line}</td>
+                        <td><code>{line.text}</code></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
       <ObjectViewTable
@@ -354,7 +383,7 @@ function OracleSourceView({
           stringValue(error.name),
           stringValue(error.type),
           stringValue(error.line),
-          stringValue(error.text ?? error.message),
+          redactSensitiveText(stringValue(error.text ?? error.message)),
         ])}
         emptyText=""
       />
@@ -748,7 +777,7 @@ function oraclePerformanceRows(kind: string, payload: JsonRecord) {
         stringValue(sql.sqlId),
         stringValue(sql.status),
         stringValue(sql.elapsedMs),
-        stringValue(sql.sqlText),
+        sqlTextSummary(sql.sqlText),
       ]),
     }
   }
@@ -796,6 +825,39 @@ function sourceLinesFromPayload(payload: JsonRecord) {
       text: stringValue(record.text ?? record.source),
     }
   }).filter((line) => line.text)
+}
+
+function oracleSourceOutline(sourceLines: Array<{ line: string; text: string }>) {
+  const declarationPattern = /\b(package|procedure|function|type|trigger|cursor)\b/i
+  const declarations = sourceLines
+    .map((line) => ({
+      line: line.line,
+      text: line.text.trim().replace(/\s+/g, ' '),
+    }))
+    .filter((line) => declarationPattern.test(line.text))
+
+  return declarations.slice(0, 12).map((line) => [
+    line.line,
+    oracleDeclarationSummary(line.text),
+  ])
+}
+
+function oracleDeclarationSummary(text: string) {
+  const normalized = text.replace(/^create\s+(or\s+replace\s+)?/i, '').trim()
+  const match = /\b(package\s+body|package|procedure|function|type\s+body|type|trigger|cursor)\s+([A-Za-z0-9_$#"]+)/i.exec(normalized)
+  if (!match) {
+    return 'PL/SQL declaration'
+  }
+
+  const declarationKind = match[1]
+  const declarationName = match[2]
+  if (!declarationKind || !declarationName) {
+    return 'PL/SQL declaration'
+  }
+
+  const kind = humanize(declarationKind.toLowerCase())
+  const name = declarationName.replace(/"/g, '')
+  return `${kind}: ${name}`
 }
 
 function objectUnit(kind: string, payload: JsonRecord, rowCount: number) {
@@ -909,6 +971,17 @@ function bytesText(value: unknown) {
   }
 
   return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function sqlTextSummary(value: unknown) {
+  const text = stringValue(value).replace(/\s+/g, ' ').trim()
+  if (!text) {
+    return ''
+  }
+
+  const keyword = text.match(/\b(select|insert|update|delete|merge|create|alter|drop|exec|execute|with)\b/i)?.[1]
+  const label = keyword ? `${keyword.toUpperCase()} statement` : 'SQL text'
+  return text.length > 80 ? `${label} (${text.length.toLocaleString()} chars)` : `${label}: ${text}`
 }
 
 function humanize(value: string) {

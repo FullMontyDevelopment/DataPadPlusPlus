@@ -6,6 +6,7 @@ export type MongoObjectViewDescriptor = {
   emptyTitle: string
   emptyDescription: string
   primaryQueryLabel?: string
+  primaryActions: string[]
 }
 
 const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
@@ -14,6 +15,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Open Database Overview',
     title: 'Database Overview',
     purpose: 'Review the database structure, security surfaces, GridFS areas, and statistics before opening a focused MongoDB workflow.',
+    primaryActions: ['Browse collections', 'Review users and roles', 'Open database statistics'],
     emptyTitle: 'Database metadata is not loaded yet',
     emptyDescription: 'Refresh the view to collect collections, views, security, GridFS, and statistics metadata for this database.',
   },
@@ -22,6 +24,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Open Collection Overview',
     title: 'Collection Overview',
     purpose: 'Work with documents, schema, indexes, validation rules, statistics, permissions, and collection-level operation previews.',
+    primaryActions: ['Open documents', 'Upload document', 'Manage indexes', 'Manage validation'],
     emptyTitle: 'Collection metadata is not loaded yet',
     emptyDescription: 'Refresh the collection view or open Documents to inspect data and collect richer collection metadata.',
     primaryQueryLabel: 'Open Documents',
@@ -30,16 +33,18 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     kind: 'view',
     menuLabel: 'Inspect View Definition',
     title: 'MongoDB View',
-    purpose: 'Inspect the backing pipeline, dependencies, and sample results for this read-only MongoDB view.',
+    purpose: 'Inspect the backing pipeline, dependencies, and a bounded results preview for this read-only MongoDB view.',
+    primaryActions: ['Review pipeline', 'Open results preview'],
     emptyTitle: 'View metadata is not loaded yet',
     emptyDescription: 'Refresh the view to collect its backing pipeline and dependency metadata.',
-    primaryQueryLabel: 'Open Sample Results',
+    primaryQueryLabel: 'Open Results Preview',
   },
   'schema-preview': {
     kind: 'schema-preview',
     menuLabel: 'Open Schema Preview',
     title: 'Schema Preview',
     purpose: 'Understand document shape from bounded samples: field presence, BSON types, examples, mixed-type fields, and validator opportunities.',
+    primaryActions: ['Review fields', 'Find mixed types', 'Preview validator'],
     emptyTitle: 'No schema sample is available',
     emptyDescription: 'Run or refresh schema sampling after the collection has documents. DataPad++ keeps this bounded so large collections stay safe.',
   },
@@ -48,6 +53,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Manage Indexes',
     title: 'Index Manager',
     purpose: 'Review collection access paths, options, usage hints, and generate guarded create/drop index operation previews.',
+    primaryActions: ['Review indexes', 'Preview create index', 'Preview drop index'],
     emptyTitle: 'No index metadata is available',
     emptyDescription: 'Refresh indexes or verify that the connected user can run listIndexes for this collection.',
   },
@@ -56,6 +62,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Manage Search Indexes',
     title: 'Search Indexes',
     purpose: 'Review Atlas Search index metadata when the connected deployment exposes it, with unavailable actions explained inline.',
+    primaryActions: ['Review search indexes', 'Open availability guidance'],
     emptyTitle: 'Search index metadata is unavailable',
     emptyDescription: 'This deployment did not expose Atlas Search index metadata through the connected MongoDB APIs.',
   },
@@ -64,6 +71,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Manage Vector Indexes',
     title: 'Vector Indexes',
     purpose: 'Review vector search metadata when the connected deployment exposes it, with unavailable actions explained inline.',
+    primaryActions: ['Review vector indexes', 'Open availability guidance'],
     emptyTitle: 'Vector index metadata is unavailable',
     emptyDescription: 'This deployment did not expose vector index metadata through the connected MongoDB APIs.',
   },
@@ -72,6 +80,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Manage Validation Rules',
     title: 'Validation Rules',
     purpose: 'Inspect the active validator, test draft documents, and generate guarded validator update previews.',
+    primaryActions: ['Review validator', 'Test document', 'Preview update'],
     emptyTitle: 'No validator is configured',
     emptyDescription: 'This collection currently accepts documents without a collection validator. You can draft one here as a guarded preview.',
   },
@@ -80,22 +89,25 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Open Collection Statistics',
     title: 'Collection Statistics',
     purpose: 'Measure collection size, document counts, average object size, storage, and index footprint in a compact diagnostics view.',
+    primaryActions: ['Review size', 'Review index footprint'],
     emptyTitle: 'No collection statistics were returned',
-    emptyDescription: 'Refresh statistics or verify that the connected user can run collection statistics commands.',
+    emptyDescription: 'Refresh statistics or verify that the connected user can inspect collection statistics.',
   },
   'database-statistics': {
     kind: 'database-statistics',
     menuLabel: 'Open Database Statistics',
     title: 'Database Statistics',
-    purpose: 'Measure database-level storage, object counts, collection counts, index footprint, and command output.',
+    purpose: 'Measure database-level storage, object counts, collection counts, and index footprint in a compact diagnostics view.',
+    primaryActions: ['Review storage', 'Review object counts'],
     emptyTitle: 'No database statistics were returned',
-    emptyDescription: 'Refresh statistics or verify that the connected user can run database statistics commands.',
+    emptyDescription: 'Refresh statistics or verify that the connected user can inspect database statistics.',
   },
   permissions: {
     kind: 'permissions',
     menuLabel: 'Open Permissions',
     title: 'Permissions',
     purpose: 'Review permission-related metadata for the selected collection or database and surface unavailable privilege details clearly.',
+    primaryActions: ['Review permissions', 'Open warning details'],
     emptyTitle: 'No permission metadata was returned',
     emptyDescription: 'The connected user may not be allowed to inspect permissions for this scope.',
   },
@@ -104,6 +116,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Open Scripts',
     title: 'Scripts',
     purpose: 'Start MongoDB scripting workflows and reusable operation templates scoped to this object.',
+    primaryActions: ['Open scripting', 'Review templates'],
     emptyTitle: 'No script templates are available',
     emptyDescription: 'Open the scripting workspace to create a scoped script for this MongoDB object.',
     primaryQueryLabel: 'Open Scripting',
@@ -112,7 +125,8 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     kind: 'aggregations',
     menuLabel: 'Open Aggregation Builder',
     title: 'Aggregation Builder',
-    purpose: 'Build and run aggregation pipelines scoped to this collection without losing the raw pipeline representation.',
+    purpose: 'Build and run aggregation pipelines scoped to this collection while keeping the pipeline editable.',
+    primaryActions: ['Open aggregation builder', 'Review pipeline templates'],
     emptyTitle: 'No aggregation templates are available',
     emptyDescription: 'Open the aggregation builder to start a scoped pipeline for this collection.',
     primaryQueryLabel: 'Open Aggregation Builder',
@@ -121,16 +135,18 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     kind: 'pipeline',
     menuLabel: 'Open Pipeline',
     title: 'View Pipeline',
-    purpose: 'Inspect the pipeline that defines this MongoDB view and open sample results from the same scope.',
+    purpose: 'Inspect the pipeline that defines this MongoDB view and open a bounded results preview from the same scope.',
+    primaryActions: ['Review pipeline', 'Open results preview'],
     emptyTitle: 'No pipeline was returned',
     emptyDescription: 'Refresh the view or verify that listCollections returned pipeline metadata for this view.',
-    primaryQueryLabel: 'Open Sample Results',
+    primaryQueryLabel: 'Open Results Preview',
   },
   gridfs: {
     kind: 'gridfs',
     menuLabel: 'Browse GridFS',
     title: 'GridFS Browser',
     purpose: 'Browse GridFS buckets, files, chunks, metadata, and query/export entry points for file-backed collections.',
+    primaryActions: ['Browse buckets', 'Query files', 'Query chunks'],
     emptyTitle: 'No GridFS metadata is loaded',
     emptyDescription: 'Refresh GridFS metadata to list buckets, file metadata collections, and chunk collections.',
   },
@@ -139,6 +155,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Browse GridFS Buckets',
     title: 'GridFS Buckets',
     purpose: 'List GridFS bucket prefixes and jump into their files and chunks collections.',
+    primaryActions: ['Review buckets', 'Open bucket files'],
     emptyTitle: 'No GridFS buckets were found',
     emptyDescription: 'This database may not contain GridFS bucket collections, or the connected user may not be allowed to list them.',
   },
@@ -147,14 +164,36 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Open GridFS Bucket',
     title: 'GridFS Bucket',
     purpose: 'Inspect a GridFS bucket and open its files or chunks collections as focused document queries.',
+    primaryActions: ['Open files collection', 'Open chunks collection'],
     emptyTitle: 'GridFS bucket metadata is not loaded',
     emptyDescription: 'Refresh the bucket metadata or query the bucket backing collections directly.',
+  },
+  'gridfs-files': {
+    kind: 'gridfs-files',
+    menuLabel: 'Open GridFS Files',
+    title: 'GridFS Browser',
+    purpose: 'Inspect GridFS file metadata, upload dates, custom metadata, and query/export entry points.',
+    primaryActions: ['Review file metadata', 'Query files collection', 'Export files'],
+    emptyTitle: 'No GridFS files were returned',
+    emptyDescription: 'Refresh GridFS metadata or verify that this bucket has an fs.files collection.',
+    primaryQueryLabel: 'Query GridFS Collection',
+  },
+  'gridfs-chunks': {
+    kind: 'gridfs-chunks',
+    menuLabel: 'Open GridFS Chunks',
+    title: 'GridFS Browser',
+    purpose: 'Inspect GridFS chunk metadata and identify missing or mismatched chunks before exporting files.',
+    primaryActions: ['Review chunks', 'Check chunk health', 'Query chunks collection'],
+    emptyTitle: 'No GridFS chunks were returned',
+    emptyDescription: 'Refresh GridFS metadata or verify that this bucket has an fs.chunks collection.',
+    primaryQueryLabel: 'Query GridFS Collection',
   },
   users: {
     kind: 'users',
     menuLabel: 'Manage Users',
     title: 'Users',
     purpose: 'Review database users, assigned roles, authentication details, and generate guarded user management previews.',
+    primaryActions: ['Review users', 'Preview create user', 'Preview drop user'],
     emptyTitle: 'No users were returned',
     emptyDescription: 'The connected user may not have usersInfo privileges, or this database has no user records available to this login.',
   },
@@ -163,6 +202,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Manage Roles',
     title: 'Roles',
     purpose: 'Review role inheritance, privileges, and generate guarded role management previews.',
+    primaryActions: ['Review roles', 'Preview create role', 'Preview drop role'],
     emptyTitle: 'No roles were returned',
     emptyDescription: 'The connected user may not have rolesInfo privileges, or this database has no role records available to this login.',
   },
@@ -173,6 +213,7 @@ const DEFAULT_DESCRIPTOR: MongoObjectViewDescriptor = {
   menuLabel: 'Inspect Mongo Metadata',
   title: 'Mongo Metadata',
   purpose: 'Inspect MongoDB metadata for this object with available warnings and query handoffs.',
+  primaryActions: ['Inspect metadata'],
   emptyTitle: 'MongoDB metadata is not available',
   emptyDescription: 'Refresh this object or verify that the connected user has permission to inspect this metadata.',
 }
@@ -199,10 +240,10 @@ export function mongoScopedQueryMenuLabel(kind: string | undefined): string {
   }
 
   if (kind === 'pipeline' || kind === 'sample-results' || kind === 'view') {
-    return 'Open Sample Results'
+    return 'Open Results Preview'
   }
 
-  if (kind?.startsWith('gridfs')) {
+  if (kind === 'gridfs-files' || kind === 'gridfs-chunks') {
     return 'Query GridFS Collection'
   }
 
@@ -210,3 +251,23 @@ export function mongoScopedQueryMenuLabel(kind: string | undefined): string {
 }
 
 export const MONGO_OBJECT_VIEW_KINDS = Object.freeze(Object.keys(DESCRIPTORS))
+
+export const MONGO_QUERYABLE_OBJECT_KINDS = Object.freeze([
+  'collection',
+  'documents',
+  'aggregations',
+  'sample-results',
+  'view',
+  'pipeline',
+  'gridfs-collection',
+  'gridfs-files',
+  'gridfs-chunks',
+])
+
+export function isMongoObjectViewKind(kind: string | undefined): boolean {
+  return Boolean(kind && MONGO_OBJECT_VIEW_KINDS.includes(kind))
+}
+
+export function isMongoQueryableObjectKind(kind: string | undefined): boolean {
+  return Boolean(kind && MONGO_QUERYABLE_OBJECT_KINDS.includes(kind))
+}

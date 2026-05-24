@@ -27,7 +27,7 @@ pub(super) async fn collect_litedb_diagnostics(
         }
     ])));
     diagnostics.profiles.push(payload_profile(
-        "LiteDB bridge profile placeholder.",
+        "LiteDB file and sidecar readiness.",
         json!({
             "bridge": "dotnet-litedb-sidecar",
             "sidecarReady": false,

@@ -45,7 +45,7 @@ impl DatastoreAdapter for DynamoDbAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_dynamodb_explorer_node(connection, request))
+        inspect_dynamodb_explorer_node(connection, request).await
     }
 
     async fn execute(

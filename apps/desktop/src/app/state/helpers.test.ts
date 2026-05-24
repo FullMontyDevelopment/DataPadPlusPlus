@@ -178,12 +178,77 @@ describe('migrateWorkspaceSnapshot', () => {
     } as unknown as typeof snapshot)
 
     expect(migrated.connections[0]?.connectionMode).toBe('connection-string')
+    expect(migrated.connections[0]?.connectionString).toBe(
+      'postgresql://user:{{PASSWORD}}@localhost:5432/app',
+    )
     expect(
       migrated.libraryNodes.some(
         (node) =>
           node.kind === 'connection' && node.connectionId === 'conn-string-profile',
       ),
     ).toBe(true)
+  })
+
+  it('migrates legacy environment variables and query tokens without persisting secret values', () => {
+    const snapshot = createSeedSnapshot()
+    const migrated = migrateWorkspaceSnapshot({
+      ...snapshot,
+      environments: [
+        {
+          ...snapshot.environments[0]!,
+          variables: {
+            DB_HOST: 'localhost',
+            API_TOKEN: 'plaintext-token',
+          },
+          sensitiveKeys: ['API_TOKEN'],
+          variableDefinitions: undefined,
+        },
+      ],
+      tabs: [
+        {
+          ...snapshot.tabs[0]!,
+          id: 'tab-variable-migration',
+          queryText: 'select * from ${DB_SCHEMA}.accounts where token = ${API_TOKEN}',
+          scriptText: 'db.${COLLECTION}.find({})',
+        },
+      ],
+      closedTabs: [
+        {
+          ...snapshot.tabs[0]!,
+          id: 'closed-token-tab',
+          queryText: 'select * from ${DB_SCHEMA}.accounts',
+          closedAt: '2026-05-21T00:00:00.000Z',
+          closeReason: 'user',
+        },
+      ],
+      libraryNodes: [
+        {
+          id: 'library-query-token',
+          kind: 'query',
+          name: 'Token query',
+          parentId: undefined,
+          connectionId: snapshot.connections[0]?.id,
+          environmentId: snapshot.environments[0]?.id,
+          queryText: 'select ${VALUE};',
+          tags: [],
+          favorite: false,
+          createdAt: '2026-05-21T00:00:00.000Z',
+          updatedAt: '2026-05-21T00:00:00.000Z',
+        },
+      ],
+    } as unknown as typeof snapshot)
+
+    expect(migrated.tabs[0]?.queryText).toContain('{{DB_SCHEMA}}')
+    expect(migrated.tabs[0]?.queryText).toContain('{{API_TOKEN}}')
+    expect(migrated.tabs[0]?.scriptText).toBe('db.{{COLLECTION}}.find({})')
+    expect(migrated.closedTabs[0]?.queryText).toBe('select * from {{DB_SCHEMA}}.accounts')
+    expect(migrated.libraryNodes[0]?.queryText).toBe('select {{VALUE}};')
+    expect(JSON.stringify(migrated.environments[0])).not.toContain('plaintext-token')
+    expect(migrated.environments[0]?.variableDefinitions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'API_TOKEN', kind: 'secret', value: undefined }),
+      ]),
+    )
   })
 
   it('preserves persisted sidebar display state when migrating workspace state', () => {

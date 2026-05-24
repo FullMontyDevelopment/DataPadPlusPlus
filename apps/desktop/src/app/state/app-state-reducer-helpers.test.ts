@@ -557,9 +557,9 @@ describe('mergeExplorerCacheEntry', () => {
 
 describe('isExplorerRequestLoading', () => {
   it('tracks loading by connection, environment, and scope', () => {
-    const loadingRequests: Record<string, true> = {
-      'conn-1::env-dev::__root__': true,
-      'conn-1::env-dev::database:catalog': true,
+    const loadingRequests: Record<string, string> = {
+      'conn-1::env-dev::__root__': 'request-root',
+      'conn-1::env-dev::database:catalog': 'request-catalog',
     }
 
     expect(isExplorerRequestLoading(loadingRequests, 'conn-1', 'env-dev')).toBe(true)

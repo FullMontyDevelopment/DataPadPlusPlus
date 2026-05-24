@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type {
   ConnectionProfile,
@@ -21,21 +21,12 @@ import {
   SaveQueryDialog,
 } from './components/workbench/AppDialogs'
 import { BootSurface, WelcomeSurface } from './components/workbench/BootSurfaces'
-import { BottomPanel } from './components/workbench/BottomPanel'
 import { DesktopCodeEditor } from './components/workbench/DesktopCodeEditor'
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
-import { EnvironmentWorkspace } from './components/workbench/EnvironmentWorkspace'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
-import { MetricsWorkspace } from './components/workbench/MetricsWorkspace'
-import { ObjectViewWorkspace } from './components/workbench/ObjectViewWorkspace'
-import { RightDrawer } from './components/workbench/RightDrawer'
 import { RedisConsoleEditor } from './components/workbench/RedisConsoleEditor'
-import { SideBar } from './components/workbench/SideBar'
 import { StatusBar } from './components/workbench/StatusBar'
-import { StructureWorkspace } from './components/workbench/StructureWorkspace'
-import { TestSuiteWorkspace } from './components/workbench/TestSuiteWorkspace'
-import { QueryBuilderPanel } from './components/workbench/query-builder/QueryBuilderPanel'
 import {
   buildCqlPartitionQueryText,
   isCqlPartitionBuilderState,
@@ -68,7 +59,10 @@ import {
   redisConsoleCommandFromQueryText,
 } from './components/workbench/query-builder/redis-console'
 import { mongoQueryScopeForTab } from './components/workbench/query-builder/mongo-query-scope'
-import { completionProvidersForConnection } from './components/workbench/intellisense/providers'
+import {
+  ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER,
+  completionProvidersForConnection,
+} from './components/workbench/intellisense/providers'
 import { useQueryIntellisenseCatalog } from './components/workbench/intellisense/useQueryIntellisenseCatalog'
 import { SavedWorkIcon } from './components/workbench/icons'
 import { AppStateProvider, useAppState } from './state/app-state'
@@ -90,6 +84,52 @@ import {
   selectPayload,
 } from './workspace-helpers'
 
+const BottomPanel = lazy(() =>
+  import('./components/workbench/BottomPanel').then((module) => ({
+    default: module.BottomPanel,
+  })),
+)
+const EnvironmentWorkspace = lazy(() =>
+  import('./components/workbench/EnvironmentWorkspace').then((module) => ({
+    default: module.EnvironmentWorkspace,
+  })),
+)
+const MetricsWorkspace = lazy(() =>
+  import('./components/workbench/MetricsWorkspace').then((module) => ({
+    default: module.MetricsWorkspace,
+  })),
+)
+const ObjectViewWorkspace = lazy(() =>
+  import('./components/workbench/ObjectViewWorkspace').then((module) => ({
+    default: module.ObjectViewWorkspace,
+  })),
+)
+const QueryBuilderPanel = lazy(() =>
+  import('./components/workbench/query-builder/QueryBuilderPanel').then((module) => ({
+    default: module.QueryBuilderPanel,
+  })),
+)
+const RightDrawer = lazy(() =>
+  import('./components/workbench/RightDrawer').then((module) => ({
+    default: module.RightDrawer,
+  })),
+)
+const SideBar = lazy(() =>
+  import('./components/workbench/SideBar').then((module) => ({
+    default: module.SideBar,
+  })),
+)
+const StructureWorkspace = lazy(() =>
+  import('./components/workbench/StructureWorkspace').then((module) => ({
+    default: module.StructureWorkspace,
+  })),
+)
+const TestSuiteWorkspace = lazy(() =>
+  import('./components/workbench/TestSuiteWorkspace').then((module) => ({
+    default: module.TestSuiteWorkspace,
+  })),
+)
+
 export function App() {
   return (
     <ErrorBoundary>
@@ -97,6 +137,24 @@ export function App() {
         <DesktopWorkspace />
       </AppStateProvider>
     </ErrorBoundary>
+  )
+}
+
+function WorkbenchPaneFallback() {
+  return (
+    <div className="editor-empty-state" role="status">
+      Loading...
+    </div>
+  )
+}
+
+function SidebarFallback() {
+  return (
+    <aside className="workbench-sidebar" aria-label="Loading Library">
+      <div className="sidebar-empty" role="status">
+        Loading...
+      </div>
+    </aside>
   )
 }
 
@@ -135,8 +193,12 @@ function DesktopWorkspace() {
   const [environmentDrafts, setEnvironmentDrafts] = useState<
     Record<string, EnvironmentProfile>
   >({})
+  const [environmentSecretDrafts, setEnvironmentSecretDrafts] = useState<
+    Record<string, Record<string, string>>
+  >({})
   const initializedQueryModeByTabRef = useRef<Record<string, string>>({})
   const environmentDraftsRef = useRef<Record<string, EnvironmentProfile>>({})
+  const environmentSecretDraftsRef = useRef<Record<string, Record<string, string>>>({})
   const builderStateDraftRef = useRef<Record<string, QueryBuilderState>>({})
   const [builderStateDrafts, setBuilderStateDrafts] = useState<
     Record<string, QueryBuilderState>
@@ -177,6 +239,10 @@ function DesktopWorkspace() {
   useEffect(() => {
     environmentDraftsRef.current = environmentDrafts
   }, [environmentDrafts])
+
+  useEffect(() => {
+    environmentSecretDraftsRef.current = environmentSecretDrafts
+  }, [environmentSecretDrafts])
 
   const snapshot = payload?.snapshot
   const activeConnection =
@@ -342,7 +408,10 @@ function DesktopWorkspace() {
     resultPayloads: activeTab?.result?.payloads,
   })
   const completionProviders = useMemo(
-    () => completionProvidersForConnection(activeConnection, runtimeCapabilities.editorLanguage),
+    () => [
+      ...completionProvidersForConnection(activeConnection, runtimeCapabilities.editorLanguage),
+      ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER,
+    ],
     [activeConnection, runtimeCapabilities.editorLanguage],
   )
   const completionContext = useMemo(() => {
@@ -589,8 +658,14 @@ function DesktopWorkspace() {
         return
       }
 
-      await actions.saveEnvironment(draft)
+      const secretDrafts = environmentSecretDraftsRef.current[tabId] ?? {}
+      await actions.saveEnvironment(draft, secretDrafts)
       setEnvironmentDrafts((current) => {
+        const next = { ...current }
+        delete next[tabId]
+        return next
+      })
+      setEnvironmentSecretDrafts((current) => {
         const next = { ...current }
         delete next[tabId]
         return next
@@ -876,7 +951,12 @@ function DesktopWorkspace() {
       (item) => item.id === tab.environmentId,
     )
     const draft = environmentDraftsRef.current[tab.id] ?? savedEnvironment
-    return comparableEnvironment(draft) !== comparableEnvironment(savedEnvironment)
+    const hasSecretDrafts = Object.values(environmentSecretDraftsRef.current[tab.id] ?? {})
+      .some((value) => value.trim().length > 0)
+    return (
+      comparableEnvironment(draft) !== comparableEnvironment(savedEnvironment) ||
+      hasSecretDrafts
+    )
   }
   const displayTabs = snapshot.tabs.map((tab) => {
     if (tab.tabKind !== 'environment') {
@@ -888,7 +968,11 @@ function DesktopWorkspace() {
     )
     const draft = environmentDrafts[tab.id] ?? savedEnvironment
     const title = environmentTabTitle(draft?.label ?? tab.title)
-    const dirty = comparableEnvironment(draft) !== comparableEnvironment(savedEnvironment)
+    const hasSecretDrafts = Object.values(environmentSecretDrafts[tab.id] ?? {})
+      .some((value) => value.trim().length > 0)
+    const dirty =
+      comparableEnvironment(draft) !== comparableEnvironment(savedEnvironment) ||
+      hasSecretDrafts
 
     return {
       ...tab,
@@ -1106,6 +1190,11 @@ function DesktopWorkspace() {
       safeMode: environment.safeMode,
       sensitiveKeys: [...environment.sensitiveKeys],
       variables: { ...environment.variables },
+      variableDefinitions: environment.variableDefinitions?.map((definition) => ({
+        ...definition,
+        secretRef: definition.secretRef ? { ...definition.secretRef } : undefined,
+        value: definition.kind === 'secret' ? undefined : definition.value,
+      })),
     })
 
     void (async () => {
@@ -1336,6 +1425,11 @@ function DesktopWorkspace() {
               delete next[tabId]
               return next
             })
+            setEnvironmentSecretDrafts((current) => {
+              const next = { ...current }
+              delete next[tabId]
+              return next
+            })
             void actions.closeTab(tabId).then(() => continuePendingTabClose(remainingTabIds))
           }}
           onSaveAndClose={() => {
@@ -1429,102 +1523,104 @@ function DesktopWorkspace() {
         }
       >
         {!snapshot.ui.sidebarCollapsed ? (
-          <SideBar
-            ui={snapshot.ui}
-            width={snapshot.ui.sidebarWidth}
-            connections={snapshot.connections}
-            adapterManifests={snapshot.adapterManifests}
-            environments={snapshot.environments}
-            libraryNodes={snapshot.libraryNodes}
-            closedTabs={snapshot.closedTabs}
-            explorerItems={explorerItems}
-            getConnectionExplorerItems={getConnectionExplorerItems}
-            getConnectionExplorerStatus={getConnectionExplorerStatus}
-            explorerSummary={activeExplorerResponse?.summary ?? explorerError}
-            explorerStatus={activeExplorerStatus}
-            isExplorerScopeLoading={isConnectionExplorerScopeLoading}
-            activeConnectionId={activeConnection?.id ?? ''}
-            activeEnvironmentId={activeEnvironment?.id ?? ''}
-            onSelectConnection={(connectionId) => void actions.selectConnection(connectionId)}
-            onSelectEnvironment={(environmentId) =>
-              void actions.createEnvironmentTab(environmentId)
-            }
-            onCreateConnection={openNewConnectionDraft}
-            onCreateEnvironment={() => void actions.createEnvironment()}
-            onCloneEnvironment={(environmentId) => {
-              const environment = snapshot.environments.find((item) => item.id === environmentId)
-              if (environment) {
-                cloneEnvironmentProfile(environment)
+          <Suspense fallback={<SidebarFallback />}>
+            <SideBar
+              ui={snapshot.ui}
+              width={snapshot.ui.sidebarWidth}
+              connections={snapshot.connections}
+              adapterManifests={snapshot.adapterManifests}
+              environments={snapshot.environments}
+              libraryNodes={snapshot.libraryNodes}
+              closedTabs={snapshot.closedTabs}
+              explorerItems={explorerItems}
+              getConnectionExplorerItems={getConnectionExplorerItems}
+              getConnectionExplorerStatus={getConnectionExplorerStatus}
+              explorerSummary={activeExplorerResponse?.summary ?? explorerError}
+              explorerStatus={activeExplorerStatus}
+              isExplorerScopeLoading={isConnectionExplorerScopeLoading}
+              activeConnectionId={activeConnection?.id ?? ''}
+              activeEnvironmentId={activeEnvironment?.id ?? ''}
+              onSelectConnection={(connectionId) => void actions.selectConnection(connectionId)}
+              onSelectEnvironment={(environmentId) =>
+                void actions.createEnvironmentTab(environmentId)
               }
-            }}
-            onEditEnvironment={(environmentId) =>
-              void actions.createEnvironmentTab(environmentId)
-            }
-            onDeleteEnvironment={requestDeleteEnvironmentProfile}
-            onConnectionGroupModeChange={(connectionGroupMode) =>
-              void actions.updateUiState({ connectionGroupMode })
-            }
-            onSidebarSectionExpandedChange={(sectionId, expanded) =>
-              void actions.updateUiState({
-                sidebarSectionStates: {
-                  ...(snapshot.ui.sidebarSectionStates ?? {}),
-                  [sectionId]: expanded,
-                },
-              })
-            }
-            onDuplicateConnection={(connectionId) =>
-              void actions.duplicateConnection(connectionId)
-            }
-            onDeleteConnection={requestDeleteConnection}
-            onOpenConnectionExplorer={openConnectionExplorer}
-            onOpenConnectionMetrics={openConnectionMetrics}
-            onOpenConnectionDrawer={openConnectionDrawerFor}
-            onTestConnection={(connectionId) => {
-              const connection = snapshot.connections.find((item) => item.id === connectionId)
-              if (connection) {
-                void actions.testConnection(connection, activeEnvironment?.id ?? '', undefined)
+              onCreateConnection={openNewConnectionDraft}
+              onCreateEnvironment={() => void actions.createEnvironment()}
+              onCloneEnvironment={(environmentId) => {
+                const environment = snapshot.environments.find((item) => item.id === environmentId)
+                if (environment) {
+                  cloneEnvironmentProfile(environment)
+                }
+              }}
+              onEditEnvironment={(environmentId) =>
+                void actions.createEnvironmentTab(environmentId)
               }
-            }}
-            onLoadExplorerScope={loadConnectionExplorerScope}
-            onOpenObjectView={openObjectView}
-            onOpenScopedQuery={openScopedQuery}
-            onCreateTab={(connectionId) => openQueryTab(connectionId ?? activeConnection?.id)}
-            onCreateTestSuite={(connectionId) => openTestSuite(connectionId)}
-            onOpenTestSuiteTemplate={(connectionId, templateId) =>
-              openTestSuite(connectionId, templateId)
-            }
-            onCreateLibraryFolder={createLibraryFolder}
-            onDeleteLibraryNode={requestDeleteLibraryNode}
-            onMoveLibraryNode={moveLibraryNode}
-            onOpenLibraryItem={(nodeId) => void actions.openLibraryItem(nodeId)}
-            onRenameLibraryNode={renameLibraryNode}
-            onSetLibraryNodeEnvironment={setLibraryNodeEnvironment}
-            onReopenClosedTab={(closedTabId) => void actions.reopenClosedTab(closedTabId)}
-            onExplorerFilterChange={(value) =>
-              void actions.updateUiState({ explorerFilter: value })
-            }
-            onRefreshExplorer={() =>
-              activeConnection && activeEnvironment
-                ? void actions.loadExplorer({
-                    connectionId: activeConnection.id,
-                    environmentId: activeEnvironment.id,
-                    limit: 50,
-                  })
-                : undefined
-            }
-            onSelectExplorerNode={handleExplorerSelection}
-            onInspectExplorerNode={(node) => inspectExplorerNode(node.id)}
-            onResize={(width) =>
-              void actions.updateUiState({
-                sidebarWidth: width,
-              })
-            }
-            onCollapseSidebar={() =>
-              void actions.updateUiState({
-                sidebarCollapsed: true,
-              })
-            }
-          />
+              onDeleteEnvironment={requestDeleteEnvironmentProfile}
+              onConnectionGroupModeChange={(connectionGroupMode) =>
+                void actions.updateUiState({ connectionGroupMode })
+              }
+              onSidebarSectionExpandedChange={(sectionId, expanded) =>
+                void actions.updateUiState({
+                  sidebarSectionStates: {
+                    ...(snapshot.ui.sidebarSectionStates ?? {}),
+                    [sectionId]: expanded,
+                  },
+                })
+              }
+              onDuplicateConnection={(connectionId) =>
+                void actions.duplicateConnection(connectionId)
+              }
+              onDeleteConnection={requestDeleteConnection}
+              onOpenConnectionExplorer={openConnectionExplorer}
+              onOpenConnectionMetrics={openConnectionMetrics}
+              onOpenConnectionDrawer={openConnectionDrawerFor}
+              onTestConnection={(connectionId) => {
+                const connection = snapshot.connections.find((item) => item.id === connectionId)
+                if (connection) {
+                  void actions.testConnection(connection, activeEnvironment?.id ?? '', undefined)
+                }
+              }}
+              onLoadExplorerScope={loadConnectionExplorerScope}
+              onOpenObjectView={openObjectView}
+              onOpenScopedQuery={openScopedQuery}
+              onCreateTab={(connectionId) => openQueryTab(connectionId ?? activeConnection?.id)}
+              onCreateTestSuite={(connectionId) => openTestSuite(connectionId)}
+              onOpenTestSuiteTemplate={(connectionId, templateId) =>
+                openTestSuite(connectionId, templateId)
+              }
+              onCreateLibraryFolder={createLibraryFolder}
+              onDeleteLibraryNode={requestDeleteLibraryNode}
+              onMoveLibraryNode={moveLibraryNode}
+              onOpenLibraryItem={(nodeId) => void actions.openLibraryItem(nodeId)}
+              onRenameLibraryNode={renameLibraryNode}
+              onSetLibraryNodeEnvironment={setLibraryNodeEnvironment}
+              onReopenClosedTab={(closedTabId) => void actions.reopenClosedTab(closedTabId)}
+              onExplorerFilterChange={(value) =>
+                void actions.updateUiState({ explorerFilter: value })
+              }
+              onRefreshExplorer={() =>
+                activeConnection && activeEnvironment
+                  ? void actions.loadExplorer({
+                      connectionId: activeConnection.id,
+                      environmentId: activeEnvironment.id,
+                      limit: 50,
+                    })
+                  : undefined
+              }
+              onSelectExplorerNode={handleExplorerSelection}
+              onInspectExplorerNode={(node) => inspectExplorerNode(node.id)}
+              onResize={(width) =>
+                void actions.updateUiState({
+                  sidebarWidth: width,
+                })
+              }
+              onCollapseSidebar={() =>
+                void actions.updateUiState({
+                  sidebarCollapsed: true,
+                })
+              }
+            />
+          </Suspense>
         ) : null}
 
         {snapshot.ui.sidebarCollapsed ? (
@@ -1565,6 +1661,7 @@ function DesktopWorkspace() {
                   }
                 />
 
+              <Suspense fallback={<WorkbenchPaneFallback />}>
                 {activeTabIsEnvironment && activeTab ? (
                   <EnvironmentWorkspace
                     key={activeTab.id}
@@ -1576,6 +1673,13 @@ function DesktopWorkspace() {
                       setEnvironmentDrafts((current) => ({
                         ...current,
                         [activeTab.id]: environment,
+                      }))
+                    }
+                    secretDrafts={environmentSecretDrafts[activeTab.id] ?? {}}
+                    onSecretDraftsChange={(secretDrafts) =>
+                      setEnvironmentSecretDrafts((current) => ({
+                        ...current,
+                        [activeTab.id]: secretDrafts,
                       }))
                     }
                     onSaveEnvironment={() => void saveEnvironmentTabDraft(activeTab.id)}
@@ -1809,132 +1913,137 @@ function DesktopWorkspace() {
                     onOpenDiagnostics={openDiagnosticsDrawer}
                   />
                 )}
+              </Suspense>
               </>
           </main>
 
           {shouldShowBottomPanel ? (
-            <BottomPanel
-              activeTab={activeTab}
-              activeConnection={activeConnection}
-              activeEnvironment={activeEnvironment}
-              activePanelTab={snapshot.ui.activeBottomPanelTab}
-              dock={resultsDock}
-              height={snapshot.ui.bottomPanelHeight}
-              sideWidth={snapshot.ui.resultsSideWidth ?? 420}
-              activePayload={activePayload}
-              activeRenderer={activeRenderer}
-              diagnostics={diagnostics}
-              explorerInspection={explorerInspection}
-              lastExecution={lastExecution}
-              lastExecutionRequest={lastExecutionRequest}
-              capabilities={runtimeCapabilities}
-              workbenchMessages={workbenchMessages}
-              onSelectPanelTab={(tab) =>
-                void actions.updateUiState({
-                  activeBottomPanelTab: tab,
-                  bottomPanelVisible: true,
-                })
-              }
-              onSelectRenderer={(renderer) =>
-                activeTab
-                  ? setRendererPreference({ renderer, tabId: activeTab.id })
-                  : undefined
-              }
-              onLoadNextPage={() =>
-                activeTab
-                  ? void actions.fetchResultPage(activeTab.id, activeRenderer)
-                  : undefined
-              }
-              onResize={(nextSize) =>
-                void actions.updateUiState(
-                  resultsDockRight
-                    ? { resultsSideWidth: nextSize }
-                    : { bottomPanelHeight: nextSize },
-                )
-              }
-              onClose={() =>
-                void actions.updateUiState({
-                  bottomPanelVisible: false,
-                })
-              }
-              onConfirmExecution={(guardrailId, mode) =>
-                activeTab
-                  ? runCurrentTabQuery(mode, guardrailId)
-                  : undefined
-              }
-              onApplyInspectionTemplate={(queryTemplate) =>
-                queryTemplate &&
-                activeTab &&
-                !activeTabIsExplorer &&
-                !activeTabIsMetrics &&
-                !activeTabIsObjectView
-                  ? void actions.updateQuery(activeTab.id, queryTemplate)
-                  : undefined
-              }
-              onRestoreHistory={(queryText) =>
-                activeTab ? void actions.updateQuery(activeTab.id, queryText) : undefined
-              }
-              onExecuteDataEdit={actions.executeDataEdit}
-              onDismissWorkbenchMessage={actions.dismissWorkbenchMessage}
-              onClearWorkbenchMessages={actions.clearWorkbenchMessages}
-            />
+            <Suspense fallback={null}>
+              <BottomPanel
+                activeTab={activeTab}
+                activeConnection={activeConnection}
+                activeEnvironment={activeEnvironment}
+                activePanelTab={snapshot.ui.activeBottomPanelTab}
+                dock={resultsDock}
+                height={snapshot.ui.bottomPanelHeight}
+                sideWidth={snapshot.ui.resultsSideWidth ?? 420}
+                activePayload={activePayload}
+                activeRenderer={activeRenderer}
+                diagnostics={diagnostics}
+                explorerInspection={explorerInspection}
+                lastExecution={lastExecution}
+                lastExecutionRequest={lastExecutionRequest}
+                capabilities={runtimeCapabilities}
+                workbenchMessages={workbenchMessages}
+                onSelectPanelTab={(tab) =>
+                  void actions.updateUiState({
+                    activeBottomPanelTab: tab,
+                    bottomPanelVisible: true,
+                  })
+                }
+                onSelectRenderer={(renderer) =>
+                  activeTab
+                    ? setRendererPreference({ renderer, tabId: activeTab.id })
+                    : undefined
+                }
+                onLoadNextPage={() =>
+                  activeTab
+                    ? void actions.fetchResultPage(activeTab.id, activeRenderer)
+                    : undefined
+                }
+                onResize={(nextSize) =>
+                  void actions.updateUiState(
+                    resultsDockRight
+                      ? { resultsSideWidth: nextSize }
+                      : { bottomPanelHeight: nextSize },
+                  )
+                }
+                onClose={() =>
+                  void actions.updateUiState({
+                    bottomPanelVisible: false,
+                  })
+                }
+                onConfirmExecution={(guardrailId, mode) =>
+                  activeTab
+                    ? runCurrentTabQuery(mode, guardrailId)
+                    : undefined
+                }
+                onApplyInspectionTemplate={(queryTemplate) =>
+                  queryTemplate &&
+                  activeTab &&
+                  !activeTabIsExplorer &&
+                  !activeTabIsMetrics &&
+                  !activeTabIsObjectView
+                    ? void actions.updateQuery(activeTab.id, queryTemplate)
+                    : undefined
+                }
+                onRestoreHistory={(queryText) =>
+                  activeTab ? void actions.updateQuery(activeTab.id, queryText) : undefined
+                }
+                onExecuteDataEdit={actions.executeDataEdit}
+                onDismissWorkbenchMessage={actions.dismissWorkbenchMessage}
+                onClearWorkbenchMessages={actions.clearWorkbenchMessages}
+              />
+            </Suspense>
           ) : null}
         </div>
 
         {snapshot.ui.rightDrawer !== 'none' ? (
-          <RightDrawer
-            key={[
-              snapshot.ui.rightDrawer,
-              drawerConnection?.id ?? 'none',
-              drawerConnection?.updatedAt ?? 'none',
-              activeEnvironment?.id ?? 'none',
-              activeEnvironment?.updatedAt ?? 'none',
-            ].join('-')}
-            view={snapshot.ui.rightDrawer}
-            width={snapshot.ui.rightDrawerWidth}
-            health={payload.health}
-            theme={snapshot.preferences.theme}
-            activeConnection={drawerConnection}
-            environments={snapshot.environments}
-            connectionTest={connectionTest}
-            diagnostics={diagnostics}
-            explorerInspection={explorerInspection}
-            exportBundle={exportBundle}
-            capabilities={runtimeCapabilities}
-            exportPassphrase={exportPassphrase}
-            importPayload={importPayload}
-            onExportPassphraseChange={setExportPassphrase}
-            onImportPayloadChange={setImportPayload}
-            onClose={closeDrawer}
-            onSaveConnection={saveConnectionProfile}
-            onTestConnection={(profile, environmentId, secret) =>
-              void actions.testConnection(
-                profile,
-                environmentId || activeEnvironment?.id || '',
-                secret,
-              )
-            }
-            onRefreshDiagnostics={() => void actions.refreshDiagnostics()}
-            onExportWorkspace={() => void actions.exportWorkspace(exportPassphrase)}
-            onImportWorkspace={(encryptedPayload) =>
-              void actions.importWorkspace(exportPassphrase, encryptedPayload)
-            }
-            onApplyTemplate={(queryTemplate) =>
-              queryTemplate && activeTab
-                ? void actions.updateQuery(activeTab.id, queryTemplate)
-                : undefined
-            }
-            onToggleTheme={() =>
-              void actions.setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
-            }
-            onPickLocalDatabaseFile={actions.pickLocalDatabaseFile}
-            onCreateLocalDatabase={actions.createLocalDatabase}
-            onResize={(width) =>
-              void actions.updateUiState({
-                rightDrawerWidth: width,
-              })
-            }
-          />
+          <Suspense fallback={null}>
+            <RightDrawer
+              key={[
+                snapshot.ui.rightDrawer,
+                drawerConnection?.id ?? 'none',
+                drawerConnection?.updatedAt ?? 'none',
+                activeEnvironment?.id ?? 'none',
+                activeEnvironment?.updatedAt ?? 'none',
+              ].join('-')}
+              view={snapshot.ui.rightDrawer}
+              width={snapshot.ui.rightDrawerWidth}
+              health={payload.health}
+              theme={snapshot.preferences.theme}
+              activeConnection={drawerConnection}
+              environments={snapshot.environments}
+              connectionTest={connectionTest}
+              diagnostics={diagnostics}
+              explorerInspection={explorerInspection}
+              exportBundle={exportBundle}
+              capabilities={runtimeCapabilities}
+              exportPassphrase={exportPassphrase}
+              importPayload={importPayload}
+              onExportPassphraseChange={setExportPassphrase}
+              onImportPayloadChange={setImportPayload}
+              onClose={closeDrawer}
+              onSaveConnection={saveConnectionProfile}
+              onTestConnection={(profile, environmentId, secret) =>
+                void actions.testConnection(
+                  profile,
+                  environmentId || activeEnvironment?.id || '',
+                  secret,
+                )
+              }
+              onRefreshDiagnostics={() => void actions.refreshDiagnostics()}
+              onExportWorkspace={() => void actions.exportWorkspace(exportPassphrase)}
+              onImportWorkspace={(encryptedPayload) =>
+                void actions.importWorkspace(exportPassphrase, encryptedPayload)
+              }
+              onApplyTemplate={(queryTemplate) =>
+                queryTemplate && activeTab
+                  ? void actions.updateQuery(activeTab.id, queryTemplate)
+                  : undefined
+              }
+              onToggleTheme={() =>
+                void actions.setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+              }
+              onPickLocalDatabaseFile={actions.pickLocalDatabaseFile}
+              onCreateLocalDatabase={actions.createLocalDatabase}
+              onResize={(width) =>
+                void actions.updateUiState({
+                  rightDrawerWidth: width,
+                })
+              }
+            />
+          </Suspense>
         ) : null}
       </div>
 

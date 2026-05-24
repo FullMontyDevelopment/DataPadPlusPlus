@@ -15,6 +15,7 @@ describe('browser workspace storage', () => {
         port: 27017,
         database: 'catalog',
         connectionString: 'mongodb://user:plain-secret@localhost:27017/catalog',
+        connectionMode: 'connection-string',
         environmentIds: [],
         tags: [],
         favorite: false,
@@ -52,8 +53,12 @@ describe('browser workspace storage', () => {
     const loaded = loadBrowserSnapshot()
     expect(loaded.connections.find((connection) => connection.id === 'conn-secret')?.connectionString)
       .toBeUndefined()
+    expect(loaded.connections.find((connection) => connection.id === 'conn-secret')?.connectionMode)
+      .toBe('native')
     expect(loaded.connections.find((connection) => connection.id === 'conn-placeholder')?.connectionString)
-      .toBe('Server=localhost;Password=${DB_PASSWORD};')
+      .toBe('Server=localhost;Password={{DB_PASSWORD}};')
+    expect(loaded.connections.find((connection) => connection.id === 'conn-placeholder')?.connectionMode)
+      .toBe('connection-string')
   })
 
   it('removes plaintext secrets from old browser snapshots when loaded', () => {
@@ -68,6 +73,7 @@ describe('browser workspace storage', () => {
         port: 27017,
         database: 'catalog',
         connectionString: 'mongodb://user:old-secret@localhost:27017/catalog',
+        connectionMode: 'connection-string',
         environmentIds: [],
         tags: [],
         favorite: false,
@@ -83,5 +89,6 @@ describe('browser workspace storage', () => {
     const loaded = loadBrowserSnapshot()
 
     expect(loaded.connections[0]?.connectionString).toBeUndefined()
+    expect(loaded.connections[0]?.connectionMode).toBe('native')
   })
 })

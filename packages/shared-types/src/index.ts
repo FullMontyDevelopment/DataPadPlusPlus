@@ -1,6 +1,7 @@
 export * from './app'
 export * from './capabilities'
 export * from './connection'
+export * from './datastore-completeness'
 export * from './datastore-roadmap'
 export * from './datastore-tree-manifests'
 export * from './runtime'

@@ -52,11 +52,7 @@ impl DatastoreAdapter for MysqlLikeAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_mysql_explorer_node(
-            self.engine,
-            connection,
-            request,
-        ))
+        inspect_mysql_explorer_node(self.engine, connection, request).await
     }
 
     async fn execute(

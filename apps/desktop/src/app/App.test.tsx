@@ -357,7 +357,7 @@ describe('App', () => {
 
     const drawer = await openConnectionDraft()
     chooseDatabaseType(drawer, 'MongoDB')
-    fireEvent.change(within(drawer).getByLabelText('Password / Secret'), {
+    fireEvent.change(within(drawer).getByLabelText('Password / Credential'), {
       target: { value: 'datapadplusplus' },
     })
     const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockRejectedValueOnce(
@@ -919,19 +919,22 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(
-        within(workspace).getByLabelText('Environment variable value API_TOKEN'),
+        within(workspace).getByLabelText('Environment secret value API_TOKEN'),
       ).toHaveValue('token-value')
     })
-    expect(within(workspace).getAllByText('********').length).toBeGreaterThan(0)
+    expect(
+      within(workspace).getByRole('button', { name: 'Environment variable type API_TOKEN' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(within(workspace).queryByText('token-value')).not.toBeInTheDocument()
 
     fireEvent.click(within(workspace).getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(
         within(screen.getByLabelText('Environment workspace')).getByLabelText(
-          'Environment variable value API_TOKEN',
+          'Environment secret value API_TOKEN',
         ),
-      ).toHaveValue('token-value')
+      ).toHaveValue('')
     })
     await waitFor(() => {
       expect(
@@ -972,7 +975,7 @@ describe('App', () => {
     })
     expect(within(drawer).getByRole('button', { name: 'Create New' })).toBeInTheDocument()
     expect(within(drawer).queryByLabelText('Server')).not.toBeInTheDocument()
-    expect(within(drawer).queryByLabelText('Password / Secret')).not.toBeInTheDocument()
+    expect(within(drawer).queryByLabelText('Password / Credential')).not.toBeInTheDocument()
 
     fireEvent.click(within(drawer).getByRole('button', { name: 'Create New' }))
 
@@ -1072,7 +1075,7 @@ describe('App', () => {
 
     const drawer = await openConnectionDraft()
 
-    fireEvent.change(within(drawer).getByLabelText('Password / Secret'), {
+    fireEvent.change(within(drawer).getByLabelText('Password / Credential'), {
       target: { value: 'local-secret' },
     })
     fireEvent.click(within(drawer).getByRole('button', { name: 'Save Connection' }))
@@ -1258,7 +1261,9 @@ describe('App', () => {
     await waitFor(() => {
       expect(within(drawer).getByText('Backup bundle ready')).toBeInTheDocument()
     })
-    const bundleText = within(drawer).getByText(/"format": "datapadplusplus-bundle"/).textContent
+    expect(within(drawer).queryByText(/"format": "datapadplusplus-bundle"/)).not.toBeInTheDocument()
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Show encrypted bundle text' }))
+    const bundleText = within(drawer).getByLabelText('Encrypted workspace bundle').textContent
       ?? ''
 
     fireEvent.change(within(drawer).getByLabelText('Workspace bundle'), {

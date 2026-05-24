@@ -120,7 +120,7 @@ export function ResultsView({
             className="bottom-panel-icon-button"
             aria-label="Copy result"
             disabled={!payload}
-            title="Copy the current result payload to the clipboard."
+            title="Copy the current result to the clipboard."
             onClick={() => void copyResult()}
           >
             <CopyIcon className="panel-inline-icon" />
@@ -130,7 +130,7 @@ export function ResultsView({
             className="bottom-panel-icon-button"
             aria-label="Export result"
             disabled={!payload}
-            title="Export the current result payload."
+            title="Export the current result."
             onClick={exportResult}
           >
             <DownloadIcon className="panel-inline-icon" />

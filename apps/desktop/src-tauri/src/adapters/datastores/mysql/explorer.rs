@@ -1,66 +1,49 @@
-use serde_json::json;
-use sqlx::Row;
+use serde_json::{json, Value};
+use sqlx::{mysql::MySqlRow, MySqlPool, Row};
 
 use super::super::super::*;
 use super::connection::mysql_dsn;
+
+const MYSQL_SYSTEM_SCHEMAS: &[&str] = &["information_schema", "mysql", "performance_schema", "sys"];
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct MysqlNodeRef {
+    database: Option<String>,
+    kind: String,
+    object_name: Option<String>,
+    child_kind: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct DatabaseSectionCounts {
+    tables: usize,
+    views: usize,
+    procedures: usize,
+    functions: usize,
+    triggers: usize,
+    events: usize,
+    indexes: usize,
+    grants: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TableSectionCounts {
+    columns: usize,
+    indexes: usize,
+    foreign_keys: usize,
+    triggers: usize,
+    partitions: usize,
+}
 
 pub(super) async fn list_mysql_explorer_nodes(
     engine: &str,
     connection: &ResolvedConnectionProfile,
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
-    let pool = sqlx::mysql::MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&mysql_dsn(connection))
-        .await?;
-    let active_schema = request
-        .scope
-        .as_deref()
-        .and_then(|scope| scope.strip_prefix("schema:"))
-        .map(str::to_string)
-        .or_else(|| connection.database.clone())
-        .unwrap_or_else(|| "mysql".into());
-    let nodes: Vec<ExplorerNode> = if request.scope.is_some() {
-        let limit = bounded_page_size(request.limit.or(Some(100)));
-        let query = format!(
-            "select table_name, table_type from information_schema.tables where table_schema = '{}' order by table_name limit {}",
-            sql_literal(&active_schema),
-            limit,
-        );
-        sqlx::query(&query)
-            .fetch_all(&pool)
-            .await?
-            .into_iter()
-            .map(|row| {
-                let table_name = row.get::<String, _>("table_name");
-                ExplorerNode {
-                    id: format!("{active_schema}.{table_name}"),
-                    family: "sql".into(),
-                    label: table_name.clone(),
-                    kind: row.get::<String, _>("table_type").to_lowercase(),
-                    detail: "Columns and row estimates".into(),
-                    scope: Some(format!("table:{active_schema}.{table_name}")),
-                    path: Some(vec![connection.name.clone(), active_schema.clone()]),
-                    query_template: Some(mysql_select_template(&active_schema, &table_name)),
-                    expandable: Some(true),
-                }
-            })
-            .collect()
-    } else {
-        vec![ExplorerNode {
-            id: format!("schema-{active_schema}"),
-            family: "sql".into(),
-            label: active_schema.clone(),
-            kind: "schema".into(),
-            detail: format!("{engine} default schema"),
-            scope: Some(format!("schema:{active_schema}")),
-            path: Some(vec![connection.name.clone()]),
-            query_template: Some(format!(
-                "select table_name from information_schema.tables where table_schema = '{}' order by table_name;",
-                sql_literal(&active_schema)
-            )),
-            expandable: Some(true),
-        }]
+    let pool = mysql_pool(connection).await?;
+    let nodes = match request.scope.as_deref() {
+        None => list_database_nodes(connection, &pool).await?,
+        Some(scope) => list_scope_nodes(engine, connection, &pool, scope, request.limit).await?,
     };
     pool.close().await;
 
@@ -78,28 +61,1238 @@ pub(super) async fn list_mysql_explorer_nodes(
     })
 }
 
-pub(super) fn inspect_mysql_explorer_node(
+pub(super) async fn inspect_mysql_explorer_node(
     engine: &str,
     connection: &ResolvedConnectionProfile,
     request: &ExplorerInspectRequest,
-) -> ExplorerInspectResponse {
-    let query_template = request
-        .node_id
-        .split_once('.')
-        .map(|(schema, table)| mysql_select_template(schema, table))
-        .unwrap_or_else(|| "select 1;".into());
+) -> Result<ExplorerInspectResponse, CommandError> {
+    let pool = mysql_pool(connection).await?;
+    let node = parse_mysql_node_ref(&request.node_id, connection);
+    let query_template = mysql_query_template_for_node(&node);
+    let payload = mysql_inspection_payload(engine, connection, &pool, &node).await;
+    pool.close().await;
 
-    ExplorerInspectResponse {
+    Ok(ExplorerInspectResponse {
         node_id: request.node_id.clone(),
         summary: format!(
-            "Inspection ready for {} on {}.",
-            request.node_id, connection.name
+            "{} metadata loaded for {}.",
+            mysql_view_label(&node),
+            connection.name
         ),
-        query_template: Some(query_template),
-        payload: Some(json!({
-            "nodeId": request.node_id,
-            "engine": engine,
-        })),
+        query_template,
+        payload: Some(payload),
+    })
+}
+
+async fn mysql_pool(connection: &ResolvedConnectionProfile) -> Result<MySqlPool, CommandError> {
+    Ok(sqlx::mysql::MySqlPoolOptions::new()
+        .max_connections(1)
+        .connect(&mysql_dsn(connection))
+        .await?)
+}
+
+async fn list_database_nodes(
+    connection: &ResolvedConnectionProfile,
+    pool: &MySqlPool,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let rows = sqlx::query(
+        "select schema_name
+         from information_schema.schemata
+         order by case when schema_name in ('information_schema','mysql','performance_schema','sys') then 1 else 0 end, schema_name",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| database_node(connection, &row.get::<String, _>("schema_name")))
+        .collect())
+}
+
+async fn list_scope_nodes(
+    engine: &str,
+    connection: &ResolvedConnectionProfile,
+    pool: &MySqlPool,
+    scope: &str,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    if let Some(database) = scope.strip_prefix("schema:") {
+        return list_database_sections(connection, pool, database).await;
+    }
+
+    if let Some(rest) = scope.strip_prefix("mysql:database:") {
+        return list_database_sections(connection, pool, rest).await;
+    }
+
+    if let Some(rest) = scope.strip_prefix("mysql:") {
+        let parts = rest.split(':').collect::<Vec<_>>();
+        if parts.len() >= 2 {
+            let database = parts[0];
+            let section = parts[1];
+            return match section {
+                "tables" => {
+                    list_table_like_nodes(
+                        connection,
+                        pool,
+                        database,
+                        "BASE TABLE",
+                        "table",
+                        "Tables",
+                        limit,
+                    )
+                    .await
+                }
+                "views" => {
+                    list_table_like_nodes(
+                        connection, pool, database, "VIEW", "view", "Views", limit,
+                    )
+                    .await
+                }
+                "procedures" => {
+                    list_routine_nodes(connection, pool, database, "PROCEDURE", limit).await
+                }
+                "functions" => {
+                    list_routine_nodes(connection, pool, database, "FUNCTION", limit).await
+                }
+                "triggers" => {
+                    list_named_nodes(
+                        connection,
+                        pool,
+                        database,
+                        "Triggers",
+                        trigger_rows_query(database),
+                        "trigger",
+                        limit,
+                    )
+                    .await
+                }
+                "events" => {
+                    list_named_nodes(
+                        connection,
+                        pool,
+                        database,
+                        "Events",
+                        event_rows_query(database),
+                        "event",
+                        limit,
+                    )
+                    .await
+                }
+                "indexes" => {
+                    list_named_nodes(
+                        connection,
+                        pool,
+                        database,
+                        "Indexes",
+                        index_rows_query(database, None),
+                        "index",
+                        limit,
+                    )
+                    .await
+                }
+                "storage" | "security" | "diagnostics" => Ok(Vec::new()),
+                "table" if parts.len() >= 3 => {
+                    list_table_sections(connection, pool, database, parts[2]).await
+                }
+                _ => Ok(Vec::new()),
+            };
+        }
+    }
+
+    if let Some(table) = scope.strip_prefix("table:") {
+        let (database, table_name) = split_mysql_qualified_name(connection, table);
+        return list_table_sections(connection, pool, &database, &table_name).await;
+    }
+
+    if let Some(rest) = scope.strip_prefix("columns:") {
+        let (database, table_name) = split_mysql_qualified_name(connection, rest);
+        return list_column_nodes(connection, pool, &database, &table_name, limit).await;
+    }
+
+    let _ = engine;
+    Ok(Vec::new())
+}
+
+fn database_node(connection: &ResolvedConnectionProfile, database: &str) -> ExplorerNode {
+    let is_system = is_mysql_system_schema(database);
+    ExplorerNode {
+        id: format!("mysql:database:{database}"),
+        family: "sql".into(),
+        label: database.into(),
+        kind: if is_system {
+            "system-database"
+        } else {
+            "database"
+        }
+        .into(),
+        detail: if is_system {
+            "System schema".into()
+        } else {
+            "MySQL database".into()
+        },
+        scope: Some(format!("mysql:database:{database}")),
+        path: Some(vec![
+            connection.name.clone(),
+            if is_system {
+                "System Schemas"
+            } else {
+                "Databases"
+            }
+            .into(),
+        ]),
+        query_template: Some(format!(
+            "use {};\nselect database() as database_name;",
+            mysql_quote_identifier(database)
+        )),
+        expandable: Some(true),
+    }
+}
+
+async fn list_database_sections(
+    connection: &ResolvedConnectionProfile,
+    pool: &MySqlPool,
+    database: &str,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let counts = database_section_counts(pool, database).await;
+    Ok(mysql_database_section_nodes(connection, database, counts))
+}
+
+fn mysql_database_section_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    counts: DatabaseSectionCounts,
+) -> Vec<ExplorerNode> {
+    let mut sections = Vec::new();
+
+    push_section_if(
+        &mut sections,
+        counts.tables > 0,
+        connection,
+        database,
+        "tables",
+        "Tables",
+        "tables",
+        format!("{} base table(s)", counts.tables),
+    );
+    push_section_if(
+        &mut sections,
+        counts.views > 0,
+        connection,
+        database,
+        "views",
+        "Views",
+        "views",
+        format!("{} view(s)", counts.views),
+    );
+    push_section_if(
+        &mut sections,
+        counts.procedures > 0,
+        connection,
+        database,
+        "procedures",
+        "Stored Procedures",
+        "procedures",
+        format!("{} procedure(s)", counts.procedures),
+    );
+    push_section_if(
+        &mut sections,
+        counts.functions > 0,
+        connection,
+        database,
+        "functions",
+        "Functions",
+        "functions",
+        format!("{} function(s)", counts.functions),
+    );
+    push_section_if(
+        &mut sections,
+        counts.triggers > 0,
+        connection,
+        database,
+        "triggers",
+        "Triggers",
+        "triggers",
+        format!("{} trigger(s)", counts.triggers),
+    );
+    push_section_if(
+        &mut sections,
+        counts.events > 0,
+        connection,
+        database,
+        "events",
+        "Events",
+        "events",
+        format!("{} scheduled event(s)", counts.events),
+    );
+    push_section_if(
+        &mut sections,
+        counts.indexes > 0,
+        connection,
+        database,
+        "indexes",
+        "Indexes",
+        "indexes",
+        format!("{} index definition(s)", counts.indexes),
+    );
+    push_section_if(
+        &mut sections,
+        counts.tables > 0,
+        connection,
+        database,
+        "storage",
+        "Storage",
+        "storage",
+        "Table sizes, engines, and fragmentation hints".into(),
+    );
+    push_section_if(
+        &mut sections,
+        counts.grants > 0,
+        connection,
+        database,
+        "security",
+        "Security",
+        "security",
+        "Users, grants, and schema privileges".into(),
+    );
+    push_section_if(
+        &mut sections,
+        true,
+        connection,
+        database,
+        "diagnostics",
+        "Diagnostics",
+        "diagnostics",
+        "Sessions, processlist, and status counters".into(),
+    );
+
+    sections
+}
+
+fn push_section_if(
+    sections: &mut Vec<ExplorerNode>,
+    enabled: bool,
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    id: &str,
+    label: &str,
+    kind: &str,
+    detail: String,
+) {
+    if !enabled {
+        return;
+    }
+
+    sections.push(ExplorerNode {
+        id: format!("mysql:{database}:{id}"),
+        family: "sql".into(),
+        label: label.into(),
+        kind: kind.into(),
+        detail,
+        scope: Some(format!("mysql:{database}:{id}")),
+        path: Some(vec![connection.name.clone(), database.into()]),
+        query_template: Some(mysql_category_query_template(database, id)),
+        expandable: Some(!matches!(id, "storage" | "security" | "diagnostics")),
+    });
+}
+
+async fn list_table_like_nodes(
+    connection: &ResolvedConnectionProfile,
+    pool: &MySqlPool,
+    database: &str,
+    table_type: &str,
+    kind: &str,
+    path_label: &str,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let limit = bounded_page_size(limit.or(Some(100)));
+    let query = format!(
+        "select table_name, table_rows, engine, table_collation
+         from information_schema.tables
+         where table_schema = '{}' and table_type = '{}'
+         order by table_name
+         limit {}",
+        sql_literal(database),
+        sql_literal(table_type),
+        limit,
+    );
+    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let table_name = row.get::<String, _>("table_name");
+            let row_count = optional_i64(&row, "table_rows").unwrap_or_default();
+            ExplorerNode {
+                id: format!("mysql:{database}:{kind}:{table_name}"),
+                family: "sql".into(),
+                label: table_name.clone(),
+                kind: kind.into(),
+                detail: if kind == "view" {
+                    "Stored SELECT projection".into()
+                } else {
+                    format!(
+                        "{} row estimate{}",
+                        row_count,
+                        optional_string(&row, "engine")
+                            .map(|engine| format!(" / {engine}"))
+                            .unwrap_or_default()
+                    )
+                },
+                scope: Some(if kind == "table" {
+                    format!("table:{database}.{table_name}")
+                } else {
+                    format!("mysql:{database}:view:{table_name}")
+                }),
+                path: Some(vec![
+                    connection.name.clone(),
+                    database.into(),
+                    path_label.into(),
+                ]),
+                query_template: Some(mysql_select_template(database, &table_name)),
+                expandable: Some(kind == "table"),
+            }
+        })
+        .collect())
+}
+
+async fn list_routine_nodes(
+    connection: &ResolvedConnectionProfile,
+    pool: &MySqlPool,
+    database: &str,
+    routine_type: &str,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let kind = if routine_type == "FUNCTION" {
+        "function"
+    } else {
+        "procedure"
+    };
+    let path_label = if routine_type == "FUNCTION" {
+        "Functions"
+    } else {
+        "Stored Procedures"
+    };
+    list_named_nodes(
+        connection,
+        pool,
+        database,
+        path_label,
+        routine_rows_query(database, routine_type),
+        kind,
+        limit,
+    )
+    .await
+}
+
+async fn list_named_nodes(
+    connection: &ResolvedConnectionProfile,
+    pool: &MySqlPool,
+    database: &str,
+    path_label: &str,
+    query: String,
+    kind: &str,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    Ok(rows
+        .into_iter()
+        .take(limit)
+        .map(|row| {
+            let name = first_string(
+                &row,
+                &[
+                    "name",
+                    "object_name",
+                    "routine_name",
+                    "trigger_name",
+                    "event_name",
+                    "index_name",
+                ],
+            )
+            .unwrap_or_else(|| "object".into());
+            ExplorerNode {
+                id: format!("mysql:{database}:{kind}:{name}"),
+                family: "sql".into(),
+                label: name.clone(),
+                kind: kind.into(),
+                detail: first_string(&row, &["detail", "type", "status", "event", "columns"])
+                    .unwrap_or_else(|| kind.into()),
+                scope: Some(format!("mysql:{database}:{kind}:{name}")),
+                path: Some(vec![
+                    connection.name.clone(),
+                    database.into(),
+                    path_label.into(),
+                ]),
+                query_template: mysql_object_query_template(database, kind, &name),
+                expandable: Some(false),
+            }
+        })
+        .collect())
+}
+
+async fn list_table_sections(
+    connection: &ResolvedConnectionProfile,
+    pool: &MySqlPool,
+    database: &str,
+    table_name: &str,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let counts = table_section_counts(pool, database, table_name).await;
+    Ok(mysql_table_section_nodes(
+        connection, database, table_name, counts,
+    ))
+}
+
+fn mysql_table_section_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    table_name: &str,
+    counts: TableSectionCounts,
+) -> Vec<ExplorerNode> {
+    let mut nodes = Vec::new();
+    let path = vec![connection.name.clone(), database.into(), table_name.into()];
+    let sections = [
+        ("columns", "Columns", "columns", counts.columns),
+        ("indexes", "Indexes", "indexes", counts.indexes),
+        (
+            "foreign-keys",
+            "Foreign Keys",
+            "foreign-keys",
+            counts.foreign_keys,
+        ),
+        ("triggers", "Triggers", "triggers", counts.triggers),
+        ("partitions", "Partitions", "partitions", counts.partitions),
+    ];
+
+    for (id, label, kind, count) in sections {
+        if count == 0 {
+            continue;
+        }
+        nodes.push(ExplorerNode {
+            id: format!("mysql:{database}:table:{table_name}:{id}"),
+            family: "sql".into(),
+            label: label.into(),
+            kind: kind.into(),
+            detail: format!("{count} item(s)"),
+            scope: Some(format!("mysql:{database}:table:{table_name}:{id}")),
+            path: Some(path.clone()),
+            query_template: Some(mysql_table_child_query_template(database, table_name, id)),
+            expandable: Some(id == "columns"),
+        });
+    }
+
+    nodes.push(ExplorerNode {
+        id: format!("mysql:{database}:table:{table_name}:data"),
+        family: "sql".into(),
+        label: "Data".into(),
+        kind: "table-data".into(),
+        detail: "Open a bounded table query".into(),
+        scope: None,
+        path: Some(path),
+        query_template: Some(mysql_select_template(database, table_name)),
+        expandable: Some(false),
+    });
+
+    nodes
+}
+
+async fn list_column_nodes(
+    connection: &ResolvedConnectionProfile,
+    pool: &MySqlPool,
+    database: &str,
+    table_name: &str,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let limit = bounded_page_size(limit.or(Some(100)));
+    let query = format!(
+        "{} limit {}",
+        column_rows_query(database, Some(table_name)).trim_end_matches(';'),
+        limit
+    );
+    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let name = row.get::<String, _>("name");
+            ExplorerNode {
+                id: format!("mysql:{database}:table:{table_name}:column:{name}"),
+                family: "sql".into(),
+                label: name,
+                kind: "column".into(),
+                detail: first_string(&row, &["type", "nullable"])
+                    .unwrap_or_else(|| "column".into()),
+                scope: None,
+                path: Some(vec![
+                    connection.name.clone(),
+                    database.into(),
+                    table_name.into(),
+                    "Columns".into(),
+                ]),
+                query_template: None,
+                expandable: Some(false),
+            }
+        })
+        .collect())
+}
+
+async fn mysql_inspection_payload(
+    engine: &str,
+    connection: &ResolvedConnectionProfile,
+    pool: &MySqlPool,
+    node: &MysqlNodeRef,
+) -> Value {
+    let database = node
+        .database
+        .clone()
+        .or_else(|| connection.database.clone())
+        .unwrap_or_else(|| "mysql".into());
+    let mut payload = json!({
+        "engine": engine,
+        "objectView": mysql_object_view_kind(node),
+        "database": database,
+    });
+
+    let Some(object) = node.object_name.as_deref() else {
+        merge_payload(&mut payload, database_payload(pool, &database).await);
+        return payload;
+    };
+
+    match node.kind.as_str() {
+        "table" => merge_payload(&mut payload, table_payload(pool, &database, object).await),
+        "view" => merge_payload(&mut payload, view_payload(pool, &database, object).await),
+        "procedure" | "function" => merge_payload(
+            &mut payload,
+            routine_payload(pool, &database, object, &node.kind).await,
+        ),
+        "trigger" => merge_payload(&mut payload, trigger_payload(pool, &database, object).await),
+        "event" => merge_payload(&mut payload, event_payload(pool, &database, object).await),
+        "index" => merge_payload(
+            &mut payload,
+            index_payload(pool, &database, None, Some(object)).await,
+        ),
+        _ => merge_payload(&mut payload, database_payload(pool, &database).await),
+    }
+
+    payload
+}
+
+async fn database_payload(pool: &MySqlPool, database: &str) -> Value {
+    let tables = table_records(pool, database, "BASE TABLE", None).await;
+    let views = table_records(pool, database, "VIEW", None).await;
+    let procedures = routine_records(pool, database, "PROCEDURE", None).await;
+    let functions = routine_records(pool, database, "FUNCTION", None).await;
+    let triggers = trigger_records(pool, database, None).await;
+    let events = event_records(pool, database, None).await;
+    let indexes = index_records(pool, database, None, None).await;
+    let permissions = permission_records(pool, database).await;
+    let statistics = table_status_records(pool, database).await;
+    json!({
+        "tableCount": tables.len(),
+        "viewCount": views.len(),
+        "indexCount": indexes.len(),
+        "tables": tables,
+        "views": views,
+        "procedures": procedures,
+        "functions": functions,
+        "triggers": triggers,
+        "events": events,
+        "indexes": indexes,
+        "permissions": permissions,
+        "statistics": statistics,
+    })
+}
+
+async fn table_payload(pool: &MySqlPool, database: &str, table: &str) -> Value {
+    let columns = column_records(pool, database, Some(table)).await;
+    let indexes = index_records(pool, database, Some(table), None).await;
+    let foreign_keys = foreign_key_records(pool, database, Some(table)).await;
+    let triggers = trigger_records(pool, database, Some(table)).await;
+    let partitions = partition_records(pool, database, table).await;
+    let statistics = table_records(pool, database, "BASE TABLE", Some(table)).await;
+    json!({
+        "objectName": table,
+        "tableName": table,
+        "rowCount": statistics.first().and_then(|row| row.get("rows")).cloned().unwrap_or(Value::Null),
+        "columns": columns,
+        "indexes": indexes,
+        "foreignKeys": foreign_keys,
+        "constraints": foreign_keys,
+        "triggers": triggers,
+        "partitions": partitions,
+        "statistics": statistics,
+    })
+}
+
+async fn view_payload(pool: &MySqlPool, database: &str, view: &str) -> Value {
+    let views = view_records(pool, database, Some(view)).await;
+    json!({
+        "objectName": view,
+        "viewName": view,
+        "views": views,
+        "columns": column_records(pool, database, Some(view)).await,
+        "permissions": permission_records(pool, database).await,
+    })
+}
+
+async fn routine_payload(pool: &MySqlPool, database: &str, name: &str, kind: &str) -> Value {
+    let routine_type = if kind == "function" {
+        "FUNCTION"
+    } else {
+        "PROCEDURE"
+    };
+    json!({
+        "objectName": name,
+        "routineName": name,
+        "routines": routine_records(pool, database, routine_type, Some(name)).await,
+        "parameters": parameter_records(pool, database, name).await,
+        "permissions": permission_records(pool, database).await,
+    })
+}
+
+async fn trigger_payload(pool: &MySqlPool, database: &str, trigger: &str) -> Value {
+    json!({
+        "objectName": trigger,
+        "triggers": trigger_records_by_name(pool, database, trigger).await,
+    })
+}
+
+async fn event_payload(pool: &MySqlPool, database: &str, event: &str) -> Value {
+    json!({
+        "objectName": event,
+        "events": event_records_by_name(pool, database, event).await,
+    })
+}
+
+async fn index_payload(
+    pool: &MySqlPool,
+    database: &str,
+    table: Option<&str>,
+    index: Option<&str>,
+) -> Value {
+    json!({
+        "objectName": index.unwrap_or("Indexes"),
+        "indexes": index_records(pool, database, table, index).await,
+    })
+}
+
+async fn database_section_counts(pool: &MySqlPool, database: &str) -> DatabaseSectionCounts {
+    DatabaseSectionCounts {
+        tables: count_query(pool, &format!("select count(*) as count from information_schema.tables where table_schema = '{}' and table_type = 'BASE TABLE'", sql_literal(database))).await,
+        views: count_query(pool, &format!("select count(*) as count from information_schema.tables where table_schema = '{}' and table_type = 'VIEW'", sql_literal(database))).await,
+        procedures: count_query(pool, &format!("select count(*) as count from information_schema.routines where routine_schema = '{}' and routine_type = 'PROCEDURE'", sql_literal(database))).await,
+        functions: count_query(pool, &format!("select count(*) as count from information_schema.routines where routine_schema = '{}' and routine_type = 'FUNCTION'", sql_literal(database))).await,
+        triggers: count_query(pool, &format!("select count(*) as count from information_schema.triggers where trigger_schema = '{}'", sql_literal(database))).await,
+        events: count_query(pool, &format!("select count(*) as count from information_schema.events where event_schema = '{}'", sql_literal(database))).await,
+        indexes: count_query(pool, &format!("select count(distinct concat(table_name, '/', index_name)) as count from information_schema.statistics where table_schema = '{}'", sql_literal(database))).await,
+        grants: count_query(pool, &format!("select count(*) as count from information_schema.schema_privileges where table_schema = '{}'", sql_literal(database))).await,
+    }
+}
+
+async fn table_section_counts(pool: &MySqlPool, database: &str, table: &str) -> TableSectionCounts {
+    TableSectionCounts {
+        columns: count_query(pool, &format!("select count(*) as count from information_schema.columns where table_schema = '{}' and table_name = '{}'", sql_literal(database), sql_literal(table))).await,
+        indexes: count_query(pool, &format!("select count(distinct index_name) as count from information_schema.statistics where table_schema = '{}' and table_name = '{}'", sql_literal(database), sql_literal(table))).await,
+        foreign_keys: count_query(pool, &format!("select count(*) as count from information_schema.key_column_usage where table_schema = '{}' and table_name = '{}' and referenced_table_name is not null", sql_literal(database), sql_literal(table))).await,
+        triggers: count_query(pool, &format!("select count(*) as count from information_schema.triggers where trigger_schema = '{}' and event_object_table = '{}'", sql_literal(database), sql_literal(table))).await,
+        partitions: count_query(pool, &format!("select count(*) as count from information_schema.partitions where table_schema = '{}' and table_name = '{}' and partition_name is not null", sql_literal(database), sql_literal(table))).await,
+    }
+}
+
+async fn count_query(pool: &MySqlPool, query: &str) -> usize {
+    optional_rows(pool, query)
+        .await
+        .first()
+        .and_then(|row| optional_i64(row, "count"))
+        .unwrap_or_default()
+        .max(0) as usize
+}
+
+async fn table_records(
+    pool: &MySqlPool,
+    database: &str,
+    table_type: &str,
+    table: Option<&str>,
+) -> Vec<Value> {
+    let mut query = format!(
+        "select table_name as name, table_type as type, engine, table_rows as rows,
+                data_length + index_length as size, table_collation as collation,
+                create_time as createdAt, update_time as updatedAt
+         from information_schema.tables
+         where table_schema = '{}' and table_type = '{}'",
+        sql_literal(database),
+        sql_literal(table_type)
+    );
+    if let Some(table) = table {
+        query.push_str(&format!(" and table_name = '{}'", sql_literal(table)));
+    }
+    query.push_str(" order by table_name limit 500");
+
+    optional_rows(pool, &query)
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "schema": database,
+                "name": string_cell(&row, "name"),
+                "type": string_cell(&row, "type"),
+                "engine": optional_string(&row, "engine").unwrap_or_default(),
+                "rows": optional_i64(&row, "rows").unwrap_or_default(),
+                "size": optional_i64(&row, "size").unwrap_or_default(),
+                "collation": optional_string(&row, "collation").unwrap_or_default(),
+                "createdAt": optional_string(&row, "createdAt").unwrap_or_default(),
+                "updatedAt": optional_string(&row, "updatedAt").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn view_records(pool: &MySqlPool, database: &str, view: Option<&str>) -> Vec<Value> {
+    let mut query = format!(
+        "select table_name as name, view_definition as definition,
+                check_option as checkOption, security_type as security,
+                definer
+         from information_schema.views
+         where table_schema = '{}'",
+        sql_literal(database)
+    );
+    if let Some(view) = view {
+        query.push_str(&format!(" and table_name = '{}'", sql_literal(view)));
+    }
+    query.push_str(" order by table_name limit 500");
+
+    optional_rows(pool, &query)
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "schema": database,
+                "name": string_cell(&row, "name"),
+                "definition": optional_string(&row, "definition").unwrap_or_default(),
+                "checkOption": optional_string(&row, "checkOption").unwrap_or_default(),
+                "security": optional_string(&row, "security").unwrap_or_default(),
+                "definer": optional_string(&row, "definer").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn column_records(pool: &MySqlPool, database: &str, table: Option<&str>) -> Vec<Value> {
+    let query = column_rows_query(database, table);
+    optional_rows(pool, &query)
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "table": optional_string(&row, "tableName").unwrap_or_default(),
+                "name": string_cell(&row, "name"),
+                "type": optional_string(&row, "type").unwrap_or_default(),
+                "nullable": optional_string(&row, "nullable").unwrap_or_default(),
+                "default": optional_string(&row, "defaultValue").unwrap_or_default(),
+                "identity": optional_string(&row, "extra").unwrap_or_default(),
+                "collation": optional_string(&row, "collation").unwrap_or_default(),
+                "key": optional_string(&row, "columnKey").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn index_records(
+    pool: &MySqlPool,
+    database: &str,
+    table: Option<&str>,
+    index: Option<&str>,
+) -> Vec<Value> {
+    let query = index_rows_query(database, table);
+    optional_rows(pool, &query)
+        .await
+        .into_iter()
+        .filter(|row| {
+            index
+                .map(|index| string_cell(row, "name") == index)
+                .unwrap_or(true)
+        })
+        .map(|row| {
+            json!({
+                "schema": database,
+                "table": optional_string(&row, "tableName").unwrap_or_default(),
+                "name": string_cell(&row, "name"),
+                "type": optional_string(&row, "type").unwrap_or_default(),
+                "columns": optional_string(&row, "columns").unwrap_or_default(),
+                "unique": optional_i64(&row, "nonUnique").map(|value| value == 0).unwrap_or(false),
+                "valid": true,
+                "usage": optional_i64(&row, "cardinality").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn foreign_key_records(pool: &MySqlPool, database: &str, table: Option<&str>) -> Vec<Value> {
+    let mut query = format!(
+        "select constraint_name as id, table_name as tableName, column_name as columnName,
+                referenced_table_schema as referencedSchema, referenced_table_name as referencedTable,
+                referenced_column_name as referencedColumn
+         from information_schema.key_column_usage
+         where table_schema = '{}' and referenced_table_name is not null",
+        sql_literal(database)
+    );
+    if let Some(table) = table {
+        query.push_str(&format!(" and table_name = '{}'", sql_literal(table)));
+    }
+    query.push_str(" order by table_name, constraint_name, ordinal_position limit 500");
+
+    optional_rows(pool, &query)
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "id": string_cell(&row, "id"),
+                "from": format!("{}.{}", string_cell(&row, "tableName"), string_cell(&row, "columnName")),
+                "table": string_cell(&row, "tableName"),
+                "to": format!("{}.{}.{}", string_cell(&row, "referencedSchema"), string_cell(&row, "referencedTable"), string_cell(&row, "referencedColumn")),
+            })
+        })
+        .collect()
+}
+
+async fn routine_records(
+    pool: &MySqlPool,
+    database: &str,
+    routine_type: &str,
+    routine: Option<&str>,
+) -> Vec<Value> {
+    let mut query = routine_rows_query(database, routine_type);
+    if let Some(routine) = routine {
+        query.push_str(&format!(" and routine_name = '{}'", sql_literal(routine)));
+    }
+    query.push_str(" order by routine_name limit 500");
+    optional_rows(pool, &query)
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "schema": database,
+                "name": string_cell(&row, "name"),
+                "type": optional_string(&row, "type").unwrap_or_default(),
+                "arguments": optional_string(&row, "arguments").unwrap_or_default(),
+                "returns": optional_string(&row, "returns").unwrap_or_default(),
+                "language": "SQL",
+                "security": optional_string(&row, "security").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn parameter_records(pool: &MySqlPool, database: &str, routine: &str) -> Vec<Value> {
+    let query = format!(
+        "select parameter_name as name, data_type as type, parameter_mode as mode,
+                ordinal_position as ordinal
+         from information_schema.parameters
+         where specific_schema = '{}' and specific_name = '{}'
+         order by ordinal_position",
+        sql_literal(database),
+        sql_literal(routine)
+    );
+    optional_rows(pool, &query)
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "name": optional_string(&row, "name").unwrap_or_default(),
+                "type": optional_string(&row, "type").unwrap_or_default(),
+                "mode": optional_string(&row, "mode").unwrap_or_default(),
+                "ordinal": optional_i64(&row, "ordinal").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn trigger_records(pool: &MySqlPool, database: &str, table: Option<&str>) -> Vec<Value> {
+    let mut query = trigger_rows_query(database);
+    if let Some(table) = table {
+        query.push_str(&format!(
+            " and event_object_table = '{}'",
+            sql_literal(table)
+        ));
+    }
+    query.push_str(" order by event_object_table, trigger_name limit 500");
+    trigger_records_from_rows(optional_rows(pool, &query).await)
+}
+
+async fn trigger_records_by_name(pool: &MySqlPool, database: &str, trigger: &str) -> Vec<Value> {
+    let query = format!(
+        "{} and trigger_name = '{}' limit 1",
+        trigger_rows_query(database),
+        sql_literal(trigger)
+    );
+    trigger_records_from_rows(optional_rows(pool, &query).await)
+}
+
+fn trigger_records_from_rows(rows: Vec<MySqlRow>) -> Vec<Value> {
+    rows.into_iter()
+        .map(|row| {
+            json!({
+                "name": string_cell(&row, "name"),
+                "table": optional_string(&row, "tableName").unwrap_or_default(),
+                "timing": optional_string(&row, "timing").unwrap_or_default(),
+                "event": optional_string(&row, "event").unwrap_or_default(),
+                "enabled": "enabled",
+                "function": optional_string(&row, "statement").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn event_records(pool: &MySqlPool, database: &str, _event: Option<&str>) -> Vec<Value> {
+    let mut query = event_rows_query(database);
+    query.push_str(" order by event_name limit 500");
+    event_records_from_rows(optional_rows(pool, &query).await)
+}
+
+async fn event_records_by_name(pool: &MySqlPool, database: &str, event: &str) -> Vec<Value> {
+    let query = format!(
+        "{} and event_name = '{}' limit 1",
+        event_rows_query(database),
+        sql_literal(event)
+    );
+    event_records_from_rows(optional_rows(pool, &query).await)
+}
+
+fn event_records_from_rows(rows: Vec<MySqlRow>) -> Vec<Value> {
+    rows.into_iter()
+        .map(|row| {
+            json!({
+                "schema": optional_string(&row, "schema").unwrap_or_default(),
+                "name": string_cell(&row, "name"),
+                "status": optional_string(&row, "status").unwrap_or_default(),
+                "schedule": optional_string(&row, "schedule").unwrap_or_default(),
+                "lastExecuted": optional_string(&row, "lastExecuted").unwrap_or_default(),
+                "definer": optional_string(&row, "definer").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn partition_records(pool: &MySqlPool, database: &str, table: &str) -> Vec<Value> {
+    let query = format!(
+        "select partition_name as name, partition_ordinal_position as number,
+                table_rows as rows, partition_method as method,
+                partition_expression as expression, data_length + index_length as size
+         from information_schema.partitions
+         where table_schema = '{}' and table_name = '{}' and partition_name is not null
+         order by partition_ordinal_position",
+        sql_literal(database),
+        sql_literal(table)
+    );
+    optional_rows(pool, &query)
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "name": optional_string(&row, "name").unwrap_or_default(),
+                "number": optional_i64(&row, "number").unwrap_or_default(),
+                "rows": optional_i64(&row, "rows").unwrap_or_default(),
+                "range": optional_string(&row, "expression").unwrap_or_default(),
+                "compression": optional_string(&row, "method").unwrap_or_default(),
+                "size": optional_i64(&row, "size").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn table_status_records(pool: &MySqlPool, database: &str) -> Vec<Value> {
+    let query = format!(
+        "select table_name as name, engine, table_rows as rows,
+                data_length as dataLength, index_length as indexLength,
+                data_free as fragmentation
+         from information_schema.tables
+         where table_schema = '{}'
+         order by table_name limit 500",
+        sql_literal(database)
+    );
+    optional_rows(pool, &query)
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "name": string_cell(&row, "name"),
+                "rows": optional_i64(&row, "rows").unwrap_or_default(),
+                "size": optional_i64(&row, "dataLength").unwrap_or_default() + optional_i64(&row, "indexLength").unwrap_or_default(),
+                "engine": optional_string(&row, "engine").unwrap_or_default(),
+                "fragmentation": optional_i64(&row, "fragmentation").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn permission_records(pool: &MySqlPool, database: &str) -> Vec<Value> {
+    let query = format!(
+        "select grantee as principal, privilege_type as privilege,
+                table_schema as object, is_grantable as state
+         from information_schema.schema_privileges
+         where table_schema = '{}'
+         order by grantee, privilege_type limit 500",
+        sql_literal(database)
+    );
+    optional_rows(pool, &query)
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "principal": string_cell(&row, "principal"),
+                "privilege": string_cell(&row, "privilege"),
+                "object": string_cell(&row, "object"),
+                "state": optional_string(&row, "state").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn optional_rows(pool: &MySqlPool, query: &str) -> Vec<MySqlRow> {
+    sqlx::query(query).fetch_all(pool).await.unwrap_or_default()
+}
+
+fn column_rows_query(database: &str, table: Option<&str>) -> String {
+    let mut query = format!(
+        "select table_name as tableName, column_name as name, column_type as type,
+                is_nullable as nullable, column_default as defaultValue,
+                extra, collation_name as collation, column_key as columnKey
+         from information_schema.columns
+         where table_schema = '{}'",
+        sql_literal(database)
+    );
+    if let Some(table) = table {
+        query.push_str(&format!(" and table_name = '{}'", sql_literal(table)));
+    }
+    query.push_str(" order by table_name, ordinal_position");
+    query
+}
+
+fn index_rows_query(database: &str, table: Option<&str>) -> String {
+    let mut query = format!(
+        "select table_name as tableName, index_name as name, index_type as type,
+                non_unique as nonUnique, cardinality,
+                group_concat(column_name order by seq_in_index separator ', ') as columns
+         from information_schema.statistics
+         where table_schema = '{}'",
+        sql_literal(database)
+    );
+    if let Some(table) = table {
+        query.push_str(&format!(" and table_name = '{}'", sql_literal(table)));
+    }
+    query.push_str(" group by table_name, index_name, index_type, non_unique, cardinality order by table_name, index_name limit 500");
+    query
+}
+
+fn routine_rows_query(database: &str, routine_type: &str) -> String {
+    format!(
+        "select routine_name as name, routine_type as type,
+                data_type as returns, security_type as security,
+                routine_comment as arguments
+         from information_schema.routines
+         where routine_schema = '{}' and routine_type = '{}'",
+        sql_literal(database),
+        sql_literal(routine_type)
+    )
+}
+
+fn trigger_rows_query(database: &str) -> String {
+    format!(
+        "select trigger_name as name, event_object_table as tableName,
+                action_timing as timing, event_manipulation as event,
+                action_statement as statement
+         from information_schema.triggers
+         where trigger_schema = '{}'",
+        sql_literal(database)
+    )
+}
+
+fn event_rows_query(database: &str) -> String {
+    format!(
+        "select event_schema as schema, event_name as name, status,
+                concat(interval_value, ' ', interval_field) as schedule,
+                last_executed as lastExecuted, definer
+         from information_schema.events
+         where event_schema = '{}'",
+        sql_literal(database)
+    )
+}
+
+fn mysql_category_query_template(database: &str, section: &str) -> String {
+    match section {
+        "tables" => format!(
+            "select table_name, engine, table_rows\nfrom information_schema.tables\nwhere table_schema = '{}' and table_type = 'BASE TABLE'\norder by table_name;",
+            sql_literal(database)
+        ),
+        "views" => format!(
+            "select table_name, check_option, security_type\nfrom information_schema.views\nwhere table_schema = '{}'\norder by table_name;",
+            sql_literal(database)
+        ),
+        "procedures" | "functions" => format!(
+            "select routine_name, routine_type, data_type\nfrom information_schema.routines\nwhere routine_schema = '{}'\norder by routine_type, routine_name;",
+            sql_literal(database)
+        ),
+        "triggers" => format!(
+            "select trigger_name, event_object_table, action_timing, event_manipulation\nfrom information_schema.triggers\nwhere trigger_schema = '{}'\norder by event_object_table, trigger_name;",
+            sql_literal(database)
+        ),
+        "events" => format!(
+            "select event_name, status, last_executed\nfrom information_schema.events\nwhere event_schema = '{}'\norder by event_name;",
+            sql_literal(database)
+        ),
+        "security" => format!(
+            "select grantee, privilege_type\nfrom information_schema.schema_privileges\nwhere table_schema = '{}'\norder by grantee, privilege_type;",
+            sql_literal(database)
+        ),
+        _ => "select 1;".into(),
+    }
+}
+
+fn mysql_table_child_query_template(database: &str, table: &str, section: &str) -> String {
+    match section {
+        "columns" => format!(
+            "select column_name, column_type, is_nullable\nfrom information_schema.columns\nwhere table_schema = '{}' and table_name = '{}'\norder by ordinal_position;",
+            sql_literal(database),
+            sql_literal(table)
+        ),
+        "indexes" => format!(
+            "select index_name, column_name, non_unique, seq_in_index\nfrom information_schema.statistics\nwhere table_schema = '{}' and table_name = '{}'\norder by index_name, seq_in_index;",
+            sql_literal(database),
+            sql_literal(table)
+        ),
+        "foreign-keys" => format!(
+            "select constraint_name, column_name, referenced_table_name, referenced_column_name\nfrom information_schema.key_column_usage\nwhere table_schema = '{}' and table_name = '{}' and referenced_table_name is not null;",
+            sql_literal(database),
+            sql_literal(table)
+        ),
+        _ => mysql_select_template(database, table),
+    }
+}
+
+fn mysql_object_query_template(database: &str, kind: &str, object: &str) -> Option<String> {
+    match kind {
+        "table" | "view" => Some(mysql_select_template(database, object)),
+        "procedure" => Some(format!(
+            "call {}.{}();",
+            mysql_quote_identifier(database),
+            mysql_quote_identifier(object)
+        )),
+        "function" => Some(format!(
+            "select {}.{}() as value;",
+            mysql_quote_identifier(database),
+            mysql_quote_identifier(object)
+        )),
+        _ => None,
+    }
+}
+
+fn mysql_query_template_for_node(node: &MysqlNodeRef) -> Option<String> {
+    let database = node.database.as_deref()?;
+    match (node.kind.as_str(), node.object_name.as_deref()) {
+        ("table", Some(table)) | ("view", Some(table)) => {
+            Some(mysql_select_template(database, table))
+        }
+        ("procedure", Some(name)) => mysql_object_query_template(database, "procedure", name),
+        ("function", Some(name)) => mysql_object_query_template(database, "function", name),
+        _ => Some(mysql_category_query_template(database, &node.kind)),
     }
 }
 
@@ -115,9 +1308,176 @@ fn mysql_quote_identifier(identifier: &str) -> String {
     format!("`{}`", identifier.replace('`', "``"))
 }
 
+fn parse_mysql_node_ref(node_id: &str, connection: &ResolvedConnectionProfile) -> MysqlNodeRef {
+    if let Some(rest) = node_id.strip_prefix("mysql:database:") {
+        return MysqlNodeRef {
+            database: Some(rest.into()),
+            kind: "database".into(),
+            object_name: None,
+            child_kind: None,
+        };
+    }
+
+    if let Some(rest) = node_id.strip_prefix("mysql:") {
+        let parts = rest.split(':').collect::<Vec<_>>();
+        if parts.len() >= 2 {
+            return MysqlNodeRef {
+                database: Some(parts[0].into()),
+                kind: parts[1].into(),
+                object_name: parts.get(2).map(|value| (*value).into()),
+                child_kind: parts.get(3).map(|value| (*value).into()),
+            };
+        }
+    }
+
+    if let Some(rest) = node_id.strip_prefix("schema-") {
+        return MysqlNodeRef {
+            database: Some(rest.into()),
+            kind: "database".into(),
+            object_name: None,
+            child_kind: None,
+        };
+    }
+
+    if node_id.contains('.') {
+        let (database, table) = split_mysql_qualified_name(connection, node_id);
+        return MysqlNodeRef {
+            database: Some(database),
+            kind: "table".into(),
+            object_name: Some(table),
+            child_kind: None,
+        };
+    }
+
+    MysqlNodeRef {
+        database: connection.database.clone(),
+        kind: "object".into(),
+        object_name: Some(node_id.into()),
+        child_kind: None,
+    }
+}
+
+fn split_mysql_qualified_name(
+    connection: &ResolvedConnectionProfile,
+    value: &str,
+) -> (String, String) {
+    value
+        .split_once('.')
+        .map(|(schema, table)| (schema.into(), table.into()))
+        .unwrap_or_else(|| {
+            (
+                connection
+                    .database
+                    .clone()
+                    .unwrap_or_else(|| "mysql".into()),
+                value.into(),
+            )
+        })
+}
+
+fn mysql_object_view_kind(node: &MysqlNodeRef) -> String {
+    match node.child_kind.as_deref().unwrap_or(node.kind.as_str()) {
+        "system-database" => "system-schemas".into(),
+        "table-data" => "table".into(),
+        "foreign-keys" => "foreign-keys".into(),
+        "stored-procedures" => "procedures".into(),
+        kind if kind == "database"
+            && node
+                .database
+                .as_deref()
+                .map(is_mysql_system_schema)
+                .unwrap_or(false) =>
+        {
+            "system-schemas".into()
+        }
+        "table" | "view" | "procedure" | "function" | "trigger" | "event" | "index" | "tables"
+        | "views" | "procedures" | "functions" | "triggers" | "events" | "indexes" | "columns"
+        | "constraints" | "partitions" | "storage" | "security" | "diagnostics" => node
+            .child_kind
+            .as_deref()
+            .unwrap_or(node.kind.as_str())
+            .into(),
+        _ => "database".into(),
+    }
+}
+
+fn mysql_view_label(node: &MysqlNodeRef) -> String {
+    node.object_name
+        .clone()
+        .or_else(|| node.database.clone())
+        .unwrap_or_else(|| "MySQL".into())
+}
+
+fn is_mysql_system_schema(database: &str) -> bool {
+    MYSQL_SYSTEM_SCHEMAS
+        .iter()
+        .any(|schema| schema.eq_ignore_ascii_case(database))
+}
+
+fn merge_payload(target: &mut Value, addition: Value) {
+    let Some(target) = target.as_object_mut() else {
+        return;
+    };
+    let Some(addition) = addition.as_object() else {
+        return;
+    };
+    for (key, value) in addition {
+        target.insert(key.clone(), value.clone());
+    }
+}
+
+fn first_string(row: &MySqlRow, names: &[&str]) -> Option<String> {
+    names.iter().find_map(|name| optional_string(row, name))
+}
+
+fn string_cell(row: &MySqlRow, name: &str) -> String {
+    optional_string(row, name).unwrap_or_default()
+}
+
+fn optional_string(row: &MySqlRow, name: &str) -> Option<String> {
+    row.try_get::<Option<String>, _>(name)
+        .ok()
+        .flatten()
+        .or_else(|| row.try_get::<String, _>(name).ok())
+}
+
+fn optional_i64(row: &MySqlRow, name: &str) -> Option<i64> {
+    row.try_get::<Option<i64>, _>(name)
+        .ok()
+        .flatten()
+        .or_else(|| row.try_get::<i64, _>(name).ok())
+        .or_else(|| {
+            row.try_get::<Option<u64>, _>(name)
+                .ok()
+                .flatten()
+                .map(|value| value as i64)
+        })
+        .or_else(|| row.try_get::<u64, _>(name).ok().map(|value| value as i64))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::mysql_select_template;
+    use super::*;
+
+    fn test_connection(database: Option<&str>) -> ResolvedConnectionProfile {
+        ResolvedConnectionProfile {
+            id: "conn".into(),
+            name: "MySQL".into(),
+            engine: "mysql".into(),
+            family: "sql".into(),
+            host: "localhost".into(),
+            port: Some(3306),
+            database: database.map(str::to_string),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            read_only: false,
+        }
+    }
 
     #[test]
     fn mysql_select_template_qualifies_and_escapes_identifiers() {
@@ -129,5 +1489,96 @@ mod tests {
             mysql_select_template("odd`schema", "odd`table"),
             "select * from `odd``schema`.`odd``table` limit 100;"
         );
+    }
+
+    #[test]
+    fn mysql_database_nodes_separate_system_schemas() {
+        let connection = test_connection(None);
+        let user = database_node(&connection, "app");
+        let system = database_node(&connection, "information_schema");
+
+        assert_eq!(user.kind, "database");
+        assert_eq!(user.path, Some(vec!["MySQL".into(), "Databases".into()]));
+        assert_eq!(system.kind, "system-database");
+        assert_eq!(
+            system.path,
+            Some(vec!["MySQL".into(), "System Schemas".into()])
+        );
+    }
+
+    #[test]
+    fn mysql_database_sections_hide_unavailable_categories() {
+        let connection = test_connection(None);
+        let nodes = mysql_database_section_nodes(
+            &connection,
+            "app",
+            DatabaseSectionCounts {
+                tables: 2,
+                views: 0,
+                procedures: 1,
+                functions: 0,
+                triggers: 0,
+                events: 0,
+                indexes: 3,
+                grants: 0,
+            },
+        );
+        let labels = nodes
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(labels.contains(&"Tables"));
+        assert!(labels.contains(&"Stored Procedures"));
+        assert!(labels.contains(&"Indexes"));
+        assert!(labels.contains(&"Storage"));
+        assert!(labels.contains(&"Diagnostics"));
+        assert!(!labels.contains(&"Views"));
+        assert!(!labels.contains(&"Functions"));
+        assert!(!labels.contains(&"Security"));
+    }
+
+    #[test]
+    fn mysql_table_sections_are_specific_and_queryable() {
+        let connection = test_connection(None);
+        let nodes = mysql_table_section_nodes(
+            &connection,
+            "app",
+            "accounts",
+            TableSectionCounts {
+                columns: 4,
+                indexes: 2,
+                foreign_keys: 1,
+                triggers: 0,
+                partitions: 0,
+            },
+        );
+        let labels = nodes
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+        let data = nodes
+            .iter()
+            .find(|node| node.label == "Data")
+            .expect("data node");
+
+        assert_eq!(labels, vec!["Columns", "Indexes", "Foreign Keys", "Data"]);
+        assert_eq!(
+            data.query_template.as_deref(),
+            Some("select * from `app`.`accounts` limit 100;")
+        );
+    }
+
+    #[test]
+    fn mysql_node_ids_map_to_object_view_kinds() {
+        let connection = test_connection(Some("app"));
+
+        let table = parse_mysql_node_ref("mysql:app:table:accounts", &connection);
+        let system = parse_mysql_node_ref("mysql:database:performance_schema", &connection);
+        let fk = parse_mysql_node_ref("mysql:app:table:accounts:foreign-keys", &connection);
+
+        assert_eq!(mysql_object_view_kind(&table), "table");
+        assert_eq!(mysql_object_view_kind(&system), "system-schemas");
+        assert_eq!(mysql_object_view_kind(&fk), "foreign-keys");
     }
 }

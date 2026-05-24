@@ -7,6 +7,7 @@ import type {
   ResolvedEnvironment,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
+import { resolveEnvironmentVariablesForPreview } from './environment-variables'
 
 export function resolveEnvironment(
   environments: EnvironmentProfile[],
@@ -21,6 +22,7 @@ export function resolveEnvironment(
       risk: 'low',
       variables: {},
       sensitiveKeys: [],
+      variableDefinitions: [],
       requiresConfirmation: false,
       safeMode: false,
       exportable: true,
@@ -43,31 +45,22 @@ export function resolveEnvironment(
   }
 
   const activeEnvironment = environmentMap.get(environmentId) ?? fallback
-  const variables: Record<string, string> = {}
   const inheritedChain: string[] = []
-  const sensitiveKeys = new Set<string>()
 
   for (const environment of resolvedChain) {
     inheritedChain.push(environment.label)
-    Object.assign(variables, environment.variables)
-
-    for (const key of environment.sensitiveKeys) {
-      sensitiveKeys.add(key)
-    }
   }
-
-  const unresolvedKeys = Object.entries(variables)
-    .filter(([, value]) => value.includes('${'))
-    .map(([key]) => key)
+  const resolved = resolveEnvironmentVariablesForPreview(resolvedChain)
 
   return {
     environmentId: activeEnvironment.id,
     label: activeEnvironment.label,
     risk: activeEnvironment.risk,
-    variables,
-    unresolvedKeys,
+    variables: resolved.variables,
+    unresolvedKeys: resolved.unresolvedKeys,
     inheritedChain,
-    sensitiveKeys: [...sensitiveKeys],
+    sensitiveKeys: resolved.sensitiveKeys,
+    variableDefinitions: resolved.variableDefinitions,
   }
 }
 

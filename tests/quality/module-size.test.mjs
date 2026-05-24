@@ -8,6 +8,48 @@ const defaultMaxLines = 400
 
 const documentedExceptions = new Map([
   [
+    'apps/desktop/src/app/components/workbench/CassandraObjectViewWorkspace.tsx',
+    {
+      maxLines: 460,
+      reason: 'Cassandra object views share keyspace/table diagnostics, schema metadata, and permission-state rendering.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/CosmosObjectViewWorkspace.tsx',
+    {
+      maxLines: 500,
+      reason: 'Cosmos DB object views keep database/container throughput, partitioning, indexing, and diagnostics in one adapter workspace.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/DynamoObjectViewWorkspace.tsx',
+    {
+      maxLines: 560,
+      reason: 'DynamoDB object views share table, index, capacity, TTL, stream, backup, and alarm rendering helpers.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/GraphObjectViewWorkspace.tsx',
+    {
+      maxLines: 570,
+      reason: 'Graph object views share label, relationship, property, index, constraint, procedure, and security summaries.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/InfluxObjectViewWorkspace.tsx',
+    {
+      maxLines: 535,
+      reason: 'InfluxDB object views share bucket, measurement, tag, field, task, token, and diagnostics tables.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/LiteDbObjectViewWorkspace.tsx',
+    {
+      maxLines: 475,
+      reason: 'LiteDB object views share local-file database, collection, index, file storage, and pragma-style helpers.',
+    },
+  ],
+  [
     'apps/desktop/src/app/components/workbench/BottomPanel.tsx',
     {
       maxLines: 430,
@@ -31,22 +73,36 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/intellisense/providers.ts',
     {
-      maxLines: 560,
-      reason: 'Completion providers share cursor context helpers and datastore-specific insertion behavior.',
+      maxLines: 580,
+      reason: 'Completion providers share cursor context helpers, variable suggestions, and datastore-specific insertion behavior.',
     },
   ],
   [
     'apps/desktop/src/app/components/workbench/ObjectViewWorkspace.tsx',
     {
-      maxLines: 1500,
-      reason: 'Mongo object-view descriptors and purpose-built view routing are still one active adapter surface.',
+      maxLines: 2600,
+      reason: 'Purpose-built Mongo object views are still one active adapter surface until the view pages are split by workflow.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/OpenTsdbObjectViewWorkspace.tsx',
+    {
+      maxLines: 540,
+      reason: 'OpenTSDB object views share metric, tag, UID, tree, storage, and diagnostics summaries.',
     },
   ],
   [
     'apps/desktop/src/app/components/workbench/OracleObjectViewWorkspace.tsx',
     {
-      maxLines: 950,
-      reason: 'Oracle object-view pages share descriptor-driven shells and permission-state handling.',
+      maxLines: 1020,
+      reason: 'Oracle object-view pages share descriptor-driven shells, purpose-built tables, and permission-state handling.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/PrometheusObjectViewWorkspace.tsx',
+    {
+      maxLines: 550,
+      reason: 'Prometheus object views share metric, label, series, target, rule, alert, and TSDB diagnostics rendering.',
     },
   ],
   [
@@ -66,15 +122,22 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/RedisObjectViewWorkspace.tsx',
     {
-      maxLines: 910,
-      reason: 'Redis object-view dashboards, type sections, and capability states share one adapter view shell.',
+      maxLines: 1230,
+      reason: 'Redis object-view dashboards, type sections, capability states, and empty-state guidance share one adapter view shell.',
     },
   ],
   [
     'apps/desktop/src/app/components/workbench/RelationalObjectViewWorkspace.tsx',
     {
-      maxLines: 590,
+      maxLines: 850,
       reason: 'SQL-family object views share table/procedure/security rendering and warning states.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/SearchObjectViewWorkspace.tsx',
+    {
+      maxLines: 575,
+      reason: 'Search object views share index, mapping, shard, segment, ingest, security, and diagnostics surfaces.',
     },
   ],
   [
@@ -115,21 +178,21 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/SideBar.connection-object-tree.tsx',
     {
-      maxLines: 1040,
+      maxLines: 1240,
       reason: 'Tree rendering, scoped refresh, batching, and context menu behavior are one UI unit.',
     },
   ],
   [
     'apps/desktop/src/app/components/workbench/SideBar.connection-tree.ts',
     {
-      maxLines: 810,
+      maxLines: 1120,
       reason: 'Fallback connection tree templates cover all datastore families until live explorers mature.',
     },
   ],
   [
     'apps/desktop/src/app/components/workbench/SideBar.datastore-tree-registry.ts',
     {
-      maxLines: 2450,
+      maxLines: 3050,
       reason: 'Data-heavy datastore registry centralizes family placement and object actions.',
     },
   ],
@@ -145,6 +208,13 @@ const documentedExceptions = new Map([
     {
       maxLines: 500,
       reason: 'Datastore and object-kind icon mapping is intentionally centralized for consistent tree visuals.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/WarehouseObjectViewWorkspace.tsx',
+    {
+      maxLines: 550,
+      reason: 'Warehouse object views share schema, table, stage, compute, job, security, and diagnostics summaries across warehouse engines.',
     },
   ],
   [
@@ -164,8 +234,8 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/state/workspace-migration.ts',
     {
-      maxLines: 580,
-      reason: 'Workspace schema migration intentionally keeps versioned normalization in one place.',
+      maxLines: 640,
+      reason: 'Workspace schema migration intentionally keeps versioned normalization, Library migration, and variable syntax migration in one place.',
     },
   ],
   [
@@ -178,8 +248,8 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/services/runtime/browser-explorer.ts',
     {
-      maxLines: 2500,
-      reason: 'Browser-preview explorer fixtures are data-heavy and should split by adapter in a later pass.',
+      maxLines: 7200,
+      reason: 'Browser-preview explorer fixtures are deterministic adapter test data and are lazy-loaded outside the startup bundle; split by adapter when the preview contract stabilizes.',
     },
   ],
   [
@@ -192,7 +262,7 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/services/runtime/browser-tabs.ts',
     {
-      maxLines: 850,
+      maxLines: 930,
       reason: 'Browser-preview tab persistence mirrors the desktop tab runtime contract.',
     },
   ],
@@ -208,6 +278,13 @@ const documentedExceptions = new Map([
     {
       maxLines: 620,
       reason: 'Datastore command boundary centralizes execution, paging, diagnostics, and guardrail dispatch.',
+    },
+  ],
+  [
+    'apps/desktop/src-tauri/src/app/runtime/environments.rs',
+    {
+      maxLines: 560,
+      reason: 'Environment runtime owns variable normalization, secret resolution, interpolation, and inheritance safety checks.',
     },
   ],
   [
@@ -241,8 +318,8 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src-tauri/src/app/runtime/workspace.rs',
     {
-      maxLines: 470,
-      reason: 'Workspace import/export owns encryption validation, snapshot migration, and bundle boundaries.',
+      maxLines: 520,
+      reason: 'Workspace import/export owns encryption validation, snapshot migration, secret stripping, and bundle boundaries.',
     },
   ],
   [

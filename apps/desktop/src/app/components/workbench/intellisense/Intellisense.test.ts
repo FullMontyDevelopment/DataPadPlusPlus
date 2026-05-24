@@ -7,6 +7,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { buildCompletionCatalog } from './catalog'
 import {
+  ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER,
   completionProvidersForConnection,
   DEFAULT_COMPLETION_PROVIDERS,
 } from './providers'
@@ -194,6 +195,67 @@ describe('query intellisense', () => {
     expect(DEFAULT_COMPLETION_PROVIDERS.map((provider) => provider.id)).toEqual(
       expect.arrayContaining(['search', 'dynamodb', 'cassandra']),
     )
+  })
+
+  it('suggests environment variables only inside brace tokens', () => {
+    const connection = connectionProfile('postgresql', 'sql')
+    const context = completionContext(connection, 'select * from {{', {
+      objects: [],
+      fields: [],
+    })
+    context.environment = {
+      ...environment,
+      variableDefinitions: [
+        {
+          key: 'DB_SCHEMA',
+          kind: 'text',
+          value: 'public',
+          updatedAt: '2026-05-17T00:00:00.000Z',
+        },
+        {
+          key: 'API_TOKEN',
+          kind: 'secret',
+          secretRef: {
+            id: 'secret-env-local-api-token',
+            provider: 'os-keyring',
+            service: 'DataPadPlusPlus.Environment',
+            account: 'env-local:API_TOKEN',
+            label: 'Environment Local variable API_TOKEN',
+          },
+          updatedAt: '2026-05-17T00:00:00.000Z',
+        },
+      ],
+    }
+
+    expect(
+      ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER.buildItems({
+        ...context,
+        cursorOffset: context.queryText.length,
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'DB_SCHEMA',
+          insertText: 'DB_SCHEMA}}',
+          kind: 'variable',
+          detail: 'environment variable',
+        }),
+        expect.objectContaining({
+          label: 'API_TOKEN',
+          insertText: 'API_TOKEN}}',
+          kind: 'variable',
+          detail: 'secret environment variable',
+        }),
+      ]),
+    )
+
+    expect(
+      ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER.buildItems({
+        ...context,
+        queryText: 'select * from accounts',
+        cursorOffset: 'select * from accounts'.length,
+      }),
+    ).toEqual([])
   })
 })
 

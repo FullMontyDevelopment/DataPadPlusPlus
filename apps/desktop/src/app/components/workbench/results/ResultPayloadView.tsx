@@ -38,7 +38,7 @@ export function ResultPayloadView({
   ): Promise<DataEditExecutionResponse | undefined>
 }) {
   if (!payload) {
-    return <p className="panel-footnote">No result payload yet.</p>
+    return <p className="panel-footnote">No result yet.</p>
   }
 
   if (payload.renderer === 'table') {
@@ -127,7 +127,7 @@ export function ResultPayloadView({
           metric.name,
           String(metric.value),
           metric.unit ?? '',
-          metric.labels ? JSON.stringify(metric.labels) : '',
+          formatLabels(metric.labels),
         ])}
         onExecuteDataEdit={onExecuteDataEdit}
       />
@@ -146,7 +146,7 @@ export function ResultPayloadView({
             point.timestamp,
             String(point.value),
             series.unit ?? '',
-            point.labels ? JSON.stringify(point.labels) : '',
+            formatLabels(point.labels),
           ]),
         )}
         onExecuteDataEdit={onExecuteDataEdit}
@@ -225,6 +225,24 @@ function sliceItems<T>(items: T[], pageIndex: number, pageSize: number | undefin
 
   const start = Math.max(0, pageIndex) * pageSize
   return items.slice(start, start + pageSize)
+}
+
+function formatLabels(labels: Record<string, string> | undefined) {
+  const entries = Object.entries(labels ?? {})
+  if (entries.length === 0) {
+    return ''
+  }
+
+  return entries
+    .map(([key, value]) => `${readableLabel(key)}: ${value}`)
+    .join('; ')
+}
+
+function readableLabel(value: string) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function keyValuePayloadKey(entries: Record<string, string>, key?: string) {

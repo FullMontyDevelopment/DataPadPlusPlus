@@ -1,7 +1,9 @@
 import type { ConnectionProfile, OperationExecutionRequest, OperationExecutionResponse, OperationPlanRequest, OperationPlanResponse, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { defaultQueryTextForConnection, languageForConnection, resolveEnvironment } from '../../app/state/helpers'
+import { redactSensitiveText } from '../../app/state/security-redaction'
 import { buildOperationManifestsForConnection } from './browser-operation-manifests'
 import { collectDiagnosticsLocally, inspectPermissionsLocally } from './browser-operation-inspection'
+import { redactOperationPlanForEnvironment, redactOperationResponseForEnvironment } from './browser-response-redaction'
 import { findConnection } from './browser-store'
 
 export { buildOperationManifestsForConnection } from './browser-operation-manifests'
@@ -43,7 +45,7 @@ export function planOperationLocally(
     operationId: request.operationId,
     engine: connection.engine,
     summary: `Preview operation plan prepared for ${connection.name}.`,
-    generatedRequest: browserOperationRequest(connection, request),
+    generatedRequest: redactSensitiveText(browserOperationRequest(connection, request)),
     requestLanguage: languageForConnection(connection),
     destructive,
     estimatedCost: costly
@@ -71,11 +73,11 @@ export function planOperationLocally(
         operation.requiresConfirmation),
   ) || destructive || costly || adminWrite)
 
-  return {
+  return redactOperationPlanForEnvironment({
     connectionId: request.connectionId,
     environmentId: request.environmentId,
     plan,
-  }
+  }, resolveEnvironment(snapshot.environments, request.environmentId))
 }
 
 function browserOperationRequest(
@@ -117,6 +119,17 @@ function mongoOperationRequest(request: OperationPlanRequest) {
       database,
       dropIndexes: collection,
       index: indexName,
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('index.hide') || request.operationId.endsWith('index.unhide')) {
+    return JSON.stringify({
+      database,
+      collMod: collection,
+      index: {
+        name: indexName,
+        hidden: request.operationId.endsWith('index.hide'),
+      },
     }, null, 2)
   }
 
@@ -210,7 +223,7 @@ export function executeOperationLocally(
   }
 
   if (executionSupport !== 'live' || warnings.length > planResponse.plan.warnings.length) {
-    return {
+    return redactOperationResponseForEnvironment({
       connectionId: request.connectionId,
       environmentId: request.environmentId,
       operationId: request.operationId,
@@ -219,12 +232,12 @@ export function executeOperationLocally(
       plan: planResponse.plan,
       messages,
       warnings,
-    }
+    }, resolveEnvironment(snapshot.environments, request.environmentId))
   }
 
   if (request.operationId.endsWith('security.inspect')) {
     const permissionInspection = inspectPermissionsLocally(snapshot, request).inspection
-    return {
+    return redactOperationResponseForEnvironment({
       connectionId: request.connectionId,
       environmentId: request.environmentId,
       operationId: request.operationId,
@@ -234,12 +247,12 @@ export function executeOperationLocally(
       permissionInspection,
       messages: ['Permission inspection completed.'],
       warnings,
-    }
+    }, resolveEnvironment(snapshot.environments, request.environmentId))
   }
 
   if (request.operationId.endsWith('diagnostics.metrics')) {
     const diagnostics = collectDiagnosticsLocally(snapshot, request).diagnostics
-    return {
+    return redactOperationResponseForEnvironment({
       connectionId: request.connectionId,
       environmentId: request.environmentId,
       operationId: request.operationId,
@@ -249,10 +262,10 @@ export function executeOperationLocally(
       diagnostics,
       messages: ['Adapter diagnostics collected.'],
       warnings,
-    }
+    }, resolveEnvironment(snapshot.environments, request.environmentId))
   }
 
-  return {
+  return redactOperationResponseForEnvironment({
     connectionId: request.connectionId,
     environmentId: request.environmentId,
     operationId: request.operationId,
@@ -264,7 +277,7 @@ export function executeOperationLocally(
     },
     messages: ['Preview operation completed.'],
     warnings,
-  }
+  }, resolveEnvironment(snapshot.environments, request.environmentId))
 }
 
 function applyEnvironmentGuardsToPlan(

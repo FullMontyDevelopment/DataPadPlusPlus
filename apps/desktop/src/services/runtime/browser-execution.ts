@@ -1,5 +1,7 @@
 import type { ExecutionRequest, ExecutionResponse, ResultPayload, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import { interpolateEnvironmentVariables } from '../../app/state/environment-variables'
 import { createId, evaluateGuardrails, resolveEnvironment, simulateExecution } from '../../app/state/helpers'
+import { redactExecutionResultForEnvironment, redactForEnvironment } from './browser-response-redaction'
 import { cloneSnapshot, confirmationGuardrailId, findConnection, findEnvironment, findTab } from './browser-store'
 
 export function applyExecutionRequestLocally(
@@ -17,7 +19,7 @@ export function applyExecutionRequestLocally(
   }
 
   const resolvedEnvironment = resolveEnvironment(next.environments, request.environmentId)
-  const queryText =
+  const queryTemplate =
     request.executionInputMode === 'script'
       ? request.mode === 'selection' && request.selectedText
         ? request.selectedText
@@ -25,6 +27,10 @@ export function applyExecutionRequestLocally(
       : request.mode === 'selection' && request.selectedText
       ? request.selectedText
       : request.queryText
+  const queryText = interpolateEnvironmentVariables(
+    queryTemplate,
+    resolvedEnvironment.variables,
+  )
   const guardrail = evaluateGuardrails(
     connection,
     environment,
@@ -53,7 +59,7 @@ export function applyExecutionRequestLocally(
       tab.lastRunAt = new Date().toISOString()
       tab.history.unshift({
         id: createId('history'),
-        queryText,
+        queryText: queryTemplate,
         executedAt: tab.lastRunAt,
         status: tab.status,
       })
@@ -136,6 +142,9 @@ export function applyExecutionRequestLocally(
     diagnostics.push(guardrail.reasons[0] ?? 'Confirmation required for this query.')
   }
 
+  result = redactExecutionResultForEnvironment(result, resolvedEnvironment)
+  const redactedDiagnostics = redactForEnvironment(diagnostics, resolvedEnvironment)
+
   tab.queryText = request.queryText
   if (request.executionInputMode === 'script') {
     tab.scriptText = request.scriptText
@@ -148,12 +157,12 @@ export function applyExecutionRequestLocally(
         ? 'success'
         : 'error'
   tab.lastRunAt = new Date().toISOString()
-  tab.history.unshift({
-    id: createId('history'),
-    queryText,
-    executedAt: tab.lastRunAt,
-    status: tab.status,
-  })
+    tab.history.unshift({
+      id: createId('history'),
+      queryText: queryTemplate,
+      executedAt: tab.lastRunAt,
+      status: tab.status,
+    })
   tab.error =
     guardrail.status === 'block'
       ? {
@@ -175,7 +184,7 @@ export function applyExecutionRequestLocally(
       tab,
       result,
       guardrail,
-      diagnostics,
+      diagnostics: redactedDiagnostics,
     },
   }
 }

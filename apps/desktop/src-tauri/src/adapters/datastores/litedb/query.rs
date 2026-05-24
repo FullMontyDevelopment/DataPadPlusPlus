@@ -67,7 +67,7 @@ pub(super) async fn execute_litedb_query(
             ".NET LiteDB sidecar bridge request payload.",
         ),
         payload_profile(
-            "LiteDB bridge profile placeholder.",
+            "LiteDB file and sidecar readiness.",
             json!({
                 "databasePath": litedb_file_path(connection),
                 "operation": operation,
@@ -122,7 +122,7 @@ pub(crate) fn litedb_operation(value: &Value) -> Result<String, CommandError> {
         .ok_or_else(|| {
             CommandError::new(
                 "litedb-operation-missing",
-                "LiteDB request must include operation, such as ListCollections, Find, FindById, Count, Explain, or SampleSchema.",
+                "LiteDB request must include operation, such as ListCollections, Find, FindById, Count, Explain, or Schema.",
             )
         })?;
     Ok(normalize_operation_name(operation))

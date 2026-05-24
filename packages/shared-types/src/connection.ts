@@ -335,11 +335,22 @@ export interface EnvironmentProfile {
   inheritsFrom?: string
   variables: Record<string, string>
   sensitiveKeys: string[]
+  variableDefinitions?: EnvironmentVariableDefinition[]
   requiresConfirmation: boolean
   safeMode: boolean
   exportable: boolean
   createdAt: string
   updatedAt: string
+}
+
+export type EnvironmentVariableKind = 'text' | 'secret'
+
+export interface EnvironmentVariableDefinition {
+  key: string
+  kind: EnvironmentVariableKind
+  value?: string
+  secretRef?: SecretRef
+  updatedAt?: string
 }
 
 export interface ResolvedEnvironment {
@@ -350,6 +361,7 @@ export interface ResolvedEnvironment {
   unresolvedKeys: string[]
   inheritedChain: string[]
   sensitiveKeys: string[]
+  variableDefinitions?: EnvironmentVariableDefinition[]
 }
 
 export type ConnectionDefinition = ConnectionProfile

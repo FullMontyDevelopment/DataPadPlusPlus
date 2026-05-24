@@ -14,6 +14,7 @@ import {
   dataEditStatusMessage,
   executeDataEditWithConfirmation,
 } from './data-edit-confirmation'
+import { redactErrorMessage } from '../../../state/security-redaction'
 
 export interface EditingCell {
   sourceIndex: number
@@ -135,7 +136,7 @@ export function useDataGridEditing({
       )
       setStatusMessage(response.messages.at(-1) ?? 'Updated cell.')
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Unable to update cell.')
+      setStatusMessage(redactErrorMessage(error, 'Unable to update cell.'))
     } finally {
       committingEditRef.current = false
     }
@@ -206,7 +207,7 @@ export function useDataGridEditing({
         setStatusMessage(response.messages.at(-1) ?? 'Inserted row.')
         return true
       } catch (error) {
-        setStatusMessage(error instanceof Error ? error.message : 'Unable to insert row.')
+        setStatusMessage(redactErrorMessage(error, 'Unable to insert row.'))
         return false
       }
     },
@@ -264,7 +265,7 @@ export function useDataGridEditing({
         setStatusMessage(response.messages.at(-1) ?? 'Deleted row.')
         return true
       } catch (error) {
-        setStatusMessage(error instanceof Error ? error.message : 'Unable to delete row.')
+        setStatusMessage(redactErrorMessage(error, 'Unable to delete row.'))
         return false
       }
     },

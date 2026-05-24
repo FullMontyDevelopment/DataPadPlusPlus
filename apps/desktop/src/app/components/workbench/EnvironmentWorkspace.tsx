@@ -3,8 +3,15 @@ import type { EnvironmentProfile } from '@datapadplusplus/shared-types'
 import {
   comparableEnvironment,
   normalizeColor,
-  resolveEnvironmentPreview,
 } from './EnvironmentWorkspace.helpers'
+import { EnvironmentVariableSecretToggle } from './EnvironmentVariableSecretToggle'
+import {
+  isValidVariableName,
+  normalizeVariableName,
+  sanitizeEnvironmentProfile,
+  secretRefForEnvironmentVariable,
+  variableDefinitionsForEnvironment,
+} from '../../state/environment-variables'
 
 export function EnvironmentWorkspace({
   activeEnvironment,
@@ -13,13 +20,17 @@ export function EnvironmentWorkspace({
   onCloneEnvironment,
   onEnvironmentChange,
   onSaveEnvironment,
+  secretDrafts = {},
+  onSecretDraftsChange,
 }: {
   activeEnvironment?: EnvironmentProfile
   environments: EnvironmentProfile[]
   onCreateEnvironment(): void
   onCloneEnvironment(environment: EnvironmentProfile): void
   onEnvironmentChange(environment: EnvironmentProfile): void
-  onSaveEnvironment(environment: EnvironmentProfile): void
+  onSaveEnvironment(environment: EnvironmentProfile, secretDrafts?: Record<string, string>): void
+  secretDrafts?: Record<string, string>
+  onSecretDraftsChange?(secretDrafts: Record<string, string>): void
 }) {
   const [newVariableKey, setNewVariableKey] = useState('')
   const [newVariableValue, setNewVariableValue] = useState('')
@@ -49,16 +60,7 @@ export function EnvironmentWorkspace({
   }
 
   const environmentOptions = environments.filter((item) => item.id !== environmentDraft.id)
-  const variableEntries = Object.entries(environmentDraft.variables).sort(([left], [right]) =>
-    left.localeCompare(right),
-  )
-  const resolvedPreview = resolveEnvironmentPreview(environments, environmentDraft)
-  const resolvedEntries = Object.entries(resolvedPreview.variables).sort(([left], [right]) =>
-    left.localeCompare(right),
-  )
-  const sensitiveKeys = new Set(environmentDraft.sensitiveKeys)
-  const resolvedSensitiveKeys = new Set(resolvedPreview.sensitiveKeys)
-  const unresolvedKeys = new Set(resolvedPreview.unresolvedKeys)
+  const variableDefinitions = variableDefinitionsForEnvironment(environmentDraft)
   const hasEnvironmentChanges =
     Boolean(activeEnvironment) &&
     comparableEnvironment(environmentDraft) !==
@@ -78,7 +80,7 @@ export function EnvironmentWorkspace({
             updatedAt: new Date().toISOString(),
           }
 
-    onEnvironmentChange(nextEnvironment)
+    onEnvironmentChange(sanitizeEnvironmentProfile(nextEnvironment))
   }
 
   const updateDraft = (patch: Partial<EnvironmentProfile>) => {
@@ -86,43 +88,81 @@ export function EnvironmentWorkspace({
   }
 
   const updateVariableKey = (currentKey: string, nextKey: string) => {
+    const normalizedNextKey = normalizeVariableName(nextKey)
     commitDraft((current) => {
-      const variables = { ...current.variables }
-      const value = variables[currentKey] ?? ''
-      delete variables[currentKey]
+      const definitions = variableDefinitionsForEnvironment(current)
+        .filter((definition) => definition.key !== currentKey)
+      const currentDefinition = variableDefinitionsForEnvironment(current).find(
+        (definition) => definition.key === currentKey,
+      )
 
-      if (nextKey) {
-        variables[nextKey] = value
+      if (currentDefinition && isValidVariableName(normalizedNextKey)) {
+        definitions.push({
+          ...currentDefinition,
+          key: normalizedNextKey,
+          secretRef:
+            currentDefinition.kind === 'secret'
+              ? secretRefForEnvironmentVariable(current.id, normalizedNextKey)
+              : undefined,
+          updatedAt: new Date().toISOString(),
+        })
       }
 
-      return {
+      if (secretDrafts[currentKey] !== undefined) {
+        const nextDrafts = { ...secretDrafts }
+        const draft = nextDrafts[currentKey] ?? ''
+        delete nextDrafts[currentKey]
+        if (isValidVariableName(normalizedNextKey)) {
+          nextDrafts[normalizedNextKey] = draft
+        }
+        onSecretDraftsChange?.(nextDrafts)
+      }
+
+      return sanitizeEnvironmentProfile({
         ...current,
-        variables,
-        sensitiveKeys: current.sensitiveKeys
-          .map((key) => (key === currentKey ? nextKey : key))
-          .filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index),
+        variableDefinitions: definitions,
         updatedAt: new Date().toISOString(),
-      }
+      })
     })
   }
 
   const updateVariableValue = (key: string, value: string) => {
     commitDraft((current) => ({
       ...current,
-      variables: {
-        ...current.variables,
-        [key]: value,
-      },
+      variableDefinitions: variableDefinitionsForEnvironment(current).map((definition) =>
+        definition.key === key
+          ? { ...definition, value, updatedAt: new Date().toISOString() }
+          : definition,
+      ),
       updatedAt: new Date().toISOString(),
     }))
   }
 
-  const toggleSensitiveKey = (key: string) => {
+  const updateSecretDraft = (key: string, value: string) => {
+    onSecretDraftsChange?.({
+      ...secretDrafts,
+      [key]: value,
+    })
+  }
+
+  const setVariableKind = (key: string, kind: 'text' | 'secret') => {
     commitDraft((current) => ({
       ...current,
-      sensitiveKeys: current.sensitiveKeys.includes(key)
-        ? current.sensitiveKeys.filter((item) => item !== key)
-        : [...current.sensitiveKeys, key],
+      variableDefinitions: variableDefinitionsForEnvironment(current).map((definition) =>
+        definition.key === key
+          ? {
+              ...definition,
+              kind,
+              value: kind === 'secret' ? undefined : definition.value ?? '',
+              secretRef:
+                kind === 'secret'
+                  ? definition.secretRef ??
+                    secretRefForEnvironmentVariable(current.id, definition.key)
+                  : undefined,
+              updatedAt: new Date().toISOString(),
+            }
+          : definition,
+      ),
       updatedAt: new Date().toISOString(),
     }))
   }
@@ -133,22 +173,25 @@ export function EnvironmentWorkspace({
     }
 
     commitDraft((current) => {
-      const variables = { ...current.variables }
-      delete variables[key]
+      const definitions = variableDefinitionsForEnvironment(current).filter(
+        (definition) => definition.key !== key,
+      )
+      const nextDrafts = { ...secretDrafts }
+      delete nextDrafts[key]
+      onSecretDraftsChange?.(nextDrafts)
 
       return {
         ...current,
-        variables,
-        sensitiveKeys: current.sensitiveKeys.filter((item) => item !== key),
+        variableDefinitions: definitions,
         updatedAt: new Date().toISOString(),
       }
     })
   }
 
   const addVariable = () => {
-    const key = newVariableKey.trim()
+    const key = normalizeVariableName(newVariableKey)
 
-    if (!key) {
+    if (!isValidVariableName(key)) {
       return
     }
 
@@ -157,16 +200,25 @@ export function EnvironmentWorkspace({
 
     commitDraft((current) => ({
       ...current,
-      variables: {
-        ...current.variables,
-        [key]: newVariableValue,
-      },
-      sensitiveKeys:
-        shouldMarkSensitive && !current.sensitiveKeys.includes(key)
-          ? [...current.sensitiveKeys, key]
-          : current.sensitiveKeys,
+      variableDefinitions: [
+        ...variableDefinitionsForEnvironment(current).filter(
+          (definition) => definition.key !== key,
+        ),
+        {
+          key,
+          kind: shouldMarkSensitive ? 'secret' : 'text',
+          value: shouldMarkSensitive ? undefined : newVariableValue,
+          secretRef: shouldMarkSensitive
+            ? secretRefForEnvironmentVariable(current.id, key)
+            : undefined,
+          updatedAt: new Date().toISOString(),
+        },
+      ],
       updatedAt: new Date().toISOString(),
     }))
+    if (shouldMarkSensitive && newVariableValue) {
+      updateSecretDraft(key, newVariableValue)
+    }
     setNewVariableKey('')
     setNewVariableValue('')
     setNewVariableSecret(false)
@@ -191,7 +243,7 @@ export function EnvironmentWorkspace({
             <button
               type="button"
               className="drawer-button drawer-button--primary"
-              onClick={() => onSaveEnvironment(environmentDraft)}
+              onClick={() => onSaveEnvironment(sanitizeEnvironmentProfile(environmentDraft), secretDrafts)}
             >
               Save
             </button>
@@ -285,12 +337,13 @@ export function EnvironmentWorkspace({
         <section className="environment-card">
           <div className="environment-section-header">
             <strong>Variables</strong>
-            <span>{variableEntries.length}</span>
+            <span>{variableDefinitions.length}</span>
           </div>
 
           <div className="environment-variable-grid">
-            {variableEntries.map(([key, value]) => {
-              const secret = sensitiveKeys.has(key)
+            {variableDefinitions.map((definition) => {
+              const key = definition.key
+              const secret = definition.kind === 'secret'
               return (
                 <div key={key} className="environment-variable-row">
                   <input
@@ -298,23 +351,26 @@ export function EnvironmentWorkspace({
                     value={key}
                     onChange={(event) => updateVariableKey(key, event.target.value)}
                   />
-                  <input
-                    aria-label={`Environment variable value ${key}`}
-                    value={value}
-                    onChange={(event) => updateVariableValue(key, event.target.value)}
+                  {secret ? (
+                    <input
+                      aria-label={`Environment secret value ${key}`}
+                      type="password"
+                      placeholder={definition.secretRef ? 'Stored secret' : 'Enter secret'}
+                      value={secretDrafts[key] ?? ''}
+                      onChange={(event) => updateSecretDraft(key, event.target.value)}
+                    />
+                  ) : (
+                    <input
+                      aria-label={`Environment variable value ${key}`}
+                      value={definition.value ?? ''}
+                      onChange={(event) => updateVariableValue(key, event.target.value)}
+                    />
+                  )}
+                  <EnvironmentVariableSecretToggle
+                    secret={secret}
+                    label={`Environment variable type ${key}`}
+                    onToggle={() => setVariableKind(key, secret ? 'text' : 'secret')}
                   />
-                  <button
-                    type="button"
-                    className={`drawer-toggle${secret ? ' is-active' : ''}`}
-                    aria-label={
-                      secret
-                        ? `Unmark ${key} as secret`
-                        : `Mark ${key} as secret`
-                    }
-                    onClick={() => toggleSensitiveKey(key)}
-                  >
-                    Secret
-                  </button>
                   <button
                     type="button"
                     className="drawer-mini-button"
@@ -332,55 +388,24 @@ export function EnvironmentWorkspace({
                 aria-label="New variable key"
                 placeholder="DB_HOST"
                 value={newVariableKey}
-                onChange={(event) => setNewVariableKey(event.target.value)}
+                onChange={(event) => setNewVariableKey(event.target.value.toUpperCase())}
               />
               <input
                 aria-label="New variable value"
+                type={newVariableSecret ? 'password' : 'text'}
                 placeholder="localhost"
                 value={newVariableValue}
                 onChange={(event) => setNewVariableValue(event.target.value)}
               />
-              <button
-                type="button"
-                className={`drawer-toggle${newVariableSecret ? ' is-active' : ''}`}
-                aria-label="Mark new variable as secret"
-                onClick={() => setNewVariableSecret((current) => !current)}
-              >
-                Secret
-              </button>
+              <EnvironmentVariableSecretToggle
+                secret={newVariableSecret}
+                label="Mark new variable as secret"
+                onToggle={() => setNewVariableSecret((current) => !current)}
+              />
               <button type="button" className="drawer-button" onClick={addVariable}>
                 Add
               </button>
             </div>
-          </div>
-        </section>
-
-        <section className="environment-card">
-          <div className="environment-section-header">
-            <strong>Resolved Preview</strong>
-            <span>{resolvedPreview.inheritedChain.join(' / ') || environmentDraft.label}</span>
-          </div>
-
-          {resolvedPreview.unresolvedKeys.length > 0 ? (
-            <div className="drawer-callout is-error">
-              <strong>Unresolved variables</strong>
-              <span>{resolvedPreview.unresolvedKeys.join(', ')}</span>
-            </div>
-          ) : null}
-
-          <div className="drawer-variables">
-            {resolvedEntries.map(([key, value]) => {
-              const hidden = resolvedSensitiveKeys.has(key)
-              return (
-                <div
-                  key={key}
-                  className={`drawer-variable-row${unresolvedKeys.has(key) ? ' is-unresolved' : ''}`}
-                >
-                  <span>{key}</span>
-                  <code>{hidden ? '********' : value}</code>
-                </div>
-              )
-            })}
           </div>
         </section>
       </div>

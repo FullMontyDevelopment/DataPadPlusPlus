@@ -1,4 +1,7 @@
-use super::environments::{build_resolution_warnings, has_unresolved_tokens, interpolate_value};
+use super::environments::{
+    build_resolution_warnings, has_unresolved_tokens, interpolate_value,
+    normalize_environment_profile, resolve_environment_for_execution,
+};
 use super::library::{
     effective_connection_environment_id, ensure_connection_library_nodes,
     remove_connection_library_nodes,
@@ -64,7 +67,7 @@ impl ManagedAppState {
         {
             return Err(CommandError::new(
                 "connection-string-secret",
-                "Connection strings with embedded passwords, tokens, or keys are not saved. Put the secret in the password/secret field so DataPad++ can store it in the encrypted secret store.",
+                "Connection strings with embedded passwords, tokens, or keys are not saved. Put credentials in the password or credential field so DataPad++ can store them in the encrypted secret store.",
             ));
         }
 
@@ -146,8 +149,10 @@ impl ManagedAppState {
 
     pub fn upsert_environment(
         &mut self,
-        profile: EnvironmentProfile,
+        mut profile: EnvironmentProfile,
     ) -> Result<BootstrapPayload, CommandError> {
+        normalize_environment_profile(&mut profile);
+
         if let Some(index) = self
             .snapshot
             .environments
@@ -313,7 +318,8 @@ impl ManagedAppState {
         environment_id: &str,
         inline_secret: Option<&str>,
     ) -> Result<(ResolvedConnectionProfile, ResolvedEnvironment, Vec<String>), CommandError> {
-        let resolved_environment = self.resolve_environment(environment_id);
+        let resolved_environment =
+            resolve_environment_for_execution(&self.snapshot.environments, environment_id);
         let interpolate = |value: &str| interpolate_value(value, &resolved_environment.variables);
         let password = inline_secret
             .filter(|secret| !secret.trim().is_empty())
@@ -633,7 +639,7 @@ fn fixture_connection_warnings(connection: &ResolvedConnectionProfile) -> Vec<St
             .as_deref()
             .is_none_or(|value| value.trim().is_empty())
     {
-        warnings.push("Fixture credentials require a password in the secret field.".into());
+        warnings.push("This fixture connection needs a password before it can be tested.".into());
     }
 
     warnings
@@ -711,7 +717,7 @@ mod tests {
                 "DataPad++ Docker fixtures expose MongoDB on localhost:27018.",
                 "Fixture database is \"catalog\".",
                 "Fixture user is \"datapadplusplus\".",
-                "Fixture credentials require a password in the secret field.",
+                "This fixture connection needs a password before it can be tested.",
             ]
         );
     }

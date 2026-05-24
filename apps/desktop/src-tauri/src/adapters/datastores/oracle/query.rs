@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use super::super::super::*;
-use super::connection::{oracle_request_payload, oracle_service_name};
+use super::connection::oracle_service_name;
 use super::OracleAdapter;
 
 pub(super) async fn execute_oracle_query(
@@ -31,12 +31,11 @@ pub(super) async fn execute_oracle_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let explain = matches!(execute_mode(request), "explain" | "profile" | "plan");
-    let request_payload = oracle_request_payload(connection, statement, row_limit, explain);
     notices.push(QueryExecutionNotice {
         code: "oracle-contract".into(),
         level: "info".into(),
         message:
-            "Oracle SQL/PLSQL was normalized as a guarded driver request payload pending native OCI/thin execution."
+            "Oracle live execution is not configured in this adapter phase; DataPad++ built a safe read preview without exposing driver payloads."
                 .into(),
     });
 
@@ -44,21 +43,34 @@ pub(super) async fn execute_oracle_query(
     let (columns, rows) = normalize_oracle_response(&response, row_limit);
     let row_count = rows.len() as u32;
     let profile = payload_profile(
-        "Oracle DBMS_XPLAN/profile placeholder.",
+        "Oracle DBMS_XPLAN and session profile readiness.",
         json!({
             "service": oracle_service_name(connection),
             "explainPlan": explain,
-            "dictionaryViews": ["ALL_TABLES", "ALL_TAB_COLUMNS", "ALL_INDEXES", "V$SESSION"],
+            "metadata": ["Schema dictionary", "Optimizer plan", "Session diagnostics"],
             "live": false
         }),
     );
+    let plan_payload = json!({
+        "engine": "oracle",
+        "service": oracle_service_name(connection),
+        "mode": if explain { "Explain Plan" } else { "Read Query" },
+        "rowLimit": row_limit,
+        "liveExecution": false,
+        "status": "Native Oracle execution is not configured for this connection.",
+        "nextSteps": [
+            "Configure an Oracle thin or OCI runtime path for live execution.",
+            "Use object views for dictionary metadata that is available without live query execution.",
+            "Use guarded operation previews for DDL and admin work."
+        ]
+    });
     let payloads = vec![
         payload_table(columns, rows),
         payload_json(response.clone()),
         payload_plan(
             "json",
-            request_payload.clone(),
-            "Oracle driver request payload with EXPLAIN PLAN/DBMS_XPLAN guardrails.",
+            plan_payload,
+            "Oracle execution readiness and EXPLAIN PLAN workflow.",
         ),
         profile,
         payload_metrics(json!([
@@ -69,7 +81,6 @@ pub(super) async fn execute_oracle_query(
                 "labels": { "service": oracle_service_name(connection) }
             }
         ])),
-        payload_raw(serde_json::to_string_pretty(&request_payload).unwrap_or_default()),
     ];
     let (default_renderer, renderer_modes_owned) = renderer_modes_for_payloads(&payloads);
     let renderer_modes = renderer_modes_owned
@@ -93,7 +104,7 @@ pub(super) async fn execute_oracle_query(
 
 pub(crate) fn preview_oracle_response(
     connection: &ResolvedConnectionProfile,
-    statement: &str,
+    _statement: &str,
     row_limit: u32,
     explain: bool,
 ) -> Value {
@@ -101,11 +112,10 @@ pub(crate) fn preview_oracle_response(
         "columns": ["service", "status", "row_limit", "explain"],
         "rows": [[
             oracle_service_name(connection),
-            "driver-request-built",
+            "live-execution-not-configured",
             row_limit.to_string(),
             explain.to_string()
-        ]],
-        "statement": statement
+        ]]
     })
 }
 
@@ -264,7 +274,7 @@ mod tests {
         let (columns, rows) = normalize_oracle_response(&response, 25);
 
         assert_eq!(columns, vec!["service", "status", "row_limit", "explain"]);
-        assert_eq!(rows[0][1], "driver-request-built");
+        assert_eq!(rows[0][1], "live-execution-not-configured");
     }
 
     #[test]

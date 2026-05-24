@@ -264,11 +264,26 @@ pub struct EnvironmentProfile {
     pub variables: HashMap<String, String>,
     #[serde(default)]
     pub sensitive_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variable_definitions: Vec<EnvironmentVariableDefinition>,
     pub requires_confirmation: bool,
     pub safe_mode: bool,
     pub exportable: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvironmentVariableDefinition {
+    pub key: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_ref: Option<SecretRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -281,6 +296,8 @@ pub struct ResolvedEnvironment {
     pub unresolved_keys: Vec<String>,
     pub inherited_chain: Vec<String>,
     pub sensitive_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variable_definitions: Vec<EnvironmentVariableDefinition>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

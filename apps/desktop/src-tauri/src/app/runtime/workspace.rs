@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use tauri::AppHandle;
 
 use super::{
-    environments::resolve_environment,
+    environments::{
+        legacy_to_brace_tokens, migrate_environment_profile_secrets, normalize_environment_profile,
+        resolve_environment,
+    },
     fixtures::{
         fixture_debug_enabled, fixture_workspace_seed, seed_fixture_secrets, workspace_is_empty,
     },
@@ -187,6 +190,9 @@ fn sanitize_snapshot(snapshot: &WorkspaceSnapshot) -> WorkspaceSnapshot {
     let mut sanitized = snapshot.clone();
 
     strip_secret_bearing_connection_strings(&mut sanitized);
+    for environment in &mut sanitized.environments {
+        normalize_environment_profile(environment);
+    }
 
     for tab in &mut sanitized.tabs {
         tab.result = None;
@@ -225,8 +231,10 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     snapshot.lock_state.is_locked = false;
     snapshot.lock_state.locked_at = None;
     strip_demo_records(&mut snapshot);
-    migrate_connection_modes(&mut snapshot);
+    migrate_environment_variables(&mut snapshot);
+    migrate_legacy_variable_tokens(&mut snapshot);
     strip_secret_bearing_connection_strings(&mut snapshot);
+    migrate_connection_modes(&mut snapshot);
     ensure_library_nodes(&mut snapshot);
 
     for tab in &mut snapshot.tabs {
@@ -240,6 +248,51 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     snapshot.ui = normalize_ui_state(&snapshot);
 
     snapshot
+}
+
+fn migrate_environment_variables(snapshot: &mut WorkspaceSnapshot) {
+    for environment in &mut snapshot.environments {
+        migrate_environment_profile_secrets(environment);
+    }
+}
+
+fn migrate_legacy_variable_tokens(snapshot: &mut WorkspaceSnapshot) {
+    for connection in &mut snapshot.connections {
+        connection.host = legacy_to_brace_tokens(&connection.host);
+        connection.database = connection.database.as_deref().map(legacy_to_brace_tokens);
+        connection.auth.username = connection
+            .auth
+            .username
+            .as_deref()
+            .map(legacy_to_brace_tokens);
+        connection.connection_string = connection
+            .connection_string
+            .as_deref()
+            .map(legacy_to_brace_tokens);
+    }
+
+    for tab in &mut snapshot.tabs {
+        tab.query_text = legacy_to_brace_tokens(&tab.query_text);
+        tab.script_text = tab.script_text.as_deref().map(legacy_to_brace_tokens);
+    }
+
+    for closed_tab in &mut snapshot.closed_tabs {
+        closed_tab.tab.query_text = legacy_to_brace_tokens(&closed_tab.tab.query_text);
+        closed_tab.tab.script_text = closed_tab
+            .tab
+            .script_text
+            .as_deref()
+            .map(legacy_to_brace_tokens);
+    }
+
+    for node in &mut snapshot.library_nodes {
+        node.query_text = node.query_text.as_deref().map(legacy_to_brace_tokens);
+        node.script_text = node.script_text.as_deref().map(legacy_to_brace_tokens);
+    }
+
+    for item in &mut snapshot.saved_work {
+        item.query_text = item.query_text.as_deref().map(legacy_to_brace_tokens);
+    }
 }
 
 fn strip_secret_bearing_connection_strings(snapshot: &mut WorkspaceSnapshot) {
@@ -258,6 +311,17 @@ fn migrate_connection_modes(snapshot: &mut WorkspaceSnapshot) {
     for connection in &mut snapshot.connections {
         let mode = match connection.connection_mode.as_deref() {
             Some("file") => Some("local-file".to_string()),
+            Some("connection-string")
+                if connection
+                    .connection_string
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty()) =>
+            {
+                Some("connection-string".to_string())
+            }
+            Some("connection-string") => {
+                Some(default_connection_mode(&connection.engine).to_string())
+            }
             Some(mode) => Some(mode.to_string()),
             None if connection
                 .connection_string

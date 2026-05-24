@@ -62,11 +62,7 @@ impl DatastoreAdapter for ElasticsearchAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_search_explorer_node(
-            ELASTICSEARCH,
-            connection,
-            request,
-        ))
+        inspect_search_explorer_node(ELASTICSEARCH, connection, request).await
     }
 
     async fn execute(
@@ -148,9 +144,7 @@ impl DatastoreAdapter for OpenSearchAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_search_explorer_node(
-            OPENSEARCH, connection, request,
-        ))
+        inspect_search_explorer_node(OPENSEARCH, connection, request).await
     }
 
     async fn execute(

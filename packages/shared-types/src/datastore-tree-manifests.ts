@@ -22,6 +22,8 @@ function rootsForEngine(
     case 'redis':
     case 'valkey':
       return redisTree()
+    case 'memcached':
+      return memcachedTree()
     case 'sqlserver':
       return sqlServerTree()
     case 'sqlite':
@@ -48,8 +50,9 @@ function rootsForEngine(
     case 'prometheus':
       return prometheusTree()
     case 'influxdb':
+      return influxTree()
     case 'opentsdb':
-      return timeSeriesTree()
+      return openTsdbTree()
     case 'neo4j':
     case 'neptune':
     case 'arango':
@@ -61,10 +64,11 @@ function rootsForEngine(
     case 'clickhouse':
       return warehouseTree(engine)
     case 'litedb':
+      return liteDbTree()
     case 'cosmosdb':
-      return documentTree(engine)
+      return cosmosTree()
     default:
-      return genericTree(family)
+      return family === 'timeseries' ? timeSeriesTree() : genericTree(family)
   }
 }
 
@@ -153,6 +157,77 @@ function redisTree(): DatastoreTreeNodeManifest[] {
     }),
     node('security', 'ACL / Security', 'security', 'ACL users, categories, and permissions'),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'INFO, SLOWLOG, memory, and latency metadata'),
+  ]
+}
+
+function memcachedTree(): DatastoreTreeNodeManifest[] {
+  return [
+    node('server', 'Server', 'server', 'Memcached cache server overview', {
+      children: [
+        node('stats', 'Stats', 'stats', 'Operational counters, hit rate, item count, and memory use'),
+        node('slabs', 'Slabs', 'slabs', 'Slab classes, chunk sizes, pages, and allocation pressure'),
+        node('items', 'Item Classes', 'items', 'Item-class counts, ages, evictions, and reclaim signals'),
+        node('settings', 'Settings', 'settings', 'Cache limits, protocol flags, and LRU behavior'),
+        node('connections', 'Connections', 'connections', 'Client connection pressure and rejected clients'),
+      ],
+    }),
+    node('diagnostics', 'Diagnostics', 'diagnostics', 'Hit ratio, evictions, memory pressure, and connection pressure'),
+  ]
+}
+
+function liteDbTree(): DatastoreTreeNodeManifest[] {
+  return [
+    node('database', 'Local Database', 'database', 'LiteDB local database file', {
+      children: [
+        node('collections', 'Collections', 'collections', 'Document collections'),
+        node('indexes', 'Indexes', 'indexes', 'Collection index definitions'),
+        node('file-storage', 'File Storage', 'file-storage', 'LiteDB file storage metadata'),
+        node('storage', 'Storage', 'storage', 'Page allocation and maintenance health'),
+        node('settings', 'Settings', 'settings', 'Local file connection options'),
+      ],
+    }),
+    node('diagnostics', 'Diagnostics', 'diagnostics', 'File health, index coverage, and storage warnings'),
+  ]
+}
+
+function cosmosTree(): DatastoreTreeNodeManifest[] {
+  return [
+    node('account', 'Account', 'account', 'Cosmos DB account topology and API surface', {
+      children: [
+        node('databases', 'Databases', 'databases', 'Cosmos DB databases', {
+          children: [
+            node('selected-database', '{{database:catalog}}', 'database', 'Selected Cosmos DB database', {
+              children: cosmosDatabaseChildren(),
+              defaultDatabase: 'catalog',
+            }),
+          ],
+        }),
+        node('regions', 'Regions', 'regions', 'Read and write region topology'),
+        node('consistency', 'Consistency', 'consistency', 'Default consistency and session behavior'),
+        node('security', 'Security', 'security', 'RBAC, keys, networking, and access posture'),
+        node('diagnostics', 'Diagnostics', 'diagnostics', 'RU, throttles, latency, and storage signals'),
+      ],
+    }),
+  ]
+}
+
+function cosmosDatabaseChildren(): DatastoreTreeNodeManifest[] {
+  return [
+    node('containers', 'Containers', 'containers', 'Cosmos DB containers', {
+      children: [
+        node('items', 'Items', 'items', 'Container item query surface'),
+        node('partition-key', 'Partition Key', 'partition-key', 'Partition key path and routing hints'),
+        node('indexing-policy', 'Indexing Policy', 'indexing-policy', 'Included, excluded, composite, and spatial paths'),
+        node('throughput', 'Throughput', 'throughput', 'Manual, autoscale, or shared RU/s'),
+        node('change-feed', 'Change Feed', 'change-feed', 'Change feed processor readiness'),
+        node('stored-procedures', 'Stored Procedures', 'stored-procedures', 'Server-side JavaScript stored procedures'),
+        node('triggers', 'Triggers', 'triggers', 'Pre and post triggers'),
+        node('udfs', 'User Defined Functions', 'udfs', 'Server-side JavaScript functions'),
+        node('conflicts', 'Conflict Feed', 'conflicts', 'Multi-region conflict metadata'),
+      ],
+    }),
+    node('throughput', 'Throughput', 'throughput', 'Shared database throughput where configured'),
+    node('security', 'Security', 'security', 'Database-level access posture'),
   ]
 }
 
@@ -455,6 +530,34 @@ function oracleSchemaChildren(): DatastoreTreeNodeManifest[] {
 }
 
 function embeddedSqlTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[] {
+  if (engine === 'duckdb') {
+    return [
+      node('main-database', 'Main Database', 'database', 'DuckDB database file', {
+        children: [
+          node('schemas', 'Schemas', 'schemas', 'Attached schemas', {
+            children: [
+              node('main', 'main', 'schema', 'Main DuckDB schema', {
+                children: [
+                  node('tables', 'Tables', 'tables', 'Analytical tables'),
+                  node('views', 'Views', 'views', 'Saved analytical projections'),
+                  node('indexes', 'Indexes', 'indexes', 'Secondary indexes'),
+                  node('functions', 'Functions & Macros', 'functions', 'Scalar/table functions and macros'),
+                ],
+              }),
+              node('temp', 'temp', 'schema', 'Temporary schema'),
+            ],
+          }),
+          node('attached-databases', 'Attached Databases', 'attached-databases', 'Attached DuckDB files'),
+          node('extensions', 'Extensions', 'extensions', 'Installed and loadable extensions'),
+          node('files', 'Files', 'files', 'Parquet, CSV, and JSON sources'),
+          node('pragmas', 'Pragmas', 'pragmas', 'DuckDB settings and checks'),
+          node('statistics', 'Statistics', 'statistics', 'Storage and column statistics'),
+        ],
+      }),
+      node('diagnostics', 'Diagnostics', 'diagnostics', 'Memory, threads, storage, and query-risk metadata'),
+    ]
+  }
+
   return [
     node('schemas', 'Schemas', 'schemas', `${engine} attached schemas`, {
       children: [
@@ -578,6 +681,35 @@ function prometheusTree(): DatastoreTreeNodeManifest[] {
   ]
 }
 
+function influxTree(): DatastoreTreeNodeManifest[] {
+  return [
+    node('buckets', 'Buckets', 'buckets', 'InfluxDB buckets and retention scopes', {
+      children: [
+        node('measurements', 'Measurements', 'measurements', 'Measurement names'),
+        node('tags', 'Tags', 'tags', 'Indexed dimensions'),
+        node('fields', 'Fields', 'fields', 'Field values'),
+        node('retention-policies', 'Retention Policies', 'retention-policies', 'Retention and shard groups'),
+      ],
+    }),
+    node('tasks', 'Tasks', 'tasks', 'Scheduled Flux tasks'),
+    node('security', 'Tokens', 'security', 'Authorizations and bucket scopes'),
+    node('diagnostics', 'Diagnostics', 'diagnostics', 'Cardinality, storage, and query health'),
+  ]
+}
+
+function openTsdbTree(): DatastoreTreeNodeManifest[] {
+  return [
+    node('metrics', 'Metrics', 'metrics', 'OpenTSDB metric names'),
+    node('tags', 'Tags', 'tags', 'Tag keys and values'),
+    node('aggregators', 'Aggregators', 'aggregators', 'Supported aggregation functions'),
+    node('downsampling', 'Downsampling', 'downsampling', 'Downsample windows and fill policies'),
+    node('uid-metadata', 'UID Metadata', 'uid-metadata', 'Metric and tag UID metadata'),
+    node('trees', 'Trees', 'trees', 'OpenTSDB tree definitions'),
+    node('stats', 'Stats', 'stats', 'Runtime stats'),
+    node('diagnostics', 'Diagnostics', 'diagnostics', 'Backend health and query metadata'),
+  ]
+}
+
 function timeSeriesTree(): DatastoreTreeNodeManifest[] {
   return [
     node('buckets', 'Buckets', 'buckets', 'Time-series storage scopes', {
@@ -594,16 +726,20 @@ function timeSeriesTree(): DatastoreTreeNodeManifest[] {
 }
 
 function graphTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[] {
+  const rootLabel = engine === 'arango' ? 'Graphs' : 'Databases'
+  const proceduresLabel = engine === 'neptune' ? 'Loader Jobs' : engine === 'arango' ? 'Services' : 'Procedures'
+
   return [
-    node('graphs', 'Graphs', 'graphs', `${engine} graph scopes`, {
+    node('graphs', rootLabel, 'graphs', `${engine} graph scopes`, {
       children: [
         node('node-labels', 'Node Labels', 'node-labels', 'Node categories'),
         node('relationship-types', 'Relationship Types', 'relationship-types', 'Edge categories'),
+        node('property-keys', 'Property Keys', 'property-keys', 'Property definitions'),
         node('indexes', 'Indexes', 'indexes', 'Graph indexes'),
         node('constraints', 'Constraints', 'constraints', 'Graph constraints'),
-        node('property-keys', 'Property Keys', 'property-keys', 'Property definitions'),
       ],
     }),
+    node('procedures', proceduresLabel, 'procedures', 'Procedures, services, algorithms, or loader jobs'),
     node('security', 'Security', 'security', 'Users, roles, and graph permissions'),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'Explain/profile and backend health'),
   ]
@@ -646,20 +782,6 @@ function warehouseTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[] {
     node('warehouses', 'Warehouses', 'warehouses', 'Compute warehouses'),
     node('security', 'Security', 'security', 'Roles and grants'),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'Query history, cost, and utilization'),
-  ]
-}
-
-function documentTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[] {
-  return [
-    node('databases', 'Databases', 'databases', `${engine} document databases`, {
-      children: [
-        node('collections', 'Collections', 'collections', 'Document collections'),
-        node('views', 'Views', 'views', 'Views where supported'),
-        node('indexes', 'Indexes', 'indexes', 'Index definitions'),
-      ],
-    }),
-    node('security', 'Security', 'security', 'Users, roles, and permissions'),
-    node('diagnostics', 'Diagnostics', 'diagnostics', 'Collection and server diagnostics'),
   ]
 }
 

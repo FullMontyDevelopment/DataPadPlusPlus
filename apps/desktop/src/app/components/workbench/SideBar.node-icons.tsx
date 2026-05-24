@@ -57,6 +57,8 @@ interface IconDescriptor {
 const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
   [
     [
+      'account',
+      'accounts',
       'catalog',
       'catalogs',
       'database',
@@ -129,7 +131,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectViewIcon, tone: 'view' },
   ],
   [
-    ['column', 'columns', 'generated-column', 'generated-columns', 'field', 'fields', 'attribute', 'attributes', 'property', 'properties'],
+    ['column', 'columns', 'generated-column', 'generated-columns', 'field', 'fields', 'attribute', 'attributes', 'partition-key', 'partition-keys', 'property', 'properties'],
     { Icon: ObjectColumnIcon, tone: 'column' },
   ],
   [
@@ -139,6 +141,8 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
       'index',
       'indexes',
       'indices',
+      'indexing-policy',
+      'indexing-policies',
       'inverted-index',
       'inverted-indexes',
       'lsi',
@@ -240,11 +244,11 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectSetIcon, tone: 'set' },
   ],
   [
-    ['graph', 'graphs'],
+    ['graph', 'graphs', 'node-label', 'node-labels', 'vertex-label', 'vertex-labels'],
     { Icon: ObjectGraphIcon, tone: 'graph' },
   ],
   [
-    ['dependency', 'dependencies', 'edge', 'edges', 'relationship', 'relationships', 'synonym', 'synonyms', 'contention'],
+    ['dependency', 'dependencies', 'edge', 'edges', 'relationship', 'relationships', 'relationship-type', 'relationship-types', 'synonym', 'synonyms', 'contention'],
     { Icon: ObjectRelationshipIcon, tone: 'relationship' },
   ],
   [
@@ -258,8 +262,14 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
       'metrics',
       'measurement',
       'measurements',
+      'uid',
+      'uid-metadata',
       'performance',
       'series',
+      'request-unit',
+      'request-units',
+      'ru',
+      'rus',
       'statement',
       'statements',
       'statistic',
@@ -272,6 +282,8 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     [
       'alert',
       'alerts',
+      'aggregator',
+      'aggregators',
       'chain',
       'chains',
       'management',
@@ -322,6 +334,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
       'sessions',
       'sql-monitor',
       'sql-server-agent',
+      'throughput',
       'transaction',
       'transactions',
       'wait',
@@ -354,11 +367,15 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectTypeIcon, tone: 'type' },
   ],
   [
-    ['chunk', 'chunks', 'locality', 'localities', 'partition', 'partitions', 'range', 'ranges', 'region', 'regions'],
+    ['chunk', 'chunks', 'conflict', 'conflicts', 'consistency', 'locality', 'localities', 'partition', 'partitions', 'range', 'ranges', 'region', 'regions'],
     { Icon: ObjectPartitionIcon, tone: 'partition' },
   ],
   [
-    ['binary', 'blob', 'blobs', 'file', 'files', 'gridfs', 'gridfs-collection', 'xml-db', 'java-source', 'java-sources', 'attached-database', 'attached-databases'],
+    ['downsampler', 'downsamplers', 'downsampling', 'tree', 'trees'],
+    { Icon: ObjectStageIcon, tone: 'stage' },
+  ],
+  [
+    ['binary', 'blob', 'blobs', 'file', 'files', 'file-storage', 'gridfs', 'gridfs-collection', 'xml-db', 'java-source', 'java-sources', 'attached-database', 'attached-databases'],
     { Icon: ObjectBinaryIcon, tone: 'binary' },
   ],
   [
@@ -366,7 +383,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectDocumentIcon, tone: 'document' },
   ],
   [
-    ['cache', 'caches', 'memory', 'pragma', 'pragmas', 'slab', 'slabs'],
+    ['cache', 'caches', 'item-class', 'item-classes', 'memory', 'pragma', 'pragmas', 'slab', 'slabs'],
     { Icon: ObjectMemoryIcon, tone: 'memory' },
   ],
   [
@@ -374,7 +391,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectSearchIcon, tone: 'search' },
   ],
   [
-    ['replication', 'cdc', 'change-tracking', 'service-broker'],
+    ['replication', 'cdc', 'change-feed', 'change-tracking', 'service-broker'],
     { Icon: ObjectRelationshipIcon, tone: 'relationship' },
   ],
   [

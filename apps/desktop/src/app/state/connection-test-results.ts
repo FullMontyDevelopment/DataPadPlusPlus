@@ -93,7 +93,7 @@ export function fixtureWarningsForConnection(
   }
 
   if (endpoint.requiresSecret && !profile.auth.secretRef && !secret?.trim()) {
-    warnings.push('Fixture credentials require a password in the secret field.')
+    warnings.push('This fixture connection needs a password before it can be tested.')
   }
 
   return warnings

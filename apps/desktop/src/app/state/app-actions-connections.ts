@@ -6,6 +6,11 @@ import {
   ensureWorkspaceUnlocked,
   secretRefForConnection,
 } from './app-state-factories'
+import {
+  sanitizeEnvironmentProfile,
+  secretRefForEnvironmentVariable,
+  variableDefinitionsForEnvironment,
+} from './environment-variables'
 import type { Actions, AppActionContext } from './app-state-types'
 
 type ConnectionActions = Pick<
@@ -184,10 +189,28 @@ export function useConnectionActions({
   )
 
   const saveEnvironment = useCallback<Actions['saveEnvironment']>(
-    async (profile) => {
+    async (profile, secretDrafts = {}) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        applyPayload(await desktopClient.upsertEnvironment(profile))
+        const sanitizedProfile = sanitizeEnvironmentProfile(profile)
+
+        for (const definition of variableDefinitionsForEnvironment(sanitizedProfile)) {
+          if (definition.kind !== 'secret') {
+            continue
+          }
+
+          const secret = secretDrafts[definition.key]?.trim()
+          if (!secret) {
+            continue
+          }
+
+          const secretRef =
+            definition.secretRef ??
+            secretRefForEnvironmentVariable(sanitizedProfile.id, definition.key)
+          await desktopClient.storeSecret(secretRef, secret)
+        }
+
+        applyPayload(await desktopClient.upsertEnvironment(sanitizedProfile))
       } catch (error) {
         handleError(error)
       }

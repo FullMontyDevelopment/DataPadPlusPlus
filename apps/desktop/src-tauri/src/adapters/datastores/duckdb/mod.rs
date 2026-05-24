@@ -43,7 +43,7 @@ impl DatastoreAdapter for DuckDbAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_duckdb_explorer_node(connection, request))
+        inspect_duckdb_explorer_node(connection, request)
     }
 
     async fn execute(

@@ -836,6 +836,7 @@ mod tests {
             inherits_from: None,
             variables: HashMap::new(),
             sensitive_keys: Vec::new(),
+            variable_definitions: Vec::new(),
             requires_confirmation,
             safe_mode,
             exportable: true,
@@ -853,6 +854,7 @@ mod tests {
             unresolved_keys,
             inherited_chain: Vec::new(),
             sensitive_keys: Vec::new(),
+            variable_definitions: Vec::new(),
         }
     }
 

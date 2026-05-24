@@ -5,7 +5,7 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
         (
             "cockroach-jobs",
             "Jobs",
-            "cluster-jobs",
+            "jobs",
             "Schema changes, imports, backups, restores, and long-running jobs",
             "cockroach:jobs",
             "show jobs;",
@@ -29,10 +29,10 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
         (
             "cockroach-ranges",
             "Ranges",
-            "range",
+            "ranges",
             "Range distribution, hot spots, and locality-aware placement",
             "cockroach:ranges",
-            "show ranges from table public.sample_table;",
+            "select * from crdb_internal.ranges_no_leases limit 100;",
         ),
         (
             "cockroach-sessions",

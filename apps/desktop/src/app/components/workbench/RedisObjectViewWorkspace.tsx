@@ -179,11 +179,19 @@ function renderRedisObjectView(
     return <RedisDiagnosticsView kind={kind} descriptor={descriptor} payload={payload} />
   }
 
+  if (kind === 'pubsub' || kind.startsWith('pubsub-')) {
+    return <RedisPubSubView kind={kind} descriptor={descriptor} payload={payload} />
+  }
+
+  if (['cluster', 'sentinel', 'lua-scripts', 'functions'].includes(kind)) {
+    return <RedisMetadataView descriptor={descriptor} payload={payload} />
+  }
+
   if (kind === 'security') {
     return <RedisSecurityView descriptor={descriptor} payload={payload} />
   }
 
-  return <RedisCommandView descriptor={descriptor} payload={payload} />
+  return <RedisMetadataView descriptor={descriptor} payload={payload} />
 }
 
 function RedisDatabaseView({
@@ -228,7 +236,7 @@ function RedisDatabaseView({
         rows={typeCounts.map((row) => [
           redisTypeLabel(stringValue(row.type)),
           stringValue(row.count),
-          compactJson(row.examples ?? row.exampleKeys ?? []),
+          listSummary(row.examples ?? row.exampleKeys),
         ])}
         emptyText="No type distribution has been collected yet."
       />
@@ -292,7 +300,7 @@ function RedisKeyView({
   descriptor: RedisObjectViewDescriptor
   payload: JsonRecord
 }) {
-  const preview = asRecord(payload.preview) ?? payload.value
+  const preview = payload.preview !== undefined ? payload.preview : payload.value
 
   return (
     <div className="object-view-section">
@@ -309,10 +317,47 @@ function RedisKeyView({
         ].filter(([, value]) => value)}
         emptyText="No key metadata was returned."
       />
-      {preview !== undefined ? (
-        <pre className="object-view-code">{prettyJson(preview)}</pre>
-      ) : null}
+      {preview !== undefined ? <RedisValuePreview value={preview} /> : null}
     </div>
+  )
+}
+
+function RedisValuePreview({ value }: { value: unknown }) {
+  if (Array.isArray(value)) {
+    return (
+      <ObjectViewTable
+        columns={['#', 'Value', 'Detail']}
+        rows={value.map((item, index) => [
+          String(index + 1),
+          displayValueSummary(item),
+          detailSummary(item),
+        ])}
+        emptyText="No value preview items were returned."
+      />
+    )
+  }
+
+  if (value && typeof value === 'object') {
+    const rows = Object.entries(value as JsonRecord).map(([key, item]) => [
+      humanize(key),
+      displayValueSummary(item),
+      detailSummary(item),
+    ])
+
+    return (
+      <ObjectViewTable
+        columns={['Field', 'Value', 'Detail']}
+        rows={rows}
+        emptyText="No value preview fields were returned."
+      />
+    )
+  }
+
+  return (
+    <KeyValueGrid
+      rows={[['Value', stringValue(value)]]}
+      emptyText="No value preview was returned."
+    />
   )
 }
 
@@ -327,22 +372,81 @@ function RedisDiagnosticsView({
 }) {
   const infoRows = redisInfoRows(payload)
   const metricRows = metricsRowsFromPayload(payload)
-  const commandRows = commandRowsFromPayload(payload)
+  const detailRows = redisDiagnosticDetailRows(kind, payload)
+  const primaryRows = infoRows.length ? infoRows : metricRows
+  const unit = primaryRows.length
+    ? `${primaryRows.length} metric(s)`
+    : detailRows.length
+      ? `${detailRows.length} row(s)`
+      : kind
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectMetricIcon} title={descriptor.title} unit={stringValue(payload.command) || kind} />
+      <SectionHeading Icon={ObjectMetricIcon} title={descriptor.title} unit={unit} />
       <p className="object-view-note">{descriptor.purpose}</p>
       <MetricCards rows={metricRows.slice(0, 8)} />
-      <ObjectViewTable
-        columns={['Metric', 'Value', 'Section']}
-        rows={infoRows.length ? infoRows : metricRows}
-        emptyText="No INFO-style metrics were returned for this view."
-      />
-      {commandRows.length ? (
+      {primaryRows.length ? (
+        <ObjectViewTable
+          columns={['Metric', 'Value', 'Section']}
+          rows={primaryRows}
+          emptyText=""
+        />
+      ) : null}
+      {detailRows.length ? (
         <ObjectViewTable
           columns={['Item', 'Value', 'Detail']}
-          rows={commandRows}
+          rows={detailRows}
+          emptyText=""
+        />
+      ) : null}
+      {!primaryRows.length && !detailRows.length ? (
+        <p className="object-view-empty">No server metadata was returned for this view.</p>
+      ) : null}
+    </div>
+  )
+}
+
+function RedisPubSubView({
+  kind,
+  descriptor,
+  payload,
+}: {
+  kind: string
+  descriptor: RedisObjectViewDescriptor
+  payload: JsonRecord
+}) {
+  const commandValues = Array.isArray(payload.value) ? payload.value : []
+  const channels = normalizePubSubChannels(payload.channels, kind === 'pubsub' || kind === 'pubsub-channel' ? commandValues : [])
+  const patterns = normalizePubSubPatterns(payload.patterns, kind === 'pubsub-pattern' ? commandValues : [])
+  const subscribers = normalizePubSubSubscribers(payload.subscribers, kind === 'pubsub-subscriber' ? commandValues : [])
+  const cards = [
+    ['Channels', stringValue(payload.activeChannels ?? channels.length)],
+    ['Patterns', stringValue(payload.patternSubscriptions ?? patterns.length)],
+    ['Subscribers', stringValue(payload.totalSubscribers ?? subscribers.length)],
+  ].filter(([, value]) => value)
+
+  return (
+    <div className="object-view-section">
+      <SectionHeading Icon={ConsoleIcon} title={descriptor.title} unit={`${channels.length} channel(s)`} />
+      <p className="object-view-note">{descriptor.purpose}</p>
+      <MetricCards rows={cards} />
+      <ObjectViewTable
+        columns={['Channel', 'Subscribers', 'Pattern']}
+        rows={channels.map((channel) => [
+          stringValue(channel.name ?? channel.channel),
+          stringValue(channel.subscribers ?? channel.subscriberCount),
+          stringValue(channel.pattern ?? ''),
+        ])}
+        emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`}
+      />
+      {patterns.length ? (
+        <ObjectViewTable
+          columns={['Pattern', 'Subscribers', 'Detail']}
+          rows={patterns.map((pattern) => [
+            stringValue(pattern.pattern ?? pattern.name),
+            stringValue(pattern.subscribers ?? pattern.subscriberCount),
+            stringValue(pattern.detail),
+          ])}
           emptyText=""
         />
       ) : null}
@@ -357,14 +461,12 @@ function RedisSecurityView({
   descriptor: RedisObjectViewDescriptor
   payload: JsonRecord
 }) {
-  const commandRows = commandRowsFromPayload(payload)
-  const users = commandRows.length
-    ? commandRows
-    : arrayOfRecords(payload.users).map((user) => [
-        stringValue(user.name ?? user.user),
-        stringValue(user.enabled),
-        compactJson(user.rules ?? user.roles ?? user.permissions ?? []),
-      ])
+  const users = arrayOfRecords(payload.users).map((user) => [
+    stringValue(user.name ?? user.user),
+    booleanState(user.enabled),
+    listSummary(user.categories ?? user.rules ?? user.roles ?? user.permissions),
+  ])
+  const categories = arrayOfRecords(payload.categories)
 
   return (
     <div className="object-view-section">
@@ -375,6 +477,17 @@ function RedisSecurityView({
         rows={users}
         emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`}
       />
+      {categories.length ? (
+        <ObjectViewTable
+          columns={['Category', 'Description', 'Detail']}
+          rows={categories.map((category) => [
+            stringValue(category.name ?? category.category),
+            stringValue(category.description),
+            listSummary(category.commands),
+          ])}
+          emptyText=""
+        />
+      ) : null}
       <p className="object-view-note">
         ACL changes are intentionally not executed from this view. Use guarded operation previews when user management is enabled for this environment.
       </p>
@@ -382,28 +495,24 @@ function RedisSecurityView({
   )
 }
 
-function RedisCommandView({
+function RedisMetadataView({
   descriptor,
   payload,
 }: {
   descriptor: RedisObjectViewDescriptor
   payload: JsonRecord
 }) {
-  const rows = commandRowsFromPayload(payload)
-  const command = stringValue(payload.command)
+  const rows = metadataRowsFromPayload(payload)
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ConsoleIcon} title={descriptor.title} unit={command} />
+      <SectionHeading Icon={ConsoleIcon} title={descriptor.title} unit={rows.length ? `${rows.length} row(s)` : 'metadata'} />
       <p className="object-view-note">{descriptor.purpose}</p>
       <ObjectViewTable
         columns={['Item', 'Value', 'Detail']}
         rows={rows}
         emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`}
       />
-      {rows.length === 0 && Object.keys(payload).length > 0 ? (
-        <pre className="object-view-code">{prettyJson(payload)}</pre>
-      ) : null}
     </div>
   )
 }
@@ -694,48 +803,258 @@ function metricsRowsFromPayload(payload: JsonRecord) {
     .map(([key, value]) => [humanize(key), String(value), ''])
 }
 
+function redisDiagnosticDetailRows(kind: string, payload: JsonRecord): string[][] {
+  const slowlog = arrayOfRecords(payload.entries)
+  if (slowlog.length) {
+    return slowlog.map((entry) => [
+      `#${stringValue(entry.id) || 'entry'}`,
+      durationText(entry.durationMicros),
+      [
+        stringValue(entry.commandName),
+        stringValue(entry.key),
+        stringValue(entry.recordedAt),
+      ].filter(Boolean).join(' / '),
+    ])
+  }
+
+  const samples = arrayOfRecords(payload.samples)
+  if (samples.length) {
+    return samples.map((sample) => [
+      stringValue(sample.event ?? sample.name),
+      `${stringValue(sample.latestMs)} ms`,
+      `Max ${stringValue(sample.maxMs)} ms`,
+    ])
+  }
+
+  const clients = arrayOfRecords(payload.clients)
+  if (clients.length) {
+    return clients.map((client) => [
+      stringValue(client.name ?? client.id),
+      stringValue(client.address ?? client.addr),
+      [
+        client.ageSeconds !== undefined ? `age ${client.ageSeconds}s` : '',
+        client.idleSeconds !== undefined ? `idle ${client.idleSeconds}s` : '',
+      ].filter(Boolean).join(', '),
+    ])
+  }
+
+  const keyspace = arrayOfRecords(payload.keyspace)
+  if (keyspace.length) {
+    return keyspace.map((database) => [
+      redisDatabaseLabel(database.database ?? database.id),
+      `${stringValue(database.keys)} key(s)`,
+      `${stringValue(database.expires)} expiring / ${stringValue(database.avgTtlMs ?? database.avgTtl)} avg TTL`,
+    ])
+  }
+
+  const replicas = arrayOfRecords(payload.replicas)
+  if (replicas.length) {
+    return replicas.map((replica) => [
+      stringValue(replica.name ?? replica.id ?? replica.host),
+      stringValue(replica.state ?? replica.status ?? replica.role),
+      detailSummary(replica),
+    ])
+  }
+
+  if (kind === 'diagnostics') {
+    return metadataRowsFromPayload(payload)
+  }
+
+  return []
+}
+
 function cardRowsFromPayload(payload: JsonRecord, keys: string[]) {
   return keys
     .map((key) => [humanize(key), stringValue(payload[key])])
     .filter(([, value]) => value)
 }
 
-function commandRowsFromPayload(payload: JsonRecord): string[][] {
-  const value = payload.value
-  if (Array.isArray(value)) {
-    return value.map((item, index) => redisCommandRow(item, index))
+function metadataRowsFromPayload(payload: JsonRecord): string[][] {
+  const facts = arrayOfRecords(payload.facts)
+  if (facts.length) {
+    return facts.map((fact) => [
+      stringValue(fact.label ?? fact.name),
+      stringValue(fact.value),
+      stringValue(fact.detail ?? fact.section),
+      ])
   }
 
-  if (value && typeof value === 'object') {
-    return Object.entries(value as JsonRecord).map(([key, item]) => [
-      humanize(key),
-      compactJson(item),
-      '',
+  const commandResultRows = nativeCommandResultRows(payload)
+  if (commandResultRows.length) {
+    return commandResultRows
+  }
+
+  const preferredCollections = [
+    'masters',
+    'replicas',
+    'sentinels',
+    'nodes',
+    'slots',
+    'libraries',
+    'scripts',
+    'history',
+  ]
+  for (const key of preferredCollections) {
+    const records = arrayOfRecords(payload[key])
+    if (records.length) {
+      return records.map((record, index) => [
+        stringValue(record.name ?? record.id ?? `#${index + 1}`),
+        displayValueSummary(record.status ?? record.state ?? record.value ?? record.type ?? record),
+        detailSummary(record),
+      ])
+    }
+  }
+
+  const server = asRecord(payload.server)
+  const serverRows = Object.entries(server).map(([key, value]) => [
+    humanize(key),
+    stringValue(value),
+    'Server',
+  ])
+
+  const scalarRows = Object.entries(payload)
+    .filter(([key, value]) =>
+      ![
+        'command',
+        'value',
+        'kind',
+        'warning',
+        'message',
+        'metrics',
+        'server',
+        'keyspace',
+        'channels',
+        'patterns',
+        'subscribers',
+        'users',
+        'categories',
+        'entries',
+        'samples',
+        'clients',
+        'masters',
+        'replicas',
+        'sentinels',
+        'nodes',
+        'slots',
+        'libraries',
+        'scripts',
+        'history',
+      ].includes(key) &&
+      (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'))
+    .map(([key, value]) => [humanize(key), stringValue(value), ''])
+
+  return [...serverRows, ...scalarRows]
+}
+
+function listSummary(value: unknown) {
+  const items = Array.isArray(value) ? value : []
+  if (items.length === 0) {
+    return 'None'
+  }
+
+  return items
+    .slice(0, 5)
+    .map((item) => typeof item === 'string' ? item : displayValueSummary(item))
+    .join(', ')
+}
+
+function normalizePubSubChannels(source: unknown, commandValues: unknown[]): JsonRecord[] {
+  const records = arrayOfRecords(source)
+  if (records.length) {
+    return records
+  }
+
+  return commandValues
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map((channel) => ({ name: channel, subscribers: '', pattern: '' }))
+}
+
+function normalizePubSubPatterns(source: unknown, commandValues: unknown[]): JsonRecord[] {
+  const records = arrayOfRecords(source)
+  if (records.length) {
+    return records
+  }
+
+  if (!commandValues.length) {
+    return []
+  }
+
+  const count = commandValues.find((item) => typeof item === 'number' || typeof item === 'string')
+  return count === undefined ? [] : [{ pattern: 'Active pattern subscriptions', subscribers: count, detail: '' }]
+}
+
+function normalizePubSubSubscribers(source: unknown, commandValues: unknown[]): JsonRecord[] {
+  const records = arrayOfRecords(source)
+  if (records.length) {
+    return records
+  }
+
+  const rows: JsonRecord[] = []
+  for (let index = 0; index < commandValues.length; index += 2) {
+    const channel = commandValues[index]
+    const subscribers = commandValues[index + 1]
+    if (channel !== undefined) {
+      rows.push({ channel, subscribers, detail: '' })
+    }
+  }
+  return rows
+}
+
+function nativeCommandResultRows(payload: JsonRecord): string[][] {
+  if (!('value' in payload)) {
+    return []
+  }
+
+  const value = payload.value
+  if (Array.isArray(value)) {
+    return value.slice(0, 25).map((item, index) => [
+      `#${index + 1}`,
+      displayValueSummary(item),
+      detailSummary(item),
     ])
   }
 
-  if (value !== undefined) {
-    return [['Result', stringValue(value), '']]
+  if (value && typeof value === 'object') {
+    return Object.entries(value as JsonRecord).slice(0, 25).map(([key, item]) => [
+      humanize(key),
+      displayValueSummary(item),
+      detailSummary(item),
+    ])
   }
 
-  return []
+  const scalar = stringValue(value)
+  return scalar ? [['Result', scalar, '']] : []
 }
 
-function redisCommandRow(value: unknown, index: number): string[] {
+function displayValueSummary(value: unknown): string {
   if (Array.isArray(value)) {
-    return [`#${index + 1}`, compactJson(value), '']
+    return listSummary(value)
   }
 
   if (value && typeof value === 'object') {
     const record = value as JsonRecord
-    return [
-      stringValue(record.key ?? record.id ?? record.name ?? `#${index + 1}`),
-      compactJson(record.value ?? record.result ?? record),
-      stringValue(record.detail ?? record.type ?? ''),
-    ]
+    const named = stringValue(record.name ?? record.key ?? record.channel ?? record.id)
+    if (named) {
+      return named
+    }
+
+    const keys = Object.keys(record)
+    return keys.length ? `${keys.length} field(s): ${keys.slice(0, 4).map(humanize).join(', ')}` : 'Object'
   }
 
-  return [`#${index + 1}`, stringValue(value), '']
+  return stringValue(value)
+}
+
+function detailSummary(value: unknown) {
+  if (!value || typeof value !== 'object') {
+    return stringValue(value)
+  }
+
+  const record = value as JsonRecord
+  return Object.entries(record)
+    .slice(0, 4)
+    .map(([key, item]) => `${humanize(key)}: ${displayValueSummary(item)}`)
+    .join(', ')
 }
 
 function objectViewWarnings(tab: QueryTabState, payload: JsonRecord) {
@@ -786,14 +1105,6 @@ function compactJson(value: unknown): string {
 
   try {
     return JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
-}
-
-function prettyJson(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2)
   } catch {
     return String(value)
   }
@@ -851,6 +1162,18 @@ function ttlText(value: unknown) {
   return stringValue(value)
 }
 
+function durationText(value: unknown) {
+  if (typeof value !== 'number') {
+    return stringValue(value)
+  }
+
+  if (value < 1000) {
+    return `${value} us`
+  }
+
+  return `${(value / 1000).toFixed(1)} ms`
+}
+
 function bytesText(value: unknown) {
   if (typeof value !== 'number') {
     return stringValue(value)
@@ -865,6 +1188,14 @@ function bytesText(value: unknown) {
   }
 
   return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function booleanState(value: unknown) {
+  if (typeof value === 'boolean') {
+    return value ? 'Enabled' : 'Disabled'
+  }
+
+  return stringValue(value)
 }
 
 function humanize(value: string) {

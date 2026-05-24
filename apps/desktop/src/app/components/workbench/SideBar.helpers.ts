@@ -42,7 +42,18 @@ export function isExplorerNodeQueryable(node: ExplorerNode) {
     'table',
     'base-table',
     'view',
+    'materialized-view',
     'prefix',
+    'index',
+    'data-stream',
+    'items',
+    'data',
+    'metric',
+    'series',
+    'measurement',
+    'graph',
+    'node-label',
+    'relationship',
   ].includes(kind)
 }
 
@@ -53,6 +64,12 @@ export function explorerNodeTarget(
   const kind = node.kind.trim().toLowerCase().replace(/_/g, '-')
   const redisPrefix =
     ['redis', 'valkey'].includes(connection?.engine ?? '') && kind === 'prefix'
+  const searchTarget =
+    connection?.family === 'search' && ['index', 'data-stream', 'documents'].includes(kind)
+  const dynamoTarget =
+    connection?.engine === 'dynamodb' && ['table', 'items'].includes(kind)
+  const cassandraTarget =
+    connection?.engine === 'cassandra' && ['table', 'data', 'materialized-view'].includes(kind)
 
   return {
     kind: node.kind,
@@ -60,16 +77,57 @@ export function explorerNodeTarget(
     path: node.path,
     scope: node.scope,
     queryTemplate: redisPrefix ? redisKeyBrowserQueryTemplateForNode(node) : node.queryTemplate,
-    preferredBuilder:
-      connection?.engine === 'mongodb' && kind === 'aggregations'
-        ? 'mongo-aggregation'
-        : connection?.engine === 'mongodb' &&
-            ['collection', 'documents', 'gridfs-collection', 'sample-results'].includes(kind)
-          ? 'mongo-find'
-        : redisPrefix
-          ? 'redis-key-browser'
-          : undefined,
+    preferredBuilder: preferredBuilderForExplorerNode({
+      cassandraTarget,
+      dynamoTarget,
+      kind,
+      redisPrefix,
+      searchTarget,
+      engine: connection?.engine,
+    }),
   }
+}
+
+function preferredBuilderForExplorerNode({
+  cassandraTarget,
+  dynamoTarget,
+  engine,
+  kind,
+  redisPrefix,
+  searchTarget,
+}: {
+  cassandraTarget: boolean
+  dynamoTarget: boolean
+  engine?: string
+  kind: string
+  redisPrefix: boolean
+  searchTarget: boolean
+}): ScopedQueryTarget['preferredBuilder'] | undefined {
+  if (engine === 'mongodb' && kind === 'aggregations') {
+    return 'mongo-aggregation'
+  }
+
+  if (engine === 'mongodb' && ['collection', 'documents', 'gridfs-collection', 'sample-results'].includes(kind)) {
+    return 'mongo-find'
+  }
+
+  if (redisPrefix) {
+    return 'redis-key-browser'
+  }
+
+  if (searchTarget) {
+    return 'search-dsl'
+  }
+
+  if (dynamoTarget) {
+    return 'dynamodb-key-condition'
+  }
+
+  if (cassandraTarget) {
+    return 'cql-partition'
+  }
+
+  return undefined
 }
 
 function redisKeyBrowserQueryTemplateForNode(node: ExplorerNode) {

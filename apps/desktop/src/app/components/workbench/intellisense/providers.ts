@@ -1,4 +1,5 @@
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
+import { variableDefinitionsForEnvironment } from '../../../state/environment-variables'
 import type {
   CompletionField,
   CompletionItemKind,
@@ -149,6 +150,12 @@ const CQL_KEYWORDS = [
   'create index',
 ]
 
+export const ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER: DatastoreCompletionProvider = {
+  id: 'environment-variables',
+  languages: ['sql', 'json', 'javascript', 'typescript', 'plaintext', 'redis'],
+  buildItems: buildEnvironmentVariableItems,
+}
+
 export const DEFAULT_COMPLETION_PROVIDERS: DatastoreCompletionProvider[] = [
   {
     id: 'sql',
@@ -242,6 +249,26 @@ function buildSqlItems(context: EditorCompletionContext): CompletionSuggestion[]
     ),
     ...objectsForSchemaPrefix(sourceObjects, prefix, context.connection),
   ])
+}
+
+function buildEnvironmentVariableItems(
+  context: EditorCompletionContext,
+): CompletionSuggestion[] {
+  if (!context.environment || !isInsideVariableToken(context.queryText, context.cursorOffset)) {
+    return []
+  }
+
+  return variableDefinitionsForEnvironment(context.environment).map((definition) =>
+    suggestion(
+      definition.key,
+      `${definition.key}}}`,
+      'variable',
+      definition.kind === 'secret' ? 'secret environment variable' : 'environment variable',
+      definition.kind === 'secret'
+        ? 'Resolved only when used. The value is never shown in the editor.'
+        : undefined,
+    ),
+  )
 }
 
 function buildMongoItems(context: EditorCompletionContext): CompletionSuggestion[] {
@@ -344,13 +371,28 @@ function suggestion(
   insertText: string,
   kind: CompletionItemKind,
   detail?: string,
+  documentation?: string,
 ): CompletionSuggestion {
   return {
     label,
     insertText,
     kind,
     detail,
+    documentation,
   }
+}
+
+function isInsideVariableToken(queryText: string, cursorOffset = queryText.length) {
+  const beforeCursor = queryText.slice(0, cursorOffset)
+  const lastOpen = beforeCursor.lastIndexOf('{{')
+
+  if (lastOpen < 0) {
+    return false
+  }
+
+  const lastClose = beforeCursor.lastIndexOf('}}')
+
+  return lastClose < lastOpen && /^[A-Z0-9_]*$/.test(beforeCursor.slice(lastOpen + 2))
 }
 
 function jsonPropertySuggestion(

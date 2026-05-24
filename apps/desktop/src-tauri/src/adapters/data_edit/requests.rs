@@ -2,6 +2,8 @@ use serde_json::{json, Value};
 
 use super::*;
 
+const SECRET_REPLACEMENT: &str = "********";
+
 pub(super) fn generated_edit_request(
     connection: &ResolvedConnectionProfile,
     request: &DataEditPlanRequest,
@@ -254,8 +256,21 @@ fn keyvalue_edit_request(request: &DataEditPlanRequest) -> String {
             request
                 .changes
                 .first()
-                .and_then(|change| change.value.as_ref())
-                .map(value_to_command_arg)
+                .map(|change| {
+                    secret_aware_command_value(
+                        change
+                            .field
+                            .as_deref()
+                            .or_else(|| {
+                                change
+                                    .path
+                                    .as_ref()
+                                    .and_then(|path| path.first().map(String::as_str))
+                            })
+                            .unwrap_or("<field>"),
+                        change.value.as_ref(),
+                    )
+                })
                 .unwrap_or_else(|| "<value>".into())
         ),
         "hash-delete-field" => format!(
@@ -312,8 +327,7 @@ fn keyvalue_edit_request(request: &DataEditPlanRequest) -> String {
             request
                 .changes
                 .first()
-                .and_then(|change| change.value.as_ref())
-                .map(value_to_command_arg)
+                .map(|change| secret_aware_command_value(key, change.value.as_ref()))
                 .unwrap_or_else(|| "<value>".into())
         ),
     }
@@ -336,7 +350,12 @@ fn dynamodb_edit_request(request: &DataEditPlanRequest) -> String {
             ":value": request
                 .changes
                 .first()
-                .and_then(|change| change.value.clone())
+                .map(|change| {
+                    secret_aware_json_value(
+                        change.field.as_deref().unwrap_or("<field>"),
+                        change.value.clone().unwrap_or(Value::String("<value>".into())),
+                    )
+                })
                 .unwrap_or(Value::String("<value>".into()))
         },
         "ReturnValues": "ALL_NEW"
@@ -438,4 +457,52 @@ fn value_to_command_arg(value: &Value) -> String {
         Value::String(value) => value.clone(),
         other => other.to_string(),
     }
+}
+
+fn secret_aware_command_value(name: &str, value: Option<&Value>) -> String {
+    if is_secret_like_name(name) {
+        SECRET_REPLACEMENT.into()
+    } else {
+        value
+            .map(value_to_command_arg)
+            .unwrap_or_else(|| "<value>".into())
+    }
+}
+
+fn secret_aware_json_value(name: &str, value: Value) -> Value {
+    if is_secret_like_name(name) {
+        Value::String(SECRET_REPLACEMENT.into())
+    } else {
+        value
+    }
+}
+
+fn is_secret_like_name(value: &str) -> bool {
+    let normalized = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    normalized.split('_').any(|part| {
+        matches!(
+            part,
+            "password"
+                | "pwd"
+                | "pass"
+                | "token"
+                | "secret"
+                | "secretkey"
+                | "apikey"
+                | "authtoken"
+                | "accesstoken"
+        )
+    }) || normalized.contains("api_key")
+        || normalized.contains("auth_token")
+        || normalized.contains("access_token")
 }

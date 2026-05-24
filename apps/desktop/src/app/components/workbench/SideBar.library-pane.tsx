@@ -701,19 +701,6 @@ export function LibraryPane({
             type="button"
             className="connection-context-menu-item"
             role="menuitem"
-            aria-label={`Use environment ${environmentMenu.environment.label}`}
-            onClick={() => {
-              onSelectEnvironment(environmentMenu.environment.id)
-              setEnvironmentMenu(undefined)
-            }}
-          >
-            <EnvironmentsIcon className="connection-context-menu-icon" />
-            <span>Use Environment</span>
-          </button>
-          <button
-            type="button"
-            className="connection-context-menu-item"
-            role="menuitem"
             aria-label={`Edit environment ${environmentMenu.environment.label}`}
             onClick={() => {
               onEditEnvironment(environmentMenu.environment.id)

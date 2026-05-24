@@ -43,7 +43,7 @@ impl DatastoreAdapter for PrometheusAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_prometheus_explorer_node(connection, request))
+        inspect_prometheus_explorer_node(connection, request).await
     }
 
     async fn execute(

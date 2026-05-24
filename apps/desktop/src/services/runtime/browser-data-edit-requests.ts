@@ -1,5 +1,7 @@
 import type { ConnectionProfile, DataEditPlanRequest } from '@datapadplusplus/shared-types'
 
+const SECRET_REPLACEMENT = '********'
+
 export function browserDataEditWarnings(
   connection: ConnectionProfile,
   request: DataEditPlanRequest,
@@ -154,9 +156,10 @@ function documentRenameObject(request: DataEditPlanRequest) {
 
 function keyValueEditRequest(request: DataEditPlanRequest) {
   const key = request.target.key ?? '<key>'
+  const firstChange = request.changes[0]
 
   if (request.editKind === 'set-ttl') {
-    return `EXPIRE ${key} ${valueToCommandArg(request.changes[0]?.value ?? '<seconds>')}`
+    return `EXPIRE ${key} ${valueToCommandArg(firstChange?.value ?? '<seconds>')}`
   }
 
   if (request.editKind === 'delete-key') {
@@ -164,34 +167,35 @@ function keyValueEditRequest(request: DataEditPlanRequest) {
   }
 
   if (request.editKind === 'hash-set-field') {
-    return `HSET ${key} ${request.changes[0]?.field ?? '<field>'} ${valueToCommandArg(request.changes[0]?.value ?? '<value>')}`
+    const field = firstChange?.field ?? '<field>'
+    return `HSET ${key} ${field} ${secretAwareCommandValue(field, firstChange?.value ?? '<value>')}`
   }
 
   if (request.editKind === 'hash-delete-field') {
-    return `HDEL ${key} ${request.changes[0]?.field ?? '<field>'}`
+    return `HDEL ${key} ${firstChange?.field ?? '<field>'}`
   }
 
   if (request.editKind === 'list-set-index') {
-    return `LSET ${key} ${request.changes[0]?.field ?? '<index>'} ${valueToCommandArg(request.changes[0]?.value ?? '<value>')}`
+    return `LSET ${key} ${firstChange?.field ?? '<index>'} ${valueToCommandArg(firstChange?.value ?? '<value>')}`
   }
 
   if (request.editKind === 'set-add-member') {
-    return `SADD ${key} ${valueToCommandArg(request.changes[0]?.value ?? '<member>')}`
+    return `SADD ${key} ${valueToCommandArg(firstChange?.value ?? '<member>')}`
   }
 
   if (request.editKind === 'set-remove-member') {
-    return `SREM ${key} ${valueToCommandArg(request.changes[0]?.value ?? '<member>')}`
+    return `SREM ${key} ${valueToCommandArg(firstChange?.value ?? '<member>')}`
   }
 
   if (request.editKind === 'zset-add-member') {
-    return `ZADD ${key} <score> ${request.changes[0]?.field ?? '<member>'}`
+    return `ZADD ${key} <score> ${firstChange?.field ?? '<member>'}`
   }
 
   if (request.editKind === 'zset-remove-member') {
-    return `ZREM ${key} ${request.changes[0]?.field ?? '<member>'}`
+    return `ZREM ${key} ${firstChange?.field ?? '<member>'}`
   }
 
-  return `SET ${key} ${valueToCommandArg(request.changes[0]?.value ?? '<value>')}`
+  return `SET ${key} ${secretAwareCommandValue(key, firstChange?.value ?? '<value>')}`
 }
 
 function dynamoDbEditRequest(request: DataEditPlanRequest) {
@@ -225,7 +229,12 @@ function dynamoDbEditRequest(request: DataEditPlanRequest) {
       Key: request.target.itemKey ?? {},
       UpdateExpression: 'SET #field = :value',
       ExpressionAttributeNames: { '#field': request.changes[0]?.field ?? '<field>' },
-      ExpressionAttributeValues: { ':value': request.changes[0]?.value ?? '<value>' },
+      ExpressionAttributeValues: {
+        ':value': secretAwareJsonValue(
+          request.changes[0]?.field ?? '<field>',
+          request.changes[0]?.value ?? '<value>',
+        ),
+      },
       ReturnValues: 'ALL_NEW',
     },
     null,
@@ -349,4 +358,17 @@ function isEmptyRecord(value?: Record<string, unknown>) {
 
 function valueToCommandArg(value: unknown) {
   return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+function secretAwareCommandValue(name: string, value: unknown) {
+  return isSecretLikeName(name) ? SECRET_REPLACEMENT : valueToCommandArg(value)
+}
+
+function secretAwareJsonValue(name: string, value: unknown) {
+  return isSecretLikeName(name) ? SECRET_REPLACEMENT : value
+}
+
+function isSecretLikeName(value: string) {
+  const normalized = value.toLowerCase().replaceAll(/[^a-z0-9]+/g, '_')
+  return /(^|_)(password|pwd|pass|token|secret|secretkey|apikey|api_key|authtoken|auth_token|accesstoken|access_token)($|_)/.test(normalized)
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import { createSeedSnapshot } from '../../test/fixtures/seed-workspace'
 import {
   createExplorerTabInSnapshot,
@@ -229,6 +230,35 @@ describe('browser tab runtime', () => {
     expect(redisTab?.queryText).toContain('"pattern": "perf:*"')
   })
 
+  it('creates Cassandra scoped tabs with the CQL partition builder active', () => {
+    const snapshot = createSeedSnapshot()
+    snapshot.connections.push(cassandraConnection())
+
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-cassandra',
+      target: {
+        kind: 'table',
+        label: 'orders_by_customer',
+        path: ['Keyspaces', 'app', 'Tables'],
+        scope: 'table:app.orders_by_customer',
+        preferredBuilder: 'cql-partition',
+        queryTemplate: 'select * from "app"."orders_by_customer" where customer_id = ? limit 20;',
+      },
+    })
+    const cassandraTab = opened.tabs.find((tab) => tab.scopedTarget?.scope === 'table:app.orders_by_customer')
+
+    expect(cassandraTab).toMatchObject({
+      connectionId: 'conn-cassandra',
+      queryViewMode: 'builder',
+      builderState: expect.objectContaining({
+        kind: 'cql-partition',
+        keyspace: 'app',
+        table: 'orders_by_customer',
+      }),
+      queryText: expect.stringContaining('customer_id'),
+    })
+  })
+
   it('matches scoped targets by object identity instead of generated query text', () => {
     const left = {
       kind: 'collection',
@@ -251,3 +281,28 @@ describe('browser tab runtime', () => {
     expect(scopedTargetsMatch(left, differentScope)).toBe(false)
   })
 })
+
+function cassandraConnection(): ConnectionProfile {
+  return {
+    id: 'conn-cassandra',
+    name: 'Cassandra',
+    engine: 'cassandra',
+    family: 'widecolumn',
+    host: 'localhost',
+    port: 9042,
+    database: 'app',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-dev'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'cassandra',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'cassandra' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}

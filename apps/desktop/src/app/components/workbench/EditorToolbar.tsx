@@ -104,7 +104,7 @@ export function EditorToolbar({
           title={
             canCancelExecution
               ? 'Cancel the currently running query for this tab.'
-              : 'Cancel is unavailable until a cancellable query is running on a supported adapter.'
+              : 'Cancel is unavailable until a supported datastore is running a cancellable query.'
           }
           disabled={!canCancelExecution}
           onClick={onCancel}
@@ -119,7 +119,7 @@ export function EditorToolbar({
           title={
             capabilities.canExplain
               ? 'Run an explain/plan request for the current query. Shortcut: Ctrl+Shift+E.'
-              : 'Explain is not implemented for this datastore adapter yet.'
+              : 'Explain is not available for this datastore yet.'
           }
           disabled={!capabilities.canExplain}
           onClick={onExplain}

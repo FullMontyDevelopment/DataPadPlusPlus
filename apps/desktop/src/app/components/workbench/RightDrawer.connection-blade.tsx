@@ -200,13 +200,32 @@ export function ConnectionBlade({
     )
   }
 
+  const closeConnectionDrawer = () => {
+    setSecretDraft('')
+    onClose()
+  }
+
+  const saveConnectionAndClearSecret = (profile: ConnectionProfile, secret?: string) => {
+    onSaveConnection(profile, secret)
+    setSecretDraft('')
+  }
+
+  const testConnectionAndClearSecret = (
+    profile: ConnectionProfile,
+    environmentId: string,
+    secret?: string,
+  ) => {
+    onTestConnection(profile, environmentId, secret)
+    setSecretDraft('')
+  }
+
   return (
     <>
       <DrawerHeader
         title="Connection"
         subtitle="Profile"
         icon={ConnectionsIcon}
-        onClose={onClose}
+        onClose={closeConnectionDrawer}
       />
 
       <div className="drawer-scroll">
@@ -249,8 +268,8 @@ export function ConnectionBlade({
         resolvedHost={displayedResolvedHost}
         secretDraft={secretDraft}
         selectedEnvironmentId={selectedEnvironmentId}
-        onSaveConnection={onSaveConnection}
-        onTestConnection={onTestConnection}
+        onSaveConnection={saveConnectionAndClearSecret}
+        onTestConnection={testConnectionAndClearSecret}
       />
     </>
   )

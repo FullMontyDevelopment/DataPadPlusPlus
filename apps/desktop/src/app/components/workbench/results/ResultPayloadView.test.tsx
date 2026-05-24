@@ -96,6 +96,53 @@ describe('ResultPayloadView', () => {
     expect(screen.queryByText(/editable document result/i)).not.toBeInTheDocument()
   })
 
+  it('renders metrics labels as readable text instead of raw JSON', () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'metrics',
+          metrics: [
+            {
+              name: 'redis.ops_per_sec',
+              value: 42,
+              unit: 'ops/s',
+              labels: { source: 'INFO stats', databaseName: 'cache' },
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Source: INFO stats; Database Name: cache')).toBeInTheDocument()
+    expect(screen.queryByText(/"source"/)).not.toBeInTheDocument()
+  })
+
+  it('renders series point labels as readable text instead of raw JSON', () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'series',
+          series: [
+            {
+              name: 'connections',
+              unit: 'clients',
+              points: [
+                {
+                  timestamp: '2026-05-22T10:00:00.000Z',
+                  value: 3,
+                  labels: { source: 'serverStatus.connections' },
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Source: serverStatus.connections')).toBeInTheDocument()
+    expect(screen.queryByText(/"source"/)).not.toBeInTheDocument()
+  })
+
   it('copies document values from the expandable table', async () => {
     render(
       <ResultPayloadView
