@@ -9,6 +9,7 @@ mod environments;
 mod execution;
 mod fixtures;
 mod library;
+mod library_validation;
 mod preferences;
 mod profiles;
 mod query_tabs;

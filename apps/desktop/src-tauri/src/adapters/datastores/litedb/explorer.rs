@@ -401,6 +401,8 @@ fn collection_from_node_id(node_id: &str) -> Option<String> {
     .map(str::to_string)
 }
 
+// Mirrors the ExplorerNode shape so LiteDB scopes stay readable at call sites.
+#[allow(clippy::too_many_arguments)]
 fn litedb_node(
     id: &str,
     label: &str,
@@ -427,8 +429,7 @@ fn litedb_node(
 fn litedb_file_name(connection: &ResolvedConnectionProfile) -> String {
     litedb_file_path(connection)
         .split(['/', '\\'])
-        .filter(|segment| !segment.trim().is_empty())
-        .next_back()
+        .rfind(|segment| !segment.trim().is_empty())
         .unwrap_or("local.db")
         .to_string()
 }

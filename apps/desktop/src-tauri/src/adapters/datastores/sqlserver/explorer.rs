@@ -751,6 +751,18 @@ fn inspect_query_template(connection: &ResolvedConnectionProfile, node_id: &str)
         }
     }
 
+    if let Some(scope) = node_id.strip_prefix("procedure:") {
+        if let Some((database, schema, procedure)) = parse_three_part_scope(scope) {
+            return sqlserver_module_definition_template(&database, &schema, &procedure);
+        }
+    }
+
+    if let Some(scope) = node_id.strip_prefix("function:") {
+        if let Some((database, schema, function)) = parse_three_part_scope(scope) {
+            return sqlserver_module_definition_template(&database, &schema, &function);
+        }
+    }
+
     if node_id.matches('.').count() == 1 {
         let (schema, object_name) = node_id.split_once('.').unwrap_or(("dbo", node_id));
         return format!(
@@ -871,6 +883,7 @@ async fn sqlserver_inspect_payload(
                 &target.database,
                 &target.schema,
                 &target.object_name,
+                &target.object_view,
             )
             .await
         }
@@ -1163,6 +1176,7 @@ async fn sqlserver_routine_payload(
     database: &str,
     schema: &str,
     routine: &str,
+    object_view: &str,
 ) -> Value {
     let routines = sqlserver_rows(
         client,
@@ -1187,14 +1201,28 @@ async fn sqlserver_routine_payload(
         },
     )
     .await;
+    let definition = routines
+        .first()
+        .and_then(|row| row.get("definition"))
+        .cloned()
+        .unwrap_or(Value::Null);
 
-    json!({
+    let mut payload = json!({
         "database": database,
         "schema": schema,
         "objectName": routine,
+        "definition": definition,
         "routines": routines,
         "permissions": sqlserver_object_permissions(client, database, schema, routine).await,
-    })
+    });
+
+    if object_view == "procedure" {
+        payload["procedures"] = payload["routines"].clone();
+    } else if object_view == "function" {
+        payload["functions"] = payload["routines"].clone();
+    }
+
+    payload
 }
 
 async fn sqlserver_security_payload(client: &mut SqlServerClient, database: &str) -> Value {
@@ -1684,6 +1712,15 @@ fn quote_identifier(value: &str) -> String {
     format!("[{}]", value.replace(']', "]]"))
 }
 
+fn sqlserver_module_definition_template(database: &str, schema: &str, object_name: &str) -> String {
+    format!(
+        "use {};\nselect sm.definition from sys.sql_modules sm join sys.objects so on so.object_id = sm.object_id join sys.schemas ss on ss.schema_id = so.schema_id where ss.name = N'{}' and so.name = N'{}';",
+        quote_identifier(database),
+        sql_literal(schema),
+        sql_literal(object_name)
+    )
+}
+
 fn cell_to_string(value: Option<&str>) -> String {
     value.unwrap_or_default().to_string()
 }
@@ -1717,6 +1754,22 @@ mod tests {
             query,
             "use [datapadplusplus];\nselect top 100 * from [dbo].[orders];"
         );
+    }
+
+    #[test]
+    fn inspect_sqlserver_explorer_node_uses_module_definition_for_routines() {
+        let connection = connection();
+        let procedure_query =
+            inspect_query_template(&connection, "procedure:datapadplusplus:dbo:refresh_cache");
+        let function_query =
+            inspect_query_template(&connection, "function:datapadplusplus:dbo:account_status");
+
+        assert!(procedure_query.starts_with("use [datapadplusplus];"));
+        assert!(procedure_query.contains("sys.sql_modules"));
+        assert!(procedure_query.contains("ss.name = N'dbo'"));
+        assert!(procedure_query.contains("so.name = N'refresh_cache'"));
+        assert!(function_query.contains("sys.sql_modules"));
+        assert!(function_query.contains("so.name = N'account_status'"));
     }
 
     #[test]

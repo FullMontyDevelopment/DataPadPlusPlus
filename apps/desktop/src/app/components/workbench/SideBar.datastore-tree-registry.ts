@@ -1,13 +1,18 @@
 import type { ConnectionProfile, ExplorerNode } from '@datapadplusplus/shared-types'
 import type { ConnectionTreeNode } from './SideBar.connection-tree'
+import { objectViewAction } from './SideBar.datastore-tree-actions'
 
-export type ConnectionTreeActionCommand = 'open-template' | 'copy-qualified-name'
+export type ConnectionTreeActionCommand = 'open-template' | 'copy-qualified-name' | 'open-object-view'
 
 export interface ConnectionTreeAction {
   id: string
   label: string
   command: ConnectionTreeActionCommand
   queryTemplate?: string
+  objectViewKind?: string
+  objectViewNodeId?: string
+  objectViewLabel?: string
+  objectViewPath?: string[]
   separatorBefore?: boolean
 }
 
@@ -2171,8 +2176,21 @@ function mongoActions(
   if (kind === 'collection' || kind === 'gridfs-collection') {
     return [
       templateAction('open-documents', 'Open Documents', documentFindQueryTemplate(collection, 20, database)),
+      objectViewAction(
+        'insert-document',
+        'Add Document...',
+        'insert-document',
+        `insert-document:${database ?? ''}:${collection}`,
+        mongoCollectionObjectViewPath(database, collection),
+      ),
       templateAction('aggregation', 'Open Aggregation Pipeline', mongoAggregationTemplate(database, collection)),
-      templateAction('create-index', 'Create Index...', mongoCommandTemplateForDatabase(database, { createIndexes: collection, indexes: [{ key: { field: 1 }, name: 'field_1' }] })),
+      objectViewAction(
+        'create-index',
+        'Create Index...',
+        'create-index',
+        `create-index:${database ?? ''}:${collection}`,
+        mongoCollectionObjectViewPath(database, collection),
+      ),
       templateAction('update-validator', 'Update Validation Rules...', mongoCommandTemplateForDatabase(database, { collMod: collection, validator: {} })),
       templateAction('rename-collection', 'Rename Collection...', mongoCommandTemplateForDatabase(database, { renameCollection: `${database}.${collection}`, to: `${database}.${collection}_new` })),
       templateAction('drop-collection', 'Drop Collection...', mongoCommandTemplateForDatabase(database, { drop: collection }), true),
@@ -2191,7 +2209,13 @@ function mongoActions(
 
   if (kind === 'indexes') {
     return [
-      templateAction('create-index', 'Create Index...', mongoCommandTemplateForDatabase(database, { createIndexes: collection, indexes: [{ key: { field: 1 }, name: 'field_1' }] })),
+      objectViewAction(
+        'create-index',
+        'Create Index...',
+        'create-index',
+        `create-index:${database ?? ''}:${collection}`,
+        mongoCollectionObjectViewPath(database, collection),
+      ),
     ]
   }
 
@@ -2342,6 +2366,10 @@ function templateAction(
   separatorBefore = false,
 ): ConnectionTreeAction {
   return { id, label, command: 'open-template', queryTemplate, separatorBefore }
+}
+
+function mongoCollectionObjectViewPath(database: string | undefined, collection: string) {
+  return [database, 'Collections', collection].filter((segment): segment is string => Boolean(segment))
 }
 
 function cleanExplorerPath(connection: ConnectionProfile, path: string[] | undefined) {

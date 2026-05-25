@@ -1,3 +1,5 @@
+import { DeleteConfirmationPanel } from './DeleteConfirmationPanel'
+
 interface SearchDocumentEditorPanelProps {
   error?: string
   mode: 'index' | 'update'
@@ -91,33 +93,21 @@ export function SearchDocumentIndexPanel({
 }
 
 interface SearchDocumentDeletePanelProps {
-  expectedText: string
   onCancel(): void
   onConfirm(): void
 }
 
 export function SearchDocumentDeletePanel({
-  expectedText,
   onCancel,
   onConfirm,
 }: SearchDocumentDeletePanelProps) {
   return (
-    <div className="data-grid-confirmation">
-      <div>
-        <strong>Delete search document</strong>
-        <span>DataPad++ will run this guarded delete with confirmation.</span>
-      </div>
-      <button type="button" className="drawer-button" onClick={onCancel}>
-        Cancel
-      </button>
-      <button
-        type="button"
-        className="drawer-button drawer-button--primary"
-        title={`Uses ${expectedText}`}
-        onClick={onConfirm}
-      >
-        Delete
-      </button>
-    </div>
+    <DeleteConfirmationPanel
+      title="Delete search document?"
+      body="DataPad++ will run this guarded delete with confirmation."
+      danger={false}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   )
 }

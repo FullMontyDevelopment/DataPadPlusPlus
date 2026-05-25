@@ -209,6 +209,27 @@ describe('applyExecutionToPayload', () => {
 
     expect(next?.snapshot.tabs[0]?.dirty).toBe(true)
   })
+
+  it('normalizes malformed execution payloads from adapters', () => {
+    const payload = createSeedBootstrapPayload()
+    const execution = executionFor(payload, false)
+
+    if (!execution.result || !execution.tab.result) {
+      throw new Error('Expected execution fixture to include a result')
+    }
+
+    execution.result.defaultRenderer = 'document'
+    execution.result.rendererModes = ['document']
+    execution.result.payloads = [null as unknown as ResultPayload]
+    execution.tab.result = execution.result
+
+    const next = applyExecutionToPayload(payload, execution)
+
+    expect(next?.snapshot.tabs[0]?.result?.payloads[0]).toEqual({
+      renderer: 'document',
+      documents: [],
+    })
+  })
 })
 
 describe('applyResultPageToPayload', () => {
@@ -291,6 +312,72 @@ describe('applyResultPageToPayload', () => {
       ],
     })
     expect(result?.pageInfo?.bufferedRows).toBe(2)
+  })
+
+  it('treats malformed null document page arrays as empty pages', () => {
+    const payload = payloadWithResult({
+      renderer: 'document',
+      documents: [{ _id: 'product-1', name: 'Keyboard' }],
+    })
+
+    const next = applyResultPageToPayload(
+      payload,
+      pageFor({
+        renderer: 'document',
+        documents: null,
+      } as unknown as ResultPayload),
+    )
+
+    const result = resultFrom(next)
+
+    expect(result?.payloads[0]).toMatchObject({
+      renderer: 'document',
+      documents: [{ _id: 'product-1', name: 'Keyboard' }],
+    })
+    expect(result?.pageInfo?.bufferedRows).toBe(1)
+  })
+
+  it('treats malformed null page payloads as empty pages for the active renderer', () => {
+    const payload = payloadWithResult({
+      renderer: 'document',
+      documents: [{ _id: 'product-1', name: 'Keyboard' }],
+    })
+
+    const next = applyResultPageToPayload(
+      payload,
+      pageFor(null as unknown as ResultPayload),
+    )
+
+    const result = resultFrom(next)
+
+    expect(result?.payloads[0]).toMatchObject({
+      renderer: 'document',
+      documents: [{ _id: 'product-1', name: 'Keyboard' }],
+    })
+    expect(result?.pageInfo?.bufferedRows).toBe(1)
+  })
+
+  it('normalizes malformed current document payloads before appending pages', () => {
+    const payload = payloadWithResult({
+      renderer: 'document',
+      documents: null,
+    } as unknown as ResultPayload)
+
+    const next = applyResultPageToPayload(
+      payload,
+      pageFor({
+        renderer: 'document',
+        documents: [{ _id: 'product-2', name: 'Mouse' }],
+      }),
+    )
+
+    const result = resultFrom(next)
+
+    expect(result?.payloads[0]).toMatchObject({
+      renderer: 'document',
+      documents: [{ _id: 'product-2', name: 'Mouse' }],
+    })
+    expect(result?.pageInfo?.bufferedRows).toBe(1)
   })
 
   it('merges key-value entries while preserving missing incoming metadata', () => {

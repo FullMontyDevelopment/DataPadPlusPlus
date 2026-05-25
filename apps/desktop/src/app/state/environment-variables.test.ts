@@ -5,6 +5,8 @@ import {
   hasUnresolvedEnvironmentVariables,
   interpolateEnvironmentVariables,
   legacyToBraceVariables,
+  referencedEnvironmentVariableKeys,
+  referencedSensitiveEnvironmentVariableKeys,
   sanitizeEnvironmentProfile,
   variableDefinitionsForEnvironment,
   resolveEnvironmentVariablesForPreview,
@@ -105,5 +107,19 @@ describe('environment variables', () => {
     expect(hasUnresolvedEnvironmentVariables('select * from {{MISSING}}')).toBe(true)
     expect(hasUnresolvedEnvironmentVariables('select * from ${LEGACY}')).toBe(true)
     expect(hasUnresolvedEnvironmentVariables('select 1')).toBe(false)
+  })
+
+  it('finds referenced variables and identifies sensitive references', () => {
+    expect(
+      referencedEnvironmentVariableKeys(
+        'select * from {{DB_SCHEMA}}.accounts where token = ${API_TOKEN}',
+      ),
+    ).toEqual(['DB_SCHEMA', 'API_TOKEN'])
+    expect(
+      referencedSensitiveEnvironmentVariableKeys(
+        'select * from {{DB_SCHEMA}}.accounts where token = {{API_TOKEN}}',
+        ['api_token'],
+      ),
+    ).toEqual(['API_TOKEN'])
   })
 })

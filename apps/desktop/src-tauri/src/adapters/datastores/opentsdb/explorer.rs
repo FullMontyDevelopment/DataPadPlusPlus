@@ -635,6 +635,8 @@ fn human_kind(kind: &str) -> String {
     kind.replace('-', " ")
 }
 
+// Mirrors the ExplorerNode shape so OpenTSDB scopes stay readable at call sites.
+#[allow(clippy::too_many_arguments)]
 fn opentsdb_node(
     id: &str,
     label: &str,

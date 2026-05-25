@@ -31,6 +31,12 @@ import {
 } from './icons'
 import { TreeFolderIcon, TreeFolderOpenIcon } from './FolderTreeIcons'
 import { ConnectionObjectTree } from './SideBar.connection-object-tree'
+import { LibraryTextInputDialog } from './LibraryTextInputDialog'
+import {
+  canMoveLibraryNode,
+  findFolderIdByPath,
+  libraryNodePath,
+} from './SideBar.library-tree-helpers'
 import { sidebarSectionId } from './SideBar.helpers'
 import { EngineIcon } from './SideBar.node-icons'
 
@@ -52,7 +58,7 @@ interface LibraryPaneProps {
   onCollapseSidebar?(): void
   onCreateConnection?(parentId?: string): void
   onCreateEnvironment?(): void
-  onCreateFolder(parentId?: string): void
+  onCreateFolder(parentId: string | undefined, name: string): void
   onCreateTab?(connectionId?: string): void
   onCreateTestSuite?(connectionId?: string): void
   onDeleteNode(nodeId: string): void
@@ -109,6 +115,15 @@ interface LibraryDropTarget {
   parentId?: string
 }
 
+interface CreateFolderDialogState {
+  parentId?: string
+}
+
+interface MoveNodeDialogState {
+  node: LibraryNode
+  initialPath: string
+}
+
 interface LibraryEnvironmentState {
   environment: EnvironmentProfile
   source: 'direct' | 'inherited'
@@ -124,6 +139,10 @@ const MAX_RECENTS_HEIGHT = 360
 
 function noop() {
   // Optional Library pane callbacks are supplied by the full app shell.
+}
+
+function validateRequiredLibraryInput(value: string) {
+  return value.trim() ? undefined : 'Enter a name.'
 }
 
 export function LibraryPane({
@@ -171,7 +190,10 @@ export function LibraryPane({
   onTestConnection = noop,
 }: LibraryPaneProps) {
   const [contextMenu, setContextMenu] = useState<LibraryContextMenuState>()
+  const [createFolderDialog, setCreateFolderDialog] = useState<CreateFolderDialogState>()
   const [environmentMenu, setEnvironmentMenu] = useState<EnvironmentContextMenuState>()
+  const [moveNodeDialog, setMoveNodeDialog] = useState<MoveNodeDialogState>()
+  const [renameNodeDialog, setRenameNodeDialog] = useState<LibraryNode>()
   const [draggedNodeId, setDraggedNodeId] = useState<string>()
   const pointerDragRef = useRef<LibraryPointerDragState | undefined>(undefined)
   const suppressOpenClickNodeIdRef = useRef<string | undefined>(undefined)
@@ -214,11 +236,14 @@ export function LibraryPane({
     }
   }, [contextMenu, environmentMenu])
 
-  const renameNode = (node: LibraryNode) => {
-    const name = window.prompt(`Rename ${node.name}`, node.name)
-    if (name?.trim()) {
-      onRenameNode(node.id, name.trim())
-    }
+  const requestCreateFolder = (parentId?: string) => {
+    setContextMenu(undefined)
+    setCreateFolderDialog({ parentId })
+  }
+
+  const requestRenameNode = (node: LibraryNode) => {
+    setContextMenu(undefined)
+    setRenameNodeDialog(node)
   }
 
   const deleteNode = (node: LibraryNode) => {
@@ -243,20 +268,14 @@ export function LibraryPane({
     onDeleteEnvironment(environment.id)
   }
 
-  const moveNode = (node: LibraryNode) => {
-    const folderPath = window.prompt(
-      'Move to Library folder',
-      node.parentId
+  const requestMoveNode = (node: LibraryNode) => {
+    setContextMenu(undefined)
+    setMoveNodeDialog({
+      node,
+      initialPath: node.parentId
         ? libraryNodePath(libraryNodes, libraryNodes.find((item) => item.id === node.parentId))
         : '',
-    )
-    const parentId = folderPath?.trim()
-      ? findFolderIdByPath(libraryNodes, folderPath.trim())
-      : undefined
-
-    if (folderPath !== null && (!folderPath.trim() || parentId)) {
-      onMoveNode(node.id, parentId)
-    }
+    })
   }
 
   const showDropTarget = (target?: LibraryDropTarget) => {
@@ -389,7 +408,7 @@ export function LibraryPane({
             className="sidebar-icon-button"
             aria-label="New library folder"
             title="Create a folder in the Library."
-            onClick={() => onCreateFolder()}
+            onClick={() => requestCreateFolder()}
           >
             <ExplorerIcon className="sidebar-icon" />
           </button>
@@ -422,7 +441,7 @@ export function LibraryPane({
                 <button type="button" className="sidebar-empty-action" onClick={() => onCreateConnection()}>
                   Add Connection
                 </button>
-                <button type="button" className="sidebar-empty-action" onClick={() => onCreateFolder()}>
+                <button type="button" className="sidebar-empty-action" onClick={() => requestCreateFolder()}>
                   Add Folder
                 </button>
               </div>
@@ -460,7 +479,7 @@ export function LibraryPane({
                 depth={0}
                 onContextMenu={setContextMenu}
                 onCreateConnection={onCreateConnection}
-                onCreateFolder={onCreateFolder}
+                onCreateFolder={requestCreateFolder}
                 onCreateTab={onCreateTab}
                 onCreateTestSuite={onCreateTestSuite}
                 onDeleteConnection={onDeleteConnection}
@@ -478,7 +497,7 @@ export function LibraryPane({
                 onOpenScopedQuery={onOpenScopedQuery}
                 onOpenLibraryItem={onOpenLibraryItem}
                 onPointerDragMove={updatePointerDrag}
-                onRenameNode={renameNode}
+                onRenameNode={requestRenameNode}
                 onSelectConnection={onSelectConnection}
                 onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
                 onTestConnection={onTestConnection}
@@ -934,12 +953,11 @@ export function LibraryPane({
             className="connection-context-menu-item"
             role="menuitem"
             onClick={() => {
-              onCreateFolder(
+              requestCreateFolder(
                 contextMenu.node.kind === 'folder'
                   ? contextMenu.node.id
                   : contextMenu.node.parentId,
               )
-              setContextMenu(undefined)
             }}
           >
             <PlusIcon className="connection-context-menu-icon" />
@@ -951,8 +969,7 @@ export function LibraryPane({
               className="connection-context-menu-item"
               role="menuitem"
               onClick={() => {
-                renameNode(contextMenu.node)
-                setContextMenu(undefined)
+                requestRenameNode(contextMenu.node)
               }}
             >
               <RenameIcon className="connection-context-menu-icon" />
@@ -964,8 +981,7 @@ export function LibraryPane({
             className="connection-context-menu-item"
             role="menuitem"
             onClick={() => {
-              moveNode(contextMenu.node)
-              setContextMenu(undefined)
+              requestMoveNode(contextMenu.node)
             }}
           >
             <ExplorerIcon className="connection-context-menu-icon" />
@@ -1027,6 +1043,71 @@ export function LibraryPane({
             <span>{contextMenuConnection ? 'Delete Connection' : 'Delete'}</span>
           </button>
         </div>
+      ) : null}
+      {createFolderDialog ? (
+        <LibraryTextInputDialog
+          title="New folder"
+          body="Create a Library folder for connections, queries, scripts, tests, and notes."
+          inputLabel="Folder name"
+          placeholder="Folder name"
+          confirmLabel="Create Folder"
+          validate={validateRequiredLibraryInput}
+          onCancel={() => setCreateFolderDialog(undefined)}
+          onConfirm={(value) => {
+            onCreateFolder(createFolderDialog.parentId, value.trim())
+            setCreateFolderDialog(undefined)
+          }}
+        />
+      ) : null}
+      {renameNodeDialog ? (
+        <LibraryTextInputDialog
+          title={`Rename ${renameNodeDialog.name}`}
+          body="Choose a clear Library name. This does not expose or change any stored secrets."
+          inputLabel="Name"
+          initialValue={renameNodeDialog.name}
+          confirmLabel="Rename"
+          validate={validateRequiredLibraryInput}
+          onCancel={() => setRenameNodeDialog(undefined)}
+          onConfirm={(value) => {
+            onRenameNode(renameNodeDialog.id, value.trim())
+            setRenameNodeDialog(undefined)
+          }}
+        />
+      ) : null}
+      {moveNodeDialog ? (
+        <LibraryTextInputDialog
+          title={`Move ${moveNodeDialog.node.name}`}
+          body="Enter a Library folder path, or leave it blank to move this item to the root."
+          inputLabel="Folder path"
+          initialValue={moveNodeDialog.initialPath}
+          placeholder="QA/MongoDB"
+          confirmLabel="Move"
+          validate={(value) => {
+            const trimmed = value.trim()
+            if (!trimmed) {
+              return undefined
+            }
+
+            const parentId = findFolderIdByPath(libraryNodes, trimmed)
+            if (!parentId) {
+              return 'No folder exists at that path.'
+            }
+
+            if (!canMoveLibraryNode(libraryNodes, moveNodeDialog.node.id, parentId)) {
+              return 'This item cannot be moved into that folder.'
+            }
+
+            return undefined
+          }}
+          onCancel={() => setMoveNodeDialog(undefined)}
+          onConfirm={(value) => {
+            const parentId = value.trim()
+              ? findFolderIdByPath(libraryNodes, value.trim())
+              : undefined
+            onMoveNode(moveNodeDialog.node.id, parentId)
+            setMoveNodeDialog(undefined)
+          }}
+        />
       ) : null}
     </>
   )
@@ -1415,37 +1496,6 @@ function recentLibraryNodes(nodes: LibraryNode[]) {
     .slice(0, 8)
 }
 
-function libraryNodePath(nodes: LibraryNode[], node: LibraryNode | undefined) {
-  if (!node) {
-    return ''
-  }
-
-  const names = [node.name]
-  let parentId = node.parentId
-  const visited = new Set<string>()
-
-  while (parentId && !visited.has(parentId)) {
-    visited.add(parentId)
-    const parent = nodes.find((candidate) => candidate.id === parentId)
-    if (!parent) {
-      break
-    }
-    names.unshift(parent.name)
-    parentId = parent.parentId
-  }
-
-  return names.join(' / ')
-}
-
-function findFolderIdByPath(nodes: LibraryNode[], path: string) {
-  const normalized = path.replace(/\\/g, '/').replace(/\s*\/\s*/g, ' / ').trim()
-  return nodes.find(
-    (node) =>
-      node.kind === 'folder' &&
-      libraryNodePath(nodes, node).toLowerCase() === normalized.toLowerCase(),
-  )?.id
-}
-
 function dropTargetFromPoint(
   clientX: number,
   clientY: number,
@@ -1473,45 +1523,6 @@ function dropTargetFromPoint(
   }
 
   return undefined
-}
-
-function canMoveLibraryNode(
-  nodes: LibraryNode[],
-  nodeId: string | undefined,
-  parentId?: string,
-) {
-  if (!nodeId) {
-    return false
-  }
-
-  const node = nodes.find((candidate) => candidate.id === nodeId)
-
-  if (!node || node.parentId === parentId) {
-    return false
-  }
-
-  if (!parentId) {
-    return true
-  }
-
-  const parent = nodes.find((candidate) => candidate.id === parentId)
-
-  if (!parent || parent.kind !== 'folder' || parent.id === nodeId) {
-    return false
-  }
-
-  let current: LibraryNode | undefined = parent
-  const visited = new Set<string>()
-
-  while (current?.parentId && !visited.has(current.id)) {
-    visited.add(current.id)
-    if (current.parentId === nodeId) {
-      return false
-    }
-    current = nodes.find((candidate) => candidate.id === current?.parentId)
-  }
-
-  return true
 }
 
 function effectiveEnvironmentForNode(

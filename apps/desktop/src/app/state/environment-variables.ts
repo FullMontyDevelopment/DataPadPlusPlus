@@ -171,6 +171,27 @@ export function interpolateEnvironmentVariables(
   )
 }
 
+export function referencedEnvironmentVariableKeys(value: string) {
+  const migrated = legacyToBraceVariables(value)
+  const keys = new Set<string>()
+  const tokenPattern = /\{\{([A-Z_][A-Z0-9_]*)\}\}/g
+  let match: RegExpExecArray | null
+
+  while ((match = tokenPattern.exec(migrated)) !== null) {
+    keys.add(normalizeVariableName(match[1] ?? ''))
+  }
+
+  return [...keys]
+}
+
+export function referencedSensitiveEnvironmentVariableKeys(
+  value: string,
+  sensitiveKeys: string[],
+) {
+  const sensitive = new Set(sensitiveKeys.map(normalizeVariableName))
+  return referencedEnvironmentVariableKeys(value).filter((key) => sensitive.has(key))
+}
+
 export function hasUnresolvedEnvironmentVariables(value: string) {
   return /\{\{[^}]*$|\{\{[^}]+\}\}|\$\{/.test(value)
 }

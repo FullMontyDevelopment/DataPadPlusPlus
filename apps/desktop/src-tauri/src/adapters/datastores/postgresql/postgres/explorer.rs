@@ -246,6 +246,8 @@ async fn schema_section_nodes(
     nodes
 }
 
+// Schema sections carry the full object-view metadata so callers stay declarative.
+#[allow(clippy::too_many_arguments)]
 fn push_schema_section(
     nodes: &mut Vec<ExplorerNode>,
     connection: &ResolvedConnectionProfile,
@@ -852,9 +854,15 @@ async fn table_payload(pool: &PgPool, schema: &str, table: &str) -> Value {
 
 async fn view_payload(pool: &PgPool, schema: &str, view: &str, materialized: bool) -> Value {
     let views = view_rows(pool, schema, materialized, Some(view)).await;
+    let definition = views
+        .first()
+        .and_then(|row| row.get("definition"))
+        .cloned()
+        .unwrap_or(Value::Null);
     json!({
         "schema": schema,
         "objectName": view,
+        "definition": definition,
         "views": views,
         "columns": column_rows(pool, schema, view).await,
         "permissions": permission_rows(pool, schema, Some(view)).await,
@@ -872,10 +880,18 @@ async fn index_payload(pool: &PgPool, schema: &str, index: &str) -> Value {
 
 async fn routine_payload(pool: &PgPool, schema: &str, routine: &str, kind: &str) -> Value {
     let prokind = if kind == "procedure" { "p" } else { "f" };
+    let routines = routine_rows(pool, schema, prokind, Some(routine)).await;
+    let definition = routines
+        .first()
+        .and_then(|row| row.get("definition"))
+        .cloned()
+        .unwrap_or(Value::Null);
+
     json!({
         "schema": schema,
         "objectName": routine,
-        "routines": routine_rows(pool, schema, prokind, Some(routine)).await,
+        "definition": definition,
+        "routines": routines,
         "permissions": permission_rows(pool, schema, Some(routine)).await,
     })
 }
@@ -1175,6 +1191,7 @@ async fn routine_rows(
                 p.proname as name,
                 pg_get_function_arguments(p.oid) as arguments,
                 pg_get_function_result(p.oid) as returns,
+                pg_get_functiondef(p.oid) as definition,
                 l.lanname as language,
                 case p.provolatile when 'i' then 'immutable' when 's' then 'stable' else 'volatile' end as volatility,
                 case p.prosecdef when true then 'security definer' else 'security invoker' end as security
@@ -1204,6 +1221,7 @@ async fn routine_rows(
                 "type": if prokind == "p" { "procedure" } else { "function" },
                 "arguments": row.try_get::<String, _>("arguments").unwrap_or_default(),
                 "returns": row.try_get::<String, _>("returns").unwrap_or_default(),
+                "definition": row.try_get::<String, _>("definition").unwrap_or_default(),
                 "language": row.get::<String, _>("language"),
                 "volatility": row.get::<String, _>("volatility"),
                 "security": row.get::<String, _>("security"),
@@ -1637,6 +1655,18 @@ fn postgres_inspect_query_template(
         "table" | "view" | "materialized-view" if !target.object_name.is_empty() => {
             select_template(&target.schema, &target.object_name)
         }
+        "function" | "procedure" if !target.object_name.is_empty() => {
+            format!(
+                "select pg_get_functiondef(p.oid) as definition from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = '{}' and p.proname = '{}'{};",
+                sql_literal(&target.schema),
+                sql_literal(&target.object_name),
+                if target.object_view == "procedure" {
+                    " and p.prokind = 'p'"
+                } else {
+                    ""
+                }
+            )
+        }
         "diagnostics" | "sessions" => "select pid, usename, datname, state, wait_event_type, wait_event from pg_stat_activity order by query_start desc nulls last limit 100;".into(),
         "locks" => "select locktype, mode, granted, relation::regclass::text as relation from pg_locks limit 100;".into(),
         "security" | "roles" | "permissions-root" => {
@@ -1723,6 +1753,8 @@ fn schema_node(connection: &ResolvedConnectionProfile, schema: &str) -> Explorer
     )
 }
 
+// Mirrors the ExplorerNode shape so PostgreSQL scopes stay readable at call sites.
+#[allow(clippy::too_many_arguments)]
 fn postgres_node(
     _connection: &ResolvedConnectionProfile,
     id: &str,
@@ -1839,6 +1871,22 @@ mod tests {
         let query = postgres_inspect_query_template(&connection, "table:public.accounts");
 
         assert_eq!(query, "select * from \"public\".\"accounts\" limit 100;");
+    }
+
+    #[test]
+    fn inspect_postgres_explorer_node_uses_function_definition_for_routines() {
+        let connection = connection();
+        let function_query =
+            postgres_inspect_query_template(&connection, "function:public:account_status");
+        let procedure_query =
+            postgres_inspect_query_template(&connection, "procedure:public:refresh_rollups");
+
+        assert!(function_query.contains("pg_get_functiondef"));
+        assert!(function_query.contains("p.proname = 'account_status'"));
+        assert!(!function_query.contains("p.prokind = 'p'"));
+        assert!(procedure_query.contains("pg_get_functiondef"));
+        assert!(procedure_query.contains("p.proname = 'refresh_rollups'"));
+        assert!(procedure_query.contains("p.prokind = 'p'"));
     }
 
     #[test]

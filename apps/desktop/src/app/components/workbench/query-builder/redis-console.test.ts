@@ -20,6 +20,12 @@ describe('redis console helpers', () => {
     )
   })
 
+  it('preserves line-based Redis pipeline commands', () => {
+    expect(redisConsoleCommandFromQueryText('PING\nDBSIZE\nINFO stats')).toBe(
+      'PING\nDBSIZE\nINFO stats',
+    )
+  })
+
   it('uses the browser state as the default console command', () => {
     const state = {
       ...createDefaultRedisKeyBrowserState('orders:*', 50),

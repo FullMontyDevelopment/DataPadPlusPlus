@@ -2,8 +2,9 @@ use serde_json::json;
 
 use super::*;
 use crate::domain::models::{
-    CreateObjectViewTabRequest, DataEditChange, DataEditTarget, ExplorerRequest,
-    OperationPlanRequest, RedisKeyScanRequest, ResultPageRequest,
+    ConnectionProfile, CreateObjectViewTabRequest, DataEditChange, DataEditTarget,
+    EnvironmentProfile, EnvironmentVariableDefinition, ExplorerRequest, OperationPlanRequest,
+    RedisKeyScanRequest, ResultPageRequest, UpdateQueryBuilderStateRequest,
 };
 
 #[test]
@@ -94,6 +95,55 @@ fn validators_reject_unrecognized_data_edit_kinds() {
     assert!(error.message.contains("Unsupported data edit kind"));
 }
 
+#[test]
+fn validators_reject_plaintext_connection_string_secrets() {
+    let mut profile = connection_profile();
+    profile.connection_string = Some("postgres://user:secret@localhost/catalog".into());
+
+    let error = validate_connection_profile(&profile).unwrap_err();
+
+    assert_eq!(error.code, "connection-string-secret");
+    assert!(error.message.contains("embedded passwords"));
+}
+
+#[test]
+fn validators_reject_plaintext_secret_environment_variables() {
+    let mut profile = environment_profile();
+    profile.variable_definitions = vec![EnvironmentVariableDefinition {
+        key: "API_TOKEN".into(),
+        kind: "secret".into(),
+        value: Some("plain-secret".into()),
+        secret_ref: None,
+        updated_at: None,
+    }];
+
+    let error = validate_environment_profile(&profile).unwrap_err();
+
+    assert_eq!(error.code, "invalid-request");
+    assert!(error.message.contains("cannot store plaintext"));
+}
+
+#[test]
+fn validators_reject_oversized_query_builder_state_and_bad_view_modes() {
+    let oversized = UpdateQueryBuilderStateRequest {
+        tab_id: "tab-1".into(),
+        builder_state: json!({ "payload": "x".repeat(70 * 1024) }),
+        query_text: None,
+        query_view_mode: None,
+    };
+    let oversized_error = validate_update_query_builder_state_request(&oversized).unwrap_err();
+    assert!(oversized_error.message.contains("too large"));
+
+    let bad_mode = UpdateQueryBuilderStateRequest {
+        tab_id: "tab-1".into(),
+        builder_state: json!({ "kind": "mongo-find" }),
+        query_text: None,
+        query_view_mode: Some("both".into()),
+    };
+    let mode_error = validate_update_query_builder_state_request(&bad_mode).unwrap_err();
+    assert!(mode_error.message.contains("Unsupported query view mode"));
+}
+
 fn data_edit_request_with_changes(
     count: usize,
     edit_kind: &str,
@@ -116,5 +166,38 @@ fn data_edit_request_with_changes(
                 ..Default::default()
             })
             .collect(),
+    }
+}
+
+fn connection_profile() -> ConnectionProfile {
+    ConnectionProfile {
+        id: "conn-1".into(),
+        name: "MongoDB".into(),
+        engine: "mongodb".into(),
+        family: "document".into(),
+        host: "localhost".into(),
+        environment_ids: vec!["env-qa".into()],
+        tags: Vec::new(),
+        favorite: false,
+        read_only: false,
+        icon: "database".into(),
+        created_at: "2026-01-01T00:00:00.000Z".into(),
+        updated_at: "2026-01-01T00:00:00.000Z".into(),
+        ..Default::default()
+    }
+}
+
+fn environment_profile() -> EnvironmentProfile {
+    EnvironmentProfile {
+        id: "env-qa".into(),
+        label: "QA".into(),
+        color: "#8ab4f8".into(),
+        risk: "medium".into(),
+        requires_confirmation: false,
+        safe_mode: false,
+        exportable: true,
+        created_at: "2026-01-01T00:00:00.000Z".into(),
+        updated_at: "2026-01-01T00:00:00.000Z".into(),
+        ..Default::default()
     }
 }

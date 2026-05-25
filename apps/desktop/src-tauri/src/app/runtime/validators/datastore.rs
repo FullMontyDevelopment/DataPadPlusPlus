@@ -208,6 +208,11 @@ fn validate_data_edit_shape(
     validate_required_text(&target.object_kind, "Data edit object kind", 80)?;
     validate_path(&target.path, "Data edit target path")?;
     validate_optional_text(
+        target.database.as_deref(),
+        "Database name",
+        MAX_OBJECT_NAME_LENGTH,
+    )?;
+    validate_optional_text(
         target.schema.as_deref(),
         "Schema name",
         MAX_OBJECT_NAME_LENGTH,

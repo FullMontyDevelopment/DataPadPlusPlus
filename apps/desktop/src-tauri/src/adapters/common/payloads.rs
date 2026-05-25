@@ -24,6 +24,13 @@ pub(crate) fn payload_raw(text: String) -> Value {
     })
 }
 
+pub(crate) fn payload_resp(text: String) -> Value {
+    json!({
+        "renderer": "resp",
+        "text": text,
+    })
+}
+
 pub(crate) fn payload_document(documents: Value) -> Value {
     json!({
         "renderer": "document",

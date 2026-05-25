@@ -193,7 +193,7 @@ fn duckdb_inspection_payload(
         "nodeId": node_id,
         "engine": "duckdb",
         "objectView": object_view,
-        "database": connection.database.as_deref().unwrap_or_else(|| connection.host.as_str()),
+        "database": connection.database.as_deref().unwrap_or(connection.host.as_str()),
         "tableName": scoped_table.unwrap_or("-"),
         "tableCount": tables.len(),
         "indexCount": 0,

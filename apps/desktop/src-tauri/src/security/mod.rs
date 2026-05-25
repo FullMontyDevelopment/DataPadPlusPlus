@@ -376,6 +376,10 @@ fn key_value_connection_string_contains_secret(value: &str) -> bool {
                     | "pass"
                     | "access token"
                     | "access_token"
+                    | "auth_token"
+                    | "client_secret"
+                    | "private_key"
+                    | "refresh_token"
                     | "sharedaccesskey"
                     | "shared access key"
                     | "secret"
@@ -405,6 +409,13 @@ fn secret_query_parameter_is_present(value: &str) -> bool {
                     | "access_token"
                     | "access-token"
                     | "auth_token"
+                    | "auth-token"
+                    | "client_secret"
+                    | "client-secret"
+                    | "private_key"
+                    | "private-key"
+                    | "refresh_token"
+                    | "refresh-token"
                     | "token"
                     | "secret"
                     | "secretkey"
@@ -927,6 +938,12 @@ mod tests {
         ));
         assert!(connection_string_contains_secret(
             "https://example.local/query?access_token=secret"
+        ));
+        assert!(connection_string_contains_secret(
+            "https://example.local/oauth?client_secret=secret"
+        ));
+        assert!(connection_string_contains_secret(
+            "Service=local;Private_Key=secret;"
         ));
         assert!(!connection_string_contains_secret(
             "Server=localhost;User Id=sa;Password=${DB_PASSWORD};"

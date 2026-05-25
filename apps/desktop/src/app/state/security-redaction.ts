@@ -1,7 +1,7 @@
 const SECRET_REPLACEMENT = '********'
 
 const SECRET_ASSIGNMENT =
-  /(["']?)(\b(?:password|pwd|pass|access[_ -]?token|auth[_ -]?token|sharedaccesskey|shared access key|secret(?:key)?|api[_ -]?key|token)\b)\1(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s;&,}\][{][^;&,\s}\]]*)/gi
+  /(["']?)(\b(?:password|pwd|pass|access[_ -]?token|auth[_ -]?token|refresh[_ -]?token|sharedaccesskey|shared access key|client[_ -]?secret|secret(?:key)?|api[_ -]?key|private[_ -]?key|token)\b)\1(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s;&,}\][{][^;&,\s}\]]*)/gi
 
 const URL_CREDENTIALS = /([a-z][a-z0-9+.-]*:\/\/)([^/?#@\s]+)@/gi
 
@@ -121,6 +121,12 @@ const secretAssignmentKeys = new Set([
   'access token',
   'access_token',
   'auth_token',
+  'client secret',
+  'client_secret',
+  'private key',
+  'private_key',
+  'refresh token',
+  'refresh_token',
   'sharedaccesskey',
   'shared access key',
   'secret',

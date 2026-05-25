@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::Row;
 
 use super::super::super::*;
@@ -91,36 +91,25 @@ pub(super) async fn list_sqlite_explorer_nodes(
     })
 }
 
-pub(super) fn inspect_sqlite_explorer_node(
+pub(super) async fn inspect_sqlite_explorer_node(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerInspectRequest,
-) -> ExplorerInspectResponse {
+) -> Result<ExplorerInspectResponse, CommandError> {
+    let pool = sqlite_pool(connection).await?;
     let node_id = request.node_id.as_str();
     let (summary, query_template, payload) = if let Some(scope) = node_id.strip_prefix("table:") {
         let (schema, table) = parse_object_scope_parts(scope);
         (
             format!("SQLite table view ready for {schema}.{table}."),
             Some(sqlite_select_template(&schema, &table)),
-            json!({
-                "engine": "sqlite",
-                "objectView": "table",
-                "schema": schema,
-                "table": table,
-                "tabs": ["Data", "Columns", "Indexes", "Constraints", "Foreign Keys", "Triggers", "Statistics", "DDL"],
-            }),
+            table_inspection_payload(&pool, &schema, &table).await?,
         )
     } else if let Some(scope) = node_id.strip_prefix("view:") {
         let (schema, view) = parse_object_scope_parts(scope);
         (
             format!("SQLite view view ready for {schema}.{view}."),
             Some(sqlite_select_template(&schema, &view)),
-            json!({
-                "engine": "sqlite",
-                "objectView": "view",
-                "schema": schema,
-                "view": view,
-                "tabs": ["Data", "Definition", "Dependencies", "DDL"],
-            }),
+            view_inspection_payload(&pool, &schema, &view).await?,
         )
     } else if let Some(scope) = node_id.strip_prefix("index:") {
         let (schema, index) = parse_object_scope_parts(scope);
@@ -131,13 +120,7 @@ pub(super) fn inspect_sqlite_explorer_node(
                 sqlite_quote_identifier(&schema),
                 sql_literal(&index)
             )),
-            json!({
-                "engine": "sqlite",
-                "objectView": "index",
-                "schema": schema,
-                "index": index,
-                "tabs": ["Definition", "Indexed Columns", "Partial WHERE", "DDL"],
-            }),
+            index_inspection_payload(&pool, &schema, &index).await?,
         )
     } else if let Some(scope) = node_id.strip_prefix("trigger:") {
         let (schema, trigger) = parse_object_scope_parts(scope);
@@ -148,13 +131,7 @@ pub(super) fn inspect_sqlite_explorer_node(
                 sqlite_quote_identifier(&schema),
                 sql_literal(&trigger)
             )),
-            json!({
-                "engine": "sqlite",
-                "objectView": "trigger",
-                "schema": schema,
-                "trigger": trigger,
-                "tabs": ["Definition", "Dependencies", "DDL"],
-            }),
+            trigger_inspection_payload(&pool, &schema, &trigger).await?,
         )
     } else if let Some(pragma) = node_id.strip_prefix("pragma:") {
         let (_, pragma) = parse_object_scope_parts(pragma);
@@ -165,6 +142,7 @@ pub(super) fn inspect_sqlite_explorer_node(
                 "engine": "sqlite",
                 "objectView": "pragma",
                 "pragma": pragma,
+                "pragmas": [{"name": pragma, "description": sqlite_pragma_description(&pragma)}],
             }),
         )
     } else {
@@ -180,13 +158,14 @@ pub(super) fn inspect_sqlite_explorer_node(
             }),
         )
     };
+    pool.close().await;
 
-    ExplorerInspectResponse {
+    Ok(ExplorerInspectResponse {
         node_id: request.node_id.clone(),
         summary,
         query_template,
         payload: Some(payload),
-    }
+    })
 }
 
 async fn root_nodes(
@@ -505,6 +484,143 @@ async fn view_section_nodes(
         "dependencies" => dependencies_nodes(connection, pool, schema, view).await,
         _ => Ok(Vec::new()),
     }
+}
+
+async fn table_inspection_payload(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    table: &str,
+) -> Result<Value, CommandError> {
+    let schema_object = schema_object_record(pool, schema, table, "table").await?;
+    let definition = schema_object
+        .as_ref()
+        .and_then(|record| record.get("definition"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let row_count = table_row_count(pool, schema, table)
+        .await
+        .unwrap_or_default();
+    Ok(json!({
+        "engine": "sqlite",
+        "objectView": "table",
+        "schema": schema,
+        "objectName": table,
+        "table": table,
+        "tableName": table,
+        "definition": definition,
+        "rowCount": row_count,
+        "columns": column_records(pool, schema, table).await?,
+        "indexes": index_records_for_table(pool, schema, table).await?,
+        "foreignKeys": foreign_key_records(pool, schema, table).await?,
+        "constraints": constraint_records(pool, schema, table).await?,
+        "triggers": trigger_records_for_table(pool, schema, table).await?,
+        "statistics": [{"name": "Row Count", "value": row_count, "unit": "rows"}],
+        "schemaObjects": schema_object.into_iter().collect::<Vec<_>>(),
+    }))
+}
+
+async fn view_inspection_payload(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    view: &str,
+) -> Result<Value, CommandError> {
+    let schema_object = schema_object_record(pool, schema, view, "view").await?;
+    let definition = schema_object
+        .as_ref()
+        .and_then(|record| record.get("definition"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Ok(json!({
+        "engine": "sqlite",
+        "objectView": "view",
+        "schema": schema,
+        "objectName": view,
+        "view": view,
+        "viewName": view,
+        "definition": definition,
+        "views": schema_object.clone().into_iter().collect::<Vec<_>>(),
+        "columns": column_records(pool, schema, view).await.unwrap_or_default(),
+        "dependencies": referenced_names_from_sql(&definition)
+            .into_iter()
+            .map(|name| json!({"name": name, "type": "reference", "dependency": "detected from view SQL"}))
+            .collect::<Vec<_>>(),
+        "schemaObjects": schema_object.into_iter().collect::<Vec<_>>(),
+    }))
+}
+
+async fn index_inspection_payload(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    index: &str,
+) -> Result<Value, CommandError> {
+    let schema_object = schema_object_record(pool, schema, index, "index").await?;
+    let table_name = schema_object
+        .as_ref()
+        .and_then(|record| record.get("tableName"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let columns = if table_name.is_empty() {
+        Vec::new()
+    } else {
+        index_column_names(pool, schema, index).await?
+    };
+    Ok(json!({
+        "engine": "sqlite",
+        "objectView": "index",
+        "schema": schema,
+        "objectName": index,
+        "index": index,
+        "definition": schema_object
+            .as_ref()
+            .and_then(|record| record.get("definition"))
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        "indexes": schema_object
+            .clone()
+            .map(|record| vec![json!({
+                "name": index,
+                "tableName": table_name,
+                "columns": columns.join(", "),
+                "definition": record.get("definition").cloned().unwrap_or(Value::Null),
+            })])
+            .unwrap_or_default(),
+        "schemaObjects": schema_object.into_iter().collect::<Vec<_>>(),
+    }))
+}
+
+async fn trigger_inspection_payload(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    trigger: &str,
+) -> Result<Value, CommandError> {
+    let schema_object = schema_object_record(pool, schema, trigger, "trigger").await?;
+    let definition = schema_object
+        .as_ref()
+        .and_then(|record| record.get("definition"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Ok(json!({
+        "engine": "sqlite",
+        "objectView": "trigger",
+        "schema": schema,
+        "objectName": trigger,
+        "trigger": trigger,
+        "definition": definition,
+        "triggers": schema_object
+            .clone()
+            .map(|record| vec![json!({
+                "name": trigger,
+                "table": record.get("tableName").cloned().unwrap_or(Value::Null),
+                "event": trigger_summary(&definition),
+                "definition": definition,
+            })])
+            .unwrap_or_default(),
+        "schemaObjects": schema_object.into_iter().collect::<Vec<_>>(),
+    }))
 }
 
 #[derive(Clone, Copy)]
@@ -1036,6 +1152,217 @@ async fn attached_database_nodes(
         .collect())
 }
 
+async fn schema_object_record(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    name: &str,
+    object_type: &str,
+) -> Result<Option<Value>, CommandError> {
+    let query = format!(
+        "select type, name, tbl_name, coalesce(sql, '') as sql from {}.sqlite_master where type = '{}' and name = '{}' limit 1",
+        sqlite_quote_identifier(schema),
+        sql_literal(object_type),
+        sql_literal(name),
+    );
+    let row = sqlx::query(&query).fetch_optional(pool).await?;
+    Ok(row.map(|row| {
+        let object_type = row.get::<String, _>("type");
+        let name = row.get::<String, _>("name");
+        let table_name = row.get::<String, _>("tbl_name");
+        let definition = row.try_get::<String, _>("sql").unwrap_or_default();
+        json!({
+            "type": object_type,
+            "name": name,
+            "tableName": table_name,
+            "definition": definition,
+        })
+    }))
+}
+
+async fn column_records(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<Value>, CommandError> {
+    let rows = sqlx::query(&pragma_query(schema, "table_xinfo", Some(table)))
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let pk = row.try_get::<i64, _>("pk").unwrap_or_default();
+            let hidden = row.try_get::<i64, _>("hidden").unwrap_or_default();
+            json!({
+                "name": row.try_get::<String, _>("name").unwrap_or_default(),
+                "type": row.try_get::<String, _>("type").unwrap_or_else(|_| "dynamic".into()),
+                "nullable": row.try_get::<i64, _>("notnull").unwrap_or_default() == 0,
+                "default": row.try_get::<String, _>("dflt_value").unwrap_or_default(),
+                "identity": if pk > 0 { "primary key" } else { "" },
+                "hidden": hidden > 0,
+            })
+        })
+        .collect())
+}
+
+async fn index_records_for_table(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<Value>, CommandError> {
+    let rows = sqlx::query(&pragma_query(schema, "index_list", Some(table)))
+        .fetch_all(pool)
+        .await?;
+    let mut indexes = Vec::new();
+    for row in rows {
+        let name = row.get::<String, _>("name");
+        let definition = schema_object_record(pool, schema, &name, "index")
+            .await?
+            .and_then(|record| record.get("definition").cloned())
+            .unwrap_or(Value::Null);
+        indexes.push(json!({
+            "name": name,
+            "tableName": table,
+            "type": "index",
+            "columns": index_column_names(pool, schema, &name).await?.join(", "),
+            "unique": row.try_get::<i64, _>("unique").unwrap_or_default() == 1,
+            "origin": row.try_get::<String, _>("origin").unwrap_or_default(),
+            "partial": row.try_get::<i64, _>("partial").unwrap_or_default() == 1,
+            "valid": true,
+            "definition": definition,
+        }));
+    }
+    Ok(indexes)
+}
+
+async fn index_column_names(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    index: &str,
+) -> Result<Vec<String>, CommandError> {
+    let rows = sqlx::query(&pragma_query(schema, "index_info", Some(index)))
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.try_get::<String, _>("name").ok())
+        .collect())
+}
+
+async fn foreign_key_records(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<Value>, CommandError> {
+    let rows = sqlx::query(&pragma_query(schema, "foreign_key_list", Some(table)))
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "id": row.try_get::<i64, _>("id").unwrap_or_default(),
+                "from": row.try_get::<String, _>("from").unwrap_or_default(),
+                "table": row.try_get::<String, _>("table").unwrap_or_default(),
+                "to": row.try_get::<String, _>("to").unwrap_or_default(),
+                "onUpdate": row.try_get::<String, _>("on_update").unwrap_or_default(),
+                "onDelete": row.try_get::<String, _>("on_delete").unwrap_or_default(),
+            })
+        })
+        .collect())
+}
+
+async fn constraint_records(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<Value>, CommandError> {
+    let mut constraints = Vec::new();
+    for column in column_records(pool, schema, table).await? {
+        let name = column
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if column.get("identity").and_then(Value::as_str) == Some("primary key") {
+            constraints.push(json!({
+                "name": format!("pk_{table}_{name}"),
+                "type": "primary key",
+                "columns": name,
+                "status": "active",
+            }));
+        }
+        if column.get("nullable").and_then(Value::as_bool) == Some(false) {
+            constraints.push(json!({
+                "name": format!("nn_{table}_{name}"),
+                "type": "not null",
+                "columns": name,
+                "status": "active",
+            }));
+        }
+    }
+    constraints.extend(
+        foreign_key_records(pool, schema, table)
+            .await?
+            .into_iter()
+            .map(|row| {
+                json!({
+                    "name": format!(
+                        "fk_{}_{}",
+                        table,
+                        row.get("from").and_then(Value::as_str).unwrap_or("column")
+                    ),
+                    "type": "foreign key",
+                    "columns": row.get("from").cloned().unwrap_or(Value::Null),
+                    "status": "active",
+                    "definition": format!(
+                        "references {}({})",
+                        row.get("table").and_then(Value::as_str).unwrap_or(""),
+                        row.get("to").and_then(Value::as_str).unwrap_or("")
+                    ),
+                })
+            }),
+    );
+    Ok(constraints)
+}
+
+async fn trigger_records_for_table(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<Value>, CommandError> {
+    let query = format!(
+        "select name, tbl_name, coalesce(sql, '') as sql from {}.sqlite_master where type = 'trigger' and tbl_name = '{}' order by name",
+        sqlite_quote_identifier(schema),
+        sql_literal(table),
+    );
+    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let definition = row.try_get::<String, _>("sql").unwrap_or_default();
+            json!({
+                "name": row.try_get::<String, _>("name").unwrap_or_default(),
+                "table": row.try_get::<String, _>("tbl_name").unwrap_or_default(),
+                "event": trigger_summary(&definition),
+                "definition": definition,
+            })
+        })
+        .collect())
+}
+
+async fn table_row_count(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    table: &str,
+) -> Result<i64, CommandError> {
+    let query = format!(
+        "select count(*) as row_count from {}.{}",
+        sqlite_quote_identifier(schema),
+        sqlite_quote_identifier(table)
+    );
+    Ok(sqlx::query_scalar::<_, i64>(&query).fetch_one(pool).await?)
+}
+
 fn pragma_nodes(connection: &ResolvedConnectionProfile, schema: &str) -> Vec<ExplorerNode> {
     SQLITE_PRAGMAS
         .iter()
@@ -1051,6 +1378,14 @@ fn pragma_nodes(connection: &ResolvedConnectionProfile, schema: &str) -> Vec<Exp
             expandable: Some(false),
         })
         .collect()
+}
+
+fn sqlite_pragma_description(pragma: &str) -> &'static str {
+    SQLITE_PRAGMAS
+        .iter()
+        .find(|(name, _)| *name == pragma)
+        .map(|(_, detail)| *detail)
+        .unwrap_or("SQLite PRAGMA")
 }
 
 pub(crate) fn sqlite_select_template(schema: &str, table: &str) -> String {
@@ -1319,7 +1654,7 @@ mod tests {
 
     #[test]
     fn sqlite_database_nodes_match_spec_sections() {
-        let connection = test_connection();
+        let connection = test_connection("fixture.sqlite");
         let labels = database_nodes(&connection, "main")
             .into_iter()
             .map(|node| node.label)
@@ -1336,7 +1671,7 @@ mod tests {
 
     #[test]
     fn sqlite_table_nodes_include_object_view_sections() {
-        let connection = test_connection();
+        let connection = test_connection("fixture.sqlite");
         let labels = table_nodes(&connection, "main", "accounts")
             .into_iter()
             .map(|node| node.label)
@@ -1359,31 +1694,76 @@ mod tests {
 
     #[test]
     fn inspect_sqlite_table_returns_non_saveable_view_hint() {
-        let response = inspect_sqlite_explorer_node(
-            &test_connection(),
-            &ExplorerInspectRequest {
-                connection_id: "conn".into(),
-                environment_id: "env".into(),
-                node_id: "table:main:accounts".into(),
-            },
-        );
+        tauri::async_runtime::block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "datapadplusplus-sqlite-explorer-{}.sqlite",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_file(&path);
+            let setup_pool = sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(
+                    sqlx::sqlite::SqliteConnectOptions::new()
+                        .filename(&path)
+                        .create_if_missing(true),
+                )
+                .await
+                .expect("create sqlite fixture");
+            sqlx::query("create table accounts (id integer primary key, name text not null)")
+                .execute(&setup_pool)
+                .await
+                .expect("create accounts table");
+            sqlx::query("create index accounts_name_idx on accounts(name)")
+                .execute(&setup_pool)
+                .await
+                .expect("create accounts index");
+            sqlx::query("create view active_accounts as select id, name from accounts")
+                .execute(&setup_pool)
+                .await
+                .expect("create accounts view");
+            setup_pool.close().await;
 
-        assert_eq!(
-            response.query_template.as_deref(),
-            Some("select * from [main].[accounts] limit 100;")
-        );
-        assert_eq!(response.payload.unwrap()["objectView"], "table");
+            let response = inspect_sqlite_explorer_node(
+                &test_connection(path.to_string_lossy().as_ref()),
+                &ExplorerInspectRequest {
+                    connection_id: "conn".into(),
+                    environment_id: "env".into(),
+                    node_id: "table:main:accounts".into(),
+                },
+            )
+            .await
+            .expect("inspect sqlite table");
+
+            assert_eq!(
+                response.query_template.as_deref(),
+                Some("select * from [main].[accounts] limit 100;")
+            );
+            let payload = response.payload.expect("payload");
+            assert_eq!(payload["objectView"], "table");
+            assert_eq!(
+                payload["definition"],
+                "CREATE TABLE accounts (id integer primary key, name text not null)"
+            );
+            assert!(payload["columns"]
+                .as_array()
+                .is_some_and(|columns| columns.iter().any(|column| column["name"] == "name")));
+            assert!(payload["indexes"].as_array().is_some_and(|indexes| indexes
+                .iter()
+                .any(|index| index["name"] == "accounts_name_idx")));
+
+            let _ = std::fs::remove_file(&path);
+        });
     }
 
-    fn test_connection() -> ResolvedConnectionProfile {
+    fn test_connection(path: &str) -> ResolvedConnectionProfile {
         ResolvedConnectionProfile {
             id: "conn-sqlite".into(),
             name: "SQLite".into(),
             engine: "sqlite".into(),
             family: "sql".into(),
-            host: "fixture.sqlite".into(),
+            host: path.into(),
             port: None,
-            database: Some("fixture.sqlite".into()),
+            database: Some(path.into()),
             username: None,
             password: None,
             connection_string: None,

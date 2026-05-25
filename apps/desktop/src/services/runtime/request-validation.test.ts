@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  validateCreateLibraryFolderRequest,
   validateCreateObjectViewTabRequest,
+  validateConnectionProfile,
   validateDataEditPlanRequest,
+  validateEnvironmentProfile,
   validateExecutionRequest,
   validateExplorerRequest,
   validateOperationExecutionRequest,
   validateOperationPlanRequest,
   validateRedisKeyScanRequest,
   validateResultPageRequest,
+  validateSaveQueryTabToLibraryRequest,
   validateSaveQueryTabToLocalFileRequest,
+  validateSetLibraryNodeEnvironmentRequest,
+  validateUpdateQueryBuilderStateRequest,
 } from './request-validation'
 
 describe('runtime request validation', () => {
@@ -159,6 +165,49 @@ describe('runtime request validation', () => {
     ).toThrow(/absolute file path/)
   })
 
+  it('normalizes and validates library mutation requests', () => {
+    expect(
+      validateCreateLibraryFolderRequest({
+        name: '  Queries  ',
+        parentId: '',
+        environmentId: ' env-qa ',
+      }),
+    ).toMatchObject({
+      name: 'Queries',
+      parentId: undefined,
+      environmentId: 'env-qa',
+    })
+
+    expect(
+      validateSetLibraryNodeEnvironmentRequest({
+        nodeId: 'node-1',
+        environmentId: ' ',
+      }),
+    ).toMatchObject({ environmentId: undefined })
+
+    expect(
+      validateSaveQueryTabToLibraryRequest({
+        tabId: 'tab-1',
+        name: '  Report  ',
+        kind: 'query',
+        tags: ['  sql  ', ''],
+      }),
+    ).toMatchObject({
+      name: 'Report',
+      kind: 'query',
+      tags: ['sql'],
+    })
+
+    expect(() =>
+      validateSaveQueryTabToLibraryRequest({
+        tabId: 'tab-1',
+        name: 'Report',
+        kind: 'folder' as never,
+        tags: [],
+      }),
+    ).toThrow(/Unsupported Library item kind/)
+  })
+
   it('clamps execution and result paging limits while rejecting null-byte text', () => {
     expect(
       validateExecutionRequest({
@@ -204,5 +253,110 @@ describe('runtime request validation', () => {
         queryText: 'select\u0000 1',
       }),
     ).toThrow(/null bytes/)
+  })
+
+  it('rejects plaintext connection-string secrets and normalizes profile tags', () => {
+    expect(
+      validateConnectionProfile({
+        id: 'conn-1',
+        name: '  Reporting  ',
+        engine: 'postgresql',
+        family: 'sql',
+        host: 'localhost',
+        environmentIds: [' env-qa '],
+        tags: ['  finance  ', ''],
+        favorite: false,
+        readOnly: false,
+        icon: 'database',
+        auth: {},
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    ).toMatchObject({
+      name: 'Reporting',
+      environmentIds: ['env-qa'],
+      tags: ['finance'],
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        id: 'conn-1',
+        name: 'Reporting',
+        engine: 'postgresql',
+        family: 'sql',
+        host: 'localhost',
+        connectionString: 'postgres://user:secret@localhost/catalog',
+        environmentIds: ['env-qa'],
+        tags: [],
+        favorite: false,
+        readOnly: false,
+        icon: 'database',
+        auth: {},
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    ).toThrow(/embedded passwords/)
+  })
+
+  it('rejects plaintext secret environment variables and duplicate names', () => {
+    expect(() =>
+      validateEnvironmentProfile({
+        id: 'env-qa',
+        label: 'QA',
+        color: '#8ab4f8',
+        risk: 'medium',
+        variables: {},
+        sensitiveKeys: [],
+        variableDefinitions: [
+          {
+            key: 'API_TOKEN',
+            kind: 'secret',
+            value: 'plain-secret',
+          },
+        ],
+        requiresConfirmation: false,
+        safeMode: false,
+        exportable: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    ).toThrow(/cannot store plaintext/)
+
+    expect(() =>
+      validateEnvironmentProfile({
+        id: 'env-qa',
+        label: 'QA',
+        color: '#8ab4f8',
+        risk: 'medium',
+        variables: {},
+        sensitiveKeys: [],
+        variableDefinitions: [
+          { key: 'db_host', kind: 'text', value: 'localhost' },
+          { key: 'DB_HOST', kind: 'text', value: '127.0.0.1' },
+        ],
+        requiresConfirmation: false,
+        safeMode: false,
+        exportable: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    ).toThrow(/duplicated/)
+  })
+
+  it('validates query builder state size and unsupported view modes', () => {
+    expect(() =>
+      validateUpdateQueryBuilderStateRequest({
+        tabId: 'tab-1',
+        builderState: { payload: 'x'.repeat(70 * 1024) } as never,
+      }),
+    ).toThrow(/too large/)
+
+    expect(() =>
+      validateUpdateQueryBuilderStateRequest({
+        tabId: 'tab-1',
+        builderState: { kind: 'mongo-find' } as never,
+        queryViewMode: 'both' as never,
+      }),
+    ).toThrow(/Unsupported query view mode/)
   })
 })

@@ -699,12 +699,15 @@ describe('ConnectionObjectTree', () => {
   it('offers Mongo collection admin templates and inspect from the object menu', () => {
     const onInspectNode = vi.fn()
 
+    const onOpenObjectView = vi.fn()
+
     render(
       <ConnectionObjectTree
         connection={mongoConnection()}
         explorerNodes={mongoExplorerNodes()}
         explorerStatus="ready"
         onInspectNode={onInspectNode}
+        onOpenObjectView={onOpenObjectView}
         onOpenScopedQuery={vi.fn()}
       />,
     )
@@ -715,15 +718,44 @@ describe('ConnectionObjectTree', () => {
     fireEvent.contextMenu(treeItemForLabel('products'), { clientX: 24, clientY: 32 })
 
     const menu = screen.getByRole('menu', { name: 'Object options for products' })
-    expect(within(menu).getByRole('menuitem', { name: 'Inspect' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Open Documents' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Open Collection Overview' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Inspect' })).not.toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Add Document...' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Open Aggregation Pipeline' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Create Index...' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Update Validation Rules...' })).toBeInTheDocument()
 
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Inspect' }))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Add Document...' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-mongo',
+      expect.objectContaining({
+        id: 'insert-document:catalog:products',
+        kind: 'insert-document',
+        label: 'Add Document',
+        path: ['catalog', 'Collections', 'products'],
+      }),
+    )
 
-    expect(onInspectNode).toHaveBeenCalledWith(
+    fireEvent.contextMenu(treeItemForLabel('products'), { clientX: 24, clientY: 32 })
+    const createMenu = screen.getByRole('menu', { name: 'Object options for products' })
+    fireEvent.click(within(createMenu).getByRole('menuitem', { name: 'Create Index...' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-mongo',
+      expect.objectContaining({
+        id: 'create-index:catalog:products',
+        kind: 'create-index',
+        label: 'Create Index',
+        path: ['catalog', 'Collections', 'products'],
+      }),
+    )
+
+    fireEvent.contextMenu(treeItemForLabel('products'), { clientX: 24, clientY: 32 })
+    const overviewMenu = screen.getByRole('menu', { name: 'Object options for products' })
+    fireEvent.click(within(overviewMenu).getByRole('menuitem', { name: 'Open Collection Overview' }))
+
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-mongo',
       expect.objectContaining({
         id: 'collection:catalog:products',
         kind: 'collection',

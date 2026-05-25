@@ -148,6 +148,7 @@ fn mongo_insert_document_preview_does_not_require_existing_document_id() {
             "insert-document",
             DataEditTarget {
                 object_kind: "document".into(),
+                database: Some("catalog".into()),
                 collection: Some("products".into()),
                 ..Default::default()
             },
@@ -167,6 +168,10 @@ fn mongo_insert_document_preview_does_not_require_existing_document_id() {
         .plan
         .generated_request
         .contains("\"operation\": \"insertOne\""));
+    assert!(plan
+        .plan
+        .generated_request
+        .contains("\"database\": \"catalog\""));
     assert!(plan.plan.generated_request.contains("\"sku\": \"nova\""));
     assert!(!plan
         .plan
@@ -274,6 +279,49 @@ fn keyvalue_delete_is_destructive_and_confirmation_gated() {
 }
 
 #[test]
+fn keyvalue_rename_and_persist_ttl_generate_native_commands() {
+    let connection = connection("redis", "keyvalue", false);
+    let rename_plan = default_data_edit_plan(
+        &connection,
+        &experience(&["rename-key", "persist-ttl"], true),
+        &request(
+            "rename-key",
+            DataEditTarget {
+                object_kind: "key".into(),
+                key: Some("session:1".into()),
+                ..Default::default()
+            },
+            vec![DataEditChange {
+                field: Some("session:1".into()),
+                new_name: Some("session:renamed".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+    let persist_plan = default_data_edit_plan(
+        &connection,
+        &experience(&["rename-key", "persist-ttl"], true),
+        &request(
+            "persist-ttl",
+            DataEditTarget {
+                object_kind: "key".into(),
+                key: Some("session:1".into()),
+                ..Default::default()
+            },
+            vec![],
+        ),
+    );
+
+    assert_eq!(
+        rename_plan.plan.generated_request,
+        "RENAME session:1 session:renamed"
+    );
+    assert_eq!(persist_plan.plan.generated_request, "PERSIST session:1");
+    assert!(!rename_plan.plan.destructive);
+    assert!(!persist_plan.plan.destructive);
+}
+
+#[test]
 fn dynamodb_delete_item_is_destructive_and_confirmation_gated() {
     let connection = connection("dynamodb", "widecolumn", false);
     let plan = default_data_edit_plan(
@@ -368,7 +416,7 @@ async fn live_capable_delete_still_requires_matching_confirmation() -> Result<()
     assert!(execution
         .warnings
         .iter()
-        .any(|warning| warning.contains("CONFIRM POSTGRESQL DELETE-ROW")));
+        .any(|warning| warning.contains("needs confirmation before it can run")));
     Ok(())
 }
 

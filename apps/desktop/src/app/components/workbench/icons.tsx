@@ -23,6 +23,8 @@ import {
   Copy,
   Database,
   Download,
+  Eye,
+  EyeOff,
   FileCode2,
   FileJson,
   FilePlus2,
@@ -64,6 +66,7 @@ import {
   Table2,
   Terminal,
   Trash2,
+  Upload,
   UserRound,
   View,
   Waypoints,
@@ -159,9 +162,12 @@ export const ConsoleIcon = adapt(Terminal)
 export const LightThemeIcon = adapt(Sun)
 export const CopyIcon = adapt(Copy)
 export const DownloadIcon = adapt(Download)
+export const UploadIcon = adapt(Upload)
 export const SaveIcon = adapt(Save)
 export const HistoryIcon = adapt(History)
 export const ClockIcon = adapt(Clock)
 export const ColorIcon = adapt(Palette)
 export const MoreIcon = adapt(MoreVertical)
 export const TrashIcon = adapt(Trash2)
+export const ShowIcon = adapt(Eye)
+export const HideIcon = adapt(EyeOff)

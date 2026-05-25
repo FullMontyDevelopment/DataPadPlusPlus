@@ -257,6 +257,33 @@ pub(crate) fn operation_manifests_for_manifest(
         ]);
     }
 
+    if manifest.engine == "mongodb" && manifest_has(manifest, "supports_import_export") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "collection.export",
+                "Export Collection",
+                "collection",
+                "costly",
+                &["supports_import_export"],
+                &["document", "json", "raw"],
+                "Preview exporting a MongoDB collection or filtered result set.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "collection.import",
+                "Import Documents",
+                "collection",
+                "write",
+                &["supports_import_export"],
+                &["diff", "schema", "raw"],
+                "Preview importing documents into a MongoDB collection with validation.",
+                true,
+            ),
+        ]);
+    }
+
     if manifest_has(manifest, "supports_permission_inspection") {
         operations.push(operation_manifest(
             manifest,
@@ -343,6 +370,7 @@ mod tests {
                 "supports_admin_operations".into(),
                 "supports_index_management".into(),
                 "supports_user_role_browser".into(),
+                "supports_import_export".into(),
             ],
             default_language: "mongodb".into(),
             local_database: None,
@@ -361,6 +389,8 @@ mod tests {
         assert!(operation_ids.contains(&"mongodb.user.drop"));
         assert!(operation_ids.contains(&"mongodb.role.create"));
         assert!(operation_ids.contains(&"mongodb.role.drop"));
+        assert!(operation_ids.contains(&"mongodb.collection.export"));
+        assert!(operation_ids.contains(&"mongodb.collection.import"));
         assert_eq!(
             operations
                 .iter()

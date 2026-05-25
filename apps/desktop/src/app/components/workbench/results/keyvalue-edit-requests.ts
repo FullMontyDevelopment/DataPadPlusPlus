@@ -23,12 +23,14 @@ export function buildKeyValueEditRequest({
   editContext,
   editKind,
   key,
+  newName,
   value,
 }: {
   connection?: ConnectionProfile
   editContext?: DocumentEditContext
-  editKind: Extract<DataEditKind, 'set-key-value' | 'set-ttl' | 'delete-key'>
+  editKind: Extract<DataEditKind, 'set-key-value' | 'set-ttl' | 'delete-key' | 'rename-key' | 'persist-ttl'>
   key: string
+  newName?: string
   value?: unknown
 }): DataEditExecutionRequest | undefined {
   if (!keyValueCanEdit(connection, editContext) || !editContext) {
@@ -48,8 +50,15 @@ export function buildKeyValueEditRequest({
       key,
     },
     changes:
-      editKind === 'delete-key'
+      editKind === 'delete-key' || editKind === 'persist-ttl'
         ? []
+        : editKind === 'rename-key'
+          ? [
+              {
+                field: key,
+                newName,
+              },
+            ]
         : [
             {
               value,
@@ -106,15 +115,79 @@ export function buildRedisMemberEditRequest({
   }
 }
 
+export function buildRedisMemberDeleteRequest({
+  connection,
+  editContext,
+  key,
+  member,
+  rawValue,
+  redisType,
+}: {
+  connection?: ConnectionProfile
+  editContext?: DocumentEditContext
+  key: string
+  member: string
+  rawValue?: string
+  redisType?: string
+}): DataEditExecutionRequest | undefined {
+  if (!keyValueCanEdit(connection, editContext) || !editContext) {
+    return undefined
+  }
+
+  if (redisType === 'hash') {
+    return withRedisConfirmation(connection, buildRedisMemberEditRequest({
+      connection,
+      editContext,
+      editKind: 'hash-delete-field',
+      key,
+      field: member,
+    }))
+  }
+
+  if (redisType === 'set') {
+    return withRedisConfirmation(connection, buildRedisMemberEditRequest({
+      connection,
+      editContext,
+      editKind: 'set-remove-member',
+      key,
+      value: parseKeyValueInput(rawValue ?? member),
+    }))
+  }
+
+  if (redisType === 'zset') {
+    return withRedisConfirmation(connection, buildRedisMemberEditRequest({
+      connection,
+      editContext,
+      editKind: 'zset-remove-member',
+      key,
+      field: member,
+    }))
+  }
+
+  return undefined
+}
+
 export function parseKeyValueInput(value: string) {
   return parseJsonValue(value)
 }
 
 export function keyValueConfirmationText(
   connection: ConnectionProfile,
-  editKind: 'delete-key',
+  editKind: DataEditKind,
 ) {
   return `CONFIRM ${connection.engine.toUpperCase()} ${editKind.toUpperCase()}`
+}
+
+function withRedisConfirmation(
+  connection: ConnectionProfile | undefined,
+  request: DataEditExecutionRequest | undefined,
+) {
+  return connection && request
+    ? {
+        ...request,
+        confirmationText: keyValueConfirmationText(connection, request.editKind),
+      }
+    : request
 }
 
 export function valueTypeName(value: unknown) {

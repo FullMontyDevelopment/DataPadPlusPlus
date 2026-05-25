@@ -688,9 +688,7 @@ fn snowflake_object_category(kind: &str) -> &'static str {
     }
 }
 
-fn snowflake_object_from_node_id<'a>(
-    node_id: &'a str,
-) -> Option<(&'static str, &'a str, &'a str, &'a str)> {
+fn snowflake_object_from_node_id(node_id: &str) -> Option<(&'static str, &str, &str, &str)> {
     for prefix in [
         ("snowflake-table:", "table"),
         ("snowflake-view:", "view"),

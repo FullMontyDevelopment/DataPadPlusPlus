@@ -349,19 +349,21 @@ function resultPayloadSize(payload: ResultPayload | undefined) {
   }
 
   if (payload.renderer === 'table') {
-    return payload.rows.length
+    return Array.isArray(payload.rows) ? payload.rows.length : 0
   }
 
   if (payload.renderer === 'document') {
-    return payload.documents.length
+    return Array.isArray(payload.documents) ? payload.documents.length : 0
   }
 
   if (payload.renderer === 'keyvalue') {
-    return Object.keys(payload.entries).length
+    return payload.entries && typeof payload.entries === 'object' && !Array.isArray(payload.entries)
+      ? Object.keys(payload.entries).length
+      : 0
   }
 
   if (payload.renderer === 'schema') {
-    return payload.items.length
+    return Array.isArray(payload.items) ? payload.items.length : 0
   }
 
   return 1

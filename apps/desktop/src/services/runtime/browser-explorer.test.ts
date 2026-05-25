@@ -150,6 +150,35 @@ describe('browser explorer runtime', () => {
       ],
     })
 
+    const createIndexResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'create-index:catalog:products',
+    })
+
+    expect(createIndexResponse.queryTemplate).toContain('"listIndexes": "products"')
+    expect(createIndexResponse.payload).toMatchObject({
+      database: 'catalog',
+      collection: 'products',
+      indexes: expect.arrayContaining([expect.objectContaining({ name: 'sku_1' })]),
+    })
+
+    const insertDocumentResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'insert-document:catalog:products',
+    })
+
+    expect(insertDocumentResponse.payload).toMatchObject({
+      database: 'catalog',
+      collection: 'products',
+      validator: expect.objectContaining({
+        $jsonSchema: expect.objectContaining({
+          required: ['sku'],
+        }),
+      }),
+    })
+
     const schemaResponse = inspectExplorerNodeLocally(snapshot, {
       connectionId: connection.id,
       environmentId: 'env-local',
@@ -316,6 +345,54 @@ describe('browser explorer runtime', () => {
     })
   })
 
+  it('returns PostgreSQL routine source payloads for native source previews', () => {
+    const connection = postgresConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const functionResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'function:public:account_status',
+    })
+
+    expect(functionResponse.queryTemplate).toContain('pg_get_functiondef')
+    expect(functionResponse.payload).toMatchObject({
+      engine: 'postgresql',
+      schema: 'public',
+      objectName: 'account_status',
+      definition: expect.stringContaining('create or replace function'),
+      functions: [
+        expect.objectContaining({
+          name: 'account_status',
+          language: 'plpgsql',
+          definition: expect.stringContaining("return 'active'"),
+        }),
+      ],
+      parameters: [expect.objectContaining({ name: 'p_account_id', type: 'bigint' })],
+      permissions: [expect.objectContaining({ privilege: 'EXECUTE' })],
+    })
+
+    const procedureResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'procedure:public:refresh_rollups',
+    })
+
+    expect(procedureResponse.payload).toMatchObject({
+      engine: 'postgresql',
+      objectName: 'refresh_rollups',
+      definition: expect.stringContaining('create or replace procedure'),
+      procedures: [
+        expect.objectContaining({
+          name: 'refresh_rollups',
+          definition: expect.stringContaining('refresh materialized view'),
+        }),
+      ],
+    })
+  })
+
   it('mirrors a CockroachDB database and cluster tree without live dependencies', () => {
     const connection = cockroachConnection()
 
@@ -465,6 +542,54 @@ describe('browser explorer runtime', () => {
       engine: 'sqlserver',
       database: 'datapadplusplus',
       queryStore: expect.arrayContaining([expect.objectContaining({ name: 'Top Queries' })]),
+    })
+  })
+
+  it('returns SQL Server routine source payloads for native source previews', () => {
+    const connection = sqlServerConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const procedureResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'procedure:datapadplusplus:dbo:refresh_account_cache',
+    })
+
+    expect(procedureResponse.queryTemplate).toContain('sys.sql_modules')
+    expect(procedureResponse.payload).toMatchObject({
+      engine: 'sqlserver',
+      database: 'datapadplusplus',
+      schema: 'dbo',
+      objectName: 'refresh_account_cache',
+      definition: expect.stringContaining('create or alter procedure'),
+      procedures: [
+        expect.objectContaining({
+          name: 'refresh_account_cache',
+          language: 'T-SQL',
+          definition: expect.stringContaining('set nocount on'),
+        }),
+      ],
+      permissions: [expect.objectContaining({ privilege: 'EXECUTE' })],
+    })
+
+    const functionResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'function:datapadplusplus:dbo:account_status',
+    })
+
+    expect(functionResponse.payload).toMatchObject({
+      engine: 'sqlserver',
+      objectName: 'account_status',
+      definition: expect.stringContaining('create or alter function'),
+      functions: [
+        expect.objectContaining({
+          name: 'account_status',
+          returns: 'nvarchar(32)',
+        }),
+      ],
     })
   })
 
@@ -749,6 +874,52 @@ describe('browser explorer runtime', () => {
       engine: 'mysql',
       sessions: expect.arrayContaining([expect.objectContaining({ state: 'executing' })]),
       replication: expect.arrayContaining([expect.objectContaining({ state: 'not configured' })]),
+    })
+  })
+
+  it('returns MySQL and MariaDB routine source payloads for native source previews', () => {
+    const connection = mysqlConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const procedureResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'procedure:datapadplusplus:refresh_account_rollups',
+    })
+
+    expect(procedureResponse.payload).toMatchObject({
+      engine: 'mysql',
+      database: 'datapadplusplus',
+      objectName: 'refresh_account_rollups',
+      definition: expect.stringContaining('create procedure'),
+      procedures: [
+        expect.objectContaining({
+          name: 'refresh_account_rollups',
+          language: 'sql',
+          definition: expect.stringContaining('select p_account_id as account_id'),
+        }),
+      ],
+    })
+
+    const functionResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'function:datapadplusplus:account_status',
+    })
+
+    expect(functionResponse.payload).toMatchObject({
+      engine: 'mysql',
+      objectName: 'account_status',
+      definition: expect.stringContaining('create function'),
+      functions: [
+        expect.objectContaining({
+          name: 'account_status',
+          returns: 'varchar(120)',
+          definition: expect.stringContaining("return concat('status:', p_status)"),
+        }),
+      ],
     })
   })
 

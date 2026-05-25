@@ -64,6 +64,7 @@ export const RESULT_RENDERERS = new Set([
   'document',
   'keyvalue',
   'raw',
+  'resp',
   'schema',
   'graph',
   'chart',

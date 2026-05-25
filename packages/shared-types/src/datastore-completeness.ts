@@ -71,9 +71,9 @@ const MONGO_PROFILE = profile({
     'Add aggregation-stage-aware field and expression suggestions.',
   ]),
   'object-views': strong('Mongo has purpose-built database, collection, schema, indexes, validation, GridFS, users, roles, statistics, and pipeline views.', [
-    'Make management views deeper and more action-oriented instead of preview-first only.',
+    'Add live fixture coverage and richer before/after summaries for index, user, role, and validator changes.',
   ]),
-  'safe-editing': partial('Document result editing and upload route through guarded data-edit paths.', [
+  'safe-editing': partial('Document result editing and the dedicated insert-document view route through guarded data-edit paths.', [
     'Enable live safe document CRUD only when identity, permissions, and environment guardrails are satisfied.',
   ]),
   'guarded-operations': strong('Admin/destructive operations are preview-first and environment guarded.', [
@@ -97,8 +97,8 @@ const REDIS_PROFILE = profile({
   'object-tree': partial('Redis has DB/type/security/diagnostics tree sections and capability-aware module branches.', [
     'Make DB/type folders fully metadata-driven and remove unavailable module clutter everywhere.',
   ]),
-  'query-surface': strong('Redis opens in a key browser and has a Redis console mode.', [
-    'Make the console fully CLI-like with history, pipeline mode, docs, and RESP/raw toggles.',
+  'query-surface': strong('Redis opens in a key browser and has a Redis console mode with command shortcuts, history recall, and read-only pipeline batches.', [
+    'Finish command docs and RESP/raw result toggles.',
   ]),
   intellisense: partial('Redis command and key suggestions are started.', [
     'Add command-argument-aware completions from COMMAND metadata.',

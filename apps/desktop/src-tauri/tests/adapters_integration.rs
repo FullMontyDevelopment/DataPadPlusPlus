@@ -1201,7 +1201,7 @@ async fn sqlite_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     assert!(blocked_delete
         .warnings
         .iter()
-        .any(|warning| warning.contains("CONFIRM SQLITE DELETE-ROW")));
+        .any(|warning| warning.contains("needs confirmation before it can run")));
 
     let delete = adapters::execute_data_edit(
         &connection,
@@ -1540,7 +1540,7 @@ async fn redis_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     assert!(delete_without_confirmation
         .warnings
         .iter()
-        .any(|warning| warning.contains("CONFIRM REDIS DELETE-KEY")));
+        .any(|warning| warning.contains("needs confirmation before it can run")));
 
     let deleted = adapters::execute_data_edit(
         &connection,

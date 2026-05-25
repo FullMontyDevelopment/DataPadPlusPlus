@@ -171,11 +171,38 @@ fn document_operation_request(
         .unwrap_or_else(|_| "{}".into());
     }
 
+    if operation_id.ends_with("collection.export") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "database": database,
+            "collection": collection,
+            "operation": "export",
+            "format": parameter("format").cloned().unwrap_or_else(|| serde_json::json!("extended-json")),
+            "filter": parameter("filter").cloned().unwrap_or_else(|| serde_json::json!({})),
+            "projection": parameter("projection").cloned().unwrap_or_else(|| serde_json::json!({})),
+            "sort": parameter("sort").cloned().unwrap_or_else(|| serde_json::json!({})),
+            "batchSize": parameter("batchSize").cloned().unwrap_or_else(|| serde_json::json!(1000))
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("collection.import") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "database": database,
+            "collection": collection,
+            "operation": "import",
+            "format": parameter("format").cloned().unwrap_or_else(|| serde_json::json!("json")),
+            "mode": parameter("mode").cloned().unwrap_or_else(|| serde_json::json!("insertMany")),
+            "validation": parameter("validation").cloned().unwrap_or_else(|| serde_json::json!("validate-before-write")),
+            "mapping": parameter("mapping").cloned().unwrap_or_else(|| serde_json::json!({}))
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
     if operation_id.ends_with("user.create") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "database": database,
             "createUser": principal_name,
-            "pwd": "<secret>",
+            "pwd": parameter("password").cloned().unwrap_or_else(|| serde_json::json!("<secret>")),
             "roles": parameter("roles").cloned().unwrap_or_else(|| serde_json::json!([]))
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -377,6 +404,7 @@ pub(crate) fn default_operation_plan(
         || operation_id.contains(".unhide")
         || operation_id.contains(".user.")
         || operation_id.contains(".role.")
+        || operation_id.contains(".collection.import")
         || (operation_id.contains(".security.") && !operation_id.ends_with("security.inspect"))
         || operation_id.contains("validation")
         || operation_id.contains("validator")
@@ -384,6 +412,7 @@ pub(crate) fn default_operation_plan(
         || operation_id.contains("backup-restore");
     let costly = destructive
         || admin_write
+        || operation_id.contains(".collection.export")
         || operation_id.contains(".profile")
         || operation_id.contains("metrics");
     let generated_request =
@@ -434,5 +463,121 @@ pub(crate) fn default_operation_plan(
             None
         },
         warnings,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{default_operation_plan, generated_operation_request};
+    use crate::domain::models::{AdapterManifest, ResolvedConnectionProfile};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn mongodb_collection_import_export_requests_are_database_scoped() {
+        let connection = connection();
+        let manifest = manifest();
+        let parameters = BTreeMap::from([
+            ("database".into(), json!("catalog")),
+            ("collection".into(), json!("products")),
+            ("format".into(), json!("ndjson")),
+            ("filter".into(), json!({ "active": true })),
+            ("batchSize".into(), json!(500)),
+        ]);
+
+        let export_request = generated_operation_request(
+            &connection,
+            &manifest,
+            "mongodb.collection.export",
+            "products",
+            Some(&parameters),
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&export_request).unwrap()["database"],
+            "catalog"
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&export_request).unwrap()["operation"],
+            "export"
+        );
+        assert!(export_request.contains("\"active\": true"));
+
+        let import_plan = default_operation_plan(
+            &connection,
+            &manifest,
+            "mongodb.collection.import",
+            Some("products"),
+            Some(&parameters),
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&import_plan.generated_request).unwrap()
+                ["operation"],
+            "import"
+        );
+        assert_eq!(
+            import_plan.required_permissions,
+            vec!["write/admin privilege for the target object"]
+        );
+        assert!(import_plan.confirmation_text.is_some());
+    }
+
+    #[test]
+    fn mongodb_user_create_can_use_secret_variable_password_source() {
+        let connection = connection();
+        let manifest = manifest();
+        let parameters = BTreeMap::from([
+            ("database".into(), json!("catalog")),
+            ("name".into(), json!("reporting")),
+            ("password".into(), json!("{{MONGO_USER_PASSWORD}}")),
+            ("roles".into(), json!([{ "role": "read", "db": "catalog" }])),
+        ]);
+
+        let request = generated_operation_request(
+            &connection,
+            &manifest,
+            "mongodb.user.create",
+            "reporting",
+            Some(&parameters),
+        );
+        let value = serde_json::from_str::<serde_json::Value>(&request).unwrap();
+
+        assert_eq!(value["database"], "catalog");
+        assert_eq!(value["createUser"], "reporting");
+        assert_eq!(value["pwd"], "{{MONGO_USER_PASSWORD}}");
+        assert_eq!(value["roles"][0]["role"], "read");
+    }
+
+    fn connection() -> ResolvedConnectionProfile {
+        ResolvedConnectionProfile {
+            id: "conn-mongo".into(),
+            name: "MongoDB".into(),
+            engine: "mongodb".into(),
+            family: "document".into(),
+            host: "localhost".into(),
+            port: Some(27017),
+            database: Some("catalog".into()),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            read_only: false,
+        }
+    }
+
+    fn manifest() -> AdapterManifest {
+        AdapterManifest {
+            id: "adapter-mongodb".into(),
+            engine: "mongodb".into(),
+            family: "document".into(),
+            label: "MongoDB".into(),
+            maturity: "stable".into(),
+            capabilities: vec!["supports_import_export".into()],
+            default_language: "mongodb".into(),
+            local_database: None,
+            tree: None,
+        }
     }
 }

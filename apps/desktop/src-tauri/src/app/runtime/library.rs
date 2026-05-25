@@ -4,7 +4,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::{generate_id, timestamp_now, ManagedAppState};
+use super::{
+    generate_id,
+    library_validation::{
+        environment_or_error, library_name_or_error, normalize_library_kind,
+        normalize_library_tags, normalize_optional_library_id, validate_library_id,
+    },
+    timestamp_now, ManagedAppState,
+};
 use crate::domain::{
     error::CommandError,
     models::{
@@ -433,20 +440,18 @@ impl ManagedAppState {
         request: LibraryCreateFolderRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
-        let name = request.name.trim();
-        if name.is_empty() {
-            return Err(CommandError::new(
-                "library-folder-name-required",
-                "Enter a folder name before creating a Library folder.",
-            ));
-        }
-        folder_or_error(&self.snapshot, request.parent_id.as_deref())?;
+        let name = library_name_or_error(&request.name, "Library folder name")?;
+        let parent_id = normalize_optional_library_id(request.parent_id, "Library parent id")?;
+        let environment_id =
+            normalize_optional_library_id(request.environment_id, "Environment id")?;
+        folder_or_error(&self.snapshot, parent_id.as_deref())?;
+        environment_or_error(&self.snapshot, environment_id.as_deref())?;
 
         let created_at = timestamp_now();
         self.snapshot.library_nodes.push(LibraryNode {
             id: generate_id("library-folder"),
             kind: "folder".into(),
-            parent_id: request.parent_id,
+            parent_id,
             name: name.into(),
             summary: None,
             tags: Vec::new(),
@@ -455,7 +460,7 @@ impl ManagedAppState {
             updated_at: created_at,
             last_opened_at: None,
             connection_id: None,
-            environment_id: request.environment_id,
+            environment_id,
             language: None,
             query_text: None,
             query_view_mode: None,
@@ -475,13 +480,8 @@ impl ManagedAppState {
         request: LibraryRenameNodeRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
-        let name = request.name.trim();
-        if name.is_empty() {
-            return Err(CommandError::new(
-                "library-node-name-required",
-                "Enter a Library item name before renaming it.",
-            ));
-        }
+        validate_library_id(&request.node_id, "Library node id")?;
+        let name = library_name_or_error(&request.name, "Library item name")?;
 
         let node = self
             .snapshot
@@ -515,11 +515,12 @@ impl ManagedAppState {
         request: LibraryMoveNodeRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        validate_library_id(&request.node_id, "Library node id")?;
+        let parent_id = normalize_optional_library_id(request.parent_id, "Library parent id")?;
         ensure_connection_library_nodes(&mut self.snapshot);
-        folder_or_error(&self.snapshot, request.parent_id.as_deref())?;
+        folder_or_error(&self.snapshot, parent_id.as_deref())?;
         let deleted = collect_descendants(&self.snapshot, &request.node_id);
-        if request
-            .parent_id
+        if parent_id
             .as_ref()
             .is_some_and(|parent_id| deleted.contains(parent_id))
         {
@@ -537,7 +538,7 @@ impl ManagedAppState {
             .ok_or_else(|| {
                 CommandError::new("library-node-missing", "Library item was not found.")
             })?;
-        node.parent_id = request.parent_id;
+        node.parent_id = parent_id;
         node.updated_at = timestamp_now();
 
         self.snapshot.updated_at = timestamp_now();
@@ -550,19 +551,10 @@ impl ManagedAppState {
         request: LibrarySetEnvironmentRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
-        if let Some(environment_id) = request.environment_id.as_deref() {
-            if self
-                .snapshot
-                .environments
-                .iter()
-                .all(|environment| environment.id != environment_id)
-            {
-                return Err(CommandError::new(
-                    "library-environment-missing",
-                    "Environment was not found.",
-                ));
-            }
-        }
+        validate_library_id(&request.node_id, "Library node id")?;
+        let environment_id =
+            normalize_optional_library_id(request.environment_id, "Environment id")?;
+        environment_or_error(&self.snapshot, environment_id.as_deref())?;
 
         let node = self
             .snapshot
@@ -572,9 +564,7 @@ impl ManagedAppState {
             .ok_or_else(|| {
                 CommandError::new("library-node-missing", "Library item was not found.")
             })?;
-        node.environment_id = request
-            .environment_id
-            .filter(|environment_id| !environment_id.trim().is_empty());
+        node.environment_id = environment_id;
         node.updated_at = timestamp_now();
 
         self.snapshot.updated_at = timestamp_now();
@@ -587,6 +577,7 @@ impl ManagedAppState {
         request: LibraryDeleteNodeRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        validate_library_id(&request.node_id, "Library node id")?;
         if self
             .snapshot
             .library_nodes
@@ -615,25 +606,25 @@ impl ManagedAppState {
         request: SaveQueryTabToLibraryRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        validate_library_id(&request.tab_id, "Tab id")?;
+        let item_id = normalize_optional_library_id(request.item_id, "Library item id")?;
+        let folder_id = normalize_optional_library_id(request.folder_id, "Library folder id")?;
+        let environment_id =
+            normalize_optional_library_id(request.environment_id, "Environment id")?;
+        let kind = normalize_library_kind(request.kind)?;
+        let tags = normalize_library_tags(request.tags)?;
         let tab_index = self
             .snapshot
             .tabs
             .iter()
             .position(|tab| tab.id == request.tab_id)
             .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
-        folder_or_error(&self.snapshot, request.folder_id.as_deref())?;
-
-        let name = request.name.trim();
-        if name.is_empty() {
-            return Err(CommandError::new(
-                "library-item-name-required",
-                "Enter a Library item name before saving.",
-            ));
-        }
+        folder_or_error(&self.snapshot, folder_id.as_deref())?;
+        environment_or_error(&self.snapshot, environment_id.as_deref())?;
+        let name = library_name_or_error(&request.name, "Library item name")?;
 
         let tab = self.snapshot.tabs[tab_index].clone();
-        let item_id = request
-            .item_id
+        let item_id = item_id
             .or_else(|| {
                 tab.save_target
                     .as_ref()
@@ -643,9 +634,7 @@ impl ManagedAppState {
             .or(tab.saved_query_id.clone())
             .unwrap_or_else(|| generate_id("library-item"));
         let now = timestamp_now();
-        let kind = request.kind.unwrap_or_else(|| "query".into());
-        let folder_id = request
-            .folder_id
+        let folder_id = folder_id
             .or_else(|| default_library_folder_for_connection(&self.snapshot, &tab.connection_id));
         let connection = self.connection_by_id(&tab.connection_id)?;
         let query_text = if matches!(kind.as_str(), "script" | "test-suite") {
@@ -663,13 +652,13 @@ impl ManagedAppState {
             parent_id: folder_id,
             name: name.into(),
             summary: Some(connection.name.clone()),
-            tags: request.tags,
+            tags,
             favorite: None,
             created_at: now.clone(),
             updated_at: now,
             last_opened_at: None,
             connection_id: Some(tab.connection_id.clone()),
-            environment_id: request.environment_id,
+            environment_id,
             language: Some(tab.language.clone()),
             query_text,
             query_view_mode: tab.query_view_mode.clone().or_else(|| Some("raw".into())),
@@ -895,7 +884,29 @@ fn validate_local_save_path(path: &Path) -> Result<(), CommandError> {
         ));
     }
 
+    if path.is_dir() {
+        return Err(CommandError::new(
+            "local-save-target-is-folder",
+            "Choose a file name, not a folder, before saving.",
+        ));
+    }
+
+    if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
+        if file_name_contains_unsupported_characters(file_name) {
+            return Err(CommandError::new(
+                "local-save-file-name-invalid",
+                "Local file name contains unsupported characters.",
+            ));
+        }
+    }
+
     Ok(())
+}
+
+fn file_name_contains_unsupported_characters(file_name: &str) -> bool {
+    file_name
+        .chars()
+        .any(|character| matches!(character, '<' | '>' | ':' | '"' | '|' | '?' | '*'))
 }
 
 fn effective_library_environment_id_for_nodes(
@@ -1021,6 +1032,12 @@ mod tests {
     fn local_save_path_requires_absolute_file_path() {
         assert!(validate_local_save_path(&PathBuf::from("relative.sql")).is_err());
         assert!(validate_local_save_path(&std::env::temp_dir().join("query.sql")).is_ok());
+    }
+
+    #[test]
+    fn local_save_path_rejects_folders_and_unsupported_file_names() {
+        assert!(validate_local_save_path(&std::env::temp_dir()).is_err());
+        assert!(validate_local_save_path(&std::env::temp_dir().join("bad:name.sql")).is_err());
     }
 
     fn test_node(id: &str, parent_id: Option<&str>, environment_id: Option<&str>) -> LibraryNode {

@@ -6,6 +6,8 @@ import type {
   EnvironmentProfile,
   ExecutionCapabilities,
   ExecutionResultEnvelope,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ResultPayload,
 } from '@datapadplusplus/shared-types'
@@ -28,6 +30,9 @@ interface ResultsViewProps {
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
+  onPlanOperation?(
+    request: OperationPlanRequest,
+  ): Promise<OperationPlanResponse | undefined>
 }
 
 export function ResultsView({
@@ -41,6 +46,7 @@ export function ResultsView({
   onSelectRenderer,
   onLoadNextPage,
   onExecuteDataEdit,
+  onPlanOperation,
 }: ResultsViewProps) {
   const [operationMessage, setOperationMessage] = useState('')
 
@@ -154,6 +160,7 @@ export function ResultsView({
         resultDurationMs={result?.durationMs}
         resultSummary={result?.summary}
         onExecuteDataEdit={onExecuteDataEdit}
+        onPlanOperation={onPlanOperation}
       />
 
       {payload && !usesDocumentPayload && result?.pageInfo?.hasMore ? (

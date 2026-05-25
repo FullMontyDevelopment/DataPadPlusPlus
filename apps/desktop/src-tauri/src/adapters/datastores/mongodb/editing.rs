@@ -32,9 +32,8 @@ pub(super) async fn execute_mongodb_data_edit(
 
     if let Some(expected) = plan.plan.confirmation_text.as_deref() {
         if request.confirmation_text.as_deref() != Some(expected) {
-            warnings.push(format!(
-                "This MongoDB document edit requires confirmation before it can run ({expected})."
-            ));
+            warnings
+                .push("This MongoDB document edit needs confirmation before it can run.".into());
             return Ok(data_edit_response(
                 request, plan, false, messages, warnings, None,
             ));
@@ -70,7 +69,13 @@ pub(super) async fn execute_mongodb_data_edit(
     }
 
     let client = mongodb_client(connection).await?;
-    let database_name = mongodb_database_name(connection);
+    let database_name = request
+        .target
+        .database
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| mongodb_database_name(connection));
     let collection = client
         .database(&database_name)
         .collection::<Document>(collection_name);

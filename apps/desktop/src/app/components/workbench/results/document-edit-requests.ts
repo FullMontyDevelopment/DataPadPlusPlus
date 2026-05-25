@@ -20,6 +20,7 @@ export function buildDocumentEditRequest(
   }
 
   const collection = collectionFromQueryText(editContext.queryText)
+  const database = databaseFromQueryText(editContext.queryText)
   const documentId = documents[row.documentIndex]?._id
 
   if (!collection || documentId === undefined) {
@@ -33,6 +34,7 @@ export function buildDocumentEditRequest(
     target: {
       objectKind: 'document',
       path: pathSegments(row.path),
+      ...(database ? { database } : {}),
       collection,
       documentId,
     },
@@ -61,6 +63,17 @@ function collectionFromQueryText(queryText: string) {
     const parsed = JSON.parse(queryText) as { collection?: unknown }
     return typeof parsed.collection === 'string' && parsed.collection.trim()
       ? parsed.collection
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function databaseFromQueryText(queryText: string) {
+  try {
+    const parsed = JSON.parse(queryText) as { database?: unknown }
+    return typeof parsed.database === 'string' && parsed.database.trim()
+      ? parsed.database
       : undefined
   } catch {
     return undefined

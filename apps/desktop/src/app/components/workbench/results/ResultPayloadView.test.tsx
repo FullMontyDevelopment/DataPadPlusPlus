@@ -3,6 +3,8 @@ import type {
   ConnectionProfile,
   DataEditExecutionRequest,
   DataEditExecutionResponse,
+  OperationPlanRequest,
+  OperationPlanResponse,
 } from '@datapadplusplus/shared-types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computeRenderedColumnWidths } from './data-grid-layout'
@@ -57,6 +59,19 @@ describe('ResultPayloadView', () => {
     expect(screen.getByText('profile')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Expand profile' }))
     expect(screen.getByText('Team')).toBeInTheDocument()
+  })
+
+  it('treats malformed null document payload arrays as empty results', () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'document',
+          documents: null,
+        } as unknown as Parameters<typeof ResultPayloadView>[0]['payload']}
+      />,
+    )
+
+    expect(screen.getByText('No documents returned.')).toBeInTheDocument()
   })
 
   it('shows non-string document _id values as the root label value', () => {
@@ -377,7 +392,7 @@ describe('ResultPayloadView', () => {
         editContext={{
           connectionId: 'conn-mongo',
           environmentId: 'env-dev',
-          queryText: '{ "collection": "products", "filter": {}, "limit": 20 }',
+          queryText: '{ "database": "catalog", "collection": "products", "filter": {}, "limit": 20 }',
         }}
         onExecuteDataEdit={executeDataEdit}
         payload={{
@@ -401,6 +416,7 @@ describe('ResultPayloadView', () => {
         target: {
           objectKind: 'document',
           path: ['status'],
+          database: 'catalog',
           collection: 'products',
           documentId: 'account-1',
         },
@@ -417,7 +433,7 @@ describe('ResultPayloadView', () => {
   })
 
   it('uses a confirm dialog instead of typed confirmation for guarded Mongo field edits', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+    const confirmSpy = vi.spyOn(window, 'confirm')
     const executeDataEdit = vi.fn(async (
       request: DataEditExecutionRequest,
     ): Promise<DataEditExecutionResponse> => ({
@@ -440,7 +456,7 @@ describe('ResultPayloadView', () => {
       messages: request.confirmationText ? ['Updated document field.'] : [],
       warnings: request.confirmationText
         ? []
-        : ['This data edit requires confirmation before it can run (CONFIRM QA).'],
+        : ['This data edit needs confirmation before it can run.'],
     }))
 
     render(
@@ -466,7 +482,17 @@ describe('ResultPayloadView', () => {
     fireEvent.blur(valueInput)
 
     await waitFor(() => {
-      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('Apply this document edit?'))
+      expect(
+        screen.getByRole('dialog', { name: 'Apply this document edit?' }),
+      ).toBeInTheDocument()
+    })
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(executeDataEdit).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledTimes(2)
     })
     expect(executeDataEdit).toHaveBeenCalledTimes(2)
     expect(executeDataEdit).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -479,7 +505,7 @@ describe('ResultPayloadView', () => {
 
   it('confirms Mongo document field deletion before executing the edit', async () => {
     const executeDataEdit = vi.fn()
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    const confirmSpy = vi.spyOn(window, 'confirm')
 
     render(
       <ResultPayloadView
@@ -501,7 +527,10 @@ describe('ResultPayloadView', () => {
     fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Field' }))
 
-    expect(confirmSpy).toHaveBeenCalledWith('Delete field status?')
+    expect(screen.getByRole('dialog', { name: 'Delete field status?' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(confirmSpy).not.toHaveBeenCalled()
     expect(executeDataEdit).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
   })
@@ -1367,6 +1396,397 @@ describe('ResultPayloadView', () => {
     expect(screen.queryByRole('button', { name: 'active' })).not.toBeInTheDocument()
   })
 
+  it('deletes the selected Redis key from the key detail view', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: 'redis.data-edit.delete-key',
+        engine: 'redis',
+        summary: 'Deleted key.',
+        generatedRequest: 'DEL product:luna-lamp',
+        requestLanguage: 'redis',
+        destructive: true,
+        confirmationText: 'CONFIRM REDIS DELETE-KEY',
+        requiredPermissions: ['write concrete key'],
+        warnings: [],
+      },
+      messages: ['Deleted key.'],
+      warnings: [],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'INSPECT product:luna-lamp',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'product:luna-lamp',
+          redisType: 'hash',
+          entries: {
+            sku: 'luna-lamp',
+            stock: '18',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete key product:luna-lamp' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        editKind: 'delete-key',
+        confirmationText: 'CONFIRM REDIS DELETE-KEY',
+        target: {
+          objectKind: 'key',
+          path: [],
+          key: 'product:luna-lamp',
+        },
+        changes: [],
+      })
+    })
+    expect(screen.queryByRole('button', { name: 'sku' })).not.toBeInTheDocument()
+    expect(screen.getByText('Deleted product:luna-lamp.')).toBeInTheDocument()
+  })
+
+  it('removes TTL from the selected Redis key detail view', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: 'redis.data-edit.persist-ttl',
+        engine: 'redis',
+        summary: 'Removed TTL.',
+        generatedRequest: 'PERSIST product:luna-lamp',
+        requestLanguage: 'redis',
+        destructive: false,
+        requiredPermissions: ['write concrete key'],
+        warnings: [],
+      },
+      messages: ['Removed TTL.'],
+      warnings: [],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'INSPECT product:luna-lamp',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'product:luna-lamp',
+          redisType: 'hash',
+          ttl: '600s',
+          entries: {
+            sku: 'luna-lamp',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove TTL for product:luna-lamp' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        editKind: 'persist-ttl',
+        target: {
+          objectKind: 'key',
+          path: [],
+          key: 'product:luna-lamp',
+        },
+        changes: [],
+      })
+    })
+    expect(screen.getByText('Removed TTL for product:luna-lamp.')).toBeInTheDocument()
+  })
+
+  it('renames the selected Redis key from the key detail view', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: 'redis.data-edit.rename-key',
+        engine: 'redis',
+        summary: 'Renamed key.',
+        generatedRequest: 'RENAME product:luna-lamp product:luna-lamp:v2',
+        requestLanguage: 'redis',
+        destructive: false,
+        requiredPermissions: ['write concrete key'],
+        warnings: [],
+      },
+      messages: ['Renamed key.'],
+      warnings: [],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'INSPECT product:luna-lamp',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'product:luna-lamp',
+          redisType: 'string',
+          entries: {
+            'product:luna-lamp': 'active',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename key product:luna-lamp' }))
+    fireEvent.change(screen.getByLabelText('New key name'), {
+      target: { value: 'product:luna-lamp:v2' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        editKind: 'rename-key',
+        target: {
+          objectKind: 'key',
+          path: [],
+          key: 'product:luna-lamp',
+        },
+        changes: [
+          {
+            field: 'product:luna-lamp',
+            newName: 'product:luna-lamp:v2',
+          },
+        ],
+      })
+    })
+    expect(screen.getByText('Renamed product:luna-lamp to product:luna-lamp:v2.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'active' })).toBeInTheDocument()
+  })
+
+  it('prepares a Redis key export plan from the key detail view', async () => {
+    const onPlanOperation = vi.fn(async (
+      request: OperationPlanRequest,
+    ): Promise<OperationPlanResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      plan: {
+        operationId: request.operationId,
+        engine: 'redis',
+        summary: 'Export key.',
+        generatedRequest: JSON.stringify({ key: request.objectName }),
+        requestLanguage: 'redis',
+        destructive: false,
+        requiredPermissions: ['read concrete key'],
+        warnings: [],
+      },
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'INSPECT product:luna-lamp',
+        }}
+        onPlanOperation={onPlanOperation}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'product:luna-lamp',
+          redisType: 'hash',
+          ttl: '600s',
+          memoryUsage: '144 B',
+          entries: {
+            sku: 'luna-lamp',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export key product:luna-lamp' }))
+
+    await waitFor(() => {
+      expect(onPlanOperation).toHaveBeenCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        operationId: 'redis.key.export',
+        objectName: 'product:luna-lamp',
+        parameters: {
+          key: 'product:luna-lamp',
+          redisType: 'hash',
+          format: 'json',
+          includeTtl: true,
+          includeType: true,
+          includeMetadata: true,
+        },
+      })
+    })
+    expect(screen.getByText('Export plan ready for product:luna-lamp.')).toBeInTheDocument()
+  })
+
+  it('prepares a Redis key import plan from the key detail view', async () => {
+    const onPlanOperation = vi.fn(async (
+      request: OperationPlanRequest,
+    ): Promise<OperationPlanResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      plan: {
+        operationId: request.operationId,
+        engine: 'redis',
+        summary: 'Import key.',
+        generatedRequest: JSON.stringify({ key: request.objectName }),
+        requestLanguage: 'redis',
+        destructive: false,
+        requiredPermissions: ['write concrete key'],
+        warnings: [],
+      },
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'INSPECT product:luna-lamp',
+        }}
+        onPlanOperation={onPlanOperation}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'product:luna-lamp',
+          redisType: 'hash',
+          entries: {
+            sku: 'luna-lamp',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import key product:luna-lamp' }))
+
+    await waitFor(() => {
+      expect(onPlanOperation).toHaveBeenCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        operationId: 'redis.key.import',
+        objectName: 'product:luna-lamp',
+        parameters: {
+          key: 'product:luna-lamp',
+          redisType: 'hash',
+          format: 'json',
+          mode: 'create-or-replace',
+          ttl: 'preserve',
+          validation: 'validate-before-write',
+        },
+      })
+    })
+    expect(screen.getByText('Import plan ready for product:luna-lamp.')).toBeInTheDocument()
+  })
+
+  it('deletes Redis hash fields from key detail context menus without deleting fake top-level keys', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: 'redis.data-edit.hash-delete-field',
+        engine: 'redis',
+        summary: 'Deleted field.',
+        generatedRequest: 'HDEL product:luna-lamp sku',
+        requestLanguage: 'redis',
+        destructive: true,
+        requiredPermissions: ['write concrete key'],
+        warnings: [],
+      },
+      messages: ['Deleted field.'],
+      warnings: [],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'INSPECT product:luna-lamp',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'product:luna-lamp',
+          redisType: 'hash',
+          entries: {
+            sku: 'luna-lamp',
+            stock: '18',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'luna-lamp' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Field' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        editKind: 'hash-delete-field',
+        confirmationText: 'CONFIRM REDIS HASH-DELETE-FIELD',
+        target: {
+          objectKind: 'key-member',
+          path: ['sku'],
+          key: 'product:luna-lamp',
+        },
+        changes: [
+          {
+            field: 'sku',
+            value: undefined,
+            valueType: 'undefined',
+          },
+        ],
+      })
+    })
+    expect(screen.queryByRole('button', { name: 'sku' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'stock' })).toBeInTheDocument()
+  })
+
   it('shows actual returned documents in the JSON and Raw views', () => {
     const documents = [{ _id: 'product-1', sku: 'SKU-1' }]
     const { rerender } = render(
@@ -1394,6 +1814,20 @@ describe('ResultPayloadView', () => {
     )
 
     expect(screen.getByLabelText('Raw result')).toHaveTextContent('SKU-1')
+  })
+
+  it('renders Redis RESP payloads as raw console text', () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'resp',
+          text: '*2\r\n$3\r\nsku\r\n:42',
+        }}
+      />,
+    )
+
+    expect(screen.getByLabelText('Raw result')).toHaveTextContent('$3')
+    expect(screen.getByLabelText('Raw result')).toHaveTextContent(':42')
   })
 
   it('renders JSON payloads as trees while preserving primitive values', () => {

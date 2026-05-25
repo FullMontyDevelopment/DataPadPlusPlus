@@ -7,6 +7,8 @@ use super::library::{
     remove_connection_library_nodes,
 };
 use super::query_tabs::{build_query_tab, next_query_tab_title};
+use super::response_redaction::redact_connection_test_result_for_environment;
+use super::validators;
 use super::{timestamp_now, ManagedAppState};
 use crate::{
     adapters,
@@ -28,6 +30,7 @@ impl ManagedAppState {
         &mut self,
         connection_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
+        validators::validate_connection_id(connection_id)?;
         let connection = self
             .snapshot
             .connections
@@ -60,6 +63,7 @@ impl ManagedAppState {
         &mut self,
         profile: ConnectionProfile,
     ) -> Result<BootstrapPayload, CommandError> {
+        validators::validate_connection_profile(&profile)?;
         if profile
             .connection_string
             .as_deref()
@@ -93,6 +97,7 @@ impl ManagedAppState {
         connection_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        validators::validate_connection_id(connection_id)?;
 
         let deleted = self
             .snapshot
@@ -151,6 +156,7 @@ impl ManagedAppState {
         &mut self,
         mut profile: EnvironmentProfile,
     ) -> Result<BootstrapPayload, CommandError> {
+        validators::validate_environment_profile(&profile)?;
         normalize_environment_profile(&mut profile);
 
         if let Some(index) = self
@@ -174,6 +180,7 @@ impl ManagedAppState {
         environment_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        validators::validate_environment_id(environment_id)?;
 
         if !self
             .snapshot
@@ -368,13 +375,18 @@ impl ManagedAppState {
         request: ConnectionTestRequest,
     ) -> Result<ConnectionTestResult, CommandError> {
         self.ensure_unlocked()?;
+        validators::validate_connection_test_request(&request)?;
         let started = Instant::now();
-        let (resolved, _resolved_environment, warnings) = self
+        let (resolved, resolved_environment, warnings) = self
             .resolve_connection_profile_with_secret(
                 &request.profile,
                 &request.environment_id,
                 request.secret.as_deref(),
             )?;
+        let extra_secret_values = [request.secret.clone(), resolved.password.clone()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
 
         if has_unresolved_tokens(&resolved.host)
             || resolved
@@ -386,21 +398,31 @@ impl ManagedAppState {
                 .as_ref()
                 .is_some_and(|value| has_unresolved_tokens(value))
         {
-            return Ok(ConnectionTestResult {
-                ok: false,
-                engine: resolved.engine,
-                message: "Connection test detected unresolved variables.".into(),
-                warnings,
-                resolved_host: resolved.host,
-                resolved_database: resolved.database,
-                duration_ms: Some(0),
-            });
+            return Ok(redact_connection_test_result_for_environment(
+                ConnectionTestResult {
+                    ok: false,
+                    engine: resolved.engine,
+                    message: "Connection test detected unresolved variables.".into(),
+                    warnings,
+                    resolved_host: resolved.host,
+                    resolved_database: resolved.database,
+                    duration_ms: Some(0),
+                },
+                &resolved_environment,
+                &extra_secret_values,
+            ));
         }
 
         match adapters::test_connection(&resolved, warnings.clone()).await {
-            Ok(result) => Ok(result),
-            Err(error) => Ok(connection_test_failure_result(
-                &resolved, warnings, error, started,
+            Ok(result) => Ok(redact_connection_test_result_for_environment(
+                result,
+                &resolved_environment,
+                &extra_secret_values,
+            )),
+            Err(error) => Ok(redact_connection_test_result_for_environment(
+                connection_test_failure_result(&resolved, warnings, error, started),
+                &resolved_environment,
+                &extra_secret_values,
             )),
         }
     }

@@ -40,7 +40,7 @@ export function browserDataEditWarnings(
 
   if (
     request.changes.length === 0 &&
-    !['delete-row', 'delete-key', 'delete-item', 'delete-document'].includes(request.editKind)
+    !['delete-row', 'delete-key', 'delete-item', 'delete-document', 'persist-ttl'].includes(request.editKind)
   ) {
     warnings.push('Data edits need at least one change.')
   }
@@ -104,6 +104,7 @@ function mongoEditRequest(request: DataEditPlanRequest) {
   if (request.editKind === 'insert-document') {
     return JSON.stringify(
       {
+        database: request.target.database ?? '<database>',
         collection: request.target.collection ?? '<collection>',
         operation: 'insertOne',
         document: request.changes[0]?.value ?? {},
@@ -122,6 +123,7 @@ function mongoEditRequest(request: DataEditPlanRequest) {
 
   return JSON.stringify(
     {
+      database: request.target.database ?? '<database>',
       collection: request.target.collection ?? '<collection>',
       filter: { _id: request.target.documentId ?? '<_id>' },
       update,
@@ -164,6 +166,14 @@ function keyValueEditRequest(request: DataEditPlanRequest) {
 
   if (request.editKind === 'delete-key') {
     return `DEL ${key}`
+  }
+
+  if (request.editKind === 'rename-key') {
+    return `RENAME ${key} ${firstChange?.newName ?? '<new-key>'}`
+  }
+
+  if (request.editKind === 'persist-ttl') {
+    return `PERSIST ${key}`
   }
 
   if (request.editKind === 'hash-set-field') {

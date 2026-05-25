@@ -7,9 +7,21 @@ export type ExecuteDataEdit = (
   request: DataEditExecutionRequest,
 ) => Promise<DataEditExecutionResponse | undefined>
 
-interface ExecuteDataEditOptions {
+export type DataEditConfirmationHandler = (
+  response: DataEditExecutionResponse,
+  options: ExecuteDataEditOptions,
+) => boolean | Promise<boolean>
+
+export interface ExecuteDataEditOptions {
   actionLabel?: string
+  confirm?: DataEditConfirmationHandler
   confirmationTitle?: string
+}
+
+export interface DataEditConfirmationDetails {
+  action: string
+  reasons: string[]
+  title: string
 }
 
 export async function executeDataEditWithConfirmation(
@@ -29,7 +41,17 @@ export async function executeDataEditWithConfirmation(
     return response ? withoutTypedConfirmationWarnings(response) : response
   }
 
-  const confirmed = window.confirm(dataEditConfirmationMessage(response, options))
+  if (!options.confirm) {
+    return {
+      ...withoutTypedConfirmationWarnings(response),
+      warnings: [
+        ...withoutTypedConfirmationWarnings(response).warnings,
+        'Data edit canceled because confirmation UI is unavailable.',
+      ],
+    }
+  }
+
+  const confirmed = await options.confirm(withoutTypedConfirmationWarnings(response), options)
   if (!confirmed) {
     return {
       ...withoutTypedConfirmationWarnings(response),
@@ -62,7 +84,7 @@ export function dataEditStatusMessage(
   )
 }
 
-function dataEditConfirmationMessage(
+export function dataEditConfirmationDetails(
   response: DataEditExecutionResponse,
   options: ExecuteDataEditOptions,
 ) {
@@ -73,18 +95,8 @@ function dataEditConfirmationMessage(
     .slice(0, 4)
   const title = options.confirmationTitle ?? 'Apply this data edit?'
   const action = options.actionLabel ?? cleanResponse.plan.summary
-  const detailLines = [
-    title,
-    '',
-    action,
-    ...(
-      reasons.length > 0
-        ? ['', 'Guardrails:', ...reasons.map((reason) => `- ${reason}`)]
-        : []
-    ),
-  ]
 
-  return detailLines.join('\n')
+  return { action, reasons, title }
 }
 
 function withoutTypedConfirmationWarnings(response: DataEditExecutionResponse) {

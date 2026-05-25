@@ -1,7 +1,14 @@
 import type { AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, DataEditExecutionRequest, DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse, DatastoreExperienceResponse, ExecutionResponse, ExecutionResultEnvelope, ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse, OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse, OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse, ResultRenderer, RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, StructureRequest, StructureResponse } from '@datapadplusplus/shared-types'
 import { buildDatastoreExperiences, executeDataEditLocally, planDataEditLocally } from './browser-datastore-platform'
 import { buildOperationManifestsForConnection, collectDiagnosticsLocally, executeOperationLocally, inspectPermissionsLocally, planOperationLocally } from './browser-operations'
-import { redactExecutionResultForEnvironment, redactForEnvironment } from './browser-response-redaction'
+import {
+  redactExecutionResultForEnvironment,
+  redactExplorerInspectForEnvironment,
+  redactExplorerResponseForEnvironment,
+  redactForEnvironment,
+  redactRedisKeyScanForEnvironment,
+  redactStructureResponseForEnvironment,
+} from './browser-response-redaction'
 import { createStructureResponseLocally } from './browser-structure'
 import { buildExecutionCapabilities, findConnection, loadBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
@@ -41,14 +48,14 @@ export const clientAdapters = {
       request.limit ?? 50,
     )
 
-    return {
+    return redactExplorerResponseForEnvironment({
       connectionId: request.connectionId,
       environmentId: request.environmentId,
       scope: request.scope,
       summary: `Preview explorer loaded ${nodes.length} node(s) for ${connection.name}.`,
       capabilities: buildExecutionCapabilities(connection, snapshot),
       nodes,
-    }
+    }, resolveEnvironment(snapshot.environments, request.environmentId))
   },
 
   async loadStructureMap(request: StructureRequest): Promise<StructureResponse> {
@@ -57,7 +64,11 @@ export const clientAdapters = {
       return invokeDesktop<StructureResponse>('load_structure_map', { request })
     }
 
-    return createStructureResponseLocally(loadBrowserSnapshot(), request)
+    const snapshot = loadBrowserSnapshot()
+    return redactStructureResponseForEnvironment(
+      createStructureResponseLocally(snapshot, request),
+      resolveEnvironment(snapshot.environments, request.environmentId),
+    )
   },
 
   async scanRedisKeys(request: RedisKeyScanRequest): Promise<RedisKeyScanResponse> {
@@ -81,7 +92,7 @@ export const clientAdapters = {
       .filter((item) => !pattern || item.key.toLowerCase().includes(pattern))
       .filter((item) => typeFilter === 'all' || item.type === typeFilter)
 
-    return {
+    return redactRedisKeyScanForEnvironment({
       connectionId: request.connectionId,
       environmentId: request.environmentId,
       databaseIndex: request.databaseIndex ?? 0,
@@ -91,7 +102,7 @@ export const clientAdapters = {
       usedTypeFilterFallback: false,
       moduleTypes: [],
       warnings: connection ? [] : ['Connection was not found in preview mode.'],
-    }
+    }, resolveEnvironment(snapshot.environments, request.environmentId))
   },
 
   async inspectRedisKey(request: RedisKeyInspectRequest): Promise<ExecutionResponse> {
@@ -181,7 +192,11 @@ export const clientAdapters = {
     }
 
     const { inspectExplorerNodeLocally } = await import('./browser-explorer')
-    return inspectExplorerNodeLocally(loadBrowserSnapshot(), request)
+    const snapshot = loadBrowserSnapshot()
+    return redactExplorerInspectForEnvironment(
+      inspectExplorerNodeLocally(snapshot, request),
+      resolveEnvironment(snapshot.environments, request.environmentId),
+    )
   },
 
   async listDatastoreExperiences(): Promise<DatastoreExperienceResponse> {

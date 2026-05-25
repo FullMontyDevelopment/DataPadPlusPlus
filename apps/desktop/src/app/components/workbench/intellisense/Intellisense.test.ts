@@ -180,6 +180,12 @@ describe('query intellisense', () => {
         expect.objectContaining({ label: 'session:*', kind: 'value' }),
       ]),
     )
+    expect(suggestions).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'SET' }),
+        expect.objectContaining({ label: 'DEL' }),
+      ]),
+    )
   })
 
   it('has native provider coverage for search, DynamoDB, and Cassandra', () => {

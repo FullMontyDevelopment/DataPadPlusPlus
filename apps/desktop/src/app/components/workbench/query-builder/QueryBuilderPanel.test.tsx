@@ -478,7 +478,7 @@ describe('QueryBuilderPanel', () => {
       warnings: [],
       messages: ['Deleted key.'],
     })
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    const confirmSpy = vi.spyOn(window, 'confirm')
 
     render(
       <BuilderHarness
@@ -514,7 +514,12 @@ describe('QueryBuilderPanel', () => {
     await waitFor(() => expect(screen.getByText('product:luna-lamp')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Delete product:luna-lamp' }))
 
-    expect(confirmSpy).toHaveBeenCalledWith('Delete Redis key product:luna-lamp?')
+    expect(
+      screen.getByRole('dialog', { name: 'Delete Redis key product:luna-lamp?' }),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(confirmSpy).not.toHaveBeenCalled()
     expect(onExecuteDataEdit).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
   })

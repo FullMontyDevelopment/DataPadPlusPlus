@@ -23,6 +23,7 @@ import {
 } from './data-grid-model'
 import { DataGridToolbar } from './DataGridToolbar'
 import { useDataGridEditing } from './data-grid-editing'
+import { useDataEditConfirmation } from './use-data-edit-confirmation'
 import type { DocumentEditContext } from './document-edit-context'
 import { clearFieldDragData, writeFieldDragData } from './field-drag'
 import { copyText } from './payload-export'
@@ -37,7 +38,7 @@ interface DataGridViewProps {
 }
 
 interface ContextMenuState { sourceIndex: number; x: number; y: number }
-interface PendingDeleteState { expectedText: string; rowNumber: number; sourceIndex: number }
+interface PendingDeleteState { rowNumber: number; sourceIndex: number }
 
 export function DataGridView({
   connection,
@@ -59,6 +60,7 @@ export function DataGridView({
   const parentRef = useRef<HTMLDivElement>(null)
   const dragStartRef = useRef<{ row: number; column: number } | null>(null)
   const resizeStartRef = useRef<{ column: number; x: number; width: number } | null>(null)
+  const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const {
     beginEdit,
     canDeleteRow,
@@ -77,6 +79,7 @@ export function DataGridView({
     rows: draftRows,
     setRows: setDraftRows,
     setStatusMessage: setCopyMessage,
+    confirmDataEdit,
     onExecuteDataEdit,
   })
 
@@ -270,7 +273,6 @@ export function DataGridView({
     }
 
     setPendingDelete({
-      expectedText: request.confirmationText,
       rowNumber: sourceIndex + 1,
       sourceIndex,
     })
@@ -286,7 +288,6 @@ export function DataGridView({
       <DataGridInsertRow columns={columns} canInsert={canInsertRow()} onInsert={insertRow} />
       {pendingDelete ? (
         <DataGridDeleteConfirmation
-          expectedText={pendingDelete.expectedText}
           rowNumber={pendingDelete.rowNumber}
           onCancel={() => setPendingDelete(undefined)}
           onConfirm={() => {
@@ -296,6 +297,7 @@ export function DataGridView({
           }}
         />
       ) : null}
+      {confirmationDialog}
       <div
         className="data-grid"
         ref={parentRef}

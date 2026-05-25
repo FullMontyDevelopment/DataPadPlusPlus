@@ -1,5 +1,8 @@
 import type { ExecutionRequest, ExecutionResponse, ResultPayload, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
-import { interpolateEnvironmentVariables } from '../../app/state/environment-variables'
+import {
+  interpolateEnvironmentVariables,
+  referencedSensitiveEnvironmentVariableKeys,
+} from '../../app/state/environment-variables'
 import { createId, evaluateGuardrails, resolveEnvironment, simulateExecution } from '../../app/state/helpers'
 import { redactExecutionResultForEnvironment, redactForEnvironment } from './browser-response-redaction'
 import { cloneSnapshot, confirmationGuardrailId, findConnection, findEnvironment, findTab } from './browser-store'
@@ -27,6 +30,63 @@ export function applyExecutionRequestLocally(
       : request.mode === 'selection' && request.selectedText
       ? request.selectedText
       : request.queryText
+
+  const referencedSecrets = referencedSensitiveEnvironmentVariableKeys(
+    queryTemplate,
+    resolvedEnvironment.sensitiveKeys,
+  )
+  if (referencedSecrets.length > 0) {
+    const executionId = request.executionId ?? createId('execution')
+    tab.queryText = request.queryText
+    if (request.executionInputMode === 'script') {
+      tab.scriptText = request.scriptText
+    }
+    tab.queryViewMode = request.executionInputMode
+    tab.status = 'blocked'
+    tab.lastRunAt = new Date().toISOString()
+    tab.history.unshift({
+      id: createId('history'),
+      queryText: queryTemplate,
+      executedAt: tab.lastRunAt,
+      status: tab.status,
+    })
+    tab.error = {
+      code: 'secret-variable-preview-blocked',
+      message:
+        'Secret environment variables are resolved only by the desktop secret store. Browser preview will not substitute masked values into executable text.',
+    }
+    tab.result = undefined
+    next.guardrails = [{
+      id: confirmationGuardrailId(
+        connection.id,
+        environment.id,
+        request.mode ?? 'full',
+        queryTemplate,
+      ),
+      reasons: [
+        `Secret variable ${referencedSecrets[0]} cannot be resolved in browser preview.`,
+      ],
+      safeModeApplied: next.preferences.safeModeEnabled || environment.safeMode,
+      status: 'block',
+    }]
+    next.ui.bottomPanelVisible = true
+    next.ui.activeBottomPanelTab = 'messages'
+    next.updatedAt = new Date().toISOString()
+
+    return {
+      snapshot: next,
+      response: {
+        executionId,
+        tab,
+        result: undefined,
+        guardrail: next.guardrails[0]!,
+        diagnostics: [
+          'Secret environment variables are not substituted in browser preview.',
+        ],
+      },
+    }
+  }
+
   const queryText = interpolateEnvironmentVariables(
     queryTemplate,
     resolvedEnvironment.variables,

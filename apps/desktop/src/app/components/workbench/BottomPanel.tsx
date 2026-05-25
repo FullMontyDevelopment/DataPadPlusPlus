@@ -11,6 +11,8 @@ import type {
   ExecutionResponse,
   ExecutionResultEnvelope,
   ExplorerInspectResponse,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ResultPayload,
 } from '@datapadplusplus/shared-types'
@@ -57,6 +59,9 @@ interface BottomPanelProps {
   onExecuteDataEdit(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
+  onPlanOperation?(
+    request: OperationPlanRequest,
+  ): Promise<OperationPlanResponse | undefined>
   onDismissWorkbenchMessage(id: string): void
   onClearWorkbenchMessages(): void
 }
@@ -86,6 +91,7 @@ export function BottomPanel({
   onApplyInspectionTemplate,
   onRestoreHistory,
   onExecuteDataEdit,
+  onPlanOperation,
   onDismissWorkbenchMessage,
   onClearWorkbenchMessages,
 }: BottomPanelProps) {
@@ -333,6 +339,7 @@ export function BottomPanel({
             onSelectRenderer={onSelectRenderer}
             onLoadNextPage={onLoadNextPage}
             onExecuteDataEdit={onExecuteDataEdit}
+            onPlanOperation={onPlanOperation}
           />
         ) : null}
 

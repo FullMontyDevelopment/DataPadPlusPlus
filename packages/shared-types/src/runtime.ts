@@ -227,6 +227,7 @@ export type DataEditKind =
 export interface DataEditTarget {
   objectKind: string
   path: string[]
+  database?: string
   schema?: string
   table?: string
   collection?: string

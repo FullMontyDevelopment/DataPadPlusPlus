@@ -18,8 +18,10 @@ use super::{
     response_redaction::{
         redact_adapter_diagnostics_for_environment, redact_data_edit_plan_response_for_environment,
         redact_data_edit_response_for_environment, redact_execution_result_for_environment,
-        redact_explorer_inspection_for_environment, redact_operation_plan_response_for_environment,
-        redact_operation_response_for_environment,
+        redact_explorer_inspection_for_environment, redact_explorer_response_for_environment,
+        redact_operation_plan_response_for_environment, redact_operation_response_for_environment,
+        redact_permission_inspection_response_for_environment,
+        redact_redis_key_scan_response_for_environment, redact_structure_response_for_environment,
     },
     timestamp_now, ManagedAppState,
 };
@@ -48,9 +50,12 @@ impl ManagedAppState {
         self.ensure_unlocked()?;
         validate_explorer_request(&mut request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
-        let (resolved, _, _) =
+        let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        let response = adapters::list_explorer_nodes(&resolved, &request).await?;
+        let response = redact_explorer_response_for_environment(
+            adapters::list_explorer_nodes(&resolved, &request).await?,
+            &resolved_environment,
+        );
 
         if request.scope.is_none() {
             self.snapshot.explorer_nodes = response.nodes.clone();
@@ -84,9 +89,12 @@ impl ManagedAppState {
         self.ensure_unlocked()?;
         validate_structure_request(&mut request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
-        let (resolved, _, _) =
+        let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        adapters::load_structure_map(&resolved, &request).await
+        Ok(redact_structure_response_for_environment(
+            adapters::load_structure_map(&resolved, &request).await?,
+            &resolved_environment,
+        ))
     }
 
     pub async fn scan_redis_keys(
@@ -96,9 +104,12 @@ impl ManagedAppState {
         self.ensure_unlocked()?;
         validate_redis_key_scan_request(&mut request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
-        let (resolved, _, _) =
+        let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        adapters::scan_redis_keys(&resolved, &request).await
+        Ok(redact_redis_key_scan_response_for_environment(
+            adapters::scan_redis_keys(&resolved, &request).await?,
+            &resolved_environment,
+        ))
     }
 
     pub async fn inspect_redis_key(
@@ -297,9 +308,7 @@ impl ManagedAppState {
                         .map(|item| item.execution_support.as_str())
                         .unwrap_or("unsupported"),
                     plan,
-                    vec![format!(
-                        "Type `{expected}` before executing this operation."
-                    )],
+                    vec!["This operation needs confirmation before it can run.".into()],
                 );
                 return Ok(redact_operation_response_for_environment(
                     response,
@@ -399,9 +408,7 @@ impl ManagedAppState {
                 let response = data_edit_execution_blocked_response(
                     &request,
                     plan_response,
-                    vec![format!(
-                        "This data edit requires confirmation before it can run ({expected})."
-                    )],
+                    vec!["This data edit needs confirmation before it can run.".into()],
                 );
                 return Ok(redact_data_edit_response_for_environment(
                     response,
@@ -425,15 +432,18 @@ impl ManagedAppState {
         self.ensure_unlocked()?;
         validate_permission_inspection_request(&request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
-        let (resolved, _, _) =
+        let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
         let inspection = adapters::inspect_permissions(&resolved).await?;
 
-        Ok(PermissionInspectionResponse {
-            connection_id: request.connection_id,
-            environment_id: request.environment_id,
-            inspection,
-        })
+        Ok(redact_permission_inspection_response_for_environment(
+            PermissionInspectionResponse {
+                connection_id: request.connection_id,
+                environment_id: request.environment_id,
+                inspection,
+            },
+            &resolved_environment,
+        ))
     }
 
     pub async fn collect_adapter_diagnostics(

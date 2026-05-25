@@ -7,7 +7,12 @@ use super::query_tabs::{
     query_tab_title_parts,
 };
 use super::ui::focus_query_tab;
-use super::validators::validate_create_object_view_tab_request;
+use super::validators::{
+    validate_connection_id, validate_create_object_view_tab_request,
+    validate_create_scoped_query_tab_request, validate_environment_id,
+    validate_query_tab_reorder_request, validate_required_tab_id,
+    validate_update_query_builder_state_request, validate_update_query_tab_request,
+};
 use super::{generate_id, timestamp_now, ManagedAppState};
 use crate::domain::{
     error::CommandError,
@@ -20,6 +25,7 @@ use crate::domain::{
 
 impl ManagedAppState {
     pub fn set_active_tab(&mut self, tab_id: &str) -> Result<BootstrapPayload, CommandError> {
+        validate_required_tab_id(tab_id)?;
         let tab = self
             .snapshot
             .tabs
@@ -40,6 +46,8 @@ impl ManagedAppState {
         tab_id: &str,
         environment_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_required_tab_id(tab_id)?;
+        validate_environment_id(environment_id)?;
         let environment_exists = self
             .snapshot
             .environments
@@ -77,6 +85,7 @@ impl ManagedAppState {
         &mut self,
         connection_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_connection_id(connection_id)?;
         let connection = self
             .snapshot
             .connections
@@ -99,6 +108,7 @@ impl ManagedAppState {
         &mut self,
         connection_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_connection_id(connection_id)?;
         let connection = self
             .snapshot
             .connections
@@ -144,6 +154,10 @@ impl ManagedAppState {
         connection_id: &str,
         environment_id: Option<String>,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_connection_id(connection_id)?;
+        if let Some(environment_id) = environment_id.as_deref() {
+            validate_environment_id(environment_id)?;
+        }
         let connection = self
             .snapshot
             .connections
@@ -190,6 +204,7 @@ impl ManagedAppState {
         &mut self,
         environment_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_environment_id(environment_id)?;
         let environment = self
             .snapshot
             .environments
@@ -293,6 +308,7 @@ impl ManagedAppState {
         &mut self,
         request: CreateScopedQueryTabRequest,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_create_scoped_query_tab_request(&request)?;
         let connection = self
             .snapshot
             .connections
@@ -336,6 +352,7 @@ impl ManagedAppState {
     }
 
     pub fn close_query_tab(&mut self, tab_id: &str) -> Result<BootstrapPayload, CommandError> {
+        validate_required_tab_id(tab_id)?;
         let tab_index = self
             .snapshot
             .tabs
@@ -393,6 +410,7 @@ impl ManagedAppState {
         &mut self,
         closed_tab_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_required_tab_id(closed_tab_id)?;
         let closed_tab_index = self
             .snapshot
             .closed_tabs
@@ -422,6 +440,7 @@ impl ManagedAppState {
         &mut self,
         request: QueryTabReorderRequest,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_query_tab_reorder_request(&request)?;
         reorder_query_tabs_in_place(&mut self.snapshot.tabs, request.ordered_tab_ids)?;
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;
@@ -434,6 +453,7 @@ impl ManagedAppState {
         query_text: &str,
         query_view_mode: Option<String>,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_update_query_tab_request(tab_id, query_text, query_view_mode.as_deref())?;
         let tab = self
             .snapshot
             .tabs
@@ -463,6 +483,7 @@ impl ManagedAppState {
         &mut self,
         request: UpdateQueryBuilderStateRequest,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_update_query_builder_state_request(&request)?;
         let tab = self
             .snapshot
             .tabs
@@ -493,6 +514,7 @@ impl ManagedAppState {
         tab_id: &str,
         title: &str,
     ) -> Result<BootstrapPayload, CommandError> {
+        validate_required_tab_id(tab_id)?;
         let tab = self
             .snapshot
             .tabs

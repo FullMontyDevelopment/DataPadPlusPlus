@@ -1,6 +1,8 @@
 import { act, useState } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import type {
+  DataEditExecutionRequest,
+  DataEditExecutionResponse,
   QueryBuilderState,
   QueryTabState,
   RedisKeyBrowserState,
@@ -110,13 +112,75 @@ describe('RedisKeyBrowserPanel', () => {
     )
     expect(onBuilderStateChange).not.toHaveBeenCalled()
   })
+
+  it('confirms key deletion in-app before executing a Redis edit', async () => {
+    vi.useFakeTimers()
+    const onExecuteDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> => ({
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'delete-key',
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: 'redis.data-edit.delete-key',
+        engine: 'redis',
+        summary: 'Deleted key.',
+        generatedRequest: 'DEL perf:1',
+        requestLanguage: 'redis',
+        destructive: true,
+        requiredPermissions: ['delete redis key'],
+        warnings: [],
+      },
+      messages: ['Deleted key.'],
+      warnings: [],
+    }))
+    const confirmSpy = vi.spyOn(window, 'confirm')
+
+    render(
+      <RedisHarness
+        onBuilderStateChange={vi.fn()}
+        onExecuteDataEdit={onExecuteDataEdit}
+        onScanRedisKeys={vi.fn(async () => redisScanResponse())}
+      />,
+    )
+
+    await flushDebouncedScan()
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete perf:1' }))
+
+    expect(screen.getByRole('dialog', { name: 'Delete Redis key perf:1?' })).toBeInTheDocument()
+    expect(onExecuteDataEdit).not.toHaveBeenCalled()
+    expect(confirmSpy).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await flushPromises()
+
+    expect(onExecuteDataEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        editKind: 'delete-key',
+        changes: [],
+        target: expect.objectContaining({
+          objectKind: 'key',
+          key: 'perf:1',
+        }),
+      }),
+    )
+    expect(screen.queryByRole('button', { name: 'Delete perf:1' })).not.toBeInTheDocument()
+    confirmSpy.mockRestore()
+  })
 })
 
 function RedisHarness({
   onBuilderStateChange,
+  onExecuteDataEdit,
   onScanRedisKeys,
 }: {
   onBuilderStateChange(tabId: string, builderState: QueryBuilderState): void
+  onExecuteDataEdit?(
+    request: DataEditExecutionRequest,
+  ): Promise<DataEditExecutionResponse | undefined>
   onScanRedisKeys(request: RedisKeyScanRequest): Promise<RedisKeyScanResponse | undefined>
 }) {
   const [builderState, setBuilderState] = useState<RedisKeyBrowserState>(
@@ -146,6 +210,7 @@ function RedisHarness({
         setBuilderState(nextState as RedisKeyBrowserState)
         onBuilderStateChange(tabId, nextState)
       }}
+      onExecuteDataEdit={onExecuteDataEdit}
       onScanRedisKeys={onScanRedisKeys}
     />
   )

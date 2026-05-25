@@ -3,9 +3,11 @@ use serde_json::Value;
 use crate::domain::{
     error::redact_sensitive_text,
     models::{
-        AdapterDiagnostics, DataEditExecutionResponse, ExecutionResultEnvelope,
-        ExplorerInspectResponse, OperationExecutionResponse, OperationPlan, OperationPlanResponse,
-        PermissionInspection, ResolvedEnvironment, ResultPageResponse,
+        AdapterDiagnostics, ConnectionTestResult, DataEditExecutionResponse,
+        ExecutionResultEnvelope, ExplorerInspectResponse, ExplorerResponse,
+        OperationExecutionResponse, OperationPlan, OperationPlanResponse, PermissionInspection,
+        PermissionInspectionResponse, RedisKeyScanResponse, ResolvedEnvironment,
+        ResultPageResponse, StructureResponse,
     },
 };
 
@@ -50,6 +52,27 @@ pub(super) fn redact_result_page_for_environment(
     response
 }
 
+pub(super) fn redact_connection_test_result_for_environment(
+    mut response: ConnectionTestResult,
+    environment: &ResolvedEnvironment,
+    extra_secret_values: &[String],
+) -> ConnectionTestResult {
+    let mut secret_values = secret_values(environment);
+    secret_values.extend(
+        extra_secret_values
+            .iter()
+            .filter(|value| !value.trim().is_empty())
+            .cloned(),
+    );
+
+    response.message = redact_runtime_string(&response.message, &secret_values);
+    response.warnings = redact_strings(response.warnings, &secret_values);
+    response.resolved_host = redact_runtime_string(&response.resolved_host, &secret_values);
+    response.resolved_database =
+        redact_optional_string(&response.resolved_database, &secret_values);
+    response
+}
+
 pub(super) fn redact_explorer_inspection_for_environment(
     mut response: ExplorerInspectResponse,
     environment: &ResolvedEnvironment,
@@ -64,6 +87,98 @@ pub(super) fn redact_explorer_inspection_for_environment(
         redact_runtime_value(payload, &secret_values);
     }
 
+    response
+}
+
+pub(super) fn redact_explorer_response_for_environment(
+    mut response: ExplorerResponse,
+    environment: &ResolvedEnvironment,
+) -> ExplorerResponse {
+    let secret_values = secret_values(environment);
+
+    response.summary = redact_runtime_string(&response.summary, &secret_values);
+    for node in &mut response.nodes {
+        node.label = redact_runtime_string(&node.label, &secret_values);
+        node.detail = redact_runtime_string(&node.detail, &secret_values);
+        node.path = node.path.as_ref().map(|path| {
+            path.iter()
+                .map(|part| redact_runtime_string(part, &secret_values))
+                .collect()
+        });
+        node.query_template = redact_optional_string(&node.query_template, &secret_values);
+    }
+
+    response
+}
+
+pub(super) fn redact_structure_response_for_environment(
+    mut response: StructureResponse,
+    environment: &ResolvedEnvironment,
+) -> StructureResponse {
+    let secret_values = secret_values(environment);
+
+    response.summary = redact_runtime_string(&response.summary, &secret_values);
+    response.next_cursor = redact_optional_string(&response.next_cursor, &secret_values);
+
+    for group in &mut response.groups {
+        group.label = redact_runtime_string(&group.label, &secret_values);
+        group.detail = redact_optional_string(&group.detail, &secret_values);
+    }
+
+    for node in &mut response.nodes {
+        node.label = redact_runtime_string(&node.label, &secret_values);
+        node.detail = redact_optional_string(&node.detail, &secret_values);
+        for metric in &mut node.metrics {
+            redact_structure_metric(metric, &secret_values);
+        }
+        for field in &mut node.fields {
+            field.name = redact_runtime_string(&field.name, &secret_values);
+            field.data_type = redact_runtime_string(&field.data_type, &secret_values);
+            field.detail = redact_optional_string(&field.detail, &secret_values);
+        }
+        if let Some(sample) = &mut node.sample {
+            redact_runtime_value(sample, &secret_values);
+        }
+    }
+
+    for edge in &mut response.edges {
+        edge.label = redact_runtime_string(&edge.label, &secret_values);
+    }
+
+    for metric in &mut response.metrics {
+        redact_structure_metric(metric, &secret_values);
+    }
+
+    response
+}
+
+pub(super) fn redact_redis_key_scan_response_for_environment(
+    mut response: RedisKeyScanResponse,
+    environment: &ResolvedEnvironment,
+) -> RedisKeyScanResponse {
+    let secret_values = secret_values(environment);
+
+    response.cursor = redact_runtime_string(&response.cursor, &secret_values);
+    response.next_cursor = redact_optional_string(&response.next_cursor, &secret_values);
+    response.module_types = redact_strings(response.module_types, &secret_values);
+    response.warnings = redact_strings(response.warnings, &secret_values);
+    for key in &mut response.keys {
+        key.key = redact_runtime_string(&key.key, &secret_values);
+        key.key_type = redact_runtime_string(&key.key_type, &secret_values);
+        key.ttl_label = redact_optional_string(&key.ttl_label, &secret_values);
+        key.memory_usage_label = redact_optional_string(&key.memory_usage_label, &secret_values);
+        key.encoding = redact_optional_string(&key.encoding, &secret_values);
+    }
+
+    response
+}
+
+pub(super) fn redact_permission_inspection_response_for_environment(
+    mut response: PermissionInspectionResponse,
+    environment: &ResolvedEnvironment,
+) -> PermissionInspectionResponse {
+    let secret_values = secret_values(environment);
+    response.inspection = redact_permission_inspection(response.inspection, &secret_values);
     response
 }
 
@@ -159,19 +274,10 @@ fn secret_values(environment: &ResolvedEnvironment) -> Vec<String> {
 fn redact_operation_plan(plan: &mut OperationPlan, secret_values: &[String]) {
     plan.summary = redact_runtime_string(&plan.summary, secret_values);
     plan.generated_request = redact_runtime_string(&plan.generated_request, secret_values);
-    plan.estimated_cost = plan
-        .estimated_cost
-        .as_ref()
-        .map(|value| redact_runtime_string(value, secret_values));
-    plan.estimated_scan_impact = plan
-        .estimated_scan_impact
-        .as_ref()
-        .map(|value| redact_runtime_string(value, secret_values));
+    plan.estimated_cost = redact_optional_string(&plan.estimated_cost, secret_values);
+    plan.estimated_scan_impact = redact_optional_string(&plan.estimated_scan_impact, secret_values);
     plan.required_permissions = redact_strings(plan.required_permissions.clone(), secret_values);
-    plan.confirmation_text = plan
-        .confirmation_text
-        .as_ref()
-        .map(|value| redact_runtime_string(value, secret_values));
+    plan.confirmation_text = redact_optional_string(&plan.confirmation_text, secret_values);
     plan.warnings = redact_strings(plan.warnings.clone(), secret_values);
 }
 
@@ -193,14 +299,19 @@ fn redact_adapter_diagnostics(
     diagnostics
 }
 
+fn redact_structure_metric(
+    metric: &mut crate::domain::models::StructureMetric,
+    secret_values: &[String],
+) {
+    metric.label = redact_runtime_string(&metric.label, secret_values);
+    metric.value = redact_runtime_string(&metric.value, secret_values);
+}
+
 fn redact_permission_inspection(
     mut inspection: PermissionInspection,
     secret_values: &[String],
 ) -> PermissionInspection {
-    inspection.principal = inspection
-        .principal
-        .as_ref()
-        .map(|value| redact_runtime_string(value, secret_values));
+    inspection.principal = redact_optional_string(&inspection.principal, secret_values);
     inspection.effective_roles = redact_strings(inspection.effective_roles, secret_values);
     inspection.effective_privileges =
         redact_strings(inspection.effective_privileges, secret_values);
@@ -217,6 +328,12 @@ fn redact_strings(values: Vec<String>, secret_values: &[String]) -> Vec<String> 
         .into_iter()
         .map(|value| redact_runtime_string(&value, secret_values))
         .collect()
+}
+
+fn redact_optional_string(value: &Option<String>, secret_values: &[String]) -> Option<String> {
+    value
+        .as_ref()
+        .map(|value| redact_runtime_string(value, secret_values))
 }
 
 fn redact_runtime_value(value: &mut Value, secret_values: &[String]) {

@@ -1,3 +1,5 @@
+import { DeleteConfirmationPanel } from './DeleteConfirmationPanel'
+
 interface KeyValueAddPanelProps {
   duplicate: boolean
   keyName: string
@@ -93,36 +95,72 @@ export function KeyValueTtlPanel({
   )
 }
 
-interface KeyValueDeletePanelProps {
-  expectedText: string
+interface KeyValueRenamePanelProps {
+  duplicate: boolean
   keyName: string
+  nextKeyName: string
   onCancel(): void
-  onConfirm(): void
+  onRename(): void
+  onNextKeyNameChange(value: string): void
 }
 
-export function KeyValueDeletePanel({
-  expectedText,
+export function KeyValueRenamePanel({
+  duplicate,
   keyName,
+  nextKeyName,
   onCancel,
-  onConfirm,
-}: KeyValueDeletePanelProps) {
+  onRename,
+  onNextKeyNameChange,
+}: KeyValueRenamePanelProps) {
+  const trimmed = nextKeyName.trim()
+  const disabled = trimmed.length === 0 || trimmed === keyName || duplicate
+
   return (
     <div className="data-grid-confirmation">
       <div>
-        <strong>Delete key {keyName}</strong>
-        <span>DataPad++ will run this guarded delete with confirmation.</span>
+        <strong>Rename {keyName}</strong>
+        <span>{duplicate ? 'A key with that name already exists in the loaded result.' : 'Keep the value and TTL with a new key name.'}</span>
       </div>
+      <input
+        aria-label="New key name"
+        value={nextKeyName}
+        onChange={(event) => onNextKeyNameChange(event.target.value)}
+      />
       <button type="button" className="drawer-button" onClick={onCancel}>
         Cancel
       </button>
       <button
         type="button"
         className="drawer-button drawer-button--primary"
-        title={`Uses ${expectedText}`}
-        onClick={onConfirm}
+        disabled={disabled}
+        onClick={onRename}
       >
-        Delete
+        Rename
       </button>
     </div>
+  )
+}
+
+interface KeyValueDeletePanelProps {
+  itemLabel?: string
+  keyName: string
+  onCancel(): void
+  onConfirm(): void
+}
+
+export function KeyValueDeletePanel({
+  itemLabel = 'key',
+  keyName,
+  onCancel,
+  onConfirm,
+}: KeyValueDeletePanelProps) {
+  return (
+    <DeleteConfirmationPanel
+      title={`Delete ${itemLabel} ${keyName}?`}
+      body="DataPad++ will run this guarded delete with confirmation."
+      danger={false}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   )
 }

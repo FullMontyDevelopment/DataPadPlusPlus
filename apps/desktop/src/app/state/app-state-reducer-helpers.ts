@@ -138,22 +138,33 @@ export function applyExecutionToPayload(
   const next = clonePayload(payload)
   const index = next.snapshot.tabs.findIndex((item) => item.id === execution.tab.id)
 
+  const executionTab = {
+    ...execution.tab,
+    result: execution.tab.result
+      ? {
+          ...execution.tab.result,
+          payloads: execution.tab.result.payloads.map((item) =>
+            normalizeResultPayload(item, execution.tab.result?.defaultRenderer)),
+        }
+      : execution.tab.result,
+  }
+
   if (index >= 0) {
     const currentTab = next.snapshot.tabs[index]
     next.snapshot.tabs[index] = {
-      ...execution.tab,
-      dirty: currentTab?.dirty ?? execution.tab.dirty,
+      ...executionTab,
+      dirty: currentTab?.dirty ?? executionTab.dirty,
     }
   } else {
-    next.snapshot.tabs.push(execution.tab)
+    next.snapshot.tabs.push(executionTab)
   }
 
   next.snapshot.guardrails = [execution.guardrail]
-  next.snapshot.ui.activeTabId = execution.tab.id
-  next.snapshot.ui.activeConnectionId = execution.tab.connectionId
-  next.snapshot.ui.activeEnvironmentId = execution.tab.environmentId
+  next.snapshot.ui.activeTabId = executionTab.id
+  next.snapshot.ui.activeConnectionId = executionTab.connectionId
+  next.snapshot.ui.activeEnvironmentId = executionTab.environmentId
   next.snapshot.ui.bottomPanelVisible = true
-  next.snapshot.ui.activeBottomPanelTab = execution.result ? 'results' : 'messages'
+  next.snapshot.ui.activeBottomPanelTab = executionTab.result ? 'results' : 'messages'
   next.snapshot.updatedAt = new Date().toISOString()
   return next
 }
@@ -220,19 +231,26 @@ export function applyResultPageToPayload(
     return next
   }
 
+  const incomingPayload = normalizeResultPayload(
+    page.payload,
+    tab.result.defaultRenderer,
+  )
   const payloadIndex = tab.result.payloads.findIndex(
-    (item) => item.renderer === page.payload.renderer,
+    (item) => item.renderer === incomingPayload.renderer,
   )
 
-  let mergedPayload = page.payload
+  let mergedPayload = incomingPayload
 
   if (payloadIndex < 0) {
-    tab.result.payloads.push(page.payload)
+    tab.result.payloads.push(incomingPayload)
   } else {
-    const currentPayload = tab.result.payloads[payloadIndex]
-
-    if (currentPayload) {
-      mergedPayload = mergeResultPayload(currentPayload, page.payload)
+    const existingPayload = tab.result.payloads[payloadIndex]
+    if (existingPayload) {
+      const currentPayload = normalizeResultPayload(
+        existingPayload,
+        incomingPayload.renderer,
+      )
+      mergedPayload = mergeResultPayload(currentPayload, incomingPayload)
       tab.result.payloads[payloadIndex] = mergedPayload
     }
   }
@@ -290,24 +308,31 @@ function mergeResultPayload(current: ResultPayload, incoming: ResultPayload): Re
   if (current.renderer === 'table' && incoming.renderer === 'table') {
     return {
       ...current,
-      columns: current.columns.length ? current.columns : incoming.columns,
-      rows: [...current.rows, ...incoming.rows],
+      columns: arrayValue<string>(current.columns).length
+        ? arrayValue<string>(current.columns)
+        : arrayValue<string>(incoming.columns),
+      rows: [...arrayValue<string[]>(current.rows), ...arrayValue<string[]>(incoming.rows)],
     }
   }
 
   if (current.renderer === 'document' && incoming.renderer === 'document') {
     return {
       ...current,
-      documents: [...current.documents, ...incoming.documents],
+      documents: [
+        ...arrayValue<Record<string, unknown>>(current.documents),
+        ...arrayValue<Record<string, unknown>>(incoming.documents),
+      ],
     }
   }
 
   if (current.renderer === 'keyvalue' && incoming.renderer === 'keyvalue') {
+    const currentEntries = stringRecordValue(current.entries)
+    const incomingEntries = stringRecordValue(incoming.entries)
     return {
       ...current,
       entries: {
-        ...current.entries,
-        ...incoming.entries,
+        ...currentEntries,
+        ...incomingEntries,
       },
       ttl: incoming.ttl ?? current.ttl,
       memoryUsage: incoming.memoryUsage ?? current.memoryUsage,
@@ -317,29 +342,162 @@ function mergeResultPayload(current: ResultPayload, incoming: ResultPayload): Re
   if (current.renderer === 'schema' && incoming.renderer === 'schema') {
     return {
       ...current,
-      items: [...current.items, ...incoming.items],
+      items: [
+        ...schemaItemsValue(current.items),
+        ...schemaItemsValue(incoming.items),
+      ],
     }
   }
 
   return incoming
 }
 
+function normalizeResultPayload(
+  payload: unknown,
+  fallbackRenderer: string = 'raw',
+): ResultPayload {
+  const record = recordValue(payload)
+  const renderer = typeof record.renderer === 'string'
+    ? record.renderer
+    : fallbackRenderer
+
+  if (renderer === 'table') {
+    return {
+      ...record,
+      renderer,
+      columns: arrayValue<string>(record.columns),
+      rows: arrayValue<string[]>(record.rows),
+    }
+  }
+
+  if (renderer === 'document') {
+    return {
+      ...record,
+      renderer,
+      documents: arrayValue<Record<string, unknown>>(record.documents),
+    }
+  }
+
+  if (renderer === 'keyvalue') {
+    return {
+      ...record,
+      renderer,
+      entries: stringRecordValue(record.entries),
+    }
+  }
+
+  if (renderer === 'schema') {
+    return {
+      ...record,
+      renderer,
+      items: schemaItemsValue(record.items),
+    }
+  }
+
+  if (renderer === 'raw' || renderer === 'resp') {
+    return {
+      ...record,
+      renderer,
+      text: typeof record.text === 'string' ? record.text : '',
+    } as ResultPayload
+  }
+
+  if (typeof record.renderer !== 'string') {
+    return fallbackResultPayload(renderer)
+  }
+
+  return {
+    ...record,
+    renderer,
+  } as ResultPayload
+}
+
 function resultPayloadSize(payload: ResultPayload) {
   if (payload.renderer === 'table') {
-    return payload.rows.length
+    return arrayValue(payload.rows).length
   }
 
   if (payload.renderer === 'document') {
-    return payload.documents.length
+    return arrayValue(payload.documents).length
   }
 
   if (payload.renderer === 'keyvalue') {
-    return Object.keys(payload.entries).length
+    return Object.keys(recordValue(payload.entries)).length
   }
 
   if (payload.renderer === 'schema') {
-    return payload.items.length
+    return arrayValue(payload.items).length
   }
 
   return 1
+}
+
+function arrayValue<T = unknown>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : []
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function fallbackResultPayload(renderer: string): ResultPayload {
+  if (renderer === 'table') {
+    return {
+      renderer: 'table',
+      columns: [],
+      rows: [],
+    }
+  }
+
+  if (renderer === 'document') {
+    return {
+      renderer: 'document',
+      documents: [],
+    }
+  }
+
+  if (renderer === 'keyvalue') {
+    return {
+      renderer: 'keyvalue',
+      entries: {},
+    }
+  }
+
+  if (renderer === 'schema') {
+    return {
+      renderer: 'schema',
+      items: [],
+    }
+  }
+
+  return {
+    renderer: 'raw',
+    text: '',
+  }
+}
+
+function stringRecordValue(value: unknown): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(recordValue(value)).map(([key, entry]) => [key, String(entry ?? '')]),
+  )
+}
+
+function schemaItemsValue(
+  value: unknown,
+): Extract<ResultPayload, { renderer: 'schema' }>['items'] {
+  return arrayValue<Partial<Extract<ResultPayload, { renderer: 'schema' }>['items'][number]>>(
+    value,
+  )
+    .filter(
+      (
+        item,
+      ): item is Extract<ResultPayload, { renderer: 'schema' }>['items'][number] =>
+        typeof item.label === 'string' && typeof item.detail === 'string',
+    )
+    .map((item) => ({
+      label: item.label,
+      detail: item.detail,
+    }))
 }

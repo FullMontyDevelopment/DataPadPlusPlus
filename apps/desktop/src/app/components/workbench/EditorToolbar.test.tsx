@@ -46,6 +46,7 @@ describe('EditorToolbar', () => {
 
   it('shows Mongo builder, raw, and scripting modes without side-by-side', () => {
     const onToggleQueryWindowMode = vi.fn()
+    const onAddDocument = vi.fn()
     render(
       <EditorToolbar
         executionStatus="idle"
@@ -61,15 +62,20 @@ describe('EditorToolbar', () => {
         onOpenConnectionDrawer={vi.fn()}
         onToggleBottomPanel={vi.fn()}
         onToggleQueryWindowMode={onToggleQueryWindowMode}
+        canAddDocument
+        onAddDocument={onAddDocument}
       />,
     )
 
     expect(screen.getByLabelText('Query Builder')).toBeInTheDocument()
     expect(screen.getByLabelText('Raw')).toBeInTheDocument()
     expect(screen.getByLabelText('Scripting')).toBeInTheDocument()
+    expect(screen.getByLabelText('Add document')).toBeInTheDocument()
     expect(screen.queryByLabelText('Show builder and raw')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Scripting'))
     expect(onToggleQueryWindowMode).toHaveBeenCalledWith('script')
+    fireEvent.click(screen.getByLabelText('Add document'))
+    expect(onAddDocument).toHaveBeenCalledTimes(1)
   })
 })

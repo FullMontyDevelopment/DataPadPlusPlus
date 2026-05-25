@@ -12,6 +12,7 @@ import {
   SettingsIcon,
   ThemeIcon,
 } from './icons'
+import { DeleteConfirmationPanel } from './results/DeleteConfirmationPanel'
 import { SHORTCUTS } from './RightDrawer.helpers'
 import { DrawerDetailRow, DrawerHeader, FormField } from './RightDrawer.primitives'
 
@@ -48,6 +49,7 @@ export function DiagnosticsBlade({
 }) {
   const [bundleMessage, setBundleMessage] = useState('')
   const [exportPassphraseUsed, setExportPassphraseUsed] = useState('')
+  const [restorePending, setRestorePending] = useState(false)
   const [showBundleText, setShowBundleText] = useState(false)
   const exportedBundleText = useMemo(
     () => (exportBundle ? JSON.stringify(exportBundle, null, 2) : ''),
@@ -96,13 +98,7 @@ export function DiagnosticsBlade({
       return
     }
 
-    const confirmed = window.confirm(
-      'Restore this workspace backup? This replaces the current local workspace.',
-    )
-
-    if (confirmed) {
-      onImportWorkspace(restorePayload)
-    }
+    setRestorePending(true)
   }
 
   return (
@@ -264,6 +260,18 @@ export function DiagnosticsBlade({
               Restore Workspace
             </button>
           </div>
+          {restorePending && restorePayload ? (
+            <DeleteConfirmationPanel
+              title="Restore workspace backup?"
+              body="This replaces the current local workspace with the selected backup bundle."
+              confirmLabel="Restore"
+              onCancel={() => setRestorePending(false)}
+              onConfirm={() => {
+                setRestorePending(false)
+                onImportWorkspace(restorePayload)
+              }}
+            />
+          ) : null}
         </section>
 
         {bundleMessage ? (

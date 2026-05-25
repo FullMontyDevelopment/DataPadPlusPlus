@@ -14,6 +14,14 @@ describe('security redaction', () => {
     ).toBe('Password=********; token: ******** Bearer ********')
   })
 
+  it('redacts OAuth and certificate-style secret assignments', () => {
+    expect(
+      redactSensitiveText(
+        'client_secret=open-sesame refresh-token=abc123 private_key="pem-value"',
+      ),
+    ).toBe('client_secret=******** refresh-token=******** private_key="********"')
+  })
+
   it('redacts credentials embedded in URLs', () => {
     expect(
       redactSensitiveText('mongodb://user:secret@localhost:27017/catalog'),
@@ -64,6 +72,12 @@ describe('security redaction', () => {
     ).toBe(true)
     expect(
       connectionStringContainsPlainSecret('https://service.local?access_token=plain-secret'),
+    ).toBe(true)
+    expect(
+      connectionStringContainsPlainSecret('https://service.local?client-secret=plain-secret'),
+    ).toBe(true)
+    expect(
+      connectionStringContainsPlainSecret('Service=local;Private Key=plain-secret;'),
     ).toBe(true)
     expect(
       connectionStringContainsPlainSecret('Server=localhost;Password={{DB_PASSWORD}};'),

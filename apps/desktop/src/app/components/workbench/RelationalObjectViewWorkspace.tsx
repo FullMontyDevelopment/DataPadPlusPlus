@@ -39,6 +39,7 @@ import {
   getSqliteObjectViewDescriptor,
   type SqliteObjectViewDescriptor,
 } from './SqliteObjectViewDescriptors'
+import { RelationalSourcePreview } from './RelationalSourcePreview'
 import { ExplorerNodeIcon } from './SideBar.node-icons'
 
 type JsonRecord = Record<string, unknown>
@@ -134,6 +135,12 @@ export function RelationalObjectViewWorkspace({
             </div>
           </section>
         ) : null}
+
+        <RelationalSourcePreview
+          connection={connection}
+          kind={kind}
+          payload={payload}
+        />
 
         {sections.length ? (
           sections.map((section) => (

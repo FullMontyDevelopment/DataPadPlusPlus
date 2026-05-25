@@ -72,4 +72,53 @@ describe('browser execution runtime', () => {
     })
     expect(result?.explainPayload).toMatchObject({ renderer: 'plan' })
   })
+
+  it('blocks browser preview execution that references secret environment variables', () => {
+    const snapshot = createSeedSnapshot()
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-sql-ops')
+
+    if (!tab) {
+      throw new Error('Expected seed query tab.')
+    }
+
+    snapshot.environments = [{
+      id: 'env-secret',
+      label: 'Secret preview',
+      color: '#2dbf9b',
+      risk: 'low',
+      variables: {},
+      sensitiveKeys: ['API_TOKEN'],
+      variableDefinitions: [{
+        key: 'API_TOKEN',
+        kind: 'secret',
+        secretRef: {
+          id: 'secret-env-secret-api-token',
+          provider: 'os-keyring',
+          service: 'DataPad++',
+          account: 'environment:env-secret:API_TOKEN',
+          label: 'API token',
+        },
+      }],
+      requiresConfirmation: false,
+      safeMode: false,
+      exportable: true,
+      createdAt: '2026-05-25T00:00:00.000Z',
+      updatedAt: '2026-05-25T00:00:00.000Z',
+    }]
+
+    const { response, snapshot: executed } = applyExecutionRequestLocally(snapshot, {
+      tabId: tab.id,
+      connectionId: tab.connectionId,
+      environmentId: 'env-secret',
+      language: tab.language,
+      queryText: "select '{{API_TOKEN}}'",
+    })
+
+    expect(response.guardrail.status).toBe('block')
+    expect(response.diagnostics).toEqual([
+      'Secret environment variables are not substituted in browser preview.',
+    ])
+    expect(executed.tabs.find((item) => item.id === tab.id)?.status).toBe('blocked')
+    expect(JSON.stringify(response)).not.toContain('********')
+  })
 })

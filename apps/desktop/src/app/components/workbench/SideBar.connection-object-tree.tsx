@@ -105,6 +105,7 @@ import {
   environmentAccentVariables,
   isScopedQueryable,
 } from './SideBar.helpers'
+import { connectionTreeNodeForAction } from './SideBar.connection-object-actions'
 import { ExplorerNodeIcon } from './SideBar.node-icons'
 import type { ConnectionTreeAction, ConnectionTreeNode } from './SideBar.helpers'
 
@@ -216,6 +217,11 @@ export function ConnectionObjectTree({
   const runNodeAction = (node: ConnectionTreeNode, action: ConnectionTreeAction) => {
     if (action.command === 'copy-qualified-name') {
       void navigator.clipboard?.writeText((node.path ?? []).concat(node.label).join('.'))
+      return
+    }
+
+    if (action.command === 'open-object-view') {
+      openObjectView(connectionTreeNodeForAction(node, action))
       return
     }
 
@@ -979,6 +985,10 @@ function availableManagementActions(actions: ConnectionTreeAction[] | undefined)
   return (actions ?? []).filter((action) => {
     if (action.command === 'open-template') {
       return Boolean(action.queryTemplate?.trim())
+    }
+
+    if (action.command === 'open-object-view') {
+      return Boolean(action.objectViewNodeId && action.objectViewKind && action.objectViewLabel)
     }
 
     if (action.command === 'copy-qualified-name') {

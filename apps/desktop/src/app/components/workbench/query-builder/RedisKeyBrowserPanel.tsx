@@ -34,6 +34,8 @@ import {
   dataEditStatusMessage,
   executeDataEditWithConfirmation,
 } from '../results/data-edit-confirmation'
+import { DeleteConfirmationPanel } from '../results/DeleteConfirmationPanel'
+import { useDataEditConfirmation } from '../results/use-data-edit-confirmation'
 
 interface RedisKeyBrowserPanelProps {
   tab: QueryTabState
@@ -60,10 +62,12 @@ export function RedisKeyBrowserPanel({
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [showAddKey, setShowAddKey] = useState(false)
+  const [pendingDeleteKey, setPendingDeleteKey] = useState<string>()
   const [addKeyName, setAddKeyName] = useState('')
   const [addKeyType, setAddKeyType] = useState('string')
   const [addKeyValue, setAddKeyValue] = useState('')
   const scanRequestIdRef = useRef(0)
+  const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const [expandedPrefixes, setExpandedPrefixes] = useState<Set<string>>(
     () => new Set(builderState.expandedPrefixes ?? []),
   )
@@ -197,6 +201,7 @@ export function RedisKeyBrowserPanel({
       },
       {
         actionLabel: `Add Redis key ${keyName}.`,
+        confirm: confirmDataEdit,
         confirmationTitle: 'Create this Redis key?',
       },
     )
@@ -216,10 +221,6 @@ export function RedisKeyBrowserPanel({
       return
     }
 
-    if (!window.confirm(`Delete Redis key ${key}?`)) {
-      return
-    }
-
     const response = await executeDataEditWithConfirmation(
       onExecuteDataEdit,
       {
@@ -235,6 +236,7 @@ export function RedisKeyBrowserPanel({
       },
       {
         actionLabel: `Delete Redis key ${key}.`,
+        confirm: confirmDataEdit,
         confirmationTitle: 'Delete this Redis key?',
       },
     )
@@ -248,16 +250,14 @@ export function RedisKeyBrowserPanel({
   }
 
   const togglePrefix = (prefix: string) => {
-    setExpandedPrefixes((current) => {
-      const next = new Set(current)
-      if (next.has(prefix)) {
-        next.delete(prefix)
-      } else {
-        next.add(prefix)
-      }
-      updateBuilder({ expandedPrefixes: Array.from(next) })
-      return next
-    })
+    const next = new Set(expandedPrefixes)
+    if (next.has(prefix)) {
+      next.delete(prefix)
+    } else {
+      next.add(prefix)
+    }
+    setExpandedPrefixes(next)
+    updateBuilder({ expandedPrefixes: Array.from(next) })
   }
 
   return (
@@ -436,10 +436,23 @@ export function RedisKeyBrowserPanel({
         rows={rows}
         selectedKey={builderState.selectedKey}
         expandedPrefixes={expandedPrefixes}
-        onDeleteKey={(key) => void deleteKey(key)}
+        onDeleteKey={setPendingDeleteKey}
         onSelectKey={selectKey}
         onTogglePrefix={togglePrefix}
       />
+      {pendingDeleteKey ? (
+        <DeleteConfirmationPanel
+          title={`Delete Redis key ${pendingDeleteKey}?`}
+          body="DataPad++ will run this guarded key delete with confirmation."
+          onCancel={() => setPendingDeleteKey(undefined)}
+          onConfirm={() => {
+            const key = pendingDeleteKey
+            setPendingDeleteKey(undefined)
+            void deleteKey(key)
+          }}
+        />
+      ) : null}
+      {confirmationDialog}
       {status ? <div className="redis-browser-message">{status}</div> : null}
     </section>
   )

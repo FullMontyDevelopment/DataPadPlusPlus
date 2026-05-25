@@ -485,6 +485,56 @@ function DesktopWorkspace() {
     })
   }, [actions, activeConnectionId, activeEnvironmentId])
 
+  const rememberRedisConsoleCommand = useCallback((
+    tabId: string,
+    builderState: QueryBuilderState | undefined,
+    command: string,
+  ) => {
+    if (!isRedisKeyBrowserState(builderState)) {
+      return
+    }
+
+    const normalizedCommand = command.trim()
+    if (!normalizedCommand) {
+      return
+    }
+
+    const nextBuilderState = {
+      ...builderState,
+      consoleHistory: [
+        normalizedCommand,
+        ...(builderState.consoleHistory ?? []).filter((item) => item !== normalizedCommand),
+      ].slice(0, 50),
+    }
+
+    builderStateDraftRef.current[tabId] = nextBuilderState
+    setBuilderStateDrafts((current) => ({
+      ...current,
+      [tabId]: nextBuilderState,
+    }))
+  }, [])
+
+  const setRedisConsolePipelineMode = useCallback((
+    tabId: string,
+    builderState: QueryBuilderState | undefined,
+    pipelineMode: boolean,
+  ) => {
+    if (!isRedisKeyBrowserState(builderState)) {
+      return
+    }
+
+    const nextBuilderState = {
+      ...builderState,
+      pipelineMode,
+    }
+
+    builderStateDraftRef.current[tabId] = nextBuilderState
+    setBuilderStateDrafts((current) => ({
+      ...current,
+      [tabId]: nextBuilderState,
+    }))
+  }, [])
+
   const runCurrentTabQuery = useCallback((mode?: ExecutionRequest['mode'], guardrailId?: string) => {
     if (!activeTab || activeTab.tabKind === 'explorer') {
       return
@@ -533,6 +583,7 @@ function DesktopWorkspace() {
         builderState,
       )
       queryTextDraftRef.current[activeTab.id] = redisCommand
+      rememberRedisConsoleCommand(activeTab.id, builderState, redisCommand)
       void actions.executeQuery(activeTab.id, mode, guardrailId, redisCommand, 'raw')
       return
     }
@@ -548,6 +599,7 @@ function DesktopWorkspace() {
     activeConnection,
     activeQueryWindowMode,
     activeTab,
+    rememberRedisConsoleCommand,
     resolveBuilderQueryText,
     resolveQueryText,
   ])
@@ -1057,11 +1109,10 @@ function DesktopWorkspace() {
     }
   }
 
-  const createLibraryFolder = (parentId?: string) => {
-    const name = window.prompt('New Library folder name')
-
-    if (name?.trim()) {
-      void actions.createLibraryFolder({ parentId, name: name.trim() })
+  const createLibraryFolder = (parentId: string | undefined, name: string) => {
+    const folderName = name.trim()
+    if (folderName) {
+      void actions.createLibraryFolder({ parentId, name: folderName })
     }
   }
 
@@ -1329,6 +1380,30 @@ function DesktopWorkspace() {
         rightDrawer: 'none',
       })
     })()
+  }
+
+  const openActiveMongoAddDocumentView = () => {
+    if (!activeConnection || activeConnection.engine !== 'mongodb') {
+      return
+    }
+
+    const collection = activeMongoQueryScope?.collection
+    if (!collection) {
+      return
+    }
+
+    const database = activeMongoQueryScope.database ?? activeConnection.database ?? ''
+    openObjectView(activeConnection.id, {
+      id: `insert-document:${database}:${collection}`,
+      family: activeConnection.family,
+      label: 'Add Document',
+      kind: 'insert-document',
+      detail: '',
+      path: [database, 'Collections', collection].filter(
+        (segment): segment is string => Boolean(segment),
+      ),
+      expandable: false,
+    })
   }
 
   const loadConnectionExplorerScope = (
@@ -1718,6 +1793,7 @@ function DesktopWorkspace() {
                     tab={activeTab}
                     onRefresh={(tabId) => actions.refreshObjectViewTab(tabId)}
                     onOpenQuery={(target) => openScopedQuery(activeConnection.id, target)}
+                    onOpenObjectView={openObjectView}
                     onPlanOperation={actions.planDatastoreOperation}
                     onExecuteDataEdit={actions.executeDataEdit}
                   />
@@ -1771,6 +1847,11 @@ function DesktopWorkspace() {
                           : undefined
                       }
                       onOpenConnectionDrawer={openConnectionDrawer}
+                      canAddDocument={Boolean(
+                        activeConnection.engine === 'mongodb' &&
+                        activeMongoQueryScope?.collection,
+                      )}
+                      onAddDocument={openActiveMongoAddDocumentView}
                       canToggleBuilderView={hasBuilderQuery}
                       builderKind={activeBuilderKind}
                       queryWindowMode={activeQueryWindowMode}
@@ -1854,11 +1935,28 @@ function DesktopWorkspace() {
                             <RedisConsoleEditor
                               value={activeEditorQueryText ?? 'PING'}
                               engineLabel={activeConnection.engine === 'valkey' ? 'Valkey' : 'Redis'}
+                              history={
+                                isRedisKeyBrowserState(activeBuilderState)
+                                  ? activeBuilderState.consoleHistory ?? []
+                                  : []
+                              }
+                              pipelineMode={
+                                isRedisKeyBrowserState(activeBuilderState)
+                                  ? Boolean(activeBuilderState.pipelineMode)
+                                  : false
+                              }
                               theme={resolvedTheme}
                               completionContext={completionContext}
                               completionProviders={completionProviders}
                               onRequestCompletionRefresh={requestIntellisenseRefresh}
                               onRun={() => runCurrentTabQuery()}
+                              onPipelineModeChange={(enabled) => {
+                                setRedisConsolePipelineMode(
+                                  activeTab.id,
+                                  activeBuilderState,
+                                  enabled,
+                                )
+                              }}
                               onChange={(value) => {
                                 queryTextDraftRef.current[activeTab.id] = value
                                 void actions.updateQuery(activeTab.id, value)
@@ -1981,6 +2079,7 @@ function DesktopWorkspace() {
                   activeTab ? void actions.updateQuery(activeTab.id, queryText) : undefined
                 }
                 onExecuteDataEdit={actions.executeDataEdit}
+                onPlanOperation={actions.planDatastoreOperation}
                 onDismissWorkbenchMessage={actions.dismissWorkbenchMessage}
                 onClearWorkbenchMessages={actions.clearWorkbenchMessages}
               />

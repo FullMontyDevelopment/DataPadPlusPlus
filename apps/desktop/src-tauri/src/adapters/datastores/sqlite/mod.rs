@@ -50,7 +50,7 @@ impl DatastoreAdapter for SqliteAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_sqlite_explorer_node(connection, request))
+        inspect_sqlite_explorer_node(connection, request).await
     }
 
     async fn execute(

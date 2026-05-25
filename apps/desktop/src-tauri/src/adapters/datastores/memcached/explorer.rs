@@ -204,6 +204,8 @@ async fn item_class_nodes(
         .collect())
 }
 
+// Mirrors the ExplorerNode shape so Memcached scopes stay readable at call sites.
+#[allow(clippy::too_many_arguments)]
 fn memcached_node(
     id: &str,
     label: &str,

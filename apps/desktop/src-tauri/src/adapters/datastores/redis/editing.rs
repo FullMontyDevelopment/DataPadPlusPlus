@@ -30,7 +30,7 @@ pub(crate) async fn execute_redis_data_edit(
 
     if let Some(expected) = plan.plan.confirmation_text.as_deref() {
         if request.confirmation_text.as_deref() != Some(expected) {
-            warnings.push(format!("Type `{expected}` before executing this key edit."));
+            warnings.push("This key edit needs confirmation before it can run.".into());
             return Ok(data_edit_response(
                 request, plan, false, messages, warnings, None,
             ));
@@ -115,6 +115,26 @@ pub(crate) async fn execute_redis_data_edit(
             }
 
             json!({ "command": "DEL", "key": key, "deleted": deleted })
+        }
+        "rename-key" => {
+            let Some(next_key) = request
+                .changes
+                .first()
+                .and_then(|change| change.new_name.as_deref())
+                .filter(|value| !value.is_empty())
+            else {
+                warnings.push("Key rename edits require a new key name.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            };
+            let response: String = redis::cmd("RENAME")
+                .arg(key)
+                .arg(next_key)
+                .query_async(&mut redis)
+                .await?;
+            messages.push(format!("Key `{key}` was renamed to `{next_key}`."));
+            json!({ "command": "RENAME", "key": key, "newKey": next_key, "response": response })
         }
         "hash-set-field" => {
             let Some(field) = first_field(request) else {

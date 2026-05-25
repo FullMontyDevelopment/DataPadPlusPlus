@@ -6,10 +6,19 @@ import { redactForEnvironment } from './browser-response-redaction'
 import { buildBrowserPayload, cloneSnapshot, findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { redactErrorMessage } from '../../app/state/security-redaction'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
-import { validateCreateObjectViewTabRequest, validateRequiredTabId } from './request-validation'
+import {
+  validateCreateObjectViewTabRequest,
+  validateCreateScopedQueryTabRequest,
+  validateQueryTabReorderRequest,
+  validateRequiredTabId,
+  validateUpdateQueryBuilderStateRequest,
+  validateUpdateQueryTabRequest,
+} from './request-validation'
+import { validateOptionalId, validateRequiredId, validateRequiredText } from './request-validation-core'
 
 export const clientTabs = {
   async setActiveTab(tabId: string): Promise<BootstrapPayload> {
+    validateRequiredTabId(tabId)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('set_active_tab', { tabId })
     }
@@ -33,6 +42,8 @@ export const clientTabs = {
     tabId: string,
     environmentId: string,
   ): Promise<BootstrapPayload> {
+    validateRequiredTabId(tabId)
+    validateRequiredId(environmentId, 'Environment id')
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('set_tab_environment', {
         tabId,
@@ -62,6 +73,7 @@ export const clientTabs = {
   },
 
   async createQueryTab(connectionId: string): Promise<BootstrapPayload> {
+    validateRequiredId(connectionId, 'Connection id')
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('create_query_tab', { connectionId })
     }
@@ -80,6 +92,7 @@ export const clientTabs = {
   },
 
   async createExplorerTab(connectionId: string): Promise<BootstrapPayload> {
+    validateRequiredId(connectionId, 'Connection id')
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('create_explorer_tab', { connectionId })
     }
@@ -93,6 +106,8 @@ export const clientTabs = {
     connectionId: string,
     environmentId?: string,
   ): Promise<BootstrapPayload> {
+    validateRequiredId(connectionId, 'Connection id')
+    validateOptionalId(environmentId, 'Environment id')
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('create_metrics_tab', {
         connectionId,
@@ -110,6 +125,7 @@ export const clientTabs = {
   },
 
   async createEnvironmentTab(environmentId: string): Promise<BootstrapPayload> {
+    validateRequiredId(environmentId, 'Environment id')
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('create_environment_tab', { environmentId })
     }
@@ -193,6 +209,7 @@ export const clientTabs = {
   },
 
   async refreshMetricsTab(tabId: string): Promise<BootstrapPayload> {
+    validateRequiredTabId(tabId)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('refresh_metrics_tab', { tabId })
     }
@@ -251,6 +268,7 @@ export const clientTabs = {
   async createScopedQueryTab(
     request: CreateScopedQueryTabRequest,
   ): Promise<BootstrapPayload> {
+    request = validateCreateScopedQueryTabRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('create_scoped_query_tab', { request })
     }
@@ -261,6 +279,7 @@ export const clientTabs = {
   },
 
   async closeQueryTab(tabId: string): Promise<BootstrapPayload> {
+    validateRequiredTabId(tabId)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('close_query_tab', { tabId })
     }
@@ -271,7 +290,7 @@ export const clientTabs = {
   },
 
   async reorderQueryTabs(orderedTabIds: string[]): Promise<BootstrapPayload> {
-    const request: QueryTabReorderRequest = { orderedTabIds }
+    const request: QueryTabReorderRequest = validateQueryTabReorderRequest({ orderedTabIds })
 
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('reorder_query_tabs', { request })
@@ -283,6 +302,7 @@ export const clientTabs = {
   },
 
   async reopenClosedQueryTab(closedTabId: string): Promise<BootstrapPayload> {
+    validateRequiredId(closedTabId, 'Closed tab id')
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('reopen_closed_query_tab', {
         closedTabId,
@@ -299,6 +319,7 @@ export const clientTabs = {
     queryText: string,
     queryViewMode?: QueryViewMode,
   ): Promise<BootstrapPayload> {
+    validateUpdateQueryTabRequest({ tabId, queryText, queryViewMode })
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('update_query_tab', {
         tabId,
@@ -335,6 +356,7 @@ export const clientTabs = {
   async updateQueryBuilderState(
     request: UpdateQueryBuilderStateRequest,
   ): Promise<BootstrapPayload> {
+    request = validateUpdateQueryBuilderStateRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('update_query_builder_state', { request })
     }
@@ -364,6 +386,8 @@ export const clientTabs = {
   },
 
   async renameQueryTab(tabId: string, title: string): Promise<BootstrapPayload> {
+    validateRequiredTabId(tabId)
+    validateRequiredText(title, 'Tab title', 80)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('rename_query_tab', { tabId, title })
     }

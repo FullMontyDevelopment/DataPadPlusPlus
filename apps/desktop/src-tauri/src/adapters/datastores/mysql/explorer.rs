@@ -368,6 +368,8 @@ fn mysql_database_section_nodes(
     sections
 }
 
+// Section metadata is intentionally explicit here to keep MySQL tree construction declarative.
+#[allow(clippy::too_many_arguments)]
 fn push_section_if(
     sections: &mut Vec<ExplorerNode>,
     enabled: bool,
@@ -724,9 +726,16 @@ async fn table_payload(pool: &MySqlPool, database: &str, table: &str) -> Value {
 
 async fn view_payload(pool: &MySqlPool, database: &str, view: &str) -> Value {
     let views = view_records(pool, database, Some(view)).await;
+    let definition = views
+        .first()
+        .and_then(|row| row.get("definition"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     json!({
         "objectName": view,
         "viewName": view,
+        "definition": definition,
         "views": views,
         "columns": column_records(pool, database, Some(view)).await,
         "permissions": permission_records(pool, database).await,
@@ -739,13 +748,28 @@ async fn routine_payload(pool: &MySqlPool, database: &str, name: &str, kind: &st
     } else {
         "PROCEDURE"
     };
-    json!({
+    let routines = routine_records(pool, database, routine_type, Some(name)).await;
+    let definition = routines
+        .first()
+        .and_then(|row| row.get("definition"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let kind_records = if kind == "function" {
+        json!({ "functions": routines.clone() })
+    } else {
+        json!({ "procedures": routines.clone() })
+    };
+    let mut payload = json!({
         "objectName": name,
         "routineName": name,
-        "routines": routine_records(pool, database, routine_type, Some(name)).await,
+        "definition": definition,
+        "routines": routines,
         "parameters": parameter_records(pool, database, name).await,
         "permissions": permission_records(pool, database).await,
-    })
+    });
+    merge_payload(&mut payload, kind_records);
+    payload
 }
 
 async fn trigger_payload(pool: &MySqlPool, database: &str, trigger: &str) -> Value {
@@ -976,6 +1000,7 @@ async fn routine_records(
                 "returns": optional_string(&row, "returns").unwrap_or_default(),
                 "language": "SQL",
                 "security": optional_string(&row, "security").unwrap_or_default(),
+                "definition": optional_string(&row, "definition").unwrap_or_default(),
             })
         })
         .collect()
@@ -1186,7 +1211,8 @@ fn routine_rows_query(database: &str, routine_type: &str) -> String {
     format!(
         "select routine_name as name, routine_type as type,
                 data_type as returns, security_type as security,
-                routine_comment as arguments
+                routine_comment as arguments,
+                routine_definition as definition
          from information_schema.routines
          where routine_schema = '{}' and routine_type = '{}'",
         sql_literal(database),
@@ -1580,5 +1606,14 @@ mod tests {
         assert_eq!(mysql_object_view_kind(&table), "table");
         assert_eq!(mysql_object_view_kind(&system), "system-schemas");
         assert_eq!(mysql_object_view_kind(&fk), "foreign-keys");
+    }
+
+    #[test]
+    fn mysql_routine_rows_include_source_definition() {
+        let query = routine_rows_query("app", "PROCEDURE");
+
+        assert!(query.contains("routine_definition as definition"));
+        assert!(query.contains("routine_schema = 'app'"));
+        assert!(query.contains("routine_type = 'PROCEDURE'"));
     }
 }

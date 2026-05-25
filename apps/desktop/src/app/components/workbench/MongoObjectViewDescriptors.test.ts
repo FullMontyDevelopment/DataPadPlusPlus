@@ -14,6 +14,8 @@ describe('MongoObjectViewDescriptors', () => {
     expect(MONGO_OBJECT_VIEW_KINDS).toEqual(expect.arrayContaining([
       'database',
       'collection',
+      'insert-document',
+      'create-index',
       'schema-preview',
       'indexes',
       'validation-rules',
@@ -26,6 +28,8 @@ describe('MongoObjectViewDescriptors', () => {
     ]))
     expect(mongoObjectViewMenuLabel('users')).toBe('Manage Users')
     expect(mongoObjectViewMenuLabel('indexes')).toBe('Manage Indexes')
+    expect(mongoObjectViewMenuLabel('insert-document')).toBe('Add Document')
+    expect(mongoObjectViewMenuLabel('create-index')).toBe('Create Index')
     expect(mongoObjectViewMenuLabel('schema-preview')).toBe('Open Schema Preview')
     expect(mongoObjectViewMenuLabel('gridfs')).toBe('Browse GridFS')
     expect(mongoObjectViewMenuLabel('unknown')).toBe('Inspect Mongo Metadata')
@@ -39,10 +43,10 @@ describe('MongoObjectViewDescriptors', () => {
 
     expect(users.purpose).toContain('Review database users')
     expect(users.emptyDescription).toContain('usersInfo')
-    expect(users.primaryActions).toEqual(expect.arrayContaining(['Preview create user']))
+    expect(users.primaryActions).toEqual(expect.arrayContaining(['Create user']))
     expect(indexes.purpose).toContain('access paths')
     expect(indexes.emptyTitle).toBe('No index metadata is available')
-    expect(indexes.primaryActions).toEqual(expect.arrayContaining(['Preview create index']))
+    expect(indexes.primaryActions).toEqual(expect.arrayContaining(['Create index']))
   })
 
   it('uses Mongo-specific query labels for queryable tree nodes', () => {

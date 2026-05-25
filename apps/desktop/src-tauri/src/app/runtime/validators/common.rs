@@ -64,6 +64,7 @@ pub(super) const RESULT_RENDERERS: &[&str] = &[
     "document",
     "keyvalue",
     "raw",
+    "resp",
     "schema",
     "graph",
     "chart",

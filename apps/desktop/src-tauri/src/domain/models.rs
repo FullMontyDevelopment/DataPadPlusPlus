@@ -857,6 +857,8 @@ pub struct DataEditTarget {
     pub object_kind: String,
     #[serde(default)]
     pub path: Vec<String>,
+    #[serde(default)]
+    pub database: Option<String>,
     pub schema: Option<String>,
     pub table: Option<String>,
     pub collection: Option<String>,

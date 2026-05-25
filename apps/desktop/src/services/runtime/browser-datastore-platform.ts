@@ -23,6 +23,12 @@ import {
   browserDataEditWarnings,
 } from './browser-data-edit-requests'
 import {
+  applyEnvironmentGuardsToDataEditPlan,
+  browserEnvironmentHasUnresolvedVariables,
+  dataEditSecretReferences,
+  pushUniqueWarning,
+} from './browser-preview-guards'
+import {
   redactDataEditPlanForEnvironment,
   redactDataEditResponseForEnvironment,
 } from './browser-response-redaction'
@@ -85,6 +91,14 @@ export function planDataEditLocally(
   }
 
   if (snapshot) {
+    const resolvedEnvironment = resolveEnvironment(snapshot.environments, request.environmentId)
+    const referencedSecrets = dataEditSecretReferences(request, resolvedEnvironment.sensitiveKeys)
+    if (referencedSecrets.length > 0) {
+      pushUniqueWarning(
+        plan.warnings,
+        `Secret variable ${referencedSecrets[0]} is resolved only by the desktop secret store.`,
+      )
+    }
     applyEnvironmentGuardsToDataEditPlan(snapshot, request.environmentId, plan)
   }
 
@@ -134,12 +148,23 @@ export function executeDataEditLocally(
 
   if (planResponse.plan.confirmationText && request.confirmationText !== planResponse.plan.confirmationText) {
     warnings.push(
-      `This data edit requires confirmation before it can run (${planResponse.plan.confirmationText}).`,
+      'This data edit needs confirmation before it can run.',
     )
   }
 
-  if (snapshot && environmentHasUnresolvedVariables(snapshot, request.environmentId)) {
+  if (snapshot && browserEnvironmentHasUnresolvedVariables(snapshot, request.environmentId)) {
     warnings.push('Unresolved environment variables must be fixed before this data edit can run.')
+  }
+  if (snapshot) {
+    const secretReferences = dataEditSecretReferences(
+      request,
+      resolveEnvironment(snapshot.environments, request.environmentId).sensitiveKeys,
+    )
+    if (secretReferences.length > 0) {
+      warnings.push(
+        `Secret variable ${secretReferences[0]} cannot be resolved in browser preview.`,
+      )
+    }
   }
 
   const response: DataEditExecutionResponse = {
@@ -159,61 +184,6 @@ export function executeDataEditLocally(
         resolveEnvironment(snapshot.environments, request.environmentId),
       )
     : response
-}
-
-function applyEnvironmentGuardsToDataEditPlan(
-  snapshot: WorkspaceSnapshot,
-  environmentId: string,
-  plan: DataEditPlanResponse['plan'],
-) {
-  const environment = snapshot.environments.find((item) => item.id === environmentId)
-
-  if (!environment) {
-    return
-  }
-
-  const resolved = resolveEnvironment(snapshot.environments, environmentId)
-  if (resolved.unresolvedKeys.length > 0) {
-    pushWarning(plan.warnings, 'Unresolved environment variables must be fixed before execution.')
-    return
-  }
-
-  const destructiveOrAdapterGuarded = plan.destructive || Boolean(plan.confirmationText)
-  const reasons = [
-    snapshot.preferences.safeModeEnabled && destructiveOrAdapterGuarded
-      ? 'Global safe mode requires confirmation for risky work.'
-      : '',
-    environment.safeMode
-      ? `${environment.label} safe mode requires confirmation for risky work.`
-      : '',
-    environment.requiresConfirmation
-      ? `${environment.label} requires confirmation for risky work.`
-      : '',
-    environment.risk === 'high' || environment.risk === 'critical'
-      ? `${environment.label} is a ${environment.risk} risk environment.`
-      : '',
-  ].filter(Boolean)
-
-  for (const reason of reasons) {
-    pushWarning(plan.warnings, reason)
-  }
-
-  if (reasons.length > 0 && !plan.confirmationText) {
-    plan.confirmationText = `CONFIRM ${environment.label}`
-  }
-}
-
-function environmentHasUnresolvedVariables(
-  snapshot: WorkspaceSnapshot,
-  environmentId: string,
-) {
-  return resolveEnvironment(snapshot.environments, environmentId).unresolvedKeys.length > 0
-}
-
-function pushWarning(warnings: string[], warning: string) {
-  if (!warnings.includes(warning)) {
-    warnings.push(warning)
-  }
 }
 
 function browserObjectKinds(

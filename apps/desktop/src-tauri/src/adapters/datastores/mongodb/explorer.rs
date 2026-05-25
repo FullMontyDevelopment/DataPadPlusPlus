@@ -220,6 +220,56 @@ pub(super) async fn inspect_mongodb_explorer_node(
         });
     }
 
+    if let Some(rest) = node_id.strip_prefix("insert-document:") {
+        let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
+        let collection_info =
+            collection_info_by_name(&client.database(&database_name), &collection_name)
+                .await
+                .ok()
+                .flatten();
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("Document insert ready for {database_name}.{collection_name}."),
+            query_template: Some(mongodb_find_query_template_for_database(
+                &database_name,
+                &collection_name,
+                20,
+            )),
+            payload: Some(json!({
+                "database": database_name,
+                "collection": collection_name,
+                "validator": collection_info
+                    .as_ref()
+                    .and_then(|info| info.options.get_document("validator").ok())
+                    .cloned()
+                    .unwrap_or_else(Document::new),
+            })),
+        });
+    }
+
+    if let Some(rest) = node_id.strip_prefix("create-index:") {
+        let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
+        let indexes = client
+            .database(&database_name)
+            .run_command(doc! { "listIndexes": &collection_name })
+            .await?;
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("Create index workspace ready for {database_name}.{collection_name}."),
+            query_template: Some(mongodb_command_query_template(
+                &database_name,
+                doc! { "listIndexes": &collection_name },
+            )),
+            payload: Some(json!({
+                "database": database_name,
+                "collection": collection_name,
+                "indexes": indexes,
+            })),
+        });
+    }
+
     if let Some(rest) = node_id.strip_prefix("indexes:") {
         let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
         let indexes = client
@@ -811,7 +861,7 @@ fn mongodb_view_children(
         ExplorerNode {
             id: format!("view-sample-results:{database_name}:{view_name}"),
             family: "document".into(),
-            label: "Sample Results".into(),
+            label: "Results Preview".into(),
             kind: "sample-results".into(),
             detail: "Open a query against this view".into(),
             scope: Some(format!("collection:{database_name}:{view_name}")),

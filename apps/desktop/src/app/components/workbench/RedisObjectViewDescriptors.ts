@@ -63,6 +63,9 @@ const DESCRIPTORS: Record<string, RedisObjectViewDescriptor> = {
     emptyTitle: 'Cluster metadata is unavailable',
     emptyDescription: 'This server may not have cluster mode enabled, or the connected user cannot inspect cluster status.',
   },
+  'cluster-node': descriptor('cluster-node', 'Review Cluster Nodes', 'Cluster Nodes', 'Review cluster node addresses, roles, links, and slot ownership.', 'No cluster nodes were returned', 'This server may not be running in cluster mode, or CLUSTER NODES is blocked.'),
+  'cluster-slots': descriptor('cluster-slots', 'Review Hash Slots', 'Cluster Hash Slots', 'Review hash-slot ranges, masters, and replicas.', 'No hash slots were returned', 'This server may not be running in cluster mode, or CLUSTER SLOTS is blocked.'),
+  'cluster-failover': descriptor('cluster-failover', 'Review Failover Status', 'Cluster Failover', 'Review failover posture and cluster availability signals.', 'No failover metadata was returned', 'Failover metadata is only available for cluster deployments.'),
   sentinel: {
     kind: 'sentinel',
     menuLabel: 'Open Sentinel Status',
@@ -71,6 +74,10 @@ const DESCRIPTORS: Record<string, RedisObjectViewDescriptor> = {
     emptyTitle: 'Sentinel metadata is unavailable',
     emptyDescription: 'This connection is not configured as Sentinel, or the connected user cannot inspect Sentinel status.',
   },
+  'sentinel-masters': descriptor('sentinel-masters', 'Review Sentinel Masters', 'Sentinel Masters', 'Review monitored masters, status flags, replica counts, and quorum signals.', 'No Sentinel masters were returned', 'This connection may not target Sentinel, or SENTINEL MASTERS is blocked.'),
+  'sentinel-replicas': descriptor('sentinel-replicas', 'Review Sentinel Replicas', 'Sentinel Replicas', 'Review replicas for a selected monitored master.', 'No Sentinel replicas were returned', 'Select a master before loading replicas.'),
+  'sentinel-peers': descriptor('sentinel-peers', 'Review Sentinel Peers', 'Sentinel Peers', 'Review peer Sentinel instances for a monitored master.', 'No Sentinel peers were returned', 'Select a master before loading peer Sentinel instances.'),
+  'sentinel-failover': descriptor('sentinel-failover', 'Review Sentinel Failover', 'Sentinel Failover', 'Review Sentinel failover state and guarded failover workflows.', 'No Sentinel failover metadata was returned', 'Failover metadata is only available for Sentinel deployments.'),
   'lua-scripts': {
     kind: 'lua-scripts',
     menuLabel: 'Manage Lua Scripts',
@@ -79,6 +86,8 @@ const DESCRIPTORS: Record<string, RedisObjectViewDescriptor> = {
     emptyTitle: 'No script metadata is available',
     emptyDescription: 'Redis does not list loaded script bodies; use script SHA and Library scripts for repeatable workflows.',
   },
+  'lua-script': descriptor('lua-script', 'Manage Lua Scripts', 'Lua Scripts', 'Review script SHA workflows and saved-script handoffs without dumping raw command payloads.', 'No loaded script metadata is available', 'Redis does not enumerate script bodies. Save reusable scripts in Library.'),
+  history: descriptor('history', 'Open Script History', 'Script History', 'Review saved Redis script workflow history from Library-backed artifacts.', 'No script history is available', 'Saved script history appears after scripts are saved or run from Library.'),
   functions: {
     kind: 'functions',
     menuLabel: 'Manage Functions',
@@ -95,6 +104,9 @@ const DESCRIPTORS: Record<string, RedisObjectViewDescriptor> = {
     emptyTitle: 'No ACL metadata is available',
     emptyDescription: 'ACL metadata may be unavailable or blocked by the connected user permissions.',
   },
+  users: descriptor('users', 'Manage ACL Users', 'ACL Users', 'Review Redis ACL users, enabled state, command categories, key patterns, and channel patterns.', 'No ACL users were returned', 'ACL user metadata may be unavailable or blocked by permissions.'),
+  permissions: descriptor('permissions', 'Review ACL Categories', 'ACL Categories', 'Review Redis command categories exposed by the server.', 'No ACL categories were returned', 'ACL category metadata may be unavailable or blocked by permissions.'),
+  user: descriptor('user', 'Review Current User', 'Current Redis User', 'Review the authenticated Redis user for this connection.', 'Current user metadata is unavailable', 'ACL WHOAMI may be unavailable or blocked by permissions.'),
   diagnostics: {
     kind: 'diagnostics',
     menuLabel: 'Open Diagnostics',
@@ -187,6 +199,24 @@ export function isRedisObjectViewKind(kind: string | undefined): boolean {
 }
 
 export const REDIS_OBJECT_VIEW_KINDS = Object.freeze(Object.keys(DESCRIPTORS))
+
+function descriptor(
+  kind: string,
+  menuLabel: string,
+  title: string,
+  purpose: string,
+  emptyTitle: string,
+  emptyDescription: string,
+): RedisObjectViewDescriptor {
+  return {
+    kind,
+    menuLabel,
+    title,
+    purpose,
+    emptyTitle,
+    emptyDescription,
+  }
+}
 
 function typeDescriptor(
   kind: string,

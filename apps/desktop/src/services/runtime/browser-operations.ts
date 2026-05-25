@@ -1,4 +1,5 @@
 import type { ConnectionProfile, OperationExecutionRequest, OperationExecutionResponse, OperationPlanRequest, OperationPlanResponse, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import { referencedSensitiveEnvironmentVariableKeys } from '../../app/state/environment-variables'
 import { defaultQueryTextForConnection, languageForConnection, resolveEnvironment } from '../../app/state/helpers'
 import { redactSensitiveText } from '../../app/state/security-redaction'
 import { buildOperationManifestsForConnection } from './browser-operation-manifests'
@@ -30,6 +31,9 @@ export function planOperationLocally(
     request.operationId.includes('.unhide') ||
     request.operationId.includes('.user.') ||
     request.operationId.includes('.role.') ||
+    request.operationId.includes('.collection.import') ||
+    request.operationId.includes('.gridfs.upload') ||
+    request.operationId.includes('.key.import') ||
     request.operationId.includes('validation') ||
     request.operationId.includes('validator') ||
     request.operationId.includes('import-export') ||
@@ -38,6 +42,10 @@ export function planOperationLocally(
   const costly =
     destructive ||
     adminWrite ||
+    request.operationId.includes('.collection.export') ||
+    request.operationId.includes('.gridfs.export') ||
+    request.operationId.includes('.gridfs.validate') ||
+    request.operationId.includes('.key.export') ||
     request.operationId.includes('.profile') ||
     request.operationId.includes('metrics')
 
@@ -67,6 +75,14 @@ export function planOperationLocally(
   const operation = buildOperationManifestsForConnection(connection).find(
     (item) => item.id === request.operationId,
   )
+  const resolvedEnvironment = resolveEnvironment(snapshot.environments, request.environmentId)
+  const referencedSecrets = operationSecretReferences(request, resolvedEnvironment.sensitiveKeys)
+  if (referencedSecrets.length > 0) {
+    pushWarning(
+      plan.warnings,
+      `Secret variable ${referencedSecrets[0]} is resolved only by the desktop secret store.`,
+    )
+  }
   applyEnvironmentGuardsToPlan(snapshot, request.environmentId, plan, Boolean(
     operation &&
       (['write', 'destructive', 'costly'].includes(operation.risk) ||
@@ -77,7 +93,7 @@ export function planOperationLocally(
     connectionId: request.connectionId,
     environmentId: request.environmentId,
     plan,
-  }, resolveEnvironment(snapshot.environments, request.environmentId))
+  }, resolvedEnvironment)
 }
 
 function browserOperationRequest(
@@ -88,11 +104,51 @@ function browserOperationRequest(
     return mongoOperationRequest(request)
   }
 
+  if (connection.engine === 'redis' || connection.engine === 'valkey') {
+    return redisOperationRequest(request)
+  }
+
   if (request.objectName && connection.family === 'sql') {
     return `select * from ${request.objectName} limit 100;`
   }
 
   return defaultQueryTextForConnection(connection)
+}
+
+function redisOperationRequest(request: OperationPlanRequest) {
+  const parameters = request.parameters ?? {}
+  const key = String(parameters.key ?? request.objectName ?? '<key>')
+
+  if (request.operationId.endsWith('key.export')) {
+    return JSON.stringify({
+      operation: 'key.export',
+      key,
+      type: parameters.redisType ?? 'unknown',
+      format: parameters.format ?? 'json',
+      includeType: parameters.includeType ?? true,
+      includeTtl: parameters.includeTtl ?? true,
+      includeMetadata: parameters.includeMetadata ?? true,
+      memberRead: parameters.memberRead ?? 'bounded',
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('key.import')) {
+    return JSON.stringify({
+      operation: 'key.import',
+      key,
+      type: parameters.redisType ?? 'string',
+      format: parameters.format ?? 'json',
+      mode: parameters.mode ?? 'create-or-replace',
+      ttl: parameters.ttl ?? 'preserve',
+      validation: parameters.validation ?? 'validate-before-write',
+    }, null, 2)
+  }
+
+  return JSON.stringify({
+    operation: request.operationId,
+    key,
+    parameters,
+  }, null, 2)
 }
 
 function mongoOperationRequest(request: OperationPlanRequest) {
@@ -141,11 +197,77 @@ function mongoOperationRequest(request: OperationPlanRequest) {
     }, null, 2)
   }
 
+  if (request.operationId.endsWith('collection.export')) {
+    return JSON.stringify({
+      database,
+      collection,
+      operation: 'export',
+      format: parameters.format ?? 'extended-json',
+      filter: parameters.filter ?? {},
+      projection: parameters.projection ?? {},
+      sort: parameters.sort ?? {},
+      batchSize: parameters.batchSize ?? 1000,
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('collection.import')) {
+    return JSON.stringify({
+      database,
+      collection,
+      operation: 'import',
+      format: parameters.format ?? 'json',
+      mode: parameters.mode ?? 'insertMany',
+      validation: parameters.validation ?? 'validate-before-write',
+      mapping: parameters.mapping ?? {},
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('gridfs.export')) {
+    const bucket = String(parameters.bucket ?? 'fs')
+    return JSON.stringify({
+      database,
+      bucket,
+      operation: 'gridfs.export',
+      filename: parameters.filename ?? '*',
+      filesCollection: parameters.filesCollection ?? `${bucket}.files`,
+      chunksCollection: parameters.chunksCollection ?? `${bucket}.chunks`,
+      format: parameters.format ?? 'binary',
+      checks: ['file-metadata', 'chunk-sequence', 'missing-chunks'],
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('gridfs.upload')) {
+    const bucket = String(parameters.bucket ?? 'fs')
+    return JSON.stringify({
+      database,
+      bucket,
+      operation: 'gridfs.upload',
+      source: parameters.source ?? '<selected-file>',
+      filename: parameters.filename ?? '<filename>',
+      filesCollection: parameters.filesCollection ?? `${bucket}.files`,
+      chunksCollection: parameters.chunksCollection ?? `${bucket}.chunks`,
+      metadata: parameters.metadata ?? {},
+      validation: parameters.validation ?? 'validate-before-write',
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('gridfs.validate')) {
+    const bucket = String(parameters.bucket ?? 'fs')
+    return JSON.stringify({
+      database,
+      bucket,
+      operation: 'gridfs.validate',
+      filesCollection: parameters.filesCollection ?? `${bucket}.files`,
+      chunksCollection: parameters.chunksCollection ?? `${bucket}.chunks`,
+      checks: ['missing-chunks', 'orphaned-chunks', 'chunk-order'],
+    }, null, 2)
+  }
+
   if (request.operationId.endsWith('user.create')) {
     return JSON.stringify({
       database,
       createUser: name,
-      pwd: '<secret>',
+      pwd: parameters.password ?? '<secret>',
       roles: parameters.roles ?? [],
     }, null, 2)
   }
@@ -215,11 +337,20 @@ export function executeOperationLocally(
 
   const confirmationText = planResponse.plan.confirmationText
   if (confirmationText && request.confirmationText !== confirmationText) {
-    warnings.push(`Type \`${confirmationText}\` before executing this operation.`)
+    warnings.push('This operation needs confirmation before it can run.')
   }
 
   if (environmentHasUnresolvedVariables(snapshot, request.environmentId)) {
     warnings.push('Unresolved environment variables must be fixed before this operation can run.')
+  }
+  const secretReferences = operationSecretReferences(
+    request,
+    resolveEnvironment(snapshot.environments, request.environmentId).sensitiveKeys,
+  )
+  if (secretReferences.length > 0) {
+    warnings.push(
+      `Secret variable ${secretReferences[0]} cannot be resolved in browser preview.`,
+    )
   }
 
   if (executionSupport !== 'live' || warnings.length > planResponse.plan.warnings.length) {
@@ -331,6 +462,19 @@ function environmentHasUnresolvedVariables(
   environmentId: string,
 ) {
   return resolveEnvironment(snapshot.environments, environmentId).unresolvedKeys.length > 0
+}
+
+function operationSecretReferences(
+  request: OperationPlanRequest,
+  sensitiveKeys: string[],
+) {
+  return referencedSensitiveEnvironmentVariableKeys(
+    JSON.stringify({
+      objectName: request.objectName,
+      parameters: request.parameters,
+    }),
+    sensitiveKeys,
+  )
 }
 
 function pushWarning(warnings: string[], warning: string) {

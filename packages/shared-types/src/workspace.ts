@@ -9,6 +9,7 @@ export const RESULT_RENDERERS = [
   'chart',
   'keyvalue',
   'raw',
+  'resp',
   'schema',
   'diff',
   'plan',
@@ -634,6 +635,11 @@ export interface RawPayload {
   text: string
 }
 
+export interface RespPayload {
+  renderer: 'resp'
+  text: string
+}
+
 export interface SchemaPayload {
   renderer: 'schema'
   items: Array<{ label: string; detail: string }>
@@ -743,6 +749,7 @@ export type ResultPayload =
   | DocumentPayload
   | KeyValuePayload
   | RawPayload
+  | RespPayload
   | SchemaPayload
   | GraphPayload
   | ChartPayload

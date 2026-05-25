@@ -5,6 +5,7 @@ import type {
   DataEditExecutionRequest,
   DataEditExecutionResponse,
   EnvironmentProfile,
+  ExplorerNode,
   OperationPlan,
   OperationPlanRequest,
   OperationPlanResponse,
@@ -15,19 +16,24 @@ import {
   DatabaseIcon,
   ObjectCollectionIcon,
   ObjectDocumentIcon,
-  ObjectIndexIcon,
   ObjectRoleIcon,
   ObjectSearchIcon,
   ObjectSecurityIcon,
+  PlusIcon,
   PlayIcon,
   RefreshIcon,
+  DownloadIcon,
   WarningIcon,
+  TrashIcon,
 } from './icons'
 import {
   getMongoObjectViewDescriptor,
   mongoScopedQueryMenuLabel,
   type MongoObjectViewDescriptor,
 } from './MongoObjectViewDescriptors'
+import { MongoCreateIndexView } from './MongoCreateIndexView'
+import { MongoDocumentInsertPanel } from './MongoDocumentInsertPanel'
+import { MongoIndexesView } from './MongoIndexViews'
 import { CassandraObjectViewWorkspace } from './CassandraObjectViewWorkspace'
 import { CosmosObjectViewWorkspace } from './CosmosObjectViewWorkspace'
 import { DynamoObjectViewWorkspace } from './DynamoObjectViewWorkspace'
@@ -40,6 +46,7 @@ import { OracleObjectViewWorkspace } from './OracleObjectViewWorkspace'
 import { PrometheusObjectViewWorkspace } from './PrometheusObjectViewWorkspace'
 import { RelationalObjectViewWorkspace } from './RelationalObjectViewWorkspace'
 import { executeDataEditWithConfirmation } from './results/data-edit-confirmation'
+import { useDataEditConfirmation } from './results/use-data-edit-confirmation'
 import { RedisObjectViewWorkspace } from './RedisObjectViewWorkspace'
 import { SearchObjectViewWorkspace } from './SearchObjectViewWorkspace'
 import { WarehouseObjectViewWorkspace } from './WarehouseObjectViewWorkspace'
@@ -51,6 +58,7 @@ interface ObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onPlanOperation?(request: OperationPlanRequest): Promise<OperationPlanResponse | undefined>
   onExecuteDataEdit?(request: DataEditExecutionRequest): Promise<DataEditExecutionResponse | undefined>
 }
@@ -64,6 +72,12 @@ type ObjectViewFeedback = {
   warnings: string[]
   metadata?: unknown
 }
+type MongoOperationPlanner = (request: {
+  objectName?: string
+  operationId: string
+  parameters?: Record<string, unknown>
+  title: string
+}) => void
 
 export function ObjectViewWorkspace({
   connection,
@@ -71,6 +85,7 @@ export function ObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onOpenObjectView,
   onPlanOperation,
   onExecuteDataEdit,
 }: ObjectViewWorkspaceProps) {
@@ -82,6 +97,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onOpenObjectView={onOpenObjectView}
         onPlanOperation={onPlanOperation}
         onExecuteDataEdit={onExecuteDataEdit}
       />
@@ -280,13 +296,15 @@ function MongoObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onOpenObjectView,
   onPlanOperation,
   onExecuteDataEdit,
 }: ObjectViewWorkspaceProps) {
   const state = tab.objectViewState
-  const payload = asRecord(state?.payload)
+  const payload = useMemo(() => mongoObjectViewPayloadWithScope(asRecord(state?.payload), state), [state])
   const [refreshing, setRefreshing] = useState(false)
   const [feedback, setFeedback] = useState<ObjectViewFeedback | undefined>()
+  const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const warnings = objectViewWarnings(tab, payload)
   const refresh = useCallback(async () => {
     setRefreshing(true)
@@ -304,6 +322,7 @@ function MongoObjectViewWorkspace({
   const descriptor = getMongoObjectViewDescriptor(kind)
   const title = descriptor.title
   const summary = mongoObjectViewSummary(state?.summary, descriptor)
+  const compactManagementView = isCompactMongoObjectView(kind)
   const planMongoOperation = useCallback(async ({
     objectName,
     operationId,
@@ -335,26 +354,27 @@ function MongoObjectViewWorkspace({
     setFeedback({
       title,
       plan: response?.plan,
-      messages: response?.plan ? ['Operation preview generated.'] : [],
-      warnings: response?.plan?.warnings ?? ['Operation planning did not return a plan.'],
+      messages: response?.plan ? ['Ready to review.'] : [],
+      warnings: response?.plan?.warnings ?? ['DataPad++ could not prepare this change.'],
     })
   }, [connection.id, environment.id, onPlanOperation, setFeedback])
   const uploadMongoDocument = useCallback(async (document: JsonRecord) => {
     if (!onExecuteDataEdit) {
       setFeedback({
-        title: 'Upload Document',
+        title: 'Insert Document',
         messages: [],
-        warnings: ['Document upload is not available in this workspace.'],
+        warnings: ['Document insert is not available in this workspace.'],
       })
       return
     }
 
     const collection = stringValue(payload.collection)
+    const database = stringValue(payload.database)
     if (!collection) {
       setFeedback({
-        title: 'Upload Document',
+        title: 'Insert Document',
         messages: [],
-        warnings: ['A target collection is required before a document can be uploaded.'],
+        warnings: ['A target collection is required before a document can be inserted.'],
       })
       return
     }
@@ -365,7 +385,8 @@ function MongoObjectViewWorkspace({
       editKind: 'insert-document',
       target: {
         objectKind: 'document',
-        path: [stringValue(payload.database), collection].filter(Boolean),
+        path: [database, collection].filter(Boolean),
+        database,
         collection,
       },
       changes: [{
@@ -374,19 +395,42 @@ function MongoObjectViewWorkspace({
       }],
     }
     const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: `Upload a document into ${collection}.`,
-      confirmationTitle: 'Upload this MongoDB document?',
+      actionLabel: `Insert a document into ${collection}.`,
+      confirm: confirmDataEdit,
+      confirmationTitle: 'Insert this MongoDB document?',
     })
 
     setFeedback({
-      title: 'Upload Document',
+      title: 'Insert Document',
       plan: response?.plan,
       executed: response?.executed,
       messages: response?.messages ?? [],
-      warnings: response?.warnings ?? ['Document upload did not return a response.'],
+      warnings: response?.warnings ?? ['Document insert did not return a response.'],
       metadata: response?.metadata,
     })
-  }, [connection.id, environment.id, onExecuteDataEdit, payload.collection, payload.database, setFeedback])
+  }, [confirmDataEdit, connection.id, environment.id, onExecuteDataEdit, payload.collection, payload.database, setFeedback])
+  const openMongoToolView = useCallback((toolKind: 'insert-document' | 'create-index', label: string) => {
+    if (!onOpenObjectView) {
+      return
+    }
+
+    const database = stringValue(payload.database)
+    const collection = stringValue(payload.collection)
+    if (!database || !collection) {
+      return
+    }
+
+    onOpenObjectView(connection.id, {
+      id: `${toolKind}:${database}:${collection}`,
+      family: connection.family,
+      label,
+      kind: toolKind,
+      detail: '',
+      path: [database, 'Collections', collection],
+      queryTemplate: undefined,
+      expandable: false,
+    })
+  }, [connection.family, connection.id, onOpenObjectView, payload.collection, payload.database])
 
   return (
     <section className="object-view-workspace" aria-label={`${title} object view`}>
@@ -399,6 +443,30 @@ function MongoObjectViewWorkspace({
         refreshing={refreshing}
         onRefresh={refresh}
       >
+        {kind === 'collection' ? (
+          <button
+            type="button"
+            className="drawer-button"
+            disabled={!payload.collection}
+            title="Add a document to this collection"
+            onClick={() => openMongoToolView('insert-document', 'Add Document')}
+          >
+            <ObjectDocumentIcon className="panel-inline-icon" />
+            Add Document
+          </button>
+        ) : null}
+        {kind === 'indexes' ? (
+          <button
+            type="button"
+            className="drawer-button"
+            disabled={!payload.collection}
+            title="Create a MongoDB index for this collection"
+            onClick={() => openMongoToolView('create-index', 'Create Index')}
+          >
+            <PlusIcon className="panel-inline-icon" />
+            Create Index
+          </button>
+        ) : null}
         {queryTarget ? (
           <button
             type="button"
@@ -411,17 +479,19 @@ function MongoObjectViewWorkspace({
         ) : null}
       </ObjectViewHeader>
 
-      <div className="object-view-purpose">
-        <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
-        <div className="object-view-purpose-text">
-          <span>{descriptor.purpose}</span>
-          <div className="object-view-action-chips" aria-label="Primary workflows">
-            {descriptor.primaryActions.map((action) => (
-              <span key={action} className="object-view-action-chip">{action}</span>
-            ))}
+      {compactManagementView ? null : (
+        <div className="object-view-purpose">
+          <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
+          <div className="object-view-purpose-text" title={descriptor.purpose}>
+            <span>{descriptor.purpose}</span>
+            <div className="object-view-action-chips" aria-label="Primary workflows">
+              {descriptor.primaryActions.map((action) => (
+                <span key={action} className="object-view-action-chip">{action}</span>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
       {summary ? <p className="object-view-summary">{summary}</p> : null}
       <WarningList warnings={warnings} />
 
@@ -430,8 +500,10 @@ function MongoObjectViewWorkspace({
           feedback,
           onPlanOperation: planMongoOperation,
           onUploadDocument: uploadMongoDocument,
+          onOpenToolView: openMongoToolView,
         })}
         <ObjectViewFeedbackPanel feedback={feedback} />
+        {confirmationDialog}
       </div>
     </section>
   )
@@ -525,15 +597,31 @@ function renderMongoObjectView(
   queryTarget?: ScopedQueryTarget,
   actions?: {
     feedback?: ObjectViewFeedback
-    onPlanOperation(request: {
-      objectName?: string
-      operationId: string
-      parameters?: Record<string, unknown>
-      title: string
-    }): void
+    onPlanOperation: MongoOperationPlanner
     onUploadDocument(document: JsonRecord): Promise<void>
+    onOpenToolView?(toolKind: 'insert-document' | 'create-index', label: string): void
   },
 ) {
+  if (kind === 'insert-document') {
+    return (
+      <MongoDocumentInsertView
+        descriptor={descriptor}
+        payload={payload}
+        onUploadDocument={actions?.onUploadDocument}
+      />
+    )
+  }
+
+  if (kind === 'create-index') {
+    return (
+      <MongoCreateIndexView
+        descriptor={descriptor}
+        payload={payload}
+        onPlanOperation={actions?.onPlanOperation}
+      />
+    )
+  }
+
   if (kind === 'database' || kind === 'collection' || kind === 'view') {
     return (
       <MongoOverviewView
@@ -542,7 +630,7 @@ function renderMongoObjectView(
         payload={payload}
         queryTarget={queryTarget}
         onOpenQuery={onOpenQuery}
-        onUploadDocument={kind === 'collection' ? actions?.onUploadDocument : undefined}
+        onPlanOperation={actions?.onPlanOperation}
       />
     )
   }
@@ -552,11 +640,25 @@ function renderMongoObjectView(
   }
 
   if (kind === 'indexes' || kind === 'search-indexes' || kind === 'vector-indexes') {
-    return <MongoIndexesView descriptor={descriptor} payload={payload} onPlanOperation={actions?.onPlanOperation} />
+    return (
+      <MongoIndexesView
+        descriptor={descriptor}
+        payload={payload}
+        onOpenCreateIndex={kind === 'indexes' ? () => actions?.onOpenToolView?.('create-index', 'Create Index') : undefined}
+        onPlanOperation={actions?.onPlanOperation}
+      />
+    )
   }
 
   if (kind === 'validation-rules') {
-    return <MongoValidationView descriptor={descriptor} payload={payload} onPlanOperation={actions?.onPlanOperation} />
+    return (
+      <MongoValidationView
+        key={mongoValidationViewKey(payload)}
+        descriptor={descriptor}
+        payload={payload}
+        onPlanOperation={actions?.onPlanOperation}
+      />
+    )
   }
 
   if (kind === 'collection-statistics' || kind === 'database-statistics') {
@@ -576,7 +678,15 @@ function renderMongoObjectView(
   }
 
   if (kind.startsWith('gridfs')) {
-    return <MongoGridFsView descriptor={descriptor} payload={payload} queryTarget={queryTarget} onOpenQuery={onOpenQuery} />
+    return (
+      <MongoGridFsView
+        descriptor={descriptor}
+        payload={payload}
+        queryTarget={queryTarget}
+        onOpenQuery={onOpenQuery}
+        onPlanOperation={actions?.onPlanOperation}
+      />
+    )
   }
 
   return <MongoOverviewView kind={kind} descriptor={descriptor} payload={payload} queryTarget={queryTarget} onOpenQuery={onOpenQuery} />
@@ -588,14 +698,14 @@ function MongoOverviewView({
   payload,
   queryTarget,
   onOpenQuery,
-  onUploadDocument,
+  onPlanOperation,
 }: {
   kind: string
   descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
   queryTarget?: ScopedQueryTarget
   onOpenQuery(target: ScopedQueryTarget): void
-  onUploadDocument?(document: JsonRecord): Promise<void>
+  onPlanOperation?: MongoOperationPlanner
 }) {
   const facts = [
     ['Database', stringValue(payload.database)],
@@ -613,7 +723,7 @@ function MongoOverviewView({
       />
       <p className="object-view-note">{descriptor.purpose}</p>
       {kind === 'database' ? <MongoDatabaseOverview payload={payload} /> : null}
-      {kind === 'collection' ? <MongoCollectionOverview payload={payload} /> : null}
+      {kind === 'collection' ? <MongoCollectionOverview payload={payload} onPlanOperation={onPlanOperation} /> : null}
       {kind === 'view' ? <MongoViewOverview payload={payload} /> : null}
       <KeyValueGrid rows={facts} emptyText="No object metadata has been loaded yet." />
       {queryTarget ? (
@@ -622,9 +732,39 @@ function MongoOverviewView({
           {descriptor.primaryQueryLabel ?? mongoScopedQueryMenuLabel(kind)}
         </button>
       ) : null}
-      {onUploadDocument ? (
-        <MongoDocumentUploadPanel payload={payload} onUploadDocument={onUploadDocument} />
-      ) : null}
+    </div>
+  )
+}
+
+function MongoDocumentInsertView({
+  descriptor,
+  payload,
+  onUploadDocument,
+}: {
+  descriptor: MongoObjectViewDescriptor
+  payload: JsonRecord
+  onUploadDocument?: (document: JsonRecord) => Promise<void>
+}) {
+  const database = stringValue(payload.database)
+  const collection = stringValue(payload.collection)
+  const requiredFields = requiredFieldsForValidator(payload)
+
+  return (
+    <div className="object-view-section">
+      <SectionHeading
+        Icon={ObjectDocumentIcon}
+        title={descriptor.title}
+        unit={[database, collection].filter(Boolean).join(' / ') || 'MongoDB'}
+      />
+      <MongoDocumentInsertPanel
+        collection={collection}
+        requiredFields={requiredFields}
+        onInsertDocument={async (document) => {
+          if (onUploadDocument) {
+            await onUploadDocument(document)
+          }
+        }}
+      />
     </div>
   )
 }
@@ -697,17 +837,78 @@ function MongoDatabaseOverview({ payload }: { payload: JsonRecord }) {
   )
 }
 
-function MongoCollectionOverview({ payload }: { payload: JsonRecord }) {
+function MongoCollectionOverview({
+  payload,
+  onPlanOperation,
+}: {
+  payload: JsonRecord
+  onPlanOperation?: MongoOperationPlanner
+}) {
+  const database = stringValue(payload.database)
+  const collection = stringValue(payload.collection)
   const indexes = normalizeIndexList(payload.indexes)
   const sampleDocuments = arrayOfRecords(payload.sampleDocuments)
   const validator = payload.validator ?? asRecord(payload.options)?.validator
   const statistics = asRecord(payload.statistics ?? payload.stats)
+  const planExport = () => {
+    onPlanOperation?.({
+      title: `Export ${collection}`,
+      operationId: 'mongodb.collection.export',
+      objectName: collection,
+      parameters: {
+        database,
+        collection,
+        format: 'extended-json',
+        filter: {},
+        projection: {},
+        sort: {},
+        batchSize: 1000,
+      },
+    })
+  }
+  const planImport = () => {
+    onPlanOperation?.({
+      title: `Import into ${collection}`,
+      operationId: 'mongodb.collection.import',
+      objectName: collection,
+      parameters: {
+        database,
+        collection,
+        format: 'json',
+        mode: 'insertMany',
+        validation: 'validate-before-write',
+        mapping: {},
+      },
+    })
+  }
 
   return (
     <>
+      <div className="object-view-button-row object-view-button-row--compact" aria-label="Collection data actions">
+        <button
+          type="button"
+          className="drawer-button"
+          disabled={!onPlanOperation || !collection}
+          title="Review export settings before writing files."
+          onClick={planExport}
+        >
+          <DownloadIcon className="panel-inline-icon" />
+          Export
+        </button>
+        <button
+          type="button"
+          className="drawer-button"
+          disabled={!onPlanOperation || !collection}
+          title="Review import settings before changing data."
+          onClick={planImport}
+        >
+          <PlusIcon className="panel-inline-icon" />
+          Import
+        </button>
+      </div>
       <div className="object-view-card-grid">
         <div className="object-view-card">
-          <span>Previewed documents</span>
+          <span>Sample size</span>
           <strong>{sampleDocuments.length}</strong>
         </div>
         <div className="object-view-card">
@@ -743,7 +944,7 @@ function MongoCollectionOverview({ payload }: { payload: JsonRecord }) {
           String(Object.keys(document).length),
           documentFieldSummary(document),
         ])}
-        emptyText="No document preview metadata was returned for this collection."
+        emptyText="No document sample metadata was returned for this collection."
       />
     </>
   )
@@ -853,11 +1054,11 @@ function MongoSchemaView({
         emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`}
       />
       <div className="object-view-management">
-        <strong>Validator Draft</strong>
-        <p className="object-view-note">
-          Generate a JSON Schema validator preview from the sampled fields. DataPad++ still routes this through operation guardrails before any live change.
-        </p>
-        <pre className="object-view-code">{prettyJson(generateValidatorFromFields(fields, sampleSize))}</pre>
+        <strong>Validator</strong>
+        <details className="object-view-disclosure">
+          <summary>Generated rule</summary>
+          <pre className="object-view-code">{prettyJson(generateValidatorFromFields(fields, sampleSize))}</pre>
+        </details>
         <div className="object-view-button-row">
           <button
             type="button"
@@ -865,172 +1066,10 @@ function MongoSchemaView({
             disabled={!onPlanOperation || !collection || fields.length === 0}
             onClick={previewValidator}
           >
-            Preview Validator From Sample
+            Prepare Validator
           </button>
         </div>
       </div>
-    </div>
-  )
-}
-
-function MongoIndexesView({
-  descriptor,
-  payload,
-  onPlanOperation,
-}: {
-  descriptor: MongoObjectViewDescriptor
-  payload: JsonRecord
-  onPlanOperation?: (request: {
-    objectName?: string
-    operationId: string
-    parameters?: Record<string, unknown>
-    title: string
-  }) => void
-}) {
-  const indexes = extractIndexes(payload)
-  const database = stringValue(payload.database)
-  const collection = stringValue(payload.collection)
-  const [indexName, setIndexName] = useState('field_1')
-  const [keyPattern, setKeyPattern] = useState('{\n  "field": 1\n}')
-  const [options, setOptions] = useState('{\n  "name": "field_1"\n}')
-  const [validationError, setValidationError] = useState('')
-  const summaryRows = [
-    ['Indexes', String(indexes.length)],
-    ['Unique', String(indexes.filter((index) => Boolean(index.unique)).length)],
-    ['TTL', String(indexes.filter((index) => index.expireAfterSeconds !== undefined).length)],
-    ['Hidden', String(indexes.filter((index) => Boolean(index.hidden)).length)],
-  ]
-  const previewCreate = useCallback(() => {
-    const key = parseJsonObject(keyPattern)
-    const parsedOptions = parseJsonObject(options)
-    if (!key.ok) {
-      setValidationError(`Key pattern: ${key.error}`)
-      return
-    }
-    if (!parsedOptions.ok) {
-      setValidationError(`Options: ${parsedOptions.error}`)
-      return
-    }
-    const name = indexName.trim() || stringValue(parsedOptions.value.name) || 'field_1'
-    setValidationError('')
-    onPlanOperation?.({
-      title: `Create index ${name}`,
-      operationId: 'mongodb.index.create',
-      objectName: collection,
-      parameters: {
-        database,
-        collection,
-        indexName: name,
-        key: key.value,
-        options: { ...parsedOptions.value, name },
-      },
-    })
-  }, [collection, database, indexName, keyPattern, onPlanOperation, options])
-  const previewDrop = useCallback((name: string) => {
-    onPlanOperation?.({
-      title: `Drop index ${name}`,
-      operationId: 'mongodb.index.drop',
-      objectName: collection,
-      parameters: {
-        database,
-        collection,
-        indexName: name,
-      },
-    })
-  }, [collection, database, onPlanOperation])
-  const previewVisibility = useCallback((name: string, hidden: boolean) => {
-    onPlanOperation?.({
-      title: `${hidden ? 'Unhide' : 'Hide'} index ${name}`,
-      operationId: hidden ? 'mongodb.index.unhide' : 'mongodb.index.hide',
-      objectName: collection,
-      parameters: {
-        database,
-        collection,
-        indexName: name,
-      },
-    })
-  }, [collection, database, onPlanOperation])
-
-  return (
-    <div className="object-view-section">
-      <SectionHeading Icon={ObjectIndexIcon} title={descriptor.title} unit={`${indexes.length} index(es)`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
-      <div className="object-view-card-grid">
-        {summaryRows.map(([label, value]) => (
-          <div key={label} className="object-view-card">
-            <span>{label}</span>
-            <strong>{value}</strong>
-          </div>
-        ))}
-      </div>
-      {indexes.length === 0 ? (
-        <PurposeEmptyState descriptor={descriptor} />
-      ) : (
-        <div className="object-view-table-wrap">
-          <table className="object-view-table">
-            <thead>
-              <tr>
-                {['Name', 'Key pattern', 'Unique', 'Sparse', 'TTL', 'Hidden', 'Usage', 'Options', 'Actions'].map((column) => (
-                  <th key={column}>{column}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {indexes.map((index) => {
-                const name = stringValue(index.name)
-                return (
-                  <tr key={name || compactJson(index.key)}>
-                    <td>{name}</td>
-                    <td>{indexKeyPatternText(index.key)}</td>
-                    <td>{booleanText(index.unique)}</td>
-                    <td>{booleanText(index.sparse)}</td>
-                    <td>{stringValue(index.expireAfterSeconds)}</td>
-                    <td>{booleanText(index.hidden)}</td>
-                    <td>{indexUsageText(index)}</td>
-                    <td>{indexOptionsSummary(index, ['name', 'key', 'unique', 'sparse', 'expireAfterSeconds', 'hidden', 'accesses', 'usage'])}</td>
-                    <td>
-                      <div className="object-view-button-row object-view-button-row--compact">
-                        <button
-                          type="button"
-                          className="drawer-button"
-                          disabled={!onPlanOperation || !name || name === '_id_'}
-                          title={name === '_id_' ? 'MongoDB primary _id index cannot be hidden.' : 'Preview the guarded hide/unhide operation.'}
-                          onClick={() => previewVisibility(name, Boolean(index.hidden))}
-                        >
-                          {index.hidden ? 'Preview Unhide' : 'Preview Hide'}
-                        </button>
-                        <button
-                          type="button"
-                          className="drawer-button drawer-button--danger"
-                          disabled={!onPlanOperation || !name || name === '_id_'}
-                          title={name === '_id_' ? 'MongoDB primary _id index cannot be dropped.' : 'Preview the guarded drop-index operation.'}
-                          onClick={() => previewDrop(name)}
-                        >
-                          Preview Drop
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <MongoIndexCreatePanel
-        disabled={!collection || !onPlanOperation}
-        indexName={indexName}
-        keyPattern={keyPattern}
-        options={options}
-        validationError={validationError}
-        onIndexNameChange={setIndexName}
-        onKeyPatternChange={setKeyPattern}
-        onOptionsChange={setOptions}
-        onPreviewCreate={previewCreate}
-      />
-      <p className="object-view-note">
-        Create, drop, hide, and unhide index actions are preview-only and run through environment guardrails.
-      </p>
     </div>
   )
 }
@@ -1052,11 +1091,14 @@ function MongoValidationView({
   const validator = payload.validator ?? asRecord(payload.options)?.validator
   const database = stringValue(payload.database)
   const collection = stringValue(payload.collection)
-  const [validatorJson, setValidatorJson] = useState(() => prettyJson(validator ?? {}))
+  const validatorJsonFromPayload = useMemo(() => prettyJson(validator ?? {}), [validator])
+  const initialRequiredFields = useMemo(() => requiredFieldsForValidator(payload), [payload])
+  const [validatorJson, setValidatorJson] = useState(validatorJsonFromPayload)
   const [testDocumentJson, setTestDocumentJson] = useState('{\n  "sku": "example",\n  "name": "Example"\n}')
   const [validationError, setValidationError] = useState('')
   const [testStatus, setTestStatus] = useState<{ kind: 'success' | 'error'; text: string } | undefined>()
-  const requiredFields = requiredFieldsForValidator(payload)
+  const [requiredFields, setRequiredFields] = useState(initialRequiredFields)
+  const [newRequiredField, setNewRequiredField] = useState('')
   const previewUpdate = useCallback(() => {
     const parsed = parseJsonObject(validatorJson)
     if (!parsed.ok) {
@@ -1075,6 +1117,37 @@ function MongoValidationView({
       },
     })
   }, [collection, database, onPlanOperation, validatorJson])
+  const reviewRequiredFields = useCallback(() => {
+    setValidationError('')
+    onPlanOperation?.({
+      title: `Update validator for ${collection}`,
+      operationId: 'mongodb.validation.update',
+      objectName: collection,
+      parameters: {
+        database,
+        collection,
+        validator: validatorWithRequiredFields(validator, requiredFields),
+      },
+    })
+  }, [collection, database, onPlanOperation, requiredFields, validator])
+  const addRequiredField = useCallback(() => {
+    const field = newRequiredField.trim()
+    if (!field) {
+      setValidationError('Field name is required.')
+      return
+    }
+    if (requiredFields.includes(field)) {
+      setValidationError(`Required field already exists: ${field}`)
+      return
+    }
+    setRequiredFields([...requiredFields, field])
+    setNewRequiredField('')
+    setValidationError('')
+  }, [newRequiredField, requiredFields])
+  const removeRequiredField = useCallback((field: string) => {
+    setRequiredFields(requiredFields.filter((item) => item !== field))
+    setValidationError('')
+  }, [requiredFields])
   const testDocument = useCallback(() => {
     const validation = validateDocumentUpload(testDocumentJson, requiredFields)
     setTestStatus(validation.ok
@@ -1086,28 +1159,65 @@ function MongoValidationView({
     <div className="object-view-section">
       <SectionHeading Icon={ObjectSecurityIcon} title={descriptor.title} unit={validator ? 'configured' : 'none'} />
       <p className="object-view-note">{descriptor.purpose}</p>
-      {requiredFields.length ? (
-        <div className="object-view-card-grid">
-          <div className="object-view-card">
-            <span>Required fields</span>
-            <strong>{requiredFields.length}</strong>
-          </div>
-          <div className="object-view-card">
-            <span>Validation source</span>
-            <strong>JSON Schema</strong>
-          </div>
+      <div className="object-view-card-grid">
+        <div className="object-view-card">
+          <span>Required fields</span>
+          <strong>{requiredFields.length}</strong>
         </div>
-      ) : null}
-      {validator ? (
-        <pre className="object-view-code">{prettyJson(validator)}</pre>
-      ) : (
-        <PurposeEmptyState descriptor={descriptor} />
-      )}
-      <p className="object-view-note">
-        Validator changes are generated as guarded operation previews.
-      </p>
+        <div className="object-view-card">
+          <span>Validation source</span>
+          <strong>{validator ? 'JSON Schema' : 'none'}</strong>
+        </div>
+      </div>
       <div className="object-view-management">
-        <strong>Update Validator Preview</strong>
+        <strong>Required Fields</strong>
+        {requiredFields.length ? (
+          <div className="object-view-chip-row" aria-label="Required fields">
+            {requiredFields.map((field) => (
+              <button
+                type="button"
+                className="object-view-chip-button"
+                key={field}
+                aria-label={`Remove required field ${field}`}
+                title="Remove required field"
+                onClick={() => removeRequiredField(field)}
+              >
+                <span>{field}</span>
+                <TrashIcon className="toolbar-icon" />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <PurposeEmptyState descriptor={descriptor} />
+        )}
+        <div className="object-view-form-grid">
+          <label className="object-view-field">
+            <span>Field</span>
+            <input
+              value={newRequiredField}
+              onChange={(event) => setNewRequiredField(event.target.value)}
+              placeholder="sku"
+            />
+          </label>
+        </div>
+        {validationError ? <p className="object-view-status is-error">{validationError}</p> : null}
+        <div className="object-view-button-row">
+          <button type="button" className="drawer-button" onClick={addRequiredField}>
+            <PlusIcon className="panel-inline-icon" />
+            Add Field
+          </button>
+          <button
+            type="button"
+            className="drawer-button drawer-button--primary"
+            disabled={!onPlanOperation || !collection}
+            onClick={reviewRequiredFields}
+          >
+            Review Required Fields
+          </button>
+        </div>
+      </div>
+      <details className="object-view-disclosure">
+        <summary>Advanced JSON rule</summary>
         <label className="object-view-field">
           <span>Validator rule</span>
           <textarea
@@ -1117,7 +1227,6 @@ function MongoValidationView({
             spellCheck={false}
           />
         </label>
-        {validationError ? <p className="object-view-status is-error">{validationError}</p> : null}
         <div className="object-view-button-row">
           <button
             type="button"
@@ -1125,15 +1234,12 @@ function MongoValidationView({
             disabled={!onPlanOperation || !collection}
             onClick={previewUpdate}
           >
-            Preview Update Validator
+            Review JSON Rule
           </button>
         </div>
-      </div>
+      </details>
       <div className="object-view-management">
         <strong>Test Document</strong>
-        <p className="object-view-note">
-          Check a draft document against the validator fields DataPad++ can verify locally before inserting or updating data.
-        </p>
         <label className="object-view-field">
           <span>Test document</span>
           <textarea
@@ -1214,8 +1320,12 @@ function MongoSecurityView({
   const roleReferenceCount = rowsForSecurityReferences(isRoleView ? roles : users, isRoleView)
   const privilegeCount = roles.reduce((count, role) => count + arrayOfRecords(role.privileges).length, 0)
   const [principalName, setPrincipalName] = useState('')
-  const [rolesJson, setRolesJson] = useState(`[\n  { "role": "readWrite", "db": "${database || 'admin'}" }\n]`)
-  const [privilegesJson, setPrivilegesJson] = useState('[]')
+  const [passwordVariable, setPasswordVariable] = useState('')
+  const [assignedRole, setAssignedRole] = useState('readWrite')
+  const [assignedRoleDatabase, setAssignedRoleDatabase] = useState(database || 'admin')
+  const [privilegeDatabase, setPrivilegeDatabase] = useState(database || 'admin')
+  const [privilegeCollection, setPrivilegeCollection] = useState('')
+  const [privilegeActions, setPrivilegeActions] = useState('find, insert, update')
   const [validationError, setValidationError] = useState('')
   const rows = isRoleView
     ? roles.map((role) => [
@@ -1234,16 +1344,31 @@ function MongoSecurityView({
       setValidationError(isRoleView ? 'Role name is required.' : 'Username is required.')
       return
     }
-    const parsedRoles = parseJsonArray(rolesJson)
-    if (!parsedRoles.ok) {
-      setValidationError(`Roles: ${parsedRoles.error}`)
+    const role = assignedRole.trim()
+    const roleDb = assignedRoleDatabase.trim() || database || 'admin'
+    if (!role) {
+      setValidationError('Assigned role is required.')
       return
     }
-    const parsedPrivileges = isRoleView ? parseJsonArray(privilegesJson) : { ok: true as const, value: [] }
-    if (!parsedPrivileges.ok) {
-      setValidationError(`Privileges: ${parsedPrivileges.error}`)
+    const passwordToken = passwordVariable.trim()
+    if (!isRoleView && passwordToken && !isVariableToken(passwordToken)) {
+      setValidationError('Use an environment secret variable such as {{MONGO_USER_PASSWORD}}.')
       return
     }
+    const roles = [{ role, db: roleDb }]
+    const privilegeActionList = privilegeActions
+      .split(',')
+      .map((action) => action.trim())
+      .filter(Boolean)
+    const privileges = isRoleView && privilegeActionList.length
+      ? [{
+          resource: {
+            db: privilegeDatabase.trim() || database || '',
+            collection: privilegeCollection.trim(),
+          },
+          actions: privilegeActionList,
+        }]
+      : []
     setValidationError('')
     onPlanOperation?.({
       title: `${isRoleView ? 'Create role' : 'Create user'} ${name}`,
@@ -1252,11 +1377,23 @@ function MongoSecurityView({
       parameters: {
         database,
         name,
-        roles: parsedRoles.value,
-        privileges: parsedPrivileges.value,
+        ...(!isRoleView && passwordToken ? { password: passwordToken } : {}),
+        roles,
+        privileges,
       },
     })
-  }, [database, isRoleView, onPlanOperation, principalName, privilegesJson, rolesJson])
+  }, [
+    assignedRole,
+    assignedRoleDatabase,
+    database,
+    isRoleView,
+    onPlanOperation,
+    passwordVariable,
+    principalName,
+    privilegeActions,
+    privilegeCollection,
+    privilegeDatabase,
+  ])
   const previewDrop = useCallback((name: string) => {
     onPlanOperation?.({
       title: `${isRoleView ? 'Drop role' : 'Drop user'} ${name}`,
@@ -1272,7 +1409,6 @@ function MongoSecurityView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectRoleIcon} title={descriptor.title} unit={`${rows.length} row(s)`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <div className="object-view-card-grid">
         <div className="object-view-card">
           <span>{isRoleView ? 'Roles' : 'Users'}</span>
@@ -1312,11 +1448,13 @@ function MongoSecurityView({
                     <td>
                       <button
                         type="button"
-                        className="drawer-button drawer-button--danger"
+                        className="object-view-icon-action is-danger"
+                        aria-label={isRoleView ? `Drop role ${name}` : `Drop user ${name}`}
                         disabled={!onPlanOperation || !name}
+                        title={isRoleView ? 'Drop role' : 'Drop user'}
                         onClick={() => previewDrop(name)}
                       >
-                        {isRoleView ? 'Preview Drop Role' : 'Preview Drop User'}
+                        <TrashIcon className="toolbar-icon" />
                       </button>
                     </td>
                   </tr>
@@ -1327,7 +1465,7 @@ function MongoSecurityView({
         </div>
       )}
       <div className="object-view-management">
-        <strong>{isRoleView ? 'Create Role Preview' : 'Create User Preview'}</strong>
+        <strong>{isRoleView ? 'Create Role' : 'Create User'}</strong>
         <div className="object-view-form-grid">
           <label className="object-view-field">
             <span>{isRoleView ? 'Role name' : 'Username'}</span>
@@ -1338,24 +1476,58 @@ function MongoSecurityView({
             />
           </label>
           <label className="object-view-field">
-            <span>Assigned roles</span>
-            <textarea
-              className="object-view-textarea"
-              value={rolesJson}
-              onChange={(event) => setRolesJson(event.target.value)}
-              spellCheck={false}
+            <span>{isRoleView ? 'Inherited role' : 'Assigned role'}</span>
+            <input
+              value={assignedRole}
+              onChange={(event) => setAssignedRole(event.target.value)}
+              placeholder="readWrite"
             />
           </label>
-          {isRoleView ? (
+          <label className="object-view-field">
+            <span>Role database</span>
+            <input
+              value={assignedRoleDatabase}
+              onChange={(event) => setAssignedRoleDatabase(event.target.value)}
+              placeholder={database || 'admin'}
+            />
+          </label>
+          {!isRoleView ? (
             <label className="object-view-field">
-              <span>Privileges</span>
-              <textarea
-                className="object-view-textarea"
-                value={privilegesJson}
-                onChange={(event) => setPrivilegesJson(event.target.value)}
-                spellCheck={false}
+              <span>Password variable</span>
+              <input
+                value={passwordVariable}
+                onChange={(event) => setPasswordVariable(event.target.value)}
+                placeholder="{{MONGO_USER_PASSWORD}}"
               />
             </label>
+          ) : null}
+          {isRoleView ? (
+            <>
+              <label className="object-view-field">
+                <span>Privilege database</span>
+                <input
+                  value={privilegeDatabase}
+                  onChange={(event) => setPrivilegeDatabase(event.target.value)}
+                  placeholder={database || 'admin'}
+                />
+              </label>
+              <label className="object-view-field">
+                <span>Privilege collection</span>
+                <input
+                  value={privilegeCollection}
+                  onChange={(event) => setPrivilegeCollection(event.target.value)}
+                  placeholder="Leave empty for database scope"
+                />
+              </label>
+              <label className="object-view-field">
+                <span>Actions</span>
+                <input
+                  value={privilegeActions}
+                  onChange={(event) => setPrivilegeActions(event.target.value)}
+                  placeholder="find, insert, update"
+                />
+              </label>
+            </>
           ) : null}
         </div>
         {validationError ? <p className="object-view-status is-error">{validationError}</p> : null}
@@ -1366,7 +1538,7 @@ function MongoSecurityView({
             disabled={!onPlanOperation}
             onClick={previewCreate}
           >
-            {isRoleView ? 'Preview Create Role' : 'Preview Create User'}
+            {isRoleView ? 'Create Role' : 'Create User'}
           </button>
         </div>
       </div>
@@ -1504,33 +1676,122 @@ function MongoGridFsView({
   payload,
   queryTarget,
   onOpenQuery,
+  onPlanOperation,
 }: {
   descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
   queryTarget?: ScopedQueryTarget
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: MongoOperationPlanner
 }) {
+  const database = stringValue(payload.database)
+  const bucket = stringValue(payload.bucket) || 'fs'
+  const filesCollection = stringValue(payload.filesCollection) || `${bucket}.files`
+  const chunksCollection = stringValue(payload.chunksCollection) || `${bucket}.chunks`
   const facts = [
-    ['Database', stringValue(payload.database)],
-    ['Bucket', stringValue(payload.bucket)],
+    ['Database', database],
+    ['Bucket', bucket],
     ['Collection', stringValue(payload.collection)],
-    ['Files collection', stringValue(payload.filesCollection)],
-    ['Chunks collection', stringValue(payload.chunksCollection)],
+    ['Files collection', filesCollection],
+    ['Chunks collection', chunksCollection],
   ].filter(([, value]) => value)
   const buckets = arrayOfRecords(payload.buckets)
   const files = arrayOfRecords(payload.files)
   const chunks = arrayOfRecords(payload.chunks)
   const totalBytes = files.reduce((sum, file) => sum + numericValue(file.length ?? file.size), 0)
   const missingChunks = numericValue(payload.missingChunks ?? payload.missingChunkCount)
+  const sampleFile = files[0]
+  const sampleFilename = stringValue(sampleFile?.filename ?? sampleFile?.name ?? sampleFile?._id) || '*'
+  const canPlan = Boolean(onPlanOperation && database)
+
+  const planExport = () => {
+    onPlanOperation?.({
+      title: `Export GridFS ${bucket}`,
+      operationId: 'mongodb.gridfs.export',
+      objectName: filesCollection,
+      parameters: {
+        database,
+        bucket,
+        filename: sampleFilename,
+        filesCollection,
+        chunksCollection,
+        format: 'binary',
+      },
+    })
+  }
+
+  const planUpload = () => {
+    onPlanOperation?.({
+      title: `Upload to GridFS ${bucket}`,
+      operationId: 'mongodb.gridfs.upload',
+      objectName: filesCollection,
+      parameters: {
+        database,
+        bucket,
+        filename: '<filename>',
+        source: '<selected-file>',
+        filesCollection,
+        chunksCollection,
+        metadata: {},
+        validation: 'validate-before-write',
+      },
+    })
+  }
+
+  const planValidate = () => {
+    onPlanOperation?.({
+      title: `Validate GridFS ${bucket}`,
+      operationId: 'mongodb.gridfs.validate',
+      objectName: filesCollection,
+      parameters: {
+        database,
+        bucket,
+        filesCollection,
+        chunksCollection,
+      },
+    })
+  }
 
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectCollectionIcon} title={descriptor.title} unit="files and chunks" />
       <p className="object-view-note">{descriptor.purpose}</p>
+      <div className="object-view-button-row object-view-button-row--compact" aria-label="GridFS actions">
+        <button
+          type="button"
+          className="drawer-button"
+          disabled={!canPlan}
+          title="Review an export plan before writing files."
+          onClick={planExport}
+        >
+          <DownloadIcon className="panel-inline-icon" />
+          Export Files
+        </button>
+        <button
+          type="button"
+          className="drawer-button"
+          disabled={!canPlan}
+          title="Review upload validation before writing to GridFS."
+          onClick={planUpload}
+        >
+          <PlusIcon className="panel-inline-icon" />
+          Upload File
+        </button>
+        <button
+          type="button"
+          className="drawer-button"
+          disabled={!canPlan}
+          title="Check GridFS chunk consistency."
+          onClick={planValidate}
+        >
+          <WarningIcon className="panel-inline-icon" />
+          Validate Chunks
+        </button>
+      </div>
       <div className="object-view-card-grid">
         <div className="object-view-card">
           <span>Buckets</span>
-          <strong>{buckets.length || (stringValue(payload.bucket) ? 1 : 0)}</strong>
+          <strong>{buckets.length || (bucket ? 1 : 0)}</strong>
         </div>
         <div className="object-view-card">
           <span>Files</span>
@@ -1595,141 +1856,6 @@ function MongoGridFsView({
   )
 }
 
-function MongoDocumentUploadPanel({
-  payload,
-  onUploadDocument,
-}: {
-  payload: JsonRecord
-  onUploadDocument(document: JsonRecord): Promise<void>
-}) {
-  const collection = stringValue(payload.collection)
-  const requiredFields = requiredFieldsForValidator(payload)
-  const [documentText, setDocumentText] = useState('{\n  "sku": "new-product",\n  "name": "New Product"\n}')
-  const [status, setStatus] = useState('')
-  const validation = useMemo(
-    () => validateDocumentUpload(documentText, requiredFields),
-    [documentText, requiredFields],
-  )
-  const upload = useCallback(async () => {
-    if (!validation.ok) {
-      setStatus(validation.error)
-      return
-    }
-
-    setStatus('')
-    await onUploadDocument(validation.value)
-  }, [onUploadDocument, validation])
-
-  return (
-    <div className="object-view-management">
-      <strong>Upload Document</strong>
-      <p className="object-view-note">
-        Paste one JSON document. Validation checks the shape before DataPad++ sends it through guarded MongoDB insert handling.
-      </p>
-      {requiredFields.length ? (
-        <p className="object-view-note">Required fields from validator: {requiredFields.join(', ')}</p>
-      ) : null}
-      <label className="object-view-field">
-        <span>Document</span>
-        <textarea
-          className="object-view-textarea object-view-textarea--tall"
-          value={documentText}
-          onChange={(event) => setDocumentText(event.target.value)}
-          spellCheck={false}
-        />
-      </label>
-      {!validation.ok ? <p className="object-view-status is-error">{validation.error}</p> : null}
-      {status && (validation.ok || status !== validation.error) ? (
-        <p className={`object-view-status ${validation.ok ? 'is-success' : 'is-error'}`}>{status}</p>
-      ) : null}
-      <div className="object-view-button-row">
-        <button
-          type="button"
-          className="drawer-button"
-          onClick={() => setStatus(validation.ok ? `Document is valid for ${collection}.` : validation.error)}
-        >
-          Validate
-        </button>
-        <button
-          type="button"
-          className="drawer-button drawer-button--primary"
-          disabled={!collection || !validation.ok}
-          onClick={() => void upload()}
-        >
-          Upload Document
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function MongoIndexCreatePanel({
-  disabled,
-  indexName,
-  keyPattern,
-  options,
-  validationError,
-  onIndexNameChange,
-  onKeyPatternChange,
-  onOptionsChange,
-  onPreviewCreate,
-}: {
-  disabled: boolean
-  indexName: string
-  keyPattern: string
-  options: string
-  validationError: string
-  onIndexNameChange(value: string): void
-  onKeyPatternChange(value: string): void
-  onOptionsChange(value: string): void
-  onPreviewCreate(): void
-}) {
-  return (
-    <div className="object-view-management">
-      <strong>Create Index Preview</strong>
-      <div className="object-view-form-grid">
-        <label className="object-view-field">
-          <span>Name</span>
-          <input
-            value={indexName}
-            onChange={(event) => onIndexNameChange(event.target.value)}
-            placeholder="field_1"
-          />
-        </label>
-        <label className="object-view-field">
-          <span>Key pattern</span>
-          <textarea
-            className="object-view-textarea"
-            value={keyPattern}
-            onChange={(event) => onKeyPatternChange(event.target.value)}
-            spellCheck={false}
-          />
-        </label>
-        <label className="object-view-field">
-          <span>Index options</span>
-          <textarea
-            className="object-view-textarea"
-            value={options}
-            onChange={(event) => onOptionsChange(event.target.value)}
-            spellCheck={false}
-          />
-        </label>
-      </div>
-      {validationError ? <p className="object-view-status is-error">{validationError}</p> : null}
-      <div className="object-view-button-row">
-        <button
-          type="button"
-          className="drawer-button"
-          disabled={disabled}
-          onClick={onPreviewCreate}
-        >
-          Preview Create Index
-        </button>
-      </div>
-    </div>
-  )
-}
-
 function SectionHeading({
   Icon,
   title,
@@ -1784,7 +1910,7 @@ function ObjectViewFeedbackPanel({ feedback }: { feedback?: ObjectViewFeedback }
             rows={[
               ['Summary', feedback.plan.summary],
               ['Permissions', feedback.plan.requiredPermissions.join(', ')],
-              ['Confirmation', feedback.plan.confirmationText ?? 'Not required'],
+              ['Approval', feedback.plan.confirmationText ? 'Review required' : 'Not required'],
               ['Cost', feedback.plan.estimatedCost ?? 'Unknown'],
               ['Scan impact', feedback.plan.estimatedScanImpact ?? 'Unknown'],
             ]}
@@ -1796,7 +1922,7 @@ function ObjectViewFeedbackPanel({ feedback }: { feedback?: ObjectViewFeedback }
               className="drawer-button"
               onClick={() => setShowGeneratedRequest((current) => !current)}
             >
-              {showGeneratedRequest ? 'Hide generated request' : 'Show generated request'}
+              {showGeneratedRequest ? 'Hide details' : 'Details'}
             </button>
             {showGeneratedRequest ? (
               <pre className="object-view-code">{feedback.plan.generatedRequest}</pre>
@@ -1811,7 +1937,7 @@ function ObjectViewFeedbackPanel({ feedback }: { feedback?: ObjectViewFeedback }
             className="drawer-button"
             onClick={() => setShowMetadata((current) => !current)}
           >
-            {showMetadata ? 'Hide technical metadata' : 'Show technical metadata'}
+            {showMetadata ? 'Hide details' : 'Show details'}
           </button>
           {showMetadata ? (
             <pre className="object-view-code">{prettyJson(feedback.metadata)}</pre>
@@ -2002,6 +2128,85 @@ function objectViewWarnings(tab: QueryTabState, payload: JsonRecord) {
   ].filter(Boolean)
 }
 
+function mongoObjectViewPayloadWithScope(
+  payload: JsonRecord,
+  state: QueryTabState['objectViewState'],
+) {
+  const scope = mongoScopeFromObjectViewState(state)
+  if (!scope.database && !scope.collection) {
+    return payload
+  }
+
+  return {
+    ...payload,
+    ...(scope.database && !payload.database ? { database: scope.database } : {}),
+    ...(scope.collection && !payload.collection ? { collection: scope.collection } : {}),
+  }
+}
+
+function mongoScopeFromObjectViewState(state: QueryTabState['objectViewState']) {
+  const nodeId = state?.nodeId ?? ''
+  const knownPrefixes = [
+    'insert-document:',
+    'create-index:',
+    'collection:',
+    'documents:',
+    'indexes:',
+    'schema-preview:',
+    'validation-rules:',
+    'collection-statistics:',
+    'collection-permissions:',
+    'collection-scripts:',
+    'aggregations:',
+  ]
+  const matchedPrefix = knownPrefixes.find((prefix) => nodeId.startsWith(prefix))
+  if (matchedPrefix) {
+    const rest = nodeId.slice(matchedPrefix.length)
+    const [database = '', ...collectionParts] = rest.split(':')
+    const collection = collectionParts.join(':')
+    return {
+      database: database || mongoDatabaseFromPath(state?.path),
+      collection: collection || mongoCollectionFromPath(state?.path),
+    }
+  }
+
+  return {
+    database: mongoDatabaseFromPath(state?.path),
+    collection: mongoCollectionFromPath(state?.path),
+  }
+}
+
+function mongoDatabaseFromPath(path: string[] | undefined) {
+  if (!path?.length) {
+    return ''
+  }
+
+  const collectionsIndex = path.indexOf('Collections')
+  if (collectionsIndex > 0) {
+    return path[collectionsIndex - 1] ?? ''
+  }
+
+  const viewsIndex = path.indexOf('Views')
+  if (viewsIndex > 0) {
+    return path[viewsIndex - 1] ?? ''
+  }
+
+  return path[0] ?? ''
+}
+
+function mongoCollectionFromPath(path: string[] | undefined) {
+  if (!path?.length) {
+    return ''
+  }
+
+  const collectionsIndex = path.indexOf('Collections')
+  if (collectionsIndex >= 0) {
+    return path[collectionsIndex + 1] ?? path.at(-1) ?? ''
+  }
+
+  return path.length > 1 ? path.at(-1) ?? '' : ''
+}
+
 function mongoObjectViewSummary(
   summary: string | undefined,
   descriptor: MongoObjectViewDescriptor,
@@ -2015,6 +2220,14 @@ function mongoObjectViewSummary(
   }
 
   return summary
+}
+
+function isVariableToken(value: string) {
+  return /^\{\{[A-Z][A-Z0-9_]*\}\}$/.test(value)
+}
+
+function isCompactMongoObjectView(kind: string) {
+  return kind === 'indexes' || kind === 'create-index' || kind === 'users' || kind === 'roles'
 }
 
 function extractIndexes(payload: JsonRecord) {
@@ -2236,18 +2449,6 @@ function parseJsonObject(value: string): { ok: true; value: JsonRecord } | { ok:
   }
 }
 
-function parseJsonArray(value: string): { ok: true; value: unknown[] } | { ok: false; error: string } {
-  try {
-    const parsed: unknown = JSON.parse(value)
-    if (!Array.isArray(parsed)) {
-      return { ok: false, error: 'Expected a JSON array.' }
-    }
-    return { ok: true, value: parsed }
-  } catch {
-    return { ok: false, error: 'Invalid JSON.' }
-  }
-}
-
 function validateDocumentUpload(
   text: string,
   requiredFields: string[],
@@ -2273,6 +2474,35 @@ function requiredFieldsForValidator(payload: JsonRecord) {
   return Array.isArray(required)
     ? required.filter((item): item is string => typeof item === 'string')
     : []
+}
+
+function mongoValidationViewKey(payload: JsonRecord) {
+  const validator = payload.validator ?? asRecord(payload.options).validator ?? {}
+  return [
+    stringValue(payload.database),
+    stringValue(payload.collection),
+    compactJson(validator),
+  ].join(':')
+}
+
+function validatorWithRequiredFields(validator: unknown, requiredFields: string[]): JsonRecord {
+  const currentValidator = asRecord(validator)
+  const currentSchema = asRecord(currentValidator.$jsonSchema)
+  const nextSchema: JsonRecord = {
+    bsonType: currentSchema.bsonType ?? 'object',
+    ...currentSchema,
+  }
+
+  if (requiredFields.length > 0) {
+    nextSchema.required = [...requiredFields]
+  } else {
+    delete nextSchema.required
+  }
+
+  return {
+    ...currentValidator,
+    $jsonSchema: nextSchema,
+  }
 }
 
 function asRecord(value: unknown): JsonRecord {
@@ -2454,19 +2684,6 @@ function shortValueSummary(value: unknown) {
   }
 
   return keys.slice(0, 3).join(', ')
-}
-
-function indexUsageText(index: JsonRecord) {
-  const accesses = asRecord(index.accesses)
-  const usage = asRecord(index.usage)
-  const raw = accesses.ops ?? usage.ops ?? index.ops ?? index.usageCount
-
-  if (raw === undefined || raw === null || raw === '') {
-    return ''
-  }
-
-  const numeric = numericValue(raw)
-  return numeric ? `${numeric.toLocaleString()} op(s)` : `${stringValue(raw)} op(s)`
 }
 
 function numericValue(value: unknown): number {

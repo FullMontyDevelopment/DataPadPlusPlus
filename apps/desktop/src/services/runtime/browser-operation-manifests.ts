@@ -189,6 +189,121 @@ export function buildOperationManifestsForConnection(
     })
   }
 
+  if (connection.engine === 'mongodb' && capabilities.has('supports_import_export')) {
+    optional.push(
+      {
+        id: 'mongodb.collection.export',
+        engine: connection.engine,
+        family: connection.family,
+        label: 'Export Collection',
+        scope: 'collection',
+        risk: 'costly',
+        requiredCapabilities: ['supports_import_export'],
+        supportedRenderers: ['document', 'json', 'raw'],
+        description: 'Preview exporting a MongoDB collection with bounded filters and format options.',
+        requiresConfirmation: true,
+        executionSupport: 'plan-only',
+        disabledReason: 'Collection export needs an adapter-specific file workflow before live execution.',
+        previewOnly: true,
+      },
+      {
+        id: 'mongodb.collection.import',
+        engine: connection.engine,
+        family: connection.family,
+        label: 'Import Documents',
+        scope: 'collection',
+        risk: 'write',
+        requiredCapabilities: ['supports_import_export'],
+        supportedRenderers: ['diff', 'schema', 'raw'],
+        description: 'Preview importing JSON, Extended JSON, NDJSON, or CSV documents into a collection.',
+        requiresConfirmation: true,
+        executionSupport: 'plan-only',
+        disabledReason: 'Collection import is guarded and adapter-specific.',
+        previewOnly: true,
+      },
+      {
+        id: 'mongodb.gridfs.export',
+        engine: connection.engine,
+        family: connection.family,
+        label: 'Export GridFS Files',
+        scope: 'collection',
+        risk: 'costly',
+        requiredCapabilities: ['supports_import_export'],
+        supportedRenderers: ['document', 'json', 'raw'],
+        description: 'Preview exporting GridFS files from a bucket with chunk consistency checks.',
+        requiresConfirmation: true,
+        executionSupport: 'plan-only',
+        disabledReason: 'GridFS export needs an adapter-specific file workflow before live execution.',
+        previewOnly: true,
+      },
+      {
+        id: 'mongodb.gridfs.upload',
+        engine: connection.engine,
+        family: connection.family,
+        label: 'Upload GridFS File',
+        scope: 'collection',
+        risk: 'write',
+        requiredCapabilities: ['supports_import_export'],
+        supportedRenderers: ['diff', 'schema', 'raw'],
+        description: 'Preview uploading a file into GridFS after metadata and chunk validation.',
+        requiresConfirmation: true,
+        executionSupport: 'plan-only',
+        disabledReason: 'GridFS uploads are guarded and adapter-specific.',
+        previewOnly: true,
+      },
+      {
+        id: 'mongodb.gridfs.validate',
+        engine: connection.engine,
+        family: connection.family,
+        label: 'Validate GridFS Chunks',
+        scope: 'collection',
+        risk: 'costly',
+        requiredCapabilities: ['supports_import_export'],
+        supportedRenderers: ['table', 'json', 'raw'],
+        description: 'Preview GridFS consistency checks for missing, orphaned, or out-of-order chunks.',
+        requiresConfirmation: false,
+        executionSupport: 'plan-only',
+        disabledReason: 'GridFS validation is a metadata-only preview in browser mode.',
+        previewOnly: true,
+      },
+    )
+  }
+
+  if ((connection.engine === 'redis' || connection.engine === 'valkey') && capabilities.has('supports_import_export')) {
+    optional.push(
+      {
+        id: `${connection.engine}.key.export`,
+        engine: connection.engine,
+        family: connection.family,
+        label: 'Export Key',
+        scope: 'key',
+        risk: 'costly',
+        requiredCapabilities: ['supports_import_export'],
+        supportedRenderers: ['keyvalue', 'json', 'raw'],
+        description: 'Preview exporting a Redis-compatible key with its type, TTL, metadata, and bounded members.',
+        requiresConfirmation: false,
+        executionSupport: 'plan-only',
+        disabledReason: 'Redis key export needs an adapter-specific file workflow before live execution.',
+        previewOnly: true,
+      },
+      {
+        id: `${connection.engine}.key.import`,
+        engine: connection.engine,
+        family: connection.family,
+        label: 'Import Key',
+        scope: 'key',
+        risk: 'write',
+        requiredCapabilities: ['supports_import_export'],
+        supportedRenderers: ['diff', 'keyvalue', 'raw'],
+        description: 'Preview importing or restoring a Redis-compatible key with validation and TTL handling.',
+        requiresConfirmation: true,
+        executionSupport: 'plan-only',
+        disabledReason: 'Redis key import is guarded and adapter-specific.',
+        previewOnly: true,
+      },
+    )
+  }
+
   if (connection.engine === 'mongodb' && capabilities.has('supports_user_role_browser')) {
     optional.push(
       {

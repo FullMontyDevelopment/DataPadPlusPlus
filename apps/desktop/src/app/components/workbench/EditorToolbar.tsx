@@ -14,6 +14,7 @@ import {
   TableIcon,
   JsonIcon,
   KeyValueIcon,
+  ObjectDocumentIcon,
 } from './icons'
 
 type ResultsDock = 'bottom' | 'right'
@@ -30,7 +31,9 @@ interface EditorToolbarProps {
   onOpenConnectionDrawer(): void
   onToggleBottomPanel(): void
   onToggleResultsDock?(): void
+  onAddDocument?(): void
   canToggleBuilderView: boolean
+  canAddDocument?: boolean
   builderKind?: QueryBuilderState['kind']
   queryWindowMode: QueryViewMode
   onToggleQueryWindowMode(mode: QueryViewMode): void
@@ -52,7 +55,9 @@ export function EditorToolbar({
   onOpenConnectionDrawer,
   onToggleBottomPanel,
   onToggleResultsDock = noop,
+  onAddDocument = noop,
   canToggleBuilderView,
+  canAddDocument = false,
   builderKind,
   queryWindowMode,
   onToggleQueryWindowMode,
@@ -150,6 +155,20 @@ export function EditorToolbar({
               </button>
             )
           })}
+        </div>
+      ) : null}
+
+      {canAddDocument ? (
+        <div className="toolbar-group" aria-label="MongoDB document actions">
+          <button
+            type="button"
+            className="toolbar-icon-action"
+            aria-label="Add document"
+            title="Add a document to the scoped MongoDB collection."
+            onClick={onAddDocument}
+          >
+            <ObjectDocumentIcon className="toolbar-icon" />
+          </button>
         </div>
       ) : null}
 

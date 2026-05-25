@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import type { EnvironmentProfile } from '@datapadplusplus/shared-types'
-import {
-  comparableEnvironment,
-  normalizeColor,
-} from './EnvironmentWorkspace.helpers'
+import { comparableEnvironment, normalizeColor } from './EnvironmentWorkspace.helpers'
+import { EnvironmentVariableDeleteDialog } from './EnvironmentVariableDeleteDialog'
 import { EnvironmentVariableSecretToggle } from './EnvironmentVariableSecretToggle'
+import { TrashIcon } from './icons'
 import {
   isValidVariableName,
   normalizeVariableName,
@@ -35,6 +34,7 @@ export function EnvironmentWorkspace({
   const [newVariableKey, setNewVariableKey] = useState('')
   const [newVariableValue, setNewVariableValue] = useState('')
   const [newVariableSecret, setNewVariableSecret] = useState(false)
+  const [pendingVariableDelete, setPendingVariableDelete] = useState<string>()
   const environmentDraft = activeEnvironment
 
   if (!environmentDraft) {
@@ -168,10 +168,6 @@ export function EnvironmentWorkspace({
   }
 
   const deleteVariable = (key: string) => {
-    if (!window.confirm(`Delete environment variable ${key}?`)) {
-      return
-    }
-
     commitDraft((current) => {
       const definitions = variableDefinitionsForEnvironment(current).filter(
         (definition) => definition.key !== key,
@@ -375,9 +371,10 @@ export function EnvironmentWorkspace({
                     type="button"
                     className="drawer-mini-button"
                     aria-label={`Delete variable ${key}`}
-                    onClick={() => deleteVariable(key)}
+                    title={`Delete ${key}`}
+                    onClick={() => setPendingVariableDelete(key)}
                   >
-                    x
+                    <TrashIcon className="toolbar-icon" />
                   </button>
                 </div>
               )
@@ -409,6 +406,17 @@ export function EnvironmentWorkspace({
           </div>
         </section>
       </div>
+      {pendingVariableDelete ? (
+        <EnvironmentVariableDeleteDialog
+          variableName={pendingVariableDelete}
+          onCancel={() => setPendingVariableDelete(undefined)}
+          onConfirm={() => {
+            const variableName = pendingVariableDelete
+            setPendingVariableDelete(undefined)
+            deleteVariable(variableName)
+          }}
+        />
+      ) : null}
     </section>
   )
 }

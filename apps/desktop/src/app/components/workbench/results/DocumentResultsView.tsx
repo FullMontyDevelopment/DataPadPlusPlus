@@ -9,6 +9,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { ClockIcon } from '../icons'
 import { DocumentContextMenu } from './document-context-menu'
+import { DeleteConfirmationPanel } from './DeleteConfirmationPanel'
 import type { DocumentEditContext } from './document-edit-context'
 import { DocumentFieldInspector } from './DocumentFieldInspector'
 import {
@@ -37,6 +38,7 @@ import {
 import { searchDocumentRows } from './document-grid-search'
 import { copyText } from './payload-export'
 import { formatDurationClock } from './result-runtime'
+import { useDataEditConfirmation } from './use-data-edit-confirmation'
 
 interface DocumentResultsViewProps {
   connection?: ConnectionProfile
@@ -86,6 +88,8 @@ export function DocumentResultsView({
   const [searchInput, setSearchInput] = useState('')
   const [searchText, setSearchText] = useState('')
   const [inspectorRowId, setInspectorRowId] = useState<string>()
+  const [pendingFieldDelete, setPendingFieldDelete] = useState<DocumentGridRow>()
+  const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const draftDocuments = draftState.source === documents ? draftState.documents : documents
   const effectiveActiveEditor = draftState.source === documents ? activeEditor : undefined
   const copyTimer = useRef<number | undefined>(undefined)
@@ -211,6 +215,7 @@ export function DocumentResultsView({
           request,
           {
             actionLabel: successMessage,
+            confirm: confirmDataEdit,
             confirmationTitle: 'Apply this document edit?',
           },
         )
@@ -357,11 +362,6 @@ export function DocumentResultsView({
       return
     }
 
-    const fieldPath = pathSegments(row.path).join('.')
-    if (!window.confirm(`Delete field ${fieldPath}?`)) {
-      return
-    }
-
     stopEditing()
     setInspectorRowId(undefined)
     applyDocumentEdit(
@@ -476,7 +476,10 @@ export function DocumentResultsView({
           onCopyDocument={() => void copyDocument(contextMenu.row)}
           onCopyPath={() => void copyText(contextMenu.row.fieldPath || '$')}
           onCopyValue={() => void copyValue(contextMenu.row.value)}
-          onDelete={() => deleteRowField(contextMenu.row)}
+          onDelete={() => {
+            setPendingFieldDelete(contextMenu.row)
+            setContextMenu(undefined)
+          }}
           onEditValue={() => {
             beginEditing(contextMenu.row, 'value')
           }}
@@ -486,6 +489,19 @@ export function DocumentResultsView({
           onViewRawJson={() => setInspectorRowId(contextMenu.row.id)}
         />
       ) : null}
+      {pendingFieldDelete ? (
+        <DeleteConfirmationPanel
+          title={`Delete field ${pendingFieldDelete.fieldPath || pathSegments(pendingFieldDelete.path).join('.')}?`}
+          body="DataPad++ will run this guarded field delete with confirmation."
+          onCancel={() => setPendingFieldDelete(undefined)}
+          onConfirm={() => {
+            const row = pendingFieldDelete
+            setPendingFieldDelete(undefined)
+            deleteRowField(row)
+          }}
+        />
+      ) : null}
+      {confirmationDialog}
     </div>
   )
 }

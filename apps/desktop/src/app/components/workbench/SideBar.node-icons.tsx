@@ -334,6 +334,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
       'sessions',
       'sql-monitor',
       'sql-server-agent',
+      'sentinel-failover',
       'throughput',
       'transaction',
       'transactions',
@@ -355,7 +356,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectStageIcon, tone: 'stage' },
   ],
   [
-    ['warehouse', 'warehouses', 'cluster', 'clusters', 'data-guard', 'rac', 'instance', 'instances', 'service', 'services', 'availability-group', 'availability-groups', 'always-on', 'always-on-high-availability', 'analysis-services', 'integration-services-catalogs', 'reporting-services'],
+    ['warehouse', 'warehouses', 'cluster', 'clusters', 'cluster-node', 'cluster-nodes', 'cluster-failover', 'data-guard', 'rac', 'instance', 'instances', 'sentinel', 'sentinel-master', 'sentinel-masters', 'sentinel-peer', 'sentinel-peers', 'sentinel-replica', 'sentinel-replicas', 'service', 'services', 'availability-group', 'availability-groups', 'always-on', 'always-on-high-availability', 'analysis-services', 'integration-services-catalogs', 'reporting-services'],
     { Icon: ObjectWarehouseIcon, tone: 'warehouse' },
   ],
   [
@@ -367,7 +368,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectTypeIcon, tone: 'type' },
   ],
   [
-    ['chunk', 'chunks', 'conflict', 'conflicts', 'consistency', 'locality', 'localities', 'partition', 'partitions', 'range', 'ranges', 'region', 'regions'],
+    ['chunk', 'chunks', 'cluster-slot', 'cluster-slots', 'conflict', 'conflicts', 'consistency', 'locality', 'localities', 'partition', 'partitions', 'range', 'ranges', 'region', 'regions'],
     { Icon: ObjectPartitionIcon, tone: 'partition' },
   ],
   [
@@ -379,7 +380,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
     { Icon: ObjectBinaryIcon, tone: 'binary' },
   ],
   [
-    ['ddl', 'definition', 'script', 'scripts', 'source', 'source-line', 'source-lines'],
+    ['ddl', 'definition', 'lua-script', 'lua-scripts', 'script', 'scripts', 'source', 'source-line', 'source-lines'],
     { Icon: ObjectDocumentIcon, tone: 'document' },
   ],
   [

@@ -10,6 +10,7 @@ import {
   dataEditStatusMessage,
   executeDataEditWithConfirmation,
 } from './data-edit-confirmation'
+import { useDataEditConfirmation } from './use-data-edit-confirmation'
 import { JsonTreeView } from './JsonTreeView'
 import { SearchHitsContextMenu } from './SearchHitsContextMenu'
 import {
@@ -22,7 +23,6 @@ import {
   buildSearchDocumentEditRequest,
   buildSearchDocumentIndexRequest,
   searchCanEdit,
-  searchConfirmationText,
   searchHitId,
   searchHitIndex,
   searchHitSource,
@@ -48,7 +48,6 @@ interface ContextMenuState {
 }
 
 interface PendingDeleteState {
-  expectedText: string
   hitIndex: number
 }
 
@@ -79,6 +78,7 @@ export function SearchHitsResultsView({
   const [pendingIndex, setPendingIndex] = useState<PendingIndexState>()
   const [pendingUpdate, setPendingUpdate] = useState<PendingUpdateState>()
   const [statusMessage, setStatusMessage] = useState('')
+  const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const canEdit = searchCanEdit(connection, editContext) && Boolean(onExecuteDataEdit)
   const defaultIndex =
     searchHitIndex(hits[0], editContext) ??
@@ -130,6 +130,7 @@ export function SearchHitsResultsView({
 
     const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
       actionLabel: 'Update this search document.',
+      confirm: confirmDataEdit,
       confirmationTitle: 'Apply this document update?',
     })
     if (response?.executed) {
@@ -175,6 +176,7 @@ export function SearchHitsResultsView({
 
     const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
       actionLabel: `Index document ${documentId}.`,
+      confirm: confirmDataEdit,
       confirmationTitle: 'Index this document?',
     })
     if (response?.executed) {
@@ -212,6 +214,7 @@ export function SearchHitsResultsView({
       request,
       {
         actionLabel: 'Delete this search document.',
+        confirm: confirmDataEdit,
         confirmationTitle: 'Delete this document?',
       },
     )
@@ -326,11 +329,11 @@ export function SearchHitsResultsView({
       ) : null}
       {pendingDelete ? (
         <SearchDocumentDeletePanel
-          expectedText={pendingDelete.expectedText}
           onCancel={() => setPendingDelete(undefined)}
           onConfirm={() => void deleteDocument()}
         />
       ) : null}
+      {confirmationDialog}
       {statusMessage ? <div className="data-grid-status">{statusMessage}</div> : null}
       {contextMenu ? (
         <SearchHitsContextMenu
@@ -351,7 +354,6 @@ export function SearchHitsResultsView({
               return
             }
             setPendingDelete({
-              expectedText: searchConfirmationText(connection, 'delete-document'),
               hitIndex: contextMenu.hitIndex,
             })
           }}

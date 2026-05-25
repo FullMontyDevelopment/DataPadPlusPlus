@@ -122,6 +122,7 @@ fn primary_key_predicate(
 }
 
 fn mongo_edit_request(request: &DataEditPlanRequest) -> String {
+    let database = request.target.database.as_deref().unwrap_or("<database>");
     let collection = request
         .target
         .collection
@@ -130,6 +131,7 @@ fn mongo_edit_request(request: &DataEditPlanRequest) -> String {
 
     if request.edit_kind == "insert-document" {
         return serde_json::to_string_pretty(&json!({
+            "database": database,
             "collection": collection,
             "operation": "insertOne",
             "document": request
@@ -156,6 +158,7 @@ fn mongo_edit_request(request: &DataEditPlanRequest) -> String {
     };
 
     serde_json::to_string_pretty(&json!({
+        "database": database,
         "collection": collection,
         "filter": filter,
         "update": update,

@@ -112,9 +112,7 @@ pub trait DatastoreAdapter: Send + Sync {
                 .unwrap_or("CONFIRM OPERATION");
 
             if request.confirmation_text.as_deref() != Some(expected) {
-                warnings.push(format!(
-                    "Type `{expected}` before executing this operation."
-                ));
+                warnings.push("This operation needs confirmation before it can run.".into());
                 return Ok(OperationExecutionResponse {
                     connection_id: request.connection_id.clone(),
                     environment_id: request.environment_id.clone(),

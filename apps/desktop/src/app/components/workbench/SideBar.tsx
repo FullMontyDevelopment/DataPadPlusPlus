@@ -50,7 +50,7 @@ interface SideBarProps {
   onCreateTab(connectionId?: string): void
   onCreateTestSuite(connectionId?: string): void
   onOpenTestSuiteTemplate(connectionId: string, templateId: string): void
-  onCreateLibraryFolder(parentId?: string): void
+  onCreateLibraryFolder(parentId: string | undefined, name: string): void
   onDeleteLibraryNode(nodeId: string): void
   onMoveLibraryNode(nodeId: string, parentId?: string): void
   onOpenLibraryItem(nodeId: string): void

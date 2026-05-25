@@ -20,9 +20,17 @@ import {
   saveBrowserSnapshot,
 } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
+import {
+  validateCancelTestRunRequest,
+  validateCreateTestSuiteTabRequest,
+  validateExecuteTestSuiteRequest,
+  validateOpenTestSuiteTemplateRequest,
+  validateUpdateTestSuiteTabRequest,
+} from './request-validation'
 
 export const clientTests = {
   async createTestSuiteTab(request: CreateTestSuiteTabRequest): Promise<BootstrapPayload> {
+    request = validateCreateTestSuiteTabRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('create_test_suite_tab', { request })
     }
@@ -35,6 +43,7 @@ export const clientTests = {
   async openTestSuiteTemplate(
     request: OpenTestSuiteTemplateRequest,
   ): Promise<BootstrapPayload> {
+    request = validateOpenTestSuiteTemplateRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('open_test_suite_template', { request })
     }
@@ -45,6 +54,7 @@ export const clientTests = {
   },
 
   async updateTestSuiteTab(request: UpdateTestSuiteTabRequest): Promise<BootstrapPayload> {
+    request = validateUpdateTestSuiteTabRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('update_test_suite_tab', { request })
     }
@@ -55,6 +65,7 @@ export const clientTests = {
   },
 
   async executeTestSuite(request: ExecuteTestSuiteRequest): Promise<ExecuteTestSuiteResponse> {
+    request = validateExecuteTestSuiteRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop<ExecuteTestSuiteResponse>('execute_test_suite', { request })
     }
@@ -67,6 +78,7 @@ export const clientTests = {
   async cancelTestRun(
     request: CancelTestRunRequest,
   ): Promise<{ ok: boolean; supported: boolean; message: string }> {
+    request = validateCancelTestRunRequest(request)
     if (isTauriRuntime()) {
       return invokeDesktop('cancel_test_run', { request })
     }

@@ -47,6 +47,56 @@ describe('LibraryPane', () => {
     expect(queryRow.querySelector('.library-node-icon--query svg')).toBeInTheDocument()
   })
 
+  it('creates folders with an in-app dialog instead of a browser prompt', () => {
+    const onCreateFolder = vi.fn()
+    const promptSpy = vi.spyOn(window, 'prompt')
+
+    renderLibraryPane(vi.fn(), { onCreateFolder })
+
+    fireEvent.click(screen.getByLabelText('New library folder'))
+    fireEvent.change(screen.getByLabelText('Folder name'), {
+      target: { value: 'Projects' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create Folder' }))
+
+    expect(onCreateFolder).toHaveBeenCalledWith(undefined, 'Projects')
+    expect(promptSpy).not.toHaveBeenCalled()
+  })
+
+  it('renames library nodes with an in-app dialog', () => {
+    const onRenameNode = vi.fn()
+    const promptSpy = vi.spyOn(window, 'prompt')
+
+    renderLibraryPane(vi.fn(), { onRenameNode })
+
+    fireEvent.contextMenu(treeItemForLabel('Orders query'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Orders cleanup' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+
+    expect(onRenameNode).toHaveBeenCalledWith('item-orders', 'Orders cleanup')
+    expect(promptSpy).not.toHaveBeenCalled()
+  })
+
+  it('moves library nodes by folder path with an in-app dialog', () => {
+    const onMoveNode = vi.fn()
+    const promptSpy = vi.spyOn(window, 'prompt')
+
+    renderLibraryPane(onMoveNode)
+
+    fireEvent.contextMenu(treeItemForLabel('Orders query'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Move to Folder' }))
+    fireEvent.change(screen.getByLabelText('Folder path'), {
+      target: { value: 'Beta' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }))
+
+    expect(onMoveNode).toHaveBeenCalledWith('item-orders', 'folder-beta')
+    expect(promptSpy).not.toHaveBeenCalled()
+  })
+
   it('shows a compact loading indicator on the active connection while metadata loads', () => {
     renderLibraryPane(vi.fn(), {
       activeConnectionId: 'connection-postgres',
@@ -388,10 +438,12 @@ function renderLibraryPane(
     getConnectionExplorerStatus: (connectionId: string, environmentId?: string) => 'idle' | 'loading' | 'ready'
     libraryNodes: LibraryNode[]
     onCreateConnection: () => void
+    onCreateFolder: (parentId: string | undefined, name: string) => void
     onCloneEnvironment: (environmentId: string) => void
     onDeleteEnvironment: (environmentId: string) => void
     onEditEnvironment: (environmentId: string) => void
     onLoadExplorerScope: (connectionId: string, scope?: string, environmentId?: string) => void
+    onRenameNode: (nodeId: string, name: string) => void
     onSelectEnvironment: (environmentId: string) => void
     onSelectConnection: (connectionId: string) => void
     onSetEnvironment: (nodeId: string, environmentId?: string) => void
@@ -419,7 +471,7 @@ function renderLibraryPane(
       sectionStates={overrides.sectionStates ?? {}}
       onCreateConnection={overrides.onCreateConnection ?? vi.fn()}
       onCloneEnvironment={overrides.onCloneEnvironment ?? vi.fn()}
-      onCreateFolder={vi.fn()}
+      onCreateFolder={overrides.onCreateFolder ?? vi.fn()}
       onDeleteEnvironment={overrides.onDeleteEnvironment ?? vi.fn()}
       onDeleteNode={vi.fn()}
       onEditEnvironment={overrides.onEditEnvironment ?? vi.fn()}
@@ -427,7 +479,7 @@ function renderLibraryPane(
       onLoadExplorerScope={overrides.onLoadExplorerScope ?? vi.fn()}
       onMoveNode={onMoveNode}
       onOpenLibraryItem={vi.fn()}
-      onRenameNode={vi.fn()}
+      onRenameNode={overrides.onRenameNode ?? vi.fn()}
       onReopenClosedTab={vi.fn()}
       onSelectConnection={overrides.onSelectConnection ?? vi.fn()}
       onSelectEnvironment={overrides.onSelectEnvironment ?? vi.fn()}

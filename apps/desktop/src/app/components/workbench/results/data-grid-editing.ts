@@ -11,6 +11,7 @@ import {
   buildDataGridRowDeleteRequest,
 } from './data-grid-edit-requests'
 import {
+  type DataEditConfirmationHandler,
   dataEditStatusMessage,
   executeDataEditWithConfirmation,
 } from './data-edit-confirmation'
@@ -29,6 +30,7 @@ interface UseDataGridEditingOptions {
   rows: string[][]
   setRows: Dispatch<SetStateAction<string[][]>>
   setStatusMessage(message: string): void
+  confirmDataEdit?: DataEditConfirmationHandler
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -41,6 +43,7 @@ export function useDataGridEditing({
   rows,
   setRows,
   setStatusMessage,
+  confirmDataEdit,
   onExecuteDataEdit,
 }: UseDataGridEditingOptions) {
   const [editingCell, setEditingCell] = useState<EditingCell>()
@@ -112,6 +115,7 @@ export function useDataGridEditing({
         request,
         {
           actionLabel: 'Update this cell.',
+          confirm: confirmDataEdit,
           confirmationTitle: 'Apply this row edit?',
         },
       )
@@ -143,6 +147,7 @@ export function useDataGridEditing({
   }, [
     columns,
     connection,
+    confirmDataEdit,
     editContext,
     editingCell,
     onExecuteDataEdit,
@@ -189,9 +194,10 @@ export function useDataGridEditing({
           onExecuteDataEdit,
           request,
           {
-            actionLabel: 'Insert this row.',
-            confirmationTitle: 'Insert this row?',
-          },
+          actionLabel: 'Insert this row.',
+          confirm: confirmDataEdit,
+          confirmationTitle: 'Insert this row?',
+        },
         )
         const failureMessage = dataEditStatusMessage(
           response,
@@ -211,7 +217,7 @@ export function useDataGridEditing({
         return false
       }
     },
-    [columns, connection, editContext, onExecuteDataEdit, setRows, setStatusMessage],
+    [columns, confirmDataEdit, connection, editContext, onExecuteDataEdit, setRows, setStatusMessage],
   )
 
   const canDeleteRow = useCallback(
@@ -248,6 +254,7 @@ export function useDataGridEditing({
           request,
           {
             actionLabel: 'Delete this row.',
+            confirm: confirmDataEdit,
             confirmationTitle: 'Delete this row?',
           },
         )
@@ -269,7 +276,7 @@ export function useDataGridEditing({
         return false
       }
     },
-    [columns, connection, editContext, onExecuteDataEdit, rows, setRows, setStatusMessage],
+    [columns, confirmDataEdit, connection, editContext, onExecuteDataEdit, rows, setRows, setStatusMessage],
   )
 
   return {

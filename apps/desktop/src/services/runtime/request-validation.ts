@@ -45,6 +45,8 @@ import {
   validateRequiredId,
   validateRequiredText,
 } from './request-validation-core'
+export * from './request-validation-library'
+export * from './request-validation-workspace'
 
 export function validateExplorerRequest(request: ExplorerRequest): ExplorerRequest {
   validateRequiredId(request.connectionId, 'Connection id')
@@ -196,6 +198,7 @@ export function validateDataEditPlanRequest(request: DataEditPlanRequest): DataE
   }
   validateRequiredText(request.target?.objectKind, 'Data edit object kind', 80)
   validatePath(request.target?.path ?? [], 'Data edit target path')
+  validateOptionalText(request.target?.database, 'Database name', MAX_OBJECT_NAME_LENGTH)
   validateOptionalText(request.target?.schema, 'Schema name', MAX_OBJECT_NAME_LENGTH)
   validateOptionalText(request.target?.table, 'Table name', MAX_OBJECT_NAME_LENGTH)
   validateOptionalText(request.target?.collection, 'Collection name', MAX_OBJECT_NAME_LENGTH)

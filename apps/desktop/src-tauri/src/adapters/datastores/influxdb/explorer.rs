@@ -473,7 +473,7 @@ async fn optional_records(
 fn filter_influx_payload_for_node(payload: &mut Value, node_id: &str) {
     if let Some((_, bucket, measurement)) = node_id
         .strip_prefix("measurement:")
-        .and_then(|_| Some(measurement_scope_parts(node_id)))
+        .map(|_| measurement_scope_parts(node_id))
     {
         filter_payload_array(payload, "measurements", "name", &measurement);
         payload["bucket"] = json!(bucket);
@@ -698,7 +698,7 @@ fn retention_label(records: &[Value]) -> String {
 fn influx_query_template(connection: &ResolvedConnectionProfile, node_id: &str) -> String {
     if let Some((_, bucket, measurement)) = node_id
         .strip_prefix("measurement:")
-        .and_then(|_| Some(measurement_scope_parts(node_id)))
+        .map(|_| measurement_scope_parts(node_id))
     {
         return measurement_query(&bucket, &measurement);
     }
@@ -832,6 +832,8 @@ fn first_scope_part(value: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+// Mirrors the ExplorerNode shape so InfluxDB scopes stay readable at call sites.
+#[allow(clippy::too_many_arguments)]
 fn influx_node(
     id: &str,
     label: &str,

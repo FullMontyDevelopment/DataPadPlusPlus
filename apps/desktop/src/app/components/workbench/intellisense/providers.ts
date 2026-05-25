@@ -8,6 +8,7 @@ import type {
   DatastoreCompletionProvider,
   EditorCompletionContext,
 } from './types'
+import { redisCommandDetail, redisCommandDocs } from '../query-builder/redis-command-docs'
 
 const SQL_ENGINES: Array<ConnectionProfile['engine']> = [
   'postgresql',
@@ -83,28 +84,7 @@ const MONGO_OPERATORS = [
   '$group',
 ]
 
-const REDIS_COMMANDS = [
-  'PING',
-  'SCAN',
-  'GET',
-  'SET',
-  'TYPE',
-  'TTL',
-  'PTTL',
-  'EXISTS',
-  'HGETALL',
-  'HGET',
-  'HSET',
-  'LRANGE',
-  'LLEN',
-  'SMEMBERS',
-  'SCARD',
-  'ZRANGE',
-  'ZCARD',
-  'XINFO',
-  'XLEN',
-  'DEL',
-]
+const REDIS_COMMANDS = redisCommandDocs().map((item) => item.command)
 
 const SEARCH_KEYS = [
   'index',
@@ -540,21 +520,6 @@ function firstTokenBeforeCursor(queryText: string, cursorOffset = queryText.leng
     .at(-1)
     ?.trimStart() ?? ''
   return line.split(/\s+/)[0] ?? ''
-}
-
-function redisCommandDetail(command: string) {
-  switch (command) {
-    case 'SCAN':
-      return 'Iterate keys with cursor, MATCH, COUNT, and optional TYPE.'
-    case 'HGETALL':
-      return 'Read every field/value pair from a hash.'
-    case 'LRANGE':
-      return 'Read a bounded list range.'
-    case 'ZRANGE':
-      return 'Read a sorted set range.'
-    default:
-      return 'Redis command'
-  }
 }
 
 function keyPrefixes(keys: CompletionObject[]) {

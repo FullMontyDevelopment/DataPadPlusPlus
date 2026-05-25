@@ -52,7 +52,9 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
   })
 
-  it('renders a Mongo collection overview with documents, indexes, and validator state', () => {
+  it('renders a Mongo collection overview with documents, indexes, validator state, and import/export actions', () => {
+    const onPlanOperation = vi.fn(async (): Promise<OperationPlanResponse> => operationPlanResponse('mongodb.collection.export'))
+
     render(
       <ObjectViewWorkspace
         connection={mongoConnection}
@@ -81,17 +83,42 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
     expect(screen.getAllByText('Collection Overview').length).toBeGreaterThan(0)
-    expect(screen.getByText('Previewed documents')).toBeInTheDocument()
+    expect(screen.getByText('Sample size')).toBeInTheDocument()
     expect(screen.getByText('Validator')).toBeInTheDocument()
     expect(screen.getByText('sku_1')).toBeInTheDocument()
     expect(screen.getByText('p1')).toBeInTheDocument()
     expect(screen.getByText('sku, inventory')).toBeInTheDocument()
     expect(screen.queryByText(/"luna-lamp"/)).not.toBeInTheDocument()
     expect(screen.getByText('2.0 KB')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.collection.export',
+      objectName: 'products',
+      parameters: expect.objectContaining({
+        database: 'catalog',
+        collection: 'products',
+        format: 'extended-json',
+        batchSize: 1000,
+      }),
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.collection.import',
+      objectName: 'products',
+      parameters: expect.objectContaining({
+        database: 'catalog',
+        collection: 'products',
+        mode: 'insertMany',
+        validation: 'validate-before-write',
+      }),
+    }))
   })
 
   it('renders a Mongo schema preview as a purpose-built field table', () => {
@@ -141,7 +168,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText('Mixed BSON types')).toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Preview Validator From Sample' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Validator' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.validation.update',
       parameters: expect.objectContaining({
@@ -156,7 +183,7 @@ describe('ObjectViewWorkspace', () => {
   })
 
   it('renders Mongo index metadata and exposes guarded operation guidance', async () => {
-    const onPlanOperation = vi.fn(async (): Promise<OperationPlanResponse> => operationPlanResponse('mongodb.index.create'))
+    const onPlanOperation = vi.fn(async (): Promise<OperationPlanResponse> => operationPlanResponse('mongodb.index.drop'))
 
     render(
       <ObjectViewWorkspace
@@ -191,33 +218,15 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Index Manager').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Review collection access paths/i).length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Preview create index').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Create Index' }).length).toBeGreaterThan(0)
     expect(screen.getByText('_id_')).toBeInTheDocument()
     expect(screen.getByText('sku_1')).toBeInTheDocument()
     expect(screen.getByText('legacy_1')).toBeInTheDocument()
     expect(screen.getByText('sku ascending')).toBeInTheDocument()
     expect(screen.queryByText('{"sku":1}')).not.toBeInTheDocument()
     expect(screen.getByText('12 op(s)')).toBeInTheDocument()
-    expect(screen.getByText(/preview-only/i)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Preview Create Index' }))
-    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
-      operationId: 'mongodb.index.create',
-      objectName: 'products',
-      parameters: expect.objectContaining({
-        collection: 'products',
-        indexName: 'field_1',
-      }),
-    }))
-    expect(await screen.findByText('Operation preview generated.')).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: 'Show generated request' })).toBeInTheDocument()
-    expect(screen.queryByText('{ "ok": 1 }')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Show generated request' }))
-    expect(screen.getByText('{ "ok": 1 }')).toBeInTheDocument()
-
-    const hideButtons = screen.getAllByRole('button', { name: 'Preview Hide' })
-    fireEvent.click(hideButtons[1] as HTMLElement)
+    fireEvent.click(screen.getByRole('button', { name: 'Hide index sku_1' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.index.hide',
       parameters: expect.objectContaining({
@@ -225,7 +234,7 @@ describe('ObjectViewWorkspace', () => {
       }),
     }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Preview Unhide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unhide index legacy_1' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.index.unhide',
       parameters: expect.objectContaining({
@@ -233,15 +242,213 @@ describe('ObjectViewWorkspace', () => {
       }),
     }))
 
-    const dropButtons = screen.getAllByRole('button', { name: 'Preview Drop' })
+    const dropButtons = screen.getAllByRole('button', { name: /^Drop index / })
     expect(dropButtons).toHaveLength(3)
-    fireEvent.click(dropButtons[1] as HTMLElement)
+    fireEvent.click(screen.getByRole('button', { name: 'Drop index sku_1' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.index.drop',
       parameters: expect.objectContaining({
         indexName: 'sku_1',
       }),
     }))
+  })
+
+  it('renders a dedicated Mongo create-index workspace', async () => {
+    const onPlanOperation = vi.fn(async (): Promise<OperationPlanResponse> => operationPlanResponse('mongodb.index.create'))
+
+    render(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          title: 'products - Create Index',
+          objectViewState: {
+            connectionId: mongoConnection.id,
+            environmentId: environment.id,
+            nodeId: 'create-index:catalog:products',
+            label: 'Create Index',
+            kind: 'create-index',
+            path: ['catalog', 'Collections', 'products'],
+            warnings: [],
+            payload: {
+              database: 'catalog',
+              collection: 'products',
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
+      />,
+    )
+
+    expect(screen.getAllByText('Create Index').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/ready to review/i)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Field'), { target: { value: 'sku' } })
+    fireEvent.change(screen.getByLabelText('Order'), { target: { value: '-1' } })
+    fireEvent.click(screen.getByLabelText('Unique'))
+    fireEvent.change(screen.getByLabelText('TTL seconds'), { target: { value: '3600' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.index.create',
+      objectName: 'products',
+      parameters: expect.objectContaining({
+        collection: 'products',
+        indexName: 'field_1',
+        key: { sku: -1 },
+        options: expect.objectContaining({
+          expireAfterSeconds: 3600,
+          name: 'field_1',
+          unique: true,
+        }),
+      }),
+    }))
+    expect(await screen.findByText('Ready to review.')).toBeInTheDocument()
+  })
+
+  it('builds compound Mongo indexes from multiple field rows', () => {
+    const onPlanOperation = vi.fn(async (): Promise<OperationPlanResponse> => operationPlanResponse('mongodb.index.create'))
+
+    render(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          title: 'products - Create Index',
+          objectViewState: {
+            connectionId: mongoConnection.id,
+            environmentId: environment.id,
+            nodeId: 'create-index:catalog:products',
+            label: 'Create Index',
+            kind: 'create-index',
+            path: ['catalog', 'Collections', 'products'],
+            warnings: [],
+            payload: {
+              database: 'catalog',
+              collection: 'products',
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'sku_category' } })
+    fireEvent.change(screen.getByLabelText('Field'), { target: { value: 'sku' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Field' }))
+    fireEvent.change(screen.getByLabelText('Field 2'), { target: { value: 'category' } })
+    fireEvent.change(screen.getByLabelText('Order 2'), { target: { value: '-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.index.create',
+      parameters: expect.objectContaining({
+        indexName: 'sku_category',
+        key: {
+          sku: 1,
+          category: -1,
+        },
+      }),
+    }))
+  })
+
+  it('renders a dedicated Mongo add-document workspace', () => {
+    const onExecuteDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> => ({
+      connectionId: mongoConnection.id,
+      environmentId: environment.id,
+      editKind: 'insert-document',
+      executionSupport: 'live',
+      executed: true,
+      plan: operationPlanResponse('mongodb.data-edit.insert-document').plan,
+      messages: ['Inserted.'],
+      warnings: [],
+    }))
+
+    render(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          title: 'products - Add Document',
+          objectViewState: {
+            connectionId: mongoConnection.id,
+            environmentId: environment.id,
+            nodeId: 'insert-document:catalog:products',
+            label: 'Add Document',
+            kind: 'insert-document',
+            path: ['catalog', 'Collections', 'products'],
+            warnings: [],
+            payload: {
+              database: 'catalog',
+              collection: 'products',
+              validator: { $jsonSchema: { required: ['sku'] } },
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+        onExecuteDataEdit={onExecuteDataEdit}
+      />,
+    )
+
+    expect(screen.getAllByText('Add Document').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Upload document JSON' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Insert Document' })).toBeInTheDocument()
+    expect(screen.getByText('sku')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+    expect(screen.getByText('Document is valid for products.')).toBeInTheDocument()
+  })
+
+  it('loads dropped Mongo document JSON into the add-document workspace', async () => {
+    const file = new File(['{ "sku": "drop-1", "name": "Dropped" }'], 'product.json', {
+      type: 'application/json',
+    })
+    Object.defineProperty(file, 'text', {
+      value: vi.fn(async () => '{ "sku": "drop-1", "name": "Dropped" }'),
+    })
+
+    render(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          title: 'products - Add Document',
+          objectViewState: {
+            connectionId: mongoConnection.id,
+            environmentId: environment.id,
+            nodeId: 'insert-document:catalog:products',
+            label: 'Add Document',
+            kind: 'insert-document',
+            path: ['catalog', 'Collections', 'products'],
+            warnings: [],
+            payload: {
+              database: 'catalog',
+              collection: 'products',
+              validator: { $jsonSchema: { required: ['sku', 'name'] } },
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    fireEvent.drop(screen.getByRole('button', { name: 'Upload document JSON' }), {
+      dataTransfer: {
+        files: [file],
+      },
+    })
+
+    expect(await screen.findByText('Loaded product.json.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Document')).toHaveValue(
+      JSON.stringify({ sku: 'drop-1', name: 'Dropped' }, null, 2),
+    )
   })
 
   it('tests Mongo validation rules against a draft document before previewing updates', () => {
@@ -280,6 +487,104 @@ describe('ObjectViewWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Test document'), { target: { value: '{ "sku": "nova", "name": "Nova Chair" }' } })
     fireEvent.click(screen.getByRole('button', { name: 'Test Document' }))
     expect(screen.getByText(/Document matches the validator fields/i)).toBeInTheDocument()
+  })
+
+  it('reviews Mongo validation required-field changes without exposing JSON first', () => {
+    const onPlanOperation = vi.fn(async (): Promise<OperationPlanResponse> => operationPlanResponse('mongodb.validation.update'))
+
+    render(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          title: 'Validation Rules',
+          objectViewState: {
+            connectionId: mongoConnection.id,
+            environmentId: environment.id,
+            nodeId: 'validation-rules:catalog:products',
+            label: 'Validation Rules',
+            kind: 'validation-rules',
+            path: ['catalog', 'Collections', 'products'],
+            warnings: [],
+            payload: {
+              database: 'catalog',
+              collection: 'products',
+              validator: { $jsonSchema: { required: ['sku'], properties: { sku: { bsonType: 'string' } } } },
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
+      />,
+    )
+
+    expect(screen.getByLabelText('Validator rule')).not.toBeVisible()
+    fireEvent.change(screen.getByLabelText('Field'), { target: { value: 'name' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Field' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review Required Fields' }))
+
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.validation.update',
+      objectName: 'products',
+      parameters: expect.objectContaining({
+        validator: expect.objectContaining({
+          $jsonSchema: expect.objectContaining({
+            required: ['sku', 'name'],
+            properties: expect.objectContaining({
+              sku: expect.objectContaining({ bsonType: 'string' }),
+            }),
+          }),
+        }),
+      }),
+    }))
+  })
+
+  it('refreshes Mongo validation fields when the object-view payload changes', () => {
+    const validationTab = (required: string[]): QueryTabState => ({
+      ...baseObjectViewTab,
+      title: 'Validation Rules',
+      objectViewState: {
+        connectionId: mongoConnection.id,
+        environmentId: environment.id,
+        nodeId: 'validation-rules:catalog:products',
+        label: 'Validation Rules',
+        kind: 'validation-rules',
+        path: ['catalog', 'Collections', 'products'],
+        warnings: [],
+        payload: {
+          database: 'catalog',
+          collection: 'products',
+          validator: { $jsonSchema: { required } },
+        },
+      },
+    })
+
+    const { rerender } = render(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={validationTab(['sku'])}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Remove required field sku' })).toBeInTheDocument()
+
+    rerender(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={validationTab(['name'])}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Remove required field sku' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove required field name' })).toBeInTheDocument()
   })
 
   it('opens query templates from object views without making the object view saveable', () => {
@@ -406,7 +711,7 @@ describe('ObjectViewWorkspace', () => {
     const warningList = screen.getByText('not authorized on catalog to execute command usersInfo')
       .closest('.object-view-warning-list')
 
-    expect(screen.getAllByText(/Review database users/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Review users')).not.toBeInTheDocument()
     expect(warningList).not.toBeNull()
     expect(within(warningList as HTMLElement).getByText('usersInfo requires additional privileges')).toBeInTheDocument()
     expect(screen.getByText('No users were returned')).toBeInTheDocument()
@@ -449,17 +754,64 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText('read on catalog')).toBeInTheDocument()
     expect(screen.queryByText('[{"role":"read","db":"catalog"}]')).not.toBeInTheDocument()
     fireEvent.change(screen.getByPlaceholderText('reporting_user'), { target: { value: 'analytics' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Preview Create User' }))
+    fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
+      target: { value: '{{MONGO_USER_PASSWORD}}' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.user.create',
       objectName: 'analytics',
+      parameters: expect.objectContaining({
+        password: '{{MONGO_USER_PASSWORD}}',
+      }),
     }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Preview Drop User' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Drop user reporting' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.user.drop',
       objectName: 'reporting',
     }))
+  })
+
+  it('blocks plaintext Mongo user passwords in the users view', () => {
+    const onPlanOperation = vi.fn(async (): Promise<OperationPlanResponse> => operationPlanResponse('mongodb.user.create'))
+
+    render(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          title: 'Users',
+          objectViewState: {
+            connectionId: mongoConnection.id,
+            environmentId: environment.id,
+            nodeId: 'users:catalog',
+            label: 'Users',
+            kind: 'users',
+            path: ['catalog'],
+            warnings: [],
+            payload: {
+              database: 'catalog',
+              users: [],
+              roles: [],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
+      />,
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('reporting_user'), { target: { value: 'analytics' } })
+    fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
+      target: { value: 'plain-secret' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
+
+    expect(screen.getByText('Use an environment secret variable such as {{MONGO_USER_PASSWORD}}.')).toBeInTheDocument()
+    expect(onPlanOperation).not.toHaveBeenCalled()
   })
 
   it('keeps Mongo role management in role mode even when user metadata is present', () => {
@@ -498,14 +850,14 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText('find on catalog.products')).toBeInTheDocument()
     expect(screen.queryByText(/"actions":/)).not.toBeInTheDocument()
     fireEvent.change(screen.getByPlaceholderText('analytics_reader'), { target: { value: 'inventory_reader' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Preview Create Role' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create Role' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.role.create',
       objectName: 'inventory_reader',
     }))
   })
 
-  it('validates and uploads Mongo documents through guarded data edits', () => {
+  it('validates and inserts Mongo documents through guarded data edits', () => {
     const onExecuteDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> => ({
       connectionId: mongoConnection.id,
       environmentId: environment.id,
@@ -524,13 +876,13 @@ describe('ObjectViewWorkspace', () => {
         environment={environment}
         tab={{
           ...baseObjectViewTab,
-          title: 'products',
+          title: 'products - Add Document',
           objectViewState: {
             connectionId: mongoConnection.id,
             environmentId: environment.id,
-            nodeId: 'collection:catalog:products',
-            label: 'products',
-            kind: 'collection',
+            nodeId: 'insert-document:catalog:products',
+            label: 'Add Document',
+            kind: 'insert-document',
             path: ['catalog', 'Collections', 'products'],
             warnings: [],
             payload: {
@@ -551,10 +903,11 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText('Missing required field(s): name')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Document'), { target: { value: '{ "sku": "nova", "name": "Nova Chair" }' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Upload Document' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Insert Document' }))
     expect(onExecuteDataEdit).toHaveBeenCalledWith(expect.objectContaining({
       editKind: 'insert-document',
       target: expect.objectContaining({
+        database: 'catalog',
         collection: 'products',
       }),
       changes: [expect.objectContaining({
@@ -564,6 +917,8 @@ describe('ObjectViewWorkspace', () => {
   })
 
   it('renders Mongo GridFS health cards and file metadata without raw payloads', () => {
+    const onPlanOperation = vi.fn(async (): Promise<OperationPlanResponse> => operationPlanResponse('mongodb.gridfs.export'))
+
     render(
       <ObjectViewWorkspace
         connection={mongoConnection}
@@ -594,6 +949,7 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
@@ -603,6 +959,42 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText(/1(\.0)? KB/)).toBeInTheDocument()
     expect(screen.getByText('Missing chunks')).toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export Files' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.gridfs.export',
+      objectName: 'fs.files',
+      parameters: expect.objectContaining({
+        database: 'catalog',
+        bucket: 'fs',
+        filename: 'invoice.pdf',
+        filesCollection: 'fs.files',
+        chunksCollection: 'fs.chunks',
+      }),
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.gridfs.upload',
+      objectName: 'fs.files',
+      parameters: expect.objectContaining({
+        database: 'catalog',
+        bucket: 'fs',
+        filename: '<filename>',
+        source: '<selected-file>',
+        validation: 'validate-before-write',
+      }),
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Validate Chunks' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.gridfs.validate',
+      objectName: 'fs.files',
+      parameters: expect.objectContaining({
+        database: 'catalog',
+        bucket: 'fs',
+      }),
+    }))
   })
 
   it('renders a Redis database overview with type distribution and key-browser handoff', () => {
@@ -812,6 +1204,158 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText('1.2 ms')).toBeInTheDocument()
     expect(screen.getByText('HGETALL / perf:session:000143')).toBeInTheDocument()
     expect(screen.queryByText('SLOWLOG GET 128')).not.toBeInTheDocument()
+    expect(screen.queryByText(/"command"/)).not.toBeInTheDocument()
+  })
+
+  it('renders Redis cluster nodes without exposing the raw CLUSTER command payload', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={redisConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: redisConnection.id,
+          family: 'keyvalue',
+          title: 'Cluster Nodes',
+          objectViewState: {
+            connectionId: redisConnection.id,
+            environmentId: environment.id,
+            nodeId: 'redis:cluster:nodes',
+            label: 'Nodes',
+            kind: 'cluster-node',
+            path: ['Cluster'],
+            warnings: [],
+            payload: {
+              command: 'CLUSTER NODES',
+              value: '07c37dfeb2352e0b1e5 127.0.0.1:6379@16379 master,connected - 0 0 1 connected 0-5460',
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('Cluster Nodes').length).toBeGreaterThan(0)
+    expect(screen.getByText('07c37dfeb2352e0b1e5')).toBeInTheDocument()
+    expect(screen.getByText('master')).toBeInTheDocument()
+    expect(screen.getByText('127.0.0.1:6379@16379')).toBeInTheDocument()
+    expect(screen.getByText('0-5460')).toBeInTheDocument()
+    expect(screen.queryByText('CLUSTER NODES')).not.toBeInTheDocument()
+    expect(screen.queryByText(/"value"/)).not.toBeInTheDocument()
+  })
+
+  it('renders Redis Sentinel masters as deployment rows instead of raw arrays', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={redisConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: redisConnection.id,
+          family: 'keyvalue',
+          title: 'Sentinel Masters',
+          objectViewState: {
+            connectionId: redisConnection.id,
+            environmentId: environment.id,
+            nodeId: 'redis:sentinel:masters',
+            label: 'Masters',
+            kind: 'sentinel-masters',
+            path: ['Sentinel'],
+            warnings: [],
+            payload: {
+              command: 'SENTINEL MASTERS',
+              value: [
+                ['name', 'primary', 'ip', '127.0.0.1', 'port', '6379', 'flags', 'master', 'quorum', '2', 'num-slaves', '1'],
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('Sentinel Masters').length).toBeGreaterThan(0)
+    expect(screen.getByText('primary')).toBeInTheDocument()
+    expect(screen.getByText('127.0.0.1:6379')).toBeInTheDocument()
+    expect(screen.queryByText('SENTINEL MASTERS')).not.toBeInTheDocument()
+    expect(screen.queryByText(/"command"/)).not.toBeInTheDocument()
+  })
+
+  it('renders Redis function libraries as native library rows', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={redisConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: redisConnection.id,
+          family: 'keyvalue',
+          title: 'Functions',
+          objectViewState: {
+            connectionId: redisConnection.id,
+            environmentId: environment.id,
+            nodeId: 'redis:functions:list',
+            label: 'Libraries',
+            kind: 'functions',
+            path: ['Functions'],
+            warnings: [],
+            payload: {
+              command: 'FUNCTION LIST',
+              value: [
+                ['library_name', 'inventory', 'engine', 'LUA', 'functions', [['name', 'reserve_stock']]],
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('Redis Functions').length).toBeGreaterThan(0)
+    expect(screen.getByText('inventory')).toBeInTheDocument()
+    expect(screen.getByText('LUA')).toBeInTheDocument()
+    expect(screen.getByText('reserve_stock')).toBeInTheDocument()
+    expect(screen.queryByText('FUNCTION LIST')).not.toBeInTheDocument()
+    expect(screen.queryByText(/"value"/)).not.toBeInTheDocument()
+  })
+
+  it('renders Redis ACL users from ACL LIST output without raw command text', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={redisConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: redisConnection.id,
+          family: 'keyvalue',
+          title: 'ACL Users',
+          objectViewState: {
+            connectionId: redisConnection.id,
+            environmentId: environment.id,
+            nodeId: 'redis:acl:users',
+            label: 'Users',
+            kind: 'users',
+            path: ['ACL / Security'],
+            warnings: [],
+            payload: {
+              command: 'ACL LIST',
+              value: ['user default on nopass ~* &* +@all'],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('ACL Users').length).toBeGreaterThan(0)
+    expect(screen.getByText('default')).toBeInTheDocument()
+    expect(screen.getByText('Enabled')).toBeInTheDocument()
+    expect(screen.getByText('+@all')).toBeInTheDocument()
+    expect(screen.queryByText('ACL LIST')).not.toBeInTheDocument()
     expect(screen.queryByText(/"command"/)).not.toBeInTheDocument()
   })
 
@@ -1161,6 +1705,72 @@ describe('ObjectViewWorkspace', () => {
     expect(onOpenQuery).toHaveBeenCalledWith(expect.objectContaining({
       queryTemplate: expect.stringContaining('accounts'),
     }))
+  })
+
+  it('keeps PostgreSQL function source hidden behind an explicit reveal', () => {
+    const source = [
+      'create or replace function public.account_status(p_account_id bigint)',
+      'returns text',
+      'language plpgsql',
+      'as $$',
+      'begin',
+      "  return 'active';",
+      'end;',
+      '$$;',
+    ].join('\n')
+
+    render(
+      <ObjectViewWorkspace
+        connection={postgresConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: postgresConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'account_status',
+          objectViewState: {
+            connectionId: postgresConnection.id,
+            environmentId: environment.id,
+            nodeId: 'function:public:account_status',
+            label: 'account_status',
+            kind: 'function',
+            path: ['User Schemas', 'public', 'Functions'],
+            warnings: [],
+            payload: {
+              engine: 'postgresql',
+              schema: 'public',
+              objectName: 'account_status',
+              definition: source,
+              functions: [
+                {
+                  schema: 'public',
+                  name: 'account_status',
+                  arguments: 'p_account_id bigint',
+                  returns: 'text',
+                  language: 'plpgsql',
+                  definition: source,
+                },
+              ],
+              grants: [
+                { principal: 'app_reader', privilege: 'EXECUTE', object: 'public.account_status', state: 'granted' },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('PostgreSQL Function').length).toBeGreaterThan(0)
+    expect(screen.getByText('Source Outline')).toBeInTheDocument()
+    expect(screen.getByText('CREATE statement')).toBeInTheDocument()
+    expect(screen.queryByText(/return 'active'/i)).not.toBeInTheDocument()
+    expect(screen.getAllByText(/CREATE statement \(\d+ chars\)/).length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show source' }))
+    expect(screen.getByText(/return 'active'/i)).toBeInTheDocument()
   })
 
   it('renders SQLite table metadata as a native file-backed workspace', () => {
@@ -2230,6 +2840,70 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText(/select \* from dbo\.accounts/i)).not.toBeInTheDocument()
     expect(screen.queryByText('Open View')).not.toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
+
+  it('keeps SQL Server stored procedure source hidden until the user asks for it', () => {
+    const source = [
+      'create or alter procedure [dbo].[refresh_account_cache]',
+      '  @account_id bigint',
+      'as',
+      'begin',
+      '  select @account_id as account_id;',
+      'end;',
+    ].join('\n')
+
+    render(
+      <ObjectViewWorkspace
+        connection={sqlServerConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: sqlServerConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'dbo.refresh_account_cache',
+          objectViewState: {
+            connectionId: sqlServerConnection.id,
+            environmentId: environment.id,
+            nodeId: 'procedure:datapadplusplus:dbo:refresh_account_cache',
+            label: 'dbo.refresh_account_cache',
+            kind: 'procedure',
+            path: ['Databases', 'datapadplusplus', 'Stored Procedures'],
+            warnings: [],
+            payload: {
+              engine: 'sqlserver',
+              database: 'datapadplusplus',
+              schema: 'dbo',
+              objectName: 'refresh_account_cache',
+              definition: source,
+              procedures: [
+                {
+                  schema: 'dbo',
+                  name: 'refresh_account_cache',
+                  arguments: '@account_id bigint',
+                  language: 'T-SQL',
+                  definition: source,
+                },
+              ],
+              permissions: [
+                { principal: 'app_executor', privilege: 'EXECUTE', object: 'dbo.refresh_account_cache', state: 'granted' },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('Stored Procedure').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('T-SQL').length).toBeGreaterThan(0)
+    expect(screen.getByText('Source Outline')).toBeInTheDocument()
+    expect(screen.queryByText(/select @account_id as account_id/i)).not.toBeInTheDocument()
+    expect(screen.getAllByText(/CREATE statement \(\d+ chars\)/).length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show source' }))
+    expect(screen.getByText(/select @account_id as account_id/i)).toBeInTheDocument()
   })
 
   it('renders CockroachDB cluster diagnostics as a native cluster workspace', () => {

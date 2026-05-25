@@ -2,6 +2,7 @@ import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import { describe, expect, it } from 'vitest'
 import {
   buildKeyValueEditRequest,
+  buildRedisMemberDeleteRequest,
   keyValueCanEdit,
   parseKeyValueInput,
 } from './keyvalue-edit-requests'
@@ -79,6 +80,99 @@ describe('keyvalue edit requests', () => {
       editKind: 'delete-key',
       confirmationText: 'CONFIRM REDIS DELETE-KEY',
       changes: [],
+    })
+  })
+
+  it('builds Redis TTL persistence requests without fake value changes', () => {
+    expect(
+      buildKeyValueEditRequest({
+        connection,
+        editContext,
+        editKind: 'persist-ttl',
+        key: 'session:1',
+      }),
+    ).toEqual({
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'persist-ttl',
+      confirmationText: undefined,
+      target: {
+        objectKind: 'key',
+        path: [],
+        key: 'session:1',
+      },
+      changes: [],
+    })
+  })
+
+  it('builds Redis key rename requests with the destination key name', () => {
+    expect(
+      buildKeyValueEditRequest({
+        connection,
+        editContext,
+        editKind: 'rename-key',
+        key: 'session:1',
+        newName: 'session:renamed',
+      }),
+    ).toMatchObject({
+      editKind: 'rename-key',
+      target: {
+        objectKind: 'key',
+        key: 'session:1',
+      },
+      changes: [
+        {
+          field: 'session:1',
+          newName: 'session:renamed',
+        },
+      ],
+    })
+  })
+
+  it('builds Redis member delete requests without targeting the member as a top-level key', () => {
+    expect(
+      buildRedisMemberDeleteRequest({
+        connection,
+        editContext,
+        key: 'product:luna-lamp',
+        member: 'sku',
+        redisType: 'hash',
+      }),
+    ).toMatchObject({
+      editKind: 'hash-delete-field',
+      confirmationText: 'CONFIRM REDIS HASH-DELETE-FIELD',
+      target: {
+        objectKind: 'key-member',
+        key: 'product:luna-lamp',
+        path: ['sku'],
+      },
+      changes: [
+        {
+          field: 'sku',
+        },
+      ],
+    })
+
+    expect(
+      buildRedisMemberDeleteRequest({
+        connection,
+        editContext,
+        key: 'products:featured',
+        member: 'luna-lamp',
+        rawValue: 'luna-lamp',
+        redisType: 'set',
+      }),
+    ).toMatchObject({
+      editKind: 'set-remove-member',
+      confirmationText: 'CONFIRM REDIS SET-REMOVE-MEMBER',
+      target: {
+        key: 'products:featured',
+      },
+      changes: [
+        {
+          value: 'luna-lamp',
+        },
+      ],
     })
   })
 

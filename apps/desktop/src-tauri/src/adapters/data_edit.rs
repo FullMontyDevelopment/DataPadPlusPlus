@@ -82,9 +82,7 @@ pub(crate) async fn default_data_edit_execution(
 
     if let Some(expected) = plan.plan.confirmation_text.as_deref() {
         if request.confirmation_text.as_deref() != Some(expected) {
-            warnings.push(format!(
-                "This data edit requires confirmation before it can run ({expected})."
-            ));
+            warnings.push("This data edit needs confirmation before it can run.".into());
             return Ok(data_edit_execution_response(
                 request, plan, false, messages, warnings,
             ));

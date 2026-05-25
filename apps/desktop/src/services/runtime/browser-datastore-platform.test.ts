@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { ConnectionProfile, DataEditPlanRequest } from '@datapadplusplus/shared-types'
+import type {
+  ConnectionProfile,
+  DataEditPlanRequest,
+  WorkspaceSnapshot,
+} from '@datapadplusplus/shared-types'
 import {
   buildDatastoreExperiences,
   executeDataEditLocally,
@@ -209,6 +213,20 @@ describe('browser datastore platform contracts', () => {
       target: { objectKind: 'key', path: ['session:1'], key: 'session:1' },
       changes: [{ value: 300 }],
     })
+    const redisPersistPlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'persist-ttl',
+      target: { objectKind: 'key', path: ['session:1'], key: 'session:1' },
+      changes: [],
+    })
+    const redisRenamePlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'rename-key',
+      target: { objectKind: 'key', path: ['session:1'], key: 'session:1' },
+      changes: [{ field: 'session:1', newName: 'session:renamed' }],
+    })
     const dynamoPlan = planDataEditLocally(connectionProfile('dynamodb', 'widecolumn'), {
       connectionId: 'conn-dynamodb',
       environmentId: 'env-dev',
@@ -236,6 +254,9 @@ describe('browser datastore platform contracts', () => {
     })
 
     expect(redisPlan.plan.generatedRequest).toBe('EXPIRE session:1 300')
+    expect(redisPersistPlan.plan.generatedRequest).toBe('PERSIST session:1')
+    expect(redisPersistPlan.plan.warnings).not.toContain('Data edits need at least one change.')
+    expect(redisRenamePlan.plan.generatedRequest).toBe('RENAME session:1 session:renamed')
     expect(JSON.parse(dynamoPlan.plan.generatedRequest)).toMatchObject({
       TableName: 'orders',
       Key: { pk: 'ORDER#1', sk: 'META' },
@@ -263,7 +284,7 @@ describe('browser datastore platform contracts', () => {
     expect(response.plan.destructive).toBe(true)
     expect(response.warnings.join(' ')).toContain('read-only')
     expect(response.warnings.join(' ')).toContain(
-      'This data edit requires confirmation before it can run',
+      'This data edit needs confirmation before it can run',
     )
   })
 
@@ -276,6 +297,7 @@ describe('browser datastore platform contracts', () => {
       target: {
         objectKind: 'document',
         path: ['catalog', 'products'],
+        database: 'catalog',
         collection: 'products',
       },
       changes: [{ value: { sku: 'nova', name: 'Nova Chair' }, valueType: 'json' }],
@@ -284,6 +306,7 @@ describe('browser datastore platform contracts', () => {
     expect(response.plan.warnings.join(' ')).not.toContain('stable document id')
     expect(response.plan.requiredPermissions).toEqual(['insert collection document'])
     expect(JSON.parse(response.plan.generatedRequest)).toMatchObject({
+      database: 'catalog',
       collection: 'products',
       operation: 'insertOne',
       document: { sku: 'nova', name: 'Nova Chair' },
@@ -340,6 +363,66 @@ describe('browser datastore platform contracts', () => {
     expect(JSON.parse(dynamoPlan.plan.generatedRequest).ExpressionAttributeValues).toEqual({
       ':value': '********',
     })
+  })
+
+  it('warns instead of resolving secret variables in browser data-edit previews', () => {
+    const connection = connectionProfile('mongodb', 'document')
+    const snapshot = {
+      connections: [connection],
+      environments: [{
+        id: 'env-dev',
+        label: 'Dev',
+        color: '#2dbf9b',
+        risk: 'low',
+        variables: {},
+        sensitiveKeys: ['API_TOKEN'],
+        variableDefinitions: [{
+          key: 'API_TOKEN',
+          kind: 'secret',
+          secretRef: {
+            id: 'secret-env-dev-api-token',
+            provider: 'os-keyring',
+            service: 'DataPad++',
+            account: 'environment:env-dev:API_TOKEN',
+            label: 'API token',
+          },
+        }],
+        requiresConfirmation: false,
+        safeMode: false,
+        exportable: true,
+        createdAt: '2026-05-25T00:00:00.000Z',
+        updatedAt: '2026-05-25T00:00:00.000Z',
+      }],
+      preferences: {
+        theme: 'dark',
+        telemetry: 'opt-in',
+        lockAfterMinutes: 15,
+        safeModeEnabled: false,
+      },
+    } as unknown as WorkspaceSnapshot
+    const request: DataEditPlanRequest = {
+      connectionId: connection.id,
+      environmentId: 'env-dev',
+      editKind: 'insert-document',
+      target: {
+        objectKind: 'document',
+        path: ['catalog', 'products'],
+        collection: 'products',
+      },
+      changes: [{ value: { apiToken: '{{API_TOKEN}}' }, valueType: 'json' }],
+    }
+
+    const plan = planDataEditLocally(connection, request, snapshot)
+    const response = executeDataEditLocally(connection, request, snapshot)
+
+    expect(plan.plan.warnings).toContain(
+      'Secret variable API_TOKEN is resolved only by the desktop secret store.',
+    )
+    expect(response.executed).toBe(false)
+    expect(response.warnings).toContain(
+      'Secret variable API_TOKEN cannot be resolved in browser preview.',
+    )
+    expect(JSON.parse(response.plan.generatedRequest).document.apiToken).toBe('{{API_TOKEN}}')
   })
 })
 

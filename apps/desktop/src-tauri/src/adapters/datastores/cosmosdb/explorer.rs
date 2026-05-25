@@ -405,6 +405,8 @@ fn container_child_nodes(
     .collect()
 }
 
+// Mirrors the ExplorerNode shape so Cosmos scopes stay readable at call sites.
+#[allow(clippy::too_many_arguments)]
 fn cosmos_node(
     id: &str,
     label: &str,

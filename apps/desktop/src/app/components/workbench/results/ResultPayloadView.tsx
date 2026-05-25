@@ -2,6 +2,8 @@ import type {
   ConnectionProfile,
   DataEditExecutionRequest,
   DataEditExecutionResponse,
+  OperationPlanRequest,
+  OperationPlanResponse,
   ResultPayload,
 } from '@datapadplusplus/shared-types'
 import type { ReactNode } from 'react'
@@ -24,6 +26,7 @@ export function ResultPayloadView({
   editContext,
   documentFooterControls,
   onExecuteDataEdit,
+  onPlanOperation,
 }: {
   connection?: ConnectionProfile
   documentFooterControls?: ReactNode
@@ -36,29 +39,37 @@ export function ResultPayloadView({
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
+  onPlanOperation?(
+    request: OperationPlanRequest,
+  ): Promise<OperationPlanResponse | undefined>
 }) {
   if (!payload) {
     return <p className="panel-footnote">No result yet.</p>
   }
 
   if (payload.renderer === 'table') {
+    const columns = arrayValue<string>(payload.columns)
+    const rows = arrayValue<string[]>(payload.rows)
+
     return (
       <DataGridView
         connection={connection}
         editContext={editContext}
-        columns={payload.columns}
-        rows={sliceItems(payload.rows, pageIndex, pageSize)}
+        columns={columns}
+        rows={sliceItems(rows, pageIndex, pageSize)}
         onExecuteDataEdit={onExecuteDataEdit}
       />
     )
   }
 
   if (payload.renderer === 'document') {
+    const documents = arrayValue<Record<string, unknown>>(payload.documents)
+
     return (
       <DocumentResultsView
         connection={connection}
         editContext={editContext}
-        documents={payload.documents}
+        documents={documents}
         footerControls={documentFooterControls}
         resultDurationMs={resultDurationMs}
         resultSummary={resultSummary}
@@ -68,14 +79,21 @@ export function ResultPayloadView({
   }
 
   if (payload.renderer === 'keyvalue') {
+    const entries = stringRecordValue(payload.entries)
+    const safePayload = {
+      ...payload,
+      entries,
+    }
+
     return (
       <KeyValueResultsView
-        key={keyValuePayloadKey(payload.entries, payload.key)}
+        key={keyValuePayloadKey(entries, payload.key)}
         connection={connection}
         editContext={editContext}
-        entries={sliceRecord(payload.entries, pageIndex, pageSize)}
-        payload={payload}
+        entries={sliceRecord(entries, pageIndex, pageSize)}
+        payload={safePayload}
         onExecuteDataEdit={onExecuteDataEdit}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -89,14 +107,18 @@ export function ResultPayloadView({
   }
 
   if (payload.renderer === 'searchHits') {
+    const hits = arrayValue<Extract<ResultPayload, { renderer: 'searchHits' }>['hits'][number]>(
+      payload.hits,
+    )
+
     return (
       <SearchHitsResultsView
-        key={searchHitsPayloadKey(payload.hits)}
+        key={searchHitsPayloadKey(hits)}
         connection={connection}
         editContext={editContext}
         payload={{
           ...payload,
-          hits: sliceItems(payload.hits, pageIndex, pageSize),
+          hits: sliceItems(hits, pageIndex, pageSize),
         }}
         onExecuteDataEdit={onExecuteDataEdit}
       />
@@ -118,12 +140,16 @@ export function ResultPayloadView({
   }
 
   if (payload.renderer === 'metrics') {
+    const metrics = arrayValue<Extract<ResultPayload, { renderer: 'metrics' }>['metrics'][number]>(
+      payload.metrics,
+    )
+
     return (
       <DataGridView
         connection={connection}
         editContext={editContext}
         columns={['metric', 'value', 'unit', 'labels']}
-        rows={payload.metrics.map((metric) => [
+        rows={metrics.map((metric) => [
           metric.name,
           String(metric.value),
           metric.unit ?? '',
@@ -135,13 +161,17 @@ export function ResultPayloadView({
   }
 
   if (payload.renderer === 'series') {
+    const seriesPayloads = arrayValue<Extract<ResultPayload, { renderer: 'series' }>['series'][number]>(
+      payload.series,
+    )
+
     return (
       <DataGridView
         connection={connection}
         editContext={editContext}
         columns={['series', 'timestamp', 'value', 'unit', 'labels']}
-        rows={payload.series.flatMap((series) =>
-          series.points.map((point) => [
+        rows={seriesPayloads.flatMap((series) =>
+          arrayValue<typeof series.points[number]>(series.points).map((point) => [
             series.name,
             point.timestamp,
             String(point.value),
@@ -155,9 +185,13 @@ export function ResultPayloadView({
   }
 
   if (payload.renderer === 'schema') {
+    const items = arrayValue<Extract<ResultPayload, { renderer: 'schema' }>['items'][number]>(
+      payload.items,
+    )
+
     return (
       <div className="details-grid">
-        {payload.items.map((item) => (
+        {items.map((item) => (
           <div key={item.label} className="detail-row">
             <span>{item.label}</span>
             <strong>{item.detail}</strong>
@@ -167,25 +201,28 @@ export function ResultPayloadView({
     )
   }
 
-  return <RawResultView text={payload.renderer === 'raw' ? payload.text : JSON.stringify(payload, null, 2)} />
+  return <RawResultView text={payload.renderer === 'raw' || payload.renderer === 'resp' ? payload.text : JSON.stringify(payload, null, 2)} />
 }
 
 function ChartResultView({ payload }: { payload: Extract<ResultPayload, { renderer: 'chart' }> }) {
-  const points = payload.series.flatMap((series) => series.points)
+  const seriesPayloads = arrayValue<Extract<ResultPayload, { renderer: 'chart' }>['series'][number]>(
+    payload.series,
+  )
+  const points = seriesPayloads.flatMap((series) => arrayValue<typeof series.points[number]>(series.points))
   const max = Math.max(...points.map((point) => point.y), 1)
   const min = Math.min(...points.map((point) => point.y), 0)
   const span = Math.max(max - min, 1)
 
   return (
     <div className="result-chart-view" aria-label={`${payload.chartType} chart`}>
-      {payload.series.map((series) => (
+      {seriesPayloads.map((series) => (
         <section key={series.name} className="result-chart-series">
           <header>
             <strong>{series.name}</strong>
             <span>{payload.yAxis ?? 'Value'}</span>
           </header>
           <div className="result-bar-chart" aria-hidden="true">
-            {series.points.slice(0, 48).map((point, index) => {
+            {arrayValue<typeof series.points[number]>(series.points).slice(0, 48).map((point, index) => {
               const height = Math.max(3, ((point.y - min) / span) * 100)
               return (
                 <span
@@ -225,6 +262,22 @@ function sliceItems<T>(items: T[], pageIndex: number, pageSize: number | undefin
 
   const start = Math.max(0, pageIndex) * pageSize
   return items.slice(start, start + pageSize)
+}
+
+function arrayValue<T = unknown>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : []
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function stringRecordValue(value: unknown): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(recordValue(value)).map(([key, entry]) => [key, String(entry ?? '')]),
+  )
 }
 
 function formatLabels(labels: Record<string, string> | undefined) {

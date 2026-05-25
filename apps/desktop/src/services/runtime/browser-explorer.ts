@@ -24,6 +24,12 @@ import {
   cosmosInspectQueryTemplate,
   createCosmosExplorerNodes,
 } from './browser-cosmos-explorer'
+import {
+  postgresSourceInspectPayload,
+  postgresSourceInspectQueryTemplate,
+  sqlServerSourceInspectPayload,
+  sqlServerSourceInspectQueryTemplate,
+} from './browser-relational-source-payloads'
 import { findConnection } from './browser-store'
 
 export function createExplorerNodes(
@@ -1471,6 +1477,7 @@ function mysqlTablePayload(connection: ConnectionProfile, database: string, tabl
 
 function mysqlRoutinePayload(connection: ConnectionProfile, nodeId: string, fallbackDatabase: string) {
   const [kind = 'procedure', database = fallbackDatabase, objectName = 'routine'] = nodeId.split(':')
+  const definition = mysqlRoutineDefinition(kind, database, objectName)
   const routine = {
     schema: database,
     name: objectName,
@@ -1478,7 +1485,7 @@ function mysqlRoutinePayload(connection: ConnectionProfile, nodeId: string, fall
     returns: kind === 'function' ? 'varchar(120)' : '',
     language: 'sql',
     security: 'definer',
-    definition: `${kind} ${objectName} body`,
+    definition,
   }
 
   return {
@@ -1487,6 +1494,7 @@ function mysqlRoutinePayload(connection: ConnectionProfile, nodeId: string, fall
     schema: database,
     objectName,
     objectView: kind,
+    definition,
     ...(kind === 'function' ? { functions: [routine] } : {}),
     ...(kind === 'procedure' ? { procedures: [routine] } : {}),
     ...(kind === 'event' ? { events: [{ schema: database, name: objectName, status: 'enabled', schedule: 'every 1 day', definer: 'app@%' }] } : {}),
@@ -1496,6 +1504,43 @@ function mysqlRoutinePayload(connection: ConnectionProfile, nodeId: string, fall
       : [{ name: kind === 'function' ? 'p_status' : 'p_account_id', type: kind === 'function' ? 'varchar(40)' : 'bigint', mode: kind === 'function' ? 'in' : 'in', ordinal: 1 }],
     permissions: mysqlGrants(database).filter((row) => row.object === objectName),
   }
+}
+
+function mysqlRoutineDefinition(kind: string, database: string, objectName: string) {
+  if (kind === 'function') {
+    return [
+      `create function ${mysqlIdentifier(database)}.${mysqlIdentifier(objectName)}(p_status varchar(40))`,
+      'returns varchar(120)',
+      'deterministic',
+      'begin',
+      "  return concat('status:', p_status);",
+      'end',
+    ].join('\n')
+  }
+
+  if (kind === 'trigger') {
+    return [
+      `create trigger ${mysqlIdentifier(database)}.${mysqlIdentifier(objectName)}`,
+      'before update on accounts',
+      'for each row',
+      'set new.updated_at = current_timestamp;',
+    ].join('\n')
+  }
+
+  if (kind === 'event') {
+    return [
+      `create event ${mysqlIdentifier(database)}.${mysqlIdentifier(objectName)}`,
+      'on schedule every 1 day',
+      'do call refresh_account_rollups();',
+    ].join('\n')
+  }
+
+  return [
+    `create procedure ${mysqlIdentifier(database)}.${mysqlIdentifier(objectName)}(in p_account_id bigint)`,
+    'begin',
+    '  select p_account_id as account_id;',
+    'end',
+  ].join('\n')
 }
 
 function mysqlSecurityPayload(connection: ConnectionProfile) {
@@ -5491,6 +5536,11 @@ function postgresInspectQueryTemplate(connection: ConnectionProfile, nodeId: str
     return `select * from "${schema}"."${objectName}" limit 100;`
   }
 
+  const sourceQuery = postgresSourceInspectQueryTemplate(nodeId, schema, objectName)
+  if (sourceQuery) {
+    return sourceQuery
+  }
+
   if (nodeId.includes('diagnostics') || nodeId.includes('sessions')) {
     return 'select pid, usename, datname, state, wait_event_type, wait_event from pg_stat_activity order by query_start desc nulls last limit 100;'
   }
@@ -5538,6 +5588,11 @@ function postgresInspectPayload(connection: ConnectionProfile, nodeId: string) {
         { principal: 'reporting', privilege: 'SELECT', object: `${schema}.${objectName}`, state: 'granted', grantor: schema },
       ],
     }
+  }
+
+  const sourcePayload = postgresSourceInspectPayload(base, nodeId, schema, objectName)
+  if (sourcePayload) {
+    return sourcePayload
   }
 
   if (nodeId.startsWith('schema:') || nodeId.startsWith('postgres:') && !nodeId.includes(':diagnostics') && !nodeId.includes(':security')) {
@@ -5609,6 +5664,11 @@ function sqlServerInspectQueryTemplate(connection: ConnectionProfile, nodeId: st
     return `use [${database}];\nselect top 100 * from [${schema}].[${objectName}];`
   }
 
+  const sourceQuery = sqlServerSourceInspectQueryTemplate(nodeId, database, schema, objectName)
+  if (sourceQuery) {
+    return sourceQuery
+  }
+
   if (nodeId.includes('query-store')) {
     return `use [${database}];\nselect top 50 * from sys.query_store_runtime_stats order by last_execution_time desc;`
   }
@@ -5656,6 +5716,11 @@ function sqlServerInspectPayload(connection: ConnectionProfile, nodeId: string) 
         { principal: 'reporting', privilege: 'SELECT', object: `${schema}.${objectName}`, state: 'GRANT', grantor: 'dbo' },
       ],
     }
+  }
+
+  const sourcePayload = sqlServerSourceInspectPayload(base, nodeId, schema, objectName)
+  if (sourcePayload) {
+    return sourcePayload
   }
 
   if (nodeId.startsWith('database:') || nodeId.includes(':tables') || nodeId.includes(':views')) {
@@ -6099,29 +6164,76 @@ function redisInspectPayload(nodeId: string) {
   }
 
   if (nodeId.includes('sentinel')) {
+    if (nodeId.includes('masters')) {
+      return {
+        kind: 'sentinel',
+        masters: [
+          { name: 'preview-primary', ip: '127.0.0.1', port: 6379, flags: 'master', quorum: 2, numSlaves: 1 },
+        ],
+        replicas: [],
+        sentinels: [],
+      }
+    }
+
+    if (nodeId.includes('replicas')) {
+      return {
+        kind: 'sentinel',
+        masters: [],
+        replicas: [
+          { name: 'preview-replica-1', ip: '127.0.0.1', port: 6380, flags: 'slave', masterName: 'preview-primary' },
+        ],
+        sentinels: [],
+      }
+    }
+
+    if (nodeId.includes('sentinels')) {
+      return {
+        kind: 'sentinel',
+        masters: [],
+        replicas: [],
+        sentinels: [
+          { name: 'sentinel-a', ip: '127.0.0.1', port: 26379, flags: 'sentinel', runid: 'preview-sentinel' },
+        ],
+      }
+    }
+
     return {
       kind: 'sentinel',
-      masters: [],
-      replicas: [],
-      sentinels: [],
-      warning: 'Sentinel metadata is unavailable because this preview connection targets a standalone server.',
+      masters: [
+        { name: 'preview-primary', ip: '127.0.0.1', port: 6379, flags: 'master', quorum: 2, numSlaves: 1 },
+      ],
+      replicas: [
+        { name: 'preview-replica-1', ip: '127.0.0.1', port: 6380, flags: 'slave', masterName: 'preview-primary' },
+      ],
+      sentinels: [
+        { name: 'sentinel-a', ip: '127.0.0.1', port: 26379, flags: 'sentinel', runid: 'preview-sentinel' },
+      ],
     }
   }
 
   if (nodeId.includes('lua')) {
     return {
       kind: 'lua-scripts',
-      scripts: [],
-      history: [],
-      message: 'Redis tracks script SHA hashes, not script bodies. Save reusable scripts in Library.',
+      scripts: [
+        { sha: '9f2c-preview', name: 'reserve-stock', lastUsedAt: '2026-05-20T12:00:00.000Z' },
+      ],
+      history: [
+        { name: 'reserve-stock.lua', scope: 'DB 0', lastRunAt: '2026-05-20T12:00:00.000Z' },
+      ],
     }
   }
 
   if (nodeId.includes('functions')) {
     return {
       kind: 'functions',
-      libraries: [],
-      warning: 'Redis functions are unavailable on this preview server.',
+      libraries: [
+        {
+          name: 'inventory',
+          engine: 'LUA',
+          functions: [{ name: 'reserve_stock' }, { name: 'release_stock' }],
+          flags: ['no-writes'],
+        },
+      ],
     }
   }
 
@@ -6233,12 +6345,36 @@ function redisInspectPayload(nodeId: string) {
   }
 
   if (nodeId.includes('cluster')) {
+    if (nodeId.includes('nodes')) {
+      return {
+        kind: 'cluster',
+        nodes: [
+          { id: '07c37dfeb2352e0b1e5', address: '127.0.0.1:6379@16379', role: 'master', linkState: 'connected', slots: ['0-5460'] },
+          { id: '2a2b-preview', address: '127.0.0.1:6380@16380', role: 'replica', linkState: 'connected', slots: [] },
+        ],
+      }
+    }
+
+    if (nodeId.includes('slots')) {
+      return {
+        kind: 'cluster',
+        slots: [
+          { range: '0-5460', master: '127.0.0.1:6379', replicas: ['127.0.0.1:6380'], detail: '1 replica' },
+        ],
+      }
+    }
+
     return {
       kind: 'cluster',
-      enabled: false,
-      nodes: [],
-      slots: [],
-      warning: 'Cluster metadata is unavailable because this preview server is standalone.',
+      state: 'ok',
+      knownNodes: 2,
+      slotsAssigned: 5461,
+      nodes: [
+        { id: '07c37dfeb2352e0b1e5', address: '127.0.0.1:6379@16379', role: 'master', linkState: 'connected', slots: ['0-5460'] },
+      ],
+      slots: [
+        { range: '0-5460', master: '127.0.0.1:6379', replicas: ['127.0.0.1:6380'], detail: '1 replica' },
+      ],
     }
   }
 
@@ -6724,6 +6860,16 @@ function mongoInspectQueryTemplate(connection: ConnectionProfile, nodeId: string
     return mongoCommandTemplate(databaseName, { listIndexes: objectName })
   }
 
+  if (nodeId.startsWith('create-index:')) {
+    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'create-index:', database)
+    return mongoCommandTemplate(databaseName, { listIndexes: objectName })
+  }
+
+  if (nodeId.startsWith('insert-document:')) {
+    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'insert-document:', database)
+    return documentFindTemplate(databaseName, objectName)
+  }
+
   if (nodeId.startsWith('validation-rules:')) {
     const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'validation-rules:', database)
     return mongoCommandTemplate(databaseName, { listCollections: 1, filter: { name: objectName } })
@@ -6900,6 +7046,32 @@ function mongoInspectPayload(connection: ConnectionProfile, nodeId: string) {
         { name: '_id_', key: { _id: 1 } },
         { name: 'sku_1', key: { sku: 1 } },
       ],
+    }
+  }
+
+  if (nodeId.startsWith('create-index:')) {
+    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'create-index:', database)
+    return {
+      database: databaseName,
+      collection: objectName,
+      indexes: [
+        { name: '_id_', key: { _id: 1 } },
+        { name: 'sku_1', key: { sku: 1 } },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('insert-document:')) {
+    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'insert-document:', database)
+    return {
+      database: databaseName,
+      collection: objectName,
+      validator: {
+        $jsonSchema: {
+          bsonType: 'object',
+          required: ['sku'],
+        },
+      },
     }
   }
 

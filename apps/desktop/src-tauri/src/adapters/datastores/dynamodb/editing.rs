@@ -31,9 +31,7 @@ pub(super) async fn execute_dynamodb_data_edit(
 
     if let Some(expected) = plan.plan.confirmation_text.as_deref() {
         if request.confirmation_text.as_deref() != Some(expected) {
-            warnings.push(format!(
-                "Type `{expected}` before executing this item edit."
-            ));
+            warnings.push("This item edit needs confirmation before it can run.".into());
             return Ok(data_edit_response(
                 request, plan, false, messages, warnings, None,
             ));

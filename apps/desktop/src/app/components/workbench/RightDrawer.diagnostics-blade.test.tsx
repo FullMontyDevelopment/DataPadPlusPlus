@@ -62,6 +62,40 @@ describe('DiagnosticsBlade', () => {
     expect(screen.getByText('Preview mode')).toBeInTheDocument()
     expect(screen.queryByText('planned')).not.toBeInTheDocument()
   })
+
+  it('confirms workspace restore in-app before replacing the workspace', () => {
+    const onImportWorkspace = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm')
+
+    render(
+      <DiagnosticsBlade
+        diagnostics={diagnostics}
+        exportBundle={undefined}
+        exportPassphrase="correct horse"
+        health={health}
+        importPayload={JSON.stringify(exportBundle)}
+        theme="dark"
+        onClose={vi.fn()}
+        onExportPassphraseChange={vi.fn()}
+        onExportWorkspace={vi.fn()}
+        onImportPayloadChange={vi.fn()}
+        onImportWorkspace={onImportWorkspace}
+        onRefreshDiagnostics={vi.fn()}
+        onToggleTheme={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore Workspace' }))
+
+    expect(screen.getByRole('dialog', { name: 'Restore workspace backup?' })).toBeInTheDocument()
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(onImportWorkspace).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+
+    expect(onImportWorkspace).toHaveBeenCalledWith(exportBundle.encryptedPayload)
+    confirmSpy.mockRestore()
+  })
 })
 
 const health: AppHealth = {

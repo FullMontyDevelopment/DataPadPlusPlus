@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 
+use super::validators;
 use super::{
     generate_id, library::effective_connection_environment_id, timestamp_now, ManagedAppState,
 };
@@ -18,6 +19,7 @@ impl ManagedAppState {
         request: CreateTestSuiteTabRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        validators::validate_create_test_suite_tab_request(&request)?;
         let connection = self.test_suite_connection(request.connection_id.as_deref())?;
         let suite = request
             .suite
@@ -29,6 +31,7 @@ impl ManagedAppState {
         &mut self,
         request: OpenTestSuiteTemplateRequest,
     ) -> Result<BootstrapPayload, CommandError> {
+        validators::validate_open_test_suite_template_request(&request)?;
         self.create_test_suite_tab(CreateTestSuiteTabRequest {
             connection_id: request.connection_id,
             environment_id: request.environment_id,
@@ -42,6 +45,7 @@ impl ManagedAppState {
         request: UpdateTestSuiteTabRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        validators::validate_update_test_suite_tab_request(&request)?;
         let tab = self
             .snapshot
             .tabs
@@ -88,6 +92,7 @@ impl ManagedAppState {
         request: ExecuteTestSuiteRequest,
     ) -> Result<ExecuteTestSuiteResponse, CommandError> {
         self.ensure_unlocked()?;
+        validators::validate_execute_test_suite_request(&request)?;
         let tab_index = self
             .snapshot
             .tabs
@@ -167,6 +172,7 @@ impl ManagedAppState {
         request: CancelTestRunRequest,
     ) -> Result<CancelExecutionResult, CommandError> {
         self.ensure_unlocked()?;
+        validators::validate_cancel_test_run_request(&request)?;
         if let Some(tab_id) = request.tab_id {
             if let Some(tab) = self.snapshot.tabs.iter_mut().find(|tab| tab.id == tab_id) {
                 if let Some(run) = tab.test_run.as_mut() {
