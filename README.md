@@ -1,126 +1,223 @@
-# DataPad++
+<p align="center">
+  <img src="apps/desktop/public/logo_transparent.png" alt="DataPad++" width="360" />
+</p>
 
-[![CI](https://github.com/FullMontyDevelopment/DataPadPlusPlus/actions/workflows/ci.yml/badge.svg)](https://github.com/FullMontyDevelopment/DataPadPlusPlus/actions/workflows/ci.yml)
+<h1 align="center">DataPad++</h1>
 
-DataPad++ is a desktop workspace for people who work across databases. It brings SQL, document stores, key-value systems, search engines, and cloud-style datastores into one local app, with a familiar editor, visual query tools, rich results, and safety checks for real environments.
+<p align="center">
+  <strong>All Data. One Pad.</strong>
+</p>
 
-The goal is simple: one place to connect, explore, query, inspect, and safely change data without jumping between a different tool for every datastore.
+<p align="center">
+  <a href="https://github.com/FullMontyDevelopment/DataPadPlusPlus/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/FullMontyDevelopment/DataPadPlusPlus/actions/workflows/ci.yml/badge.svg" />
+  </a>
+  <img alt="Pre-release" src="https://img.shields.io/badge/status-pre--release-6bbf2a" />
+  <img alt="Desktop app" src="https://img.shields.io/badge/app-desktop-222222" />
+  <img alt="License" src="https://img.shields.io/badge/license-free_use_source_available-6bbf2a" />
+</p>
 
-## What You Can Do
+DataPad++ is a desktop IDE for people who work with more than one kind of datastore.
 
-### Connect To Many Datastores
+Instead of bouncing between SQL tools, MongoDB tools, Redis tools, search consoles, cloud dashboards, and local file browsers, DataPad++ brings those workflows into one focused workspace. Connect, explore, query, inspect, edit, test, and manage your data with an experience that adapts to the datastore you are using.
 
-Create saved connection profiles for the systems you use every day. DataPad++ supports local files, host/port connections, and connection strings where the datastore allows them.
+> **Pre-release note**
+>
+> DataPad++ is currently pre-release software. A lot of the core experience is already usable, but some datastore-specific features are still being completed, refined, or guarded behind preview flows. Use read-only connections first when connecting to important systems, and treat production changes with care.
+
+## Why DataPad++ Exists
+
+Modern teams rarely use only one database.
+
+You might have PostgreSQL for app data, MongoDB for documents, Redis for cache and streams, Elasticsearch for search, SQLite files on disk, SQL Server in a corporate system, and DynamoDB or Cassandra somewhere in the stack. Each one has its own tools, language, mental model, and sharp edges.
+
+DataPad++ is built to make that easier:
+
+- one desktop workspace for many datastore families
+- native-feeling tree views and object views per datastore
+- query editors, visual builders, scripts, consoles, and results in one place
+- safe live edits where the app can prove the target
+- guarded previews for destructive or admin work
+- environments, variables, and secret-safe workflows
+- a Library for saved queries, scripts, tests, notes, and connection folders
+
+The goal is not to flatten every datastore into a generic table viewer. The goal is to make each datastore feel like it has its own purpose-built IDE inside the same app.
+
+## What It Can Do
+
+### Connect To Your Datastores
+
+Create connection profiles for the systems you use every day. DataPad++ supports native fields, local database files, and connection strings where the datastore supports them.
 
 Current focus areas include:
 
-- SQL: PostgreSQL, CockroachDB, SQL Server, MySQL, MariaDB, SQLite
-- Document and NoSQL: MongoDB, DynamoDB, Cassandra
-- Key-value and cache: Redis and Valkey
-- Search: Elasticsearch and OpenSearch
-- Local analytical files: SQLite, DuckDB, LiteDB surfaces
+| Family | Datastores |
+| --- | --- |
+| SQL and relational | PostgreSQL, CockroachDB, SQL Server and Azure SQL, MySQL, MariaDB, SQLite |
+| Document and NoSQL | MongoDB, DynamoDB, Cassandra |
+| Key-value and cache | Redis, Valkey, Memcached |
+| Search | Elasticsearch, OpenSearch |
+| Local and analytical | SQLite, DuckDB, LiteDB |
+| Expanding surfaces | Oracle, graph stores, warehouses, time-series, metrics, and more |
 
-More engines are being added behind the same workspace experience.
+Some engines are further along than others. MongoDB, Redis/Valkey, SQL Server, PostgreSQL, SQLite, and several relational flows have received the deepest IDE-style treatment so far.
 
-### Explore Before You Query
+### Explore Without Guesswork
 
-Use the connection tree or Explorer tabs to browse what exists in a datastore before writing a query.
+The Library tree can hold folders, connections, saved queries, scripts, tests, notes, and environments. Expanding a connection shows datastore-owned objects, not a fake generic tree.
 
 Depending on the datastore, DataPad++ can show:
 
-- databases, schemas, tables, views, indexes, functions, and procedures
-- MongoDB databases, collections, indexes, and sampled document shapes
-- Redis and Valkey key groups, key types, TTLs, memory usage, and typed values
-- search indexes, mappings, data streams, and search-oriented objects
-- Cassandra keyspaces, tables, indexes, and materialized views
+- databases, schemas, tables, views, indexes, functions, procedures, packages, triggers, users, and roles
+- MongoDB databases, collections, views, GridFS, indexes, validation rules, schema previews, users, roles, and statistics
+- Redis logical databases, type folders, keys, TTLs, memory usage, streams, ACLs, slow logs, and diagnostics
+- search indexes, mappings, shards, aliases, data streams, and query tools
+- local database files, metadata, pragmas, tables, indexes, and integrity checks
 
-Object menus help you open a query already scoped to the item you selected.
+Right-click menus are designed to be object-aware. A table should feel like a table. A Redis key should feel like a Redis key. A MongoDB collection should feel like a collection, not a generic blob of JSON.
 
-### Query In The Style That Fits The Datastore
+### Query In The Right Mode
 
-DataPad++ supports raw query editors and visual builders. You can switch between builder-only, raw-only, or side-by-side views when a builder exists.
+Different datastores want different tools. DataPad++ adapts the query window to the connection.
 
-Examples:
+- SQL databases open in a raw SQL editor by default, with metadata-aware IntelliSense.
+- MongoDB supports a find query builder, raw JSON command mode, aggregation work, and safe scripting-style reads.
+- Redis and Valkey open in a native key browser, with a Redis console available when you want commands.
+- Document results can feed fields back into query builders by drag and drop.
+- Scoped object actions can open a query already aimed at a collection, table, keyspace, index, or view.
 
-- write SQL directly for relational databases
-- build MongoDB find queries with filters, projections, sorting, limits, and grouped AND/OR logic
-- browse Redis keys visually instead of typing `SCAN` commands by hand
-- create search queries for Elasticsearch/OpenSearch
-- build key-condition or partition-key queries for stores like DynamoDB and Cassandra
+Where visual builders exist, they update the actual query immediately. You can learn from the generated query, adjust it, save it, or switch back to the visual mode later.
 
-Builder changes update the raw query immediately, so you can learn the generated query, edit it, save it, or share it.
+### Work With Results Like A Datastore IDE
 
-### Work With Results Comfortably
+DataPad++ results are built for real data work.
 
-Results are designed to feel like database work, not a generic web table.
+Table results support:
 
-Table results include:
-
-- sticky headers and row numbers
-- row and cell selection
+- full-width grid rendering
+- sticky headers
+- row selection from the row-number column
 - keyboard copy shortcuts
-- column sizing
 - large-result virtualization
-- compact null and empty-value styling
+- inline editing where supported by the datastore and connection safety rules
 
-Document and JSON-like results include:
+Document results support:
 
-- expandable field trees
-- type-colored values
-- document root labels based on the document id
-- drag fields into query-builder filters, projections, or sorts
-- double-click editing where the datastore safely supports it
+- expandable document trees
+- root labels based on the document key or id
+- BSON/JSON type coloring
+- virtualized rows for large documents
+- local search across loaded documents
+- raw field inspection side panels
+- double-click editing for safe fields
+- drag fields into filters, projections, and sort sections
 
-Redis and Valkey results include type-aware views for strings, hashes, lists, sets, sorted sets, streams, and supported Redis Stack-style values.
+Redis and Valkey results support:
 
-### Save Work In A Library
+- type-aware key detail views
+- string, hash, list, set, sorted set, and stream surfaces
+- TTL, memory, encoding, and length metadata
+- guarded key edits, renames, TTL changes, deletes, imports, and exports
 
-The Library is a workspace for saved queries, scripts, snippets, notes, bookmarks, snapshots, and folders. You can organize items into nested folders, move them around, rename them, and reopen recent work.
+### Manage More Than Queries
 
-When saving a query, DataPad++ can save it into the Library or to a local file on your machine.
+DataPad++ is not only a query runner.
 
-### Use Environments And Safety Controls
+It is growing into a full datastore workbench with:
 
-Connections can be tied to environments such as Local, QA, Stage, and Production. Environments can carry colors, risk levels, variables, and confirmation rules.
+- MongoDB index management, validation views, GridFS tools, schema previews, and user/role surfaces
+- Redis diagnostics, slow log views, ACL views, key import/export plans, and type-aware editors
+- SQL-style object views for tables, procedures, functions, indexes, constraints, query store, security, and performance areas
+- Oracle-style schema, package, storage, security, and performance views
+- metrics dashboards where the datastore exposes useful counters
+- explain plan rendering, including a purpose-built MongoDB explain UI
+- test-suite workspaces for datastore-specific setup, execute, assert, and teardown flows
 
-DataPad++ is built to make risky actions visible:
+Many admin operations are intentionally preview-first. If an action can drop, overwrite, lock, scan heavily, or affect production data, DataPad++ should make that obvious before anything runs.
 
-- read-only connection profiles can block writes
-- production or high-risk environments can require confirmations
-- destructive operations are previewed before execution
-- unsupported actions explain why they are disabled
-- secrets are kept out of normal workspace files where possible
+## Library, Environments, And Safety
 
-### Inspect Diagnostics
+The Library is the home base.
 
-Where the datastore supports it, DataPad++ can surface execution plans, query profiles, performance counters, permissions, locks, sessions, index stats, Redis INFO/SLOWLOG/ACL data, and other engine-specific diagnostics.
+You can store:
 
-Diagnostics vary by datastore. The app is designed to show the best useful information each engine can provide instead of forcing every database into the same shape.
+- connections
+- folders and nested folders
+- saved queries
+- scripts
+- snippets
+- notes
+- snapshots
+- test suites
+- recent work
+- environments
 
-## Downloading Releases
+Saved work can live beside the connection it belongs to, so it naturally inherits the right environment.
 
-Releases are published from GitHub Actions as draft-reviewed desktop artifacts.
+Environments can define:
 
-Look for assets such as:
+- names and colors such as Local, QA, UAT, PROD, or DR
+- risk levels
+- variables using `{{VAR_NAME}}`
+- secret variables that stay masked and resolve only at execution time
+- confirmation behavior for risky actions
 
-- Windows installers: `.exe` or `.msi`
-- Linux packages: `.deb`, `.rpm`, or AppImage
-- macOS Apple Silicon builds: `.dmg` or app bundle artifacts
+DataPad++ is designed around a simple rule: make dangerous work visible, and keep secrets out of plain text.
 
-GitHub also adds automatic "Source code" zip/tar files to every release. Those are normal GitHub archives, but they are not the desktop app installers.
+## A Few Cool Details
 
-## Building From Source
+- MongoDB explain plans become a readable performance dashboard instead of a wall of raw JSON.
+- Redis opens as a key browser by default, not a JSON-shaped command editor.
+- MongoDB document fields can be dragged into query-builder filters, projections, and sorts.
+- Results can dock at the bottom or beside the query editor.
+- Non-saveable tabs such as metrics, explorer, and object views do not pretend they have unsaved changes.
+- Saved Library items open once, so you do not accidentally edit two copies of the same thing.
+- Environment variables are suggested while typing `{{` in supported editors.
+- Query tabs show datastore icons, running state, error state, and unsaved state separately.
+
+## Pre-Release Expectations
+
+DataPad++ is moving quickly. That is exciting, but it also means:
+
+- some datastore views may still be preview-backed
+- some operations may generate a plan before live execution is available
+- optional engines may need additional local drivers, Docker fixtures, or credentials
+- release artifacts may change as packaging matures
+- docs may lag a little behind fast-moving features
+
+If you are evaluating the app, the best path is:
+
+1. Start with local or Docker-backed datastores.
+2. Use read-only profiles for anything important.
+3. Try the Library, query windows, result views, and object views.
+4. Move to editable workflows only after you are comfortable with the guardrails.
+
+## Download Releases
+
+Releases are published from GitHub Actions.
+
+Download builds from the [GitHub Releases page](https://github.com/FullMontyDevelopment/DataPadPlusPlus/releases).
+
+Look for desktop artifacts such as:
+
+- Windows installer or executable
+- Linux packages or AppImage
+- macOS builds where available
+
+GitHub also adds automatic "Source code" zip and tar files to every release. Those are normal repository archives, not the app installers.
+
+## Build From Source
 
 Most users should download a release. Build from source if you want to contribute, test unreleased work, or run local datastore fixtures.
 
-### Prerequisites
+### Requirements
 
 - Node.js 24+
 - npm 11+
 - Rust stable toolchain
 - Tauri platform prerequisites from the [official Tauri docs](https://tauri.app/start/prerequisites/)
-- Docker, when running the optional datastore fixtures
-- On Windows, the Visual Studio C++ desktop workload and Windows SDK required by Tauri native builds
+- Docker, when running optional datastore fixtures
+- On Windows: Visual Studio C++ desktop workload and the Windows SDK required by Tauri native builds
 
 ### Install
 
@@ -148,7 +245,7 @@ npm run check
 npm run check:native
 ```
 
-## Sample Datastores For Testing
+## Sample Datastores
 
 The repository includes Docker fixtures with repeatable seed data for local testing.
 
@@ -157,34 +254,31 @@ npm run fixtures:up
 npm run fixtures:seed
 ```
 
-Optional fixture profiles add more engines such as Redis Stack, search engines, graph stores, analytics stores, Cassandra, Oracle, and cloud-contract mocks.
+Optional fixture profiles add more datastore coverage for broader testing.
 
 See [Docker Fixtures](tests/fixtures/README.md) for connection details and commands.
 
 ## Documentation
 
-- [Feature Guide](docs/features.md) - product walkthrough and datastore experiences
-- [Development Guide](docs/contributing/development.md) - build, test, release, and contributor workflow
-- [Testing Strategy](docs/testing/strategy.md) - how checks and fixtures are organized
-- [Architecture Overview](docs/architecture/overview.md) - deeper design notes for contributors
-- [Datastore Adapter Roadmap](docs/architecture/datastore-adapter-roadmap.md) - long-term datastore platform plan
-- [Security And Safety](docs/architecture/security-and-safety.md) - safety model and guardrails
-
-## Project Status
-
-DataPad++ is early-stage desktop software. Many core workflows already exist, and the project is actively growing toward a complete multi-datastore workbench. Some datastore experiences are mature enough for regular local use, while others are still beta, preview, or fixture-backed.
-
-Use care with production systems. Prefer read-only profiles until you are comfortable with the app's safety prompts and generated operation previews.
+- [Feature Guide](docs/features.md)
+- [Development Guide](docs/contributing/development.md)
+- [Testing Strategy](docs/testing/strategy.md)
+- [Architecture Overview](docs/architecture/overview.md)
+- [Datastore Adapter Roadmap](docs/architecture/datastore-adapter-roadmap.md)
+- [Security And Safety](docs/architecture/security-and-safety.md)
 
 ## Contributing
 
-Contributions are welcome. Please keep new datastore work aligned with the existing experience:
+Contributions are welcome, especially around datastore-native experiences, safety, testing, packaging, and documentation.
 
-- make features feel natural for that datastore
-- keep dangerous actions explicit and previewable
-- avoid storing secrets in regular workspace files
+Good contributions should:
+
+- make a datastore feel more natural to use
+- avoid generic raw payload dumps where a purpose-built view would help
+- keep risky actions explicit and guarded
+- keep secrets out of workspace files, logs, diagnostics, and exports
 - add tests for user-facing behavior and adapter safety
-- keep product docs understandable for people who are not working inside the codebase
+- keep the UI compact and workbench-like
 
 Start with the [Development Guide](docs/contributing/development.md).
 
@@ -192,8 +286,10 @@ Start with the [Development Guide](docs/contributing/development.md).
 
 DataPad++ is source-available under the [DataPad++ Free Use License 1.0](LICENSE).
 
-That means DataPad++ is free to use for personal, educational, nonprofit, government, internal business, and commercial work. Companies may use the official application internally without buying a license.
+DataPad++ is free to use for personal, educational, nonprofit, government, internal business, and commercial work. Companies may use the official application internally without buying a license.
 
-The license does not allow redistribution, selling, white-labeling, rebranding, bundling, hosted/managed-service use, publishing modified builds, or using the source code/assets to build a competing or substitute product without a separate written license. See [Commercial And Corporate Use](COMMERCIAL-LICENSE.md) for the practical summary.
+The license does not allow redistribution, selling, white-labeling, rebranding, bundling, hosted or managed-service use, publishing modified builds, or using the source code/assets to build a competing or substitute product without a separate written license.
+
+See [Commercial And Corporate Use](COMMERCIAL-LICENSE.md) for the practical summary.
 
 Sponsorships and donations are welcome and help support development, but they are not required for ordinary internal use.
