@@ -20,6 +20,7 @@ const TYPE_OPTIONS: DocumentValueType[] = ['string', 'number', 'boolean', 'null'
 interface DocumentGridRowViewProps {
   editingCell?: 'field' | 'type' | 'value'
   expanded: boolean
+  loading?: boolean
   matched?: boolean
   row: DocumentGridRow
   onBeginEditing(row: DocumentGridRow, cell: 'field' | 'type' | 'value'): void
@@ -28,13 +29,14 @@ interface DocumentGridRowViewProps {
   onRenameField(row: DocumentGridRow, nextName: string): void
   onScheduleCopyValue(value: unknown): void
   onStopEditing(): void
-  onToggleRow(rowId: string): void
+  onToggleRow(row: DocumentGridRow): void
   onUpdateValue(row: DocumentGridRow, nextValue: unknown, editKind?: 'set-field' | 'change-field-type'): void
 }
 
 export function DocumentGridRowView({
   editingCell,
   expanded,
+  loading = false,
   matched = false,
   row,
   onBeginEditing,
@@ -97,9 +99,10 @@ export function DocumentGridRowView({
             type="button"
             className="document-data-grid-expander"
             aria-label={`${expanded ? 'Collapse' : 'Expand'} ${row.label}`}
-            onClick={() => onToggleRow(row.id)}
+            disabled={loading}
+            onClick={() => onToggleRow(row)}
           >
-            {expanded ? 'v' : '>'}
+            {loading ? '...' : expanded ? 'v' : '>'}
           </button>
         ) : (
           <span className="document-data-grid-spacer" />

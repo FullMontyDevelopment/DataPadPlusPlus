@@ -160,7 +160,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Schema Preview').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Understand document shape/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Understand document shape/i)).not.toBeInTheDocument()
     expect(screen.getByText('inventory.available')).toBeInTheDocument()
     expect(screen.getByText('int32 (18), int64 (2)')).toBeInTheDocument()
     expect(screen.getAllByText('20/20 (100%)').length).toBeGreaterThan(0)
@@ -1035,7 +1035,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Redis DB Overview').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Inspect the selected logical database/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Inspect the selected logical database/i)).not.toBeInTheDocument()
     expect(screen.getByText('40010')).toBeInTheDocument()
     expect(screen.getByText('hash')).toBeInTheDocument()
     expect(screen.getByText('products:inventory')).toBeInTheDocument()
@@ -1451,7 +1451,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Oracle Table').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Inspect table data entry points/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Inspect table data entry points/i)).not.toBeInTheDocument()
     expect(screen.getAllByText('ID').length).toBeGreaterThan(0)
     expect(screen.getByText('NUMBER(19)')).toBeInTheDocument()
     expect(screen.getAllByText('ACCOUNTS_PK').length).toBeGreaterThan(0)
@@ -1549,7 +1549,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Memcached Stats').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Review operational counters/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Review operational counters/i)).not.toBeInTheDocument()
     expect(screen.getByText('curr_items')).toBeInTheDocument()
     expect(screen.getAllByText('Hit Rate').length).toBeGreaterThan(0)
     expect(screen.getByText(/does not expose safe key enumeration/i)).toBeInTheDocument()
@@ -1691,7 +1691,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('PostgreSQL Table').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect table columns, indexes/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect table columns, indexes/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Data' })).toBeInTheDocument()
     expect(screen.getAllByText('Columns').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Indexes').length).toBeGreaterThan(0)
@@ -1824,7 +1824,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('SQLite Table').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect columns, indexes, constraints/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect columns, indexes, constraints/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Data' })).toBeInTheDocument()
     expect(screen.getAllByText('Columns').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Indexes').length).toBeGreaterThan(0)
@@ -1890,7 +1890,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('LiteDB Collection').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect documents, inferred schema, indexes/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect documents, inferred schema, indexes/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open Collection Query' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Schema Preview').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Indexes').length).toBeGreaterThan(0)
@@ -2009,7 +2009,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Cosmos DB Container').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect items, partitioning, indexing/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect items, partitioning, indexing/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open Items Query' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Partition Key').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Indexing Policy').length).toBeGreaterThan(0)
@@ -2125,7 +2125,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('MySQL Table').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect columns, indexes, constraints/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect columns, indexes, constraints/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Data' })).toBeInTheDocument()
     expect(screen.getAllByText('Columns').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Indexes').length).toBeGreaterThan(0)
@@ -2199,7 +2199,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Search Index').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect mapping fields, aliases, shards/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect mapping fields, aliases, shards/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
     expect(screen.getAllByText('Mappings').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Shards').length).toBeGreaterThan(0)
@@ -2282,7 +2282,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('DynamoDB Table').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect partition\/sort keys/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect partition\/sort keys/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Items' })).toBeInTheDocument()
     expect(screen.getAllByText('Keys').length).toBeGreaterThan(0)
     expect(screen.getByText('customer-status-index')).toBeInTheDocument()
@@ -2360,7 +2360,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Cassandra Table').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect partition keys/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect partition keys/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Rows' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Primary Key').length).toBeGreaterThan(0)
     expect(screen.getAllByText('customer_id').length).toBeGreaterThan(0)
@@ -2429,7 +2429,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Prometheus Metric').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect one metric family/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect one metric family/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Metric' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Series').length).toBeGreaterThan(0)
     expect(screen.getAllByText('http_requests_total').length).toBeGreaterThan(0)
@@ -2496,7 +2496,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Measurement').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect fields, tags, series cardinality/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect fields, tags, series cardinality/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Measurement' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Tags').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Fields').length).toBeGreaterThan(0)
@@ -2564,7 +2564,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('OpenTSDB Metric').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect one metric, related tag keys/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect one metric, related tag keys/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Metric' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Tags').length).toBeGreaterThan(0)
     expect(screen.getAllByText('UID Metadata').length).toBeGreaterThan(0)
@@ -2638,7 +2638,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Node Label').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect one node label/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect one node label/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Nodes' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Relationships').length).toBeGreaterThan(0)
     expect(screen.getByText('account_email_lookup')).toBeInTheDocument()
@@ -2706,7 +2706,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Warehouse Table').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect columns, partitions, clustering/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect columns, partitions, clustering/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Table' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Columns').length).toBeGreaterThan(0)
     expect(screen.getByText('created_at')).toBeInTheDocument()
@@ -2775,7 +2775,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('DuckDB Table').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Inspect columns, indexes, constraints/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inspect columns, indexes, constraints/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open Data Query' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Columns').length).toBeGreaterThan(0)
     expect(screen.getByText('orders_id_idx')).toBeInTheDocument()
@@ -2830,7 +2830,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Query Store').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Review top queries, regressed queries/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Review top queries, regressed queries/i)).not.toBeInTheDocument()
     expect(screen.getAllByText('Sessions').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Waits').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Plans').length).toBeGreaterThan(0)
@@ -2951,7 +2951,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('CockroachDB Cluster').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Review nodes, ranges, regions, jobs/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Review nodes, ranges, regions, jobs/i)).not.toBeInTheDocument()
     expect(screen.getAllByText('Sessions').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Waits').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Jobs').length).toBeGreaterThan(0)

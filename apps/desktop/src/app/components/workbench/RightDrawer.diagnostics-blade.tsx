@@ -5,6 +5,11 @@ import type {
   ExportBundle,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
+import type { WorkspacePassphraseStrength } from '../../security/workspace-passphrase'
+import {
+  canUseWorkspaceBundlePassphrase,
+  rateWorkspaceBundlePassphrase,
+} from '../../security/workspace-passphrase'
 import {
   CopyIcon,
   DownloadIcon,
@@ -15,8 +20,6 @@ import {
 import { DeleteConfirmationPanel } from './results/DeleteConfirmationPanel'
 import { SHORTCUTS } from './RightDrawer.helpers'
 import { DrawerDetailRow, DrawerHeader, FormField } from './RightDrawer.primitives'
-
-const PASSPHRASE_MIN_LENGTH = 8
 
 export function DiagnosticsBlade({
   diagnostics,
@@ -41,7 +44,7 @@ export function DiagnosticsBlade({
   theme: WorkspaceSnapshot['preferences']['theme']
   onClose(): void
   onExportPassphraseChange(value: string): void
-  onExportWorkspace(): void
+  onExportWorkspace(includeSecrets: boolean): void
   onImportPayloadChange(value: string): void
   onImportWorkspace(encryptedPayload: string): void
   onRefreshDiagnostics(): void
@@ -51,11 +54,16 @@ export function DiagnosticsBlade({
   const [exportPassphraseUsed, setExportPassphraseUsed] = useState('')
   const [restorePending, setRestorePending] = useState(false)
   const [showBundleText, setShowBundleText] = useState(false)
+  const [includeSecretsInBundle, setIncludeSecretsInBundle] = useState(false)
   const exportedBundleText = useMemo(
     () => (exportBundle ? JSON.stringify(exportBundle, null, 2) : ''),
     [exportBundle],
   )
-  const passphraseReady = exportPassphrase.trim().length >= PASSPHRASE_MIN_LENGTH
+  const passphraseStrength = useMemo(
+    () => rateWorkspaceBundlePassphrase(exportPassphrase),
+    [exportPassphrase],
+  )
+  const passphraseReady = canUseWorkspaceBundlePassphrase(exportPassphrase)
   const bundlePassphraseChanged =
     Boolean(exportedBundleText) && exportPassphraseUsed !== exportPassphrase
   const restorePayload = normalizeBundlePayload(importPayload)
@@ -137,14 +145,15 @@ export function DiagnosticsBlade({
               <strong>Workspace Backup</strong>
               <p className="drawer-copy">
                 Create an encrypted bundle of your local workspace layout, Library, environments,
-                and connection profiles. Secrets are kept in the desktop secret store and are not
-                written into the bundle.
+                and connection profiles. Secrets stay in the desktop secret store unless included
+                below.
               </p>
             </div>
           </div>
 
           <FormField label="Backup passphrase">
             <input
+              aria-label="Backup passphrase"
               type="password"
               autoComplete="new-password"
               value={exportPassphrase}
@@ -152,13 +161,22 @@ export function DiagnosticsBlade({
                 setBundleMessage('')
                 onExportPassphraseChange(event.target.value)
               }}
-              placeholder="At least 8 characters"
+              placeholder="Backup passphrase"
             />
+            <PassphraseStrengthIndicator strength={passphraseStrength} />
           </FormField>
           <p className="settings-helper-text">
             You will need this passphrase to restore the workspace later. DataPad++ does not store
             it for you.
           </p>
+          <label className="settings-secret-export-toggle">
+            <input
+              type="checkbox"
+              checked={includeSecretsInBundle}
+              onChange={(event) => setIncludeSecretsInBundle(event.target.checked)}
+            />
+            <span>Include connection passwords and secret variables in this encrypted bundle</span>
+          </label>
 
           <div className="drawer-button-row">
             <button
@@ -169,7 +187,7 @@ export function DiagnosticsBlade({
                 setBundleMessage('')
                 setShowBundleText(false)
                 setExportPassphraseUsed(exportPassphrase)
-                onExportWorkspace()
+                onExportWorkspace(includeSecretsInBundle)
               }}
             >
               Create Backup Bundle
@@ -200,11 +218,18 @@ export function DiagnosticsBlade({
                 <div>
                   <strong>Backup bundle ready</strong>
                   <p className="settings-helper-text">
-                    The bundle is encrypted and ready to download or copy. Secrets are not included.
+                    The bundle is encrypted and ready to download or copy.
                   </p>
                 </div>
                 <span>{formatBundleSize(exportedBundleText)}</span>
               </div>
+              <p className="settings-helper-text">
+                {exportBundle?.includesSecrets
+                  ? `Includes ${exportBundle.secretCount ?? 0} encrypted secret${
+                      exportBundle.secretCount === 1 ? '' : 's'
+                    }.`
+                  : 'Secrets are not included.'}
+              </p>
               {bundlePassphraseChanged ? (
                 <p className="settings-helper-text">
                   This bundle was created before the passphrase field changed.
@@ -324,6 +349,29 @@ export function DiagnosticsBlade({
         </section>
       </div>
     </>
+  )
+}
+
+function PassphraseStrengthIndicator({
+  strength,
+}: {
+  strength: WorkspacePassphraseStrength
+}) {
+  const meterWidth = strength.tone === 'blocked' ? 100 : Math.max(8, strength.score * 25)
+
+  return (
+    <div
+      className={`settings-passphrase-strength settings-passphrase-strength--${strength.tone}`}
+      aria-live="polite"
+    >
+      <span className="settings-passphrase-meter" aria-hidden="true">
+        <span style={{ width: `${meterWidth}%` }} />
+      </span>
+      <span className="settings-passphrase-copy">
+        <strong>{strength.label}</strong>
+        <span>{strength.hints[0]}</span>
+      </span>
+    </div>
   )
 }
 

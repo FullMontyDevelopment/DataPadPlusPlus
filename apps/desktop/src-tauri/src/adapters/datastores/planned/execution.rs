@@ -86,6 +86,7 @@ mod tests {
             selected_text: None,
             mode: Some("full".into()),
             row_limit: Some(99_999),
+            document_efficiency_mode: None,
             confirmed_guardrail_id: None,
         };
 

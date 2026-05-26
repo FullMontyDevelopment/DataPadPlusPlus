@@ -431,6 +431,7 @@ export interface ExecutionRequest {
   selectedText?: string
   mode?: QueryExecutionMode
   rowLimit?: number
+  documentEfficiencyMode?: boolean
   confirmedGuardrailId?: string
 }
 
@@ -453,6 +454,7 @@ export interface ResultPageRequest {
   pageSize?: number
   pageIndex?: number
   cursor?: string
+  documentEfficiencyMode?: boolean
 }
 
 export interface ResultPageResponse {
@@ -460,6 +462,25 @@ export interface ResultPageResponse {
   resultId?: string
   payload: ResultPayload
   pageInfo: ResultPageInfo
+  notices: string[]
+}
+
+export interface DocumentNodeChildrenRequest {
+  tabId: string
+  connectionId: string
+  environmentId: string
+  database?: string
+  collection: string
+  documentId: unknown
+  path: Array<string | number>
+  queryText?: string
+}
+
+export interface DocumentNodeChildrenResponse {
+  tabId: string
+  documentId: unknown
+  path: Array<string | number>
+  value: unknown
   notices: string[]
 }
 

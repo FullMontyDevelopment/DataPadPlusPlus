@@ -68,6 +68,7 @@ fn execution_request(
         selected_text: None,
         mode: Some("full".into()),
         row_limit: Some(25),
+        document_efficiency_mode: None,
         confirmed_guardrail_id: None,
     }
 }
@@ -89,6 +90,7 @@ fn result_page_request(
         page_size: Some(50),
         page_index: Some(1),
         cursor: None,
+        document_efficiency_mode: None,
     }
 }
 

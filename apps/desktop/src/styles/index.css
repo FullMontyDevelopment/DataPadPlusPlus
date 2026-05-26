@@ -2494,11 +2494,43 @@ button:disabled:hover {
 }
 
 .toolbar-action:hover,
-.toolbar-action.is-active,
-.toolbar-icon-action:hover,
-.toolbar-icon-action.is-active {
+.toolbar-icon-action:hover {
   border-color: var(--border);
   background: rgba(255, 255, 255, 0.03);
+}
+
+.toolbar-action.is-active,
+.toolbar-icon-action.is-active {
+  border-color: rgba(78, 201, 176, 0.62);
+  background: rgba(78, 201, 176, 0.12);
+  color: var(--success);
+  box-shadow: inset 0 -2px 0 var(--success);
+}
+
+.toolbar-action.is-active:hover,
+.toolbar-icon-action.is-active:hover {
+  background: rgba(78, 201, 176, 0.16);
+}
+
+.toolbar-icon-action--efficiency {
+  position: relative;
+}
+
+.toolbar-icon-action.is-active .toolbar-icon {
+  stroke-width: 2.2;
+}
+
+.toolbar-efficiency-active-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--success);
+  box-shadow:
+    0 0 0 2px var(--panel-bg),
+    0 0 8px rgba(78, 201, 176, 0.8);
 }
 
 .toolbar-action--run {
@@ -3073,7 +3105,6 @@ button:disabled:hover {
 
 .object-view-heading span,
 .object-view-section-heading span,
-.object-view-note,
 .object-view-empty {
   color: var(--muted);
   font-size: 12px;
@@ -3089,42 +3120,6 @@ button:disabled:hover {
   border-bottom: 1px solid var(--border);
   color: var(--muted);
   background: var(--panel-bg);
-}
-
-.object-view-purpose {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel-bg);
-}
-
-.object-view-purpose strong {
-  color: var(--heading);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.object-view-purpose span {
-  min-width: 0;
-  color: var(--muted);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.object-view-purpose-text {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 10px;
-}
-
-.object-view-purpose-text > span {
-  min-width: 120px;
 }
 
 .object-view-action-chips {
@@ -5965,15 +5960,12 @@ body.is-results-side-resizing .editor-workspace {
 
 .data-grid-filter {
   min-width: 220px;
-  display: grid;
-  grid-template-columns: auto minmax(160px, 1fr);
+  display: flex;
   align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 12px;
 }
 
 .data-grid-filter input {
+  flex: 1 1 auto;
   height: 26px;
   min-width: 0;
   padding: 4px 8px;
@@ -6251,13 +6243,6 @@ body.is-results-side-resizing .editor-workspace {
   flex: 1 1 260px;
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-.document-results-search span {
-  color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
 }
 
 .document-results-search input,
@@ -7375,22 +7360,49 @@ td {
 .settings-drawer {
   display: grid;
   gap: 10px;
-  padding: 10px;
+  min-width: 0;
+  padding: 8px;
 }
 
 .settings-card {
   display: grid;
   gap: 8px;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.015);
 }
 
 .settings-card .drawer-section-header {
   align-items: flex-start;
+  min-width: 0;
+}
+
+.settings-card .drawer-section-header > div:first-child {
+  min-width: 0;
+}
+
+.settings-card .drawer-section-header .drawer-link-button {
+  flex: 0 0 auto;
 }
 
 .settings-overview-grid {
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr));
+}
+
+.settings-card input,
+.settings-card textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.settings-card .drawer-button-row {
+  flex-wrap: wrap;
+}
+
+.settings-card .drawer-button {
+  max-width: 100%;
 }
 
 .settings-helper-text,
@@ -7404,9 +7416,14 @@ td {
 
 .settings-restore-summary {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
+}
+
+.settings-restore-summary .drawer-button {
+  margin-left: auto;
 }
 
 .settings-inline-message {
@@ -7414,6 +7431,86 @@ td {
   border: 1px solid rgba(78, 201, 176, 0.28);
   background: rgba(78, 201, 176, 0.07);
   color: var(--heading);
+}
+
+.settings-passphrase-strength {
+  display: grid;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.settings-passphrase-meter {
+  height: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-passphrase-meter span {
+  display: block;
+  height: 100%;
+  background: var(--muted);
+  transition: width 120ms ease, background-color 120ms ease;
+}
+
+.settings-passphrase-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.settings-passphrase-copy strong {
+  flex: 0 0 auto;
+  color: var(--text);
+}
+
+.settings-passphrase-copy span {
+  min-width: 0;
+  text-align: right;
+}
+
+.settings-passphrase-strength--blocked .settings-passphrase-meter span {
+  background: #f48771;
+}
+
+.settings-passphrase-strength--weak .settings-passphrase-meter span {
+  background: #cca700;
+}
+
+.settings-passphrase-strength--fair .settings-passphrase-meter span {
+  background: #d7ba7d;
+}
+
+.settings-passphrase-strength--strong .settings-passphrase-meter span,
+.settings-passphrase-strength--excellent .settings-passphrase-meter span {
+  background: var(--success);
+}
+
+.settings-passphrase-strength--blocked .settings-passphrase-copy strong {
+  color: #f48771;
+}
+
+.settings-passphrase-strength--strong .settings-passphrase-copy strong,
+.settings-passphrase-strength--excellent .settings-passphrase-copy strong {
+  color: var(--success);
+}
+
+.settings-secret-export-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.settings-secret-export-toggle input {
+  width: auto;
+  margin-top: 2px;
+  flex: 0 0 auto;
 }
 
 .settings-bundle-preview {

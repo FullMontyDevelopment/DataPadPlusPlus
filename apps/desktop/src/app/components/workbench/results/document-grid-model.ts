@@ -9,9 +9,19 @@ export interface DocumentGridRow {
   valueLabel: string
   value: unknown
   expandable: boolean
+  lazy: boolean
+  childCount?: number
   documentIndex: number
   parentPath: Array<string | number>
   path: Array<string | number>
+}
+
+export interface DocumentLazyNode {
+  __datapadLazyNode: true
+  type: 'object' | 'array'
+  childCount: number
+  path: Array<string | number>
+  loaded?: false
 }
 
 export function buildRows(documents: Array<Record<string, unknown>>, expandedRows: Set<string>) {
@@ -228,6 +238,8 @@ function rowForValue(
     value,
     valueLabel: compactValue(value),
     expandable: isExpandableValue(value),
+    lazy: isDocumentLazyNode(value),
+    childCount: isDocumentLazyNode(value) ? value.childCount : undefined,
   }
 }
 
@@ -278,17 +290,43 @@ export function pathToFieldPath(path: Array<string | number>) {
     }, '')
 }
 
-export function isExpandableValue(value: unknown): value is Array<unknown> | Record<string, unknown> {
+export function isDocumentLazyNode(value: unknown): value is DocumentLazyNode {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const record = value as Record<string, unknown>
+  return (
+    record.__datapadLazyNode === true &&
+    (record.type === 'object' || record.type === 'array') &&
+    typeof record.childCount === 'number' &&
+    Array.isArray(record.path)
+  )
+}
+
+export function isExpandableValue(value: unknown): value is Array<unknown> | Record<string, unknown> | DocumentLazyNode {
+  if (isDocumentLazyNode(value)) {
+    return value.childCount > 0
+  }
+
   return typeof value === 'object' && value !== null && Object.keys(value).length > 0
 }
 
-export function valueEntries(value: Array<unknown> | Record<string, unknown>): Array<[string, unknown]> {
+export function valueEntries(value: Array<unknown> | Record<string, unknown> | DocumentLazyNode): Array<[string, unknown]> {
+  if (isDocumentLazyNode(value)) {
+    return []
+  }
+
   return Array.isArray(value)
     ? value.map((item, index) => [`[${index}]`, item])
     : Object.entries(value)
 }
 
 function valueType(value: unknown): DocumentValueType {
+  if (isDocumentLazyNode(value)) {
+    return value.type
+  }
+
   if (value === null) {
     return 'null'
   }
@@ -305,6 +343,12 @@ function valueType(value: unknown): DocumentValueType {
 }
 
 export function compactValue(value: unknown) {
+  if (isDocumentLazyNode(value)) {
+    return value.type === 'array'
+      ? `[${value.childCount} item(s)]`
+      : `{${value.childCount} field(s)}`
+  }
+
   if (value === null) {
     return 'null'
   }

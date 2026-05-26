@@ -15,6 +15,7 @@ import {
   JsonIcon,
   KeyValueIcon,
   ObjectDocumentIcon,
+  EfficiencyIcon,
 } from './icons'
 
 type ResultsDock = 'bottom' | 'right'
@@ -32,8 +33,11 @@ interface EditorToolbarProps {
   onToggleBottomPanel(): void
   onToggleResultsDock?(): void
   onAddDocument?(): void
+  onToggleDocumentEfficiency?(): void
   canToggleBuilderView: boolean
   canAddDocument?: boolean
+  canToggleDocumentEfficiency?: boolean
+  documentEfficiencyMode?: boolean
   builderKind?: QueryBuilderState['kind']
   queryWindowMode: QueryViewMode
   onToggleQueryWindowMode(mode: QueryViewMode): void
@@ -56,8 +60,11 @@ export function EditorToolbar({
   onToggleBottomPanel,
   onToggleResultsDock = noop,
   onAddDocument = noop,
+  onToggleDocumentEfficiency = noop,
   canToggleBuilderView,
   canAddDocument = false,
+  canToggleDocumentEfficiency = false,
+  documentEfficiencyMode = false,
   builderKind,
   queryWindowMode,
   onToggleQueryWindowMode,
@@ -168,6 +175,30 @@ export function EditorToolbar({
             onClick={onAddDocument}
           >
             <ObjectDocumentIcon className="toolbar-icon" />
+          </button>
+        </div>
+      ) : null}
+
+      {canToggleDocumentEfficiency ? (
+        <div className="toolbar-group" aria-label="Document result loading">
+          <button
+            type="button"
+            className={`toolbar-icon-action toolbar-icon-action--efficiency${
+              documentEfficiencyMode ? ' is-active' : ''
+            }`}
+            aria-label={documentEfficiencyMode ? 'Efficiency mode on' : 'Efficiency mode off'}
+            title={
+              documentEfficiencyMode
+                ? 'Efficiency mode is on. Click to fetch full documents instead of hydrating fields on expand.'
+                : 'Efficiency mode is off. Click to fetch only top-level document fields until expanded.'
+            }
+            aria-pressed={documentEfficiencyMode}
+            onClick={onToggleDocumentEfficiency}
+          >
+            <EfficiencyIcon className="toolbar-icon" />
+            {documentEfficiencyMode ? (
+              <span className="toolbar-efficiency-active-dot" aria-hidden="true" />
+            ) : null}
           </button>
         </div>
       ) : null}

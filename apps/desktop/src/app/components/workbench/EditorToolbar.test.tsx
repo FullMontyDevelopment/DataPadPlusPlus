@@ -78,4 +78,35 @@ describe('EditorToolbar', () => {
     fireEvent.click(screen.getByLabelText('Add document'))
     expect(onAddDocument).toHaveBeenCalledTimes(1)
   })
+
+  it('makes active document efficiency mode visually and semantically obvious', () => {
+    const onToggleDocumentEfficiency = vi.fn()
+    const { container } = render(
+      <EditorToolbar
+        executionStatus="idle"
+        capabilities={baseCapabilities}
+        canCancelExecution={false}
+        bottomPanelVisible={false}
+        canToggleBuilderView={false}
+        queryWindowMode="raw"
+        onExecute={vi.fn()}
+        onExplain={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenConnectionDrawer={vi.fn()}
+        onToggleBottomPanel={vi.fn()}
+        onToggleQueryWindowMode={vi.fn()}
+        canToggleDocumentEfficiency
+        documentEfficiencyMode
+        onToggleDocumentEfficiency={onToggleDocumentEfficiency}
+      />,
+    )
+
+    const toggle = screen.getByRole('button', { name: 'Efficiency mode on' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    expect(toggle).toHaveClass('toolbar-icon-action--efficiency', 'is-active')
+    expect(container.querySelector('.toolbar-efficiency-active-dot')).toBeInTheDocument()
+
+    fireEvent.click(toggle)
+    expect(onToggleDocumentEfficiency).toHaveBeenCalledTimes(1)
+  })
 })

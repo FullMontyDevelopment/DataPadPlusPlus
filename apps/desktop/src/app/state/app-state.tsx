@@ -70,6 +70,7 @@ const defaultActions: Actions = {
   executeTestSuite: async () => undefined,
   cancelTestRun: async () => undefined,
   fetchResultPage: noop,
+  fetchDocumentNodeChildren: async () => undefined,
   markExecutionDisplayed: () => undefined,
   cancelExecution: noop,
   pickLocalDatabaseFile: async () => ({ canceled: true }),

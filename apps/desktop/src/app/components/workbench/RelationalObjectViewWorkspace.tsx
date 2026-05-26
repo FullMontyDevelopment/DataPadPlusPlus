@@ -103,10 +103,6 @@ export function RelationalObjectViewWorkspace({
         ) : null}
       </RelationalObjectViewHeader>
 
-      <div className="object-view-purpose">
-        <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
-        <span>{descriptor.purpose}</span>
-      </div>
       {summary ? <p className="object-view-summary">{summary}</p> : null}
       <WarningList warnings={objectViewWarnings(tab, payload)} />
 

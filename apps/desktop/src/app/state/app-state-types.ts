@@ -12,6 +12,8 @@ import type {
   DataEditPlanRequest,
   DataEditPlanResponse,
   DiagnosticsReport,
+  DocumentNodeChildrenRequest,
+  DocumentNodeChildrenResponse,
   EnvironmentProfile,
   ExecutionRequest,
   ExecutionResponse,
@@ -186,12 +188,16 @@ export interface Actions {
     overrideQueryText?: string,
     executionInputMode?: ExecutionRequest['executionInputMode'],
     scriptText?: string,
+    documentEfficiencyMode?: boolean,
   ): Promise<void>
   executeTestSuite(request: ExecuteTestSuiteRequest): Promise<ExecuteTestSuiteResponse | undefined>
   cancelTestRun(
     request: CancelTestRunRequest,
   ): Promise<{ ok: boolean; supported: boolean; message: string } | undefined>
   fetchResultPage(tabId: string, renderer?: string): Promise<void>
+  fetchDocumentNodeChildren(
+    request: DocumentNodeChildrenRequest,
+  ): Promise<DocumentNodeChildrenResponse | undefined>
   markExecutionDisplayed(tabId: string, executionId: string): void
   cancelExecution(executionId: string, tabId?: string): Promise<void>
   pickLocalDatabaseFile(request: LocalDatabasePickRequest): Promise<LocalDatabasePickResult>
@@ -217,7 +223,7 @@ export interface Actions {
   setTheme(theme: WorkspaceSnapshot['preferences']['theme']): Promise<void>
   updateUiState(patch: UpdateUiStateRequest): Promise<void>
   refreshDiagnostics(): Promise<void>
-  exportWorkspace(passphrase: string): Promise<void>
+  exportWorkspace(passphrase: string, includeSecrets?: boolean): Promise<void>
   importWorkspace(passphrase: string, encryptedPayload: string): Promise<void>
 }
 

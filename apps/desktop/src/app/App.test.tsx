@@ -1613,6 +1613,44 @@ describe('App', () => {
     expect(screen.queryByLabelText('Query editor')).not.toBeInTheDocument()
   })
 
+  it('keeps a Mongo query tab in builder mode after opening an object view', async () => {
+    render(<App />)
+
+    await createCatalogMongoWithBuilderTab()
+
+    expect(screen.getByRole('button', { name: 'Query Builder' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByLabelText('MongoDB query builder')).toBeInTheDocument()
+
+    let mongoTree = getConnectionObjectTree('Catalog Mongo')
+    expandObjectTreeItem(mongoTree, 'products')
+    await waitFor(() => {
+      expect(within(getConnectionObjectTree('Catalog Mongo')).getByText('Schema Preview')).toBeInTheDocument()
+    })
+    mongoTree = getConnectionObjectTree('Catalog Mongo')
+    fireEvent.click(within(mongoTree).getByRole('treeitem', { name: /Schema Preview/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Schema Preview/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: /products\.find/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Query Builder' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+    })
+    expect(screen.getByLabelText('MongoDB query builder')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Query editor')).not.toBeInTheDocument()
+  })
+
   it('opens scoped SQL queries with builder and raw modes', async () => {
     render(<App />)
 

@@ -5,6 +5,8 @@ import type {
   DataEditExecutionRequest,
   DataEditExecutionResponse,
   DiagnosticsReport,
+  DocumentNodeChildrenRequest,
+  DocumentNodeChildrenResponse,
   EnvironmentProfile,
   ExecutionCapabilities,
   ExecutionRequest,
@@ -52,6 +54,9 @@ interface BottomPanelProps {
   onSelectRenderer(renderer: string): void
   onLoadNextPage(): void
   onResultRendered?(tabId: string, executionId: string): void
+  onFetchDocumentNodeChildren?(
+    request: DocumentNodeChildrenRequest,
+  ): Promise<DocumentNodeChildrenResponse | undefined>
   onResize(nextSize: number): void
   onClose(): void
   onConfirmExecution(guardrailId: string, mode: ExecutionRequest['mode']): void
@@ -87,6 +92,7 @@ export function BottomPanel({
   onSelectRenderer,
   onLoadNextPage,
   onResultRendered = () => undefined,
+  onFetchDocumentNodeChildren,
   onResize,
   onClose,
   onConfirmExecution,
@@ -341,6 +347,7 @@ export function BottomPanel({
             onSelectRenderer={onSelectRenderer}
             onLoadNextPage={onLoadNextPage}
             onResultRendered={onResultRendered}
+            onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
             onExecuteDataEdit={onExecuteDataEdit}
             onPlanOperation={onPlanOperation}
           />

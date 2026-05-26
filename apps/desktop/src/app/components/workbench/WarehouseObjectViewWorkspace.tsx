@@ -84,10 +84,6 @@ export function WarehouseObjectViewWorkspace({
         </div>
       </div>
 
-      <div className="object-view-purpose">
-        <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
-        <span>{descriptor.purpose}</span>
-      </div>
       <WarehouseWarningList warnings={warehouseWarnings(tab, payload)} />
 
       <div className="object-view-body">

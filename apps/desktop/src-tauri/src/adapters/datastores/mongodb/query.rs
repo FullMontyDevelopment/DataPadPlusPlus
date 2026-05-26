@@ -6,6 +6,7 @@ use super::super::super::*;
 use super::connection::{
     mongodb_client, mongodb_database_name_for_collection_query, mongodb_database_name_from_query,
 };
+use super::document_lazy::{can_use_efficiency_mode, mongodb_document_payload};
 use super::MongoDbAdapter;
 
 const WRITE_OPERATIONS: &[&str] = &[
@@ -53,7 +54,7 @@ pub(super) async fn execute_mongodb_query(
             execute_mongodb_command(connection, &client, &input, notices, started).await
         }
         "findone" => {
-            let documents =
+            let (documents, database_name, collection_name) =
                 read_mongodb_documents(adapter, connection, &client, &input, &mut notices, Some(1))
                     .await?;
             Ok(document_result(
@@ -61,15 +62,22 @@ pub(super) async fn execute_mongodb_query(
                 started,
                 notices,
                 documents,
+                &database_name,
+                &collection_name,
                 1,
                 "document(s)",
+                can_use_efficiency_mode(
+                    &input,
+                    &operation,
+                    request.document_efficiency_mode.unwrap_or(false),
+                ),
             ))
         }
         "aggregate" | "find" => {
             let requested_row_limit = request
                 .row_limit
                 .unwrap_or(adapter.execution_capabilities().default_row_limit);
-            let documents = read_mongodb_documents(
+            let (documents, database_name, collection_name) = read_mongodb_documents(
                 adapter,
                 connection,
                 &client,
@@ -83,8 +91,15 @@ pub(super) async fn execute_mongodb_query(
                 started,
                 notices,
                 documents,
+                &database_name,
+                &collection_name,
                 requested_row_limit,
                 "document(s)",
+                can_use_efficiency_mode(
+                    &input,
+                    &operation,
+                    request.document_efficiency_mode.unwrap_or(false),
+                ),
             ))
         }
         "countdocuments" | "count" => {
@@ -112,7 +127,7 @@ async fn read_mongodb_documents(
     input: &Value,
     notices: &mut Vec<QueryExecutionNotice>,
     override_limit: Option<u32>,
-) -> Result<Vec<Document>, CommandError> {
+) -> Result<(Vec<Document>, String, String), CommandError> {
     let collection_name = collection_name(input)?;
     let database_resolution =
         mongodb_database_name_for_collection_query(client, connection, input, &collection_name)
@@ -133,11 +148,17 @@ async fn read_mongodb_documents(
     if let Some(pipeline) = input.get("pipeline").and_then(Value::as_array) {
         let pipeline = bounded_pipeline(pipeline, cursor_limit)?;
 
-        return Ok(collection
+        let documents = collection
             .aggregate(pipeline)
             .await?
             .try_collect::<Vec<Document>>()
-            .await?);
+            .await?;
+
+        return Ok((
+            documents,
+            database_resolution.database_name,
+            collection_name,
+        ));
     }
 
     let filter = bson_document(input.get("filter").unwrap_or(&json!({})), "filter")?;
@@ -155,7 +176,11 @@ async fn read_mongodb_documents(
         find = find.skip(skip);
     }
 
-    Ok(find.await?.try_collect::<Vec<Document>>().await?)
+    Ok((
+        find.await?.try_collect::<Vec<Document>>().await?,
+        database_resolution.database_name,
+        collection_name,
+    ))
 }
 
 fn bounded_pipeline(pipeline: &[Value], cursor_limit: i64) -> Result<Vec<Document>, CommandError> {
@@ -521,8 +546,11 @@ fn document_result(
     started: Instant,
     notices: Vec<QueryExecutionNotice>,
     documents: Vec<Document>,
+    database_name: &str,
+    collection_name: &str,
     row_limit: u32,
     label: &str,
+    lazy_documents: bool,
 ) -> ExecutionResultEnvelope {
     let truncated = documents.len() > row_limit as usize;
     let visible_documents = documents
@@ -530,8 +558,22 @@ fn document_result(
         .take(row_limit as usize)
         .collect::<Vec<&Document>>();
     let documents_json = serde_json::to_value(&visible_documents).unwrap_or_else(|_| json!([]));
+    let document_payload = mongodb_document_payload(
+        documents_json.clone(),
+        database_name,
+        collection_name,
+        lazy_documents,
+    );
+    let display_documents_json = document_payload
+        .get("documents")
+        .cloned()
+        .unwrap_or_else(|| documents_json.clone());
+    let display_documents = display_documents_json
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     let raw_documents =
-        serde_json::to_string_pretty(&documents_json).unwrap_or_else(|_| "[]".into());
+        serde_json::to_string_pretty(&display_documents_json).unwrap_or_else(|_| "[]".into());
 
     build_result(ResultEnvelopeInput {
         engine: &connection.engine,
@@ -543,11 +585,11 @@ fn document_result(
         default_renderer: "document",
         renderer_modes: vec!["document", "json", "table", "raw"],
         payloads: vec![
-            payload_document(documents_json.clone()),
-            payload_json(documents_json.clone()),
+            document_payload,
+            payload_json(display_documents_json.clone()),
             payload_table(
                 vec!["document".into()],
-                visible_documents
+                display_documents
                     .iter()
                     .map(|item| vec![serde_json::to_string(item).unwrap_or_else(|_| "{}".into())])
                     .collect(),

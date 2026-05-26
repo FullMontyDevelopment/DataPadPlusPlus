@@ -612,6 +612,11 @@ export interface JsonPayload {
 export interface DocumentPayload {
   renderer: 'document'
   documents: Array<Record<string, unknown>>
+  hydrationMode?: 'full' | 'lazy'
+  database?: string
+  collection?: string
+  efficiencyModeIgnored?: boolean
+  efficiencyModeReason?: string
 }
 
 export interface KeyValuePayload {
@@ -813,6 +818,7 @@ export interface QueryTabState extends QueryTabDefinition {
   queryText: string
   queryViewMode?: QueryViewMode
   scriptText?: string
+  documentEfficiencyMode?: boolean
   scopedTarget?: ScopedQueryTarget
   builderState?: QueryBuilderState
   metricsState?: MetricsTabState

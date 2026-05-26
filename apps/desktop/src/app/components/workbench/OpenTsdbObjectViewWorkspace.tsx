@@ -83,10 +83,6 @@ export function OpenTsdbObjectViewWorkspace({
         </div>
       </div>
 
-      <div className="object-view-purpose">
-        <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
-        <span>{descriptor.purpose}</span>
-      </div>
       <OpenTsdbWarningList warnings={openTsdbWarnings(tab, payload)} />
 
       <div className="object-view-body">

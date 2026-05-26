@@ -118,6 +118,7 @@ pub fn run() {
             commands::workspace::execute_datastore_operation,
             commands::workspace::execute_test_suite,
             commands::workspace::export_workspace_bundle,
+            commands::workspace::fetch_document_node_children,
             commands::workspace::fetch_result_page,
             commands::workspace::import_workspace_bundle,
             commands::workspace::inspect_explorer_node,

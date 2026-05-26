@@ -6,6 +6,8 @@ import type {
   DataEditExecutionRequest,
   DataEditExecutionResponse,
   DataEditKind,
+  DocumentNodeChildrenRequest,
+  DocumentNodeChildrenResponse,
 } from '@datapadplusplus/shared-types'
 import { ClockIcon } from '../icons'
 import { DocumentContextMenu } from './document-context-menu'
@@ -30,6 +32,7 @@ import {
   collectExpandableRowIds,
   coerceValue,
   deleteValueAtPath,
+  isDocumentLazyNode,
   renameFieldAtPath,
   setValueAtPath,
   type DocumentGridRow,
@@ -44,9 +47,16 @@ interface DocumentResultsViewProps {
   connection?: ConnectionProfile
   editContext?: DocumentEditContext
   documents: Array<Record<string, unknown>>
+  database?: string
+  collection?: string
   footerControls?: ReactNode
+  hydrationMode?: 'full' | 'lazy'
+  tabId?: string
   resultDurationMs?: number
   resultSummary?: string
+  onFetchDocumentNodeChildren?(
+    request: DocumentNodeChildrenRequest,
+  ): Promise<DocumentNodeChildrenResponse | undefined>
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -71,9 +81,14 @@ export function DocumentResultsView({
   connection,
   editContext,
   documents,
+  database,
+  collection,
   footerControls,
+  hydrationMode = 'full',
+  tabId,
   resultDurationMs,
   resultSummary,
+  onFetchDocumentNodeChildren,
   onExecuteDataEdit,
 }: DocumentResultsViewProps) {
   const behavior = documentResultBehaviorForConnection(connection)
@@ -89,8 +104,10 @@ export function DocumentResultsView({
   const [searchText, setSearchText] = useState('')
   const [inspectorRowId, setInspectorRowId] = useState<string>()
   const [pendingFieldDelete, setPendingFieldDelete] = useState<DocumentGridRow>()
+  const [hydratingRows, setHydratingRows] = useState<Set<string>>(() => new Set())
   const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const draftDocuments = draftState.source === documents ? draftState.documents : documents
+  const efficiencyModeEnabled = hydrationMode === 'lazy'
   const effectiveActiveEditor = draftState.source === documents ? activeEditor : undefined
   const copyTimer = useRef<number | undefined>(undefined)
   const searchPending = searchInput.trim() !== searchText.trim()
@@ -254,18 +271,79 @@ export function DocumentResultsView({
 
   const stopEditing = () => setActiveEditor(undefined)
 
-  const toggleRow = (rowId: string) => {
+  const toggleRow = (row: DocumentGridRow) => {
+    if (expandedRows.has(row.id)) {
+      setExpandedRows((current) => {
+        const next = new Set(current)
+        next.delete(row.id)
+        return next
+      })
+      return
+    }
+
+    if (isDocumentLazyNode(row.value)) {
+      void hydrateLazyRow(row)
+      return
+    }
+
     setExpandedRows((current) => {
       const next = new Set(current)
-
-      if (next.has(rowId)) {
-        next.delete(rowId)
-      } else {
-        next.add(rowId)
-      }
-
+      next.add(row.id)
       return next
     })
+  }
+
+  const hydrateLazyRow = async (row: DocumentGridRow) => {
+    if (!onFetchDocumentNodeChildren || !editContext || !tabId || !collection) {
+      setCopyMessage('Run a full query or select a collection before expanding this field.')
+      return
+    }
+
+    const document = draftDocuments[row.documentIndex]
+    const documentId = document?._id
+
+    if (documentId === undefined) {
+      setCopyMessage('This document cannot be expanded because its _id is unavailable.')
+      return
+    }
+
+    setHydratingRows((current) => new Set(current).add(row.id))
+
+    try {
+      const response = await onFetchDocumentNodeChildren({
+        tabId,
+        connectionId: editContext.connectionId,
+        environmentId: editContext.environmentId,
+        database,
+        collection,
+        documentId,
+        path: row.path,
+        queryText: editContext.queryText,
+      })
+
+      if (!response) {
+        setCopyMessage('Unable to expand this field.')
+        return
+      }
+
+      updateDraftDocuments((current) =>
+        current.map((item, index) =>
+          index === row.documentIndex ? setValueAtPath(item, row.path, response.value) : item,
+        ),
+      )
+      setExpandedRows((current) => new Set(current).add(row.id))
+      if (response.notices.length > 0) {
+        setCopyMessage(response.notices[0] ?? 'Field expanded.')
+      }
+    } catch {
+      setCopyMessage('Unable to expand this field.')
+    } finally {
+      setHydratingRows((current) => {
+        const next = new Set(current)
+        next.delete(row.id)
+        return next
+      })
+    }
   }
 
   const expandAll = () => {
@@ -389,6 +467,7 @@ export function DocumentResultsView({
         key={row.id}
         row={row}
         expanded={effectiveExpandedRows.has(row.id)}
+        loading={hydratingRows.has(row.id)}
         matched={hasSearch && searchResult.matchedRowIds.has(row.id)}
         editingCell={
           effectiveActiveEditor?.rowId === row.id ? effectiveActiveEditor.cell : undefined
@@ -412,7 +491,6 @@ export function DocumentResultsView({
     <div className="document-data-grid-shell" aria-label="Document results">
       <div className="document-data-grid-toolbar">
         <label className="document-results-search">
-          <span>Search loaded documents</span>
           <input
             aria-label="Search loaded documents"
             placeholder="Search loaded documents"
@@ -427,9 +505,11 @@ export function DocumentResultsView({
             {searchResult.matchCount} match(es)
           </span>
         ) : null}
-        <button type="button" className="drawer-button" onClick={expandAll}>
-          Expand All
-        </button>
+        {!efficiencyModeEnabled ? (
+          <button type="button" className="drawer-button" onClick={expandAll}>
+            Expand All
+          </button>
+        ) : null}
         <button type="button" className="drawer-button" onClick={collapseAll}>
           Collapse All
         </button>

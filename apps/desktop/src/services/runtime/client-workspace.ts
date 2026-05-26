@@ -1,14 +1,16 @@
 import type { BootstrapPayload, DiagnosticsReport, ExportBundle, UpdateUiStateRequest, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { createBrowserPreviewHealth } from '../../app/data/workspace-factory'
+import { getWorkspaceBundlePassphraseBlockReason } from '../../app/security/workspace-passphrase'
 import { buildDiagnosticsReport, migrateWorkspaceSnapshot } from '../../app/state/helpers'
 import { redactErrorMessage } from '../../app/state/security-redaction'
 import { decodeBase64, buildBrowserPayload, cloneSnapshot, hashPassphrase, loadBrowserSnapshot, saveBrowserSnapshot, updateUiStateLocally } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 
-const WORKSPACE_BUNDLE_PASSPHRASE_MIN_LENGTH = 8
 const MAX_WORKSPACE_BUNDLE_BYTES = 25 * 1024 * 1024
 const EXPORT_KDF = 'pbkdf2-sha256'
 const EXPORT_KDF_ITERATIONS = 210_000
+const SHORT_DESKTOP_PASSPHRASE_COMPAT_PREFIX =
+  'datapadplusplus-workspace-backup-short-passphrase-v2:'
 
 export const clientWorkspace = {
   async bootstrapApp(): Promise<BootstrapPayload> {
@@ -44,16 +46,24 @@ export const clientWorkspace = {
     return buildDiagnosticsReport(snapshot, createBrowserPreviewHealth())
   },
 
-  async exportWorkspaceBundle(passphrase: string): Promise<ExportBundle> {
+  async exportWorkspaceBundle(
+    passphrase: string,
+    includeSecrets = false,
+  ): Promise<ExportBundle> {
     validateWorkspaceBundlePassphrase(passphrase)
 
     if (isTauriRuntime()) {
-      return invokeDesktop<ExportBundle>('export_workspace_bundle', { passphrase })
+      return invokeDesktop<ExportBundle>('export_workspace_bundle', {
+        passphrase: toDesktopWorkspaceBundlePassphrase(passphrase),
+        includeSecrets,
+      })
     }
 
     return {
       format: 'datapadplusplus-bundle',
       version: 3,
+      includesSecrets: false,
+      secretCount: 0,
       encryptedPayload: await encryptBrowserWorkspacePayload(
         passphrase,
         JSON.stringify(migrateWorkspaceSnapshot(loadBrowserSnapshot())),
@@ -69,15 +79,47 @@ export const clientWorkspace = {
     validateWorkspaceBundlePayload(encryptedPayload)
 
     if (isTauriRuntime()) {
-      return invokeDesktop<BootstrapPayload>('import_workspace_bundle', {
-        passphrase,
-        encryptedPayload,
-      })
+      const desktopPassphrase = toDesktopWorkspaceBundlePassphrase(passphrase)
+
+      try {
+        return await invokeDesktop<BootstrapPayload>('import_workspace_bundle', {
+          passphrase: desktopPassphrase,
+          encryptedPayload,
+        })
+      } catch (error) {
+        if (desktopPassphrase === passphrase) {
+          throw error
+        }
+
+        try {
+          return await invokeDesktop<BootstrapPayload>('import_workspace_bundle', {
+            passphrase,
+            encryptedPayload,
+          })
+        } catch (fallbackError) {
+          const fallbackMessage = redactErrorMessage(
+            fallbackError,
+            'Unable to import the encrypted bundle.',
+          )
+
+          if (fallbackMessage.includes('at least 8 characters')) {
+            const message = redactErrorMessage(
+              error,
+              'Unable to import the encrypted bundle.',
+            )
+            throw new Error(message, { cause: fallbackError })
+          }
+
+          throw new Error(fallbackMessage, { cause: fallbackError })
+        }
+      }
     }
 
     try {
       const snapshot = migrateWorkspaceSnapshot(
-        await decryptBrowserWorkspacePayload(passphrase, encryptedPayload),
+        extractBrowserWorkspaceSnapshot(
+          await decryptBrowserWorkspacePayload(passphrase, encryptedPayload),
+        ),
       )
       saveBrowserSnapshot(snapshot)
       return buildBrowserPayload(snapshot)
@@ -104,9 +146,21 @@ export const clientWorkspace = {
 }
 
 function validateWorkspaceBundlePassphrase(passphrase: string) {
-  if (passphrase.trim().length < WORKSPACE_BUNDLE_PASSPHRASE_MIN_LENGTH) {
-    throw new Error('Use a workspace backup passphrase with at least 8 characters.')
+  const blockReason = getWorkspaceBundlePassphraseBlockReason(passphrase)
+
+  if (blockReason) {
+    throw new Error(blockReason)
   }
+}
+
+function toDesktopWorkspaceBundlePassphrase(passphrase: string) {
+  const trimmedLength = passphrase.trim().length
+
+  if (trimmedLength > 0 && trimmedLength < 8) {
+    return `${SHORT_DESKTOP_PASSPHRASE_COMPAT_PREFIX}${passphrase}`
+  }
+
+  return passphrase
 }
 
 function validateWorkspaceBundlePayload(encryptedPayload: string) {
@@ -117,6 +171,19 @@ function validateWorkspaceBundlePayload(encryptedPayload: string) {
   if (encryptedPayload.length > MAX_WORKSPACE_BUNDLE_BYTES) {
     throw new Error('Workspace bundle is too large to import safely.')
   }
+}
+
+function extractBrowserWorkspaceSnapshot(value: unknown) {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'snapshot' in value &&
+    (value as { snapshot?: unknown }).snapshot
+  ) {
+    return (value as { snapshot: WorkspaceSnapshot }).snapshot
+  }
+
+  return value as WorkspaceSnapshot
 }
 
 async function encryptBrowserWorkspacePayload(

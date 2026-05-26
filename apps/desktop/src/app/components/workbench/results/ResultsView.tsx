@@ -3,6 +3,8 @@ import type {
   ConnectionProfile,
   DataEditExecutionRequest,
   DataEditExecutionResponse,
+  DocumentNodeChildrenRequest,
+  DocumentNodeChildrenResponse,
   EnvironmentProfile,
   ExecutionCapabilities,
   ExecutionResultEnvelope,
@@ -28,6 +30,9 @@ interface ResultsViewProps {
   onSelectRenderer(renderer: string): void
   onLoadNextPage(): void
   onResultRendered(tabId: string, executionId: string): void
+  onFetchDocumentNodeChildren?(
+    request: DocumentNodeChildrenRequest,
+  ): Promise<DocumentNodeChildrenResponse | undefined>
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -47,6 +52,7 @@ export function ResultsView({
   onSelectRenderer,
   onLoadNextPage,
   onResultRendered,
+  onFetchDocumentNodeChildren,
   onExecuteDataEdit,
   onPlanOperation,
 }: ResultsViewProps) {
@@ -211,9 +217,11 @@ export function ResultsView({
             : undefined
         }
         payload={payload}
+        tabId={activeTab?.id}
         documentFooterControls={documentFooterControls}
         resultDurationMs={result?.durationMs}
         resultSummary={result?.summary}
+        onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
         onExecuteDataEdit={onExecuteDataEdit}
         onPlanOperation={onPlanOperation}
       />

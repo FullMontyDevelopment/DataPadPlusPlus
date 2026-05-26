@@ -2,6 +2,8 @@ import type {
   ConnectionProfile,
   DataEditExecutionRequest,
   DataEditExecutionResponse,
+  DocumentNodeChildrenRequest,
+  DocumentNodeChildrenResponse,
   OperationPlanRequest,
   OperationPlanResponse,
   ResultPayload,
@@ -21,10 +23,12 @@ export function ResultPayloadView({
   pageIndex = 0,
   pageSize,
   payload,
+  tabId,
   resultDurationMs,
   resultSummary,
   editContext,
   documentFooterControls,
+  onFetchDocumentNodeChildren,
   onExecuteDataEdit,
   onPlanOperation,
 }: {
@@ -34,8 +38,12 @@ export function ResultPayloadView({
   pageIndex?: number
   pageSize?: number
   payload?: ResultPayload
+  tabId?: string
   resultDurationMs?: number
   resultSummary?: string
+  onFetchDocumentNodeChildren?(
+    request: DocumentNodeChildrenRequest,
+  ): Promise<DocumentNodeChildrenResponse | undefined>
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -70,9 +78,14 @@ export function ResultPayloadView({
         connection={connection}
         editContext={editContext}
         documents={documents}
+        database={payload.database}
+        collection={payload.collection}
         footerControls={documentFooterControls}
+        hydrationMode={payload.hydrationMode}
+        tabId={tabId}
         resultDurationMs={resultDurationMs}
         resultSummary={resultSummary}
+        onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
         onExecuteDataEdit={onExecuteDataEdit}
       />
     )

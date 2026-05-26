@@ -219,6 +219,7 @@ mod tests {
                     selected_text: None,
                     mode: None,
                     row_limit: Some(20),
+                    document_efficiency_mode: None,
                     confirmed_guardrail_id: None,
                 },
                 Vec::new(),

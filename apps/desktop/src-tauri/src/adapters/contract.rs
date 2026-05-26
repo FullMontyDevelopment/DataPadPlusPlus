@@ -243,6 +243,7 @@ pub trait DatastoreAdapter: Send + Sync {
                     Some("full".into())
                 },
                 row_limit: request.row_limit.or(Some(500)),
+                document_efficiency_mode: None,
                 confirmed_guardrail_id: None,
             };
             let result = self

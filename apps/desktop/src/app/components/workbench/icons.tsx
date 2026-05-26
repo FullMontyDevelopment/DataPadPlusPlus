@@ -22,6 +22,7 @@ import {
   Columns3,
   Copy,
   Database,
+  DatabaseZap,
   Download,
   Eye,
   EyeOff,
@@ -144,6 +145,7 @@ export const ObjectTypeIcon = adapt(Sigma)
 export const ObjectPartitionIcon = adapt(Waypoints)
 export const ObjectBinaryIcon = adapt(Binary)
 export const ObjectMemoryIcon = adapt(MemoryStick)
+export const EfficiencyIcon = adapt(DatabaseZap)
 export const ObjectGenericIcon = adapt(Asterisk)
 export const WarningIcon = adapt(AlertTriangle)
 export const ArrowLeftIcon = adapt(ArrowLeft)

@@ -57,6 +57,20 @@ pub async fn fetch_result_page(
         .await
 }
 
+pub async fn fetch_document_node_children(
+    connection: &ResolvedConnectionProfile,
+    request: &DocumentNodeChildrenRequest,
+) -> Result<DocumentNodeChildrenResponse, CommandError> {
+    if connection.engine != "mongodb" {
+        return Err(CommandError::new(
+            "document-lazy-unsupported",
+            "Lazy document expansion is only available for MongoDB document results in this milestone.",
+        ));
+    }
+
+    super::datastores::mongodb::fetch_mongodb_document_node_children(connection, request).await
+}
+
 pub async fn scan_redis_keys(
     connection: &ResolvedConnectionProfile,
     request: &RedisKeyScanRequest,

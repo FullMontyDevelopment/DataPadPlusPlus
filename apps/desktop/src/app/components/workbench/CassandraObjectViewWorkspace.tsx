@@ -83,10 +83,6 @@ export function CassandraObjectViewWorkspace({
         </div>
       </div>
 
-      <div className="object-view-purpose">
-        <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
-        <span>{descriptor.purpose}</span>
-      </div>
       <CassandraWarningList warnings={cassandraWarnings(tab, payload)} />
 
       <div className="object-view-body">

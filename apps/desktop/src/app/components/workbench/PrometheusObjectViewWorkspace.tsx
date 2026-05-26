@@ -83,10 +83,6 @@ export function PrometheusObjectViewWorkspace({
         </div>
       </div>
 
-      <div className="object-view-purpose">
-        <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
-        <span>{descriptor.purpose}</span>
-      </div>
       <PrometheusWarningList warnings={prometheusWarnings(tab, payload)} />
 
       <div className="object-view-body">

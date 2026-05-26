@@ -9,7 +9,8 @@ use super::{
     sql_hints::{enrich_sql_execution_error, sql_dialect_hint_message},
     timestamp_now,
     validators::{
-        validate_cancel_execution_request, validate_execution_request, validate_result_page_request,
+        validate_cancel_execution_request, validate_document_node_children_request,
+        validate_execution_request, validate_result_page_request,
     },
     ManagedAppState,
 };
@@ -18,7 +19,8 @@ use crate::{
     domain::{
         error::CommandError,
         models::{
-            CancelExecutionRequest, CancelExecutionResult, ExecutionRequest, ExecutionResponse,
+            CancelExecutionRequest, CancelExecutionResult, DocumentNodeChildrenRequest,
+            DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse,
             QueryExecutionNotice, QueryHistoryEntry, ResultPageRequest, ResultPageResponse,
             UserFacingError,
         },
@@ -275,6 +277,18 @@ impl ManagedAppState {
             response,
             &resolved_environment,
         ))
+    }
+
+    pub async fn fetch_document_node_children(
+        &self,
+        request: DocumentNodeChildrenRequest,
+    ) -> Result<DocumentNodeChildrenResponse, CommandError> {
+        self.ensure_unlocked()?;
+        validate_document_node_children_request(&request)?;
+        let profile = self.connection_by_id(&request.connection_id)?;
+        let (resolved, _, _) =
+            self.resolve_connection_profile(&profile, &request.environment_id)?;
+        adapters::fetch_document_node_children(&resolved, &request).await
     }
 }
 

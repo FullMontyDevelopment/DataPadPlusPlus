@@ -1,10 +1,11 @@
-import type { ExecutionRequest, ExecutionResponse, LocalDatabaseCreateRequest, LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult, ResultPageRequest, ResultPageResponse } from '@datapadplusplus/shared-types'
-import { applyExecutionRequestLocally } from './browser-execution'
+import type { DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse, LocalDatabaseCreateRequest, LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult, ResultPageRequest, ResultPageResponse } from '@datapadplusplus/shared-types'
+import { applyExecutionRequestLocally, fetchDocumentNodeChildrenLocally } from './browser-execution'
 import { fetchResultPageLocally } from './browser-structure'
 import { findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 import {
   validateCancelExecutionRequest,
+  validateDocumentNodeChildrenRequest,
   validateExecutionRequest,
   validateResultPageRequest,
 } from './request-validation'
@@ -31,6 +32,17 @@ export const clientExecution = {
     }
 
     return fetchResultPageLocally(loadBrowserSnapshot(), request)
+  },
+
+  async fetchDocumentNodeChildren(
+    request: DocumentNodeChildrenRequest,
+  ): Promise<DocumentNodeChildrenResponse> {
+    request = validateDocumentNodeChildrenRequest(request)
+    if (isTauriRuntime()) {
+      return invokeDesktop<DocumentNodeChildrenResponse>('fetch_document_node_children', { request })
+    }
+
+    return fetchDocumentNodeChildrenLocally(loadBrowserSnapshot(), request)
   },
 
   async cancelExecution(

@@ -198,12 +198,15 @@ function DesktopWorkspace() {
     Record<string, Record<string, string>>
   >({})
   const initializedQueryModeByTabRef = useRef<Record<string, string>>({})
+  const lastActiveQueryModeSyncKeyRef = useRef<string | undefined>(undefined)
+  const queryWindowModeByTabRef = useRef<Record<string, QueryViewMode>>({})
   const environmentDraftsRef = useRef<Record<string, EnvironmentProfile>>({})
   const environmentSecretDraftsRef = useRef<Record<string, Record<string, string>>>({})
   const builderStateDraftRef = useRef<Record<string, QueryBuilderState>>({})
   const [builderStateDrafts, setBuilderStateDrafts] = useState<
     Record<string, QueryBuilderState>
   >({})
+  const [documentEfficiencyModes, setDocumentEfficiencyModes] = useState<Record<string, boolean>>({})
   const queryTextDraftRef = useRef<Record<string, string>>({})
   const scriptTextDraftRef = useRef<Record<string, string>>({})
   const [pendingTabClose, setPendingTabClose] = useState<
@@ -266,6 +269,8 @@ function DesktopWorkspace() {
     activeTabId ? activeTab?.activeExecution ?? executionsByTab[activeTabId] : undefined
   const activeExecutionStatus = activeTabExecution ? 'loading' : 'idle'
   const activeExecutionId = activeTabExecution?.executionId
+  const activeDocumentEfficiencyMode =
+    activeTabId ? documentEfficiencyModes[activeTabId] ?? activeTab?.documentEfficiencyMode ?? false : false
   const activeTabIsExplorer = activeTab?.tabKind === 'explorer'
   const activeTabIsMetrics = activeTab?.tabKind === 'metrics'
   const activeTabIsObjectView = activeTab?.tabKind === 'object-view'
@@ -568,6 +573,7 @@ function DesktopWorkspace() {
         resolveQueryText(activeTab),
         'script',
         scriptText,
+        false,
       )
       return
     }
@@ -589,19 +595,39 @@ function DesktopWorkspace() {
       )
       queryTextDraftRef.current[activeTab.id] = redisCommand
       rememberRedisConsoleCommand(activeTab.id, builderState, redisCommand)
-      void actions.executeQuery(activeTab.id, mode, guardrailId, redisCommand, 'raw')
+      void actions.executeQuery(activeTab.id, mode, guardrailId, redisCommand, 'raw', undefined, false)
       return
     }
+
+    const documentEfficiencyMode =
+      activeConnection?.engine === 'mongodb' && activeDocumentEfficiencyMode
 
     if (!generatedQueryText || !builderState) {
-      void actions.executeQuery(activeTab.id, mode, guardrailId, resolveQueryText(activeTab), 'raw')
+      void actions.executeQuery(
+        activeTab.id,
+        mode,
+        guardrailId,
+        resolveQueryText(activeTab),
+        'raw',
+        undefined,
+        documentEfficiencyMode,
+      )
       return
     }
 
-    void actions.executeQuery(activeTab.id, mode, guardrailId, generatedQueryText, 'builder')
+    void actions.executeQuery(
+      activeTab.id,
+      mode,
+      guardrailId,
+      generatedQueryText,
+      'builder',
+      undefined,
+      documentEfficiencyMode,
+    )
   }, [
     actions,
     activeConnection,
+    activeDocumentEfficiencyMode,
     activeQueryWindowMode,
     activeTab,
     rememberRedisConsoleCommand,
@@ -783,29 +809,40 @@ function DesktopWorkspace() {
   }, [activeTabId, activeTabIsTestSuite])
 
   useEffect(() => {
-    if (!activeTabId || !activeTab || activeTabIsTestSuite || activeTabIsEnvironment) {
+    if (
+      !activeTabId ||
+      !activeTab ||
+      activeTabIsExplorer ||
+      activeTabIsMetrics ||
+      activeTabIsObjectView ||
+      activeTabIsTestSuite ||
+      activeTabIsEnvironment
+    ) {
       return
     }
 
-    const modeKey = `${activeBuilderKind ?? 'raw'}:${activeTab.queryViewMode ?? 'default'}`
+    const modeKey = `${activeTabId}:${activeBuilderKind ?? 'raw'}:${activeTab.queryViewMode ?? 'default'}`
 
-    if (initializedQueryModeByTabRef.current[activeTabId] === modeKey) {
+    if (lastActiveQueryModeSyncKeyRef.current === modeKey) {
       return
     }
 
-    initializedQueryModeByTabRef.current[activeTabId] = modeKey
-    setQueryWindowMode(
-      normalizeQueryWindowMode(
-        activeTab.queryViewMode,
-        activeBuilderKind,
-        activeConnection,
-      ),
+    lastActiveQueryModeSyncKeyRef.current = modeKey
+    const nextMode = normalizeQueryWindowMode(
+      queryWindowModeByTabRef.current[activeTabId] ?? activeTab.queryViewMode,
+      activeBuilderKind,
+      activeConnection,
     )
+    queryWindowModeByTabRef.current[activeTabId] = nextMode
+    setQueryWindowMode(nextMode)
   }, [
     activeBuilderKind,
     activeConnection,
     activeTab,
     activeTabId,
+    activeTabIsExplorer,
+    activeTabIsMetrics,
+    activeTabIsObjectView,
     activeTabIsEnvironment,
     activeTabIsTestSuite,
   ])
@@ -1855,12 +1892,27 @@ function DesktopWorkspace() {
                         activeMongoQueryScope?.collection,
                       )}
                       onAddDocument={openActiveMongoAddDocumentView}
+                      canToggleDocumentEfficiency={Boolean(
+                        activeConnection.engine === 'mongodb' &&
+                        activeTab.tabKind !== 'explorer' &&
+                        activeTab.tabKind !== 'metrics' &&
+                        activeTab.tabKind !== 'object-view' &&
+                        activeQueryWindowMode !== 'script',
+                      )}
+                      documentEfficiencyMode={activeDocumentEfficiencyMode}
+                      onToggleDocumentEfficiency={() => {
+                        setDocumentEfficiencyModes((current) => ({
+                          ...current,
+                          [activeTab.id]: !activeDocumentEfficiencyMode,
+                        }))
+                      }}
                       canToggleBuilderView={hasBuilderQuery}
                       builderKind={activeBuilderKind}
                       queryWindowMode={activeQueryWindowMode}
                       onToggleQueryWindowMode={(mode) => {
                         setQueryWindowMode(mode)
                         if (activeTab) {
+                          queryWindowModeByTabRef.current[activeTab.id] = mode
                           const modeText =
                             mode === 'script'
                               ? scriptTextDraftRef.current[activeTab.id] ??
@@ -2053,6 +2105,7 @@ function DesktopWorkspace() {
                     : undefined
                 }
                 onResultRendered={actions.markExecutionDisplayed}
+                onFetchDocumentNodeChildren={actions.fetchDocumentNodeChildren}
                 onResize={(nextSize) =>
                   void actions.updateUiState(
                     resultsDockRight
@@ -2126,7 +2179,9 @@ function DesktopWorkspace() {
                 )
               }
               onRefreshDiagnostics={() => void actions.refreshDiagnostics()}
-              onExportWorkspace={() => void actions.exportWorkspace(exportPassphrase)}
+              onExportWorkspace={(includeSecrets) =>
+                void actions.exportWorkspace(exportPassphrase, includeSecrets)
+              }
               onImportWorkspace={(encryptedPayload) =>
                 void actions.importWorkspace(exportPassphrase, encryptedPayload)
               }
@@ -2151,8 +2206,6 @@ function DesktopWorkspace() {
       </div>
 
       <StatusBar
-        health={payload.health}
-        theme={snapshot.preferences.theme}
         activeConnection={activeConnection}
         activeEnvironment={activeEnvironment}
         activeTab={activeTab}

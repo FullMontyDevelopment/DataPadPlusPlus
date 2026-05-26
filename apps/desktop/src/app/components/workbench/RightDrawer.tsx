@@ -42,7 +42,7 @@ interface RightDrawerProps {
   onSaveConnection(profile: ConnectionProfile, secret?: string): void
   onTestConnection(profile: ConnectionProfile, environmentId: string, secret?: string): void
   onRefreshDiagnostics(): void
-  onExportWorkspace(): void
+  onExportWorkspace(includeSecrets: boolean): void
   onImportWorkspace(encryptedPayload: string): void
   onApplyTemplate(queryTemplate?: string): void
   onToggleTheme(): void

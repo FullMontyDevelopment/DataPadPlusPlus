@@ -72,6 +72,7 @@ fn validators_reject_invalid_object_view_and_renderer_inputs() {
         page_size: None,
         page_index: None,
         cursor: None,
+        document_efficiency_mode: None,
     };
     let renderer_error = validate_result_page_request(&mut page).unwrap_err();
     assert!(renderer_error

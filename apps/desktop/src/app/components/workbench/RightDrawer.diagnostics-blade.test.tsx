@@ -28,7 +28,8 @@ describe('DiagnosticsBlade', () => {
     )
 
     expect(screen.getByText('Backup bundle ready')).toBeInTheDocument()
-    expect(screen.getByText('The bundle is encrypted and ready to download or copy. Secrets are not included.')).toBeInTheDocument()
+    expect(screen.getByText('The bundle is encrypted and ready to download or copy.')).toBeInTheDocument()
+    expect(screen.getByText('Secrets are not included.')).toBeInTheDocument()
     expect(screen.queryByText(/ciphertext-secret-looking-value/)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Show encrypted bundle text' }))
@@ -61,6 +62,80 @@ describe('DiagnosticsBlade', () => {
     expect(screen.getByText('Credential storage')).toBeInTheDocument()
     expect(screen.getByText('Preview mode')).toBeInTheDocument()
     expect(screen.queryByText('planned')).not.toBeInTheDocument()
+  })
+
+  it('allows short backup passphrases but blocks common guessed passwords', () => {
+    const onExportPassphraseChange = vi.fn()
+
+    const { rerender } = render(
+      <DiagnosticsBlade
+        diagnostics={diagnostics}
+        exportBundle={undefined}
+        exportPassphrase="x"
+        health={health}
+        importPayload=""
+        theme="dark"
+        onClose={vi.fn()}
+        onExportPassphraseChange={onExportPassphraseChange}
+        onExportWorkspace={vi.fn()}
+        onImportPayloadChange={vi.fn()}
+        onImportWorkspace={vi.fn()}
+        onRefreshDiagnostics={vi.fn()}
+        onToggleTheme={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Create Backup Bundle' })).toBeEnabled()
+    expect(screen.getByText('Weak')).toBeInTheDocument()
+
+    rerender(
+      <DiagnosticsBlade
+        diagnostics={diagnostics}
+        exportBundle={undefined}
+        exportPassphrase="12345"
+        health={health}
+        importPayload=""
+        theme="dark"
+        onClose={vi.fn()}
+        onExportPassphraseChange={onExportPassphraseChange}
+        onExportWorkspace={vi.fn()}
+        onImportPayloadChange={vi.fn()}
+        onImportWorkspace={vi.fn()}
+        onRefreshDiagnostics={vi.fn()}
+        onToggleTheme={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Create Backup Bundle' })).toBeDisabled()
+    expect(screen.getByText('Blocked')).toBeInTheDocument()
+    expect(screen.getByText('Choose a less common workspace backup passphrase.')).toBeInTheDocument()
+  })
+
+  it('passes the encrypted secret opt-in when creating a backup bundle', () => {
+    const onExportWorkspace = vi.fn()
+
+    render(
+      <DiagnosticsBlade
+        diagnostics={diagnostics}
+        exportBundle={undefined}
+        exportPassphrase="Correct-Horse-2026!"
+        health={health}
+        importPayload=""
+        theme="dark"
+        onClose={vi.fn()}
+        onExportPassphraseChange={vi.fn()}
+        onExportWorkspace={onExportWorkspace}
+        onImportPayloadChange={vi.fn()}
+        onImportWorkspace={vi.fn()}
+        onRefreshDiagnostics={vi.fn()}
+        onToggleTheme={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByLabelText('Include connection passwords and secret variables in this encrypted bundle'))
+    fireEvent.click(screen.getByRole('button', { name: 'Create Backup Bundle' }))
+
+    expect(onExportWorkspace).toHaveBeenCalledWith(true)
   })
 
   it('confirms workspace restore in-app before replacing the workspace', () => {

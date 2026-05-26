@@ -1,15 +1,11 @@
 import type {
-  AppHealth,
   ConnectionProfile,
   EnvironmentProfile,
   QueryTabState,
-  WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { PanelIcon, SettingsIcon, WarningIcon } from './icons'
 
 interface StatusBarProps {
-  health: AppHealth
-  theme: WorkspaceSnapshot['preferences']['theme']
   activeConnection?: ConnectionProfile
   activeEnvironment?: EnvironmentProfile
   activeTab?: QueryTabState
@@ -21,8 +17,6 @@ interface StatusBarProps {
 }
 
 export function StatusBar({
-  health,
-  theme,
   activeConnection,
   activeEnvironment,
   activeTab,
@@ -76,8 +70,6 @@ export function StatusBar({
         >
           <SettingsIcon className="status-icon" />
         </button>
-        <span className="status-item">{theme}</span>
-        <span className="status-item">{health.runtime}</span>
       </div>
     </footer>
   )

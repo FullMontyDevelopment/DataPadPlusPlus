@@ -18,17 +18,18 @@ use crate::{
             ConnectionTestRequest, ConnectionTestResult, CreateObjectViewTabRequest,
             CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, DataEditExecutionRequest,
             DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse,
-            DatastoreExperienceResponse, EnvironmentProfile, ExecuteTestSuiteRequest,
-            ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse, ExplorerInspectRequest,
-            ExplorerInspectResponse, ExplorerRequest, ExplorerResponse, ExportBundle,
-            LibraryCreateFolderRequest, LibraryDeleteNodeRequest, LibraryMoveNodeRequest,
-            LibraryRenameNodeRequest, LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest,
-            LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult,
-            OpenTestSuiteTemplateRequest, OperationExecutionRequest, OperationExecutionResponse,
-            OperationManifestRequest, OperationManifestResponse, OperationPlanRequest,
-            OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse,
-            QueryTabActiveExecution, QueryTabReorderRequest, RedisKeyInspectRequest,
-            RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
+            DatastoreExperienceResponse, DocumentNodeChildrenRequest, DocumentNodeChildrenResponse,
+            EnvironmentProfile, ExecuteTestSuiteRequest, ExecuteTestSuiteResponse,
+            ExecutionRequest, ExecutionResponse, ExplorerInspectRequest, ExplorerInspectResponse,
+            ExplorerRequest, ExplorerResponse, ExportBundle, LibraryCreateFolderRequest,
+            LibraryDeleteNodeRequest, LibraryMoveNodeRequest, LibraryRenameNodeRequest,
+            LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest, LocalDatabaseCreateResult,
+            LocalDatabasePickRequest, LocalDatabasePickResult, OpenTestSuiteTemplateRequest,
+            OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest,
+            OperationManifestResponse, OperationPlanRequest, OperationPlanResponse,
+            PermissionInspectionRequest, PermissionInspectionResponse, QueryTabActiveExecution,
+            QueryTabReorderRequest, RedisKeyInspectRequest, RedisKeyScanRequest,
+            RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
             SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
             StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
             UpdateTestSuiteTabRequest, UpdateUiStateRequest, UserFacingError,
@@ -749,6 +750,15 @@ pub async fn fetch_result_page(
 }
 
 #[tauri::command]
+pub async fn fetch_document_node_children(
+    state: State<'_, SharedAppState>,
+    request: DocumentNodeChildrenRequest,
+) -> Result<DocumentNodeChildrenResponse, CommandError> {
+    let runtime = clone_runtime(&state)?;
+    runtime.fetch_document_node_children(request).await
+}
+
+#[tauri::command]
 pub fn pick_local_database_file(
     app: AppHandle,
     state: State<'_, SharedAppState>,
@@ -877,9 +887,10 @@ pub fn unlock_app(state: State<'_, SharedAppState>) -> Result<BootstrapPayload, 
 pub fn export_workspace_bundle(
     state: State<'_, SharedAppState>,
     passphrase: String,
+    include_secrets: Option<bool>,
 ) -> Result<ExportBundle, CommandError> {
     let state = lock_state(&state)?;
-    state.export_bundle(&passphrase)
+    state.export_bundle(&passphrase, include_secrets.unwrap_or(false))
 }
 
 #[tauri::command]

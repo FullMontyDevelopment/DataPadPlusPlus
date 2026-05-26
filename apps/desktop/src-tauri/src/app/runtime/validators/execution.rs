@@ -1,6 +1,8 @@
 use crate::domain::{
     error::CommandError,
-    models::{CancelExecutionRequest, ExecutionRequest, ResultPageRequest},
+    models::{
+        CancelExecutionRequest, DocumentNodeChildrenRequest, ExecutionRequest, ResultPageRequest,
+    },
 };
 
 use super::common::*;
@@ -60,6 +62,41 @@ pub(in crate::app::runtime) fn validate_result_page_request(
     validate_optional_text(request.cursor.as_deref(), "Result cursor", MAX_SCOPE_LENGTH)?;
     clamp_optional_u32(&mut request.page_size, 1, MAX_RESULT_PAGE_SIZE);
     clamp_optional_u32(&mut request.page_index, 0, MAX_RESULT_PAGE_INDEX);
+    Ok(())
+}
+
+pub(in crate::app::runtime) fn validate_document_node_children_request(
+    request: &DocumentNodeChildrenRequest,
+) -> Result<(), CommandError> {
+    validate_required_id(&request.tab_id, "Tab id")?;
+    validate_required_id(&request.connection_id, "Connection id")?;
+    validate_required_id(&request.environment_id, "Environment id")?;
+    validate_required_text(
+        &request.collection,
+        "Collection name",
+        MAX_OBJECT_NAME_LENGTH,
+    )?;
+    validate_optional_text(
+        request.database.as_deref(),
+        "Database name",
+        MAX_OBJECT_NAME_LENGTH,
+    )?;
+    if let Some(query_text) = &request.query_text {
+        validate_query_text(query_text, "Query text")?;
+    }
+    if request.path.is_empty() || request.path.len() > MAX_PATH_SEGMENTS {
+        return Err(invalid_request(format!(
+            "Document field path must contain 1 to {MAX_PATH_SEGMENTS} segments."
+        )));
+    }
+    for segment in &request.path {
+        if segment.as_str().is_none() && segment.as_u64().is_none() {
+            return Err(invalid_request(
+                "Document field path segments must be strings or array indexes.",
+            ));
+        }
+    }
+    assert_json_size(&request.document_id, "Document id")?;
     Ok(())
 }
 

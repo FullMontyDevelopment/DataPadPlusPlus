@@ -83,10 +83,6 @@ export function OracleObjectViewWorkspace({
         ) : null}
       </OracleObjectViewHeader>
 
-      <div className="object-view-purpose">
-        <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
-        <span>{descriptor.purpose}</span>
-      </div>
       {oracleObjectViewSummary(state?.summary, descriptor) ? (
         <p className="object-view-summary">{oracleObjectViewSummary(state?.summary, descriptor)}</p>
       ) : null}
@@ -204,7 +200,6 @@ function OracleOverviewView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={DatabaseIcon} title={descriptor.title} unit={stringValue(payload.schema ?? payload.service)} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <KeyValueGrid rows={facts} emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`} />
       <ObjectViewTable
         columns={['Object type', 'Count', 'Status']}
@@ -252,7 +247,6 @@ function OracleObjectMetadataView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={oracleIconForKind(kind)} title={descriptor.title} unit={objectUnit(kind, payload, objectRows.rows.length)} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       {queryTarget && descriptor.primaryQueryLabel ? (
         <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
           <PlayIcon className="panel-inline-icon" />
@@ -327,7 +321,6 @@ function OracleSourceView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={oracleIconForKind(kind)} title={descriptor.title} unit={stringValue(payload.objectName ?? payload.schema)} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <MetricCards rows={[
         ['Source lines', String(sourceLines.length)],
         ['Compile errors', String(errors.length)],
@@ -341,9 +334,6 @@ function OracleSourceView({
       {sourceLines.length ? (
         <div className="object-view-management">
           <strong>Source Outline</strong>
-          <p className="object-view-note">
-            Review the object shape first. Open source only when you need the PL/SQL text.
-          </p>
           <ObjectViewTable
             columns={['Line', 'Declaration']}
             rows={oracleSourceOutline(sourceLines)}
@@ -415,7 +405,6 @@ function OracleSecurityView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectSecurityIcon} title={descriptor.title} unit={`${rows.rows.length} row(s)`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <ObjectViewTable
         columns={rows.columns}
         rows={rows.rows}
@@ -440,7 +429,6 @@ function OracleStorageView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectStageIcon} title={descriptor.title} unit={stringValue(payload.tablespace ?? payload.service)} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <MetricCards rows={metrics} />
       <ObjectViewTable
         columns={rows.columns}
@@ -466,7 +454,6 @@ function OraclePerformanceView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectJobIcon} title={descriptor.title} unit={stringValue(payload.service)} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <MetricCards rows={metrics} />
       <ObjectViewTable
         columns={rows.columns}
@@ -494,7 +481,6 @@ function OracleGenericView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={DatabaseIcon} title={descriptor.title} unit="Oracle" />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <KeyValueGrid rows={facts} emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`} />
     </div>
   )

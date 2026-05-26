@@ -1,4 +1,4 @@
-import type { ExecutionRequest, ExecutionResponse, ResultPayload, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import type { DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse, ExecutionResultEnvelope, ResultPayload, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import {
   interpolateEnvironmentVariables,
   referencedSensitiveEnvironmentVariableKeys,
@@ -155,6 +155,9 @@ export function applyExecutionRequestLocally(
   })
 
   let result = guardrail.status === 'block' ? undefined : simulated.result
+  if (result && request.documentEfficiencyMode && connection.family === 'document') {
+    result = summarizeDocumentResultForEfficiencyMode(result)
+  }
   const diagnostics: string[] = []
 
   if (request.mode === 'explain' && result && connection.engine === 'mongodb') {
@@ -247,6 +250,135 @@ export function applyExecutionRequestLocally(
       diagnostics: redactedDiagnostics,
     },
   }
+}
+
+export function fetchDocumentNodeChildrenLocally(
+  snapshot: WorkspaceSnapshot,
+  request: DocumentNodeChildrenRequest,
+): DocumentNodeChildrenResponse {
+  const tab = findTab(snapshot, request.tabId)
+  const documentPayload = tab?.result?.payloads.find(
+    (payload): payload is Extract<ResultPayload, { renderer: 'document' }> =>
+      payload.renderer === 'document',
+  )
+  const document = documentPayload?.documents.find((item) =>
+    documentIdsEqual(item._id, request.documentId),
+  )
+
+  if (!document) {
+    throw new Error('Document is no longer available in the loaded result.')
+  }
+
+  const currentValue = valueAtPath(document, request.path)
+  const previewLazy = isLazyMarker(currentValue)
+  const value = previewLazy
+    ? currentValue.type === 'array'
+      ? []
+      : {}
+    : summarizeValueForLazyHydration(currentValue, request.path)
+  return {
+    tabId: request.tabId,
+    documentId: request.documentId,
+    path: request.path,
+    value,
+    notices: previewLazy
+      ? ['Preview mode has only the summarized lazy field. Run against a live MongoDB connection to hydrate children.']
+      : [],
+  }
+}
+
+function summarizeDocumentResultForEfficiencyMode(
+  result: ExecutionResultEnvelope,
+): ExecutionResultEnvelope {
+  const payloads = result.payloads.map((payload) => {
+    if (payload.renderer !== 'document') {
+      return payload
+    }
+
+    const documents = payload.documents.map((document) => summarizeDocumentTopLevel(document))
+    return {
+      ...payload,
+      hydrationMode: 'lazy' as const,
+      documents,
+    }
+  })
+
+  return {
+    ...result,
+    payloads,
+  }
+}
+
+function summarizeDocumentTopLevel(document: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(document).map(([key, value]) => [
+      key,
+      key === '_id' ? value : summarizeNestedValue(value, [key]),
+    ]),
+  )
+}
+
+function summarizeValueForLazyHydration(value: unknown, path: Array<string | number>): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item, index) => summarizeValueForLazyHydration(item, [...path, index]))
+  }
+
+  if (isPlainRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, childValue]) => [
+        key,
+        summarizeNestedValue(childValue, [...path, key]),
+      ]),
+    )
+  }
+
+  return value
+}
+
+function summarizeNestedValue(value: unknown, path: Array<string | number>): unknown {
+  if (Array.isArray(value)) {
+    return {
+      __datapadLazyNode: true,
+      type: 'array',
+      childCount: value.length,
+      path,
+      loaded: false,
+    }
+  }
+
+  if (isPlainRecord(value)) {
+    return {
+      __datapadLazyNode: true,
+      type: 'object',
+      childCount: Object.keys(value).length,
+      path,
+      loaded: false,
+    }
+  }
+
+  return value
+}
+
+function valueAtPath(value: unknown, path: Array<string | number>) {
+  return path.reduce<unknown>((current, key) => {
+    if (current === null || current === undefined) {
+      return undefined
+    }
+
+    return (current as Record<string, unknown> | Array<unknown>)[key as never]
+  }, value)
+}
+
+function documentIdsEqual(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function isLazyMarker(value: unknown): value is { type: 'object' | 'array' } {
+  return isPlainRecord(value) && value.__datapadLazyNode === true
 }
 
 function mongoExplainPreview() {

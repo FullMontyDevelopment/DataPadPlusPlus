@@ -7,6 +7,7 @@ use super::{
     tabs::reorder_query_tabs_in_place,
     timestamp_now,
     workspace::migrate_snapshot,
+    workspace::parse_workspace_bundle_payload,
     workspace::{validate_bundle_passphrase, validate_bundle_payload_size},
 };
 use crate::domain::models::{ConnectionAuth, ConnectionProfile, QueryTabState};
@@ -181,12 +182,54 @@ fn migration_strips_connection_strings_with_plaintext_secrets() {
 }
 
 #[test]
-fn workspace_bundle_validation_rejects_weak_empty_or_oversized_inputs() {
-    assert!(validate_bundle_passphrase("short").is_err());
+fn workspace_bundle_validation_rejects_empty_common_or_oversized_inputs() {
+    assert!(validate_bundle_passphrase("").is_err());
+    assert!(validate_bundle_passphrase("password").is_err());
+    assert!(validate_bundle_passphrase("password!").is_err());
+    assert!(validate_bundle_passphrase("12345").is_err());
     assert!(validate_bundle_payload_size("").is_err());
     assert!(validate_bundle_payload_size(&"x".repeat(25 * 1024 * 1024 + 1)).is_err());
+    assert!(validate_bundle_passphrase("x").is_ok());
     assert!(validate_bundle_passphrase("long-enough").is_ok());
     assert!(validate_bundle_payload_size("encrypted").is_ok());
+}
+
+#[test]
+fn workspace_bundle_payload_accepts_legacy_snapshot_and_secret_envelope() {
+    let snapshot = blank_workspace_snapshot();
+    let legacy_json = serde_json::to_string(&snapshot).expect("serialize legacy snapshot");
+    let parsed_legacy =
+        parse_workspace_bundle_payload(&legacy_json).expect("parse legacy workspace bundle");
+
+    assert_eq!(
+        parsed_legacy.snapshot.schema_version,
+        snapshot.schema_version
+    );
+    assert!(parsed_legacy.secrets.is_empty());
+
+    let envelope_json = serde_json::json!({
+        "snapshot": snapshot,
+        "secrets": [{
+            "secretRef": {
+                "id": "secret-connection",
+                "provider": "os-keyring",
+                "service": "DataPad++",
+                "account": "connection:local",
+                "label": "Local connection password"
+            },
+            "value": "secret-value"
+        }]
+    })
+    .to_string();
+    let parsed_envelope =
+        parse_workspace_bundle_payload(&envelope_json).expect("parse workspace bundle envelope");
+
+    assert_eq!(parsed_envelope.secrets.len(), 1);
+    assert_eq!(
+        parsed_envelope.secrets[0].secret_ref.id,
+        "secret-connection"
+    );
+    assert_eq!(parsed_envelope.secrets[0].value, "secret-value");
 }
 
 #[test]

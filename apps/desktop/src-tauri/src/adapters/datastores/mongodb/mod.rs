@@ -3,6 +3,7 @@ use super::super::*;
 mod catalog;
 mod connection;
 mod diagnostics;
+mod document_lazy;
 mod editing;
 mod explorer;
 mod metadata;
@@ -10,6 +11,7 @@ mod paging;
 mod query;
 mod script;
 
+pub(crate) use document_lazy::fetch_mongodb_document_node_children;
 pub(crate) use metadata::load_mongodb_structure;
 pub(crate) use paging::fetch_mongodb_page;
 

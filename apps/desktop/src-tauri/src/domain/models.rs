@@ -1075,6 +1075,10 @@ pub struct ExportBundle {
     pub format: String,
     pub version: u32,
     pub encrypted_payload: String,
+    #[serde(default)]
+    pub includes_secrets: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_count: Option<usize>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1173,6 +1177,7 @@ pub struct ExecutionRequest {
     pub selected_text: Option<String>,
     pub mode: Option<String>,
     pub row_limit: Option<u32>,
+    pub document_efficiency_mode: Option<bool>,
     pub confirmed_guardrail_id: Option<String>,
 }
 
@@ -1189,6 +1194,7 @@ pub struct ResultPageRequest {
     pub page_size: Option<u32>,
     pub page_index: Option<u32>,
     pub cursor: Option<String>,
+    pub document_efficiency_mode: Option<bool>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1198,6 +1204,29 @@ pub struct ResultPageResponse {
     pub result_id: Option<String>,
     pub payload: Value,
     pub page_info: ResultPageInfo,
+    pub notices: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentNodeChildrenRequest {
+    pub tab_id: String,
+    pub connection_id: String,
+    pub environment_id: String,
+    pub database: Option<String>,
+    pub collection: String,
+    pub document_id: Value,
+    pub path: Vec<Value>,
+    pub query_text: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentNodeChildrenResponse {
+    pub tab_id: String,
+    pub document_id: Value,
+    pub path: Vec<Value>,
+    pub value: Value,
     pub notices: Vec<String>,
 }
 

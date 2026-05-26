@@ -77,10 +77,10 @@ export function useWorkspaceActions({
   )
 
   const exportWorkspace = useCallback<Actions['exportWorkspace']>(
-    async (passphrase) => {
+    async (passphrase, includeSecrets = false) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        const exportBundle = await desktopClient.exportWorkspaceBundle(passphrase)
+        const exportBundle = await desktopClient.exportWorkspaceBundle(passphrase, includeSecrets)
         dispatch({ type: 'EXPORT_READY', exportBundle })
       } catch (error) {
         handleError(error)

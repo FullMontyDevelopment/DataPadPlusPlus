@@ -98,4 +98,6 @@ export interface ExportBundle {
   format: 'datapadplusplus-bundle'
   version: number
   encryptedPayload: string
+  includesSecrets?: boolean
+  secretCount?: number
 }

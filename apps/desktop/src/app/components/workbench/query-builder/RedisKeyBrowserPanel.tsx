@@ -34,7 +34,6 @@ import {
   dataEditStatusMessage,
   executeDataEditWithConfirmation,
 } from '../results/data-edit-confirmation'
-import { DeleteConfirmationPanel } from '../results/DeleteConfirmationPanel'
 import { useDataEditConfirmation } from '../results/use-data-edit-confirmation'
 
 interface RedisKeyBrowserPanelProps {
@@ -62,7 +61,6 @@ export function RedisKeyBrowserPanel({
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [showAddKey, setShowAddKey] = useState(false)
-  const [pendingDeleteKey, setPendingDeleteKey] = useState<string>()
   const [addKeyName, setAddKeyName] = useState('')
   const [addKeyType, setAddKeyType] = useState('string')
   const [addKeyValue, setAddKeyValue] = useState('')
@@ -218,9 +216,11 @@ export function RedisKeyBrowserPanel({
 
   const deleteKey = async (key: string) => {
     if (!onExecuteDataEdit) {
+      setStatus('Redis key deletion is not available for this connection.')
       return
     }
 
+    setStatus(`Deleting ${key}...`)
     const response = await executeDataEditWithConfirmation(
       onExecuteDataEdit,
       {
@@ -247,6 +247,11 @@ export function RedisKeyBrowserPanel({
     } else {
       setStatus(dataEditStatusMessage(response, `Unable to delete ${key}.`))
     }
+  }
+
+  const requestDeleteKey = (key: string) => {
+    setStatus('')
+    void deleteKey(key)
   }
 
   const togglePrefix = (prefix: string) => {
@@ -436,22 +441,10 @@ export function RedisKeyBrowserPanel({
         rows={rows}
         selectedKey={builderState.selectedKey}
         expandedPrefixes={expandedPrefixes}
-        onDeleteKey={setPendingDeleteKey}
+        onDeleteKey={requestDeleteKey}
         onSelectKey={selectKey}
         onTogglePrefix={togglePrefix}
       />
-      {pendingDeleteKey ? (
-        <DeleteConfirmationPanel
-          title={`Delete Redis key ${pendingDeleteKey}?`}
-          body="DataPad++ will run this guarded key delete with confirmation."
-          onCancel={() => setPendingDeleteKey(undefined)}
-          onConfirm={() => {
-            const key = pendingDeleteKey
-            setPendingDeleteKey(undefined)
-            void deleteKey(key)
-          }}
-        />
-      ) : null}
       {confirmationDialog}
       {status ? <div className="redis-browser-message">{status}</div> : null}
     </section>

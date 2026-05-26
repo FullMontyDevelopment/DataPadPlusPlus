@@ -94,10 +94,6 @@ export function CosmosObjectViewWorkspace({
         </div>
       </div>
 
-      <div className="object-view-purpose">
-        <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
-        <span>{descriptor.purpose}</span>
-      </div>
       <CosmosWarningList warnings={cosmosWarnings(tab, payload)} />
 
       <div className="object-view-body">

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
   ConnectionProfile,
+  EnvironmentProfile,
   ExecutionResultEnvelope,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
@@ -244,6 +245,85 @@ describe('ResultsView', () => {
       cancelAnimationFrameSpy.mockRestore()
     }
   })
+
+  it('hydrates lazy document fields on expand and hides expand all in efficiency mode', async () => {
+    const result = resultEnvelope([
+      {
+        _id: 'doc-1',
+        sku: 'luna-lamp',
+        inventory: {
+          __datapadLazyNode: true,
+          type: 'object',
+          childCount: 2,
+          path: ['inventory'],
+          loaded: false,
+        },
+      },
+    ], false)
+    result.payloads[0] = {
+      renderer: 'document',
+      documents: result.payloads[0]?.renderer === 'document' ? result.payloads[0].documents : [],
+      hydrationMode: 'lazy',
+      database: 'catalog',
+      collection: 'products',
+    }
+    const onFetchDocumentNodeChildren = vi.fn().mockResolvedValue({
+      tabId: 'tab-mongodb',
+      documentId: 'doc-1',
+      path: ['inventory'],
+      value: {
+        reserved: 4,
+        available: 18,
+      },
+      notices: [],
+    })
+
+    render(
+      <ResultsView
+        activeEnvironment={environmentProfile()}
+        activeTab={queryTab(result)}
+        capabilities={{
+          canCancel: false,
+          canExplain: false,
+          defaultRowLimit: 200,
+          editorLanguage: 'mongodb',
+          supportsLiveMetadata: true,
+        }}
+        connection={connectionProfile({ family: 'document', engine: 'mongodb' })}
+        payload={result.payloads[0]}
+        renderer="document"
+        result={result}
+        onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
+        onLoadNextPage={vi.fn()}
+        onResultRendered={vi.fn()}
+        onSelectRenderer={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Expand All' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand doc-1' }))
+    expect(screen.getByText('inventory')).toBeInTheDocument()
+    expect(screen.getByText('{2 field(s)}')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand inventory' }))
+
+    await waitFor(() => {
+      expect(onFetchDocumentNodeChildren).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tabId: 'tab-mongodb',
+          connectionId: 'conn-mongodb',
+          environmentId: 'env-dev',
+          database: 'catalog',
+          collection: 'products',
+          documentId: 'doc-1',
+          path: ['inventory'],
+        }),
+      )
+    })
+    expect(await screen.findByText('reserved')).toBeInTheDocument()
+    expect(screen.getByText('available')).toBeInTheDocument()
+  })
 })
 
 function flushAnimationFrames(callbacks: Map<number, FrameRequestCallback>) {
@@ -335,5 +415,22 @@ function queryTab(
     dirty: false,
     result,
     history: [],
+  }
+}
+
+function environmentProfile(): EnvironmentProfile {
+  return {
+    id: 'env-dev',
+    label: 'Development',
+    risk: 'low',
+    color: '#22c55e',
+    variables: {},
+    variableDefinitions: [],
+    sensitiveKeys: [],
+    safeMode: false,
+    requiresConfirmation: false,
+    exportable: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
   }
 }

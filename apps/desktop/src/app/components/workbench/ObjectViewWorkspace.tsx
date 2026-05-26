@@ -322,7 +322,6 @@ function MongoObjectViewWorkspace({
   const descriptor = getMongoObjectViewDescriptor(kind)
   const title = descriptor.title
   const summary = mongoObjectViewSummary(state?.summary, descriptor)
-  const compactManagementView = isCompactMongoObjectView(kind)
   const planMongoOperation = useCallback(async ({
     objectName,
     operationId,
@@ -479,19 +478,6 @@ function MongoObjectViewWorkspace({
         ) : null}
       </ObjectViewHeader>
 
-      {compactManagementView ? null : (
-        <div className="object-view-purpose">
-          <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
-          <div className="object-view-purpose-text" title={descriptor.purpose}>
-            <span>{descriptor.purpose}</span>
-            <div className="object-view-action-chips" aria-label="Primary workflows">
-              {descriptor.primaryActions.map((action) => (
-                <span key={action} className="object-view-action-chip">{action}</span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
       {summary ? <p className="object-view-summary">{summary}</p> : null}
       <WarningList warnings={warnings} />
 
@@ -721,7 +707,6 @@ function MongoOverviewView({
         title={descriptor.title}
         unit="MongoDB"
       />
-      <p className="object-view-note">{descriptor.purpose}</p>
       {kind === 'database' ? <MongoDatabaseOverview payload={payload} /> : null}
       {kind === 'collection' ? <MongoCollectionOverview payload={payload} onPlanOperation={onPlanOperation} /> : null}
       {kind === 'view' ? <MongoViewOverview payload={payload} /> : null}
@@ -1023,7 +1008,6 @@ function MongoSchemaView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectDocumentIcon} title={descriptor.title} unit={`${fields.length} field(s)`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <div className="object-view-card-grid">
         <div className="object-view-card">
           <span>Sampled documents</span>
@@ -1158,7 +1142,6 @@ function MongoValidationView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectSecurityIcon} title={descriptor.title} unit={validator ? 'configured' : 'none'} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <div className="object-view-card-grid">
         <div className="object-view-card">
           <span>Required fields</span>
@@ -1279,7 +1262,6 @@ function MongoStatisticsView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={DatabaseIcon} title={descriptor.title} unit={`${metricRows.length} metric(s)`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <div className="object-view-card-grid">
         {metricRows.slice(0, 8).map(([label, value]) => (
           <div key={label} className="object-view-card">
@@ -1562,7 +1544,6 @@ function MongoScriptsView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectSearchIcon} title={descriptor.title} unit={`${scripts.length} template(s)`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       {queryTarget ? (
         <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
           <PlayIcon className="panel-inline-icon" />
@@ -1634,7 +1615,6 @@ function MongoPipelineView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectSearchIcon} title={descriptor.title} unit={`${pipeline.length} stage(s)`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       {pipeline.length ? (
         <div className="mongo-pipeline-stage-list" role="group" aria-label="MongoDB view pipeline stages">
           {stageRows.map((stage, index) => (
@@ -1755,7 +1735,6 @@ function MongoGridFsView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectCollectionIcon} title={descriptor.title} unit="files and chunks" />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <div className="object-view-button-row object-view-button-row--compact" aria-label="GridFS actions">
         <button
           type="button"
@@ -2224,10 +2203,6 @@ function mongoObjectViewSummary(
 
 function isVariableToken(value: string) {
   return /^\{\{[A-Z][A-Z0-9_]*\}\}$/.test(value)
-}
-
-function isCompactMongoObjectView(kind: string) {
-  return kind === 'indexes' || kind === 'create-index' || kind === 'users' || kind === 'roles'
 }
 
 function extractIndexes(payload: JsonRecord) {

@@ -25,6 +25,7 @@ type RuntimeActions = Pick<
   | 'executeTestSuite'
   | 'cancelTestRun'
   | 'fetchResultPage'
+  | 'fetchDocumentNodeChildren'
   | 'markExecutionDisplayed'
   | 'cancelExecution'
   | 'pickLocalDatabaseFile'
@@ -196,6 +197,7 @@ export function useRuntimeActions({
       overrideQueryText,
       executionInputMode,
       scriptText,
+      documentEfficiencyMode,
     ) => {
       const executionId = createId('execution')
       try {
@@ -223,6 +225,7 @@ export function useRuntimeActions({
           scriptText,
           mode,
           rowLimit: 500,
+          documentEfficiencyMode,
           confirmedGuardrailId,
         }
 
@@ -345,6 +348,9 @@ export function useRuntimeActions({
           pageSize: pageInfo.pageSize,
           pageIndex: pageInfo.pageIndex + 1,
           cursor: pageInfo.nextCursor,
+          documentEfficiencyMode: tab.result.payloads.some(
+            (payload) => payload.renderer === 'document' && payload.hydrationMode === 'lazy',
+          ),
         }
 
         dispatch({
@@ -379,6 +385,19 @@ export function useRuntimeActions({
       }
     },
     [dispatch, handleError, stateRef],
+  )
+
+  const fetchDocumentNodeChildren = useCallback<Actions['fetchDocumentNodeChildren']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.fetchDocumentNodeChildren(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
   )
 
   const markExecutionDisplayed = useCallback<Actions['markExecutionDisplayed']>(
@@ -510,6 +529,7 @@ export function useRuntimeActions({
       executeTestSuite,
       cancelTestRun,
       fetchResultPage,
+      fetchDocumentNodeChildren,
       markExecutionDisplayed,
       cancelExecution,
       pickLocalDatabaseFile,
@@ -527,6 +547,7 @@ export function useRuntimeActions({
       executeQuery,
       executeTestSuite,
       cancelTestRun,
+      fetchDocumentNodeChildren,
       fetchResultPage,
       inspectRedisKey,
       inspectExplorer,

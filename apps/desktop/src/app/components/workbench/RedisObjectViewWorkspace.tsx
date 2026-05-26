@@ -128,10 +128,6 @@ export function RedisObjectViewWorkspace({
         ) : null}
       </RedisObjectViewHeader>
 
-      <div className="object-view-purpose">
-        <strong>{state?.label && state.label !== descriptor.title ? state.label : descriptor.menuLabel}</strong>
-        <span>{descriptor.purpose}</span>
-      </div>
       {state?.summary ? <p className="object-view-summary">{state.summary}</p> : null}
       <WarningList warnings={objectViewWarnings(tab, payload)} />
 
@@ -271,7 +267,6 @@ function RedisDatabaseView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={DatabaseIcon} title={descriptor.title} unit={databaseUnit(payload, databases)} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <MetricCards rows={metrics} />
       {queryTarget ? (
         <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
@@ -329,7 +324,6 @@ function RedisTypeFolderView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={redisIconForKind(kind)} title={descriptor.title} unit={`${keys.length} loaded`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <KeyValueGrid rows={facts} emptyText="No scan metadata was returned." />
       {queryTarget ? (
         <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
@@ -364,7 +358,6 @@ function RedisKeyView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectKeyIcon} title={stringValue(payload.key) || descriptor.title} unit={redisTypeLabel(stringValue(payload.type ?? payload.redisType))} />
-      <p className="object-view-note">Inspect this key's type, TTL, memory usage, encoding, length, and bounded value preview.</p>
       <KeyValueGrid
         rows={[
           ['Database', redisDatabaseLabel(payload.database)],
@@ -442,7 +435,6 @@ function RedisDiagnosticsView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectMetricIcon} title={descriptor.title} unit={unit} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <MetricCards rows={metricRows.slice(0, 8)} />
       {primaryRows.length ? (
         <ObjectViewTable
@@ -487,7 +479,6 @@ function RedisPubSubView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ConsoleIcon} title={descriptor.title} unit={`${channels.length} channel(s)`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <MetricCards rows={cards} />
       <ObjectViewTable
         columns={['Channel', 'Subscribers', 'Pattern']}
@@ -533,7 +524,6 @@ function RedisSecurityView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectSecurityIcon} title={descriptor.title} unit={redisSecurityUnit(kind, users.length, categories.length, currentUser)} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       {currentUser ? <MetricCards rows={[['Current user', currentUser]]} /> : null}
       <ObjectViewTable
         columns={['User', 'State', 'Commands / Rules']}
@@ -575,7 +565,6 @@ function RedisClusterView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectMetricIcon} title={descriptor.title} unit={redisClusterUnit(kind, infoRows, nodes, slots)} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <MetricCards rows={cards} />
       {infoRows.length ? (
         <ObjectViewTable
@@ -637,7 +626,6 @@ function RedisSentinelView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ObjectMetricIcon} title={descriptor.title} unit={`${masters.length + replicas.length + sentinels.length} row(s)`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <MetricCards rows={cards} />
       <ObjectViewTable
         columns={['Master', 'Address', 'State', 'Quorum / Replicas']}
@@ -693,7 +681,6 @@ function RedisLuaScriptsView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ConsoleIcon} title={descriptor.title} unit={`${scripts.length + history.length} item(s)`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <MetricCards rows={[
         ['Loaded scripts', String(scripts.length)],
         ['Library history', String(history.length)],
@@ -739,7 +726,6 @@ function RedisFunctionsView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ConsoleIcon} title={descriptor.title} unit={`${libraries.length} librar${libraries.length === 1 ? 'y' : 'ies'}`} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <ObjectViewTable
         columns={['Library', 'Engine', 'Functions', 'Flags / Detail']}
         rows={libraries.map((library) => [
@@ -769,7 +755,6 @@ function RedisMetadataView({
   return (
     <div className="object-view-section">
       <SectionHeading Icon={ConsoleIcon} title={descriptor.title} unit={rows.length ? `${rows.length} row(s)` : 'metadata'} />
-      <p className="object-view-note">{descriptor.purpose}</p>
       <ObjectViewTable
         columns={['Item', 'Value', 'Detail']}
         rows={rows}

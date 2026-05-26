@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::connection::{mongodb_client, mongodb_database_name_for_collection_query};
+use super::document_lazy::{can_use_efficiency_mode, mongodb_document_payload};
 
 pub(crate) async fn fetch_mongodb_page(
     connection: &ResolvedConnectionProfile,
@@ -80,7 +81,20 @@ pub(crate) async fn fetch_mongodb_page(
 
     Ok(page_response(
         request,
-        payload_document(serde_json::to_value(visible_documents)?),
+        mongodb_document_payload(
+            serde_json::to_value(visible_documents)?,
+            &database_resolution.database_name,
+            collection_name,
+            can_use_efficiency_mode(
+                &input,
+                if input.get("pipeline").is_some() {
+                    "aggregate"
+                } else {
+                    "find"
+                },
+                request.document_efficiency_mode.unwrap_or(false),
+            ),
+        ),
         PageResponseInput {
             page_size: effective_page_size,
             page_index,
