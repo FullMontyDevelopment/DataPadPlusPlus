@@ -509,6 +509,7 @@ export interface RedisKeyScanResponse {
 }
 
 export interface RedisKeyInspectRequest {
+  executionId?: string
   tabId: string
   connectionId: string
   environmentId: string

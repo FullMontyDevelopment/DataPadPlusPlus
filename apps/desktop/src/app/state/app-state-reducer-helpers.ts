@@ -2,6 +2,7 @@ import type {
   BootstrapPayload,
   ExplorerRequest,
   ExplorerResponse,
+  QueryTabActiveExecution,
   ResultPageResponse,
   ResultPayload,
 } from '@datapadplusplus/shared-types'
@@ -130,6 +131,7 @@ export function openMessagesPayload(payload: BootstrapPayload | undefined) {
 export function applyExecutionToPayload(
   payload: BootstrapPayload | undefined,
   execution: Extract<AppAction, { type: 'EXECUTION_READY' }>['execution'],
+  options: { waitForDisplay?: boolean } = {},
 ): BootstrapPayload | undefined {
   if (!payload) {
     return payload
@@ -148,23 +150,48 @@ export function applyExecutionToPayload(
         }
       : execution.tab.result,
   }
+  const isActiveTab = next.snapshot.ui.activeTabId === executionTab.id
+  const shouldWaitForDisplay = Boolean(
+    options.waitForDisplay && executionTab.result && isActiveTab,
+  )
 
   if (index >= 0) {
     const currentTab = next.snapshot.tabs[index]
     next.snapshot.tabs[index] = {
       ...executionTab,
+      title: currentTab?.title ?? executionTab.title,
+      editorLabel: currentTab?.editorLabel ?? executionTab.editorLabel,
+      pinned: currentTab?.pinned ?? executionTab.pinned,
+      saveTarget: currentTab?.saveTarget ?? executionTab.saveTarget,
+      savedQueryId: currentTab?.savedQueryId ?? executionTab.savedQueryId,
+      queryText: currentTab?.queryText ?? executionTab.queryText,
+      queryViewMode: currentTab?.queryViewMode ?? executionTab.queryViewMode,
+      scriptText: currentTab?.scriptText ?? executionTab.scriptText,
+      builderState: currentTab?.builderState ?? executionTab.builderState,
       dirty: currentTab?.dirty ?? executionTab.dirty,
+      status: shouldWaitForDisplay ? 'running' : executionTab.status,
+      activeExecution: shouldWaitForDisplay
+        ? {
+            executionId: execution.executionId,
+            phase: 'rendering',
+            startedAt: currentTab?.activeExecution?.startedAt ?? new Date().toISOString(),
+          }
+        : undefined,
     }
   } else {
-    next.snapshot.tabs.push(executionTab)
+    next.snapshot.tabs.push({
+      ...executionTab,
+      activeExecution: undefined,
+    })
   }
 
   next.snapshot.guardrails = [execution.guardrail]
-  next.snapshot.ui.activeTabId = executionTab.id
-  next.snapshot.ui.activeConnectionId = executionTab.connectionId
-  next.snapshot.ui.activeEnvironmentId = executionTab.environmentId
-  next.snapshot.ui.bottomPanelVisible = true
-  next.snapshot.ui.activeBottomPanelTab = executionTab.result ? 'results' : 'messages'
+  if (isActiveTab) {
+    next.snapshot.ui.activeConnectionId = executionTab.connectionId
+    next.snapshot.ui.activeEnvironmentId = executionTab.environmentId
+    next.snapshot.ui.bottomPanelVisible = true
+    next.snapshot.ui.activeBottomPanelTab = executionTab.result ? 'results' : 'messages'
+  }
   next.snapshot.updatedAt = new Date().toISOString()
   return next
 }
@@ -172,6 +199,7 @@ export function applyExecutionToPayload(
 export function markTabExecutionLoading(
   payload: BootstrapPayload | undefined,
   tabId: string | undefined,
+  execution: QueryTabActiveExecution,
 ): BootstrapPayload | undefined {
   if (!payload || !tabId) {
     return payload
@@ -186,7 +214,60 @@ export function markTabExecutionLoading(
 
   tab.status = 'running'
   tab.error = undefined
-  next.snapshot.ui.activeTabId = tab.id
+  tab.activeExecution = execution
+  next.snapshot.updatedAt = new Date().toISOString()
+  return next
+}
+
+export function markTabExecutionPhase(
+  payload: BootstrapPayload | undefined,
+  tabId: string | undefined,
+  executionId: string,
+  phase: QueryTabActiveExecution['phase'],
+  message?: string,
+): BootstrapPayload | undefined {
+  if (!payload || !tabId) {
+    return payload
+  }
+
+  const next = clonePayload(payload)
+  const tab = next.snapshot.tabs.find((item) => item.id === tabId)
+
+  if (!tab?.activeExecution || tab.activeExecution.executionId !== executionId) {
+    return payload
+  }
+
+  tab.status = 'running'
+  tab.activeExecution = {
+    ...tab.activeExecution,
+    phase,
+    message,
+  }
+  next.snapshot.updatedAt = new Date().toISOString()
+  return next
+}
+
+export function markTabExecutionDisplayed(
+  payload: BootstrapPayload | undefined,
+  tabId: string | undefined,
+  executionId: string,
+): BootstrapPayload | undefined {
+  if (!payload || !tabId) {
+    return payload
+  }
+
+  const next = clonePayload(payload)
+  const tab = next.snapshot.tabs.find((item) => item.id === tabId)
+
+  if (!tab?.activeExecution || tab.activeExecution.executionId !== executionId) {
+    return payload
+  }
+
+  const phase = tab.activeExecution.phase
+  tab.activeExecution = undefined
+  if (phase === 'rendering' || phase === 'paging') {
+    tab.status = tab.error ? 'error' : 'success'
+  }
   next.snapshot.updatedAt = new Date().toISOString()
   return next
 }
@@ -195,6 +276,7 @@ export function markTabExecutionFailed(
   payload: BootstrapPayload | undefined,
   tabId: string | undefined,
   message: string,
+  executionId?: string,
 ): BootstrapPayload | undefined {
   if (!payload || !tabId) {
     return payload
@@ -206,8 +288,12 @@ export function markTabExecutionFailed(
   if (!tab) {
     return payload
   }
+  if (executionId && tab.activeExecution?.executionId !== executionId) {
+    return payload
+  }
 
   tab.status = 'error'
+  tab.activeExecution = undefined
   tab.error = {
     code: 'execution-error',
     message,
@@ -219,6 +305,7 @@ export function markTabExecutionFailed(
 export function applyResultPageToPayload(
   payload: BootstrapPayload | undefined,
   page: ResultPageResponse,
+  options: { executionId?: string; waitForDisplay?: boolean } = {},
 ): BootstrapPayload | undefined {
   if (!payload) {
     return payload
@@ -229,6 +316,13 @@ export function applyResultPageToPayload(
 
   if (!tab?.result) {
     return next
+  }
+  if (
+    options.executionId &&
+    tab.activeExecution &&
+    tab.activeExecution.executionId !== options.executionId
+  ) {
+    return payload
   }
 
   const incomingPayload = normalizeResultPayload(
@@ -269,8 +363,23 @@ export function applyResultPageToPayload(
       message,
     })),
   ]
-  next.snapshot.ui.bottomPanelVisible = true
-  next.snapshot.ui.activeBottomPanelTab = 'results'
+  const isActiveTab = next.snapshot.ui.activeTabId === tab.id
+  const shouldWaitForDisplay = Boolean(options.waitForDisplay && isActiveTab)
+  if (shouldWaitForDisplay && options.executionId) {
+    tab.status = 'running'
+    tab.activeExecution = {
+      executionId: options.executionId,
+      phase: 'paging',
+      startedAt: tab.activeExecution?.startedAt ?? new Date().toISOString(),
+    }
+  } else {
+    tab.status = tab.error ? 'error' : 'success'
+    tab.activeExecution = undefined
+  }
+  if (isActiveTab) {
+    next.snapshot.ui.bottomPanelVisible = true
+    next.snapshot.ui.activeBottomPanelTab = 'results'
+  }
   next.snapshot.updatedAt = new Date().toISOString()
   return next
 }

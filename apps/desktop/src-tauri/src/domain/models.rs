@@ -362,6 +362,16 @@ pub struct UserFacingError {
     pub message: String,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryTabActiveExecution {
+    pub execution_id: String,
+    pub phase: String,
+    pub started_at: String,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryTabState {
@@ -396,6 +406,8 @@ pub struct QueryTabState {
     #[serde(default)]
     pub test_run: Option<Value>,
     pub status: String,
+    #[serde(default)]
+    pub active_execution: Option<QueryTabActiveExecution>,
     pub dirty: bool,
     pub last_run_at: Option<String>,
     pub result: Option<ExecutionResultEnvelope>,
@@ -1240,6 +1252,8 @@ pub struct RedisKeyScanResponse {
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisKeyInspectRequest {
+    #[serde(default)]
+    pub execution_id: Option<String>,
     pub tab_id: String,
     pub connection_id: String,
     pub environment_id: String,

@@ -230,6 +230,29 @@ describe('browser tab runtime', () => {
     expect(redisTab?.queryText).toContain('"pattern": "perf:*"')
   })
 
+  it('creates SQL scoped tabs in raw editor mode by default', () => {
+    const snapshot = createSeedSnapshot()
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-analytics',
+      target: {
+        kind: 'table',
+        label: 'accounts',
+        path: ['Analytics Postgres', 'public', 'Tables'],
+        scope: 'table:public.accounts',
+        queryTemplate: 'select * from "public"."accounts" limit 100;',
+      },
+    })
+    const sqlTab = opened.tabs.find((tab) => tab.scopedTarget?.scope === 'table:public.accounts')
+
+    expect(sqlTab).toMatchObject({
+      connectionId: 'conn-analytics',
+      title: 'accounts.sql',
+      queryViewMode: 'raw',
+      queryText: 'select * from "public"."accounts" limit 100;',
+    })
+    expect(sqlTab?.builderState).toBeUndefined()
+  })
+
   it('creates Cassandra scoped tabs with the CQL partition builder active', () => {
     const snapshot = createSeedSnapshot()
     snapshot.connections.push(cassandraConnection())

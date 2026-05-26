@@ -51,6 +51,7 @@ interface BottomPanelProps {
   onSelectPanelTab(tab: BottomPanelTab): void
   onSelectRenderer(renderer: string): void
   onLoadNextPage(): void
+  onResultRendered?(tabId: string, executionId: string): void
   onResize(nextSize: number): void
   onClose(): void
   onConfirmExecution(guardrailId: string, mode: ExecutionRequest['mode']): void
@@ -85,6 +86,7 @@ export function BottomPanel({
   onSelectPanelTab,
   onSelectRenderer,
   onLoadNextPage,
+  onResultRendered = () => undefined,
   onResize,
   onClose,
   onConfirmExecution,
@@ -338,6 +340,7 @@ export function BottomPanel({
             result={activeTab?.result}
             onSelectRenderer={onSelectRenderer}
             onLoadNextPage={onLoadNextPage}
+            onResultRendered={onResultRendered}
             onExecuteDataEdit={onExecuteDataEdit}
             onPlanOperation={onPlanOperation}
           />

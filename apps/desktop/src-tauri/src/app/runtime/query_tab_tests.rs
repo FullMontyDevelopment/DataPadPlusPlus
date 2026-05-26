@@ -172,6 +172,7 @@ fn scoped_raw_query_tab_uses_query_template_without_builder() {
 
     assert_eq!(tab.title, "accounts.sql");
     assert_eq!(tab.query_text, "select * from public.accounts limit 100;");
+    assert_eq!(tab.query_view_mode.as_deref(), Some("raw"));
     assert!(tab.builder_state.is_none());
     assert_eq!(
         tab.scoped_target

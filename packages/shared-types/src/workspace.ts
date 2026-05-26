@@ -54,6 +54,15 @@ export type QueryExecutionState =
   | 'error'
   | 'blocked'
 
+export type QueryExecutionPhase = 'server' | 'rendering' | 'paging'
+
+export interface QueryTabActiveExecution {
+  executionId: string
+  phase: QueryExecutionPhase
+  startedAt: string
+  message?: string
+}
+
 export type QueryViewMode = 'builder' | 'raw' | 'script'
 
 export type SavedWorkItemKind =
@@ -811,6 +820,7 @@ export interface QueryTabState extends QueryTabDefinition {
   testSuite?: DatastoreTestSuiteDefinition
   testRun?: DatastoreTestRunResult
   status: QueryExecutionState
+  activeExecution?: QueryTabActiveExecution
   dirty: boolean
   lastRunAt?: string
   result?: ExecutionResultEnvelope

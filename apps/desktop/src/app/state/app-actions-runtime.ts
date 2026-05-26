@@ -1,10 +1,17 @@
-import { useCallback, useMemo } from 'react'
-import type { ExecutionRequest, ResultPageRequest } from '@datapadplusplus/shared-types'
+import { startTransition, useCallback, useMemo } from 'react'
+import type {
+  ExecutionRequest,
+  ExecutionResponse,
+  QueryExecutionPhase,
+  QueryTabActiveExecution,
+  ResultPageRequest,
+} from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { buildConnectionTestFailure } from './connection-test-results'
+import { createId } from './helpers'
 import { toUserMessage } from './app-state-selectors'
-import type { Actions, AppActionContext } from './app-state-types'
+import type { Actions, AppActionContext, StateShape } from './app-state-types'
 
 type RuntimeActions = Pick<
   Actions,
@@ -18,6 +25,7 @@ type RuntimeActions = Pick<
   | 'executeTestSuite'
   | 'cancelTestRun'
   | 'fetchResultPage'
+  | 'markExecutionDisplayed'
   | 'cancelExecution'
   | 'pickLocalDatabaseFile'
   | 'createLocalDatabase'
@@ -132,32 +140,52 @@ export function useRuntimeActions({
 
   const inspectRedisKey = useCallback<Actions['inspectRedisKey']>(
     async (request) => {
+      const executionId = createId('execution')
       try {
         ensureWorkspaceUnlocked(state.payload)
-        dispatch({ type: 'EXECUTION_LOADING', tabId: request.tabId })
-        const execution = await desktopClient.inspectRedisKey(request)
+        dispatch({
+          type: 'EXECUTION_LOADING',
+          tabId: request.tabId,
+          execution: tabExecution(executionId, 'server'),
+        })
+        const execution = await desktopClient.inspectRedisKey({
+          ...request,
+          executionId,
+        })
+        const executionWithId = { ...execution, executionId }
+        if (executionWithId.result) {
+          dispatch({
+            type: 'EXECUTION_PHASE',
+            tabId: request.tabId,
+            executionId,
+            phase: 'rendering',
+          })
+          await nextFrame()
+        }
         dispatch({
           type: 'EXECUTION_READY',
-          execution,
+          execution: executionWithId,
           request: {
-            executionId: execution.executionId,
+            executionId,
             tabId: request.tabId,
             connectionId: request.connectionId,
             environmentId: request.environmentId,
             language: 'redis',
             queryText: `INSPECT ${request.key}`,
           },
+          waitForDisplay: shouldWaitForVisibleResult(stateRef.current, request.tabId, executionWithId),
         })
       } catch (error) {
         dispatch({
           type: 'EXECUTION_FAILED',
           tabId: request.tabId,
+          executionId,
           message: toUserMessage(error, 'Unable to inspect Redis key.'),
         })
         handleError(error)
       }
     },
-    [dispatch, handleError, state.payload],
+    [dispatch, handleError, state.payload, stateRef],
   )
 
   const executeQuery = useCallback<Actions['executeQuery']>(
@@ -169,6 +197,7 @@ export function useRuntimeActions({
       executionInputMode,
       scriptText,
     ) => {
+      const executionId = createId('execution')
       try {
         const latest = stateRef.current
 
@@ -184,7 +213,7 @@ export function useRuntimeActions({
         }
 
         const executionRequest: ExecutionRequest = {
-          executionId: undefined,
+          executionId,
           tabId: tab.id,
           connectionId: tab.connectionId,
           environmentId: tab.environmentId,
@@ -197,13 +226,39 @@ export function useRuntimeActions({
           confirmedGuardrailId,
         }
 
-        dispatch({ type: 'EXECUTION_LOADING', tabId })
+        dispatch({
+          type: 'EXECUTION_LOADING',
+          tabId,
+          execution: tabExecution(executionId, 'server'),
+        })
         const execution = await desktopClient.executeQuery(executionRequest)
-        dispatch({ type: 'EXECUTION_READY', execution, request: executionRequest })
+        const executionWithId = { ...execution, executionId }
+        if (executionWithId.result) {
+          dispatch({
+            type: 'EXECUTION_PHASE',
+            tabId,
+            executionId,
+            phase: 'rendering',
+          })
+          await nextFrame()
+        }
+        startTransition(() => {
+          dispatch({
+            type: 'EXECUTION_READY',
+            execution: executionWithId,
+            request: executionRequest,
+            waitForDisplay: shouldWaitForVisibleResult(
+              stateRef.current,
+              tabId,
+              executionWithId,
+            ),
+          })
+        })
       } catch (error) {
         dispatch({
           type: 'EXECUTION_FAILED',
           tabId,
+          executionId,
           message: toUserMessage(error, 'Query execution failed.'),
         })
         handleError(error)
@@ -214,16 +269,27 @@ export function useRuntimeActions({
 
   const executeTestSuite = useCallback<Actions['executeTestSuite']>(
     async (request) => {
+      const executionId = createId('execution')
       try {
         ensureWorkspaceUnlocked(state.payload)
-        dispatch({ type: 'EXECUTION_LOADING', tabId: request.tabId })
+        dispatch({
+          type: 'EXECUTION_LOADING',
+          tabId: request.tabId,
+          execution: tabExecution(executionId, 'server', 'Running test suite'),
+        })
         const response = await desktopClient.executeTestSuite(request)
         dispatch({ type: 'COMMAND_SUCCESS', payload: await desktopClient.bootstrapApp() })
+        dispatch({
+          type: 'EXECUTION_DISPLAYED',
+          tabId: request.tabId,
+          executionId,
+        })
         return response
       } catch (error) {
         dispatch({
           type: 'EXECUTION_FAILED',
           tabId: request.tabId,
+          executionId,
           message: toUserMessage(error, 'Test suite execution failed.'),
         })
         handleError(error)
@@ -250,12 +316,14 @@ export function useRuntimeActions({
 
   const fetchResultPage = useCallback<Actions['fetchResultPage']>(
     async (tabId, renderer) => {
+      const executionId = createId('execution')
       try {
-        if (!state.payload) {
+        const latest = stateRef.current
+        if (!latest.payload) {
           throw new Error('Workspace is not ready for paged result loading.')
         }
-        ensureWorkspaceUnlocked(state.payload)
-        const tab = state.payload.snapshot.tabs.find((item) => item.id === tabId)
+        ensureWorkspaceUnlocked(latest.payload)
+        const tab = latest.payload.snapshot.tabs.find((item) => item.id === tabId)
 
         if (!tab?.result) {
           throw new Error('Run a query before loading another result page.')
@@ -279,13 +347,45 @@ export function useRuntimeActions({
           cursor: pageInfo.nextCursor,
         }
 
+        dispatch({
+          type: 'RESULT_PAGE_LOADING',
+          tabId,
+          execution: tabExecution(executionId, 'paging', 'Loading more results'),
+        })
         const page = await desktopClient.fetchResultPage(request)
-        dispatch({ type: 'RESULT_PAGE_READY', page })
+        dispatch({
+          type: 'EXECUTION_PHASE',
+          tabId,
+          executionId,
+          phase: 'paging',
+        })
+        await nextFrame()
+        startTransition(() => {
+          dispatch({
+            type: 'RESULT_PAGE_READY',
+            page,
+            executionId,
+            waitForDisplay: isTabVisible(stateRef.current, tabId),
+          })
+        })
       } catch (error) {
+        dispatch({
+          type: 'EXECUTION_FAILED',
+          tabId,
+          executionId,
+          message: toUserMessage(error, 'Unable to load more results.'),
+        })
         handleError(error)
       }
     },
-    [dispatch, handleError, state.payload],
+    [dispatch, handleError, stateRef],
+  )
+
+  const markExecutionDisplayed = useCallback<Actions['markExecutionDisplayed']>(
+    (tabId, executionId) => {
+      dispatch({ type: 'EXECUTION_DISPLAYED', tabId, executionId })
+    },
+    [dispatch],
   )
 
   const cancelExecution = useCallback<Actions['cancelExecution']>(
@@ -410,6 +510,7 @@ export function useRuntimeActions({
       executeTestSuite,
       cancelTestRun,
       fetchResultPage,
+      markExecutionDisplayed,
       cancelExecution,
       pickLocalDatabaseFile,
       createLocalDatabase,
@@ -432,6 +533,7 @@ export function useRuntimeActions({
       listDatastoreOperations,
       loadExplorer,
       loadStructureMap,
+      markExecutionDisplayed,
       scanRedisKeys,
       executeDataEdit,
       pickLocalDatabaseFile,
@@ -440,4 +542,40 @@ export function useRuntimeActions({
       testConnection,
     ],
   )
+}
+
+function tabExecution(
+  executionId: string,
+  phase: QueryExecutionPhase,
+  message?: string,
+): QueryTabActiveExecution {
+  return {
+    executionId,
+    phase,
+    startedAt: new Date().toISOString(),
+    message,
+  }
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      setTimeout(resolve, 0)
+      return
+    }
+
+    window.requestAnimationFrame(() => resolve())
+  })
+}
+
+function shouldWaitForVisibleResult(
+  state: StateShape,
+  tabId: string,
+  execution: Pick<ExecutionResponse, 'result'>,
+) {
+  return Boolean(execution.result && state.payload?.snapshot.ui.activeTabId === tabId)
+}
+
+function isTabVisible(state: StateShape, tabId: string) {
+  return state.payload?.snapshot.ui.activeTabId === tabId
 }

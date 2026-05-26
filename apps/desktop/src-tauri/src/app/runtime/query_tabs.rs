@@ -172,6 +172,7 @@ pub(super) fn build_query_tab(
         test_suite: None,
         test_run: None,
         status: "idle".into(),
+        active_execution: None,
         dirty,
         last_run_at: None,
         result: None,
@@ -208,6 +209,7 @@ pub(super) fn build_explorer_tab(
         test_suite: None,
         test_run: None,
         status: "idle".into(),
+        active_execution: None,
         dirty: false,
         last_run_at: None,
         result: None,
@@ -250,6 +252,7 @@ pub(super) fn build_metrics_tab(
         test_suite: None,
         test_run: None,
         status: "idle".into(),
+        active_execution: None,
         dirty: false,
         last_run_at: None,
         result: None,
@@ -295,6 +298,7 @@ pub(super) fn build_environment_tab(
         test_suite: None,
         test_run: None,
         status: "idle".into(),
+        active_execution: None,
         dirty: false,
         last_run_at: None,
         result: None,
@@ -341,6 +345,7 @@ pub(super) fn build_object_view_tab(
         test_suite: None,
         test_run: None,
         status: "idle".into(),
+        active_execution: None,
         dirty: false,
         last_run_at: None,
         result: None,
@@ -417,7 +422,11 @@ pub(super) fn build_scoped_query_tab(
         saved_query_id: None,
         editor_label: editor_label_for_connection(connection),
         query_text,
-        query_view_mode: builder_kind.as_ref().map(|_| "builder".into()),
+        query_view_mode: Some(if builder_kind.is_some() {
+            "builder".into()
+        } else {
+            default_query_view_mode(connection)
+        }),
         script_text: default_script_text(connection).map(|text| {
             if connection.engine == "mongodb" && builder_kind.as_deref() == Some("mongo-find") {
                 format!("db.{target_label}.find({{}}).limit({limit})")
@@ -436,6 +445,7 @@ pub(super) fn build_scoped_query_tab(
         test_suite: None,
         test_run: None,
         status: "idle".into(),
+        active_execution: None,
         dirty: true,
         last_run_at: None,
         result: None,

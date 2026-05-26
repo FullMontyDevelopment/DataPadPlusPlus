@@ -581,7 +581,6 @@ function sqliteTree(): DatastoreTreeNodeManifest[] {
     node('main-database', 'Main Database', 'database', 'SQLite main database file', {
       children: sqliteDatabaseChildren(),
     }),
-    node('attached-databases', 'Attached Databases', 'attached-databases', 'Database files attached to this connection'),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'PRAGMA, explain, integrity, and storage metadata'),
   ]
 }
@@ -592,21 +591,6 @@ function sqliteDatabaseChildren(): DatastoreTreeNodeManifest[] {
     node('views', 'Views', 'views', 'Stored SELECT definitions'),
     node('indexes', 'Indexes', 'indexes', 'Standalone and table indexes'),
     node('triggers', 'Triggers', 'triggers', 'Database and table triggers'),
-    node('virtual-tables', 'Virtual Tables', 'virtual-tables', 'Extension-backed virtual tables', {
-      optionalWhenLiveMetadata: true,
-    }),
-    node('fts-tables', 'FTS Tables', 'fts-tables', 'Full-text search virtual tables', {
-      optionalWhenLiveMetadata: true,
-    }),
-    node('rtree-tables', 'RTree Tables', 'rtree-tables', 'Spatial RTree virtual tables', {
-      optionalWhenLiveMetadata: true,
-    }),
-    node('generated-columns', 'Generated Columns', 'generated-columns', 'Generated and hidden columns', {
-      optionalWhenLiveMetadata: true,
-    }),
-    node('attached-databases', 'Attached Databases', 'attached-databases', 'Other database files visible to this connection'),
-    node('pragmas', 'Pragmas', 'pragmas', 'SQLite PRAGMA configuration and checks'),
-    node('schema', 'Schema', 'schema', 'sqlite_schema definitions'),
   ]
 }
 

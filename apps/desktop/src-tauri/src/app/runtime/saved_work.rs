@@ -162,6 +162,7 @@ impl ManagedAppState {
             test_suite: None,
             test_run: None,
             status: "idle".into(),
+            active_execution: None,
             dirty: false,
             last_run_at: None,
             result: None,

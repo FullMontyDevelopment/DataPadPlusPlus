@@ -73,6 +73,7 @@ import {
 } from './state/app-state-reducer-helpers'
 import { connectionLibraryNodeId } from '../services/runtime/library-connection-helpers'
 import { createConnectionProfile, createEnvironmentProfile } from './state/app-state-factories'
+import { normalizeQueryWindowMode } from './query-window-mode'
 import {
   appendFieldToQueryText,
   builderStateForTab,
@@ -172,7 +173,7 @@ function DesktopWorkspace() {
     structure,
     structureError,
     structureStatus,
-    executionStatus,
+    executionsByTab,
     lastExecution,
     lastExecutionRequest,
     connectionTests,
@@ -261,6 +262,10 @@ function DesktopWorkspace() {
       ? snapshot?.tabs.find((item) => item.connectionId === activeConnection.id)
       : undefined)
   const activeTabId = activeTab?.id
+  const activeTabExecution =
+    activeTabId ? activeTab?.activeExecution ?? executionsByTab[activeTabId] : undefined
+  const activeExecutionStatus = activeTabExecution ? 'loading' : 'idle'
+  const activeExecutionId = activeTabExecution?.executionId
   const activeTabIsExplorer = activeTab?.tabKind === 'explorer'
   const activeTabIsMetrics = activeTab?.tabKind === 'metrics'
   const activeTabIsObjectView = activeTab?.tabKind === 'object-view'
@@ -1032,9 +1037,7 @@ function DesktopWorkspace() {
       title,
     }
   })
-  const canCancelExecution = Boolean(
-    runtimeCapabilities.canCancel && lastExecution?.executionId,
-  )
+  const canCancelExecution = Boolean(runtimeCapabilities.canCancel && activeExecutionId)
   const showingExplorerWorkspace = activeTabIsExplorer
   const showingMetricsWorkspace = activeTabIsMetrics
   const showingObjectViewWorkspace = activeTabIsObjectView
@@ -1803,7 +1806,7 @@ function DesktopWorkspace() {
                     connection={activeConnection}
                     resolvedTheme={resolvedTheme}
                     testWindowMode={testWindowMode}
-                    executionStatus={executionStatus}
+                    executionStatus={activeExecutionStatus}
                     onModeChange={setTestWindowMode}
                     onRunSuite={() =>
                       void actions.executeTestSuite({
@@ -1834,7 +1837,7 @@ function DesktopWorkspace() {
                 ) : activeConnection && activeEnvironment && activeTab ? (
                   <>
                     <EditorToolbar
-                      executionStatus={executionStatus}
+                      executionStatus={activeExecutionStatus}
                       capabilities={runtimeCapabilities}
                       canCancelExecution={canCancelExecution}
                       bottomPanelVisible={snapshot.ui.bottomPanelVisible}
@@ -1842,8 +1845,8 @@ function DesktopWorkspace() {
                       onExecute={() => runCurrentTabQuery()}
                       onExplain={() => runCurrentTabQuery('explain')}
                       onCancel={() =>
-                        lastExecution?.executionId
-                          ? void actions.cancelExecution(lastExecution.executionId, activeTab.id)
+                        activeExecutionId
+                          ? void actions.cancelExecution(activeExecutionId, activeTab.id)
                           : undefined
                       }
                       onOpenConnectionDrawer={openConnectionDrawer}
@@ -2049,6 +2052,7 @@ function DesktopWorkspace() {
                     ? void actions.fetchResultPage(activeTab.id, activeRenderer)
                     : undefined
                 }
+                onResultRendered={actions.markExecutionDisplayed}
                 onResize={(nextSize) =>
                   void actions.updateUiState(
                     resultsDockRight
@@ -2199,32 +2203,6 @@ function buildQueryTextForBuilderState(
   }
 
   return undefined
-}
-
-function defaultQueryWindowModeForBuilderKind(
-  builderKind: QueryBuilderState['kind'],
-): QueryViewMode {
-  return builderKind ? 'builder' : 'raw'
-}
-
-function normalizeQueryWindowMode(
-  queryViewMode: QueryViewMode | 'both' | undefined,
-  builderKind: QueryBuilderState['kind'] | undefined,
-  connection: ConnectionProfile | undefined,
-): QueryViewMode {
-  if (queryViewMode === 'script' && connection?.engine === 'mongodb') {
-    return 'script'
-  }
-
-  if (queryViewMode === 'raw') {
-    return 'raw'
-  }
-
-  if (queryViewMode === 'builder' || queryViewMode === 'both') {
-    return builderKind ? 'builder' : 'raw'
-  }
-
-  return builderKind ? defaultQueryWindowModeForBuilderKind(builderKind) : 'raw'
 }
 
 function inferLibraryItemKindForTab(tab: QueryTabState): LibraryItemKind {

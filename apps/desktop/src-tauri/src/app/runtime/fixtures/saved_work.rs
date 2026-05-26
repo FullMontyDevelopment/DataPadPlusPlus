@@ -75,6 +75,7 @@ pub(super) fn fixture_closed_tabs(
             test_suite: None,
             test_run: None,
             status: "idle".into(),
+            active_execution: None,
             dirty: true,
             last_run_at: None,
             result: None,

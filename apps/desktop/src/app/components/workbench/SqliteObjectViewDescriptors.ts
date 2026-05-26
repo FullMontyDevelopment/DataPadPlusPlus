@@ -82,5 +82,11 @@ function descriptor(
 }
 
 function normalizeSqliteObjectKind(kind: string) {
-  return kind.trim().toLowerCase().replace(/[_\s]+/g, '-')
+  const normalized = kind.trim().toLowerCase().replace(/[_\s]+/g, '-')
+
+  if (['base-table', 'strict-table', 'virtual-table', 'fts-table', 'rtree-table'].includes(normalized)) {
+    return 'table'
+  }
+
+  return normalized
 }

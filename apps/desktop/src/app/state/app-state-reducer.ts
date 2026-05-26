@@ -6,6 +6,8 @@ import {
   explorerCacheKey,
   explorerRequestKey,
   markTabExecutionFailed,
+  markTabExecutionDisplayed,
+  markTabExecutionPhase,
   markTabExecutionLoading,
   mergeExplorerCacheEntry,
   openMessagesPayload,
@@ -17,6 +19,8 @@ export const initialState: StateShape = {
   explorerLoadingRequests: {},
   structureStatus: 'idle',
   executionStatus: 'idle',
+  executionsByTab: {},
+  latestExecutionsByTab: {},
   connectionTests: {},
   workbenchMessages: [],
 }
@@ -38,7 +42,7 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         payload: action.payload,
         diagnostics: action.payload.diagnostics,
         executionStatus:
-          state.executionStatus === 'loading' ? 'ready' : state.executionStatus,
+          Object.keys(state.executionsByTab).length > 0 ? 'loading' : 'ready',
       }
     case 'DIAGNOSTICS_READY':
       return {
@@ -141,28 +145,174 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
     case 'EXECUTION_LOADING':
       return {
         ...state,
+        executionsByTab: action.tabId
+          ? {
+              ...state.executionsByTab,
+              [action.tabId]: action.execution,
+            }
+          : state.executionsByTab,
+        latestExecutionsByTab: action.tabId
+          ? {
+              ...state.latestExecutionsByTab,
+              [action.tabId]: action.execution.executionId,
+            }
+          : state.latestExecutionsByTab,
         executionStatus: 'loading',
-        payload: markTabExecutionLoading(state.payload, action.tabId),
+        payload: markTabExecutionLoading(state.payload, action.tabId, action.execution),
       }
+    case 'EXECUTION_PHASE':
+      return {
+        ...state,
+        executionsByTab: action.tabId
+          ? {
+              ...state.executionsByTab,
+              [action.tabId]: {
+                ...(state.executionsByTab[action.tabId] ?? {
+                  executionId: action.executionId,
+                  startedAt: new Date().toISOString(),
+                }),
+                executionId: action.executionId,
+                phase: action.phase,
+                message: action.message,
+              },
+            }
+          : state.executionsByTab,
+        executionStatus: 'loading',
+        payload: markTabExecutionPhase(
+          state.payload,
+          action.tabId,
+          action.executionId,
+          action.phase,
+          action.message,
+        ),
+      }
+    case 'EXECUTION_DISPLAYED': {
+      const executionsByTab = { ...state.executionsByTab }
+      if (
+        action.tabId &&
+        executionsByTab[action.tabId]?.executionId === action.executionId
+      ) {
+        delete executionsByTab[action.tabId]
+      }
+      return {
+        ...state,
+        executionsByTab,
+        executionStatus: Object.keys(executionsByTab).length ? 'loading' : 'ready',
+        payload: markTabExecutionDisplayed(
+          state.payload,
+          action.tabId,
+          action.executionId,
+        ),
+      }
+    }
     case 'EXECUTION_FAILED':
-      return {
-        ...state,
-        executionStatus: state.executionStatus === 'loading' ? 'idle' : state.executionStatus,
-        payload: markTabExecutionFailed(state.payload, action.tabId, action.message),
+    {
+      const executionsByTab = { ...state.executionsByTab }
+      if (
+        action.tabId &&
+        (!action.executionId ||
+          executionsByTab[action.tabId]?.executionId === action.executionId)
+      ) {
+        delete executionsByTab[action.tabId]
       }
-    case 'EXECUTION_READY':
       return {
         ...state,
-        executionStatus: 'ready',
-        payload: applyExecutionToPayload(state.payload, action.execution),
+        executionsByTab,
+        executionStatus: Object.keys(executionsByTab).length ? 'loading' : 'idle',
+        payload: markTabExecutionFailed(
+          state.payload,
+          action.tabId,
+          action.message,
+          action.executionId,
+        ),
+      }
+    }
+    case 'EXECUTION_READY':
+    {
+      const tabId = action.execution.tab.id
+      const currentExecution = state.executionsByTab[tabId]
+      const latestExecutionId = state.latestExecutionsByTab[tabId]
+      if (
+        (currentExecution && currentExecution.executionId !== action.execution.executionId) ||
+        (latestExecutionId && latestExecutionId !== action.execution.executionId)
+      ) {
+        return state
+      }
+      const waitForDisplay = Boolean(action.waitForDisplay && action.execution.result)
+      const executionsByTab = { ...state.executionsByTab }
+      if (waitForDisplay) {
+        executionsByTab[tabId] = {
+          ...(currentExecution ?? {
+            executionId: action.execution.executionId,
+            startedAt: new Date().toISOString(),
+          }),
+          executionId: action.execution.executionId,
+          phase: 'rendering',
+        }
+      } else {
+        delete executionsByTab[tabId]
+      }
+      return {
+        ...state,
+        executionsByTab,
+        executionStatus: Object.keys(executionsByTab).length ? 'loading' : 'ready',
+        payload: applyExecutionToPayload(state.payload, action.execution, {
+          waitForDisplay,
+        }),
         lastExecution: action.execution,
         lastExecutionRequest: action.request,
       }
-    case 'RESULT_PAGE_READY':
+    }
+    case 'RESULT_PAGE_LOADING':
       return {
         ...state,
-        payload: applyResultPageToPayload(state.payload, action.page),
+        executionsByTab: {
+          ...state.executionsByTab,
+          [action.tabId]: action.execution,
+        },
+        latestExecutionsByTab: {
+          ...state.latestExecutionsByTab,
+          [action.tabId]: action.execution.executionId,
+        },
+        executionStatus: 'loading',
+        payload: markTabExecutionLoading(state.payload, action.tabId, action.execution),
       }
+    case 'RESULT_PAGE_READY':
+    {
+      const tabId = action.page.tabId
+      const currentExecution = state.executionsByTab[tabId]
+      const latestExecutionId = state.latestExecutionsByTab[tabId]
+      if (
+        action.executionId &&
+        ((currentExecution && currentExecution.executionId !== action.executionId) ||
+          (latestExecutionId && latestExecutionId !== action.executionId))
+      ) {
+        return state
+      }
+      const waitForDisplay = Boolean(action.waitForDisplay)
+      const executionsByTab = { ...state.executionsByTab }
+      if (waitForDisplay && action.executionId) {
+        executionsByTab[tabId] = {
+          ...(currentExecution ?? {
+            executionId: action.executionId,
+            startedAt: new Date().toISOString(),
+          }),
+          executionId: action.executionId,
+          phase: 'paging',
+        }
+      } else {
+        delete executionsByTab[tabId]
+      }
+      return {
+        ...state,
+        executionsByTab,
+        executionStatus: Object.keys(executionsByTab).length ? 'loading' : 'ready',
+        payload: applyResultPageToPayload(state.payload, action.page, {
+          executionId: action.executionId,
+          waitForDisplay,
+        }),
+      }
+    }
     case 'BOOTSTRAP_ERROR':
       return {
         ...state,
@@ -178,7 +328,8 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         explorerLoadingRequests: {},
         structureStatus: state.structureStatus === 'loading' ? 'idle' : state.structureStatus,
         executionStatus:
-          state.executionStatus === 'loading' ? 'idle' : state.executionStatus,
+          Object.keys(state.executionsByTab).length > 0 ? 'loading' : state.executionStatus,
+        executionsByTab: state.executionsByTab,
         startupErrorMessage: state.payload ? state.startupErrorMessage : action.message,
         workbenchMessages: [
           createWorkbenchMessage(action.message, 'Desktop command'),

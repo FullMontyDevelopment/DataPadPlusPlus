@@ -1101,6 +1101,8 @@ function objectViewMenuLabel(connection: ConnectionProfile, kind: string | undef
 }
 
 function scopedQueryMenuLabel(connection: ConnectionProfile, kind: string | undefined) {
+  const normalizedKind = kind?.trim().toLowerCase().replace(/[_\s]+/g, '-')
+
   if (connection.engine === 'mongodb') {
     return mongoScopedQueryMenuLabel(kind)
   }
@@ -1137,6 +1139,33 @@ function scopedQueryMenuLabel(connection: ConnectionProfile, kind: string | unde
         : connection.engine === 'clickhouse'
           ? 'Open ClickHouse SQL'
           : 'Open SQL Query'
+  }
+
+  if (connection.family === 'sql') {
+    if (
+      normalizedKind &&
+      [
+        'table',
+        'base-table',
+        'strict-table',
+        'virtual-table',
+        'fts-table',
+        'rtree-table',
+        'hypertable',
+      ].includes(normalizedKind)
+    ) {
+      return 'Open Table Data'
+    }
+
+    if (normalizedKind === 'view' || normalizedKind === 'materialized-view') {
+      return 'Open View Data'
+    }
+
+    if (normalizedKind === 'data') {
+      return 'Open Data Query'
+    }
+
+    return 'Open SQL Query'
   }
 
   return 'Open Query'

@@ -487,7 +487,7 @@ function fallbackExplorerQueryTemplate(
 
   if (
     connection.family === 'sql' &&
-    ['table', 'hypertable', 'view', 'materialized-view'].includes(kind)
+    (isSqlTableLikeKind(kind) || ['hypertable', 'view', 'materialized-view'].includes(kind))
   ) {
     const { schema, objectName } = sqlObjectPartsFromExplorerNode(connection, node)
 
@@ -641,7 +641,8 @@ function isExplorerNodeQueryable(connection: ConnectionProfile, node: ExplorerNo
   }
 
   return Boolean(
-    ['table', 'hypertable', 'view', 'materialized-view'].includes(kind) ||
+    isSqlTableLikeKind(kind) ||
+      ['hypertable', 'view', 'materialized-view', 'data'].includes(kind) ||
       (['elasticsearch', 'opensearch'].includes(connection.engine) &&
         ['index', 'data-stream', 'documents'].includes(kind)) ||
       (connection.engine === 'dynamodb' && ['table', 'items'].includes(kind)) ||
@@ -651,6 +652,17 @@ function isExplorerNodeQueryable(connection: ConnectionProfile, node: ExplorerNo
       (connection.engine === 'influxdb' && ['measurement'].includes(kind)) ||
       (connection.engine === 'opentsdb' && ['metric'].includes(kind)),
   )
+}
+
+function isSqlTableLikeKind(kind: string) {
+  return [
+    'table',
+    'base-table',
+    'strict-table',
+    'virtual-table',
+    'fts-table',
+    'rtree-table',
+  ].includes(kind)
 }
 
 function sqlConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
@@ -694,14 +706,10 @@ function sqliteConnectionTree(): ConnectionTreeNode[] {
     branch('views', 'Views', 'views', 'Stored SELECT definitions', []),
     branch('indexes', 'Indexes', 'indexes', 'Standalone and table indexes', []),
     branch('triggers', 'Triggers', 'triggers', 'Database and table triggers', []),
-    branch('attached-databases', 'Attached Databases', 'attached-databases', 'Other database files visible to this connection', []),
-    branch('pragmas', 'Pragmas', 'pragmas', 'SQLite PRAGMA configuration and checks', []),
-    branch('schema', 'Schema', 'schema', 'sqlite_schema definitions', []),
   ]
 
   return [
     branch('main-database', 'Main Database', 'database', 'SQLite main database file', databaseChildren),
-    branch('attached-databases-root', 'Attached Databases', 'attached-databases', 'Database files attached to this connection', []),
     branch('diagnostics', 'Diagnostics', 'diagnostics', 'PRAGMA, explain, integrity, and storage metadata', []),
   ]
 }

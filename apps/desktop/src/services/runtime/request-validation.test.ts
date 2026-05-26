@@ -3,6 +3,7 @@ import {
   validateCreateLibraryFolderRequest,
   validateCreateObjectViewTabRequest,
   validateConnectionProfile,
+  validateConnectionTestRequest,
   validateDataEditPlanRequest,
   validateEnvironmentProfile,
   validateExecutionRequest,
@@ -296,6 +297,55 @@ describe('runtime request validation', () => {
         updatedAt: '2026-01-01T00:00:00.000Z',
       }),
     ).toThrow(/embedded passwords/)
+  })
+
+  it('normalizes nullable connection profile fields without raw runtime crashes', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-1',
+      name: '  Reporting  ',
+      engine: 'postgresql',
+      family: 'sql',
+      host: null,
+      port: null,
+      database: null,
+      connectionMode: null,
+      environmentIds: null,
+      tags: null,
+      favorite: false,
+      readOnly: false,
+      icon: null,
+      auth: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    } as never)
+
+    expect(profile).toMatchObject({
+      name: 'Reporting',
+      host: '',
+      database: undefined,
+      environmentIds: [],
+      tags: [],
+      icon: 'database',
+      auth: {},
+    })
+
+    expect(() =>
+      validateConnectionTestRequest({
+        environmentId: 'env-qa',
+        profile: {
+          ...profile,
+          tags: 'oops',
+        } as never,
+      }),
+    ).toThrow(/Profile tags must be an array/)
+
+    expect(
+      validateConnectionTestRequest({
+        environmentId: 'env-qa',
+        profile,
+        secret: null,
+      } as never).secret,
+    ).toBeUndefined()
   })
 
   it('rejects plaintext secret environment variables and duplicate names', () => {

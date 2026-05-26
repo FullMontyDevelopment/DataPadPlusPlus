@@ -147,8 +147,75 @@ describe('ConnectionObjectTree', () => {
     expect(screen.queryByText('FTS Tables')).not.toBeInTheDocument()
     expect(screen.queryByText('RTree Tables')).not.toBeInTheDocument()
     expect(screen.queryByText('Generated Columns')).not.toBeInTheDocument()
-    expect(screen.getByText('Pragmas')).toBeInTheDocument()
+    expect(screen.queryByText('Pragmas')).not.toBeInTheDocument()
+    expect(screen.queryByText('Schema')).not.toBeInTheDocument()
     expect(screen.queryByText('accounts')).not.toBeInTheDocument()
+  })
+
+  it('uses SQLite table-first query labels and opens table data from live metadata', () => {
+    const onOpenScopedQuery = vi.fn()
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={sqliteConnection()}
+        explorerNodes={[
+          {
+            id: 'database:main',
+            label: 'Main Database',
+            kind: 'database',
+            detail: 'Fixture SQLite file',
+            family: 'sql',
+            path: ['Fixture SQLite'],
+            scope: 'database:main',
+            expandable: true,
+          },
+          {
+            id: 'folder:main:tables',
+            label: 'Tables',
+            kind: 'tables',
+            detail: 'Base row-store tables',
+            family: 'sql',
+            path: ['Fixture SQLite', 'Main Database'],
+            scope: 'folder:main:tables',
+            expandable: true,
+          },
+          {
+            id: 'table:main:accounts',
+            label: 'accounts',
+            kind: 'strict-table',
+            detail: 'SQLite STRICT table',
+            family: 'sql',
+            path: ['Fixture SQLite', 'Main Database', 'Tables'],
+            scope: 'table:main:accounts',
+            queryTemplate: 'select * from [main].[accounts] limit 100;',
+            expandable: true,
+          },
+        ]}
+        explorerStatus="ready"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={onOpenScopedQuery}
+      />,
+    )
+
+    expandTreeItem('Main Database')
+    expandTreeItem('Tables')
+    fireEvent.contextMenu(treeItemForLabel('accounts'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for accounts' })
+    expect(within(menu).getByRole('menuitem', { name: 'Open Table Data' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Open Table' })).toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open Table Data' }))
+    expect(onOpenScopedQuery).toHaveBeenCalledWith(
+      'conn-sqlite',
+      expect.objectContaining({
+        kind: 'strict-table',
+        label: 'accounts',
+        queryTemplate: 'select * from [main].[accounts] limit 100;',
+      }),
+    )
+    expect(onOpenObjectView).not.toHaveBeenCalled()
   })
 
   it('uses LiteDB-owned local file folders without document-store admin clutter', () => {

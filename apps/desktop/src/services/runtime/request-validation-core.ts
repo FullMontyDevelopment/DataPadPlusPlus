@@ -84,37 +84,40 @@ export function validateOperationId(value: string) {
   }
 }
 
-export function validateRequiredId(value: string | undefined, label: string) {
+export function validateRequiredId(value: string | null | undefined, label: string) {
   validateRequiredText(value, label, MAX_ID_LENGTH)
   if (!/^[a-z0-9][a-z0-9._:-]*$/i.test(value ?? '')) {
     throw new Error(`${label} contains unsupported characters.`)
   }
 }
 
-export function validateOptionalId(value: string | undefined, label: string) {
-  if (value !== undefined) {
+export function validateOptionalId(value: string | null | undefined, label: string) {
+  if (value !== undefined && value !== null) {
     validateRequiredId(value, label)
   }
 }
 
 export function validateRequiredText(
-  value: string | undefined,
+  value: string | null | undefined,
   label: string,
   maxLength: number,
 ) {
-  if (!value?.trim()) {
+  if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`${label} is required.`)
   }
   validateOptionalText(value, label, maxLength)
 }
 
 export function validateOptionalText(
-  value: string | undefined,
+  value: string | null | undefined,
   label: string,
   maxLength: number,
 ) {
-  if (value === undefined) {
-    return value
+  if (value === undefined || value === null) {
+    return undefined
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${label} must be text.`)
   }
   if (value.length > maxLength) {
     throw new Error(`${label} must be ${maxLength} characters or fewer.`)
@@ -125,7 +128,10 @@ export function validateOptionalText(
   return value
 }
 
-export function validatePath(path: string[], label: string) {
+export function validatePath(path: string[] | null | undefined, label: string) {
+  if (!Array.isArray(path)) {
+    throw new Error(`${label} must be an array.`)
+  }
   if (path.length > MAX_PATH_SEGMENTS) {
     throw new Error(`${label} can contain at most ${MAX_PATH_SEGMENTS} segments.`)
   }

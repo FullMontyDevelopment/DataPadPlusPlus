@@ -34,7 +34,7 @@ pub(super) async fn list_sqlite_explorer_nodes(
         None => root_nodes(connection, &pool).await?,
         Some(scope) if scope.starts_with("database:") => {
             let schema = scope.trim_start_matches("database:");
-            database_nodes(connection, schema)
+            database_nodes(connection, &pool, schema).await?
         }
         Some(scope) if scope.starts_with("folder:") => {
             let (schema, folder) = parse_folder_scope(scope)?;
@@ -63,7 +63,7 @@ pub(super) async fn list_sqlite_explorer_nodes(
         Some("attached-databases") => attached_database_nodes(connection, &pool, true).await?,
         Some(scope) if scope.starts_with("schema:") => {
             // Backward-compatible scope used by older UI/tests.
-            database_nodes(connection, scope.trim_start_matches("schema:"))
+            database_nodes(connection, &pool, scope.trim_start_matches("schema:")).await?
         }
         Some(scope) => vec![warning_node(
             "sqlite-scope-unsupported",
@@ -173,26 +173,28 @@ async fn root_nodes(
     pool: &sqlx::SqlitePool,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
     let mut nodes = vec![database_node(connection, "main", "Main Database", true)];
-    let attached = attached_database_nodes(connection, pool, false).await?;
-    nodes.push(folder_node(
-        "attached-databases",
-        "Attached Databases",
-        "attached-databases",
-        if attached.is_empty() {
-            "No attached database files"
-        } else {
-            "Database files attached to this connection"
-        },
-        Some("attached-databases".into()),
-        vec![connection.name.clone()],
-        true,
-    ));
+    let attached = attached_database_nodes(connection, pool, true).await?;
+    if !attached.is_empty() {
+        nodes.push(folder_node(
+            "attached-databases",
+            "Attached Databases",
+            "attached-databases",
+            "Database files attached to this connection",
+            Some("attached-databases".into()),
+            vec![connection.name.clone()],
+            true,
+        ));
+    }
     Ok(nodes)
 }
 
-fn database_nodes(connection: &ResolvedConnectionProfile, schema: &str) -> Vec<ExplorerNode> {
+async fn database_nodes(
+    connection: &ResolvedConnectionProfile,
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+) -> Result<Vec<ExplorerNode>, CommandError> {
     let path = database_path(connection, schema);
-    [
+    let mut sections = vec![
         ("tables", "Tables", "tables", "Base row-store tables"),
         ("views", "Views", "views", "Stored SELECT definitions"),
         (
@@ -207,61 +209,31 @@ fn database_nodes(connection: &ResolvedConnectionProfile, schema: &str) -> Vec<E
             "triggers",
             "DML and INSTEAD OF triggers",
         ),
-        (
+    ];
+
+    if sqlite_has_objects(pool, schema, "table", ObjectFilter::VirtualTables).await? {
+        sections.push((
             "virtual-tables",
             "Virtual Tables",
             "virtual-tables",
             "Extension-backed virtual tables",
-        ),
-        (
-            "fts-tables",
-            "FTS Tables",
-            "fts-tables",
-            "Full-text search virtual tables",
-        ),
-        (
-            "rtree-tables",
-            "RTree Tables",
-            "rtree-tables",
-            "Spatial RTree virtual tables",
-        ),
-        (
-            "generated-columns",
-            "Generated Columns",
-            "generated-columns",
-            "Tables containing generated/hidden computed columns",
-        ),
-        (
-            "attached-databases",
-            "Attached Databases",
-            "attached-databases",
-            "Other database files visible to this connection",
-        ),
-        (
-            "pragmas",
-            "Pragmas",
-            "pragmas",
-            "SQLite PRAGMA configuration and checks",
-        ),
-        ("schema", "Schema", "schema", "sqlite_schema definitions"),
-    ]
-    .into_iter()
-    .map(|(scope, label, kind, detail)| {
-        folder_node(
-            &format!("folder:{schema}:{scope}"),
-            label,
-            kind,
-            detail,
-            Some(if scope == "pragmas" {
-                format!("pragmas:{schema}")
-            } else {
-                format!("folder:{schema}:{scope}")
-            }),
-            path.clone(),
-            true,
-        )
-    })
-    .collect()
+        ));
+    }
+
+    Ok(sections
+        .into_iter()
+        .map(|(scope, label, kind, detail)| {
+            folder_node(
+                &format!("folder:{schema}:{scope}"),
+                label,
+                kind,
+                detail,
+                Some(format!("folder:{schema}:{scope}")),
+                path.clone(),
+                true,
+            )
+        })
+        .collect())
 }
 
 async fn folder_nodes(
@@ -684,6 +656,26 @@ async fn sqlite_objects(
     }
 
     Ok(nodes)
+}
+
+async fn sqlite_has_objects(
+    pool: &sqlx::SqlitePool,
+    schema: &str,
+    object_type: &str,
+    filter: ObjectFilter,
+) -> Result<bool, CommandError> {
+    let query = format!(
+        "select name, coalesce(sql, '') as sql from {}.sqlite_master where type = '{}' limit 250",
+        sqlite_quote_identifier(schema),
+        sql_literal(object_type),
+    );
+    let rows = sqlx::query(&query).fetch_all(pool).await?;
+
+    Ok(rows.into_iter().any(|row| {
+        let name = row.get::<String, _>("name");
+        let sql = row.get::<String, _>("sql");
+        !should_skip_sqlite_object(&name, &sql, filter)
+    }))
 }
 
 fn should_skip_sqlite_object(name: &str, sql: &str, filter: ObjectFilter) -> bool {
@@ -1653,20 +1645,52 @@ mod tests {
     }
 
     #[test]
-    fn sqlite_database_nodes_match_spec_sections() {
-        let connection = test_connection("fixture.sqlite");
-        let labels = database_nodes(&connection, "main")
-            .into_iter()
-            .map(|node| node.label)
-            .collect::<Vec<_>>();
+    fn sqlite_database_nodes_match_native_sections() {
+        tauri::async_runtime::block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "datapadplusplus-sqlite-sections-{}.sqlite",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_file(&path);
+            let setup_pool = sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(
+                    sqlx::sqlite::SqliteConnectOptions::new()
+                        .filename(&path)
+                        .create_if_missing(true),
+                )
+                .await
+                .expect("create sqlite fixture");
+            sqlx::query("create table accounts (id integer primary key, name text not null)")
+                .execute(&setup_pool)
+                .await
+                .expect("create accounts table");
+            sqlx::query("create view active_accounts as select id, name from accounts")
+                .execute(&setup_pool)
+                .await
+                .expect("create accounts view");
 
-        assert!(labels.contains(&"Tables".into()));
-        assert!(labels.contains(&"Views".into()));
-        assert!(labels.contains(&"Virtual Tables".into()));
-        assert!(labels.contains(&"FTS Tables".into()));
-        assert!(labels.contains(&"RTree Tables".into()));
-        assert!(labels.contains(&"Pragmas".into()));
-        assert!(labels.contains(&"Schema".into()));
+            let connection = test_connection(path.to_string_lossy().as_ref());
+            let labels = database_nodes(&connection, &setup_pool, "main")
+                .await
+                .expect("database sections")
+                .into_iter()
+                .map(|node| node.label)
+                .collect::<Vec<_>>();
+
+            assert!(labels.contains(&"Tables".into()));
+            assert!(labels.contains(&"Views".into()));
+            assert!(labels.contains(&"Indexes".into()));
+            assert!(labels.contains(&"Triggers".into()));
+            assert!(!labels.contains(&"Virtual Tables".into()));
+            assert!(!labels.contains(&"FTS Tables".into()));
+            assert!(!labels.contains(&"RTree Tables".into()));
+            assert!(!labels.contains(&"Pragmas".into()));
+            assert!(!labels.contains(&"Schema".into()));
+
+            setup_pool.close().await;
+            let _ = std::fs::remove_file(&path);
+        });
     }
 
     #[test]

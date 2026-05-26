@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ConnectionBlade } from './RightDrawer.connection-blade'
 
 describe('ConnectionBlade', () => {
-  it('clears typed credentials after test, save, and close actions', () => {
+  it('keeps typed credentials for testing but clears them after save and close actions', () => {
     const onClose = vi.fn()
     const onSaveConnection = vi.fn()
     const onTestConnection = vi.fn()
@@ -31,7 +31,7 @@ describe('ConnectionBlade', () => {
       environment.id,
       'do-not-keep-me',
     )
-    expect(credentialInput).toHaveValue('')
+    expect(credentialInput).toHaveValue('do-not-keep-me')
 
     fireEvent.change(credentialInput, { target: { value: 'do-not-keep-me-again' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save Connection' }))
@@ -45,6 +45,26 @@ describe('ConnectionBlade', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }))
     expect(onClose).toHaveBeenCalled()
     expect(credentialInput).toHaveValue('')
+  })
+
+  it('keeps stored credentials write-only when editing an existing connection', () => {
+    render(
+      <ConnectionBlade
+        activeConnection={connectionWithStoredSecret}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn()}
+        onTestConnection={vi.fn()}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    const credentialInput = screen.getByLabelText('Password / Credential')
+
+    expect(credentialInput).toHaveValue('')
+    expect(credentialInput).toHaveAttribute('placeholder', 'Stored credential')
   })
 })
 
@@ -87,4 +107,18 @@ const connection: ConnectionProfile = {
   },
   createdAt: '2026-05-22T00:00:00.000Z',
   updatedAt: '2026-05-22T00:00:00.000Z',
+}
+
+const connectionWithStoredSecret: ConnectionProfile = {
+  ...connection,
+  auth: {
+    ...connection.auth,
+    secretRef: {
+      id: 'secret-connection-password',
+      provider: 'os-keyring',
+      service: 'datapadplusplus',
+      account: 'conn-postgres',
+      label: 'PostgreSQL credential',
+    },
+  },
 }

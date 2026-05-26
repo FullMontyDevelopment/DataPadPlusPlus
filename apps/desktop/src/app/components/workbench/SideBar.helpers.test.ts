@@ -58,7 +58,8 @@ describe('sidebar connection tree helpers', () => {
     expect(findNode(tree, 'tables')).toMatchObject({ label: 'Tables' })
     expect(findNodeByLabel(tree, 'Virtual Tables')).toBeUndefined()
     expect(findNodeByLabel(tree, 'FTS Tables')).toBeUndefined()
-    expect(findNodeByLabel(tree, 'Pragmas')).toMatchObject({ label: 'Pragmas' })
+    expect(findNodeByLabel(tree, 'Pragmas')).toBeUndefined()
+    expect(findNodeByLabel(tree, 'Schema')).toBeUndefined()
     expect(findNode(tree, 'table-accounts')).toBeUndefined()
   })
 

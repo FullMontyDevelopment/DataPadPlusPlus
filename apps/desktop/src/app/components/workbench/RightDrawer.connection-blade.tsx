@@ -210,13 +210,12 @@ export function ConnectionBlade({
     setSecretDraft('')
   }
 
-  const testConnectionAndClearSecret = (
+  const testConnectionWithDraftSecret = (
     profile: ConnectionProfile,
     environmentId: string,
     secret?: string,
   ) => {
     onTestConnection(profile, environmentId, secret)
-    setSecretDraft('')
   }
 
   return (
@@ -269,7 +268,7 @@ export function ConnectionBlade({
         secretDraft={secretDraft}
         selectedEnvironmentId={selectedEnvironmentId}
         onSaveConnection={saveConnectionAndClearSecret}
-        onTestConnection={testConnectionAndClearSecret}
+        onTestConnection={testConnectionWithDraftSecret}
       />
     </>
   )

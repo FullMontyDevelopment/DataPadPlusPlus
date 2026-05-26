@@ -393,7 +393,7 @@ export function sqlObjectQueryTemplate(
   }
 
   if (connection.engine === 'sqlite') {
-    return `select * from [${schema}].[${objectName}] limit 100;`
+    return `select * from [${schema.replace(/]/g, ']]')}].[${objectName.replace(/]/g, ']]')}] limit 100;`
   }
 
   if (connection.engine === 'oracle') {
@@ -776,12 +776,8 @@ function sqlitePlacement(
     return ['Main Database', 'Virtual Tables']
   }
 
-  if (kind === 'fts-table') {
-    return ['Main Database', 'FTS Tables']
-  }
-
-  if (kind === 'rtree-table') {
-    return ['Main Database', 'RTree Tables']
+  if (kind === 'fts-table' || kind === 'rtree-table') {
+    return ['Main Database', 'Virtual Tables']
   }
 
   return ['Main Database', sqlCategoryForKind(connection, kind, node.label, objectParts.schema)]

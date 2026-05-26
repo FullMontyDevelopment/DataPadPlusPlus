@@ -9,7 +9,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::{
-    app::runtime::{ManagedAppState, SharedAppState},
+    app::runtime::{generate_id, timestamp_now, ManagedAppState, SharedAppState},
     domain::{
         error::CommandError,
         models::{
@@ -27,11 +27,11 @@ use crate::{
             OpenTestSuiteTemplateRequest, OperationExecutionRequest, OperationExecutionResponse,
             OperationManifestRequest, OperationManifestResponse, OperationPlanRequest,
             OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse,
-            QueryTabReorderRequest, RedisKeyInspectRequest, RedisKeyScanRequest,
-            RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
+            QueryTabActiveExecution, QueryTabReorderRequest, RedisKeyInspectRequest,
+            RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
             SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
             StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
-            UpdateTestSuiteTabRequest, UpdateUiStateRequest,
+            UpdateTestSuiteTabRequest, UpdateUiStateRequest, UserFacingError,
         },
     },
 };
@@ -62,6 +62,125 @@ fn replace_runtime(
     let mut state = lock_state(state)?;
     state.snapshot = runtime.snapshot;
     Ok(())
+}
+
+fn request_execution_id(request: &mut ExecutionRequest) -> String {
+    let execution_id = request
+        .execution_id
+        .clone()
+        .unwrap_or_else(|| generate_id("execution"));
+    request.execution_id = Some(execution_id.clone());
+    execution_id
+}
+
+fn mark_tab_execution_running(
+    state: &State<'_, SharedAppState>,
+    tab_id: &str,
+    execution_id: &str,
+    message: Option<String>,
+) -> Result<(), CommandError> {
+    let mut state = lock_state(state)?;
+    let tab = state
+        .snapshot
+        .tabs
+        .iter_mut()
+        .find(|tab| tab.id == tab_id)
+        .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
+
+    tab.status = "running".into();
+    tab.error = None;
+    tab.active_execution = Some(QueryTabActiveExecution {
+        execution_id: execution_id.to_string(),
+        phase: "server".into(),
+        started_at: timestamp_now(),
+        message,
+    });
+    state.snapshot.updated_at = timestamp_now();
+    Ok(())
+}
+
+fn clear_tab_execution_after_error(
+    state: &State<'_, SharedAppState>,
+    tab_id: &str,
+    execution_id: &str,
+    message: String,
+) -> Result<(), CommandError> {
+    let mut state = lock_state(state)?;
+    let Some(tab) = state.snapshot.tabs.iter_mut().find(|tab| tab.id == tab_id) else {
+        return Ok(());
+    };
+
+    if tab
+        .active_execution
+        .as_ref()
+        .is_some_and(|active| active.execution_id != execution_id)
+    {
+        return Ok(());
+    }
+
+    tab.status = "error".into();
+    tab.active_execution = None;
+    tab.error = Some(UserFacingError {
+        code: "execution-error".into(),
+        message,
+    });
+    state.snapshot.updated_at = timestamp_now();
+    state.persist()
+}
+
+fn merge_execution_response(
+    state: &State<'_, SharedAppState>,
+    mut response: ExecutionResponse,
+) -> Result<ExecutionResponse, CommandError> {
+    let mut state = lock_state(state)?;
+    let Some(index) = state
+        .snapshot
+        .tabs
+        .iter()
+        .position(|tab| tab.id == response.tab.id)
+    else {
+        return Ok(response);
+    };
+
+    let current_tab = state.snapshot.tabs[index].clone();
+    if current_tab
+        .active_execution
+        .as_ref()
+        .is_some_and(|active| active.execution_id != response.execution_id)
+    {
+        return Ok(response);
+    }
+
+    response.tab.title = current_tab.title;
+    response.tab.editor_label = current_tab.editor_label;
+    response.tab.pinned = current_tab.pinned;
+    response.tab.save_target = current_tab.save_target;
+    response.tab.saved_query_id = current_tab.saved_query_id;
+    response.tab.query_text = current_tab.query_text;
+    response.tab.query_view_mode = current_tab.query_view_mode;
+    response.tab.script_text = current_tab.script_text;
+    response.tab.builder_state = current_tab.builder_state;
+    response.tab.dirty = current_tab.dirty;
+    response.tab.active_execution = None;
+
+    let is_active_tab = state.snapshot.ui.active_tab_id == response.tab.id;
+    state.snapshot.tabs[index] = response.tab.clone();
+    state.snapshot.guardrails = vec![response.guardrail.clone()];
+
+    if is_active_tab {
+        state.snapshot.ui.active_connection_id = response.tab.connection_id.clone();
+        state.snapshot.ui.active_environment_id = response.tab.environment_id.clone();
+        state.snapshot.ui.bottom_panel_visible = true;
+        state.snapshot.ui.active_bottom_panel_tab = if response.result.is_some() {
+            "results".into()
+        } else {
+            "messages".into()
+        };
+    }
+
+    state.snapshot.updated_at = timestamp_now();
+    state.persist()?;
+    Ok(response)
 }
 
 #[tauri::command]
@@ -461,12 +580,24 @@ pub async fn scan_redis_keys(
 #[tauri::command]
 pub async fn inspect_redis_key(
     state: State<'_, SharedAppState>,
-    request: RedisKeyInspectRequest,
+    mut request: RedisKeyInspectRequest,
 ) -> Result<ExecutionResponse, CommandError> {
+    let execution_id = request
+        .execution_id
+        .clone()
+        .unwrap_or_else(|| generate_id("execution"));
+    request.execution_id = Some(execution_id.clone());
+    let tab_id = request.tab_id.clone();
+    mark_tab_execution_running(&state, &tab_id, &execution_id, None)?;
     let mut runtime = clone_runtime(&state)?;
-    let response = runtime.inspect_redis_key(request).await?;
-    replace_runtime(&state, runtime)?;
-    Ok(response)
+    match runtime.inspect_redis_key(request).await {
+        Ok(response) => merge_execution_response(&state, response),
+        Err(error) => {
+            let message = error.message.clone();
+            clear_tab_execution_after_error(&state, &tab_id, &execution_id, message)?;
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -565,12 +696,20 @@ pub async fn refresh_object_view_tab(
 #[tauri::command]
 pub async fn execute_query_request(
     state: State<'_, SharedAppState>,
-    request: ExecutionRequest,
+    mut request: ExecutionRequest,
 ) -> Result<ExecutionResponse, CommandError> {
+    let execution_id = request_execution_id(&mut request);
+    let tab_id = request.tab_id.clone();
+    mark_tab_execution_running(&state, &tab_id, &execution_id, None)?;
     let mut runtime = clone_runtime(&state)?;
-    let response = runtime.execute_query(request).await?;
-    replace_runtime(&state, runtime)?;
-    Ok(response)
+    match runtime.execute_query(request).await {
+        Ok(response) => merge_execution_response(&state, response),
+        Err(error) => {
+            let message = error.message.clone();
+            clear_tab_execution_after_error(&state, &tab_id, &execution_id, message)?;
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]

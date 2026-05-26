@@ -37,6 +37,7 @@ import type {
   OperationPlanRequest,
   OperationPlanResponse,
   QueryViewMode,
+  QueryTabActiveExecution,
   RedisKeyInspectRequest,
   RedisKeyScanRequest,
   RedisKeyScanResponse,
@@ -87,6 +88,8 @@ export interface StateShape {
   structure?: StructureResponse
   structureError?: string
   executionStatus: RemoteStatus
+  executionsByTab: Record<string, QueryTabActiveExecution>
+  latestExecutionsByTab: Record<string, string>
   lastExecution?: ExecutionResponse
   lastExecutionRequest?: ExecutionRequest
   connectionTests: Record<string, ConnectionTestResult>
@@ -107,10 +110,13 @@ export type AppAction =
   | { type: 'STRUCTURE_LOADING' }
   | { type: 'STRUCTURE_READY'; structure: StructureResponse }
   | { type: 'STRUCTURE_ERROR'; message: string }
-  | { type: 'EXECUTION_LOADING'; tabId?: string }
-  | { type: 'EXECUTION_FAILED'; tabId?: string; message: string }
-  | { type: 'EXECUTION_READY'; execution: ExecutionResponse; request: ExecutionRequest }
-  | { type: 'RESULT_PAGE_READY'; page: ResultPageResponse }
+  | { type: 'EXECUTION_LOADING'; tabId?: string; execution: QueryTabActiveExecution }
+  | { type: 'EXECUTION_PHASE'; tabId?: string; executionId: string; phase: QueryTabActiveExecution['phase']; message?: string }
+  | { type: 'EXECUTION_DISPLAYED'; tabId?: string; executionId: string }
+  | { type: 'EXECUTION_FAILED'; tabId?: string; executionId?: string; message: string }
+  | { type: 'EXECUTION_READY'; execution: ExecutionResponse; request: ExecutionRequest; waitForDisplay?: boolean }
+  | { type: 'RESULT_PAGE_LOADING'; tabId: string; execution: QueryTabActiveExecution }
+  | { type: 'RESULT_PAGE_READY'; page: ResultPageResponse; executionId?: string; waitForDisplay?: boolean }
   | { type: 'BOOTSTRAP_ERROR'; message: string }
   | { type: 'COMMAND_ERROR'; message: string }
   | { type: 'WORKBENCH_MESSAGE_ADDED'; message: WorkbenchMessage }
@@ -186,6 +192,7 @@ export interface Actions {
     request: CancelTestRunRequest,
   ): Promise<{ ok: boolean; supported: boolean; message: string } | undefined>
   fetchResultPage(tabId: string, renderer?: string): Promise<void>
+  markExecutionDisplayed(tabId: string, executionId: string): void
   cancelExecution(executionId: string, tabId?: string): Promise<void>
   pickLocalDatabaseFile(request: LocalDatabasePickRequest): Promise<LocalDatabasePickResult>
   createLocalDatabase(

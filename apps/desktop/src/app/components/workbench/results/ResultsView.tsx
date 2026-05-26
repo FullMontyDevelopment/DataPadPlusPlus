@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   DataEditExecutionRequest,
@@ -27,6 +27,7 @@ interface ResultsViewProps {
   result?: ExecutionResultEnvelope
   onSelectRenderer(renderer: string): void
   onLoadNextPage(): void
+  onResultRendered(tabId: string, executionId: string): void
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -45,10 +46,64 @@ export function ResultsView({
   result,
   onSelectRenderer,
   onLoadNextPage,
+  onResultRendered,
   onExecuteDataEdit,
   onPlanOperation,
 }: ResultsViewProps) {
   const [operationMessage, setOperationMessage] = useState('')
+  const acknowledgedRenderRef = useRef('')
+
+  useEffect(() => {
+    const activeExecution = activeTab?.activeExecution
+
+    if (
+      !activeTab ||
+      !activeExecution ||
+      !result ||
+      (activeExecution.phase !== 'rendering' && activeExecution.phase !== 'paging')
+    ) {
+      return
+    }
+
+    const renderToken = [
+      activeTab.id,
+      activeExecution.executionId,
+      activeExecution.phase,
+      payload?.renderer ?? result.defaultRenderer ?? 'none',
+      result.pageInfo?.bufferedRows ?? result.payloads?.length ?? 0,
+      result.durationMs,
+    ].join(':')
+
+    if (acknowledgedRenderRef.current === renderToken) {
+      return
+    }
+
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      acknowledgedRenderRef.current = renderToken
+      onResultRendered(activeTab.id, activeExecution.executionId)
+      return
+    }
+
+    let secondFrame: number | undefined
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        acknowledgedRenderRef.current = renderToken
+        onResultRendered(activeTab.id, activeExecution.executionId)
+      })
+    })
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame)
+      if (secondFrame !== undefined) {
+        window.cancelAnimationFrame(secondFrame)
+      }
+    }
+  }, [
+    activeTab,
+    onResultRendered,
+    payload,
+    result,
+  ])
 
   if (activeTab?.tabKind === 'test-suite') {
     return (

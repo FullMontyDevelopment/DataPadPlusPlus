@@ -147,6 +147,7 @@ impl ManagedAppState {
             );
             tab.error = None;
             tab.result = Some(result.clone());
+            tab.active_execution = None;
             self.snapshot.ui.active_tab_id = tab.id.clone();
             self.snapshot.ui.active_connection_id = tab.connection_id.clone();
             self.snapshot.ui.active_environment_id = tab.environment_id.clone();
@@ -158,7 +159,9 @@ impl ManagedAppState {
         self.persist()?;
 
         Ok(crate::domain::models::ExecutionResponse {
-            execution_id: super::generate_id("execution"),
+            execution_id: request
+                .execution_id
+                .unwrap_or_else(|| super::generate_id("execution")),
             tab: tab_response,
             result: Some(result),
             guardrail: crate::domain::models::GuardrailDecision {

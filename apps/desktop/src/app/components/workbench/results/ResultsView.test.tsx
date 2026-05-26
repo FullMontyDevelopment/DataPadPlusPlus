@@ -1,5 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import type { ConnectionProfile, ExecutionResultEnvelope } from '@datapadplusplus/shared-types'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type {
+  ConnectionProfile,
+  ExecutionResultEnvelope,
+  QueryTabState,
+} from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import { ResultsView } from './ResultsView'
 
@@ -26,6 +30,7 @@ describe('ResultsView', () => {
         renderer="document"
         result={result}
         onLoadNextPage={onLoadNextPage}
+        onResultRendered={vi.fn()}
         onSelectRenderer={vi.fn()}
       />,
     )
@@ -83,6 +88,7 @@ describe('ResultsView', () => {
         renderer="table"
         result={result}
         onLoadNextPage={vi.fn()}
+        onResultRendered={vi.fn()}
         onSelectRenderer={vi.fn()}
       />,
     )
@@ -95,7 +101,156 @@ describe('ResultsView', () => {
     expect(screen.getByText('account-1')).toBeInTheDocument()
     expect(screen.getByText('account-25')).toBeInTheDocument()
   })
+
+  it('acknowledges visible result rendering after the payload has painted', async () => {
+    const result = resultEnvelope([{ _id: 'document-1', status: 'active' }], false)
+    const onResultRendered = vi.fn()
+
+    render(
+      <ResultsView
+        activeTab={queryTab(result, {
+          executionId: 'execution-rendering',
+          phase: 'rendering',
+          startedAt: '2026-01-01T00:00:00.000Z',
+        })}
+        capabilities={{
+          canCancel: false,
+          canExplain: false,
+          defaultRowLimit: 200,
+          editorLanguage: 'mongodb',
+          supportsLiveMetadata: true,
+        }}
+        connection={connectionProfile({ family: 'document', engine: 'mongodb' })}
+        payload={result.payloads[0]}
+        renderer="document"
+        result={result}
+        onLoadNextPage={vi.fn()}
+        onResultRendered={onResultRendered}
+        onSelectRenderer={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('document-1')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(onResultRendered).toHaveBeenCalledWith(
+        'tab-mongodb',
+        'execution-rendering',
+      )
+    })
+  })
+
+  it('acknowledges result rendering even when no renderer payload is selected yet', async () => {
+    const result = {
+      ...resultEnvelope([{ _id: 'document-1', status: 'active' }], false),
+      payloads: [],
+    }
+    const onResultRendered = vi.fn()
+
+    render(
+      <ResultsView
+        activeTab={queryTab(result, {
+          executionId: 'execution-without-payload',
+          phase: 'rendering',
+          startedAt: '2026-01-01T00:00:00.000Z',
+        })}
+        capabilities={{
+          canCancel: false,
+          canExplain: false,
+          defaultRowLimit: 200,
+          editorLanguage: 'mongodb',
+          supportsLiveMetadata: true,
+        }}
+        connection={connectionProfile({ family: 'document', engine: 'mongodb' })}
+        payload={undefined}
+        renderer="document"
+        result={result}
+        onLoadNextPage={vi.fn()}
+        onResultRendered={onResultRendered}
+        onSelectRenderer={vi.fn()}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(onResultRendered).toHaveBeenCalledWith(
+        'tab-mongodb',
+        'execution-without-payload',
+      )
+    })
+  })
+
+  it('reschedules render acknowledgment when a rerender cancels the pending frame', () => {
+    const result = resultEnvelope([{ _id: 'document-1', status: 'active' }], false)
+    const activeExecution = {
+      executionId: 'execution-rerender',
+      phase: 'rendering' as const,
+      startedAt: '2026-01-01T00:00:00.000Z',
+    }
+    const onResultRendered = vi.fn()
+    const callbacks = new Map<number, FrameRequestCallback>()
+    let frameId = 0
+    const requestAnimationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameId += 1
+        callbacks.set(frameId, callback)
+        return frameId
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((id) => {
+        callbacks.delete(id)
+      })
+
+    try {
+      const props = {
+        capabilities: {
+          canCancel: false,
+          canExplain: false,
+          defaultRowLimit: 200,
+          editorLanguage: 'mongodb' as const,
+          supportsLiveMetadata: true,
+        },
+        connection: connectionProfile({ family: 'document', engine: 'mongodb' }),
+        payload: result.payloads[0],
+        renderer: 'document',
+        result,
+        onLoadNextPage: vi.fn(),
+        onResultRendered,
+        onSelectRenderer: vi.fn(),
+      }
+      const { rerender } = render(
+        <ResultsView
+          {...props}
+          activeTab={queryTab(result, activeExecution)}
+        />,
+      )
+
+      rerender(
+        <ResultsView
+          {...props}
+          activeTab={queryTab(result, activeExecution)}
+        />,
+      )
+
+      flushAnimationFrames(callbacks)
+      flushAnimationFrames(callbacks)
+
+      expect(onResultRendered).toHaveBeenCalledWith(
+        'tab-mongodb',
+        'execution-rerender',
+      )
+    } finally {
+      requestAnimationFrameSpy.mockRestore()
+      cancelAnimationFrameSpy.mockRestore()
+    }
+  })
 })
+
+function flushAnimationFrames(callbacks: Map<number, FrameRequestCallback>) {
+  const pendingCallbacks = [...callbacks.values()]
+  callbacks.clear()
+  pendingCallbacks.forEach((callback) => callback(performance.now()))
+}
 
 function resultEnvelope(
   documents: Array<Record<string, unknown>>,
@@ -158,5 +313,27 @@ function connectionProfile({
     },
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function queryTab(
+  result: ExecutionResultEnvelope,
+  activeExecution?: QueryTabState['activeExecution'],
+): QueryTabState {
+  return {
+    id: 'tab-mongodb',
+    title: 'Mongo query',
+    tabKind: 'query',
+    connectionId: 'conn-mongodb',
+    environmentId: 'env-dev',
+    family: 'document',
+    language: 'mongodb',
+    editorLabel: 'Mongo query',
+    queryText: '{}',
+    status: activeExecution ? 'running' : 'success',
+    activeExecution,
+    dirty: false,
+    result,
+    history: [],
   }
 }

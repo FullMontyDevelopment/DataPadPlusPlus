@@ -100,6 +100,7 @@ impl ManagedAppState {
                         message: guardrail.reasons.join(" "),
                     });
                     tab.result = None;
+                    tab.active_execution = None;
                     self.snapshot.ui.active_tab_id = tab.id.clone();
                     self.snapshot.ui.active_connection_id = tab.connection_id.clone();
                     self.snapshot.ui.active_environment_id = tab.environment_id.clone();
@@ -207,6 +208,7 @@ impl ManagedAppState {
                 None
             };
             tab.result = result.clone();
+            tab.active_execution = None;
             self.snapshot.ui.active_tab_id = tab.id.clone();
             self.snapshot.ui.active_connection_id = tab.connection_id.clone();
             self.snapshot.ui.active_environment_id = tab.environment_id.clone();

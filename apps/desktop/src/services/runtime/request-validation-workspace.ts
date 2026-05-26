@@ -40,22 +40,36 @@ const QUERY_VIEW_MODES = new Set<QueryViewMode>(['builder', 'raw', 'script'])
 const ENVIRONMENT_RISKS = new Set(['low', 'medium', 'high', 'critical'])
 
 export function validateConnectionProfile(profile: ConnectionProfile): ConnectionProfile {
+  if (!profile || typeof profile !== 'object') {
+    throw new Error('Connection profile is required.')
+  }
   validateRequiredId(profile.id, 'Connection id')
   validateRequiredText(profile.name, 'Connection name', MAX_OBJECT_NAME_LENGTH)
   validateRequiredId(profile.engine, 'Datastore engine')
   validateRequiredId(profile.family, 'Datastore family')
-  validateOptionalText(profile.host, 'Connection host', MAX_SCOPE_LENGTH)
-  validateOptionalText(profile.database, 'Connection database', MAX_OBJECT_NAME_LENGTH)
-  validateOptionalText(profile.connectionMode, 'Connection mode', MAX_OBJECT_NAME_LENGTH)
-  validateOptionalText(profile.group, 'Connection group', MAX_OBJECT_NAME_LENGTH)
-  validateOptionalText(profile.notes, 'Connection notes', MAX_SCOPE_LENGTH)
-  validateOptionalText(profile.icon, 'Connection icon', 80)
-  validateOptionalText(profile.color, 'Connection color', 80)
+  const host = validateOptionalText(profile.host, 'Connection host', MAX_SCOPE_LENGTH)
+  const database = validateOptionalText(
+    profile.database,
+    'Connection database',
+    MAX_OBJECT_NAME_LENGTH,
+  )
+  const connectionMode = validateOptionalText(
+    profile.connectionMode,
+    'Connection mode',
+    MAX_OBJECT_NAME_LENGTH,
+  )
+  const group = validateOptionalText(profile.group, 'Connection group', MAX_OBJECT_NAME_LENGTH)
+  const notes = validateOptionalText(profile.notes, 'Connection notes', MAX_SCOPE_LENGTH)
+  const icon = validateOptionalText(profile.icon, 'Connection icon', 80)
+  const color = validateOptionalText(profile.color, 'Connection color', 80)
   validatePort(profile.port)
 
-  const connectionString = profile.connectionString?.trim()
+  const connectionString = validateOptionalText(
+    profile.connectionString,
+    'Connection string',
+    MAX_SCOPE_LENGTH,
+  )?.trim()
   if (connectionString) {
-    validateOptionalText(connectionString, 'Connection string', MAX_SCOPE_LENGTH)
     if (connectionStringContainsPlainSecret(connectionString)) {
       throw new Error(
         'Connection strings with embedded passwords, tokens, or keys are not saved. Use credential fields or environment secret variables.',
@@ -63,12 +77,18 @@ export function validateConnectionProfile(profile: ConnectionProfile): Connectio
     }
   }
 
-  validateConnectionAuth(profile.auth)
+  const auth = validateConnectionAuth(profile.auth)
   return {
     ...profile,
     name: profile.name.trim(),
-    host: profile.host.trim(),
-    database: profile.database?.trim() || undefined,
+    host: host?.trim() ?? '',
+    database: database?.trim() || undefined,
+    connectionMode: connectionMode?.trim() as ConnectionProfile['connectionMode'],
+    group: group?.trim() || undefined,
+    notes: notes?.trim() || undefined,
+    icon: icon?.trim() || 'database',
+    color: color?.trim() || undefined,
+    auth,
     connectionString,
     environmentIds: normalizeIds(profile.environmentIds, 'Connection environment id'),
     tags: normalizeTags(profile.tags),
@@ -80,10 +100,10 @@ export function validateConnectionTestRequest(
 ): ConnectionTestRequest {
   validateRequiredId(request.environmentId, 'Environment id')
   const profile = validateConnectionProfile(request.profile)
-  if (request.secret !== undefined) {
+  if (request.secret !== undefined && request.secret !== null) {
     validateQueryText(request.secret, 'Connection secret')
   }
-  return { ...request, profile }
+  return { ...request, profile, secret: request.secret ?? undefined }
 }
 
 export function validateEnvironmentProfile(profile: EnvironmentProfile): EnvironmentProfile {
@@ -255,18 +275,48 @@ function validateQueryViewMode(mode: QueryViewMode | undefined) {
   }
 }
 
-function validateConnectionAuth(auth: ConnectionProfile['auth']) {
-  validateOptionalText(auth?.username, 'Connection username', MAX_OBJECT_NAME_LENGTH)
-  validateOptionalText(auth?.authMechanism, 'Connection auth mechanism', MAX_OBJECT_NAME_LENGTH)
-  validateOptionalText(auth?.sslMode, 'Connection SSL mode', 80)
-  validateOptionalText(auth?.cloudProvider, 'Connection cloud provider', 80)
-  validateOptionalText(auth?.principal, 'Connection principal', MAX_OBJECT_NAME_LENGTH)
-  if (auth?.secretRef) {
-    validateSecretRef(auth.secretRef, 'Connection secret')
+function validateConnectionAuth(
+  auth: ConnectionProfile['auth'] | null | undefined,
+): ConnectionProfile['auth'] {
+  const username = validateOptionalText(
+    auth?.username,
+    'Connection username',
+    MAX_OBJECT_NAME_LENGTH,
+  )?.trim()
+  const authMechanism = validateOptionalText(
+    auth?.authMechanism,
+    'Connection auth mechanism',
+    MAX_OBJECT_NAME_LENGTH,
+  )?.trim()
+  const sslMode = validateOptionalText(auth?.sslMode, 'Connection SSL mode', 80)?.trim()
+  const cloudProvider = validateOptionalText(
+    auth?.cloudProvider,
+    'Connection cloud provider',
+    80,
+  )?.trim()
+  const principal = validateOptionalText(
+    auth?.principal,
+    'Connection principal',
+    MAX_OBJECT_NAME_LENGTH,
+  )?.trim()
+  const secretRef = auth?.secretRef
+    ? validateSecretRef(auth.secretRef, 'Connection secret')
+    : undefined
+
+  return {
+    username: username || undefined,
+    authMechanism: authMechanism || undefined,
+    sslMode: (sslMode || undefined) as ConnectionProfile['auth']['sslMode'],
+    cloudProvider: (cloudProvider || undefined) as ConnectionProfile['auth']['cloudProvider'],
+    principal: principal || undefined,
+    secretRef,
   }
 }
 
 function validateSecretRef(secretRef: SecretRef, label: string): SecretRef {
+  if (!secretRef || typeof secretRef !== 'object') {
+    throw new Error(`${label} must be a stored credential reference.`)
+  }
   validateRequiredId(secretRef.id, `${label} id`)
   validateRequiredText(secretRef.provider, `${label} provider`, 80)
   validateRequiredText(secretRef.service, `${label} service`, MAX_OBJECT_NAME_LENGTH)
@@ -275,8 +325,8 @@ function validateSecretRef(secretRef: SecretRef, label: string): SecretRef {
   return secretRef
 }
 
-function validatePort(port: number | undefined) {
-  if (port === undefined) {
+function validatePort(port: number | null | undefined) {
+  if (port === undefined || port === null) {
     return
   }
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
@@ -284,9 +334,18 @@ function validatePort(port: number | undefined) {
   }
 }
 
-function normalizeIds(values: string[], label: string) {
+function normalizeIds(values: string[] | null | undefined, label: string) {
+  if (values === undefined || values === null) {
+    return []
+  }
+  if (!Array.isArray(values)) {
+    throw new Error(`${label} list must be an array.`)
+  }
   const seen = new Set<string>()
   return values.map((value) => {
+    if (typeof value !== 'string') {
+      throw new Error(`${label} must be text.`)
+    }
     const id = value.trim()
     validateRequiredId(id, label)
     if (seen.has(id)) {
@@ -297,11 +356,20 @@ function normalizeIds(values: string[], label: string) {
   })
 }
 
-function normalizeTags(tags: string[]) {
+function normalizeTags(tags: string[] | null | undefined) {
+  if (tags === undefined || tags === null) {
+    return []
+  }
+  if (!Array.isArray(tags)) {
+    throw new Error('Profile tags must be an array.')
+  }
   if (tags.length > MAX_TAGS) {
     throw new Error(`Profiles may include at most ${MAX_TAGS} tags.`)
   }
   return tags.map((tag) => {
+    if (typeof tag !== 'string') {
+      throw new Error('Profile tag must be text.')
+    }
     const normalized = tag.trim()
     validateOptionalText(normalized, 'Profile tag', MAX_TAG_LENGTH)
     return normalized
