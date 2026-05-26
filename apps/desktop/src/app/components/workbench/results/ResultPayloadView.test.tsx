@@ -112,8 +112,17 @@ describe('ResultPayloadView', () => {
   })
 
   it('renders metrics labels as readable text instead of raw JSON', () => {
+    const executeDataEdit = vi.fn()
+
     render(
       <ResultPayloadView
+        connection={sqlConnection()}
+        editContext={{
+          connectionId: 'conn-sql',
+          environmentId: 'env-dev',
+          queryText: 'select id, status from dbo.orders',
+        }}
+        onExecuteDataEdit={executeDataEdit}
         payload={{
           renderer: 'metrics',
           metrics: [
@@ -130,11 +139,21 @@ describe('ResultPayloadView', () => {
 
     expect(screen.getByText('Source: INFO stats; Database Name: cache')).toBeInTheDocument()
     expect(screen.queryByText(/"source"/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add Row' })).not.toBeInTheDocument()
   })
 
   it('renders series point labels as readable text instead of raw JSON', () => {
+    const executeDataEdit = vi.fn()
+
     render(
       <ResultPayloadView
+        connection={sqlConnection()}
+        editContext={{
+          connectionId: 'conn-sql',
+          environmentId: 'env-dev',
+          queryText: 'select id, status from dbo.orders',
+        }}
+        onExecuteDataEdit={executeDataEdit}
         payload={{
           renderer: 'series',
           series: [
@@ -156,6 +175,7 @@ describe('ResultPayloadView', () => {
 
     expect(screen.getByText('Source: serverStatus.connections')).toBeInTheDocument()
     expect(screen.queryByText(/"source"/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add Row' })).not.toBeInTheDocument()
   })
 
   it('copies document values from the expandable table', async () => {
@@ -535,6 +555,49 @@ describe('ResultPayloadView', () => {
     confirmSpy.mockRestore()
   })
 
+  it('clears stale document field confirmations when a new document payload arrives', () => {
+    const executeDataEdit = vi.fn()
+    const { rerender } = render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "collection": "products", "filter": {}, "limit": 20 }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-1', status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Field' }))
+    expect(screen.getByRole('dialog', { name: 'Delete field status?' })).toBeInTheDocument()
+
+    rerender(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "collection": "products", "filter": {}, "limit": 20 }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-2', status: 'paused' }],
+        }}
+      />,
+    )
+
+    expect(screen.queryByRole('dialog', { name: 'Delete field status?' })).not.toBeInTheDocument()
+    expect(executeDataEdit).not.toHaveBeenCalled()
+  })
+
   it('keeps non-editable document results read-only on double click', () => {
     render(
       <ResultPayloadView
@@ -669,6 +732,187 @@ describe('ResultPayloadView', () => {
       })
     })
     expect(screen.getByRole('button', { name: 'fulfilled' })).toBeInTheDocument()
+  })
+
+  it('resets SQL table optimistic edits when a new table result payload arrives', async () => {
+    const executeDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> => ({
+      connectionId: 'conn-sql',
+      environmentId: 'env-dev',
+      editKind: 'update-row',
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: 'sqlserver.data-edit.update-row',
+        engine: 'sqlserver',
+        summary: 'Updated row.',
+        generatedRequest: 'update [dbo].[orders] set [status] = @P1 where [order_id] = @P2;',
+        requestLanguage: 'sql',
+        destructive: false,
+        requiredPermissions: ['update table row'],
+        warnings: [],
+      },
+      messages: ['Updated row.'],
+      warnings: [],
+    }))
+    const props = {
+      connection: sqlConnection(),
+      editContext: {
+        connectionId: 'conn-sql',
+        environmentId: 'env-dev',
+        queryText: 'select order_id, status from dbo.orders',
+      },
+      onExecuteDataEdit: executeDataEdit,
+    }
+    const { rerender } = render(
+      <ResultPayloadView
+        {...props}
+        payload={{
+          renderer: 'table',
+          columns: ['order_id', 'status'],
+          rows: [['101', 'processing']],
+        }}
+      />,
+    )
+
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'processing' }))
+    fireEvent.change(screen.getByLabelText('Edit status row 1'), {
+      target: { value: 'fulfilled' },
+    })
+    fireEvent.blur(screen.getByLabelText('Edit status row 1'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'fulfilled' })).toBeInTheDocument()
+    })
+
+    rerender(
+      <ResultPayloadView
+        {...props}
+        payload={{
+          renderer: 'table',
+          columns: ['order_id', 'status'],
+          rows: [['102', 'queued']],
+        }}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'fulfilled' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '101' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '102' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'queued' })).toBeInTheDocument()
+  })
+
+  it('cancels stale SQL cell editors when a new table payload arrives', () => {
+    const executeDataEdit = vi.fn()
+    const props = {
+      connection: sqlConnection(),
+      editContext: {
+        connectionId: 'conn-sql',
+        environmentId: 'env-dev',
+        queryText: 'select order_id, status from dbo.orders',
+      },
+      onExecuteDataEdit: executeDataEdit,
+    }
+    const { rerender } = render(
+      <ResultPayloadView
+        {...props}
+        payload={{
+          renderer: 'table',
+          columns: ['order_id', 'status'],
+          rows: [['101', 'processing']],
+        }}
+      />,
+    )
+
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'processing' }))
+    const staleInput = screen.getByLabelText('Edit status row 1')
+    fireEvent.change(staleInput, { target: { value: 'fulfilled' } })
+
+    rerender(
+      <ResultPayloadView
+        {...props}
+        payload={{
+          renderer: 'table',
+          columns: ['order_id', 'status'],
+          rows: [['102', 'queued']],
+        }}
+      />,
+    )
+
+    expect(screen.queryByLabelText('Edit status row 1')).not.toBeInTheDocument()
+    fireEvent.blur(staleInput)
+    expect(executeDataEdit).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'queued' })).toBeInTheDocument()
+  })
+
+  it('cancels guarded SQL cell edit confirmations when a new table payload arrives', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: Boolean(request.confirmationText),
+      plan: {
+        operationId: 'sqlserver.data-edit.update-row',
+        engine: 'sqlserver',
+        summary: 'Updated row.',
+        generatedRequest: 'update [dbo].[orders] set [status] = @P1 where [order_id] = @P2;',
+        requestLanguage: 'sql',
+        destructive: false,
+        confirmationText: 'CONFIRM SQLSERVER UPDATE-ROW',
+        requiredPermissions: ['update table row'],
+        warnings: ['QA requires confirmation.'],
+      },
+      messages: request.confirmationText ? ['Updated row.'] : [],
+      warnings: request.confirmationText ? [] : ['This data edit needs confirmation.'],
+    }))
+    const props = {
+      connection: sqlConnection(),
+      editContext: {
+        connectionId: 'conn-sql',
+        environmentId: 'env-qa',
+        queryText: 'select order_id, status from dbo.orders',
+      },
+      onExecuteDataEdit: executeDataEdit,
+    }
+    const { rerender } = render(
+      <ResultPayloadView
+        {...props}
+        payload={{
+          renderer: 'table',
+          columns: ['order_id', 'status'],
+          rows: [['101', 'processing']],
+        }}
+      />,
+    )
+
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'processing' }))
+    fireEvent.change(screen.getByLabelText('Edit status row 1'), {
+      target: { value: 'fulfilled' },
+    })
+    fireEvent.blur(screen.getByLabelText('Edit status row 1'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'Apply this row edit?' })).toBeInTheDocument()
+    })
+
+    rerender(
+      <ResultPayloadView
+        {...props}
+        payload={{
+          renderer: 'table',
+          columns: ['order_id', 'status'],
+          rows: [['102', 'queued']],
+        }}
+      />,
+    )
+
+    expect(screen.queryByRole('dialog', { name: 'Apply this row edit?' })).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledTimes(1)
+    })
+    expect(screen.getByRole('button', { name: 'queued' })).toBeInTheDocument()
   })
 
   it('keeps SQL table cells read-only when a primary key cannot be inferred', () => {
@@ -835,6 +1079,47 @@ describe('ResultPayloadView', () => {
     })
     expect(screen.queryByRole('button', { name: 'processing' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'queued' })).toBeInTheDocument()
+  })
+
+  it('clears stale SQL row delete prompts when a new table payload arrives', () => {
+    const executeDataEdit = vi.fn()
+    const props = {
+      connection: sqlConnection(),
+      editContext: {
+        connectionId: 'conn-sql',
+        environmentId: 'env-dev',
+        queryText: 'select order_id, status from dbo.orders',
+      },
+      onExecuteDataEdit: executeDataEdit,
+    }
+    const { rerender } = render(
+      <ResultPayloadView
+        {...props}
+        payload={{
+          renderer: 'table',
+          columns: ['order_id', 'status'],
+          rows: [['101', 'processing']],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'processing' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Row' }))
+    expect(screen.getByRole('dialog', { name: 'Delete row 1?' })).toBeInTheDocument()
+
+    rerender(
+      <ResultPayloadView
+        {...props}
+        payload={{
+          renderer: 'table',
+          columns: ['order_id', 'status'],
+          rows: [['102', 'queued']],
+        }}
+      />,
+    )
+
+    expect(screen.queryByRole('dialog', { name: 'Delete row 1?' })).not.toBeInTheDocument()
+    expect(executeDataEdit).not.toHaveBeenCalled()
   })
 
   it('executes DynamoDB table cell edits through safe update-item requests', async () => {
@@ -1257,6 +1542,78 @@ describe('ResultPayloadView', () => {
     })
   })
 
+  it('resets Redis optimistic key edits when a new result payload arrives', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: `redis.data-edit.${request.editKind}`,
+        engine: 'redis',
+        summary: 'Edited key.',
+        generatedRequest: 'SET session:1 paused',
+        requestLanguage: 'redis',
+        destructive: false,
+        requiredPermissions: ['write concrete key'],
+        warnings: [],
+      },
+      messages: ['Edited key.'],
+      warnings: [],
+    }))
+
+    const props = {
+      connection: redisConnection(),
+      editContext: {
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        queryText: 'GET session:1',
+      },
+      onExecuteDataEdit: executeDataEdit,
+    }
+    const { rerender } = render(
+      <ResultPayloadView
+        {...props}
+        payload={{
+          renderer: 'keyvalue',
+          entries: {
+            'session:1': 'active',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
+    fireEvent.change(screen.getByLabelText('Edit value session:1'), {
+      target: { value: 'paused' },
+    })
+    fireEvent.blur(screen.getByLabelText('Edit value session:1'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'paused' })).toBeInTheDocument()
+    })
+
+    rerender(
+      <ResultPayloadView
+        {...props}
+        payload={{
+          renderer: 'keyvalue',
+          entries: {
+            'session:2': 'fresh',
+          },
+        }}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'paused' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'session:1' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'session:2' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'fresh' })).toBeInTheDocument()
+  })
+
   it('adds Redis keys from key-value results', async () => {
     const executeDataEdit = vi.fn(async (
       request: DataEditExecutionRequest,
@@ -1333,7 +1690,7 @@ describe('ResultPayloadView', () => {
     expect(screen.getByRole('button', { name: '{"state":"new"}' })).toBeInTheDocument()
   })
 
-  it('deletes Redis keys with a confirm/cancel action', async () => {
+  it('deletes Redis keys directly through runtime guardrails', async () => {
     const executeDataEdit = vi.fn(async (
       request: DataEditExecutionRequest,
     ): Promise<DataEditExecutionResponse> => ({
@@ -1377,14 +1734,13 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Key' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
       expect(executeDataEdit).toHaveBeenCalledWith({
         connectionId: 'conn-redis',
         environmentId: 'env-dev',
         editKind: 'delete-key',
-        confirmationText: 'CONFIRM REDIS DELETE-KEY',
+        confirmationText: undefined,
         target: {
           objectKind: 'key',
           path: [],
@@ -1442,14 +1798,13 @@ describe('ResultPayloadView', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete key product:luna-lamp' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
       expect(executeDataEdit).toHaveBeenCalledWith({
         connectionId: 'conn-redis',
         environmentId: 'env-dev',
         editKind: 'delete-key',
-        confirmationText: 'CONFIRM REDIS DELETE-KEY',
+        confirmationText: undefined,
         target: {
           objectKind: 'key',
           path: [],
@@ -1761,14 +2116,13 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByRole('button', { name: 'luna-lamp' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Field' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
       expect(executeDataEdit).toHaveBeenCalledWith({
         connectionId: 'conn-redis',
         environmentId: 'env-dev',
         editKind: 'hash-delete-field',
-        confirmationText: 'CONFIRM REDIS HASH-DELETE-FIELD',
+        confirmationText: undefined,
         target: {
           objectKind: 'key-member',
           path: ['sku'],
@@ -1876,6 +2230,44 @@ describe('ResultPayloadView', () => {
 
     expect(screen.getByText('sku')).toBeInTheDocument()
     expect(screen.getByText('aggregations')).toBeInTheDocument()
+  })
+
+  it('refreshes search hit metadata when the source document stays the same', () => {
+    const source = { sku: 'SKU-1' }
+    const { rerender } = render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'searchHits',
+          hits: [
+            {
+              id: 'product-1',
+              score: 1.25,
+              source,
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.getByText('1.25')).toBeInTheDocument()
+
+    rerender(
+      <ResultPayloadView
+        payload={{
+          renderer: 'searchHits',
+          hits: [
+            {
+              id: 'product-1',
+              score: 2.5,
+              source,
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.queryByText('1.25')).not.toBeInTheDocument()
+    expect(screen.getByText('2.5')).toBeInTheDocument()
   })
 
   it('updates search hit source documents through guarded search edit requests', async () => {

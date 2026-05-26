@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, SetStateAction } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type {
   ConnectionProfile,
@@ -28,6 +28,16 @@ import type { DocumentEditContext } from './document-edit-context'
 import { clearFieldDragData, writeFieldDragData } from './field-drag'
 import { copyText } from './payload-export'
 import { buildDataGridRowDeleteRequest } from './data-grid-edit-requests'
+import {
+  applyDataGridRowPatches,
+  createDataGridRowPatchUpdater,
+  dataGridRowsVersion,
+  type DataGridRowPatches,
+} from './data-grid-row-patches'
+import {
+  isEditableKeyboardTarget,
+  isPlatformCopyShortcut,
+} from './data-grid-keyboard'
 
 interface DataGridViewProps {
   connection?: ConnectionProfile
@@ -37,8 +47,9 @@ interface DataGridViewProps {
   onExecuteDataEdit?(request: DataEditExecutionRequest): Promise<DataEditExecutionResponse | undefined>
 }
 
-interface ContextMenuState { sourceIndex: number; x: number; y: number }
-interface PendingDeleteState { rowNumber: number; sourceIndex: number }
+interface ContextMenuState { sourceIndex: number; version: string; x: number; y: number }
+interface PendingDeleteState { rowNumber: number; sourceIndex: number; version: string }
+interface RowPatchState { patches: DataGridRowPatches; version: string }
 
 export function DataGridView({
   connection,
@@ -47,7 +58,11 @@ export function DataGridView({
   rows,
   onExecuteDataEdit,
 }: DataGridViewProps) {
-  const [draftRows, setDraftRows] = useState(rows)
+  const rowsVersion = useMemo(() => dataGridRowsVersion(rows, columns), [columns, rows])
+  const [rowPatchState, setRowPatchState] = useState<RowPatchState>({
+    patches: {},
+    version: rowsVersion,
+  })
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState<GridSort>()
   const [focusedCell, setFocusedCell] = useState<{ row: number; column: number }>()
@@ -61,6 +76,34 @@ export function DataGridView({
   const dragStartRef = useRef<{ row: number; column: number } | null>(null)
   const resizeStartRef = useRef<{ column: number; x: number; width: number } | null>(null)
   const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
+  const activeRowPatches = rowPatchState.version === rowsVersion
+    ? rowPatchState.patches
+    : EMPTY_DATA_GRID_ROW_PATCHES
+  const activeContextMenu = contextMenu?.version === rowsVersion ? contextMenu : undefined
+  const activePendingDelete = pendingDelete?.version === rowsVersion ? pendingDelete : undefined
+  const draftRows = useMemo(
+    () => applyDataGridRowPatches(rows, activeRowPatches),
+    [activeRowPatches, rows],
+  )
+  const setDraftRows = useCallback<Dispatch<SetStateAction<string[][]>>>(
+    (action) => {
+      setRowPatchState((current) => {
+        const patches = current.version === rowsVersion
+          ? current.patches
+          : EMPTY_DATA_GRID_ROW_PATCHES
+
+        return {
+          patches: createDataGridRowPatchUpdater({
+            action,
+            baseRows: rows,
+            currentPatches: patches,
+          }),
+          version: rowsVersion,
+        }
+      })
+    },
+    [rows, rowsVersion],
+  )
   const {
     beginEdit,
     canDeleteRow,
@@ -77,11 +120,13 @@ export function DataGridView({
     connection,
     editContext,
     rows: draftRows,
+    rowsVersion,
     setRows: setDraftRows,
     setStatusMessage: setCopyMessage,
     confirmDataEdit,
     onExecuteDataEdit,
   })
+  const activeEditingCell = editingCell?.version === rowsVersion ? editingCell : undefined
 
   const visibleRows = useMemo(
     () => buildVisibleGridRows(draftRows, filter, sort),
@@ -118,11 +163,7 @@ export function DataGridView({
         }))
 
   useEffect(() => {
-    setDraftRows(rows)
-  }, [rows])
-
-  useEffect(() => {
-    if (!contextMenu) {
+    if (!activeContextMenu) {
       return
     }
 
@@ -135,7 +176,7 @@ export function DataGridView({
       window.removeEventListener('resize', close)
       window.removeEventListener('keydown', close)
     }
-  }, [contextMenu])
+  }, [activeContextMenu])
 
   const toggleSort = (column: number) => {
     setSort((current) => {
@@ -275,6 +316,7 @@ export function DataGridView({
     setPendingDelete({
       rowNumber: sourceIndex + 1,
       sourceIndex,
+      version: rowsVersion,
     })
   }
 
@@ -285,13 +327,13 @@ export function DataGridView({
         onFilterChange={setFilter}
       />
       {copyMessage ? <div className="data-grid-status">{copyMessage}</div> : null}
-      <DataGridInsertRow columns={columns} canInsert={canInsertRow()} onInsert={insertRow} />
-      {pendingDelete ? (
+      <DataGridInsertRow key={rowsVersion} columns={columns} canInsert={canInsertRow()} onInsert={insertRow} />
+      {activePendingDelete ? (
         <DataGridDeleteConfirmation
-          rowNumber={pendingDelete.rowNumber}
+          rowNumber={activePendingDelete.rowNumber}
           onCancel={() => setPendingDelete(undefined)}
           onConfirm={() => {
-            const sourceIndex = pendingDelete.sourceIndex
+            const sourceIndex = activePendingDelete.sourceIndex
             setPendingDelete(undefined)
             void deleteRow(sourceIndex)
           }}
@@ -357,7 +399,7 @@ export function DataGridView({
           </div>
           <DataGridRows
             columns={columns}
-            editingCell={editingCell}
+            editingCell={activeEditingCell}
             focusedCell={focusedCell}
             renderedColumnWidths={renderedColumnWidths}
             renderedRows={renderedRows}
@@ -382,7 +424,7 @@ export function DataGridView({
                 endRow: visibleIndex,
                 endColumn: columns.length - 1,
               })
-              setContextMenu({ sourceIndex, x, y })
+              setContextMenu({ sourceIndex, version: rowsVersion, x, y })
             }}
             onSelectRow={selectRow}
             onUpdateEditingValue={updateEditingValue}
@@ -390,47 +432,17 @@ export function DataGridView({
           />
         </div>
       </div>
-      {contextMenu && canDeleteRow(contextMenu.sourceIndex) ? (
+      {activeContextMenu && canDeleteRow(activeContextMenu.sourceIndex) ? (
         <DataGridContextMenu
-          canDelete={canDeleteRow(contextMenu.sourceIndex)}
-          x={contextMenu.x}
-          y={contextMenu.y}
+          canDelete={canDeleteRow(activeContextMenu.sourceIndex)}
+          x={activeContextMenu.x}
+          y={activeContextMenu.y}
           onClose={() => setContextMenu(undefined)}
-          onDeleteRow={() => promptDeleteRow(contextMenu.sourceIndex)}
+          onDeleteRow={() => promptDeleteRow(activeContextMenu.sourceIndex)}
         />
       ) : null}
     </div>
   )
 }
 
-function isPlatformCopyShortcut(event: ReactKeyboardEvent) {
-  if (event.key.toLowerCase() !== 'c' || event.altKey || event.shiftKey) {
-    return false
-  }
-
-  const platform =
-    typeof navigator !== 'undefined'
-      ? (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
-          ?.platform ?? navigator.platform
-      : ''
-  const isApplePlatform = /\b(mac|iphone|ipad|ipod)\b/i.test(platform)
-
-  return isApplePlatform
-    ? event.metaKey && !event.ctrlKey
-    : event.ctrlKey && !event.metaKey
-}
-
-function isEditableKeyboardTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false
-  }
-
-  const tagName = target.tagName.toLowerCase()
-
-  return (
-    target.isContentEditable ||
-    tagName === 'input' ||
-    tagName === 'textarea' ||
-    tagName === 'select'
-  )
-}
+const EMPTY_DATA_GRID_ROW_PATCHES: DataGridRowPatches = {}

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DataEditExecutionResponse } from '@datapadplusplus/shared-types'
 import type { DataEditConfirmationHandler, ExecuteDataEditOptions } from './data-edit-confirmation'
 import { dataEditConfirmationDetails } from './data-edit-confirmation'
@@ -11,24 +11,44 @@ interface PendingConfirmation {
 
 export function useDataEditConfirmation() {
   const [pending, setPending] = useState<PendingConfirmation>()
+  const pendingRef = useRef<PendingConfirmation | undefined>(undefined)
 
   const confirmDataEdit = useCallback<DataEditConfirmationHandler>(
     (response, options) =>
       new Promise<boolean>((resolve) => {
-        setPending({ response, options, resolve })
+        pendingRef.current?.resolve(false)
+        const next = { response, options, resolve }
+        pendingRef.current = next
+        setPending(next)
       }),
     [],
   )
 
-  const close = (confirmed: boolean) => {
-    const current = pending
+  const close = useCallback((confirmed: boolean) => {
+    const current = pendingRef.current
     if (!current) {
       return
     }
 
+    pendingRef.current = undefined
     setPending(undefined)
     current.resolve(confirmed)
-  }
+  }, [])
+
+  const cancelDataEditConfirmation = useCallback(() => {
+    close(false)
+  }, [close])
+
+  useEffect(
+    () => () => {
+      const current = pendingRef.current
+      if (current) {
+        pendingRef.current = undefined
+        current.resolve(false)
+      }
+    },
+    [],
+  )
 
   const details = pending
     ? dataEditConfirmationDetails(pending.response, pending.options)
@@ -68,5 +88,5 @@ export function useDataEditConfirmation() {
     </div>
   ) : null
 
-  return { confirmDataEdit, confirmationDialog }
+  return { cancelDataEditConfirmation, confirmDataEdit, confirmationDialog }
 }

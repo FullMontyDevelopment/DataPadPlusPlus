@@ -1,12 +1,7 @@
 import { JsonTreeView } from './JsonTreeView'
 import { valueTypeName } from './keyvalue-edit-requests'
+import type { KeyValueResultRow } from './keyvalue-results-helpers'
 import { copyText } from './payload-export'
-
-export interface KeyValueResultRow {
-  keyName: string
-  parsedValue: unknown
-  rawValue: string
-}
 
 interface KeyValueEntryRowsProps {
   canEdit: boolean

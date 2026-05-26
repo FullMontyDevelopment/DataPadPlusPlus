@@ -9,11 +9,14 @@ import type {
   DocumentNodeChildrenRequest,
   DocumentNodeChildrenResponse,
 } from '@datapadplusplus/shared-types'
-import { ClockIcon } from '../icons'
 import { DocumentContextMenu } from './document-context-menu'
 import { DeleteConfirmationPanel } from './DeleteConfirmationPanel'
 import type { DocumentEditContext } from './document-edit-context'
 import { DocumentFieldInspector } from './DocumentFieldInspector'
+import {
+  DocumentResultsFooter,
+  DocumentResultsToolbar,
+} from './DocumentResultsChrome'
 import {
   buildDocumentEditRequest,
   pathSegments,
@@ -39,8 +42,8 @@ import {
   type DocumentValueType,
 } from './document-grid-model'
 import { searchDocumentRows } from './document-grid-search'
+import { documentCountText } from './document-results-summary'
 import { copyText } from './payload-export'
-import { formatDurationClock } from './result-runtime'
 import { useDataEditConfirmation } from './use-data-edit-confirmation'
 
 interface DocumentResultsViewProps {
@@ -63,6 +66,7 @@ interface DocumentResultsViewProps {
 }
 
 interface ContextMenuState {
+  source: Array<Record<string, unknown>>
   x: number
   y: number
   row: DocumentGridRow
@@ -71,10 +75,21 @@ interface ContextMenuState {
 type DocumentEditCell = 'field' | 'type' | 'value'
 
 const DOCUMENT_SEARCH_DEBOUNCE_MS = 180
+const EMPTY_ROW_ID_SET = new Set<string>()
 
 interface ActiveEditorState {
   rowId: string
   cell: DocumentEditCell
+}
+
+interface SourceScopedRowIds {
+  source: Array<Record<string, unknown>>
+  ids: Set<string>
+}
+
+interface PendingFieldDeleteState {
+  source: Array<Record<string, unknown>>
+  row: DocumentGridRow
 }
 
 export function DocumentResultsView({
@@ -103,12 +118,26 @@ export function DocumentResultsView({
   const [searchInput, setSearchInput] = useState('')
   const [searchText, setSearchText] = useState('')
   const [inspectorRowId, setInspectorRowId] = useState<string>()
-  const [pendingFieldDelete, setPendingFieldDelete] = useState<DocumentGridRow>()
-  const [hydratingRows, setHydratingRows] = useState<Set<string>>(() => new Set())
-  const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
+  const [pendingFieldDelete, setPendingFieldDelete] = useState<PendingFieldDeleteState>()
+  const [hydratingRows, setHydratingRows] = useState<SourceScopedRowIds>(() => ({
+    source: documents,
+    ids: new Set(),
+  }))
+  const {
+    cancelDataEditConfirmation,
+    confirmDataEdit,
+    confirmationDialog,
+  } = useDataEditConfirmation()
   const draftDocuments = draftState.source === documents ? draftState.documents : documents
   const efficiencyModeEnabled = hydrationMode === 'lazy'
   const effectiveActiveEditor = draftState.source === documents ? activeEditor : undefined
+  const activeContextMenu = contextMenu?.source === documents ? contextMenu : undefined
+  const activeHydratingRows = hydratingRows.source === documents
+    ? hydratingRows.ids
+    : EMPTY_ROW_ID_SET
+  const pendingFieldDeleteRow = pendingFieldDelete?.source === documents
+    ? pendingFieldDelete.row
+    : undefined
   const copyTimer = useRef<number | undefined>(undefined)
   const searchPending = searchInput.trim() !== searchText.trim()
   const searchResult = useMemo(
@@ -175,7 +204,16 @@ export function DocumentResultsView({
   }, [searchInput])
 
   useEffect(() => {
-    if (!contextMenu) {
+    if (copyTimer.current !== undefined) {
+      window.clearTimeout(copyTimer.current)
+      copyTimer.current = undefined
+    }
+
+    cancelDataEditConfirmation()
+  }, [cancelDataEditConfirmation, documents])
+
+  useEffect(() => {
+    if (!activeContextMenu) {
       return
     }
 
@@ -188,7 +226,7 @@ export function DocumentResultsView({
       window.removeEventListener('resize', close)
       window.removeEventListener('keydown', close)
     }
-  }, [contextMenu])
+  }, [activeContextMenu])
 
   const updateDraftDocuments = (
     updater: (current: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
@@ -307,7 +345,11 @@ export function DocumentResultsView({
       return
     }
 
-    setHydratingRows((current) => new Set(current).add(row.id))
+    setHydratingRows((current) => {
+      const ids = new Set(current.source === documents ? current.ids : EMPTY_ROW_ID_SET)
+      ids.add(row.id)
+      return { source: documents, ids }
+    })
 
     try {
       const response = await onFetchDocumentNodeChildren({
@@ -339,9 +381,9 @@ export function DocumentResultsView({
       setCopyMessage('Unable to expand this field.')
     } finally {
       setHydratingRows((current) => {
-        const next = new Set(current)
+        const next = new Set(current.source === documents ? current.ids : EMPTY_ROW_ID_SET)
         next.delete(row.id)
-        return next
+        return { source: documents, ids: next }
       })
     }
   }
@@ -463,25 +505,26 @@ export function DocumentResultsView({
   }
 
   const renderDocumentRow = (row: DocumentGridRow) => (
-      <DocumentGridRowView
-        key={row.id}
-        row={row}
-        expanded={effectiveExpandedRows.has(row.id)}
-        loading={hydratingRows.has(row.id)}
-        matched={hasSearch && searchResult.matchedRowIds.has(row.id)}
-        editingCell={
-          effectiveActiveEditor?.rowId === row.id ? effectiveActiveEditor.cell : undefined
-        }
-        onBeginEditing={beginEditing}
-        onCancelScheduledCopy={cancelScheduledCopy}
-        onContextMenu={(selectedRow, x, y) => setContextMenu({ x, y, row: selectedRow })}
-        onRenameField={renameRowField}
-        onScheduleCopyValue={scheduleCopyValue}
-        onStopEditing={stopEditing}
-        onToggleRow={toggleRow}
-        onUpdateValue={updateRowValue}
-      />
-    )
+    <DocumentGridRowView
+      key={row.id}
+      row={row}
+      expanded={effectiveExpandedRows.has(row.id)}
+      loading={activeHydratingRows.has(row.id)}
+      matched={hasSearch && searchResult.matchedRowIds.has(row.id)}
+      editingCell={
+        effectiveActiveEditor?.rowId === row.id ? effectiveActiveEditor.cell : undefined
+      }
+      onBeginEditing={beginEditing}
+      onCancelScheduledCopy={cancelScheduledCopy}
+      onContextMenu={(selectedRow, x, y) =>
+        setContextMenu({ source: documents, x, y, row: selectedRow })}
+      onRenameField={renameRowField}
+      onScheduleCopyValue={scheduleCopyValue}
+      onStopEditing={stopEditing}
+      onToggleRow={toggleRow}
+      onUpdateValue={updateRowValue}
+    />
+  )
 
   if (documents.length === 0) {
     return <p className="panel-footnote">No documents returned.</p>
@@ -489,31 +532,16 @@ export function DocumentResultsView({
 
   return (
     <div className="document-data-grid-shell" aria-label="Document results">
-      <div className="document-data-grid-toolbar">
-        <label className="document-results-search">
-          <input
-            aria-label="Search loaded documents"
-            placeholder="Search loaded documents"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-          />
-        </label>
-        {searchPending ? (
-          <span className="document-results-search-count">Searching...</span>
-        ) : hasSearch ? (
-          <span className="document-results-search-count">
-            {searchResult.matchCount} match(es)
-          </span>
-        ) : null}
-        {!efficiencyModeEnabled ? (
-          <button type="button" className="drawer-button" onClick={expandAll}>
-            Expand All
-          </button>
-        ) : null}
-        <button type="button" className="drawer-button" onClick={collapseAll}>
-          Collapse All
-        </button>
-      </div>
+      <DocumentResultsToolbar
+        efficiencyModeEnabled={efficiencyModeEnabled}
+        hasSearch={hasSearch}
+        matchCount={searchResult.matchCount}
+        searchInput={searchInput}
+        searchPending={searchPending}
+        onCollapseAll={collapseAll}
+        onExpandAll={expandAll}
+        onSearchInputChange={setSearchInput}
+      />
       <div className={`document-results-content${inspectorRow && inspectorDocument ? ' has-inspector' : ''}`}>
         <div className="document-data-grid-frame">
           <DocumentVirtualGridRows rows={visibleRows} renderRow={renderDocumentRow} />
@@ -531,51 +559,42 @@ export function DocumentResultsView({
           />
         ) : null}
       </div>
-      <div className="document-data-grid-footer">
-        <div className="document-data-grid-footer-left">
-          {footerControls}
-          {copyMessage ? <span>{copyMessage}</span> : null}
-        </div>
-        <div className="document-data-grid-footer-right">
-          <strong>{documentCountLabel}</strong>
-          {resultDurationMs !== undefined ? (
-            <span className="result-runtime-label" title="Query runtime">
-              <ClockIcon className="panel-inline-icon" />
-              {formatDurationClock(resultDurationMs)}
-            </span>
-          ) : null}
-        </div>
-      </div>
-      {contextMenu ? (
+      <DocumentResultsFooter
+        copyMessage={copyMessage}
+        documentCountLabel={documentCountLabel}
+        footerControls={footerControls}
+        resultDurationMs={resultDurationMs}
+      />
+      {activeContextMenu ? (
         <DocumentContextMenu
           behavior={behavior}
-          row={contextMenu.row}
-          x={contextMenu.x}
-          y={contextMenu.y}
+          row={activeContextMenu.row}
+          x={activeContextMenu.x}
+          y={activeContextMenu.y}
           onClose={() => setContextMenu(undefined)}
-          onCopyDocument={() => void copyDocument(contextMenu.row)}
-          onCopyPath={() => void copyText(contextMenu.row.fieldPath || '$')}
-          onCopyValue={() => void copyValue(contextMenu.row.value)}
+          onCopyDocument={() => void copyDocument(activeContextMenu.row)}
+          onCopyPath={() => void copyText(activeContextMenu.row.fieldPath || '$')}
+          onCopyValue={() => void copyValue(activeContextMenu.row.value)}
           onDelete={() => {
-            setPendingFieldDelete(contextMenu.row)
+            setPendingFieldDelete({ source: documents, row: activeContextMenu.row })
             setContextMenu(undefined)
           }}
           onEditValue={() => {
-            beginEditing(contextMenu.row, 'value')
+            beginEditing(activeContextMenu.row, 'value')
           }}
           onRename={() => {
-            beginEditing(contextMenu.row, 'field')
+            beginEditing(activeContextMenu.row, 'field')
           }}
-          onViewRawJson={() => setInspectorRowId(contextMenu.row.id)}
+          onViewRawJson={() => setInspectorRowId(activeContextMenu.row.id)}
         />
       ) : null}
-      {pendingFieldDelete ? (
+      {pendingFieldDeleteRow ? (
         <DeleteConfirmationPanel
-          title={`Delete field ${pendingFieldDelete.fieldPath || pathSegments(pendingFieldDelete.path).join('.')}?`}
+          title={`Delete field ${pendingFieldDeleteRow.fieldPath || pathSegments(pendingFieldDeleteRow.path).join('.')}?`}
           body="DataPad++ will run this guarded field delete with confirmation."
           onCancel={() => setPendingFieldDelete(undefined)}
           onConfirm={() => {
-            const row = pendingFieldDelete
+            const row = pendingFieldDeleteRow
             setPendingFieldDelete(undefined)
             deleteRowField(row)
           }}
@@ -584,9 +603,4 @@ export function DocumentResultsView({
       {confirmationDialog}
     </div>
   )
-}
-
-function documentCountText(summary: string | undefined, fallbackCount: number) {
-  const count = fallbackCount || Number(summary?.match(/^\s*(\d+)/)?.[1] ?? 0)
-  return `${count} document(s) loaded`
 }

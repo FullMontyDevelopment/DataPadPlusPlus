@@ -7,6 +7,7 @@ import type {
   ResultPageRequest,
 } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
+import { resultEditQueryText } from '../result-edit-context'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { buildConnectionTestFailure } from './connection-test-results'
 import { createId } from './helpers'
@@ -343,7 +344,7 @@ export function useRuntimeActions({
           connectionId: tab.connectionId,
           environmentId: tab.environmentId,
           language: tab.language,
-          queryText: tab.queryText,
+          queryText: resultEditQueryText(tab, tab.result),
           renderer: renderer ?? tab.result.defaultRenderer,
           pageSize: pageInfo.pageSize,
           pageIndex: pageInfo.pageIndex + 1,

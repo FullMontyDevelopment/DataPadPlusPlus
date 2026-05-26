@@ -412,7 +412,7 @@ describe('App', () => {
     fireEvent.change(within(drawer).getByLabelText('Connection string'), {
       target: {
         value:
-          'postgresql://datapadplusplus:${DB_PASSWORD}@localhost:54329/datapadplusplus',
+          'postgresql://datapadplusplus:{{DB_PASSWORD}}@localhost:54329/datapadplusplus',
       },
     })
     fireEvent.click(within(drawer).getByRole('button', { name: 'Test Connection' }))
@@ -423,7 +423,7 @@ describe('App', () => {
           profile: expect.objectContaining({
             connectionMode: 'connection-string',
             connectionString:
-              'postgresql://datapadplusplus:${DB_PASSWORD}@localhost:54329/datapadplusplus',
+              'postgresql://datapadplusplus:{{DB_PASSWORD}}@localhost:54329/datapadplusplus',
             host: '',
             port: undefined,
           }),

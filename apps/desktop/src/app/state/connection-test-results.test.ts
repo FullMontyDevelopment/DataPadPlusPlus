@@ -26,6 +26,23 @@ describe('connection test results', () => {
     )
   })
 
+  it('redacts typed secret values from frontend fallback connection failures', () => {
+    const result = buildConnectionTestFailure(
+      connectionProfile({
+        engine: 'mongodb',
+        family: 'document',
+        port: 27018,
+        database: 'catalog',
+        username: 'datapadplusplus',
+      }),
+      new Error('Authentication failed for password inline-secret-value'),
+      'inline-secret-value',
+    )
+
+    expect(result.message).not.toContain('inline-secret-value')
+    expect(result.message).toContain('********')
+  })
+
   it('adds fixture hints only for local connections with mismatched fixture values', () => {
     const warnings = fixtureWarningsForConnection(
       connectionProfile({

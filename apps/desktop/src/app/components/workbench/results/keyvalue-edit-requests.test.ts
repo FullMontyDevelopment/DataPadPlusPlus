@@ -68,7 +68,7 @@ describe('keyvalue edit requests', () => {
     })
   })
 
-  it('requires confirmation for key deletion', () => {
+  it('leaves destructive key deletion confirmation to runtime guardrails', () => {
     expect(
       buildKeyValueEditRequest({
         connection,
@@ -78,7 +78,7 @@ describe('keyvalue edit requests', () => {
       }),
     ).toMatchObject({
       editKind: 'delete-key',
-      confirmationText: 'CONFIRM REDIS DELETE-KEY',
+      confirmationText: undefined,
       changes: [],
     })
   })
@@ -140,7 +140,6 @@ describe('keyvalue edit requests', () => {
       }),
     ).toMatchObject({
       editKind: 'hash-delete-field',
-      confirmationText: 'CONFIRM REDIS HASH-DELETE-FIELD',
       target: {
         objectKind: 'key-member',
         key: 'product:luna-lamp',
@@ -164,7 +163,6 @@ describe('keyvalue edit requests', () => {
       }),
     ).toMatchObject({
       editKind: 'set-remove-member',
-      confirmationText: 'CONFIRM REDIS SET-REMOVE-MEMBER',
       target: {
         key: 'products:featured',
       },

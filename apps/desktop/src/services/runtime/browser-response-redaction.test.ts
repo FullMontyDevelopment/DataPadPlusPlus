@@ -124,6 +124,29 @@ describe('browser response redaction', () => {
     expect(serialized).toContain('********')
   })
 
+  it('ignores malformed secret values instead of failing redaction', () => {
+    const redacted = redactConnectionTestForEnvironment(
+      {
+        ok: false,
+        engine: 'mongodb',
+        message: 'Authentication failed with inline-secret',
+        warnings: ['Check credentials'],
+        resolvedHost: 'localhost',
+        resolvedDatabase: undefined,
+        durationMs: 1,
+      },
+      {
+        ...secretEnvironment(),
+        variables: {
+          API_TOKEN: null,
+        } as never,
+      },
+      [null, undefined, 'inline-secret'],
+    )
+
+    expect(redacted.message).toBe('Authentication failed with ********')
+  })
+
   it('redacts explorer display metadata while preserving functional node ids and scopes', () => {
     const redacted = redactExplorerResponseForEnvironment(
       {

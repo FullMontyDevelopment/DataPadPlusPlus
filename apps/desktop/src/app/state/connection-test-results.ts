@@ -3,6 +3,7 @@ import type {
   ConnectionTestResult,
 } from '@datapadplusplus/shared-types'
 import { toUserMessage } from './app-state-selectors'
+import { redactSensitiveText } from './security-redaction'
 
 interface FixtureEndpointHint {
   label: string
@@ -53,15 +54,20 @@ export function buildConnectionTestFailure(
   error: unknown,
   secret?: string,
 ): ConnectionTestResult {
-  const message = toUserMessage(error, `Connection test failed for ${profile.name}.`)
+  const message = redactConnectionTestText(
+    toUserMessage(error, `Connection test failed for ${profile.name}.`),
+    secret,
+  )
 
   return {
     ok: false,
     engine: profile.engine,
     message: `Connection test failed for ${profile.name}: ${message}`,
     warnings: fixtureWarningsForConnection(profile, secret),
-    resolvedHost: profile.host,
-    resolvedDatabase: profile.database,
+    resolvedHost: redactConnectionTestText(profile.host, secret),
+    resolvedDatabase: profile.database
+      ? redactConnectionTestText(profile.database, secret)
+      : profile.database,
     durationMs: 0,
   }
 }
@@ -102,4 +108,15 @@ export function fixtureWarningsForConnection(
 function isLocalHost(host: string) {
   const normalized = host.trim().toLowerCase()
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1'
+}
+
+function redactConnectionTestText(value: string, secret?: string) {
+  const redacted = redactSensitiveText(value)
+  const trimmedSecret = secret?.trim()
+
+  if (!trimmedSecret || trimmedSecret.length < 3) {
+    return redacted
+  }
+
+  return redacted.replaceAll(trimmedSecret, '********')
 }

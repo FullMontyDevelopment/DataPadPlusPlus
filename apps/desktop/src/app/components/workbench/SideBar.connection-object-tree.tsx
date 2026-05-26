@@ -1097,7 +1097,7 @@ function objectViewMenuLabel(connection: ConnectionProfile, kind: string | undef
     return openTsdbObjectViewMenuLabel(kind)
   }
 
-  return 'Open View'
+  return 'Inspect Object'
 }
 
 function scopedQueryMenuLabel(connection: ConnectionProfile, kind: string | undefined) {

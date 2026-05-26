@@ -57,21 +57,21 @@ pub(super) async fn execute_mongodb_query(
             let (documents, database_name, collection_name) =
                 read_mongodb_documents(adapter, connection, &client, &input, &mut notices, Some(1))
                     .await?;
-            Ok(document_result(
+            Ok(document_result(DocumentResultInput {
                 connection,
                 started,
                 notices,
                 documents,
-                &database_name,
-                &collection_name,
-                1,
-                "document(s)",
-                can_use_efficiency_mode(
+                database_name: &database_name,
+                collection_name: &collection_name,
+                row_limit: 1,
+                label: "document(s)",
+                lazy_documents: can_use_efficiency_mode(
                     &input,
                     &operation,
                     request.document_efficiency_mode.unwrap_or(false),
                 ),
-            ))
+            }))
         }
         "aggregate" | "find" => {
             let requested_row_limit = request
@@ -86,21 +86,21 @@ pub(super) async fn execute_mongodb_query(
                 Some(requested_row_limit),
             )
             .await?;
-            Ok(document_result(
+            Ok(document_result(DocumentResultInput {
                 connection,
                 started,
                 notices,
                 documents,
-                &database_name,
-                &collection_name,
-                requested_row_limit,
-                "document(s)",
-                can_use_efficiency_mode(
+                database_name: &database_name,
+                collection_name: &collection_name,
+                row_limit: requested_row_limit,
+                label: "document(s)",
+                lazy_documents: can_use_efficiency_mode(
                     &input,
                     &operation,
                     request.document_efficiency_mode.unwrap_or(false),
                 ),
-            ))
+            }))
         }
         "countdocuments" | "count" => {
             execute_mongodb_count(connection, &client, &input, notices, started, false).await
@@ -541,17 +541,30 @@ async fn execute_mongodb_write(
     }))
 }
 
-fn document_result(
-    connection: &ResolvedConnectionProfile,
+struct DocumentResultInput<'a> {
+    connection: &'a ResolvedConnectionProfile,
     started: Instant,
     notices: Vec<QueryExecutionNotice>,
     documents: Vec<Document>,
-    database_name: &str,
-    collection_name: &str,
+    database_name: &'a str,
+    collection_name: &'a str,
     row_limit: u32,
-    label: &str,
+    label: &'a str,
     lazy_documents: bool,
-) -> ExecutionResultEnvelope {
+}
+
+fn document_result(input: DocumentResultInput<'_>) -> ExecutionResultEnvelope {
+    let DocumentResultInput {
+        connection,
+        started,
+        notices,
+        documents,
+        database_name,
+        collection_name,
+        row_limit,
+        label,
+        lazy_documents,
+    } = input;
     let truncated = documents.len() > row_limit as usize;
     let visible_documents = documents
         .iter()

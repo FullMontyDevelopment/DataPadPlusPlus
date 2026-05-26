@@ -14,6 +14,7 @@ import type {
   ResultPayload,
 } from '@datapadplusplus/shared-types'
 import { ClockIcon, CopyIcon, DownloadIcon } from '../icons'
+import { resultEditQueryText } from '../../../result-edit-context'
 import { ResultPayloadView } from './ResultPayloadView'
 import { TestRunResultsView } from './TestRunResultsView'
 import { copyText, exportPayload, payloadToText } from './payload-export'
@@ -211,8 +212,14 @@ export function ResultsView({
           activeTab && activeEnvironment
             ? {
                 connectionId: activeTab.connectionId,
-                environmentId: activeEnvironment.id,
-                queryText: activeTab.queryText,
+                environmentId: activeTab.environmentId,
+                queryText: resultEditQueryText(activeTab, result),
+                ...(payload?.renderer === 'document' && payload.database
+                  ? { database: payload.database }
+                  : {}),
+                ...(payload?.renderer === 'document' && payload.collection
+                  ? { collection: payload.collection }
+                  : {}),
               }
             : undefined
         }

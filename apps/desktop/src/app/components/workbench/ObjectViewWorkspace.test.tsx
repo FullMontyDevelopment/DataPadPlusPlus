@@ -304,7 +304,8 @@ describe('ObjectViewWorkspace', () => {
         }),
       }),
     }))
-    expect(await screen.findByText('Ready to review.')).toBeInTheDocument()
+    expect(await screen.findByText('Prepared')).toBeInTheDocument()
+    expect(screen.getByText('Request Preview')).toBeInTheDocument()
   })
 
   it('builds compound Mongo indexes from multiple field rows', () => {

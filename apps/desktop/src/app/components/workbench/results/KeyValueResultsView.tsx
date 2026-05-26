@@ -15,12 +15,12 @@ import {
 import { useDataEditConfirmation } from './use-data-edit-confirmation'
 import {
   KeyValueAddPanel,
-  KeyValueDeletePanel,
   KeyValueRenamePanel,
   KeyValueTtlPanel,
 } from './KeyValueEditPanels'
 import { KeyValueEntryRows } from './KeyValueEntryRows'
 import { KeyValueContextMenu } from './KeyValueContextMenu'
+import { RedisKeyDetailHeader } from './RedisKeyDetailHeader'
 import {
   buildKeyValueEditRequest,
   buildRedisMemberDeleteRequest,
@@ -28,7 +28,20 @@ import {
   keyValueCanEdit,
   parseKeyValueInput,
 } from './keyvalue-edit-requests'
-import { ClockIcon, DownloadIcon, RenameIcon, TrashIcon, UnlockIcon, UploadIcon } from '../icons'
+import {
+  applyKeyValueEntryPatches,
+  canDeleteRedisContextTarget,
+  diffKeyValueEntries,
+  keyValuePrimaryColumnLabel,
+  keyValueEntriesVersion,
+  type KeyValueEntryPatches,
+  keyValueRowsFromEntries,
+  redisContextTargetKind,
+  redisEditKindForValue,
+  redisKeyOperationPlanRequest,
+  redisMemberLabel,
+  serializedKeyValue,
+} from './keyvalue-results-helpers'
 
 interface KeyValueResultsViewProps {
   connection?: ConnectionProfile
@@ -49,7 +62,7 @@ interface ContextMenuState {
   y: number
 }
 
-interface PendingDeleteState {
+interface DeleteTarget {
   keyName: string
   rawValue?: string
   target: 'key' | 'member'
@@ -70,6 +83,11 @@ interface PendingRenameState {
   nextKeyName: string
 }
 
+interface EntryPatchState {
+  patches: KeyValueEntryPatches
+  version: string
+}
+
 export function KeyValueResultsView({
   connection,
   editContext,
@@ -78,27 +96,48 @@ export function KeyValueResultsView({
   onExecuteDataEdit,
   onPlanOperation,
 }: KeyValueResultsViewProps) {
-  const [draftEntries, setDraftEntries] = useState(entries)
+  const entriesVersion = useMemo(
+    () => keyValueEntriesVersion(entries, {
+      key: payload?.key,
+      redisType: payload?.redisType,
+    }),
+    [entries, payload?.key, payload?.redisType],
+  )
+  const [entryPatchState, setEntryPatchState] = useState<EntryPatchState>({
+    patches: {},
+    version: entriesVersion,
+  })
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
   const [editingKey, setEditingKey] = useState<string>()
   const [editingValue, setEditingValue] = useState('')
   const [contextMenu, setContextMenu] = useState<ContextMenuState>()
-  const [pendingDelete, setPendingDelete] = useState<PendingDeleteState>()
   const [pendingTtl, setPendingTtl] = useState<PendingTtlState>()
   const [pendingAdd, setPendingAdd] = useState<PendingAddState>()
   const [pendingRename, setPendingRename] = useState<PendingRenameState>()
   const [statusMessage, setStatusMessage] = useState('')
   const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const canEdit = keyValueCanEdit(connection, editContext) && Boolean(onExecuteDataEdit)
-  const rows = useMemo(
-    () =>
-      Object.entries(draftEntries).map(([keyName, rawValue]) => ({
-        keyName,
-        rawValue,
-        parsedValue: parseKeyValueInput(rawValue),
-      })),
-    [draftEntries],
+  const activeEntryPatches = entryPatchState.version === entriesVersion
+    ? entryPatchState.patches
+    : EMPTY_KEYVALUE_ENTRY_PATCHES
+  const draftEntries = useMemo(
+    () => applyKeyValueEntryPatches(entries, activeEntryPatches),
+    [activeEntryPatches, entries],
   )
+  const rows = useMemo(() => keyValueRowsFromEntries(draftEntries), [draftEntries])
+
+  const updateDraftEntries = (updater: (current: Record<string, string>) => Record<string, string>) => {
+    setEntryPatchState((current) => {
+      const patches = current.version === entriesVersion ? current.patches : EMPTY_KEYVALUE_ENTRY_PATCHES
+      const currentDraft = applyKeyValueEntryPatches(entries, patches)
+      const nextDraft = updater(currentDraft)
+
+      return {
+        patches: diffKeyValueEntries(entries, nextDraft),
+        version: entriesVersion,
+      }
+    })
+  }
 
   useEffect(() => {
     if (!contextMenu) {
@@ -161,7 +200,7 @@ export function KeyValueResultsView({
       confirmationTitle: 'Apply this key edit?',
     })
     if (response?.executed) {
-      setDraftEntries((current) => ({
+      updateDraftEntries((current) => ({
         ...current,
         [keyName]: serializedKeyValue(nextValue),
       }))
@@ -201,7 +240,7 @@ export function KeyValueResultsView({
       confirmationTitle: 'Create this key?',
     })
     if (response?.executed) {
-      setDraftEntries((current) => ({
+      updateDraftEntries((current) => ({
         ...current,
         [keyName]: serializedKeyValue(nextValue),
       }))
@@ -301,7 +340,7 @@ export function KeyValueResultsView({
       confirmationTitle: 'Rename this key?',
     })
     if (response?.executed) {
-      setDraftEntries((current) => {
+      updateDraftEntries((current) => {
         const next = { ...current }
         next[nextKeyName] = current[keyName] ?? ''
         delete next[keyName]
@@ -313,29 +352,28 @@ export function KeyValueResultsView({
     }
   }
 
-  const deleteKey = async () => {
-    if (!pendingDelete || !onExecuteDataEdit) {
+  const deleteKey = async (deleteTargetState: DeleteTarget) => {
+    if (!onExecuteDataEdit) {
       return
     }
 
-    const request = pendingDelete.target === 'member' && selectedKey
+    const request = deleteTargetState.target === 'member' && selectedKey
       ? buildRedisMemberDeleteRequest({
           connection,
           editContext,
           key: selectedKey,
-          member: pendingDelete.keyName,
-          rawValue: pendingDelete.rawValue,
+          member: deleteTargetState.keyName,
+          rawValue: deleteTargetState.rawValue,
           redisType,
         })
       : buildKeyValueEditRequest({
           connection,
           editContext,
           editKind: 'delete-key',
-          key: pendingDelete.keyName,
+          key: deleteTargetState.keyName,
         })
-    const keyName = pendingDelete.keyName
-    const deleteTarget = pendingDelete.target
-    setPendingDelete(undefined)
+    const keyName = deleteTargetState.keyName
+    const targetKind = deleteTargetState.target
 
     if (!request) {
       setStatusMessage(`Delete is not available for this ${redisType ?? 'Redis'} item.`)
@@ -346,23 +384,23 @@ export function KeyValueResultsView({
       onExecuteDataEdit,
       request,
       {
-        actionLabel: deleteTarget === 'member' && selectedKey
+        actionLabel: targetKind === 'member' && selectedKey
           ? `Delete ${keyName} from ${selectedKey}.`
           : `Delete ${keyName}.`,
         confirm: confirmDataEdit,
-        confirmationTitle: deleteTarget === 'member' ? 'Delete this Redis item?' : 'Delete this key?',
+        confirmationTitle: targetKind === 'member' ? 'Delete this Redis item?' : 'Delete this key?',
       },
     )
     if (response?.executed) {
-      setDraftEntries((current) => {
+      updateDraftEntries((current) => {
         const next = { ...current }
-        if (deleteTarget === 'key' && selectedKey === keyName) {
+        if (targetKind === 'key' && selectedKey === keyName) {
           return {}
         }
         delete next[keyName]
         return next
       })
-      setStatusMessage(deleteTarget === 'member' && selectedKey
+      setStatusMessage(targetKind === 'member' && selectedKey
         ? `Deleted ${keyName} from ${selectedKey}.`
         : `Deleted ${keyName}.`)
     } else {
@@ -375,24 +413,17 @@ export function KeyValueResultsView({
   const canPlanKeyOperation = Boolean(onPlanOperation && selectedKey && connection && editContext)
 
   const planKeyExport = async () => {
-    if (!onPlanOperation || !selectedKey || !connection || !editContext) {
+    const request = redisKeyOperationPlanRequest({
+      connection,
+      editContext,
+      payload,
+      operation: 'export',
+    })
+    if (!onPlanOperation || !selectedKey || !request) {
       return
     }
 
-    const response = await onPlanOperation({
-      connectionId: connection.id,
-      environmentId: editContext.environmentId,
-      operationId: `${connection.engine}.key.export`,
-      objectName: selectedKey,
-      parameters: {
-        key: selectedKey,
-        redisType: redisType ?? 'unknown',
-        format: 'json',
-        includeTtl: true,
-        includeType: true,
-        includeMetadata: true,
-      },
-    })
+    const response = await onPlanOperation(request)
 
     setStatusMessage(
       response?.plan
@@ -402,24 +433,17 @@ export function KeyValueResultsView({
   }
 
   const planKeyImport = async () => {
-    if (!onPlanOperation || !selectedKey || !connection || !editContext) {
+    const request = redisKeyOperationPlanRequest({
+      connection,
+      editContext,
+      payload,
+      operation: 'import',
+    })
+    if (!onPlanOperation || !selectedKey || !request) {
       return
     }
 
-    const response = await onPlanOperation({
-      connectionId: connection.id,
-      environmentId: editContext.environmentId,
-      operationId: `${connection.engine}.key.import`,
-      objectName: selectedKey,
-      parameters: {
-        key: selectedKey,
-        redisType: redisType ?? 'string',
-        format: 'json',
-        mode: 'create-or-replace',
-        ttl: 'preserve',
-        validation: 'validate-before-write',
-      },
-    })
+    const response = await onPlanOperation(request)
 
     setStatusMessage(
       response?.plan
@@ -430,88 +454,21 @@ export function KeyValueResultsView({
 
   return (
     <div className="keyvalue-results" aria-label="Key-value results">
-      {selectedKey ? (
-        <div className="redis-key-detail-header">
-          <div className="redis-key-detail-identity">
-            <strong>{selectedKey}</strong>
-            <span className={`redis-type-badge is-${redisType ?? 'unknown'}`}>
-              {redisType ?? 'unknown'}
-            </span>
-          </div>
-          <span>{payload?.ttl ?? 'TTL unavailable'}</span>
-          <span>{payload?.memoryUsage ?? 'Memory unavailable'}</span>
-          {payload?.encoding ? <span>{payload.encoding}</span> : null}
-          {payload?.length !== undefined ? <span>{payload.length} item(s)</span> : null}
-          {canEdit || canPlanKeyOperation ? (
-            <div className="redis-key-detail-actions">
-              {canPlanKeyOperation ? (
-                <>
-                  <button
-                    type="button"
-                    className="object-view-icon-action"
-                    aria-label={`Export key ${selectedKey}`}
-                    title="Export key"
-                    onClick={() => void planKeyExport()}
-                  >
-                    <DownloadIcon className="toolbar-icon" />
-                  </button>
-                  <button
-                    type="button"
-                    className="object-view-icon-action"
-                    aria-label={`Import key ${selectedKey}`}
-                    title="Import key"
-                    onClick={() => void planKeyImport()}
-                  >
-                    <UploadIcon className="toolbar-icon" />
-                  </button>
-                </>
-              ) : null}
-              {canEdit ? (
-                <>
-                  <button
-                    type="button"
-                    className="object-view-icon-action"
-                    aria-label={`Rename key ${selectedKey}`}
-                    title="Rename key"
-                    onClick={() => setPendingRename({ keyName: selectedKey, nextKeyName: selectedKey })}
-                  >
-                    <RenameIcon className="toolbar-icon" />
-                  </button>
-                  <button
-                    type="button"
-                    className="object-view-icon-action"
-                    aria-label={`Set TTL for ${selectedKey}`}
-                    title="Set TTL"
-                    onClick={() => setPendingTtl({ keyName: selectedKey, seconds: '3600' })}
-                  >
-                    <ClockIcon className="toolbar-icon" />
-                  </button>
-                  <button
-                    type="button"
-                    className="object-view-icon-action"
-                    aria-label={`Remove TTL for ${selectedKey}`}
-                    title="Remove TTL"
-                    onClick={() => void persistTtl(selectedKey)}
-                  >
-                    <UnlockIcon className="toolbar-icon" />
-                  </button>
-                  <button
-                    type="button"
-                    className="object-view-icon-action is-danger redis-key-detail-delete"
-                    aria-label={`Delete key ${selectedKey}`}
-                    title="Delete key"
-                    onClick={() => setPendingDelete({ keyName: selectedKey, target: 'key' })}
-                  >
-                    <TrashIcon className="toolbar-icon" />
-                  </button>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+      {payload && selectedKey ? (
+        <RedisKeyDetailHeader
+          canEdit={canEdit}
+          canPlanKeyOperation={canPlanKeyOperation}
+          payload={{ ...payload, key: selectedKey }}
+          onDelete={() => void deleteKey({ keyName: selectedKey, target: 'key' })}
+          onExport={() => void planKeyExport()}
+          onImport={() => void planKeyImport()}
+          onPersistTtl={() => void persistTtl(selectedKey)}
+          onRename={() => setPendingRename({ keyName: selectedKey, nextKeyName: selectedKey })}
+          onSetTtl={() => setPendingTtl({ keyName: selectedKey, seconds: '3600' })}
+        />
       ) : null}
       <div className="keyvalue-results-header" role="row">
-        <span>{redisType === 'hash' ? 'Field' : redisType === 'list' ? 'Index' : redisType === 'zset' ? 'Member' : 'Key'}</span>
+        <span>{keyValuePrimaryColumnLabel(redisType)}</span>
         <span>Type</span>
         <span>Value</span>
       </div>
@@ -589,14 +546,6 @@ export function KeyValueResultsView({
           onSetTtl={() => void setTtl()}
         />
       ) : null}
-      {pendingDelete ? (
-        <KeyValueDeletePanel
-          itemLabel={pendingDelete.target === 'member' ? redisMemberLabel(redisType).toLowerCase() : 'key'}
-          keyName={pendingDelete.keyName}
-          onCancel={() => setPendingDelete(undefined)}
-          onConfirm={() => void deleteKey()}
-        />
-      ) : null}
       {confirmationDialog}
       {statusMessage ? <div className="data-grid-status">{statusMessage}</div> : null}
       {contextMenu ? (
@@ -621,10 +570,11 @@ export function KeyValueResultsView({
             if (!connection) {
               return
             }
-            setPendingDelete({
+            setContextMenu(undefined)
+            void deleteKey({
               keyName: contextMenu.keyName,
               rawValue: draftEntries[contextMenu.keyName],
-              target: selectedKey && redisType !== 'string' ? 'member' : 'key',
+              target: redisContextTargetKind(selectedKey, redisType),
             })
           }}
         />
@@ -633,41 +583,4 @@ export function KeyValueResultsView({
   )
 }
 
-function canDeleteRedisContextTarget(selectedKey: string | undefined, redisType: string | undefined) {
-  if (!selectedKey || redisType === 'string') {
-    return true
-  }
-
-  return redisType === 'hash' || redisType === 'set' || redisType === 'zset'
-}
-
-function redisMemberLabel(redisType: string | undefined) {
-  if (redisType === 'hash') {
-    return 'Field'
-  }
-  if (redisType === 'zset' || redisType === 'set') {
-    return 'Member'
-  }
-  return 'Item'
-}
-
-function serializedKeyValue(value: unknown) {
-  return typeof value === 'string' ? value : JSON.stringify(value)
-}
-
-function redisEditKindForValue(
-  redisType: string,
-): 'hash-set-field' | 'list-set-index' | 'set-add-member' | 'zset-add-member' {
-  switch (redisType) {
-    case 'hash':
-      return 'hash-set-field'
-    case 'list':
-      return 'list-set-index'
-    case 'set':
-      return 'set-add-member'
-    case 'zset':
-      return 'zset-add-member'
-    default:
-      return 'hash-set-field'
-  }
-}
+const EMPTY_KEYVALUE_ENTRY_PATCHES: KeyValueEntryPatches = {}

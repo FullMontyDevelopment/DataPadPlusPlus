@@ -41,9 +41,7 @@ export function buildKeyValueEditRequest({
     connectionId: editContext.connectionId,
     environmentId: editContext.environmentId,
     editKind,
-    confirmationText: editKind === 'delete-key'
-      ? keyValueConfirmationText(connection!, editKind)
-      : undefined,
+    confirmationText: undefined,
     target: {
       objectKind: 'key',
       path: [],
@@ -135,33 +133,33 @@ export function buildRedisMemberDeleteRequest({
   }
 
   if (redisType === 'hash') {
-    return withRedisConfirmation(connection, buildRedisMemberEditRequest({
+    return buildRedisMemberEditRequest({
       connection,
       editContext,
       editKind: 'hash-delete-field',
       key,
       field: member,
-    }))
+    })
   }
 
   if (redisType === 'set') {
-    return withRedisConfirmation(connection, buildRedisMemberEditRequest({
+    return buildRedisMemberEditRequest({
       connection,
       editContext,
       editKind: 'set-remove-member',
       key,
       value: parseKeyValueInput(rawValue ?? member),
-    }))
+    })
   }
 
   if (redisType === 'zset') {
-    return withRedisConfirmation(connection, buildRedisMemberEditRequest({
+    return buildRedisMemberEditRequest({
       connection,
       editContext,
       editKind: 'zset-remove-member',
       key,
       field: member,
-    }))
+    })
   }
 
   return undefined
@@ -169,25 +167,6 @@ export function buildRedisMemberDeleteRequest({
 
 export function parseKeyValueInput(value: string) {
   return parseJsonValue(value)
-}
-
-export function keyValueConfirmationText(
-  connection: ConnectionProfile,
-  editKind: DataEditKind,
-) {
-  return `CONFIRM ${connection.engine.toUpperCase()} ${editKind.toUpperCase()}`
-}
-
-function withRedisConfirmation(
-  connection: ConnectionProfile | undefined,
-  request: DataEditExecutionRequest | undefined,
-) {
-  return connection && request
-    ? {
-        ...request,
-        confirmationText: keyValueConfirmationText(connection, request.editKind),
-      }
-    : request
 }
 
 export function valueTypeName(value: unknown) {

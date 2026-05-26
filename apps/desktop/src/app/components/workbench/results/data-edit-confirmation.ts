@@ -30,7 +30,7 @@ export async function executeDataEditWithConfirmation(
   options: ExecuteDataEditOptions = {},
 ) {
   const response = await executeDataEdit(request)
-  const confirmationText = response?.plan.confirmationText
+  const confirmationText = response?.plan?.confirmationText
 
   if (
     response?.executed ||
@@ -89,28 +89,42 @@ export function dataEditConfirmationDetails(
   options: ExecuteDataEditOptions,
 ) {
   const cleanResponse = withoutTypedConfirmationWarnings(response)
-  const reasons = [...cleanResponse.plan.warnings, ...cleanResponse.warnings]
+  const reasons = [...(cleanResponse.plan?.warnings ?? []), ...cleanResponse.warnings]
     .filter((warning) => !/guarded operation plans/i.test(warning))
     .filter((warning, index, warnings) => warnings.indexOf(warning) === index)
     .slice(0, 4)
   const title = options.confirmationTitle ?? 'Apply this data edit?'
-  const action = options.actionLabel ?? cleanResponse.plan.summary
+  const action = options.actionLabel ?? cleanResponse.plan?.summary ?? 'Apply this data edit.'
 
   return { action, reasons, title }
 }
 
 function withoutTypedConfirmationWarnings(response: DataEditExecutionResponse) {
-  const confirmationText = response.plan.confirmationText
+  const confirmationText = response.plan?.confirmationText
   if (!confirmationText) {
     return response
   }
 
   return {
     ...response,
+    plan: {
+      ...response.plan,
+      warnings: response.plan.warnings.filter(
+        (warning) => !isTypedConfirmationWarning(warning, confirmationText),
+      ),
+    },
+    messages: response.messages.filter(
+      (message) => !isTypedConfirmationWarning(message, confirmationText),
+    ),
     warnings: response.warnings.filter(
-      (warning) =>
-        !warning.includes(`Type \`${confirmationText}\``) &&
-        !warning.includes(confirmationText),
+      (warning) => !isTypedConfirmationWarning(warning, confirmationText),
     ),
   }
+}
+
+function isTypedConfirmationWarning(message: string, confirmationText: string) {
+  return (
+    message.includes(`Type \`${confirmationText}\``) ||
+    message.includes(confirmationText)
+  )
 }

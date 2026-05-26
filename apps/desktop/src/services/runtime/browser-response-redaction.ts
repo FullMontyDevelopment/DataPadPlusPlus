@@ -38,9 +38,12 @@ export function redactResultPageForEnvironment(
 export function redactConnectionTestForEnvironment(
   response: ConnectionTestResult,
   environment: ResolvedEnvironment,
-  extraSecretValues: string[] = [],
+  extraSecretValues: unknown[] = [],
 ): ConnectionTestResult {
-  const secrets = [...secretValues(environment), ...extraSecretValues.filter((value) => value.trim())]
+  const secrets = normalizeSecretValues([
+    ...secretValues(environment),
+    ...extraSecretValues,
+  ])
 
   return {
     ...response,
@@ -183,9 +186,15 @@ export function redactDiagnosticsForEnvironment(
 }
 
 function secretValues(environment: ResolvedEnvironment) {
-  return environment.sensitiveKeys
-    .map((key) => environment.variables[key])
-    .filter((value): value is string => Boolean(value?.trim()))
+  return normalizeSecretValues(
+    environment.sensitiveKeys.map((key) => environment.variables[key]),
+  )
+}
+
+function normalizeSecretValues(values: unknown[]) {
+  return values.filter(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+  )
 }
 
 function redactTextForEnvironment(value: string, environment: ResolvedEnvironment) {

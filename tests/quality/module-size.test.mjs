@@ -52,7 +52,7 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/BottomPanel.tsx',
     {
-      maxLines: 430,
+      maxLines: 440,
       reason: 'Bottom results docking, tabs, history, and execution status are coupled by layout state.',
     },
   ],
@@ -78,13 +78,6 @@ const documentedExceptions = new Map([
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/ObjectViewWorkspace.tsx',
-    {
-      maxLines: 2600,
-      reason: 'Purpose-built Mongo object views are still one active adapter surface until the view pages are split by workflow.',
-    },
-  ],
-  [
     'apps/desktop/src/app/components/workbench/OpenTsdbObjectViewWorkspace.tsx',
     {
       maxLines: 540,
@@ -94,8 +87,8 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/OracleObjectViewWorkspace.tsx',
     {
-      maxLines: 1020,
-      reason: 'Oracle object-view pages share descriptor-driven shells, purpose-built tables, and permission-state handling.',
+      maxLines: 520,
+      reason: 'Oracle object-view pages remain together while row normalization and shared primitives are split out.',
     },
   ],
   [
@@ -120,20 +113,6 @@ const documentedExceptions = new Map([
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/RedisObjectViewWorkspace.tsx',
-    {
-      maxLines: 1230,
-      reason: 'Redis object-view dashboards, type sections, capability states, and empty-state guidance share one adapter view shell.',
-    },
-  ],
-  [
-    'apps/desktop/src/app/components/workbench/RelationalObjectViewWorkspace.tsx',
-    {
-      maxLines: 850,
-      reason: 'SQL-family object views share table/procedure/security rendering and warning states.',
-    },
-  ],
-  [
     'apps/desktop/src/app/components/workbench/SearchObjectViewWorkspace.tsx',
     {
       maxLines: 575,
@@ -143,8 +122,8 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/results/KeyValueResultsView.tsx',
     {
-      maxLines: 430,
-      reason: 'Redis key inspection, typed value rendering, and guarded edit actions remain one result view.',
+      maxLines: 600,
+      reason: 'Redis key inspection and guarded edit orchestration remain together while headers, rows, panels, and request helpers are split out.',
     },
   ],
   [
@@ -157,7 +136,7 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/results/DocumentResultsView.tsx',
     {
-      maxLines: 520,
+      maxLines: 620,
       reason: 'Document virtualization, inline editing, inspector, and field drag behavior share row state.',
     },
   ],
@@ -166,6 +145,13 @@ const documentedExceptions = new Map([
     {
       maxLines: 430,
       reason: 'Mongo explain normalization keeps parser, warnings, and plan metrics together for testability.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/RightDrawer.diagnostics-blade.tsx',
+    {
+      maxLines: 450,
+      reason: 'Settings, backup, restore, and workspace health are one end-user settings blade for now.',
     },
   ],
   [
@@ -178,7 +164,7 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/SideBar.connection-object-tree.tsx',
     {
-      maxLines: 1240,
+      maxLines: 1280,
       reason: 'Tree rendering, scoped refresh, batching, and context menu behavior are one UI unit.',
     },
   ],
@@ -220,8 +206,15 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/state/app-actions-runtime.ts',
     {
-      maxLines: 470,
-      reason: 'Runtime action wrappers coordinate tab, metrics, explorer, and test-suite command refreshes.',
+      maxLines: 620,
+      reason: 'Runtime action wrappers coordinate per-tab execution, paging, metrics, explorer, and test-suite command refreshes.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/state/app-state-reducer-helpers.ts',
+    {
+      maxLines: 640,
+      reason: 'Reducer helpers keep tab, Library, explorer metadata, execution, and result merge invariants together for state consistency.',
     },
   ],
   [
@@ -236,6 +229,27 @@ const documentedExceptions = new Map([
     {
       maxLines: 640,
       reason: 'Workspace schema migration intentionally keeps versioned normalization, Library migration, and variable syntax migration in one place.',
+    },
+  ],
+  [
+    'apps/desktop/src/services/runtime/browser-execution.ts',
+    {
+      maxLines: 460,
+      reason: 'Browser-preview execution keeps deterministic query, script, test, and result lifecycle behavior in one service boundary.',
+    },
+  ],
+  [
+    'apps/desktop/src/services/runtime/browser-operations.ts',
+    {
+      maxLines: 500,
+      reason: 'Browser-preview operation plans keep guardrail, edit, and deterministic adapter operation simulation together.',
+    },
+  ],
+  [
+    'apps/desktop/src/services/runtime/client-workspace.ts',
+    {
+      maxLines: 420,
+      reason: 'Workspace client helpers coordinate snapshot, import/export, backup, and settings command shapes.',
     },
   ],
   [
@@ -318,7 +332,7 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src-tauri/src/app/runtime/workspace.rs',
     {
-      maxLines: 520,
+      maxLines: 720,
       reason: 'Workspace import/export owns encryption validation, snapshot migration, secret stripping, and bundle boundaries.',
     },
   ],

@@ -10,6 +10,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import type { ReactNode } from 'react'
 import { DataGridView } from './DataGridView'
+import { dataGridRowsVersion } from './data-grid-row-patches'
 import type { DocumentEditContext } from './document-edit-context'
 import { DocumentResultsView } from './DocumentResultsView'
 import { JsonTreeView } from './JsonTreeView'
@@ -61,6 +62,7 @@ export function ResultPayloadView({
 
     return (
       <DataGridView
+        key={`${dataGridRowsVersion(rows, columns)}:${pageIndex}:${pageSize ?? 'all'}`}
         connection={connection}
         editContext={editContext}
         columns={columns}
@@ -159,8 +161,6 @@ export function ResultPayloadView({
 
     return (
       <DataGridView
-        connection={connection}
-        editContext={editContext}
         columns={['metric', 'value', 'unit', 'labels']}
         rows={metrics.map((metric) => [
           metric.name,
@@ -168,7 +168,6 @@ export function ResultPayloadView({
           metric.unit ?? '',
           formatLabels(metric.labels),
         ])}
-        onExecuteDataEdit={onExecuteDataEdit}
       />
     )
   }
@@ -180,8 +179,6 @@ export function ResultPayloadView({
 
     return (
       <DataGridView
-        connection={connection}
-        editContext={editContext}
         columns={['series', 'timestamp', 'value', 'unit', 'labels']}
         rows={seriesPayloads.flatMap((series) =>
           arrayValue<typeof series.points[number]>(series.points).map((point) => [
@@ -192,7 +189,6 @@ export function ResultPayloadView({
             formatLabels(point.labels),
           ]),
         )}
-        onExecuteDataEdit={onExecuteDataEdit}
       />
     )
   }
@@ -320,8 +316,14 @@ function keyValuePayloadKey(entries: Record<string, string>, key?: string) {
 function searchHitsPayloadKey(hits: Extract<ResultPayload, { renderer: 'searchHits' }>['hits']) {
   return hits
     .map((hit, index) => {
-      const rawHit = hit as typeof hit & { _id?: string; _source?: unknown }
-      return `${index}:${hit.id ?? rawHit._id ?? JSON.stringify(hit.source ?? rawHit._source)}`
+      const rawHit = hit as typeof hit & { _id?: string; _index?: string; _score?: number; _source?: unknown }
+      return [
+        index,
+        hit.id ?? rawHit._id ?? '',
+        rawHit._index ?? '',
+        hit.score ?? rawHit._score ?? '',
+        JSON.stringify(hit.source ?? rawHit._source),
+      ].join(':')
     })
     .join('|')
 }

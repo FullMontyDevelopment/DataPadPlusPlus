@@ -19,8 +19,8 @@ export function buildDocumentEditRequest(
     return undefined
   }
 
-  const collection = collectionFromQueryText(editContext.queryText)
-  const database = databaseFromQueryText(editContext.queryText)
+  const collection = editContext.collection || collectionFromQueryText(editContext.queryText)
+  const database = editContext.database || databaseFromQueryText(editContext.queryText)
   const documentId = documents[row.documentIndex]?._id
 
   if (!collection || documentId === undefined) {

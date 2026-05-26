@@ -2150,9 +2150,7 @@ function DesktopWorkspace() {
               key={[
                 snapshot.ui.rightDrawer,
                 drawerConnection?.id ?? 'none',
-                drawerConnection?.updatedAt ?? 'none',
                 activeEnvironment?.id ?? 'none',
-                activeEnvironment?.updatedAt ?? 'none',
               ].join('-')}
               view={snapshot.ui.rightDrawer}
               width={snapshot.ui.rightDrawerWidth}

@@ -1,11 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
   ConnectionProfile,
+  DataEditExecutionResponse,
   EnvironmentProfile,
   ExecutionResultEnvelope,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
+import { resultEditQueryText } from '../../../result-edit-context'
 import { ResultsView } from './ResultsView'
 
 describe('ResultsView', () => {
@@ -280,7 +282,7 @@ describe('ResultsView', () => {
 
     render(
       <ResultsView
-        activeEnvironment={environmentProfile()}
+        activeEnvironment={{ ...environmentProfile(), id: 'env-selected' }}
         activeTab={queryTab(result)}
         capabilities={{
           canCancel: false,
@@ -324,6 +326,112 @@ describe('ResultsView', () => {
     expect(await screen.findByText('reserved')).toBeInTheDocument()
     expect(screen.getByText('available')).toBeInTheDocument()
   })
+
+  it('uses the last executed query as edit context after the editor text changes', async () => {
+    const executeDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> => ({
+      connectionId: 'conn-sqlserver',
+      environmentId: 'env-dev',
+      editKind: 'update-row',
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: 'sqlserver.data-edit.update-row',
+        engine: 'sqlserver',
+        summary: 'Updated row.',
+        generatedRequest: 'update [dbo].[orders] set [status] = @P1 where [order_id] = @P2;',
+        requestLanguage: 'sql',
+        destructive: false,
+        requiredPermissions: ['update table row'],
+        warnings: [],
+      },
+      messages: ['Updated row.'],
+      warnings: [],
+    }))
+    const result = tableResultEnvelope()
+    const activeTab = {
+      ...sqlQueryTab(result),
+      queryText: 'select order_id, status from dbo.other_table',
+      history: [
+        {
+          id: 'history-latest',
+          queryText: 'select order_id, status from dbo.orders',
+          executedAt: result.executedAt,
+          status: 'success' as const,
+        },
+      ],
+    }
+
+    render(
+      <ResultsView
+        activeEnvironment={environmentProfile()}
+        activeTab={activeTab}
+        capabilities={{
+          canCancel: false,
+          canExplain: false,
+          defaultRowLimit: 200,
+          editorLanguage: 'sql',
+          supportsLiveMetadata: true,
+        }}
+        connection={connectionProfile({ family: 'sql', engine: 'sqlserver' })}
+        payload={result.payloads[0]}
+        renderer="table"
+        result={result}
+        onExecuteDataEdit={executeDataEdit}
+        onLoadNextPage={vi.fn()}
+        onResultRendered={vi.fn()}
+        onSelectRenderer={vi.fn()}
+      />,
+    )
+
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'processing' }))
+    fireEvent.change(screen.getByLabelText('Edit status row 1'), {
+      target: { value: 'fulfilled' },
+    })
+    fireEvent.blur(screen.getByLabelText('Edit status row 1'))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          environmentId: 'env-dev',
+          target: expect.objectContaining({
+            schema: 'dbo',
+            table: 'orders',
+          }),
+        }),
+      )
+    })
+  })
+
+  it('prefers matching execution history before falling back to current query text', () => {
+    const result = tableResultEnvelope()
+    const tab = sqlQueryTab(result)
+
+    expect(
+      resultEditQueryText(
+        {
+          ...tab,
+          queryText: 'select * from dbo.current_text',
+          history: [
+            {
+              id: 'history-newer',
+              queryText: 'select * from dbo.unrelated',
+              executedAt: '2026-01-01T00:00:02.000Z',
+              status: 'success',
+            },
+            {
+              id: 'history-match',
+              queryText: 'select * from dbo.orders',
+              executedAt: result.executedAt,
+              status: 'success',
+            },
+          ],
+        },
+        result,
+      ),
+    ).toBe('select * from dbo.orders')
+
+    expect(resultEditQueryText({ ...tab, history: [] }, result)).toBe(tab.queryText)
+  })
 })
 
 function flushAnimationFrames(callbacks: Map<number, FrameRequestCallback>) {
@@ -358,6 +466,26 @@ function resultEnvelope(
       pageIndex: 0,
       pageSize: 20,
     },
+  }
+}
+
+function tableResultEnvelope(): ExecutionResultEnvelope {
+  return {
+    id: 'result-table',
+    engine: 'sqlserver',
+    summary: '1 row returned from SQL Server.',
+    defaultRenderer: 'table',
+    rendererModes: ['table', 'json', 'raw'],
+    payloads: [
+      {
+        renderer: 'table',
+        columns: ['order_id', 'status'],
+        rows: [['101', 'processing']],
+      },
+    ],
+    notices: [],
+    executedAt: '2026-01-01T00:00:00.000Z',
+    durationMs: 12,
   }
 }
 
@@ -412,6 +540,24 @@ function queryTab(
     queryText: '{}',
     status: activeExecution ? 'running' : 'success',
     activeExecution,
+    dirty: false,
+    result,
+    history: [],
+  }
+}
+
+function sqlQueryTab(result: ExecutionResultEnvelope): QueryTabState {
+  return {
+    id: 'tab-sqlserver',
+    title: 'SQL query',
+    tabKind: 'query',
+    connectionId: 'conn-sqlserver',
+    environmentId: 'env-dev',
+    family: 'sql',
+    language: 'sql',
+    editorLabel: 'SQL query',
+    queryText: 'select order_id, status from dbo.orders',
+    status: 'success',
     dirty: false,
     result,
     history: [],

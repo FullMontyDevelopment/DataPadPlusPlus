@@ -21,6 +21,7 @@ export interface EditingCell {
   sourceIndex: number
   column: number
   value: string
+  version: string
 }
 
 interface UseDataGridEditingOptions {
@@ -28,6 +29,7 @@ interface UseDataGridEditingOptions {
   connection?: ConnectionProfile
   editContext?: DocumentEditContext
   rows: string[][]
+  rowsVersion: string
   setRows: Dispatch<SetStateAction<string[][]>>
   setStatusMessage(message: string): void
   confirmDataEdit?: DataEditConfirmationHandler
@@ -41,6 +43,7 @@ export function useDataGridEditing({
   connection,
   editContext,
   rows,
+  rowsVersion,
   setRows,
   setStatusMessage,
   confirmDataEdit,
@@ -75,10 +78,10 @@ export function useDataGridEditing({
         return false
       }
 
-      setEditingCell({ sourceIndex, column, value })
+      setEditingCell({ sourceIndex, column, value, version: rowsVersion })
       return true
     },
-    [canEditCell],
+    [canEditCell, rowsVersion],
   )
 
   const updateEditingValue = useCallback((value: string) => {
@@ -88,7 +91,10 @@ export function useDataGridEditing({
   const commitEdit = useCallback(async () => {
     const edit = editingCell
 
-    if (!edit || committingEditRef.current) {
+    if (!edit || edit.version !== rowsVersion || committingEditRef.current) {
+      if (edit?.version !== rowsVersion) {
+        setEditingCell(undefined)
+      }
       return
     }
 
@@ -152,6 +158,7 @@ export function useDataGridEditing({
     editingCell,
     onExecuteDataEdit,
     rows,
+    rowsVersion,
     setRows,
     setStatusMessage,
   ])

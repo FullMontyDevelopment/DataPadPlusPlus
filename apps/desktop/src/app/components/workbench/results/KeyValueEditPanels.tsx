@@ -1,5 +1,3 @@
-import { DeleteConfirmationPanel } from './DeleteConfirmationPanel'
-
 interface KeyValueAddPanelProps {
   duplicate: boolean
   keyName: string
@@ -138,29 +136,5 @@ export function KeyValueRenamePanel({
         Rename
       </button>
     </div>
-  )
-}
-
-interface KeyValueDeletePanelProps {
-  itemLabel?: string
-  keyName: string
-  onCancel(): void
-  onConfirm(): void
-}
-
-export function KeyValueDeletePanel({
-  itemLabel = 'key',
-  keyName,
-  onCancel,
-  onConfirm,
-}: KeyValueDeletePanelProps) {
-  return (
-    <DeleteConfirmationPanel
-      title={`Delete ${itemLabel} ${keyName}?`}
-      body="DataPad++ will run this guarded delete with confirmation."
-      danger={false}
-      onCancel={onCancel}
-      onConfirm={onConfirm}
-    />
   )
 }

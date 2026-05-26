@@ -470,7 +470,7 @@ describe('QueryBuilderPanel', () => {
     })
   })
 
-  it('confirms Redis key deletion before executing the edit', async () => {
+  it('deletes Redis keys through the guarded edit flow without an extra dialog', async () => {
     const onExecuteDataEdit = vi.fn().mockResolvedValue({
       executed: true,
       operationId: 'redis.data-edit.delete-key',
@@ -514,13 +514,15 @@ describe('QueryBuilderPanel', () => {
     await waitFor(() => expect(screen.getByText('product:luna-lamp')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Delete product:luna-lamp' }))
 
+    await waitFor(() => expect(onExecuteDataEdit).toHaveBeenCalledTimes(1))
     expect(
-      screen.getByRole('dialog', { name: 'Delete Redis key product:luna-lamp?' }),
-    ).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-
+      screen.queryByRole('dialog', { name: 'Delete Redis key product:luna-lamp?' }),
+    ).not.toBeInTheDocument()
     expect(confirmSpy).not.toHaveBeenCalled()
-    expect(onExecuteDataEdit).not.toHaveBeenCalled()
+    expect(onExecuteDataEdit).toHaveBeenCalledWith(expect.objectContaining({
+      editKind: 'delete-key',
+      target: expect.objectContaining({ key: 'product:luna-lamp' }),
+    }))
     confirmSpy.mockRestore()
   })
 })

@@ -728,27 +728,27 @@ function modeShortHint(mode: ConnectionMode) {
 
 function connectionStringPlaceholder(engine: ConnectionProfile['engine']) {
   if (engine === 'postgresql' || engine === 'cockroachdb' || engine === 'timescaledb') {
-    return 'postgresql://user:${DB_PASSWORD}@localhost:5432/database?sslmode=prefer'
+    return 'postgresql://user:{{DB_PASSWORD}}@localhost:5432/database?sslmode=prefer'
   }
 
   if (engine === 'sqlserver') {
-    return 'Server=localhost,1433;Database=master;User Id=sa;Password=${DB_PASSWORD};TrustServerCertificate=true;'
+    return 'Server=localhost,1433;Database=master;User Id=sa;Password={{DB_PASSWORD}};TrustServerCertificate=true;'
   }
 
   if (engine === 'mysql' || engine === 'mariadb') {
-    return 'mysql://user:${DB_PASSWORD}@localhost:3306/database'
+    return 'mysql://user:{{DB_PASSWORD}}@localhost:3306/database'
   }
 
   if (engine === 'mongodb') {
-    return 'mongodb://user:${DB_PASSWORD}@localhost:27017/admin?authSource=admin'
+    return 'mongodb://user:{{DB_PASSWORD}}@localhost:27017/admin?authSource=admin'
   }
 
   if (engine === 'redis' || engine === 'valkey') {
-    return 'redis://:${DB_PASSWORD}@localhost:6379/0'
+    return 'redis://:{{DB_PASSWORD}}@localhost:6379/0'
   }
 
   if (engine === 'oracle') {
-    return 'oracle://user:${DB_PASSWORD}@host:1521/service_name or host:1521/service_name'
+    return 'oracle://user:{{DB_PASSWORD}}@host:1521/service_name or host:1521/service_name'
   }
 
   if (engine === 'sqlite' || engine === 'duckdb' || engine === 'litedb') {
@@ -759,7 +759,7 @@ function connectionStringPlaceholder(engine: ConnectionProfile['engine']) {
     return 'http://localhost:9200'
   }
 
-  return `${engine}://user:${'${PASSWORD}'}@host:port/database`
+  return `${engine}://user:{{PASSWORD}}@host:port/database`
 }
 
 function cloudHostPlaceholder(engine: ConnectionProfile['engine']) {
