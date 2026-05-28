@@ -21,8 +21,27 @@ describe('RelationalObjectViewWorkspace helpers', () => {
       'Data',
       'Columns',
       'Indexes',
+      'Constraints',
+      'Triggers',
       'Grants',
     ])
+  })
+
+  it('keeps workflow chips aligned to sections that are present in the payload', () => {
+    const connection = connectionFor('sqlserver')
+    const descriptor = descriptorForConnection(connection, 'table')
+    const workflows = relationalWorkflows(
+      connection,
+      'table',
+      descriptor,
+      true,
+      new Set(['columns', 'indexes', 'permissions']),
+    )
+
+    expect(workflows.map((workflow) => workflow.label)).toEqual(['Data', 'Columns', 'Indexes', 'Grants'])
+    expect(workflows.find((workflow) => workflow.label === 'Indexes')).toMatchObject({
+      targetSection: 'indexes',
+    })
   })
 
   it('normalizes sections using preferred SQL-family columns', () => {
@@ -37,9 +56,19 @@ describe('RelationalObjectViewWorkspace helpers', () => {
     }, descriptorForConnection(connectionFor('sqlserver'), 'database'))
 
     expect(sections).toHaveLength(1)
+    expect(sections[0]?.key).toBe('tables')
     expect(sections[0]?.title).toBe('Tables')
     expect(sections[0]?.columns).toEqual(['schema', 'name', 'rows', 'owner', 'extraSignal'])
     expect(sections[0]?.rows).toEqual([['dbo', 'Accounts', '20', 'app', 'kept']])
+  })
+
+  it('does not duplicate storage file sections', () => {
+    const sections = relationalSections('storage', {
+      files: [{ name: 'datapadplusplus', type: 'ROWS', path: '/tmp/datapadplusplus.mdf', size: '32 MB' }],
+    }, descriptorForConnection(connectionFor('sqlserver'), 'storage'))
+
+    expect(sections.map((section) => section.title)).toEqual(['Files'])
+    expect(sections[0]?.columns).toEqual(['name', 'type', 'size', 'path'])
   })
 
   it('summarizes SQL text instead of dumping raw command text', () => {

@@ -39,7 +39,7 @@ interface RightDrawerProps {
   onExportPassphraseChange(value: string): void
   onImportPayloadChange(value: string): void
   onClose(): void
-  onSaveConnection(profile: ConnectionProfile, secret?: string): void
+  onSaveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
   onTestConnection(profile: ConnectionProfile, environmentId: string, secret?: string): void
   onRefreshDiagnostics(): void
   onExportWorkspace(includeSecrets: boolean): void

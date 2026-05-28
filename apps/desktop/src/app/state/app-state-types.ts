@@ -135,7 +135,7 @@ export interface Actions {
   deleteConnection(connectionId: string): Promise<void>
   saveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
   createEnvironment(): Promise<void>
-  saveEnvironment(profile: EnvironmentProfile, secretDrafts?: Record<string, string>): Promise<void>
+  saveEnvironment(profile: EnvironmentProfile, secretDrafts?: Record<string, string>): Promise<boolean>
   deleteEnvironment(environmentId: string): Promise<void>
   createTab(connectionId: string): Promise<void>
   createExplorerTab(connectionId: string): Promise<void>

@@ -4,8 +4,19 @@ import { defaultQueryTextForConnection, languageForConnection, resolveEnvironmen
 import { redactSensitiveText } from '../../app/state/security-redaction'
 import { buildOperationManifestsForConnection } from './browser-operation-manifests'
 import { collectDiagnosticsLocally, inspectPermissionsLocally } from './browser-operation-inspection'
+import { cosmosOperationRequest } from './browser-cosmos-operations'
+import { mongoOperationRequest } from './browser-mongo-operations'
+import { liteDbOperationRequest } from './browser-litedb-operations'
+import { memcachedOperationRequest } from './browser-memcached-operations'
+import { redisOperationRequest } from './browser-redis-operations'
 import { redactOperationPlanForEnvironment, redactOperationResponseForEnvironment } from './browser-response-redaction'
+import { searchOperationRequest } from './browser-search-operations'
+import { sqlOperationRequest } from './browser-sql-operations'
 import { findConnection } from './browser-store'
+import { timeSeriesOperationRequest } from './browser-timeseries-operations'
+import { wideColumnOperationRequest } from './browser-widecolumn-operations'
+import { graphOperationRequest } from './browser-graph-operations'
+import { warehouseOperationRequest } from './browser-warehouse-operations'
 
 export { buildOperationManifestsForConnection } from './browser-operation-manifests'
 export { collectDiagnosticsLocally, inspectPermissionsLocally } from './browser-operation-inspection'
@@ -22,15 +33,23 @@ export function planOperationLocally(
 
   const destructive =
     request.operationId.includes('.drop') ||
+    request.operationId.includes('retention-policy') ||
     request.operationId.includes('backup') ||
-    request.operationId.includes('restore')
+    request.operationId.includes('restore') ||
+    request.operationId.includes('.flush')
   const adminWrite =
     request.operationId.includes('.create') ||
     request.operationId.includes('.update') ||
     request.operationId.includes('.hide') ||
     request.operationId.includes('.unhide') ||
+    request.operationId.includes('.put-mapping') ||
+    request.operationId.includes('.alias.') ||
+    request.operationId.includes('.data-stream.rollover') ||
+    request.operationId.includes('.pipeline.simulate') ||
     request.operationId.includes('.user.') ||
     request.operationId.includes('.role.') ||
+    request.operationId.includes('.extension.') ||
+    request.operationId.includes('.file.import') ||
     request.operationId.includes('.collection.import') ||
     request.operationId.includes('.gridfs.upload') ||
     request.operationId.includes('.key.import') ||
@@ -38,7 +57,21 @@ export function planOperationLocally(
     request.operationId.includes('validator') ||
     request.operationId.includes('import-export') ||
     request.operationId.includes('backup') ||
-    request.operationId.includes('restore')
+    request.operationId.includes('restore') ||
+    request.operationId.includes('.checkpoint') ||
+    request.operationId.includes('.compact') ||
+    request.operationId.includes('.reset') ||
+    request.operationId.includes('.clone') ||
+    request.operationId.includes('.copy') ||
+    request.operationId.includes('.optimize') ||
+    request.operationId.includes('.materialize') ||
+    request.operationId.includes('.freeze') ||
+    request.operationId.includes('.suspend') ||
+    request.operationId.includes('.resume') ||
+    request.operationId.includes('.repair') ||
+    request.operationId.includes('.analyze') ||
+    request.operationId.includes('compression-policy') ||
+    request.operationId.includes('refresh-continuous-aggregate')
   const costly =
     destructive ||
     adminWrite ||
@@ -47,6 +80,7 @@ export function planOperationLocally(
     request.operationId.includes('.gridfs.validate') ||
     request.operationId.includes('.key.export') ||
     request.operationId.includes('.profile') ||
+    request.operationId.includes('.cardinality.') ||
     request.operationId.includes('metrics')
 
   const plan: OperationPlanResponse['plan'] = {
@@ -108,204 +142,43 @@ function browserOperationRequest(
     return redisOperationRequest(request)
   }
 
-  if (request.objectName && connection.family === 'sql') {
-    return `select * from ${request.objectName} limit 100;`
+  if (connection.engine === 'cosmosdb') {
+    return cosmosOperationRequest(request)
+  }
+
+  if (connection.engine === 'litedb') {
+    return liteDbOperationRequest(request)
+  }
+
+  if (connection.engine === 'memcached') {
+    return memcachedOperationRequest(request)
+  }
+
+  if (connection.family === 'graph') {
+    return graphOperationRequest(connection, request)
+  }
+
+  if (connection.family === 'warehouse') {
+    return warehouseOperationRequest(connection, request)
+  }
+
+  if (connection.family === 'sql' || connection.family === 'embedded-olap') {
+    return sqlOperationRequest(connection, request)
+  }
+
+  if (connection.family === 'search') {
+    return searchOperationRequest(connection, request)
+  }
+
+  if (connection.family === 'timeseries') {
+    return timeSeriesOperationRequest(connection, request)
+  }
+
+  if (connection.family === 'widecolumn') {
+    return wideColumnOperationRequest(connection, request)
   }
 
   return defaultQueryTextForConnection(connection)
-}
-
-function redisOperationRequest(request: OperationPlanRequest) {
-  const parameters = request.parameters ?? {}
-  const key = String(parameters.key ?? request.objectName ?? '<key>')
-
-  if (request.operationId.endsWith('key.export')) {
-    return JSON.stringify({
-      operation: 'key.export',
-      key,
-      type: parameters.redisType ?? 'unknown',
-      format: parameters.format ?? 'json',
-      includeType: parameters.includeType ?? true,
-      includeTtl: parameters.includeTtl ?? true,
-      includeMetadata: parameters.includeMetadata ?? true,
-      memberRead: parameters.memberRead ?? 'bounded',
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('key.import')) {
-    return JSON.stringify({
-      operation: 'key.import',
-      key,
-      type: parameters.redisType ?? 'string',
-      format: parameters.format ?? 'json',
-      mode: parameters.mode ?? 'create-or-replace',
-      ttl: parameters.ttl ?? 'preserve',
-      validation: parameters.validation ?? 'validate-before-write',
-    }, null, 2)
-  }
-
-  return JSON.stringify({
-    operation: request.operationId,
-    key,
-    parameters,
-  }, null, 2)
-}
-
-function mongoOperationRequest(request: OperationPlanRequest) {
-  const parameters = request.parameters ?? {}
-  const collection = String(parameters.collection ?? request.objectName ?? '<collection>')
-  const indexName = String(parameters.indexName ?? '<index>')
-  const database = String(parameters.database ?? '<database>')
-  const name = String(parameters.name ?? request.objectName ?? '<name>')
-
-  if (request.operationId.endsWith('index.create')) {
-    return JSON.stringify({
-      database,
-      createIndexes: collection,
-      indexes: [{
-        key: parameters.key ?? { field: 1 },
-        name: indexName,
-        ...(asRecord(parameters.options)),
-      }],
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('index.drop')) {
-    return JSON.stringify({
-      database,
-      dropIndexes: collection,
-      index: indexName,
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('index.hide') || request.operationId.endsWith('index.unhide')) {
-    return JSON.stringify({
-      database,
-      collMod: collection,
-      index: {
-        name: indexName,
-        hidden: request.operationId.endsWith('index.hide'),
-      },
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('validation.update')) {
-    return JSON.stringify({
-      database,
-      collMod: collection,
-      validator: parameters.validator ?? {},
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('collection.export')) {
-    return JSON.stringify({
-      database,
-      collection,
-      operation: 'export',
-      format: parameters.format ?? 'extended-json',
-      filter: parameters.filter ?? {},
-      projection: parameters.projection ?? {},
-      sort: parameters.sort ?? {},
-      batchSize: parameters.batchSize ?? 1000,
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('collection.import')) {
-    return JSON.stringify({
-      database,
-      collection,
-      operation: 'import',
-      format: parameters.format ?? 'json',
-      mode: parameters.mode ?? 'insertMany',
-      validation: parameters.validation ?? 'validate-before-write',
-      mapping: parameters.mapping ?? {},
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('gridfs.export')) {
-    const bucket = String(parameters.bucket ?? 'fs')
-    return JSON.stringify({
-      database,
-      bucket,
-      operation: 'gridfs.export',
-      filename: parameters.filename ?? '*',
-      filesCollection: parameters.filesCollection ?? `${bucket}.files`,
-      chunksCollection: parameters.chunksCollection ?? `${bucket}.chunks`,
-      format: parameters.format ?? 'binary',
-      checks: ['file-metadata', 'chunk-sequence', 'missing-chunks'],
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('gridfs.upload')) {
-    const bucket = String(parameters.bucket ?? 'fs')
-    return JSON.stringify({
-      database,
-      bucket,
-      operation: 'gridfs.upload',
-      source: parameters.source ?? '<selected-file>',
-      filename: parameters.filename ?? '<filename>',
-      filesCollection: parameters.filesCollection ?? `${bucket}.files`,
-      chunksCollection: parameters.chunksCollection ?? `${bucket}.chunks`,
-      metadata: parameters.metadata ?? {},
-      validation: parameters.validation ?? 'validate-before-write',
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('gridfs.validate')) {
-    const bucket = String(parameters.bucket ?? 'fs')
-    return JSON.stringify({
-      database,
-      bucket,
-      operation: 'gridfs.validate',
-      filesCollection: parameters.filesCollection ?? `${bucket}.files`,
-      chunksCollection: parameters.chunksCollection ?? `${bucket}.chunks`,
-      checks: ['missing-chunks', 'orphaned-chunks', 'chunk-order'],
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('user.create')) {
-    return JSON.stringify({
-      database,
-      createUser: name,
-      pwd: parameters.password ?? '<secret>',
-      roles: parameters.roles ?? [],
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('user.drop')) {
-    return JSON.stringify({
-      database,
-      dropUser: name,
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('role.create')) {
-    return JSON.stringify({
-      database,
-      createRole: name,
-      privileges: parameters.privileges ?? [],
-      roles: parameters.roles ?? [],
-    }, null, 2)
-  }
-
-  if (request.operationId.endsWith('role.drop')) {
-    return JSON.stringify({
-      database,
-      dropRole: name,
-    }, null, 2)
-  }
-
-  return JSON.stringify({
-    operation: request.operationId,
-    database,
-    parameters,
-  }, null, 2)
-}
-
-function asRecord(value: unknown) {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {}
 }
 
 export function executeOperationLocally(

@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -12,17 +14,23 @@ import {
   ObjectSecurityIcon,
   ObjectTableIcon,
   PlayIcon,
-  RefreshIcon,
   WarningIcon,
 } from './icons'
 import {
   getCassandraObjectViewDescriptor,
   type CassandraObjectViewDescriptor,
 } from './CassandraObjectViewDescriptors'
-import { ExplorerNodeIcon } from './SideBar.node-icons'
+import {
+  cassandraWorkflows,
+  type CassandraWorkflowIconName,
+} from './CassandraObjectViewWorkflows'
+import { CassandraObjectViewInsights } from './CassandraObjectViewInsights'
+import { cassandraOperationActions } from './CassandraObjectViewOperations.helpers'
+import { ObjectViewHeader } from './ObjectViewHeader'
+import { WideColumnOperationStrip } from './WideColumnObjectViewOperations'
 
 type JsonRecord = Record<string, unknown>
-type CassandraSectionIconName = 'database' | 'table' | 'index' | 'security' | 'job'
+type CassandraSectionIconName = CassandraWorkflowIconName
 
 interface CassandraObjectViewWorkspaceProps {
   connection: ConnectionProfile
@@ -30,6 +38,7 @@ interface CassandraObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function CassandraObjectViewWorkspace({
@@ -38,6 +47,7 @@ export function CassandraObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onPlanOperation,
 }: CassandraObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -53,39 +63,40 @@ export function CassandraObjectViewWorkspace({
     }
   }, [onRefresh, tab.id])
   const queryTarget = useMemo(() => cassandraQueryTargetFromObjectView(tab), [tab])
-  const workflows = cassandraWorkflows(kind, descriptor, Boolean(queryTarget))
   const cards = cassandraMetricCards(payload)
-  const sections = cassandraSections(kind, payload, descriptor)
+  const sections = cassandraSections(payload, descriptor)
+  const availableSectionKeys = new Set(sections.map((section) => section.key))
+  const workflows = cassandraWorkflows(kind, descriptor, Boolean(queryTarget), availableSectionKeys)
+  const operationActions = cassandraOperationActions(connection, tab, kind, payload)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
-      <div className="object-view-toolbar">
-        <div className="object-view-heading">
-          <ExplorerNodeIcon connection={connection} kind={kind} />
-          <div>
-            <strong>{descriptor.title}</strong>
-            <span>
-              {[connection.name, environment.label, ...(state?.path ?? [])].filter(Boolean).join(' / ')}
-            </span>
-          </div>
-        </div>
-        <div className="object-view-actions">
-          {queryTarget && descriptor.primaryQueryLabel ? (
-            <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-              <PlayIcon className="panel-inline-icon" />
-              {descriptor.primaryQueryLabel}
-            </button>
-          ) : null}
-          <button type="button" className="drawer-button" disabled={refreshing} onClick={refresh}>
-            <RefreshIcon className="panel-inline-icon" />
-            {refreshing ? 'Refreshing' : 'Refresh'}
+      <ObjectViewHeader
+        connection={connection}
+        environment={environment}
+        kind={kind}
+        path={state?.path}
+        title={descriptor.title}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      >
+        {queryTarget && descriptor.primaryQueryLabel ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel}
           </button>
-        </div>
-      </div>
+        ) : null}
+      </ObjectViewHeader>
 
       <CassandraWarningList warnings={cassandraWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         {workflows.length ? (
           <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
             <div className="object-view-action-chips">
@@ -107,6 +118,16 @@ export function CassandraObjectViewWorkspace({
                   >
                     {chip}
                   </button>
+                ) : workflow.targetSection ? (
+                  <button
+                    key={workflow.label}
+                    type="button"
+                    className="object-view-action-chip object-view-action-chip--button"
+                    title={workflow.title}
+                    onClick={() => focusSection(workflow.targetSection!)}
+                  >
+                    {chip}
+                  </button>
                 ) : (
                   <span key={workflow.label} className="object-view-action-chip" title={workflow.title}>
                     {chip}
@@ -116,6 +137,15 @@ export function CassandraObjectViewWorkspace({
             </div>
           </section>
         ) : null}
+
+        <WideColumnOperationStrip
+          actions={operationActions}
+          connection={connection}
+          environment={environment}
+          onPlanOperation={onPlanOperation}
+        />
+
+        <CassandraObjectViewInsights kind={kind} payload={payload} />
 
         {cards.length ? (
           <section className="object-view-section">
@@ -133,7 +163,12 @@ export function CassandraObjectViewWorkspace({
 
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <CassandraSectionHeading icon={section.icon} title={section.title} unit={section.unit} />
               <CassandraObjectViewTable columns={section.columns} rows={section.rows} emptyText={section.emptyText} />
             </section>
@@ -213,52 +248,10 @@ function CassandraObjectViewTable({
   )
 }
 
-function cassandraWorkflows(
-  kind: string,
-  descriptor: CassandraObjectViewDescriptor,
-  hasQueryTarget: boolean,
-) {
-  const workflows: Array<{
-    label: string
-    title: string
-    icon: CassandraSectionIconName
-    action?: 'query'
-  }> = []
-
-  if (hasQueryTarget && descriptor.primaryQueryLabel) {
-    workflows.push({
-      label: descriptor.primaryQueryLabel,
-      title: 'Open a CQL partition-key query builder for this object.',
-      icon: 'table',
-      action: 'query',
-    })
-  }
-
-  if (['table', 'columns', 'primary-key', 'statistics', 'compaction'].includes(kind)) {
-    workflows.push(
-      { label: 'Review Keys', title: 'Check partition and clustering key order before querying.', icon: 'index' },
-      { label: 'Preview Edits', title: 'Safe row edits require complete primary-key predicates.', icon: 'security' },
-    )
-  }
-
-  if (['keyspace', 'security', 'permissions'].includes(kind)) {
-    workflows.push({ label: 'Review Grants', title: 'Inspect roles and grants visible to this connection.', icon: 'security' })
-  }
-
-  if (['diagnostics', 'cluster', 'tracing', 'repairs'].includes(kind)) {
-    workflows.push({ label: 'Check Health', title: 'Inspect latency, repair, and node-level warning signals.', icon: 'job' })
-  }
-
-  return workflows
-}
-
-function cassandraSections(
-  kind: string,
-  payload: JsonRecord,
-  descriptor: CassandraObjectViewDescriptor,
-) {
+function cassandraSections(payload: JsonRecord, descriptor: CassandraObjectViewDescriptor) {
   const sections: Array<{
     title: string
+    key: string
     icon: CassandraSectionIconName
     columns: string[]
     rows: string[][]
@@ -266,29 +259,19 @@ function cassandraSections(
     unit?: string
   }> = []
 
-  addRows(sections, 'Tables', 'table', ['name', 'partitionKey', 'clusteringKey', 'readPath'], payload.tables, descriptor.emptyDescription)
-  addRows(sections, 'Columns', 'table', ['name', 'role', 'type', 'clusteringOrder'], payload.columns, 'No column metadata is available.')
-  addRows(sections, 'Primary Key', 'index', ['role', 'name', 'position', 'type'], payload.primaryKey, 'No primary-key metadata is available.')
-  addRows(sections, 'Indexes', 'index', ['name', 'kind', 'target', 'options'], payload.indexes, 'No index metadata is available.')
-  addRows(sections, 'Materialized Views', 'table', ['name', 'baseTable', 'primaryKey', 'includedColumns'], payload.materializedViews, 'No materialized views are available.')
-  addRows(sections, 'Types', 'table', ['name', 'fields'], payload.types, 'No user-defined types are available.')
-  addRows(sections, 'Functions', 'job', ['name', 'signature', 'language', 'returnType'], payload.functions, 'No functions are available.')
-  addRows(sections, 'Aggregates', 'job', ['name', 'stateFunction', 'finalFunction', 'returnType'], payload.aggregates, 'No aggregates are available.')
-  addRows(sections, 'Table Options', 'table', ['option', 'value', 'guidance'], payload.options, 'No table options were returned.')
-  addRows(sections, 'Permissions', 'security', ['role', 'resource', 'permission'], payload.permissions, 'No permissions were returned.')
-  addRows(sections, 'Cluster Nodes', 'database', ['node', 'datacenter', 'status', 'tokens', 'load'], payload.nodes, 'No cluster nodes were returned.')
-  addRows(sections, 'Diagnostics', 'job', ['signal', 'value', 'status', 'guidance'], payload.diagnostics, 'No diagnostics were returned.')
-  addRows(sections, 'Warnings', 'security', ['warning', 'scope', 'guidance'], payload.warningRows, 'No warnings were returned.')
-
-  if (!sections.length && Object.keys(payload).length > 0) {
-    sections.push({
-      title: descriptor.title,
-      icon: kind.includes('security') ? 'security' : 'table',
-      columns: ['field', 'summary'],
-      rows: Object.entries(payload).map(([field, value]) => [field, summarizeValue(value)]),
-      emptyText: descriptor.emptyDescription,
-    })
-  }
+  addRows(sections, 'tables', 'Tables', 'table', ['name', 'partitionKey', 'clusteringKey', 'readPath'], payload.tables, descriptor.emptyDescription)
+  addRows(sections, 'columns', 'Columns', 'table', ['name', 'role', 'type', 'clusteringOrder'], payload.columns, 'No column metadata is available.')
+  addRows(sections, 'primaryKey', 'Primary Key', 'index', ['role', 'name', 'position', 'type'], payload.primaryKey, 'No primary-key metadata is available.')
+  addRows(sections, 'indexes', 'Indexes', 'index', ['name', 'kind', 'target', 'options'], payload.indexes, 'No index metadata is available.')
+  addRows(sections, 'materializedViews', 'Materialized Views', 'table', ['name', 'baseTable', 'primaryKey', 'includedColumns'], payload.materializedViews, 'No materialized views are available.')
+  addRows(sections, 'types', 'Types', 'table', ['name', 'fields'], payload.types, 'No user-defined types are available.')
+  addRows(sections, 'functions', 'Functions', 'job', ['name', 'signature', 'language', 'returnType'], payload.functions, 'No functions are available.')
+  addRows(sections, 'aggregates', 'Aggregates', 'job', ['name', 'stateFunction', 'finalFunction', 'returnType'], payload.aggregates, 'No aggregates are available.')
+  addRows(sections, 'options', 'Table Options', 'table', ['option', 'value', 'guidance'], payload.options, 'No table options were returned.')
+  addRows(sections, 'permissions', 'Permissions', 'security', ['role', 'resource', 'permission'], payload.permissions, 'No permissions were returned.')
+  addRows(sections, 'nodes', 'Cluster Nodes', 'database', ['node', 'datacenter', 'status', 'tokens', 'load'], payload.nodes, 'No cluster nodes were returned.')
+  addRows(sections, 'diagnostics', 'Diagnostics', 'job', ['signal', 'value', 'status', 'guidance'], payload.diagnostics, 'No diagnostics were returned.')
+  addRows(sections, 'warningRows', 'Warnings', 'security', ['warning', 'scope', 'guidance'], payload.warningRows, 'No warnings were returned.')
 
   return sections
 }
@@ -296,12 +279,14 @@ function cassandraSections(
 function addRows(
   sections: Array<{
     title: string
+    key: string
     icon: CassandraSectionIconName
     columns: string[]
     rows: string[][]
     emptyText: string
     unit?: string
   }>,
+  key: string,
   title: string,
   icon: CassandraSectionIconName,
   columns: string[],
@@ -313,7 +298,7 @@ function addRows(
   )
 
   if (rows.length) {
-    sections.push({ title, icon, columns, rows, emptyText })
+    sections.push({ key, title, icon, columns, rows, emptyText })
   }
 }
 

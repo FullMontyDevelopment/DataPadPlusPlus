@@ -701,6 +701,8 @@ pub struct DatastoreTreeNodeManifest {
     pub requires_database: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden_when_database_selected: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub optional_when_live_metadata: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_database: Option<String>,
 }

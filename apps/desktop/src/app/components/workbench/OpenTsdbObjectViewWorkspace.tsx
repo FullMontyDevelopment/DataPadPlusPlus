@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -12,17 +14,23 @@ import {
   ObjectSeriesIcon,
   ObjectStageIcon,
   PlayIcon,
-  RefreshIcon,
   WarningIcon,
 } from './icons'
 import {
   getOpenTsdbObjectViewDescriptor,
   type OpenTsdbObjectViewDescriptor,
 } from './OpenTsdbObjectViewDescriptors'
-import { ExplorerNodeIcon } from './SideBar.node-icons'
+import {
+  openTsdbWorkflows,
+  type OpenTsdbWorkflowIconName,
+} from './OpenTsdbObjectViewWorkflows'
+import { ObjectViewHeader } from './ObjectViewHeader'
+import { TimeSeriesOperationStrip } from './TimeSeriesObjectViewOperations'
+import { timeSeriesOperationActions } from './TimeSeriesObjectViewOperations.helpers'
+import { TimeSeriesObjectViewInsights } from './TimeSeriesObjectViewInsights'
 
 type JsonRecord = Record<string, unknown>
-type OpenTsdbSectionIconName = 'metric' | 'tag' | 'aggregation' | 'uid' | 'tree' | 'stats'
+type OpenTsdbSectionIconName = OpenTsdbWorkflowIconName
 
 interface OpenTsdbObjectViewWorkspaceProps {
   connection: ConnectionProfile
@@ -30,6 +38,7 @@ interface OpenTsdbObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function OpenTsdbObjectViewWorkspace({
@@ -38,6 +47,7 @@ export function OpenTsdbObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onPlanOperation,
 }: OpenTsdbObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -53,39 +63,40 @@ export function OpenTsdbObjectViewWorkspace({
     }
   }, [onRefresh, tab.id])
   const queryTarget = useMemo(() => openTsdbQueryTargetFromObjectView(tab), [tab])
-  const workflows = openTsdbWorkflows(kind, descriptor, Boolean(queryTarget))
   const cards = openTsdbMetricCards(payload)
   const sections = openTsdbSections(kind, payload, descriptor)
+  const availableSectionKeys = new Set(sections.map((section) => section.key))
+  const workflows = openTsdbWorkflows(kind, descriptor, Boolean(queryTarget), availableSectionKeys)
+  const operationActions = timeSeriesOperationActions(connection, tab, kind, payload)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
-      <div className="object-view-toolbar">
-        <div className="object-view-heading">
-          <ExplorerNodeIcon connection={connection} kind={kind} />
-          <div>
-            <strong>{descriptor.title}</strong>
-            <span>
-              {[connection.name, environment.label, ...(state?.path ?? [])].filter(Boolean).join(' / ')}
-            </span>
-          </div>
-        </div>
-        <div className="object-view-actions">
-          {queryTarget && descriptor.primaryQueryLabel ? (
-            <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-              <PlayIcon className="panel-inline-icon" />
-              {descriptor.primaryQueryLabel}
-            </button>
-          ) : null}
-          <button type="button" className="drawer-button" disabled={refreshing} onClick={refresh}>
-            <RefreshIcon className="panel-inline-icon" />
-            {refreshing ? 'Refreshing' : 'Refresh'}
+      <ObjectViewHeader
+        connection={connection}
+        environment={environment}
+        kind={kind}
+        path={state?.path}
+        title={descriptor.title}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      >
+        {queryTarget && descriptor.primaryQueryLabel ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel}
           </button>
-        </div>
-      </div>
+        ) : null}
+      </ObjectViewHeader>
 
       <OpenTsdbWarningList warnings={openTsdbWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         {workflows.length ? (
           <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
             <div className="object-view-action-chips">
@@ -107,6 +118,16 @@ export function OpenTsdbObjectViewWorkspace({
                   >
                     {chip}
                   </button>
+                ) : workflow.targetSection ? (
+                  <button
+                    key={workflow.label}
+                    type="button"
+                    className="object-view-action-chip object-view-action-chip--button"
+                    title={workflow.title}
+                    onClick={() => focusSection(workflow.targetSection!)}
+                  >
+                    {chip}
+                  </button>
                 ) : (
                   <span key={workflow.label} className="object-view-action-chip" title={workflow.title}>
                     {chip}
@@ -116,6 +137,15 @@ export function OpenTsdbObjectViewWorkspace({
             </div>
           </section>
         ) : null}
+
+        <TimeSeriesOperationStrip
+          actions={operationActions}
+          connection={connection}
+          environment={environment}
+          onPlanOperation={onPlanOperation}
+        />
+
+        <TimeSeriesObjectViewInsights engine={connection.engine} kind={kind} payload={payload} />
 
         {cards.length ? (
           <section className="object-view-section">
@@ -133,7 +163,12 @@ export function OpenTsdbObjectViewWorkspace({
 
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <OpenTsdbSectionHeading icon={section.icon} title={section.title} unit={section.unit} />
               <OpenTsdbObjectViewTable columns={section.columns} rows={section.rows} emptyText={section.emptyText} />
             </section>
@@ -215,64 +250,13 @@ function OpenTsdbObjectViewTable({
   )
 }
 
-function openTsdbWorkflows(
-  kind: string,
-  descriptor: OpenTsdbObjectViewDescriptor,
-  hasQueryTarget: boolean,
-) {
-  const workflows: Array<{
-    label: string
-    title: string
-    icon: OpenTsdbSectionIconName
-    action?: 'query'
-  }> = []
-
-  if (hasQueryTarget && descriptor.primaryQueryLabel) {
-    workflows.push({
-      label: descriptor.primaryQueryLabel,
-      title: 'Open a bounded OpenTSDB query seeded from this metric.',
-      icon: 'metric',
-      action: 'query',
-    })
-  }
-
-  if (['metric', 'metrics'].includes(kind)) {
-    workflows.push(
-      { label: 'Tags', title: 'Review tag keys and cardinality before querying.', icon: 'tag' },
-      { label: 'UID Metadata', title: 'Review descriptions and metadata completeness.', icon: 'uid' },
-    )
-  }
-
-  if (['tags', 'tag'].includes(kind)) {
-    workflows.push(
-      { label: 'Values', title: 'Review common values and related metrics.', icon: 'tag' },
-      { label: 'Cardinality', title: 'Check query risk before broad tag scans.', icon: 'stats' },
-    )
-  }
-
-  if (['aggregators', 'aggregator', 'downsampling', 'downsampler'].includes(kind)) {
-    workflows.push(
-      { label: 'Query Shape', title: 'Choose an aggregation and downsampling window together.', icon: 'aggregation' },
-      { label: 'Fill Policy', title: 'Review interpolation and missing-point behavior.', icon: 'stats' },
-    )
-  }
-
-  if (['uid-metadata', 'uid', 'trees', 'tree', 'stats', 'diagnostics'].includes(kind)) {
-    workflows.push(
-      { label: 'Health', title: 'Review metadata consistency and backend health signals.', icon: 'stats' },
-      { label: 'Storage', title: 'Review TSDB writes, compaction, and UID pressure.', icon: 'tree' },
-    )
-  }
-
-  return workflows
-}
-
 function openTsdbSections(
   kind: string,
   payload: JsonRecord,
   descriptor: OpenTsdbObjectViewDescriptor,
 ) {
   const sections: Array<{
+    key: string
     title: string
     icon: OpenTsdbSectionIconName
     columns: string[]
@@ -288,6 +272,7 @@ function openTsdbSections(
     }
 
     sections.push({
+      key: candidate.key,
       title: candidate.title,
       icon: candidate.icon,
       unit: `${rows.length} row(s)`,
@@ -301,6 +286,7 @@ function openTsdbSections(
     const rows = arrayOfRecords(payload.objects)
     if (rows.length) {
       sections.push({
+        key: 'objects',
         title: descriptor.title,
         icon: 'metric',
         unit: `${rows.length} row(s)`,

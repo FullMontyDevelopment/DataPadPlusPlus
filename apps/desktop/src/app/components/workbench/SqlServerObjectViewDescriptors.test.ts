@@ -9,6 +9,8 @@ describe('SqlServerObjectViewDescriptors', () => {
   it('uses SQL Server specific operation labels', () => {
     expect(sqlServerObjectViewMenuLabel('table')).toBe('Open Table')
     expect(sqlServerObjectViewMenuLabel('query-store')).toBe('Open Query Store')
+    expect(sqlServerObjectViewMenuLabel('performance')).toBe('Open Performance')
+    expect(sqlServerObjectViewMenuLabel('missing-indexes')).toBe('Review Missing Indexes')
     expect(sqlServerObjectViewMenuLabel('security')).toBe('Review Security')
     expect(sqlServerObjectViewMenuLabel('table')).not.toBe('Open View')
   })
@@ -17,6 +19,7 @@ describe('SqlServerObjectViewDescriptors', () => {
     expect(isSqlServerObjectViewKind('stored procedures')).toBe(true)
     expect(isSqlServerObjectViewKind('sql-server-agent')).toBe(true)
     expect(isSqlServerObjectViewKind('query-store')).toBe(true)
+    expect(isSqlServerObjectViewKind('performance')).toBe(true)
   })
 
   it('falls back safely for unknown objects', () => {

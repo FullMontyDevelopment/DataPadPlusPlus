@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -13,17 +15,21 @@ import {
   ObjectRelationshipIcon,
   ObjectSecurityIcon,
   PlayIcon,
-  RefreshIcon,
   WarningIcon,
 } from './icons'
 import {
   getGraphObjectViewDescriptor,
   type GraphObjectViewDescriptor,
 } from './GraphObjectViewDescriptors'
-import { ExplorerNodeIcon } from './SideBar.node-icons'
+import {
+  graphWorkflows,
+  type GraphWorkflowIconName,
+} from './GraphObjectViewWorkflows'
+import { GraphOperationStrip } from './GraphObjectViewOperations'
+import { ObjectViewHeader } from './ObjectViewHeader'
 
 type JsonRecord = Record<string, unknown>
-type GraphSectionIconName = 'graph' | 'label' | 'relationship' | 'index' | 'constraint' | 'security' | 'diagnostics'
+type GraphSectionIconName = GraphWorkflowIconName
 
 interface GraphObjectViewWorkspaceProps {
   connection: ConnectionProfile
@@ -31,6 +37,7 @@ interface GraphObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function GraphObjectViewWorkspace({
@@ -39,6 +46,7 @@ export function GraphObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onPlanOperation,
 }: GraphObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -54,39 +62,39 @@ export function GraphObjectViewWorkspace({
     }
   }, [onRefresh, tab.id])
   const queryTarget = useMemo(() => graphQueryTargetFromObjectView(tab), [tab])
-  const workflows = graphWorkflows(kind, descriptor, Boolean(queryTarget), connection.engine)
   const cards = graphMetricCards(payload, connection)
   const sections = graphSections(kind, payload, descriptor)
+  const availableSectionKeys = new Set(sections.map((section) => section.key))
+  const workflows = graphWorkflows(kind, descriptor, Boolean(queryTarget), connection.engine, availableSectionKeys)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
-      <div className="object-view-toolbar">
-        <div className="object-view-heading">
-          <ExplorerNodeIcon connection={connection} kind={kind} />
-          <div>
-            <strong>{descriptor.title}</strong>
-            <span>
-              {[connection.name, environment.label, ...(state?.path ?? [])].filter(Boolean).join(' / ')}
-            </span>
-          </div>
-        </div>
-        <div className="object-view-actions">
-          {queryTarget && descriptor.primaryQueryLabel ? (
-            <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-              <PlayIcon className="panel-inline-icon" />
-              {descriptor.primaryQueryLabel}
-            </button>
-          ) : null}
-          <button type="button" className="drawer-button" disabled={refreshing} onClick={refresh}>
-            <RefreshIcon className="panel-inline-icon" />
-            {refreshing ? 'Refreshing' : 'Refresh'}
+      <ObjectViewHeader
+        connection={connection}
+        environment={environment}
+        kind={kind}
+        path={state?.path}
+        title={descriptor.title}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      >
+        {queryTarget && descriptor.primaryQueryLabel ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel}
           </button>
-        </div>
-      </div>
+        ) : null}
+      </ObjectViewHeader>
 
       <GraphWarningList warnings={graphWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         {workflows.length ? (
           <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
             <div className="object-view-action-chips">
@@ -105,6 +113,16 @@ export function GraphObjectViewWorkspace({
                     className="object-view-action-chip object-view-action-chip--button"
                     title={workflow.title}
                     onClick={() => onOpenQuery(queryTarget)}
+                  >
+                    {chip}
+                  </button>
+                ) : workflow.targetSection ? (
+                  <button
+                    key={workflow.label}
+                    type="button"
+                    className="object-view-action-chip object-view-action-chip--button"
+                    title={workflow.title}
+                    onClick={() => focusSection(workflow.targetSection!)}
                   >
                     {chip}
                   </button>
@@ -132,9 +150,23 @@ export function GraphObjectViewWorkspace({
           </section>
         ) : null}
 
+        <GraphOperationStrip
+          connection={connection}
+          environment={environment}
+          tab={tab}
+          kind={kind}
+          payload={payload}
+          onPlanOperation={onPlanOperation}
+        />
+
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <GraphSectionHeading icon={section.icon} title={section.title} unit={section.unit} />
               <GraphObjectViewTable columns={section.columns} rows={section.rows} emptyText={section.emptyText} />
             </section>
@@ -216,69 +248,6 @@ function GraphObjectViewTable({
   )
 }
 
-function graphWorkflows(
-  kind: string,
-  descriptor: GraphObjectViewDescriptor,
-  hasQueryTarget: boolean,
-  engine: ConnectionProfile['engine'],
-) {
-  const queryLanguage = engine === 'arango' ? 'AQL' : engine === 'neptune' || engine === 'janusgraph' ? 'Gremlin' : 'Cypher'
-  const workflows: Array<{
-    label: string
-    title: string
-    icon: GraphSectionIconName
-    action?: 'query'
-  }> = []
-
-  if (hasQueryTarget && descriptor.primaryQueryLabel) {
-    workflows.push({
-      label: descriptor.primaryQueryLabel,
-      title: `Open a scoped ${queryLanguage} query for this graph object.`,
-      icon: 'graph',
-      action: 'query',
-    })
-  }
-
-  if (['graph', 'graphs'].includes(kind)) {
-    workflows.push(
-      { label: 'Schema', title: 'Review labels, relationship types, and properties.', icon: 'label' },
-      { label: 'Indexes', title: 'Review lookup coverage before expensive traversals.', icon: 'index' },
-      { label: 'Diagnostics', title: 'Review query, storage, and transaction health.', icon: 'diagnostics' },
-    )
-  }
-
-  if (['node-label', 'node-labels'].includes(kind)) {
-    workflows.push(
-      { label: 'Properties', title: 'Review property types and required fields.', icon: 'label' },
-      { label: 'Relationships', title: 'Review connected relationship types.', icon: 'relationship' },
-      { label: 'Indexes', title: 'Review index and constraint coverage.', icon: 'index' },
-    )
-  }
-
-  if (['relationship', 'relationship-types'].includes(kind)) {
-    workflows.push(
-      { label: 'Endpoints', title: 'Review start/end labels and direction.', icon: 'relationship' },
-      { label: 'Properties', title: 'Review relationship property keys.', icon: 'label' },
-    )
-  }
-
-  if (['indexes', 'index', 'constraints', 'constraint'].includes(kind)) {
-    workflows.push(
-      { label: 'Coverage', title: 'Review labels and properties covered by schema objects.', icon: 'index' },
-      { label: 'Preview Changes', title: 'Generate guarded schema-management previews.', icon: 'constraint' },
-    )
-  }
-
-  if (['security', 'procedures', 'diagnostics'].includes(kind)) {
-    workflows.push(
-      { label: 'Permissions', title: 'Review visible roles and disabled actions.', icon: 'security' },
-      { label: 'Health', title: 'Review runtime and query health signals.', icon: 'diagnostics' },
-    )
-  }
-
-  return dedupeWorkflows(workflows).slice(0, 5)
-}
-
 function graphSections(
   kind: string,
   payload: JsonRecord,
@@ -291,6 +260,7 @@ function graphSections(
     }
 
     return [{
+      key: candidate.key,
       title: candidate.title,
       icon: candidate.icon,
       unit: `${rows.length} row(s)`,
@@ -304,6 +274,7 @@ function graphSections(
     const rows = arrayOfRecords(payload.objects)
     if (rows.length) {
       return [{
+        key: 'objects',
         title: descriptor.title,
         icon: 'graph' as const,
         unit: `${rows.length} row(s)`,
@@ -527,15 +498,4 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function normalizeKind(kind: string) {
   return kind.trim().toLowerCase().replace(/[_\s]+/g, '-')
-}
-
-function dedupeWorkflows<T extends { label: string }>(workflows: T[]) {
-  const seen = new Set<string>()
-  return workflows.filter((workflow) => {
-    if (seen.has(workflow.label)) {
-      return false
-    }
-    seen.add(workflow.label)
-    return true
-  })
 }

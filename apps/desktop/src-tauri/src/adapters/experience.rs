@@ -394,12 +394,7 @@ fn query_builders(manifest: &AdapterManifest) -> Vec<DatastoreExperienceBuilder>
             "split",
         )],
         "postgresql" | "cockroachdb" | "sqlserver" | "mysql" | "mariadb" | "sqlite" => {
-            vec![builder(
-                "sql-select",
-                "SQL SELECT Builder",
-                "table",
-                "split",
-            )]
+            vec![builder("sql-select", "SQL SELECT Builder", "table", "raw")]
         }
         _ => Vec::new(),
     }

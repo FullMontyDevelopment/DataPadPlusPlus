@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -30,6 +32,10 @@ import {
   WarningList,
 } from './ObjectViewPrimitives'
 import { RelationalSourcePreview } from './RelationalSourcePreview'
+import { relationalSourceText } from './RelationalSourcePreview.helpers'
+import { RelationalOperationStrip } from './RelationalObjectViewOperations'
+import { DuckDbObjectViewInsights } from './DuckDbObjectViewInsights'
+import { TimescaleObjectViewInsights } from './TimescaleObjectViewInsights'
 
 interface RelationalObjectViewWorkspaceProps {
   connection: ConnectionProfile
@@ -37,6 +43,7 @@ interface RelationalObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function RelationalObjectViewWorkspace({
@@ -45,6 +52,7 @@ export function RelationalObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onPlanOperation,
 }: RelationalObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -61,7 +69,18 @@ export function RelationalObjectViewWorkspace({
   }, [onRefresh, tab.id])
   const queryTarget = useMemo(() => relationalQueryTargetFromObjectView(tab), [tab])
   const sections = relationalSections(kind, payload, descriptor)
+  const hasSourcePreview = Boolean(relationalSourceText(kind, payload))
+  const availableSectionKeys = new Set([
+    ...sections.map((section) => section.key),
+    ...(hasSourcePreview ? ['source'] : []),
+  ])
   const cards = metricCardsForPayload(kind, payload, connection)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
@@ -84,13 +103,23 @@ export function RelationalObjectViewWorkspace({
 
       <WarningList warnings={objectViewWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         <RelationalWorkflowStrip
           connection={connection}
           kind={kind}
           queryTarget={queryTarget}
           descriptor={descriptor}
+          availableSectionKeys={availableSectionKeys}
           onOpenQuery={onOpenQuery}
+          onFocusSection={focusSection}
+        />
+        <RelationalOperationStrip
+          connection={connection}
+          environment={environment}
+          tab={tab}
+          kind={kind}
+          payload={payload}
+          onPlanOperation={onPlanOperation}
         />
 
         {cards.length ? (
@@ -114,11 +143,25 @@ export function RelationalObjectViewWorkspace({
           connection={connection}
           kind={kind}
           payload={payload}
+          sectionKey="source"
         />
+
+        {connection.engine === 'duckdb' ? (
+          <DuckDbObjectViewInsights kind={kind} payload={payload} />
+        ) : null}
+
+        {connection.engine === 'timescaledb' ? (
+          <TimescaleObjectViewInsights kind={kind} payload={payload} />
+        ) : null}
 
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <ObjectViewSectionHeading
                 icon={section.icon}
                 title={section.title}
@@ -171,15 +214,19 @@ function RelationalWorkflowStrip({
   kind,
   queryTarget,
   descriptor,
+  availableSectionKeys,
   onOpenQuery,
+  onFocusSection,
 }: {
   connection: ConnectionProfile
   kind: string
   queryTarget?: ScopedQueryTarget
   descriptor: RelationalObjectViewDescriptor
+  availableSectionKeys: ReadonlySet<string>
   onOpenQuery(target: ScopedQueryTarget): void
+  onFocusSection(sectionKey: string): void
 }) {
-  const workflows = relationalWorkflows(connection, kind, descriptor, Boolean(queryTarget))
+  const workflows = relationalWorkflows(connection, kind, descriptor, Boolean(queryTarget), availableSectionKeys)
   if (!workflows.length) {
     return null
   }
@@ -202,6 +249,16 @@ function RelationalWorkflowStrip({
               className="object-view-action-chip object-view-action-chip--button"
               title={workflow.title}
               onClick={() => onOpenQuery(queryTarget)}
+            >
+              {chip}
+            </button>
+          ) : workflow.targetSection ? (
+            <button
+              key={workflow.label}
+              type="button"
+              className="object-view-action-chip object-view-action-chip--button"
+              title={workflow.title}
+              onClick={() => onFocusSection(workflow.targetSection!)}
             >
               {chip}
             </button>

@@ -100,6 +100,50 @@ describe('sidebar connection tree helpers', () => {
     expect(findNodeByLabel(tree, 'Contention')).toMatchObject({ label: 'Contention' })
   })
 
+  it('builds PostgreSQL structural folders without a generic programmability bucket', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-analytics')!
+    const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
+    const userSchemas = findNodeByLabel(tree, 'User Schemas')
+
+    expect(userSchemas?.children?.map((node) => node.label)).toEqual([
+      'Tables',
+      'Views',
+      'Materialized Views',
+      'Indexes',
+      'Functions',
+      'Procedures',
+      'Sequences',
+      'Types',
+      'Extensions',
+      'Security',
+    ])
+    expect(findNodeByLabel(tree, 'Programmability')).toBeUndefined()
+  })
+
+  it('builds MySQL structural folders in a native workbench shape', () => {
+    const connection = mysqlConnection()
+    const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
+
+    const database = findNodeByLabel(tree, 'datapadplusplus')
+
+    expect(findNodeByLabel(tree, 'Databases')).toMatchObject({ label: 'Databases' })
+    expect(database).toMatchObject({ kind: 'database' })
+    expect(database?.children?.map((node) => node.label)).toEqual([
+      'Tables',
+      'Views',
+      'Stored Procedures',
+      'Functions',
+      'Events',
+      'Triggers',
+      'Indexes',
+      'Storage',
+    ])
+    expect(findNodeByLabel(tree, 'Users / Privileges')).toMatchObject({ kind: 'security' })
+    expect(findNodeByLabel(tree, 'System Schemas')).toMatchObject({ label: 'System Schemas' })
+    expect(findNodeByLabel(tree, 'Programmability')).toBeUndefined()
+  })
+
   it('builds Mongo structural folders without invented collection leaves', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')
@@ -518,6 +562,75 @@ describe('sidebar connection tree helpers', () => {
       label: 'Functions',
     })
   })
+
+  it('does not duplicate SQL Server category nodes when live metadata sends category kinds', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-orders')!
+    const tree = buildConnectionObjectTreeFromExplorerNodes(connection, [
+      {
+        id: 'live-tables-folder',
+        label: 'Tables',
+        kind: 'tables',
+        family: 'sql',
+        path: [connection.name, 'Databases', 'orders', 'Tables'],
+        detail: 'tables folder',
+      },
+      {
+        id: 'dbo.accounts',
+        label: 'accounts',
+        kind: 'BASE TABLE',
+        family: 'sql',
+        path: [connection.name, 'Databases', 'orders', 'Tables'],
+        scope: 'table:dbo.accounts',
+        detail: 'table',
+      },
+    ])
+
+    const tables = findNode(tree, 'live-tables-folder')
+
+    expect(tables).toMatchObject({ label: 'Tables', kind: 'tables' })
+    expect(tables?.children?.some((node) => node.label === 'Tables')).toBe(false)
+    expect(findNode(tree, 'dbo.accounts')).toMatchObject({
+      label: 'dbo.accounts',
+      kind: 'table',
+    })
+  })
+
+  it('keeps live SQLite metadata under the main database root', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-local-sqlite')!
+    const tree = buildConnectionObjectTreeFromExplorerNodes(connection, [
+      {
+        id: 'sqlite-tables-folder',
+        label: 'Tables',
+        kind: 'tables',
+        family: 'sql',
+        path: ['Tables'],
+        detail: 'tables folder',
+      },
+      {
+        id: 'main.accounts',
+        label: 'accounts',
+        kind: 'table',
+        family: 'sql',
+        path: ['Tables'],
+        scope: 'table:main.accounts',
+        detail: 'table',
+      },
+    ])
+
+    expect(tree[0]).toMatchObject({ label: 'Main Database', kind: 'main-database' })
+    expect(tree.some((node) => node.label === 'Tables')).toBe(false)
+    expect(findNode(tree, 'sqlite-tables-folder')).toMatchObject({
+      label: 'Tables',
+      kind: 'tables',
+    })
+    expect(findNode(tree, 'main.accounts')).toMatchObject({
+      label: 'accounts',
+      kind: 'table',
+      queryTemplate: 'select * from [main].[accounts] limit 100;',
+    })
+  })
 })
 
 function oracleConnection(): ConnectionProfile {
@@ -558,6 +671,28 @@ function cockroachConnection(): ConnectionProfile {
     favorite: false,
     readOnly: false,
     icon: 'cockroachdb',
+    group: 'Connections',
+    auth: { username: 'root' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function mysqlConnection(): ConnectionProfile {
+  return {
+    id: 'conn-mysql',
+    name: 'MySQL',
+    engine: 'mysql',
+    family: 'sql',
+    host: 'localhost',
+    port: 3306,
+    database: 'datapadplusplus',
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'mysql',
     group: 'Connections',
     auth: { username: 'root' },
     createdAt: '2026-01-01T00:00:00.000Z',

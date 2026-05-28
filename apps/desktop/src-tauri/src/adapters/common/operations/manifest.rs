@@ -284,6 +284,170 @@ pub(crate) fn operation_manifests_for_manifest(
         ]);
     }
 
+    if manifest.engine == "duckdb" && manifest_has(manifest, "supports_admin_operations") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "table.analyze",
+                "Analyze Table",
+                "table",
+                "costly",
+                &["supports_admin_operations"],
+                &["profile", "metrics", "raw"],
+                "Preview refreshing DuckDB statistics for a table or view.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "database.analyze",
+                "Analyze Database",
+                "database",
+                "costly",
+                &["supports_admin_operations"],
+                &["profile", "metrics", "raw"],
+                "Preview refreshing DuckDB planner statistics for the local database.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "database.checkpoint",
+                "Checkpoint",
+                "database",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview checkpointing the local DuckDB database file.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "extension.install",
+                "Install Extension",
+                "extension",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview installing a DuckDB extension.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "extension.load",
+                "Load Extension",
+                "extension",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview loading a DuckDB extension into the current session.",
+                true,
+            ),
+        ]);
+    }
+
+    if manifest.engine == "duckdb" && manifest_has(manifest, "supports_import_export") {
+        operations.push(operation_manifest(
+            manifest,
+            "file.import",
+            "Import File",
+            "table",
+            "write",
+            &["supports_import_export"],
+            &["diff", "table", "raw"],
+            "Preview creating a DuckDB table from a selected CSV, JSON, or Parquet file.",
+            true,
+        ));
+    }
+
+    if manifest.engine == "clickhouse" && manifest_has(manifest, "supports_admin_operations") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "table.optimize",
+                "Optimize Table",
+                "table",
+                "costly",
+                &["supports_admin_operations"],
+                &["diff", "profile", "raw"],
+                "Preview a guarded OPTIMIZE TABLE FINAL request.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "table.materialize-ttl",
+                "Materialize TTL",
+                "table",
+                "costly",
+                &["supports_admin_operations"],
+                &["diff", "profile", "raw"],
+                "Preview a guarded ALTER TABLE MATERIALIZE TTL request.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "table.freeze",
+                "Freeze Table",
+                "table",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview a guarded table freeze snapshot request.",
+                true,
+            ),
+        ]);
+    }
+
+    if manifest.engine == "snowflake" && manifest_has(manifest, "supports_admin_operations") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "table.clone",
+                "Clone Table",
+                "table",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "profile", "raw"],
+                "Preview a guarded Snowflake zero-copy table clone request.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "warehouse.suspend",
+                "Suspend Warehouse",
+                "cluster",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview a guarded Snowflake warehouse suspend request.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "warehouse.resume",
+                "Resume Warehouse",
+                "cluster",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview a guarded Snowflake warehouse resume request.",
+                true,
+            ),
+        ]);
+    }
+
+    if manifest.engine == "bigquery" && manifest_has(manifest, "supports_admin_operations") {
+        operations.push(operation_manifest(
+            manifest,
+            "table.copy",
+            "Copy Table",
+            "table",
+            "write",
+            &["supports_admin_operations"],
+            &["diff", "profile", "raw"],
+            "Preview a guarded BigQuery table copy job.",
+            true,
+        ));
+    }
+
     if manifest_has(manifest, "supports_permission_inspection") {
         operations.push(operation_manifest(
             manifest,
@@ -398,5 +562,136 @@ mod tests {
                 .map(|operation| operation.risk.as_str()),
             Some("destructive")
         );
+    }
+
+    #[test]
+    fn duckdb_operation_manifest_exposes_local_analytics_previews() {
+        let manifest = AdapterManifest {
+            id: "adapter-duckdb".into(),
+            engine: "duckdb".into(),
+            family: "embedded-olap".into(),
+            label: "DuckDB".into(),
+            maturity: "beta".into(),
+            capabilities: vec![
+                "supports_schema_browser".into(),
+                "supports_result_snapshots".into(),
+                "supports_admin_operations".into(),
+                "supports_import_export".into(),
+            ],
+            default_language: "sql".into(),
+            local_database: None,
+            tree: None,
+        };
+
+        let operations = operation_manifests_for_manifest(&manifest);
+        let operation_ids = operations
+            .iter()
+            .map(|operation| operation.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(operation_ids.contains(&"duckdb.table.analyze"));
+        assert!(operation_ids.contains(&"duckdb.database.analyze"));
+        assert!(operation_ids.contains(&"duckdb.database.checkpoint"));
+        assert!(operation_ids.contains(&"duckdb.extension.install"));
+        assert!(operation_ids.contains(&"duckdb.extension.load"));
+        assert!(operation_ids.contains(&"duckdb.file.import"));
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "duckdb.table.analyze")
+                .map(|operation| operation.risk.as_str()),
+            Some("costly")
+        );
+    }
+
+    #[test]
+    fn clickhouse_operation_manifest_exposes_native_table_maintenance_previews() {
+        let manifest = AdapterManifest {
+            id: "adapter-clickhouse".into(),
+            engine: "clickhouse".into(),
+            family: "warehouse".into(),
+            label: "ClickHouse".into(),
+            maturity: "beta".into(),
+            capabilities: vec![
+                "supports_schema_browser".into(),
+                "supports_result_snapshots".into(),
+                "supports_admin_operations".into(),
+            ],
+            default_language: "clickhouse-sql".into(),
+            local_database: None,
+            tree: None,
+        };
+
+        let operations = operation_manifests_for_manifest(&manifest);
+        let operation_ids = operations
+            .iter()
+            .map(|operation| operation.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(operation_ids.contains(&"clickhouse.table.optimize"));
+        assert!(operation_ids.contains(&"clickhouse.table.materialize-ttl"));
+        assert!(operation_ids.contains(&"clickhouse.table.freeze"));
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "clickhouse.table.materialize-ttl")
+                .map(|operation| operation.risk.as_str()),
+            Some("costly")
+        );
+    }
+
+    #[test]
+    fn cloud_warehouse_manifest_exposes_native_admin_previews() {
+        let snowflake_manifest = AdapterManifest {
+            id: "adapter-snowflake".into(),
+            engine: "snowflake".into(),
+            family: "warehouse".into(),
+            label: "Snowflake".into(),
+            maturity: "beta".into(),
+            capabilities: vec![
+                "supports_schema_browser".into(),
+                "supports_result_snapshots".into(),
+                "supports_admin_operations".into(),
+            ],
+            default_language: "snowflake-sql".into(),
+            local_database: None,
+            tree: None,
+        };
+        let bigquery_manifest = AdapterManifest {
+            id: "adapter-bigquery".into(),
+            engine: "bigquery".into(),
+            family: "warehouse".into(),
+            label: "BigQuery".into(),
+            maturity: "beta".into(),
+            capabilities: vec![
+                "supports_schema_browser".into(),
+                "supports_result_snapshots".into(),
+                "supports_admin_operations".into(),
+            ],
+            default_language: "google-sql".into(),
+            local_database: None,
+            tree: None,
+        };
+
+        let snowflake_operations = operation_manifests_for_manifest(&snowflake_manifest);
+        let snowflake_ids = snowflake_operations
+            .iter()
+            .map(|operation| operation.id.as_str())
+            .collect::<Vec<_>>();
+        assert!(snowflake_ids.contains(&"snowflake.table.clone"));
+        assert!(snowflake_ids.contains(&"snowflake.warehouse.suspend"));
+        assert!(snowflake_ids.contains(&"snowflake.warehouse.resume"));
+        assert_eq!(
+            snowflake_operations
+                .iter()
+                .find(|operation| operation.id == "snowflake.table.clone")
+                .map(|operation| operation.scope.as_str()),
+            Some("table")
+        );
+
+        let bigquery_operations = operation_manifests_for_manifest(&bigquery_manifest);
+        assert!(bigquery_operations
+            .iter()
+            .any(|operation| operation.id == "bigquery.table.copy" && operation.risk == "write"));
     }
 }

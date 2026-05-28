@@ -10,12 +10,15 @@ describe('MysqlObjectViewDescriptors', () => {
     expect(mysqlObjectViewMenuLabel('table')).toBe('Open Table')
     expect(mysqlObjectViewMenuLabel('events')).toBe('Open Events')
     expect(mysqlObjectViewMenuLabel('security')).toBe('Review Users / Privileges')
+    expect(mysqlObjectViewMenuLabel('slow queries')).toBe('Review Slow Queries')
+    expect(mysqlObjectViewMenuLabel('innodb_status')).toBe('Review InnoDB Status')
     expect(mysqlObjectViewMenuLabel('table')).not.toBe('Open View')
   })
 
   it('normalizes supported object kinds', () => {
     expect(isMysqlObjectViewKind('foreign keys')).toBe(true)
     expect(isMysqlObjectViewKind('system_schemas')).toBe(true)
+    expect(isMysqlObjectViewKind('status counters')).toBe(true)
     expect(isMysqlObjectViewKind('stored-procedure')).toBe(false)
   })
 

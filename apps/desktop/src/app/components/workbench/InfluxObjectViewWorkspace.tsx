@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -14,17 +16,23 @@ import {
   ObjectSeriesIcon,
   ObjectStageIcon,
   PlayIcon,
-  RefreshIcon,
   WarningIcon,
 } from './icons'
 import {
   getInfluxObjectViewDescriptor,
   type InfluxObjectViewDescriptor,
 } from './InfluxObjectViewDescriptors'
-import { ExplorerNodeIcon } from './SideBar.node-icons'
+import {
+  influxWorkflows,
+  type InfluxWorkflowIconName,
+} from './InfluxObjectViewWorkflows'
+import { ObjectViewHeader } from './ObjectViewHeader'
+import { TimeSeriesOperationStrip } from './TimeSeriesObjectViewOperations'
+import { timeSeriesOperationActions } from './TimeSeriesObjectViewOperations.helpers'
+import { TimeSeriesObjectViewInsights } from './TimeSeriesObjectViewInsights'
 
 type JsonRecord = Record<string, unknown>
-type InfluxSectionIconName = 'bucket' | 'measurement' | 'tag' | 'field' | 'task' | 'security' | 'storage'
+type InfluxSectionIconName = InfluxWorkflowIconName
 
 interface InfluxObjectViewWorkspaceProps {
   connection: ConnectionProfile
@@ -32,6 +40,7 @@ interface InfluxObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function InfluxObjectViewWorkspace({
@@ -40,6 +49,7 @@ export function InfluxObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onPlanOperation,
 }: InfluxObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -56,38 +66,39 @@ export function InfluxObjectViewWorkspace({
   }, [onRefresh, tab.id])
   const queryTarget = useMemo(() => influxQueryTargetFromObjectView(tab), [tab])
   const cards = influxMetricCards(payload)
-  const workflows = influxWorkflows(kind, descriptor, Boolean(queryTarget))
   const sections = influxSections(kind, payload, descriptor)
+  const availableSectionKeys = new Set(sections.map((section) => section.key))
+  const workflows = influxWorkflows(kind, descriptor, Boolean(queryTarget), availableSectionKeys)
+  const operationActions = timeSeriesOperationActions(connection, tab, kind, payload)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
-      <div className="object-view-toolbar">
-        <div className="object-view-heading">
-          <ExplorerNodeIcon connection={connection} kind={kind} />
-          <div>
-            <strong>{descriptor.title}</strong>
-            <span>
-              {[connection.name, environment.label, ...(state?.path ?? [])].filter(Boolean).join(' / ')}
-            </span>
-          </div>
-        </div>
-        <div className="object-view-actions">
-          {queryTarget && descriptor.primaryQueryLabel ? (
-            <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-              <PlayIcon className="panel-inline-icon" />
-              {descriptor.primaryQueryLabel}
-            </button>
-          ) : null}
-          <button type="button" className="drawer-button" disabled={refreshing} onClick={refresh}>
-            <RefreshIcon className="panel-inline-icon" />
-            {refreshing ? 'Refreshing' : 'Refresh'}
+      <ObjectViewHeader
+        connection={connection}
+        environment={environment}
+        kind={kind}
+        path={state?.path}
+        title={descriptor.title}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      >
+        {queryTarget && descriptor.primaryQueryLabel ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel}
           </button>
-        </div>
-      </div>
+        ) : null}
+      </ObjectViewHeader>
 
       <InfluxWarningList warnings={influxWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         {workflows.length ? (
           <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
             <div className="object-view-action-chips">
@@ -109,6 +120,16 @@ export function InfluxObjectViewWorkspace({
                   >
                     {chip}
                   </button>
+                ) : workflow.targetSection ? (
+                  <button
+                    key={workflow.label}
+                    type="button"
+                    className="object-view-action-chip object-view-action-chip--button"
+                    title={workflow.title}
+                    onClick={() => focusSection(workflow.targetSection!)}
+                  >
+                    {chip}
+                  </button>
                 ) : (
                   <span key={workflow.label} className="object-view-action-chip" title={workflow.title}>
                     {chip}
@@ -118,6 +139,15 @@ export function InfluxObjectViewWorkspace({
             </div>
           </section>
         ) : null}
+
+        <TimeSeriesOperationStrip
+          actions={operationActions}
+          connection={connection}
+          environment={environment}
+          onPlanOperation={onPlanOperation}
+        />
+
+        <TimeSeriesObjectViewInsights engine={connection.engine} kind={kind} payload={payload} />
 
         {cards.length ? (
           <section className="object-view-section">
@@ -135,7 +165,12 @@ export function InfluxObjectViewWorkspace({
 
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <InfluxSectionHeading icon={section.icon} title={section.title} unit={section.unit} />
               <InfluxObjectViewTable columns={section.columns} rows={section.rows} emptyText={section.emptyText} />
             </section>
@@ -219,55 +254,13 @@ function InfluxObjectViewTable({
   )
 }
 
-function influxWorkflows(
-  kind: string,
-  descriptor: InfluxObjectViewDescriptor,
-  hasQueryTarget: boolean,
-) {
-  const workflows: Array<{
-    label: string
-    title: string
-    icon: InfluxSectionIconName
-    action?: 'query'
-  }> = []
-
-  if (hasQueryTarget && descriptor.primaryQueryLabel) {
-    workflows.push({
-      label: descriptor.primaryQueryLabel,
-      title: 'Open a time-bound Flux or InfluxQL query for this object.',
-      icon: 'measurement',
-      action: 'query',
-    })
-  }
-
-  if (['bucket', 'buckets'].includes(kind)) {
-    workflows.push(
-      { label: 'Measurements', title: 'Review schema and series shape.', icon: 'measurement' },
-      { label: 'Retention', title: 'Review retention and shard group settings.', icon: 'storage' },
-      { label: 'Tasks', title: 'Review scheduled Flux tasks.', icon: 'task' },
-    )
-  }
-
-  if (['measurement', 'measurements'].includes(kind)) {
-    workflows.push(
-      { label: 'Tags', title: 'Review indexed dimensions and cardinality.', icon: 'tag' },
-      { label: 'Fields', title: 'Review value fields and types.', icon: 'field' },
-    )
-  }
-
-  if (['security', 'tasks', 'task', 'diagnostics'].includes(kind)) {
-    workflows.push({ label: 'Guardrails', title: 'Review token scopes and risky write paths.', icon: 'security' })
-  }
-
-  return workflows
-}
-
 function influxSections(
   kind: string,
   payload: JsonRecord,
   descriptor: InfluxObjectViewDescriptor,
 ) {
   const sections: Array<{
+    key: string
     title: string
     icon: InfluxSectionIconName
     columns: string[]
@@ -283,6 +276,7 @@ function influxSections(
     }
 
     sections.push({
+      key: candidate.key,
       title: candidate.title,
       icon: candidate.icon,
       unit: `${rows.length} row(s)`,
@@ -296,6 +290,7 @@ function influxSections(
     const rows = arrayOfRecords(payload.objects)
     if (rows.length) {
       sections.push({
+        key: 'objects',
         title: descriptor.title,
         icon: 'bucket',
         unit: `${rows.length} row(s)`,

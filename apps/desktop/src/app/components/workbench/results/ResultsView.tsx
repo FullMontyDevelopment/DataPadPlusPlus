@@ -59,27 +59,30 @@ export function ResultsView({
 }: ResultsViewProps) {
   const [operationMessage, setOperationMessage] = useState('')
   const acknowledgedRenderRef = useRef('')
+  const activeTabId = activeTab?.id
+  const activeExecutionId = activeTab?.activeExecution?.executionId
+  const activeExecutionPhase = activeTab?.activeExecution?.phase
+  const shouldAcknowledgeRender = Boolean(
+    activeTabId &&
+      activeExecutionId &&
+      result &&
+      (activeExecutionPhase === 'rendering' || activeExecutionPhase === 'paging'),
+  )
+  const renderToken = shouldAcknowledgeRender
+    ? [
+        activeTabId,
+        activeExecutionId,
+        activeExecutionPhase,
+        payload?.renderer ?? result?.defaultRenderer ?? 'none',
+        result?.pageInfo?.bufferedRows ?? result?.payloads?.length ?? 0,
+        result?.durationMs,
+      ].join(':')
+    : ''
 
   useEffect(() => {
-    const activeExecution = activeTab?.activeExecution
-
-    if (
-      !activeTab ||
-      !activeExecution ||
-      !result ||
-      (activeExecution.phase !== 'rendering' && activeExecution.phase !== 'paging')
-    ) {
+    if (!shouldAcknowledgeRender || !activeTabId || !activeExecutionId) {
       return
     }
-
-    const renderToken = [
-      activeTab.id,
-      activeExecution.executionId,
-      activeExecution.phase,
-      payload?.renderer ?? result.defaultRenderer ?? 'none',
-      result.pageInfo?.bufferedRows ?? result.payloads?.length ?? 0,
-      result.durationMs,
-    ].join(':')
 
     if (acknowledgedRenderRef.current === renderToken) {
       return
@@ -87,7 +90,7 @@ export function ResultsView({
 
     if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
       acknowledgedRenderRef.current = renderToken
-      onResultRendered(activeTab.id, activeExecution.executionId)
+      onResultRendered(activeTabId, activeExecutionId)
       return
     }
 
@@ -95,7 +98,7 @@ export function ResultsView({
     const firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(() => {
         acknowledgedRenderRef.current = renderToken
-        onResultRendered(activeTab.id, activeExecution.executionId)
+        onResultRendered(activeTabId, activeExecutionId)
       })
     })
 
@@ -106,10 +109,11 @@ export function ResultsView({
       }
     }
   }, [
-    activeTab,
+    activeExecutionId,
+    activeTabId,
     onResultRendered,
-    payload,
-    result,
+    renderToken,
+    shouldAcknowledgeRender,
   ])
 
   if (activeTab?.tabKind === 'test-suite') {

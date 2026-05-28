@@ -1,12 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ConnectionProfile, EnvironmentProfile } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import { ConnectionBlade } from './RightDrawer.connection-blade'
 
 describe('ConnectionBlade', () => {
-  it('keeps typed credentials for testing but clears them after save and close actions', () => {
+  it('keeps typed credentials for testing but clears them after successful save and close actions', async () => {
     const onClose = vi.fn()
-    const onSaveConnection = vi.fn()
+    const onSaveConnection = vi.fn(async () => true)
     const onTestConnection = vi.fn()
 
     render(
@@ -39,12 +39,40 @@ describe('ConnectionBlade', () => {
       expect.objectContaining({ id: connection.id }),
       'do-not-keep-me-again',
     )
-    expect(credentialInput).toHaveValue('')
+    await waitFor(() => {
+      expect(credentialInput).toHaveValue('')
+    })
 
     fireEvent.change(credentialInput, { target: { value: 'close-clears-too' } })
     fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }))
     expect(onClose).toHaveBeenCalled()
     expect(credentialInput).toHaveValue('')
+  })
+
+  it('keeps typed credentials visible when save fails', async () => {
+    const onSaveConnection = vi.fn(async () => false)
+
+    render(
+      <ConnectionBlade
+        activeConnection={connection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={onSaveConnection}
+        onTestConnection={vi.fn()}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    const credentialInput = screen.getByLabelText('Password / Credential')
+    fireEvent.change(credentialInput, { target: { value: 'keep-this-secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Connection' }))
+
+    await waitFor(() => {
+      expect(onSaveConnection).toHaveBeenCalled()
+    })
+    expect(credentialInput).toHaveValue('keep-this-secret')
   })
 
   it('keeps stored credentials write-only when editing an existing connection', () => {
@@ -54,7 +82,7 @@ describe('ConnectionBlade', () => {
         connectionTest={undefined}
         environments={[environment]}
         onClose={vi.fn()}
-        onSaveConnection={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
         onTestConnection={vi.fn()}
         onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
         onCreateLocalDatabase={vi.fn(async () => undefined)}

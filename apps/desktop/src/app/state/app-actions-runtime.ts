@@ -1,9 +1,6 @@
 import { startTransition, useCallback, useMemo } from 'react'
 import type {
   ExecutionRequest,
-  ExecutionResponse,
-  QueryExecutionPhase,
-  QueryTabActiveExecution,
   ResultPageRequest,
 } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
@@ -12,7 +9,19 @@ import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { buildConnectionTestFailure } from './connection-test-results'
 import { createId } from './helpers'
 import { toUserMessage } from './app-state-selectors'
-import type { Actions, AppActionContext, StateShape } from './app-state-types'
+import type { Actions, AppActionContext } from './app-state-types'
+import {
+  isTabVisible,
+  nextFrame,
+  scheduleResultRenderAckFallback,
+  shouldWaitForVisibleResult,
+  tabExecution,
+} from './app-actions-execution-utils'
+
+export {
+  RESULT_RENDER_ACK_FALLBACK_MS,
+  scheduleResultRenderAckFallback,
+} from './app-actions-execution-utils'
 
 type RuntimeActions = Pick<
   Actions,
@@ -164,6 +173,11 @@ export function useRuntimeActions({
           })
           await nextFrame()
         }
+        const waitForDisplay = shouldWaitForVisibleResult(
+          stateRef.current,
+          request.tabId,
+          executionWithId,
+        )
         dispatch({
           type: 'EXECUTION_READY',
           execution: executionWithId,
@@ -175,8 +189,11 @@ export function useRuntimeActions({
             language: 'redis',
             queryText: `INSPECT ${request.key}`,
           },
-          waitForDisplay: shouldWaitForVisibleResult(stateRef.current, request.tabId, executionWithId),
+          waitForDisplay,
         })
+        if (waitForDisplay) {
+          scheduleResultRenderAckFallback(dispatch, request.tabId, executionId)
+        }
       } catch (error) {
         dispatch({
           type: 'EXECUTION_FAILED',
@@ -246,18 +263,22 @@ export function useRuntimeActions({
           })
           await nextFrame()
         }
+        const waitForDisplay = shouldWaitForVisibleResult(
+          stateRef.current,
+          tabId,
+          executionWithId,
+        )
         startTransition(() => {
           dispatch({
             type: 'EXECUTION_READY',
             execution: executionWithId,
             request: executionRequest,
-            waitForDisplay: shouldWaitForVisibleResult(
-              stateRef.current,
-              tabId,
-              executionWithId,
-            ),
+            waitForDisplay,
           })
         })
+        if (waitForDisplay) {
+          scheduleResultRenderAckFallback(dispatch, tabId, executionId)
+        }
       } catch (error) {
         dispatch({
           type: 'EXECUTION_FAILED',
@@ -367,14 +388,18 @@ export function useRuntimeActions({
           phase: 'paging',
         })
         await nextFrame()
+        const waitForDisplay = isTabVisible(stateRef.current, tabId)
         startTransition(() => {
           dispatch({
             type: 'RESULT_PAGE_READY',
             page,
             executionId,
-            waitForDisplay: isTabVisible(stateRef.current, tabId),
+            waitForDisplay,
           })
         })
+        if (waitForDisplay) {
+          scheduleResultRenderAckFallback(dispatch, tabId, executionId)
+        }
       } catch (error) {
         dispatch({
           type: 'EXECUTION_FAILED',
@@ -564,40 +589,4 @@ export function useRuntimeActions({
       testConnection,
     ],
   )
-}
-
-function tabExecution(
-  executionId: string,
-  phase: QueryExecutionPhase,
-  message?: string,
-): QueryTabActiveExecution {
-  return {
-    executionId,
-    phase,
-    startedAt: new Date().toISOString(),
-    message,
-  }
-}
-
-function nextFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-      setTimeout(resolve, 0)
-      return
-    }
-
-    window.requestAnimationFrame(() => resolve())
-  })
-}
-
-function shouldWaitForVisibleResult(
-  state: StateShape,
-  tabId: string,
-  execution: Pick<ExecutionResponse, 'result'>,
-) {
-  return Boolean(execution.result && state.payload?.snapshot.ui.activeTabId === tabId)
-}
-
-function isTabVisible(state: StateShape, tabId: string) {
-  return state.payload?.snapshot.ui.activeTabId === tabId
 }

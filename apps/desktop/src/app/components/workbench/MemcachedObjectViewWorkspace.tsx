@@ -1,7 +1,9 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import {
@@ -9,23 +11,30 @@ import {
   ObjectMemoryIcon,
   ObjectMetricIcon,
   ObjectServerIcon,
-  RefreshIcon,
   WarningIcon,
 } from './icons'
 import {
   getMemcachedObjectViewDescriptor,
   type MemcachedObjectViewDescriptor,
 } from './MemcachedObjectViewDescriptors'
-import { ExplorerNodeIcon } from './SideBar.node-icons'
+import {
+  memcachedWorkflows,
+  type MemcachedWorkflowIconName,
+} from './MemcachedObjectViewWorkflows'
+import { memcachedOperationActions } from './MemcachedObjectViewOperations.helpers'
+import { ObjectViewOperationStrip } from './ObjectViewOperationStrip'
+import { ObjectViewHeader } from './ObjectViewHeader'
+import { MemcachedObjectViewInsights } from './MemcachedObjectViewInsights'
 
 type JsonRecord = Record<string, unknown>
-type MemcachedSectionIconName = 'server' | 'stats' | 'slabs' | 'items' | 'settings' | 'connections' | 'diagnostics'
+type MemcachedSectionIconName = MemcachedWorkflowIconName
 
 interface MemcachedObjectViewWorkspaceProps {
   connection: ConnectionProfile
   environment: EnvironmentProfile
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function MemcachedObjectViewWorkspace({
@@ -33,6 +42,7 @@ export function MemcachedObjectViewWorkspace({
   environment,
   tab,
   onRefresh,
+  onPlanOperation,
 }: MemcachedObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -49,39 +59,45 @@ export function MemcachedObjectViewWorkspace({
   }, [onRefresh, tab.id])
   const cards = memcachedMetricCards(payload)
   const sections = memcachedSections(kind, payload, descriptor)
-  const workflows = memcachedWorkflows(kind)
+  const availableSectionKeys = new Set(sections.map((section) => section.key))
+  const workflows = memcachedWorkflows(kind, availableSectionKeys)
+  const operationActions = memcachedOperationActions(connection, tab, kind, payload)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
-      <div className="object-view-toolbar">
-        <div className="object-view-heading">
-          <ExplorerNodeIcon connection={connection} kind={kind} />
-          <div>
-            <strong>{descriptor.title}</strong>
-            <span>
-              {[connection.name, environment.label, ...(state?.path ?? [])].filter(Boolean).join(' / ')}
-            </span>
-          </div>
-        </div>
-        <div className="object-view-actions">
-          <button type="button" className="drawer-button" disabled={refreshing} onClick={refresh}>
-            <RefreshIcon className="panel-inline-icon" />
-            {refreshing ? 'Refreshing' : 'Refresh'}
-          </button>
-        </div>
-      </div>
+      <ObjectViewHeader
+        connection={connection}
+        environment={environment}
+        kind={kind}
+        path={state?.path}
+        title={descriptor.title}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      />
 
       <MemcachedWarningList warnings={memcachedWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         {workflows.length ? (
           <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
             <div className="object-view-action-chips">
               {workflows.map((workflow) => (
-                <span key={workflow.label} className="object-view-action-chip" title={workflow.title}>
+                <button
+                  key={workflow.label}
+                  type="button"
+                  className="object-view-action-chip object-view-action-chip--button"
+                  title={workflow.title}
+                  onClick={() => workflow.targetSection && focusSection(workflow.targetSection)}
+                >
                   <MemcachedSectionIcon icon={workflow.icon} />
                   <span>{workflow.label}</span>
-                </span>
+                </button>
               ))}
             </div>
           </section>
@@ -101,9 +117,24 @@ export function MemcachedObjectViewWorkspace({
           </section>
         ) : null}
 
+        <ObjectViewOperationStrip
+          actions={operationActions}
+          ariaLabel="Guarded Memcached operation previews"
+          connection={connection}
+          environment={environment}
+          onPlanOperation={onPlanOperation}
+        />
+
+        <MemcachedObjectViewInsights kind={kind} payload={payload} />
+
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <MemcachedSectionHeading icon={section.icon} title={section.title} unit={section.unit} />
               <MemcachedObjectViewTable columns={section.columns} rows={section.rows} emptyText={section.emptyText} />
             </section>
@@ -181,40 +212,13 @@ function MemcachedObjectViewTable({
   )
 }
 
-function memcachedWorkflows(kind: string) {
-  const workflows: Array<{ label: string; title: string; icon: MemcachedSectionIconName }> = []
-
-  if (['server', 'stats', 'diagnostics'].includes(kind)) {
-    workflows.push(
-      { label: 'Hit Rate', title: 'Review cache effectiveness from get hits and misses.', icon: 'stats' },
-      { label: 'Evictions', title: 'Watch item churn and pressure against max memory.', icon: 'diagnostics' },
-      { label: 'Connections', title: 'Check connection pressure and rejected clients.', icon: 'connections' },
-    )
-  }
-
-  if (['slabs', 'slab', 'items', 'item-class'].includes(kind)) {
-    workflows.push(
-      { label: 'Allocation', title: 'Review chunk size, used chunks, pages, and item age.', icon: 'slabs' },
-      { label: 'Pressure', title: 'Look for evictions, out-of-memory counters, and reclaim behavior.', icon: 'diagnostics' },
-    )
-  }
-
-  if (kind === 'settings') {
-    workflows.push(
-      { label: 'Limits', title: 'Review max bytes, max connections, protocols, and LRU flags.', icon: 'settings' },
-      { label: 'Safety', title: 'Use operation previews for any future setting changes.', icon: 'diagnostics' },
-    )
-  }
-
-  return workflows
-}
-
 function memcachedSections(
   kind: string,
   payload: JsonRecord,
   descriptor: MemcachedObjectViewDescriptor,
 ) {
   const sections: Array<{
+    key: string
     title: string
     icon: MemcachedSectionIconName
     unit?: string
@@ -230,27 +234,27 @@ function memcachedSections(
   const diagnostics = rowsFromRecords(payload.diagnostics, ['signal', 'value', 'status', 'guidance'])
 
   if (kind === 'server' || kind === 'stats') {
-    sections.push({ title: 'Stats', icon: 'stats', columns: ['metric', 'value', 'unit', 'section'], rows: stats, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'stats', title: 'Stats', icon: 'stats', columns: ['metric', 'value', 'unit', 'section'], rows: stats, emptyText: descriptor.emptyDescription })
   }
 
   if (['server', 'slabs', 'slab'].includes(kind)) {
-    sections.push({ title: 'Slabs', icon: 'slabs', columns: ['classId', 'chunkSize', 'usedChunks', 'freeChunks', 'totalPages', 'memory'], rows: slabs, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'slabs', title: 'Slabs', icon: 'slabs', columns: ['classId', 'chunkSize', 'usedChunks', 'freeChunks', 'totalPages', 'memory'], rows: slabs, emptyText: descriptor.emptyDescription })
   }
 
   if (['server', 'items', 'item-class'].includes(kind)) {
-    sections.push({ title: 'Item Classes', icon: 'items', columns: ['classId', 'number', 'age', 'evicted', 'outOfMemory', 'reclaimed'], rows: items, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'items', title: 'Item Classes', icon: 'items', columns: ['classId', 'number', 'age', 'evicted', 'outOfMemory', 'reclaimed'], rows: items, emptyText: descriptor.emptyDescription })
   }
 
   if (kind === 'server' || kind === 'settings') {
-    sections.push({ title: 'Settings', icon: 'settings', columns: ['name', 'value', 'impact'], rows: settings, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'settings', title: 'Settings', icon: 'settings', columns: ['name', 'value', 'impact'], rows: settings, emptyText: descriptor.emptyDescription })
   }
 
   if (kind === 'server' || kind === 'connections') {
-    sections.push({ title: 'Connections', icon: 'connections', columns: ['name', 'value', 'unit', 'status'], rows: connections, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'connections', title: 'Connections', icon: 'connections', columns: ['name', 'value', 'unit', 'status'], rows: connections, emptyText: descriptor.emptyDescription })
   }
 
   if (kind === 'server' || kind === 'diagnostics') {
-    sections.push({ title: 'Diagnostics', icon: 'diagnostics', columns: ['signal', 'value', 'status', 'guidance'], rows: diagnostics, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'diagnostics', title: 'Diagnostics', icon: 'diagnostics', columns: ['signal', 'value', 'status', 'guidance'], rows: diagnostics, emptyText: descriptor.emptyDescription })
   }
 
   return sections.filter((section) => section.rows.length || kind === section.icon)

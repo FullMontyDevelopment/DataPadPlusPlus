@@ -70,6 +70,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -82,6 +83,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -105,6 +107,7 @@ export function ObjectViewWorkspace({
         environment={environment}
         tab={tab}
         onRefresh={onRefresh}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -138,6 +141,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -150,6 +154,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -162,6 +167,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -174,6 +180,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -186,6 +193,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -198,6 +206,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -210,6 +219,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -222,6 +232,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }
@@ -234,6 +245,7 @@ export function ObjectViewWorkspace({
         tab={tab}
         onRefresh={onRefresh}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />
     )
   }

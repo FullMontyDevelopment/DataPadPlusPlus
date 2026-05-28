@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -15,25 +17,23 @@ import {
   ObjectSecurityIcon,
   ObjectStageIcon,
   PlayIcon,
-  RefreshIcon,
   WarningIcon,
 } from './icons'
 import {
   getCosmosObjectViewDescriptor,
   type CosmosObjectViewDescriptor,
 } from './CosmosObjectViewDescriptors'
-import { ExplorerNodeIcon } from './SideBar.node-icons'
+import {
+  cosmosWorkflows,
+  type CosmosWorkflowIconName,
+} from './CosmosObjectViewWorkflows'
+import { CosmosObjectViewInsights } from './CosmosObjectViewInsights'
+import { cosmosOperationActions } from './CosmosObjectViewOperations.helpers'
+import { ObjectViewOperationStrip } from './ObjectViewOperationStrip'
+import { ObjectViewHeader } from './ObjectViewHeader'
 
 type JsonRecord = Record<string, unknown>
-type CosmosSectionIconName =
-  | 'account'
-  | 'collection'
-  | 'document'
-  | 'index'
-  | 'throughput'
-  | 'security'
-  | 'diagnostics'
-  | 'region'
+type CosmosSectionIconName = CosmosWorkflowIconName
 
 interface CosmosObjectViewWorkspaceProps {
   connection: ConnectionProfile
@@ -41,6 +41,7 @@ interface CosmosObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function CosmosObjectViewWorkspace({
@@ -49,6 +50,7 @@ export function CosmosObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onPlanOperation,
 }: CosmosObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -64,39 +66,40 @@ export function CosmosObjectViewWorkspace({
     }
   }, [onRefresh, tab.id])
   const queryTarget = useMemo(() => cosmosQueryTargetFromObjectView(tab), [tab])
-  const workflows = cosmosWorkflows(kind, descriptor, Boolean(queryTarget))
   const cards = cosmosMetricCards(payload, connection)
   const sections = cosmosSections(kind, payload, descriptor)
+  const availableSectionKeys = new Set(sections.map((section) => section.key))
+  const workflows = cosmosWorkflows(kind, descriptor, Boolean(queryTarget), availableSectionKeys)
+  const operationActions = cosmosOperationActions(connection, tab, kind, payload)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
-      <div className="object-view-toolbar">
-        <div className="object-view-heading">
-          <ExplorerNodeIcon connection={connection} kind={kind} />
-          <div>
-            <strong>{descriptor.title}</strong>
-            <span>
-              {[connection.name, environment.label, ...(state?.path ?? [])].filter(Boolean).join(' / ')}
-            </span>
-          </div>
-        </div>
-        <div className="object-view-actions">
-          {queryTarget && descriptor.primaryQueryLabel ? (
-            <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-              <PlayIcon className="panel-inline-icon" />
-              {descriptor.primaryQueryLabel}
-            </button>
-          ) : null}
-          <button type="button" className="drawer-button" disabled={refreshing} onClick={refresh}>
-            <RefreshIcon className="panel-inline-icon" />
-            {refreshing ? 'Refreshing' : 'Refresh'}
+      <ObjectViewHeader
+        connection={connection}
+        environment={environment}
+        kind={kind}
+        path={state?.path}
+        title={descriptor.title}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      >
+        {queryTarget && descriptor.primaryQueryLabel ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel}
           </button>
-        </div>
-      </div>
+        ) : null}
+      </ObjectViewHeader>
 
       <CosmosWarningList warnings={cosmosWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         {workflows.length ? (
           <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
             <div className="object-view-action-chips">
@@ -115,6 +118,16 @@ export function CosmosObjectViewWorkspace({
                     className="object-view-action-chip object-view-action-chip--button"
                     title={workflow.title}
                     onClick={() => onOpenQuery(queryTarget)}
+                  >
+                    {chip}
+                  </button>
+                ) : workflow.targetSection ? (
+                  <button
+                    key={workflow.label}
+                    type="button"
+                    className="object-view-action-chip object-view-action-chip--button"
+                    title={workflow.title}
+                    onClick={() => focusSection(workflow.targetSection!)}
                   >
                     {chip}
                   </button>
@@ -142,9 +155,24 @@ export function CosmosObjectViewWorkspace({
           </section>
         ) : null}
 
+        <ObjectViewOperationStrip
+          actions={operationActions}
+          ariaLabel="Guarded Cosmos DB operation previews"
+          connection={connection}
+          environment={environment}
+          onPlanOperation={onPlanOperation}
+        />
+
+        <CosmosObjectViewInsights kind={kind} payload={payload} />
+
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <CosmosSectionHeading icon={section.icon} title={section.title} unit={section.unit} />
               <CosmosObjectViewTable columns={section.columns} rows={section.rows} emptyText={section.emptyText} />
             </section>
@@ -230,66 +258,13 @@ function CosmosObjectViewTable({
   )
 }
 
-function cosmosWorkflows(
-  kind: string,
-  descriptor: CosmosObjectViewDescriptor,
-  hasQueryTarget: boolean,
-) {
-  const workflows: Array<{
-    label: string
-    title: string
-    icon: CosmosSectionIconName
-    action?: 'query'
-  }> = []
-
-  if (hasQueryTarget && descriptor.primaryQueryLabel) {
-    workflows.push({
-      label: descriptor.primaryQueryLabel,
-      title: 'Open a bounded Cosmos DB item query for this container.',
-      icon: 'document',
-      action: 'query',
-    })
-  }
-
-  if (['account', 'databases', 'database'].includes(kind)) {
-    workflows.push(
-      { label: 'Databases', title: 'Review database and container inventory.', icon: 'account' },
-      { label: 'Regions', title: 'Review read and write region posture.', icon: 'region' },
-      { label: 'Consistency', title: 'Review default consistency and session behavior.', icon: 'throughput' },
-    )
-  }
-
-  if (['container', 'containers', 'items'].includes(kind)) {
-    workflows.push(
-      { label: 'Partition Key', title: 'Review partition routing and hot key hints.', icon: 'collection' },
-      { label: 'Indexing', title: 'Review included, excluded, and composite index paths.', icon: 'index' },
-      { label: 'Throughput', title: 'Review RU/s, throttles, and cost-risk hints.', icon: 'throughput' },
-    )
-  }
-
-  if (['stored-procedures', 'triggers', 'udfs'].includes(kind)) {
-    workflows.push(
-      { label: 'Scripts', title: 'Review server-side JavaScript assets.', icon: 'document' },
-      { label: 'Guarded Preview', title: 'Create, replace, and delete actions stay preview-first.', icon: 'security' },
-    )
-  }
-
-  if (['diagnostics', 'throughput', 'regions'].includes(kind)) {
-    workflows.push(
-      { label: 'RU Usage', title: 'Review request-unit consumption and throttles.', icon: 'throughput' },
-      { label: 'Latency', title: 'Review region and operation latency signals.', icon: 'diagnostics' },
-    )
-  }
-
-  return dedupeWorkflows(workflows).slice(0, 5)
-}
-
 function cosmosSections(
   kind: string,
   payload: JsonRecord,
   descriptor: CosmosObjectViewDescriptor,
 ) {
   const sections: Array<{
+    key: string
     title: string
     icon: CosmosSectionIconName
     unit?: string
@@ -309,43 +284,43 @@ function cosmosSections(
   const diagnostics = rowsFromRecords(payload.diagnostics, ['signal', 'value', 'status', 'guidance'])
 
   if (['account', 'databases'].includes(kind)) {
-    sections.push({ title: 'Databases', icon: 'account', columns: ['name', 'containers', 'throughput', 'storage'], rows: databases, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'databases', title: 'Databases', icon: 'account', columns: ['name', 'containers', 'throughput', 'storage'], rows: databases, emptyText: descriptor.emptyDescription })
   }
 
   if (['account', 'database', 'containers', 'container'].includes(kind)) {
-    sections.push({ title: 'Containers', icon: 'collection', columns: ['name', 'partitionKey', 'throughput', 'items', 'ttl'], rows: containers, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'containers', title: 'Containers', icon: 'collection', columns: ['name', 'partitionKey', 'throughput', 'items', 'ttl'], rows: containers, emptyText: descriptor.emptyDescription })
   }
 
   if (['container', 'items', 'partition-key'].includes(kind)) {
-    sections.push({ title: 'Partition Key', icon: 'collection', columns: ['path', 'kind', 'hotPartitionRisk', 'guidance'], rows: partitionKeys, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'partitionKeys', title: 'Partition Key', icon: 'collection', columns: ['path', 'kind', 'hotPartitionRisk', 'guidance'], rows: partitionKeys, emptyText: descriptor.emptyDescription })
   }
 
   if (['container', 'indexing-policy'].includes(kind)) {
-    sections.push({ title: 'Indexing Policy', icon: 'index', columns: ['path', 'mode', 'kind', 'precision'], rows: indexing, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'indexingPolicy', title: 'Indexing Policy', icon: 'index', columns: ['path', 'mode', 'kind', 'precision'], rows: indexing, emptyText: descriptor.emptyDescription })
   }
 
   if (['account', 'database', 'container', 'throughput'].includes(kind)) {
-    sections.push({ title: 'Throughput', icon: 'throughput', columns: ['scope', 'mode', 'ruPerSecond', 'throttles'], rows: throughput, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'throughput', title: 'Throughput', icon: 'throughput', columns: ['scope', 'mode', 'ruPerSecond', 'throttles'], rows: throughput, emptyText: descriptor.emptyDescription })
   }
 
   if (['account', 'regions'].includes(kind)) {
-    sections.push({ title: 'Regions', icon: 'region', columns: ['name', 'role', 'priority', 'status'], rows: regions, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'regions', title: 'Regions', icon: 'region', columns: ['name', 'role', 'priority', 'status'], rows: regions, emptyText: descriptor.emptyDescription })
   }
 
   if (['account', 'consistency'].includes(kind)) {
-    sections.push({ title: 'Consistency', icon: 'throughput', columns: ['setting', 'value', 'guidance'], rows: consistency, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'consistency', title: 'Consistency', icon: 'throughput', columns: ['setting', 'value', 'guidance'], rows: consistency, emptyText: descriptor.emptyDescription })
   }
 
   if (['container', 'stored-procedures', 'triggers', 'udfs'].includes(kind)) {
-    sections.push({ title: 'Server-Side Scripts', icon: 'document', columns: ['type', 'name', 'operation', 'status'], rows: scripts, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'scripts', title: 'Server-Side Scripts', icon: 'document', columns: ['type', 'name', 'operation', 'status'], rows: scripts, emptyText: descriptor.emptyDescription })
   }
 
   if (['account', 'database', 'container', 'security'].includes(kind)) {
-    sections.push({ title: 'Security', icon: 'security', columns: ['name', 'kind', 'scope', 'status'], rows: security, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'security', title: 'Security', icon: 'security', columns: ['name', 'kind', 'scope', 'status'], rows: security, emptyText: descriptor.emptyDescription })
   }
 
   if (['account', 'database', 'container', 'diagnostics', 'change-feed', 'conflicts'].includes(kind)) {
-    sections.push({ title: 'Diagnostics', icon: 'diagnostics', columns: ['signal', 'value', 'status', 'guidance'], rows: diagnostics, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'diagnostics', title: 'Diagnostics', icon: 'diagnostics', columns: ['signal', 'value', 'status', 'guidance'], rows: diagnostics, emptyText: descriptor.emptyDescription })
   }
 
   return sections.filter((section) => section.rows.length || kind === section.icon)
@@ -426,18 +401,6 @@ function stringArray(value: unknown) {
     : typeof value === 'string' && value.trim()
       ? [value.trim()]
       : []
-}
-
-function dedupeWorkflows<T extends { label: string }>(workflows: T[]) {
-  const seen = new Set<string>()
-  return workflows.filter((workflow) => {
-    if (seen.has(workflow.label)) {
-      return false
-    }
-
-    seen.add(workflow.label)
-    return true
-  })
 }
 
 function formatValue(value: unknown): string {

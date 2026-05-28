@@ -22,11 +22,13 @@ describe('MongoSecurityView', () => {
 
     expect(screen.getByText('read on catalog')).toBeInTheDocument()
     expect(screen.queryByText('[{"role":"read","db":"catalog"}]')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('reporting_user')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
     fireEvent.change(screen.getByPlaceholderText('reporting_user'), { target: { value: 'analytics' } })
     fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
       target: { value: '{{MONGO_USER_PASSWORD}}' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.user.create',
       objectName: 'analytics',
@@ -54,11 +56,12 @@ describe('MongoSecurityView', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
     fireEvent.change(screen.getByPlaceholderText('reporting_user'), { target: { value: 'analytics' } })
     fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
       target: { value: 'plain-secret' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
 
     expect(screen.getByText('Use an environment secret variable such as {{MONGO_USER_PASSWORD}}.')).toBeInTheDocument()
     expect(onPlanOperation).not.toHaveBeenCalled()
@@ -85,8 +88,9 @@ describe('MongoSecurityView', () => {
 
     expect(screen.getByText('find on catalog.products')).toBeInTheDocument()
     expect(screen.queryByText(/"actions":/)).not.toBeInTheDocument()
-    fireEvent.change(screen.getByPlaceholderText('analytics_reader'), { target: { value: 'inventory_reader' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create Role' }))
+    fireEvent.change(screen.getByPlaceholderText('analytics_reader'), { target: { value: 'inventory_reader' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.role.create',
       objectName: 'inventory_reader',

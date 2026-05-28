@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   ConnectionProfile,
   DataEditPlanRequest,
+  DatastoreTreeNodeManifest,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import {
@@ -35,6 +36,9 @@ describe('browser datastore platform contracts', () => {
         ?.children?.map((item) => item.label),
     ).toContain('Time Series Collections')
     expect(postgres?.queryBuilders.map((item) => item.kind)).toContain('sql-select')
+    expect(postgres?.queryBuilders.find((item) => item.kind === 'sql-select')?.defaultMode).toBe(
+      'raw',
+    )
     expect(postgres?.tree?.roots.map((item) => item.label)).toContain('User Schemas')
     expect(redis?.editableScopes[0]?.editKinds).toContain('set-ttl')
     expect(redis?.tree?.roots.map((item) => item.label)).toContain('Databases')
@@ -72,6 +76,34 @@ describe('browser datastore platform contracts', () => {
       expect(experience?.tree?.emptyState, `${engine} tree empty state`).toBe('structural-folders')
       expect(experience?.tree?.roots.length, `${engine} tree roots`).toBeGreaterThan(0)
       expect(experience?.completeness?.criteria.length, `${engine} completeness`).toBeGreaterThan(0)
+    }
+  })
+
+  it('keeps every datastore experience native, scoped, and free of fake sample placeholders', () => {
+    const experiences = buildDatastoreExperiences()
+    const engines = new Set<string>()
+
+    for (const experience of experiences) {
+      expect(engines.has(experience.engine), `${experience.engine} duplicate manifest`).toBe(false)
+      engines.add(experience.engine)
+      expect(experience.objectKinds.length, `${experience.engine} object kinds`).toBeGreaterThan(0)
+      expect(experience.contextActions.length, `${experience.engine} context actions`).toBeGreaterThan(0)
+      expect(experience.resultRenderers.length, `${experience.engine} renderers`).toBeGreaterThan(0)
+      expect(experience.diagnosticsTabs.length, `${experience.engine} diagnostics`).toBeGreaterThan(0)
+      expect(experience.safetyRules.join(' '), `${experience.engine} safety`).toContain('Read-only')
+      expect(experience.testTemplates.length, `${experience.engine} test templates`).toBeGreaterThan(0)
+      expect(experience.testAssertions.length, `${experience.engine} test assertions`).toBeGreaterThan(0)
+      expect(experience.completeness?.criteria.length, `${experience.engine} completeness`).toBeGreaterThan(0)
+      expect(experience.tree?.roots.length, `${experience.engine} tree roots`).toBeGreaterThan(0)
+
+      for (const node of flattenTree(experience.tree?.roots ?? [])) {
+        expect(node.id, `${experience.engine} node id`).toBeTruthy()
+        expect(node.kind, `${experience.engine} node kind`).toBeTruthy()
+        expect(node.label, `${experience.engine} node label`).toBeTruthy()
+        expect(`${node.label} ${node.detail ?? ''}`, `${experience.engine} ${node.id}`).not.toMatch(
+          /\b(sample_collection|sample_table|sample_object|sample:key|sample-index|sample_measurement|SampleLabel|placeholder)\b/i,
+        )
+      }
     }
   })
 
@@ -425,6 +457,13 @@ describe('browser datastore platform contracts', () => {
     expect(JSON.parse(response.plan.generatedRequest).document.apiToken).toBe('{{API_TOKEN}}')
   })
 })
+
+function flattenTree(nodes: DatastoreTreeNodeManifest[]): DatastoreTreeNodeManifest[] {
+  return nodes.flatMap((node) => [
+    node,
+    ...flattenTree(node.children ?? []),
+  ])
+}
 
 function connectionProfile(
   engine: ConnectionProfile['engine'],

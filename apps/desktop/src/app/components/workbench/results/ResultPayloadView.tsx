@@ -16,6 +16,7 @@ import { DocumentResultsView } from './DocumentResultsView'
 import { JsonTreeView } from './JsonTreeView'
 import { KeyValueResultsView } from './KeyValueResultsView'
 import { GenericPlanPayloadView, MongoExplainPlanView } from './MongoExplainPlanView'
+import { ProfileResultsView } from './ProfileResultsView'
 import { RawResultView } from './RawResultView'
 import { SearchHitsResultsView } from './SearchHitsResultsView'
 
@@ -152,6 +153,10 @@ export function ResultPayloadView({
     return connection?.engine === 'mongodb'
       ? <MongoExplainPlanView payload={payload} />
       : <GenericPlanPayloadView payload={payload} />
+  }
+
+  if (payload.renderer === 'profile') {
+    return <ProfileResultsView payload={payload} />
   }
 
   if (payload.renderer === 'metrics') {

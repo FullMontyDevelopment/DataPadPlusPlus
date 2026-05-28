@@ -332,7 +332,7 @@ function browserQueryBuilders(
   }
 
   if (['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'sqlite'].includes(engine)) {
-    return [{ kind: 'sql-select', label: 'SQL SELECT Builder', scope: 'table', defaultMode: 'split' }]
+    return [{ kind: 'sql-select', label: 'SQL SELECT Builder', scope: 'table', defaultMode: 'raw' }]
   }
 
   return []

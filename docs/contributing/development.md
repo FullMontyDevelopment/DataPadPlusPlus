@@ -84,13 +84,13 @@ Use fewer folders when the adapter is small. The goal is discoverability, not ce
 
 ## Query Builders And Results
 
-Builder-capable tabs should use one query window with toolbar modes:
+Builder-capable tabs should use one query window with datastore-owned toolbar modes. Examples:
 
-- Builder + Raw
-- Builder only
-- Raw only
+- MongoDB: Query Builder, Raw, Scripting
+- Redis/Valkey: Key Browser, Console
+- SQL engines: raw editor by default, with SELECT builder only when scoped to a table or view
 
-Builder output must stay synchronized with the raw query text unless a product flow explicitly marks raw text as diverged. Field drag/drop should use structured field path and sample value metadata from result renderers.
+Builder output should stay synchronized with executable query text unless a product flow explicitly marks raw text as diverged. Field drag/drop should use structured field path and sample value metadata from result renderers.
 
 Result renderer changes should preserve the normalized payload contract. Put display-specific state, such as document expansion and inline edit mode, in the result component layer.
 

@@ -185,6 +185,16 @@ export function duckDbInspectPayload(connection: ConnectionProfile, nodeId: stri
     return { ...base, objectView: 'pragmas', pragmas: duckDbPragmas(), checks: duckDbChecks(), attachedDatabases: duckDbAttachedDatabases(connection) }
   }
 
+  if (nodeId === 'duckdb:statistics') {
+    return {
+      ...base,
+      objectView: 'statistics',
+      statistics: duckDbStatistics(),
+      tables: duckDbTables('main'),
+      diagnostics: duckDbDiagnostics(),
+    }
+  }
+
   return { ...base, objectView: 'diagnostics', diagnostics: duckDbDiagnostics(), pragmas: duckDbPragmas(), statistics: duckDbStatistics() }
 }
 

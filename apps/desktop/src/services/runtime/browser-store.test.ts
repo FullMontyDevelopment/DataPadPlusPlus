@@ -91,4 +91,66 @@ describe('browser workspace storage', () => {
     expect(loaded.connections[0]?.connectionString).toBeUndefined()
     expect(loaded.connections[0]?.connectionMode).toBe('native')
   })
+
+  it('does not persist plaintext environment secret variables in browser storage', () => {
+    const snapshot = createBlankSnapshot()
+    snapshot.environments = [
+      {
+        id: 'env-qa',
+        label: 'QA',
+        color: '#78a6ff',
+        risk: 'medium',
+        variables: {
+          API_TOKEN: 'plaintext-token',
+          DB_HOST: 'localhost',
+        },
+        sensitiveKeys: ['API_TOKEN'],
+        variableDefinitions: [
+          {
+            key: 'LEGACY_SECRET',
+            kind: 'secret',
+            value: 'legacy-plaintext-secret',
+          },
+        ],
+        requiresConfirmation: false,
+        safeMode: false,
+        exportable: true,
+        createdAt: '2026-05-20T00:00:00.000Z',
+        updatedAt: '2026-05-20T00:00:00.000Z',
+      },
+    ]
+
+    saveBrowserSnapshot(snapshot)
+
+    const stored = window.localStorage.getItem('datapadplusplus.workspace.v2') ?? ''
+    expect(stored).not.toContain('plaintext-token')
+    expect(stored).not.toContain('legacy-plaintext-secret')
+
+    const loaded = loadBrowserSnapshot()
+    expect(loaded.environments[0]?.variables).toEqual({ DB_HOST: 'localhost' })
+    expect(loaded.environments[0]?.sensitiveKeys).toEqual([
+      'API_TOKEN',
+      'LEGACY_SECRET',
+    ])
+    expect(loaded.environments[0]?.variableDefinitions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'API_TOKEN',
+          kind: 'secret',
+          value: undefined,
+          secretRef: expect.objectContaining({
+            account: 'environment:env-qa:API_TOKEN',
+          }),
+        }),
+        expect.objectContaining({
+          key: 'LEGACY_SECRET',
+          kind: 'secret',
+          value: undefined,
+          secretRef: expect.objectContaining({
+            account: 'environment:env-qa:LEGACY_SECRET',
+          }),
+        }),
+      ]),
+    )
+  })
 })

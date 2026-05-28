@@ -87,7 +87,7 @@ const CASSANDRA_OBJECT_VIEW_DESCRIPTORS: Record<string, CassandraObjectViewDescr
     'materialized-view',
     'Open Materialized View',
     'Cassandra Materialized View',
-    'Inspect base table, primary key, included columns, and sample query action.',
+    'Inspect base table, primary key, included columns, and bounded query action.',
     'No materialized view metadata is loaded',
     'Refresh this view to collect system_schema.views metadata.',
     'Query View',

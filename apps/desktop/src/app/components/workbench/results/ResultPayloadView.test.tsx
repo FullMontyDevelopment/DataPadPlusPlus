@@ -1814,7 +1814,61 @@ describe('ResultPayloadView', () => {
       })
     })
     expect(screen.queryByRole('button', { name: 'sku' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete key product:luna-lamp' })).not.toBeInTheDocument()
     expect(screen.getByText('Deleted product:luna-lamp.')).toBeInTheDocument()
+  })
+
+  it('reports Redis key detail delete guardrails without opening a second confirmation dialog', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: false,
+      plan: {
+        operationId: 'redis.data-edit.delete-key',
+        engine: 'redis',
+        summary: 'Delete key.',
+        generatedRequest: 'DEL product:luna-lamp',
+        requestLanguage: 'redis',
+        destructive: true,
+        confirmationText: 'CONFIRM QA',
+        requiredPermissions: ['write concrete key'],
+        warnings: ['This data edit needs confirmation before it can run.'],
+      },
+      messages: [],
+      warnings: ['This data edit needs confirmation before it can run.'],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'INSPECT product:luna-lamp',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'product:luna-lamp',
+          redisType: 'hash',
+          entries: {
+            sku: 'luna-lamp',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete key product:luna-lamp' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledTimes(1)
+    })
+    expect(screen.queryByRole('dialog', { name: /Delete this key/ })).not.toBeInTheDocument()
+    expect(screen.getByText('This data edit needs confirmation before it can run.')).toBeInTheDocument()
   })
 
   it('removes TTL from the selected Redis key detail view', async () => {

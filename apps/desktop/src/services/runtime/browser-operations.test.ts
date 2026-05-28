@@ -515,7 +515,933 @@ describe('browser operation runtime', () => {
     )
     expect(JSON.parse(execution.plan.generatedRequest).createUser).toBe('{{API_TOKEN}}')
   })
+
+  it('generates dialect-aware SQL operation previews instead of generic selects', () => {
+    const snapshot = snapshotWith(sqlServerConnection)
+
+    const explainPlan = planOperationLocally(snapshot, {
+      connectionId: sqlServerConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlserver.query.explain',
+      objectName: '[dbo].[Accounts]',
+      parameters: {
+        schema: 'dbo',
+        table: 'Accounts',
+      },
+    })
+
+    expect(explainPlan.plan.generatedRequest).toContain('set showplan_text on')
+    expect(explainPlan.plan.generatedRequest).toContain('select top (100) * from [dbo].[Accounts]')
+    expect(explainPlan.plan.generatedRequest).not.toContain('limit 100')
+
+    const indexPlan = planOperationLocally(snapshot, {
+      connectionId: sqlServerConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlserver.index.create',
+      objectName: '[dbo].[Accounts]',
+      parameters: {
+        columnName: 'account_id',
+        indexName: 'IX_Accounts_account_id',
+      },
+    })
+
+    expect(indexPlan.plan.generatedRequest).toContain('create index [IX_Accounts_account_id] on [dbo].[Accounts] ([account_id]);')
+    expect(indexPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+  })
+
+  it('exposes permission, import/export, and backup operation manifests for SQL-family engines', () => {
+    const operations = buildOperationManifestsForConnection(postgresConnection)
+
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'postgresql.security.inspect',
+        label: 'Inspect Permissions',
+        risk: 'diagnostic',
+      }),
+      expect.objectContaining({
+        id: 'postgresql.data.import-export',
+        label: 'Import / Export',
+        risk: 'costly',
+      }),
+      expect.objectContaining({
+        id: 'postgresql.data.backup-restore',
+        label: 'Backup / Restore',
+        risk: 'destructive',
+      }),
+    ]))
+  })
+
+  it('generates TimescaleDB native policy and aggregate refresh previews', () => {
+    const operations = buildOperationManifestsForConnection(timescaleConnection)
+
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'timescaledb.timescale.compression-policy', label: 'Compression Policy', risk: 'write' }),
+      expect.objectContaining({ id: 'timescaledb.timescale.retention-policy', label: 'Retention Policy', risk: 'destructive' }),
+      expect.objectContaining({ id: 'timescaledb.timescale.refresh-continuous-aggregate', label: 'Refresh Aggregate', risk: 'costly' }),
+    ]))
+
+    const snapshot = snapshotWith(timescaleConnection)
+    const compressionPlan = planOperationLocally(snapshot, {
+      connectionId: timescaleConnection.id,
+      environmentId: 'env-local',
+      operationId: 'timescaledb.timescale.compression-policy',
+      objectName: '"public"."order_metrics"',
+      parameters: {
+        schema: 'public',
+        table: 'order_metrics',
+        compressAfter: '7 days',
+      },
+    })
+    expect(compressionPlan.plan.generatedRequest).toBe("select add_compression_policy('public.order_metrics', interval '7 days', if_not_exists => true);")
+    expect(compressionPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
+    const retentionPlan = planOperationLocally(snapshot, {
+      connectionId: timescaleConnection.id,
+      environmentId: 'env-local',
+      operationId: 'timescaledb.timescale.retention-policy',
+      objectName: '"public"."order_metrics"',
+      parameters: {
+        schema: 'public',
+        table: 'order_metrics',
+        dropAfter: '90 days',
+      },
+    })
+    expect(retentionPlan.plan.generatedRequest).toBe("select add_retention_policy('public.order_metrics', interval '90 days', if_not_exists => true);")
+    expect(retentionPlan.plan.destructive).toBe(true)
+    expect(retentionPlan.plan.requiredPermissions).toEqual(['owner/admin role or equivalent destructive privilege'])
+
+    const refreshPlan = planOperationLocally(snapshot, {
+      connectionId: timescaleConnection.id,
+      environmentId: 'env-local',
+      operationId: 'timescaledb.timescale.refresh-continuous-aggregate',
+      objectName: '"observability"."hourly_order_metrics"',
+      parameters: {
+        schema: 'observability',
+        table: 'hourly_order_metrics',
+        startOffset: '3 days',
+      },
+    })
+    expect(refreshPlan.plan.generatedRequest).toContain("refresh_continuous_aggregate('observability.hourly_order_metrics'")
+    expect(refreshPlan.plan.confirmationText).toBeTruthy()
+  })
+
+  it('generates DuckDB local analytics operation previews', () => {
+    const operations = buildOperationManifestsForConnection(duckDbConnection)
+
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'duckdb.table.analyze', label: 'Analyze Table', risk: 'costly' }),
+      expect.objectContaining({ id: 'duckdb.database.checkpoint', label: 'Checkpoint', risk: 'write' }),
+      expect.objectContaining({ id: 'duckdb.extension.load', label: 'Load Extension', risk: 'write' }),
+      expect.objectContaining({ id: 'duckdb.file.import', label: 'Import File', risk: 'write' }),
+    ]))
+
+    const snapshot = snapshotWith(duckDbConnection)
+    const analyzePlan = planOperationLocally(snapshot, {
+      connectionId: duckDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'duckdb.table.analyze',
+      objectName: '"main"."orders"',
+    })
+    expect(analyzePlan.plan.generatedRequest).toBe('analyze "main"."orders";')
+    expect(analyzePlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
+    const extensionPlan = planOperationLocally(snapshot, {
+      connectionId: duckDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'duckdb.extension.load',
+      objectName: 'httpfs',
+      parameters: { extensionName: 'httpfs' },
+    })
+    expect(extensionPlan.plan.generatedRequest).toBe('load httpfs;')
+
+    const importPlan = planOperationLocally(snapshot, {
+      connectionId: duckDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'duckdb.file.import',
+      objectName: '"main"."orders_import"',
+      parameters: { sourceFormat: 'csv', tableName: '"main"."orders_import"' },
+    })
+    expect(importPlan.plan.generatedRequest).toContain('read_csv_auto')
+    expect(importPlan.plan.generatedRequest).toContain('create or replace table "main"."orders_import"')
+  })
+
+  it('generates search-family profile, index, and security operation previews', () => {
+    const snapshot = snapshotWith(searchConnection)
+
+    const profilePlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.query.profile',
+      objectName: 'products-v1',
+      parameters: {
+        query: { term: { active: true } },
+        size: 20,
+      },
+    })
+    expect(JSON.parse(profilePlan.plan.generatedRequest)).toMatchObject({
+      method: 'POST',
+      path: '/products-v1/_search',
+      body: {
+        profile: true,
+        query: { term: { active: true } },
+        size: 20,
+      },
+    })
+
+    const dropPlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.index.drop',
+      objectName: 'products-v1',
+    })
+    expect(JSON.parse(dropPlan.plan.generatedRequest)).toMatchObject({
+      method: 'DELETE',
+      path: '/products-v1',
+    })
+    expect(dropPlan.plan.destructive).toBe(true)
+
+    const securityPlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.security.inspect',
+      objectName: 'security',
+    })
+    expect(JSON.parse(securityPlan.plan.generatedRequest)).toMatchObject({
+      method: 'GET',
+      path: '/_security/role',
+    })
+
+    const mappingPlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.index.put-mapping',
+      objectName: 'products-v1',
+      parameters: {
+        mappings: {
+          properties: {
+            embedding: { type: 'dense_vector', dims: 384 },
+          },
+        },
+      },
+    })
+    expect(JSON.parse(mappingPlan.plan.generatedRequest)).toMatchObject({
+      method: 'PUT',
+      path: '/products-v1/_mapping',
+      body: {
+        properties: {
+          embedding: { type: 'dense_vector', dims: 384 },
+        },
+      },
+    })
+
+    const aliasPlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.alias.put',
+      objectName: 'products-v1',
+      parameters: {
+        alias: 'products-read',
+      },
+    })
+    expect(JSON.parse(aliasPlan.plan.generatedRequest)).toMatchObject({
+      method: 'POST',
+      path: '/_aliases',
+      body: {
+        actions: [
+          {
+            add: {
+              index: 'products-v1',
+              alias: 'products-read',
+            },
+          },
+        ],
+      },
+    })
+
+    const lifecyclePlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.lifecycle.explain',
+      objectName: 'products-v1',
+    })
+    expect(JSON.parse(lifecyclePlan.plan.generatedRequest)).toMatchObject({
+      method: 'GET',
+      path: '/products-v1/_ilm/explain',
+    })
+  })
+
+  it('generates DynamoDB capacity, index, access, and export operation previews', () => {
+    const snapshot = snapshotWith(dynamoConnection)
+
+    const metricsPlan = planOperationLocally(snapshot, {
+      connectionId: dynamoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'dynamodb.diagnostics.metrics',
+      objectName: 'Orders',
+      parameters: {
+        tableName: 'Orders',
+        region: 'local',
+      },
+    })
+    expect(JSON.parse(metricsPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'CloudWatch.GetMetricData',
+      tableName: 'Orders',
+      metrics: expect.arrayContaining(['ConsumedReadCapacityUnits', 'ReadThrottleEvents']),
+    })
+
+    const indexPlan = planOperationLocally(snapshot, {
+      connectionId: dynamoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'dynamodb.index.create',
+      objectName: 'Orders',
+      parameters: {
+        tableName: 'Orders',
+        indexName: 'customer-status-index',
+        partitionKey: 'customerId',
+        projection: 'ALL',
+      },
+    })
+    expect(JSON.parse(indexPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'DynamoDB.UpdateTable',
+      tableName: 'Orders',
+      globalSecondaryIndexUpdates: [{
+        create: {
+          indexName: 'customer-status-index',
+          keySchema: [{ attributeName: 'customerId', keyType: 'HASH' }],
+        },
+      }],
+    })
+
+    const capacityPlan = planOperationLocally(snapshot, {
+      connectionId: dynamoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'dynamodb.capacity.update',
+      objectName: 'Orders',
+      parameters: {
+        tableName: 'Orders',
+        billingMode: 'PROVISIONED',
+        readCapacityUnits: 80,
+        writeCapacityUnits: 40,
+      },
+    })
+    expect(JSON.parse(capacityPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'DynamoDB.UpdateTable',
+      tableName: 'Orders',
+      billingMode: 'PROVISIONED',
+      provisionedThroughput: {
+        readCapacityUnits: 80,
+        writeCapacityUnits: 40,
+      },
+    })
+
+    const ttlPlan = planOperationLocally(snapshot, {
+      connectionId: dynamoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'dynamodb.ttl.update',
+      objectName: 'Orders',
+      parameters: {
+        tableName: 'Orders',
+        ttlAttribute: 'expiresAt',
+        enabled: true,
+      },
+    })
+    expect(JSON.parse(ttlPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'DynamoDB.UpdateTimeToLive',
+      tableName: 'Orders',
+      timeToLiveSpecification: {
+        enabled: true,
+        attributeName: 'expiresAt',
+      },
+    })
+
+    const streamPlan = planOperationLocally(snapshot, {
+      connectionId: dynamoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'dynamodb.streams.update',
+      objectName: 'Orders',
+      parameters: {
+        tableName: 'Orders',
+        streamViewType: 'NEW_AND_OLD_IMAGES',
+        enabled: true,
+      },
+    })
+    expect(JSON.parse(streamPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'DynamoDB.UpdateTable',
+      tableName: 'Orders',
+      streamSpecification: {
+        streamEnabled: true,
+        streamViewType: 'NEW_AND_OLD_IMAGES',
+      },
+    })
+
+    const accessPlan = planOperationLocally(snapshot, {
+      connectionId: dynamoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'dynamodb.security.inspect',
+      objectName: 'Orders',
+      parameters: {
+        tableName: 'Orders',
+      },
+    })
+    expect(JSON.parse(accessPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'IAM.SimulatePrincipalPolicy',
+      tableName: 'Orders',
+      actions: expect.arrayContaining(['dynamodb:Query', 'dynamodb:UpdateItem']),
+    })
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: dynamoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'dynamodb.data.import-export',
+      objectName: 'Orders',
+      parameters: {
+        tableName: 'Orders',
+        mode: 'export',
+      },
+    })
+    expect(JSON.parse(exportPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'DynamoDB.ExportTableToPointInTime',
+      tableName: 'Orders',
+      validation: 'point-in-time-export',
+    })
+
+    const backupPlan = planOperationLocally(snapshot, {
+      connectionId: dynamoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'dynamodb.backup.create',
+      objectName: 'Orders',
+      parameters: {
+        tableName: 'Orders',
+        backupName: 'Orders-manual',
+      },
+    })
+    expect(JSON.parse(backupPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'DynamoDB.CreateBackup',
+      tableName: 'Orders',
+      backupName: 'Orders-manual',
+    })
+  })
+
+  it('generates Cassandra tracing, index, permission, and metrics operation previews', () => {
+    const snapshot = snapshotWith(cassandraConnection)
+
+    const tracePlan = planOperationLocally(snapshot, {
+      connectionId: cassandraConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cassandra.query.profile',
+      objectName: '"app"."orders_by_customer"',
+      parameters: {
+        keyspace: 'app',
+        tableName: 'orders_by_customer',
+      },
+    })
+    expect(tracePlan.plan.generatedRequest).toContain('tracing on;')
+    expect(tracePlan.plan.generatedRequest).toContain('select * from "app"."orders_by_customer" limit 100;')
+    expect(tracePlan.plan.generatedRequest).toContain('system_traces.events')
+
+    const indexPlan = planOperationLocally(snapshot, {
+      connectionId: cassandraConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cassandra.index.create',
+      objectName: '"app"."orders_by_customer"',
+      parameters: {
+        keyspace: 'app',
+        tableName: 'orders_by_customer',
+        indexName: 'orders_status_sai',
+        columnName: 'status',
+      },
+    })
+    expect(indexPlan.plan.generatedRequest).toContain('create custom index if not exists "orders_status_sai"')
+    expect(indexPlan.plan.generatedRequest).toContain('using \'StorageAttachedIndex\'')
+
+    const securityPlan = planOperationLocally(snapshot, {
+      connectionId: cassandraConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cassandra.security.inspect',
+      objectName: '"app"."orders_by_customer"',
+      parameters: {
+        keyspace: 'app',
+      },
+    })
+    expect(securityPlan.plan.generatedRequest).toContain('list all permissions on keyspace "app";')
+    expect(securityPlan.plan.generatedRequest).toContain('list roles;')
+
+    const metricsPlan = planOperationLocally(snapshot, {
+      connectionId: cassandraConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cassandra.diagnostics.metrics',
+      objectName: '"app"."orders_by_customer"',
+      parameters: {
+        keyspace: 'app',
+      },
+    })
+    expect(metricsPlan.plan.generatedRequest).toContain('system.local')
+    expect(metricsPlan.plan.generatedRequest).toContain("keyspace_name = 'app'")
+  })
+
+  it('generates native time-series profile, metrics, export, and guarded delete previews', () => {
+    const prometheusSnapshot = snapshotWith(prometheusConnection)
+    const prometheusProfile = planOperationLocally(prometheusSnapshot, {
+      connectionId: prometheusConnection.id,
+      environmentId: 'env-local',
+      operationId: 'prometheus.query.profile',
+      objectName: 'http_requests_total',
+      parameters: {
+        query: 'sum(rate(http_requests_total[5m]))',
+        objectKind: 'metric',
+      },
+    })
+    expect(JSON.parse(prometheusProfile.plan.generatedRequest)).toMatchObject({
+      method: 'GET',
+      path: '/api/v1/query',
+      query: {
+        query: 'sum(rate(http_requests_total[5m]))',
+      },
+      profile: {
+        checks: expect.arrayContaining(['cardinality', 'sample-count']),
+      },
+    })
+
+    const prometheusCardinality = planOperationLocally(prometheusSnapshot, {
+      connectionId: prometheusConnection.id,
+      environmentId: 'env-local',
+      operationId: 'prometheus.cardinality.analyze',
+      objectName: 'http_requests_total',
+      parameters: {
+        match: 'http_requests_total',
+      },
+    })
+    expect(JSON.parse(prometheusCardinality.plan.generatedRequest)).toMatchObject({
+      method: 'GET',
+      path: '/api/v1/series',
+      analysis: {
+        checks: expect.arrayContaining(['high-cardinality-labels']),
+      },
+    })
+    expect(prometheusCardinality.plan.confirmationText).toBeTruthy()
+
+    const influxSnapshot = snapshotWith(influxConnection)
+    const influxExport = planOperationLocally(influxSnapshot, {
+      connectionId: influxConnection.id,
+      environmentId: 'env-local',
+      operationId: 'influxdb.data.import-export',
+      objectName: 'cpu',
+      parameters: {
+        bucket: 'telemetry',
+        measurement: 'cpu',
+        mode: 'export',
+      },
+    })
+    expect(JSON.parse(influxExport.plan.generatedRequest)).toMatchObject({
+      operation: 'line-protocol.export',
+      bucket: 'telemetry',
+      measurement: 'cpu',
+      format: 'line-protocol',
+      validation: 'bounded-export',
+    })
+
+    const influxDelete = planOperationLocally(influxSnapshot, {
+      connectionId: influxConnection.id,
+      environmentId: 'env-local',
+      operationId: 'influxdb.object.drop',
+      objectName: 'cpu',
+      parameters: {
+        bucket: 'telemetry',
+        measurement: 'cpu',
+        objectKind: 'measurement',
+      },
+    })
+    expect(JSON.parse(influxDelete.plan.generatedRequest)).toMatchObject({
+      method: 'DELETE',
+      path: '/api/v2/delete',
+      body: {
+        bucket: 'telemetry',
+        measurement: 'cpu',
+      },
+    })
+    expect(influxDelete.plan.destructive).toBe(true)
+
+    const influxRetention = planOperationLocally(influxSnapshot, {
+      connectionId: influxConnection.id,
+      environmentId: 'env-local',
+      operationId: 'influxdb.retention.update',
+      objectName: 'telemetry',
+      parameters: {
+        bucket: 'telemetry',
+        retentionPeriod: '7d',
+      },
+    })
+    expect(JSON.parse(influxRetention.plan.generatedRequest)).toMatchObject({
+      method: 'PATCH',
+      path: '/api/v2/buckets/telemetry',
+      body: {
+        retentionRules: [{ type: 'expire', everySeconds: 604800 }],
+      },
+    })
+
+    const openTsdbSnapshot = snapshotWith(openTsdbConnection)
+    const openTsdbMetrics = planOperationLocally(openTsdbSnapshot, {
+      connectionId: openTsdbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'opentsdb.diagnostics.metrics',
+      objectName: 'http.requests',
+      parameters: {
+        metric: 'http.requests',
+        objectKind: 'metric',
+      },
+    })
+    expect(JSON.parse(openTsdbMetrics.plan.generatedRequest)).toMatchObject({
+      method: 'GET',
+      path: '/api/stats',
+      query: {
+        metric: 'http.requests',
+      },
+    })
+
+    const openTsdbRepair = planOperationLocally(openTsdbSnapshot, {
+      connectionId: openTsdbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'opentsdb.uid.repair',
+      objectName: 'http.requests',
+      parameters: {
+        metric: 'http.requests',
+        displayName: 'HTTP Requests',
+      },
+    })
+    expect(JSON.parse(openTsdbRepair.plan.generatedRequest)).toMatchObject({
+      operation: 'opentsdb.uid.repair',
+      metric: 'http.requests',
+      update: {
+        displayName: 'HTTP Requests',
+      },
+    })
+  })
+
+  it('generates graph-native profile, index, access, metrics, and export operation previews', () => {
+    const neo4jSnapshot = snapshotWith(neo4jConnection)
+    const profilePlan = planOperationLocally(neo4jSnapshot, {
+      connectionId: neo4jConnection.id,
+      environmentId: 'env-local',
+      operationId: 'neo4j.query.profile',
+      objectName: 'Account',
+      parameters: {
+        label: 'Account',
+        query: 'MATCH (n:`Account`) RETURN n LIMIT 25',
+      },
+    })
+    expect(profilePlan.plan.generatedRequest).toContain('PROFILE MATCH (n:`Account`) RETURN n LIMIT 25')
+
+    const indexPlan = planOperationLocally(neo4jSnapshot, {
+      connectionId: neo4jConnection.id,
+      environmentId: 'env-local',
+      operationId: 'neo4j.index.create',
+      objectName: 'Account',
+      parameters: {
+        label: 'Account',
+        propertyName: 'email',
+        indexName: 'account_email_lookup',
+      },
+    })
+    expect(indexPlan.plan.generatedRequest).toContain('CREATE INDEX account_email_lookup')
+    expect(indexPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
+    const neptuneSnapshot = snapshotWith(neptuneConnection)
+    const metricsPlan = planOperationLocally(neptuneSnapshot, {
+      connectionId: neptuneConnection.id,
+      environmentId: 'env-local',
+      operationId: 'neptune.diagnostics.metrics',
+      objectName: 'analytics',
+      parameters: {
+        graphName: 'analytics',
+      },
+    })
+    expect(JSON.parse(metricsPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'CloudWatch.GetMetricData',
+      namespace: 'AWS/Neptune',
+      metrics: expect.arrayContaining(['CPUUtilization', 'GremlinRequestsPerSec']),
+    })
+
+    const exportPlan = planOperationLocally(neptuneSnapshot, {
+      connectionId: neptuneConnection.id,
+      environmentId: 'env-local',
+      operationId: 'neptune.data.import-export',
+      objectName: 'analytics',
+      parameters: {
+        format: 'neptune-bulk',
+      },
+    })
+    expect(JSON.parse(exportPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'Neptune.StartLoaderJob',
+      scope: 'analytics',
+      validation: 'validate-before-write',
+    })
+  })
+
+  it('generates warehouse-native plan, cost, metrics, access, and export operation previews', () => {
+    const snowflakeSnapshot = snapshotWith(snowflakeConnection)
+    const snowflakeOperations = buildOperationManifestsForConnection(snowflakeConnection)
+    expect(snowflakeOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'snowflake.table.clone', label: 'Clone Table', risk: 'write' }),
+      expect.objectContaining({ id: 'snowflake.warehouse.suspend', label: 'Suspend Warehouse', risk: 'write' }),
+      expect.objectContaining({ id: 'snowflake.warehouse.resume', label: 'Resume Warehouse', risk: 'write' }),
+    ]))
+
+    const costPlan = planOperationLocally(snowflakeSnapshot, {
+      connectionId: snowflakeConnection.id,
+      environmentId: 'env-local',
+      operationId: 'snowflake.query.profile',
+      objectName: 'orders',
+      parameters: {
+        schema: 'ANALYTICS',
+        query: 'select * from "ANALYTICS"."orders" limit 100;',
+      },
+    })
+    expect(costPlan.plan.generatedRequest).toContain('information_schema.query_history')
+    expect(costPlan.plan.generatedRequest).toContain('select * from "ANALYTICS"."orders" limit 100;')
+
+    const clonePlan = planOperationLocally(snowflakeSnapshot, {
+      connectionId: snowflakeConnection.id,
+      environmentId: 'env-local',
+      operationId: 'snowflake.table.clone',
+      objectName: 'orders',
+      parameters: {
+        cloneName: 'orders_clone',
+      },
+    })
+    expect(clonePlan.plan.generatedRequest).toContain('CREATE TABLE')
+    expect(clonePlan.plan.generatedRequest).toContain('CLONE')
+
+    const suspendPlan = planOperationLocally(snowflakeSnapshot, {
+      connectionId: snowflakeConnection.id,
+      environmentId: 'env-local',
+      operationId: 'snowflake.warehouse.suspend',
+      objectName: 'ANALYTICS_XS',
+      parameters: {},
+    })
+    expect(suspendPlan.plan.generatedRequest).toBe('ALTER WAREHOUSE "ANALYTICS_XS" SUSPEND;')
+
+    const bigQuerySnapshot = snapshotWith(bigQueryConnection)
+    const bigQueryOperations = buildOperationManifestsForConnection(bigQueryConnection)
+    expect(bigQueryOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bigquery.table.copy', label: 'Copy Table', risk: 'write' }),
+    ]))
+
+    const dryRunPlan = planOperationLocally(bigQuerySnapshot, {
+      connectionId: bigQueryConnection.id,
+      environmentId: 'env-local',
+      operationId: 'bigquery.query.profile',
+      objectName: 'orders',
+      parameters: {
+        schema: 'analytics',
+        query: 'select * from `analytics.orders` limit 100;',
+      },
+    })
+    expect(JSON.parse(dryRunPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'BigQuery.Jobs.QueryDryRun',
+      dryRun: true,
+      estimate: expect.arrayContaining(['bytesProcessed', 'slotMs']),
+    })
+
+    const copyPlan = planOperationLocally(bigQuerySnapshot, {
+      connectionId: bigQueryConnection.id,
+      environmentId: 'env-local',
+      operationId: 'bigquery.table.copy',
+      objectName: 'orders',
+      parameters: {
+        destinationTable: 'orders_copy',
+      },
+    })
+    expect(JSON.parse(copyPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'BigQuery.Tables.Copy',
+      sourceTable: 'orders',
+      destinationTable: 'orders_copy',
+    })
+
+    const clickHouseSnapshot = snapshotWith(clickHouseConnection)
+    const clickHouseOperations = buildOperationManifestsForConnection(clickHouseConnection)
+    expect(clickHouseOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'clickhouse.table.optimize', label: 'Optimize Table', risk: 'costly' }),
+      expect.objectContaining({ id: 'clickhouse.table.materialize-ttl', label: 'Materialize TTL', risk: 'costly' }),
+      expect.objectContaining({ id: 'clickhouse.table.freeze', label: 'Freeze Table', risk: 'write' }),
+    ]))
+
+    const exportPlan = planOperationLocally(clickHouseSnapshot, {
+      connectionId: clickHouseConnection.id,
+      environmentId: 'env-local',
+      operationId: 'clickhouse.data.import-export',
+      objectName: 'orders',
+      parameters: {
+        format: 'parquet',
+      },
+    })
+    expect(exportPlan.plan.generatedRequest).toContain('INTO OUTFILE')
+    expect(exportPlan.plan.generatedRequest).toContain('FORMAT PARQUET')
+
+    const optimizePlan = planOperationLocally(clickHouseSnapshot, {
+      connectionId: clickHouseConnection.id,
+      environmentId: 'env-local',
+      operationId: 'clickhouse.table.optimize',
+      objectName: 'orders',
+      parameters: {},
+    })
+    expect(optimizePlan.plan.generatedRequest).toContain('OPTIMIZE TABLE')
+    expect(optimizePlan.plan.confirmationText).toBeTruthy()
+
+    const ttlPlan = planOperationLocally(clickHouseSnapshot, {
+      connectionId: clickHouseConnection.id,
+      environmentId: 'env-local',
+      operationId: 'clickhouse.table.materialize-ttl',
+      objectName: 'orders',
+      parameters: {},
+    })
+    expect(ttlPlan.plan.generatedRequest).toContain('MATERIALIZE TTL')
+    expect(ttlPlan.plan.confirmationText).toBeTruthy()
+
+    const freezePlan = planOperationLocally(clickHouseSnapshot, {
+      connectionId: clickHouseConnection.id,
+      environmentId: 'env-local',
+      operationId: 'clickhouse.table.freeze',
+      objectName: 'orders',
+      parameters: {
+        snapshotName: "orders'backup",
+      },
+    })
+    expect(freezePlan.plan.generatedRequest).toContain('FREEZE WITH NAME')
+    expect(freezePlan.plan.generatedRequest).toContain("orders\\'backup")
+  })
+
+  it('generates Cosmos DB, LiteDB, and Memcached native operation previews', () => {
+    const cosmosSnapshot = snapshotWith(cosmosConnection)
+    const cosmosIndex = planOperationLocally(cosmosSnapshot, {
+      connectionId: cosmosConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cosmosdb.index.create',
+      objectName: 'catalog/products',
+      parameters: {
+        database: 'catalog',
+        container: 'products',
+        path: '/*',
+      },
+    })
+    expect(JSON.parse(cosmosIndex.plan.generatedRequest)).toMatchObject({
+      method: 'PATCH',
+      path: '/dbs/catalog/colls/products',
+      body: {
+        indexingPolicy: {
+          includedPaths: [{ path: '/*' }],
+        },
+      },
+    })
+
+    const cosmosThroughput = planOperationLocally(cosmosSnapshot, {
+      connectionId: cosmosConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cosmosdb.throughput.update',
+      objectName: 'catalog/products',
+      parameters: {
+        database: 'catalog',
+        container: 'products',
+        mode: 'autoscale',
+        maxRuPerSecond: 4000,
+      },
+    })
+    expect(JSON.parse(cosmosThroughput.plan.generatedRequest)).toMatchObject({
+      operation: 'CosmosDB.ReplaceOffer',
+      scope: '/dbs/catalog/colls/products',
+      throughputParameters: {
+        autoscaleSettings: {
+          maxThroughput: 4000,
+        },
+      },
+    })
+
+    const cosmosConsistency = planOperationLocally(cosmosSnapshot, {
+      connectionId: cosmosConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cosmosdb.consistency.update',
+      objectName: 'catalog-account',
+      parameters: {
+        account: 'catalog-account',
+        consistencyLevel: 'Session',
+      },
+    })
+    expect(JSON.parse(cosmosConsistency.plan.generatedRequest)).toMatchObject({
+      operation: 'CosmosDB.UpdateAccountConsistency',
+      account: 'catalog-account',
+      consistencyPolicy: {
+        defaultConsistencyLevel: 'Session',
+      },
+    })
+
+    const liteDbSnapshot = snapshotWith(liteDbConnection)
+    const liteDbIndex = planOperationLocally(liteDbSnapshot, {
+      connectionId: liteDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'litedb.index.create',
+      objectName: 'products',
+      parameters: {
+        databaseFile: 'catalog.db',
+        collection: 'products',
+        indexName: 'idx_products_sku',
+        field: 'sku',
+      },
+    })
+    expect(liteDbIndex.plan.generatedRequest).toContain('EnsureIndex')
+    expect(liteDbIndex.plan.generatedRequest).toContain('idx_products_sku')
+
+    const liteDbCompact = planOperationLocally(liteDbSnapshot, {
+      connectionId: liteDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'litedb.storage.compact',
+      objectName: 'catalog.db',
+      parameters: {
+        databaseFile: 'catalog.db',
+      },
+    })
+    expect(JSON.parse(liteDbCompact.plan.generatedRequest)).toMatchObject({
+      operation: 'LiteDB.Compact',
+      databaseFile: 'catalog.db',
+    })
+
+    const memcachedSnapshot = snapshotWith(memcachedConnection)
+    const memcachedDump = planOperationLocally(memcachedSnapshot, {
+      connectionId: memcachedConnection.id,
+      environmentId: 'env-local',
+      operationId: 'memcached.data.import-export',
+      objectName: 'class:2',
+      parameters: {
+        classId: '2',
+      },
+    })
+    expect(memcachedDump.plan.generatedRequest).toContain('lru_crawler metadump 2')
+
+    const memcachedFlush = planOperationLocally(memcachedSnapshot, {
+      connectionId: memcachedConnection.id,
+      environmentId: 'env-local',
+      operationId: 'memcached.cache.flush',
+      objectName: 'server',
+      parameters: {
+        delaySeconds: 5,
+      },
+    })
+    expect(memcachedFlush.plan.generatedRequest).toContain('flush_all 5')
+    expect(memcachedFlush.plan.destructive).toBe(true)
+  })
 })
+
+function snapshotWith(connection: ConnectionProfile) {
+  return {
+    connections: [connection],
+    environments: [{ id: 'env-local', name: 'Local', label: 'Local', risk: 'low', variables: {}, sensitiveKeys: [] }],
+    activeEnvironmentId: 'env-local',
+    preferences: {
+      theme: 'dark',
+      telemetry: 'opt-in',
+      lockAfterMinutes: 15,
+      safeModeEnabled: false,
+    },
+  } as unknown as WorkspaceSnapshot
+}
 
 const mongoConnection: ConnectionProfile = {
   id: 'conn-mongo',
@@ -555,6 +1481,417 @@ const redisConnection: ConnectionProfile = {
   favorite: false,
   readOnly: false,
   icon: 'redis',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const sqlServerConnection: ConnectionProfile = {
+  id: 'conn-sqlserver',
+  name: 'SQL Server',
+  engine: 'sqlserver',
+  family: 'sql',
+  host: 'localhost',
+  port: 1433,
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'sqlserver',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const postgresConnection: ConnectionProfile = {
+  id: 'conn-postgres',
+  name: 'PostgreSQL',
+  engine: 'postgresql',
+  family: 'sql',
+  host: 'localhost',
+  port: 5432,
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'postgresql',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const timescaleConnection: ConnectionProfile = {
+  id: 'conn-timescale',
+  name: 'TimescaleDB',
+  engine: 'timescaledb',
+  family: 'timeseries',
+  host: 'localhost',
+  port: 5432,
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'timescaledb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const duckDbConnection: ConnectionProfile = {
+  id: 'conn-duckdb',
+  name: 'DuckDB',
+  engine: 'duckdb',
+  family: 'embedded-olap',
+  host: 'tests/fixtures/duckdb/datapad.duckdb',
+  port: undefined,
+  database: 'tests/fixtures/duckdb/datapad.duckdb',
+  connectionString: undefined,
+  connectionMode: 'local-file',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'duckdb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const searchConnection: ConnectionProfile = {
+  id: 'conn-search',
+  name: 'Elasticsearch',
+  engine: 'elasticsearch',
+  family: 'search',
+  host: 'localhost',
+  port: 9200,
+  database: 'elasticsearch-local',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'elasticsearch',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const dynamoConnection: ConnectionProfile = {
+  id: 'conn-dynamodb',
+  name: 'DynamoDB',
+  engine: 'dynamodb',
+  family: 'widecolumn',
+  host: 'localhost',
+  port: 8000,
+  database: 'local',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'dynamodb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: { username: 'local' },
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const cassandraConnection: ConnectionProfile = {
+  id: 'conn-cassandra',
+  name: 'Cassandra',
+  engine: 'cassandra',
+  family: 'widecolumn',
+  host: 'localhost',
+  port: 9042,
+  database: 'app',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'cassandra',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: { username: 'cassandra' },
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const prometheusConnection: ConnectionProfile = {
+  id: 'conn-prometheus',
+  name: 'Prometheus',
+  engine: 'prometheus',
+  family: 'timeseries',
+  host: 'localhost',
+  port: 9090,
+  database: undefined,
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'prometheus',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const influxConnection: ConnectionProfile = {
+  id: 'conn-influxdb',
+  name: 'InfluxDB',
+  engine: 'influxdb',
+  family: 'timeseries',
+  host: 'localhost',
+  port: 8086,
+  database: 'telemetry',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'influxdb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const openTsdbConnection: ConnectionProfile = {
+  id: 'conn-opentsdb',
+  name: 'OpenTSDB',
+  engine: 'opentsdb',
+  family: 'timeseries',
+  host: 'localhost',
+  port: 4242,
+  database: undefined,
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'opentsdb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const neo4jConnection: ConnectionProfile = {
+  id: 'conn-neo4j',
+  name: 'Neo4j',
+  engine: 'neo4j',
+  family: 'graph',
+  host: 'localhost',
+  port: 7687,
+  database: 'neo4j',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'neo4j',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const neptuneConnection: ConnectionProfile = {
+  id: 'conn-neptune',
+  name: 'Neptune',
+  engine: 'neptune',
+  family: 'graph',
+  host: 'neptune.local',
+  port: 8182,
+  database: 'analytics',
+  connectionString: undefined,
+  connectionMode: 'cloud-iam',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'neptune',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const snowflakeConnection: ConnectionProfile = {
+  id: 'conn-snowflake',
+  name: 'Snowflake',
+  engine: 'snowflake',
+  family: 'warehouse',
+  host: 'account.snowflakecomputing.com',
+  port: undefined,
+  database: 'ANALYTICS',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'snowflake',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const bigQueryConnection: ConnectionProfile = {
+  id: 'conn-bigquery',
+  name: 'BigQuery',
+  engine: 'bigquery',
+  family: 'warehouse',
+  host: 'bigquery.googleapis.com',
+  port: undefined,
+  database: 'analytics',
+  connectionString: undefined,
+  connectionMode: 'cloud-iam',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'bigquery',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const clickHouseConnection: ConnectionProfile = {
+  id: 'conn-clickhouse',
+  name: 'ClickHouse',
+  engine: 'clickhouse',
+  family: 'warehouse',
+  host: 'localhost',
+  port: 8123,
+  database: 'default',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'clickhouse',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const cosmosConnection: ConnectionProfile = {
+  id: 'conn-cosmos',
+  name: 'Cosmos DB',
+  engine: 'cosmosdb',
+  family: 'document',
+  host: 'account.documents.azure.com',
+  port: undefined,
+  database: 'catalog',
+  connectionString: undefined,
+  connectionMode: 'cloud-iam',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'cosmosdb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const liteDbConnection: ConnectionProfile = {
+  id: 'conn-litedb',
+  name: 'LiteDB',
+  engine: 'litedb',
+  family: 'document',
+  host: 'catalog.db',
+  port: undefined,
+  database: 'catalog.db',
+  connectionString: undefined,
+  connectionMode: 'local-file',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'litedb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const memcachedConnection: ConnectionProfile = {
+  id: 'conn-memcached',
+  name: 'Memcached',
+  engine: 'memcached',
+  family: 'keyvalue',
+  host: 'localhost',
+  port: 11211,
+  database: undefined,
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'memcached',
   color: undefined,
   group: undefined,
   notes: undefined,

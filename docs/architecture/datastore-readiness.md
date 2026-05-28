@@ -1,0 +1,100 @@
+# Datastore Readiness And Completion Plan
+
+Last reviewed: 2026-05-28
+
+This document is the current product inventory for DataPad++ datastore support. It is meant to answer one question clearly: what still has to be finished before each datastore feels like a native, production-ready IDE inside DataPad++?
+
+The evaluation is based on the current shared adapter backlog, completeness matrix, tree manifests, object-view descriptors, browser-preview explorers, and Rust adapter registry:
+
+- `packages/shared-types/src/datastore-roadmap.ts`
+- `packages/shared-types/src/datastore-completeness.ts`
+- `packages/shared-types/src/datastore-tree-manifests.ts`
+- `apps/desktop/src/app/components/workbench/*ObjectViewDescriptors.ts`
+- `apps/desktop/src/app/components/workbench/*ObjectViewWorkspace.tsx`
+- `apps/desktop/src-tauri/src/adapters/registry.rs`
+
+## Feature Complete Definition
+
+A datastore is feature complete when it has all of these:
+
+- native connection options, connection strings where appropriate, variables, secret safety, and friendly connection errors
+- a live metadata tree that feels like the datastore's own tool, hides unavailable sections, and supports scoped refresh
+- native query surfaces such as SQL editor, document builder, key browser, console, script mode, or graph/time-series builder
+- metadata-aware IntelliSense from cached explorer/structure data, not per-keystroke metadata calls
+- purpose-built object views for the engine's important concepts, without default raw payload dumps
+- safe live edits for natural row/document/key/item changes only when the target identity is complete
+- guarded admin/destructive operation previews with environment checks, read-only checks, and clear disabled reasons
+- diagnostics and performance views such as explain/profile, sessions, locks, metrics, slow queries, cost, or capacity
+- import/export or backup/restore workflows that match the datastore
+- deterministic unit/browser-preview tests plus optional fixture/live tests when external dependencies are available
+
+## Current Product Shape
+
+DataPad++ now has a broad adapter foundation across 29 engines. Most engines have declared manifests, tree manifests, object-view descriptors, browser-preview payloads, operation manifests, diagnostics contracts, and test coverage. Secondary datastore object views now use adapter-owned workflow descriptors that hide unavailable actions and jump to the relevant section instead of showing passive or generic chips. SQL-family object views expose guarded explain/profile/index/grants/export/backup previews through the shared operation-planning path, with dialect-aware browser and Rust previews. Search-family object views now include index field-capability, shard-health, and lifecycle panels, a profile result renderer, and guarded HTTP-shaped previews for explain/profile, mapping/settings updates, alias work, data-stream rollover, template and pipeline workflows, security, bulk export, and snapshots. DynamoDB object views now include native key-design, capacity, TTL, stream, backup, hot-partition, and index-coverage panels plus guarded AWS-shaped previews for capacity, TTL, streams, backups, metrics, GSI changes, IAM-style access, import/export, and table deletion. Cassandra object views now include partition-model, storage/compaction, tombstone, diagnostics, and cluster-health panels plus guarded previews for tracing, index work, permission checks, diagnostics, imports/exports, and destructive table/object plans. Prometheus, InfluxDB, and OpenTSDB now expose time-series posture panels plus native operation previews for query profiling, metrics/stats, cardinality analysis, retention updates, UID repair, access checks, line-protocol/API export, and guarded destructive metadata plans where the engine supports them. TimescaleDB now exposes PostgreSQL-wire plus native hypertable, chunk, compression, retention, continuous aggregate, and job branches, compact time-series posture panels, and guarded compression/retention/refresh operation previews in browser and Rust paths. Graph object views now expose guarded native previews for graph profile/metrics/index/security/export flows. Warehouse object views now expose cost, compute, storage, and access posture panels plus Snowflake query-history/credit/warehouse-load/stream/share views, BigQuery job-timeline/reservation/slot/storage/IAM views, guarded Snowflake clone/suspend/resume, BigQuery copy, ClickHouse query-log/MergeTree/cluster posture, optimize, TTL materialization, freeze snapshot, explain/cost/metrics/access/import-export/drop previews. Cosmos DB object views now include partition, RU, indexing, and global distribution panels plus guarded previews for throughput, consistency, failover, query metrics, indexing, access, export, and drops. LiteDB object views now expose local-file posture plus guarded health, checkpoint, compact, backup, export, and drop previews. Memcached object views now expose cache/slab/item posture plus guarded stats, dump, reset, flush, and metadata workflows. The remaining work is not mainly "can the app list this engine"; it is making each engine deep enough to feel native and safe under real use.
+
+The current strongest areas are MongoDB, Redis/Valkey, SQL Server, PostgreSQL, SQLite, and the shared result workbench. The weakest areas are live depth and native management flows for cloud, graph, warehouse, and some secondary engines.
+
+## Readiness Matrix
+
+| Datastore | Current readiness | What already exists | Remaining to be feature complete |
+| --- | --- | --- | --- |
+| MongoDB | Near-native | Native/URI connections, database discovery, Mongo tree, find builder, raw commands, scripting, aggregation surface, document renderer, field inspector, efficiency mode, explain UI, metrics, object views, guarded document edits and insert/upload views. | Finish live-safe document CRUD coverage, polished index/user/role/validator management, collection import/export, profiler/current-op, replica/shard diagnostics, richer aggregation-stage IntelliSense. |
+| Redis | Near-native | Native key browser, Redis console, scan filters, type summaries, key detail result view, metrics dashboard, Redis tree, diagnostics/object views, guarded key edits, TTL/rename/delete/import/export plans. | Finish type editors for all core and module types, command docs/RESP toggles, Pub/Sub/streams/ACL/Lua/functions/cluster/sentinel views, Redis Stack capability hiding, live single-key/member edit hardening. |
+| Valkey | Usable | Shares Redis browser, console, key/result model, diagnostics, and tree foundation. | Hide Redis Stack-only surfaces unless detected, add Valkey-specific capability text, verify Valkey fixture/live behavior, finish key edit parity. |
+| PostgreSQL | Usable | Live SQL path, schema/table tree, raw SQL default, SELECT builder for scoped objects, object descriptors, metrics/diagnostics contracts, IntelliSense, dialect-aware explain/profile/index/grants/export/backup previews. | Deepen live roles/grants, sessions/locks, pg_stat panels, rendered explain/analyze details, vacuum/analyze/extension views, live primary-key row edits, import/export and backup execution flows. |
+| CockroachDB | Usable | PostgreSQL-wire foundation, Cockroach tree, object descriptors for jobs/ranges/regions/contention, SQL query flow, operation/diagnostics contracts, distributed explain/profile/import/export/backup preview hooks. | Finish live jobs/ranges/regions/localities/contention payloads, distributed explain/profile UI, backup/import/restore execution flows, role/default privilege workflows. |
+| SQL Server / Azure SQL | Usable | TDS query path, SSMS-inspired tree, raw T-SQL default, object descriptors for databases/tables/procedures/functions/Query Store/Agent/security/storage, result grid, Showplan/statistics/index/grants/export/backup previews. | Complete Query Store, Agent, Extended Events, security, storage, plan rendering, Azure auth disabled reasons, live primary-key row edits, import/export/compare execution flows. |
+| MySQL | Usable foundation | Native connection/query foundation, Workbench-style tree manifest, SQL editor, shared relational result/edit contracts, MySQL descriptors, guarded EXPLAIN/index/grants/export previews. | Finish Workbench-quality object views, user@host grants, performance_schema panels, EXPLAIN/ANALYZE rendering, slow-query/status dashboards, live row edits. |
+| MariaDB | Usable foundation | MySQL-compatible adapter base, tree/object descriptor foundation, SQL editor, shared relational contracts. | Add MariaDB role model, engine/status panels, MariaDB-specific explain/analyze handling, grants and routine management. |
+| SQLite | Usable | Local file open/create, SQLite tree, raw SQL default, object descriptors, table results, local database fixture support, PRAGMA/maintenance plan surfaces, EXPLAIN/index/export/backup previews. | Finish native PRAGMA views, triggers/indexes, integrity check, vacuum/analyze/backup UX, better table query shortcuts, live primary-key row edits. |
+| Oracle | Foundation/beta | Oracle connection option model, SQL/PLSQL/explain descriptors, SQL Developer-style tree, object views for schema/table/package/security/storage/performance, preview metadata without required Oracle CI dependency. | Add live driver/runtime path, DBMS_XPLAN renderer, sessions/storage/security depth, dictionary permission fallbacks, compile/grant/DDL previews, optional live tests. |
+| TimescaleDB | Foundation+ | PostgreSQL-wire base, native hypertable/chunk/compression/retention/continuous-aggregate/job tree, SQL/query/result foundation, compact time-series posture panels, and guarded compression-policy, retention-policy, aggregate-refresh, explain/profile/index/grants/export previews. | Add live Timescale metadata execution, richer rendered time-bucket dashboards, compression/chunk sizing charts, continuous aggregate freshness history, and guarded live policy execution. |
+| Elasticsearch | Foundation+ | HTTP adapter foundation, search tree, Query DSL builder, search hits renderer, object descriptors for cluster/index/mapping/security/diagnostics, native field-capability/shard/lifecycle panels, profile renderer, and guarded HTTP-shaped profile/explain/mapping/settings/alias/data-stream/template/pipeline/security/bulk/snapshot previews. | Add live admin execution flows, aggregation builder, richer rendered explain/profile UI, shard/segment/ILM/security dashboards, safe single-doc edits, bulk import/export execution. |
+| OpenSearch | Foundation+ | Elasticsearch-like foundation with separate adapter identity, search descriptors, native search panels, profile renderer, and OpenSearch-aware ISM/security preview routing. | Add OpenSearch-specific performance analyzer support, SigV4/IAM, plugin capability detection, rendered profile/admin workflows, and live guarded execution where safe. |
+| DynamoDB | Foundation+ | Key-condition builder, table tree, item/edit contracts, capacity/cost result shapes, object descriptors, native key-design/capacity/TTL/streams/backup/index panels, guarded object-view previews for CloudWatch metrics, capacity updates, TTL, streams, GSI create/delete, IAM-style access inspection, table backup, table export/import, and table deletion. | Add AWS/local connection depth, guarded item edits, consumed-capacity feedback in live queries, backup/restore execution, import/export execution, and deeper CloudWatch/account diagnostics. |
+| Cassandra | Foundation+ | CQL builder scaffolding, keyspace/table tree, object descriptors, partition-model/storage/cluster-health panels, primary-key guard concepts, browser-preview payloads, guarded object-view previews for tracing, SAI/index create/drop, permission inspection, diagnostics metrics, and object drops. | Add native binary protocol depth, live metadata, rendered tracing timelines, repair dashboards, SAI/index guidance, partition-key-safe live edits, and optional nodetool/JMX-backed diagnostics. |
+| Cosmos DB | Foundation+ | Account/container tree, document result contracts, partition/RU/indexing/global distribution panels, and guarded throughput/consistency/failover/profile/index/access/export/drop previews. | Add signed Azure auth, SQL API builder, live throughput/change-feed diagnostics, guarded item/import/delete execution workflows, and Azure portal parity for backups/private networking. |
+| LiteDB | Foundation+ | Local database model, create/open direction, collection/index/file-storage tree, object-view posture panels, and guarded local health/checkpoint/compact/index/export/backup/drop previews. | Complete live sidecar bridge, collection/index/file-storage management execution, encrypted local file handling, import/export execution, document editing. |
+| Memcached | Foundation+ | Stats/slabs/items/settings tree, diagnostics descriptors, cache/slab/item posture panels, and guarded stats/settings/reset/flush/metadata dump previews. | Add known-key workflows, live set/delete/incr/decr plans, binary protocol coverage where useful, and richer value editing. |
+| DuckDB | Foundation+ | Local OLAP tree, local file model, SQL/result foundation, object descriptors for schemas/tables/extensions/files/pragmas, local-file/file-analytics/extension/maintenance posture panels, guarded analyze/checkpoint/extension load-install/import-export previews. | Add live CSV/Parquet import execution, extension manager execution, deeper PRAGMA views, rendered explain/profile UI, backup/export execution, and richer local analytics templates. |
+| ClickHouse | Foundation+ | Warehouse tree, SQL/HTTP-oriented contract, object descriptors, query/log/metrics surfaces, cost/compute/storage/access posture panels, ClickHouse query-log/MergeTree/cluster/maintenance posture panels, and guarded EXPLAIN/profile/metrics/access/export/optimize/TTL/freeze/drop previews. | Add robust HTTP/native behavior, rendered system.query_log dashboards, EXPLAIN pipeline UI, live cluster metrics, live import/export, and guarded execution for maintenance workflows. |
+| Snowflake | Beta+ | Cloud warehouse contract, connection model, warehouse/stage/job/security tree, object descriptors, query-history, credit, warehouse-load, stream/share posture panels, and guarded explain/cost/metrics/access/export/clone/suspend/resume/drop previews. | Add live auth modes, role/warehouse selectors, rendered query profile graph, live utilization/history queries, import/export execution, and task/stream/share management execution. |
+| BigQuery | Beta+ | Cloud warehouse contract, project/dataset/table/job tree, dry-run/cost model, object descriptors, job-timeline, reservation, slot-usage, table-storage, IAM posture panels, and guarded dry-run/IAM/metrics/export/copy previews. | Add ADC/service account auth execution, INFORMATION_SCHEMA live metrics, IAM execution, scheduled query management, dry-run-first workflow, export/import jobs. |
+| Prometheus | Foundation+ | PromQL language, metric/label/target/rule tree, chart/series result contracts, object descriptors, posture panels, native profile, metrics/stats, and cardinality operation previews. | Add native PromQL builder, deeper targets/rules/alerts/TSDB views, range chart polish, optional live profile/cardinality execution. |
+| InfluxDB | Foundation+ | Bucket/measurement/tag/field tree, time-series result contracts, object workspace foundation, posture panels, native profile/metrics/access/export/delete and retention update previews. | Add version-aware Flux/InfluxQL/SQL modes, token/task/retention management views, cardinality diagnostics, line protocol import execution, guarded live bucket/task workflows. |
+| OpenTSDB | Foundation+ | Metric/tag/aggregator/downsample tree, series result contract, object descriptors, posture panels, native stats/export/delete and UID repair metadata operation previews. | Add metric/tag query builder depth, UID/tree management execution, stats dashboards, HBase/backend health guidance, live API export/import flows. |
+| Neo4j | Beta+ | Graph family contracts, tree/object descriptor foundation, graph renderer shape, and guarded profile/JMX/index/security/constraint previews. | Add live Bolt/Cypher depth, graph visualization, rendered EXPLAIN/PROFILE, full schema/index/constraints/security management, safe graph operations. |
+| ArangoDB | Beta+ | Graph/document tree foundation, AQL contract direction, graph workspace descriptors, and guarded AQL explain/metrics/security/index/export previews. | Add live HTTP/AQL execution, collections/graphs/indexes, graph views, rendered explain/profile, Foxx/security execution later. |
+| JanusGraph | Beta+ | Gremlin/graph contract foundation, descriptor routing, and guarded traversal profile/schema/index/backend-health previews. | Add live Gremlin depth, schema/index/property views, backend health, reindex operation execution previews. |
+| Neptune | Beta+ | Graph cloud contract foundation, loader-job concepts, and guarded Gremlin profile/CloudWatch/IAM/export previews. | Add Gremlin/openCypher/SPARQL mode switching, live IAM, loader jobs, rendered explain/profile, CloudWatch metrics dashboards. |
+
+## Cross-Cutting Work Still Required
+
+These items affect many engines and should be finished before declaring the platform production-ready:
+
+1. Live depth: replace remaining browser-preview or plan-only paths with real adapter calls where drivers are realistic.
+2. Capability hiding: optional tree nodes must stay hidden until live metadata or capability checks prove they exist.
+3. Object views: every visible tree item should open a purpose-built workspace, not a raw payload dump. Workflow actions should be adapter-owned, hidden when unavailable, and linked to a real query or view section.
+4. Safe edits: enable live edits only for complete identities and keep read-only/environment guards centralized.
+5. Diagnostics: each engine needs native explain/profile/metrics/history views, not just generic counters.
+6. Import/export: move from result-level export to engine-native import/export and backup/restore workflows.
+7. Connection forms: finish datastore-specific connection modes without bloating the generic drawer.
+8. IntelliSense: deepen metadata-aware suggestions for routines, aliases, indexes, document paths, commands, and cloud objects.
+9. Tests: add deterministic UI/browser-preview tests for every visible tree/object-view action and optional fixture/live tests for promoted engines.
+
+## Recommended Completion Order
+
+1. Finish reference datastores: MongoDB, Redis, Valkey.
+2. Productionize core SQL: SQL Server/Azure SQL, PostgreSQL, SQLite, CockroachDB, MySQL, MariaDB.
+3. Deepen search and wide-column: Elasticsearch, OpenSearch, DynamoDB, Cassandra.
+4. Promote local/cloud/analytics engines: Oracle, TimescaleDB, DuckDB, ClickHouse, Cosmos DB, LiteDB, Memcached.
+5. Round out specialized families: Prometheus, InfluxDB, OpenTSDB, Neo4j, ArangoDB, JanusGraph, Neptune, Snowflake, BigQuery.
+
+## Documentation Rule
+
+When datastore features change, update these together:
+
+- user-facing summary in `README.md`
+- product feature details in `docs/features.md`
+- implementation/reference status in this file
+- adapter backlog or completeness source in `packages/shared-types/src/datastore-roadmap.ts` or `packages/shared-types/src/datastore-completeness.ts` when the actual capability changes

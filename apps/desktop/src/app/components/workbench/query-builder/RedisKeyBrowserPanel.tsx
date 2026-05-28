@@ -221,25 +221,17 @@ export function RedisKeyBrowserPanel({
     }
 
     setStatus(`Deleting ${key}...`)
-    const response = await executeDataEditWithConfirmation(
-      onExecuteDataEdit,
-      {
-        connectionId: tab.connectionId,
-        environmentId: tab.environmentId,
-        editKind: 'delete-key',
-        target: {
-          objectKind: 'key',
-          path: [],
-          key,
-        },
-        changes: [],
+    const response = await onExecuteDataEdit({
+      connectionId: tab.connectionId,
+      environmentId: tab.environmentId,
+      editKind: 'delete-key',
+      target: {
+        objectKind: 'key',
+        path: [],
+        key,
       },
-      {
-        actionLabel: `Delete Redis key ${key}.`,
-        confirm: confirmDataEdit,
-        confirmationTitle: 'Delete this Redis key?',
-      },
-    )
+      changes: [],
+    })
 
     if (response?.executed) {
       setKeys((current) => current.filter((item) => item.key !== key))
@@ -405,6 +397,7 @@ export function RedisKeyBrowserPanel({
           <ColumnIcon className="toolbar-icon" />
         </button>
       </div>
+      {status ? <div className="redis-browser-message">{status}</div> : null}
 
       {showAddKey ? (
         <div className="redis-browser-add-key">
@@ -446,7 +439,6 @@ export function RedisKeyBrowserPanel({
         onTogglePrefix={togglePrefix}
       />
       {confirmationDialog}
-      {status ? <div className="redis-browser-message">{status}</div> : null}
     </section>
   )
 }

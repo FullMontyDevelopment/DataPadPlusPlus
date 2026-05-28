@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { AdapterManifest, ConnectionProfile, EnvironmentProfile } from '@datapadplusplus/shared-types'
 import { datastoreTreeForEngine } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
@@ -62,6 +62,7 @@ describe('ConnectionObjectTree', () => {
     expect(screen.getByText('Stored Procedures')).toBeInTheDocument()
     expect(screen.getByText('Functions')).toBeInTheDocument()
     expect(screen.getByText('Query Store')).toBeInTheDocument()
+    expect(screen.getByText('Performance')).toBeInTheDocument()
     expect(screen.getAllByText('Extended Events').length).toBeGreaterThan(0)
     expect(screen.getByText('CDC')).toBeInTheDocument()
     expect(screen.getByText('Change Tracking')).toBeInTheDocument()
@@ -99,7 +100,7 @@ describe('ConnectionObjectTree', () => {
             kind: 'tables',
             detail: 'Base, system, external, and graph tables',
             family: 'sql',
-            path: ['Fixture SQL Server', 'Databases', 'datapadplusplus'],
+            path: ['Fixture SQL Server', 'Databases', 'datapadplusplus', 'Tables'],
             scope: 'sqlserver:datapadplusplus:tables',
             expandable: true,
           },
@@ -216,6 +217,55 @@ describe('ConnectionObjectTree', () => {
       }),
     )
     expect(onOpenObjectView).not.toHaveBeenCalled()
+  })
+
+  it('adds SQLite-native database maintenance actions without extra tree clutter', () => {
+    const onOpenScopedQuery = vi.fn()
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(sqliteConnection())}
+        connection={sqliteConnection()}
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={onOpenScopedQuery}
+      />,
+    )
+
+    fireEvent.contextMenu(treeItemForLabel('Main Database'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Main Database' })
+    expect(within(menu).getByRole('menuitem', { name: 'Run Integrity Check' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Optimize Database' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Analyze Database' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Vacuum Database...' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Create Backup...' })).toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Run Integrity Check' }))
+    expect(onOpenScopedQuery).toHaveBeenCalledWith(
+      'conn-sqlite',
+      expect.objectContaining({
+        kind: 'database',
+        label: 'Main Database',
+        queryTemplate: 'pragma quick_check;',
+      }),
+    )
+
+    expandTreeItem('Main Database')
+    fireEvent.contextMenu(treeItemForLabel('Maintenance'), { clientX: 24, clientY: 32 })
+
+    const maintenanceMenu = screen.getByRole('menu', { name: 'Object options for Maintenance' })
+    expect(within(maintenanceMenu).getByRole('menuitem', { name: 'Open Maintenance' })).toBeInTheDocument()
+
+    fireEvent.click(within(maintenanceMenu).getByRole('menuitem', { name: 'Open Maintenance' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-sqlite',
+      expect.objectContaining({
+        id: 'maintenance:main',
+        kind: 'maintenance',
+        label: 'Maintenance',
+      }),
+    )
   })
 
   it('uses LiteDB-owned local file folders without document-store admin clutter', () => {
@@ -1099,6 +1149,8 @@ describe('ConnectionObjectTree', () => {
     const menu = screen.getByRole('menu', { name: 'Object options for accounts' })
     expect(within(menu).getByRole('menuitem', { name: 'View Columns' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Create Index...' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Analyze Table' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Vacuum Table...' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Drop Table...' })).toBeInTheDocument()
 
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Refresh table' }))
@@ -1157,6 +1209,35 @@ describe('ConnectionObjectTree', () => {
     )
   })
 
+  it('uses PostgreSQL diagnostics-specific menu labels', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(postgresConnection())}
+        connection={postgresConnection()}
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Diagnostics')
+    fireEvent.contextMenu(treeItemForLabel('Wait Events'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Wait Events' })
+    expect(within(menu).getByRole('menuitem', { name: 'Review Wait Events' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Review Wait Events' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-postgres',
+      expect.objectContaining({
+        id: 'postgres:diagnostics:waits',
+        kind: 'waits',
+      }),
+    )
+  })
+
   it('uses SQL Server-specific object view labels instead of generic Open View', () => {
     const onOpenObjectView = vi.fn()
 
@@ -1209,6 +1290,111 @@ describe('ConnectionObjectTree', () => {
     )
   })
 
+  it('uses SQL Server performance object views instead of generic inspection', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={sqlServerConnection()}
+        explorerNodes={[
+          {
+            id: 'database:datapadplusplus',
+            label: 'datapadplusplus',
+            kind: 'database',
+            detail: 'ONLINE',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases'],
+            scope: 'database:datapadplusplus',
+            expandable: true,
+          },
+          {
+            id: 'sqlserver:datapadplusplus:performance',
+            label: 'Performance',
+            kind: 'performance',
+            detail: 'Sessions, locks, waits, and tuning hints',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases', 'datapadplusplus'],
+            scope: 'sqlserver:datapadplusplus:performance',
+            expandable: true,
+          },
+        ]}
+        explorerStatus="ready"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('datapadplusplus')
+    fireEvent.contextMenu(treeItemForLabel('Performance'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Performance' })
+    expect(within(menu).getByRole('menuitem', { name: 'Open Performance' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open Performance' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-sqlserver',
+      expect.objectContaining({
+        id: 'sqlserver:datapadplusplus:performance',
+        kind: 'performance',
+      }),
+    )
+  })
+
+  it('uses SQL Server-native table maintenance actions', () => {
+    const onOpenScopedQuery = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        connection={sqlServerConnection()}
+        explorerNodes={[
+          {
+            id: 'database:datapadplusplus',
+            label: 'datapadplusplus',
+            kind: 'database',
+            detail: 'ONLINE',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases'],
+            scope: 'database:datapadplusplus',
+            expandable: true,
+          },
+          {
+            id: 'table:datapadplusplus:dbo:accounts',
+            label: 'dbo.accounts',
+            kind: 'table',
+            detail: 'base table',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases', 'datapadplusplus', 'Tables'],
+            scope: 'table:dbo.accounts',
+            queryTemplate: 'select top 100 * from [dbo].[accounts];',
+          },
+        ]}
+        explorerStatus="ready"
+        onOpenScopedQuery={onOpenScopedQuery}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('datapadplusplus')
+    expandTreeItem('Tables')
+    fireEvent.contextMenu(treeItemForLabel('dbo.accounts'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for dbo.accounts' })
+    expect(within(menu).getByRole('menuitem', { name: 'Update Statistics' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Rebuild Indexes...' })).toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Update Statistics' }))
+    expect(onOpenScopedQuery).toHaveBeenCalledWith(
+      'conn-sqlserver',
+      expect.objectContaining({
+        kind: 'table',
+        label: 'dbo.accounts',
+        queryTemplate: 'update statistics dbo.accounts;',
+      }),
+    )
+  })
+
   it('uses MySQL-specific object view labels instead of generic Open View', () => {
     const onOpenObjectView = vi.fn()
 
@@ -1257,6 +1443,37 @@ describe('ConnectionObjectTree', () => {
       expect.objectContaining({
         id: 'mysql:datapadplusplus:indexes',
         kind: 'indexes',
+      }),
+    )
+  })
+
+  it('routes MySQL manifest diagnostics to adapter-native object views', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(mysqlConnection())}
+        connection={mysqlConnection()}
+        explorerStatus="loading"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Diagnostics')
+    fireEvent.contextMenu(treeItemForLabel('Slow Queries'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Slow Queries' })
+    expect(within(menu).getByRole('menuitem', { name: 'Review Slow Queries' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Review Slow Queries' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-mysql',
+      expect.objectContaining({
+        id: 'mysql:diagnostics:slow-queries',
+        scope: 'mysql:diagnostics:slow-queries',
+        kind: 'slow-queries',
       }),
     )
   })
@@ -1324,6 +1541,41 @@ describe('ConnectionObjectTree', () => {
     )
   })
 
+  it('uses search manifest nodes without top-level mapping clutter', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(searchConnection())}
+        connection={searchConnection()}
+        explorerStatus="loading"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Cluster')).toBeInTheDocument()
+    expect(screen.getByText('Indices')).toBeInTheDocument()
+    expect(screen.queryByText('Mappings')).not.toBeInTheDocument()
+
+    expandTreeItem('Diagnostics')
+    fireEvent.contextMenu(treeItemForLabel('Shards'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Shards' })
+    expect(within(menu).getByRole('menuitem', { name: 'Review Shards' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Review Shards' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-search',
+      expect.objectContaining({
+        id: 'search:diagnostics:shards',
+        scope: 'search:diagnostics:shards',
+        kind: 'shards',
+      }),
+    )
+  })
+
   it('uses DynamoDB-specific object view labels and key-condition builder targets', () => {
     const onOpenObjectView = vi.fn()
     const onOpenScopedQuery = vi.fn()
@@ -1387,6 +1639,41 @@ describe('ConnectionObjectTree', () => {
     )
   })
 
+  it('routes DynamoDB manifest nodes to native access and diagnostics views without table-level placeholders', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(dynamoConnection())}
+        connection={dynamoConnection()}
+        explorerStatus="loading"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Tables')).toBeInTheDocument()
+    expect(screen.getByText('Access')).toBeInTheDocument()
+    expect(screen.getByText('Diagnostics')).toBeInTheDocument()
+    expect(screen.queryByText('Items')).not.toBeInTheDocument()
+
+    expandTreeItem('Diagnostics')
+    fireEvent.contextMenu(treeItemForLabel('Hot Partitions'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Hot Partitions' })
+    expect(within(menu).getByRole('menuitem', { name: 'Review Hot Partitions' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Review Hot Partitions' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-dynamodb',
+      expect.objectContaining({
+        id: 'dynamodb:diagnostics:hot-partitions',
+        kind: 'hot-partitions',
+      }),
+    )
+  })
+
   it('uses Cassandra-specific object view labels and CQL builder targets', () => {
     const onOpenObjectView = vi.fn()
     const onOpenScopedQuery = vi.fn()
@@ -1421,7 +1708,6 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('Keyspaces')
     expandTreeItem('app')
     expandTreeItem('Tables')
     fireEvent.contextMenu(treeItemForLabel('orders_by_customer'), { clientX: 24, clientY: 32 })
@@ -1449,6 +1735,56 @@ describe('ConnectionObjectTree', () => {
         queryTemplate: expect.stringContaining('customer_id'),
       }),
     )
+  })
+
+  it('routes Cassandra manifest nodes to selected-keyspace and diagnostics object views', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(cassandraConnection())}
+        connection={cassandraConnection()}
+        explorerStatus="loading"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('app')).toBeInTheDocument()
+    expect(screen.queryByText('Keyspaces')).not.toBeInTheDocument()
+
+    expandTreeItem('app')
+    fireEvent.contextMenu(treeItemForLabel('Functions'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for Functions' })
+    expect(within(menu).getByRole('menuitem', { name: 'Open Functions' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Open View' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open Functions' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-cassandra',
+      expect.objectContaining({
+        id: 'cassandra:app:functions',
+        scope: 'cassandra:app:functions',
+        kind: 'functions',
+      }),
+    )
+  })
+
+  it('does not invent a Cassandra app keyspace when no keyspace is selected', () => {
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor({ ...cassandraConnection(), database: undefined })}
+        connection={{ ...cassandraConnection(), database: undefined }}
+        explorerStatus="loading"
+        onOpenObjectView={vi.fn()}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Keyspaces')).toBeInTheDocument()
+    expect(screen.queryByText('app')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tables')).not.toBeInTheDocument()
   })
 
   it('uses Prometheus-specific object view labels and PromQL query targets', () => {
@@ -1652,6 +1988,107 @@ describe('ConnectionObjectTree', () => {
     )
   })
 
+  it('routes time-series manifest nodes to native object views without placeholder children', () => {
+    const onOpenPrometheusView = vi.fn()
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(prometheusConnection())}
+        connection={prometheusConnection()}
+        explorerStatus="loading"
+        onOpenObjectView={onOpenPrometheusView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Service Discovery')).toBeInTheDocument()
+    expect(screen.getByText('TSDB Status')).toBeInTheDocument()
+    fireEvent.contextMenu(treeItemForLabel('TSDB Status'), { clientX: 24, clientY: 32 })
+
+    const prometheusMenu = screen.getByRole('menu', { name: 'Object options for TSDB Status' })
+    expect(within(prometheusMenu).getByRole('menuitem', { name: 'Open TSDB Status' })).toBeInTheDocument()
+    fireEvent.click(within(prometheusMenu).getByRole('menuitem', { name: 'Open TSDB Status' }))
+    expect(onOpenPrometheusView).toHaveBeenCalledWith(
+      'conn-prometheus',
+      expect.objectContaining({
+        id: 'prometheus:tsdb',
+        kind: 'tsdb',
+      }),
+    )
+
+    cleanup()
+
+    const onOpenInfluxView = vi.fn()
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(influxConnection())}
+        connection={influxConnection()}
+        explorerStatus="loading"
+        onOpenObjectView={onOpenInfluxView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('telemetry')).toBeInTheDocument()
+    expect(screen.queryByText('Buckets')).not.toBeInTheDocument()
+    expandTreeItem('telemetry')
+    fireEvent.contextMenu(treeItemForLabel('Measurements'), { clientX: 24, clientY: 32 })
+
+    const influxMenu = screen.getByRole('menu', { name: 'Object options for Measurements' })
+    expect(within(influxMenu).getByRole('menuitem', { name: 'Browse Measurements' })).toBeInTheDocument()
+    fireEvent.click(within(influxMenu).getByRole('menuitem', { name: 'Browse Measurements' }))
+    expect(onOpenInfluxView).toHaveBeenCalledWith(
+      'conn-influxdb',
+      expect.objectContaining({
+        id: 'measurements:telemetry',
+        scope: 'measurements:telemetry',
+        kind: 'measurements',
+      }),
+    )
+
+    cleanup()
+
+    const onOpenTsdbView = vi.fn()
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(openTsdbConnection())}
+        connection={openTsdbConnection()}
+        explorerStatus="loading"
+        onOpenObjectView={onOpenTsdbView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    fireEvent.contextMenu(treeItemForLabel('UID Metadata'), { clientX: 24, clientY: 32 })
+    const openTsdbMenu = screen.getByRole('menu', { name: 'Object options for UID Metadata' })
+    expect(within(openTsdbMenu).getByRole('menuitem', { name: 'Review UID Metadata' })).toBeInTheDocument()
+    fireEvent.click(within(openTsdbMenu).getByRole('menuitem', { name: 'Review UID Metadata' }))
+    expect(onOpenTsdbView).toHaveBeenCalledWith(
+      'conn-opentsdb',
+      expect.objectContaining({
+        id: 'opentsdb:uid-metadata',
+        kind: 'uid-metadata',
+      }),
+    )
+  })
+
+  it('does not invent an InfluxDB bucket when no bucket is selected', () => {
+    const connection = { ...influxConnection(), database: undefined }
+
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(connection)}
+        connection={connection}
+        explorerStatus="loading"
+        onOpenObjectView={vi.fn()}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Buckets')).toBeInTheDocument()
+    expect(screen.queryByText('telemetry')).not.toBeInTheDocument()
+    expect(screen.queryByText('Measurements')).not.toBeInTheDocument()
+  })
+
   it('uses graph-specific object view labels and Cypher query targets', () => {
     const onOpenObjectView = vi.fn()
     const onOpenScopedQuery = vi.fn()
@@ -1770,6 +2207,67 @@ describe('ConnectionObjectTree', () => {
     )
   })
 
+  it('routes graph and warehouse manifest nodes to native top-level object views', () => {
+    const onOpenGraphView = vi.fn()
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(neo4jConnection())}
+        connection={neo4jConnection()}
+        explorerStatus="loading"
+        onOpenObjectView={onOpenGraphView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Databases')).toBeInTheDocument()
+    expect(screen.getByText('Node Labels')).toBeInTheDocument()
+    expect(screen.getByText('Relationship Types')).toBeInTheDocument()
+    fireEvent.contextMenu(treeItemForLabel('Node Labels'), { clientX: 24, clientY: 32 })
+
+    const graphMenu = screen.getByRole('menu', { name: 'Object options for Node Labels' })
+    expect(within(graphMenu).getByRole('menuitem', { name: 'Browse Node Labels' })).toBeInTheDocument()
+    fireEvent.click(within(graphMenu).getByRole('menuitem', { name: 'Browse Node Labels' }))
+    expect(onOpenGraphView).toHaveBeenCalledWith(
+      'conn-neo4j',
+      expect.objectContaining({
+        id: 'graph:node-labels',
+        scope: 'graph:node-labels',
+        kind: 'node-labels',
+      }),
+    )
+
+    cleanup()
+
+    const onOpenWarehouseView = vi.fn()
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(snowflakeConnection())}
+        connection={snowflakeConnection()}
+        explorerStatus="loading"
+        onOpenObjectView={onOpenWarehouseView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Databases')).toBeInTheDocument()
+    expect(screen.getByText('Tables')).toBeInTheDocument()
+    expect(screen.getByText('Tasks & Query History')).toBeInTheDocument()
+    expect(screen.queryByText('Schemas')).not.toBeInTheDocument()
+    fireEvent.contextMenu(treeItemForLabel('Tasks & Query History'), { clientX: 24, clientY: 32 })
+
+    const warehouseMenu = screen.getByRole('menu', { name: 'Object options for Tasks & Query History' })
+    expect(within(warehouseMenu).getByRole('menuitem', { name: 'Review Jobs' })).toBeInTheDocument()
+    fireEvent.click(within(warehouseMenu).getByRole('menuitem', { name: 'Review Jobs' }))
+    expect(onOpenWarehouseView).toHaveBeenCalledWith(
+      'conn-snowflake',
+      expect.objectContaining({
+        id: 'warehouse:jobs',
+        scope: 'warehouse:jobs',
+        kind: 'jobs',
+      }),
+    )
+  })
+
   it('uses DuckDB-specific object view labels and local SQL query targets', () => {
     const onOpenObjectView = vi.fn()
     const onOpenScopedQuery = vi.fn()
@@ -1822,6 +2320,50 @@ describe('ConnectionObjectTree', () => {
       expect.objectContaining({
         queryTemplate: 'select * from "main"."orders" limit 100;',
         preferredBuilder: undefined,
+      }),
+    )
+  })
+
+  it('routes DuckDB manifest nodes to native schema and statistics object views', () => {
+    const onOpenObjectView = vi.fn()
+
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(duckDbConnection())}
+        connection={duckDbConnection()}
+        explorerStatus="loading"
+        onOpenObjectView={onOpenObjectView}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Main Database')
+    expandTreeItem('Schemas')
+    expandTreeItem('main')
+    fireEvent.contextMenu(treeItemForLabel('Tables'), { clientX: 24, clientY: 32 })
+
+    const tablesMenu = screen.getByRole('menu', { name: 'Object options for Tables' })
+    expect(within(tablesMenu).getByRole('menuitem', { name: 'Open Tables' })).toBeInTheDocument()
+    fireEvent.click(within(tablesMenu).getByRole('menuitem', { name: 'Open Tables' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-duckdb',
+      expect.objectContaining({
+        id: 'tables:main',
+        scope: 'tables:main',
+        kind: 'tables',
+      }),
+    )
+
+    fireEvent.contextMenu(treeItemForLabel('Statistics'), { clientX: 24, clientY: 32 })
+    const statsMenu = screen.getByRole('menu', { name: 'Object options for Statistics' })
+    expect(within(statsMenu).getByRole('menuitem', { name: 'Open Statistics' })).toBeInTheDocument()
+    fireEvent.click(within(statsMenu).getByRole('menuitem', { name: 'Open Statistics' }))
+    expect(onOpenObjectView).toHaveBeenCalledWith(
+      'conn-duckdb',
+      expect.objectContaining({
+        id: 'duckdb:statistics',
+        scope: 'duckdb:statistics',
+        kind: 'statistics',
       }),
     )
   })

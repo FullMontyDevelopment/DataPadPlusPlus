@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type {
   ConnectionProfile,
   DataEditExecutionResponse,
@@ -754,11 +754,13 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText('Role')).not.toBeInTheDocument()
     expect(screen.getByText('read on catalog')).toBeInTheDocument()
     expect(screen.queryByText('[{"role":"read","db":"catalog"}]')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('reporting_user')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
     fireEvent.change(screen.getByPlaceholderText('reporting_user'), { target: { value: 'analytics' } })
     fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
       target: { value: '{{MONGO_USER_PASSWORD}}' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.user.create',
       objectName: 'analytics',
@@ -805,11 +807,12 @@ describe('ObjectViewWorkspace', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
     fireEvent.change(screen.getByPlaceholderText('reporting_user'), { target: { value: 'analytics' } })
     fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
       target: { value: 'plain-secret' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
 
     expect(screen.getByText('Use an environment secret variable such as {{MONGO_USER_PASSWORD}}.')).toBeInTheDocument()
     expect(onPlanOperation).not.toHaveBeenCalled()
@@ -850,8 +853,9 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText('User')).not.toBeInTheDocument()
     expect(screen.getByText('find on catalog.products')).toBeInTheDocument()
     expect(screen.queryByText(/"actions":/)).not.toBeInTheDocument()
-    fireEvent.change(screen.getByPlaceholderText('analytics_reader'), { target: { value: 'inventory_reader' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create Role' }))
+    fireEvent.change(screen.getByPlaceholderText('analytics_reader'), { target: { value: 'inventory_reader' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.role.create',
       objectName: 'inventory_reader',
@@ -1552,6 +1556,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getAllByText('Memcached Stats').length).toBeGreaterThan(0)
     expect(screen.queryByText(/Review operational counters/i)).not.toBeInTheDocument()
     expect(screen.getByText('curr_items')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Memcached cache posture' })).toBeInTheDocument()
     expect(screen.getAllByText('Hit Rate').length).toBeGreaterThan(0)
     expect(screen.getByText(/does not expose safe key enumeration/i)).toBeInTheDocument()
     expect(screen.queryByText('session:*')).not.toBeInTheDocument()
@@ -1593,8 +1598,9 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Memcached Slabs').length).toBeGreaterThan(0)
-    expect(screen.getByText('240 B')).toBeInTheDocument()
-    expect(screen.getByText(/48\s*128/)).toBeInTheDocument()
+    expect(screen.getAllByText('240 B').length).toBeGreaterThan(0)
+    expect(screen.getByRole('region', { name: 'Memcached slab posture' })).toBeInTheDocument()
+    expect(screen.getAllByText(/48\s*128/).length).toBeGreaterThan(0)
     expect(screen.getByText('Allocation')).toBeInTheDocument()
     expect(screen.queryByText('stats slabs')).not.toBeInTheDocument()
   })
@@ -1696,7 +1702,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Data' })).toBeInTheDocument()
     expect(screen.getAllByText('Columns').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Indexes').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Grants').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Grants')).not.toBeInTheDocument()
     expect(screen.getByText('updated_at')).toBeInTheDocument()
     expect(screen.getByText('timestamp with time zone')).toBeInTheDocument()
     expect(screen.getByText('accounts_pkey')).toBeInTheDocument()
@@ -1774,6 +1780,62 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText(/return 'active'/i)).toBeInTheDocument()
   })
 
+  it('renders PostgreSQL diagnostics with pg-native workload sections', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={postgresConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: postgresConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'Diagnostics',
+          objectViewState: {
+            connectionId: postgresConnection.id,
+            environmentId: environment.id,
+            nodeId: 'postgres:diagnostics',
+            label: 'Diagnostics',
+            kind: 'diagnostics',
+            path: ['Diagnostics'],
+            warnings: [],
+            payload: {
+              engine: 'postgresql',
+              database: 'datapadplusplus',
+              schema: 'public',
+              objectName: '',
+              activeSessions: 4,
+              blockedSessions: 0,
+              sessions: [
+                { pid: 101, user: 'app', database: 'datapadplusplus', state: 'active', wait: 'CPU', blockedBy: '' },
+              ],
+              locks: [
+                { pid: 101, object: 'public.accounts', mode: 'AccessShareLock', granted: true, blocking: 'No' },
+              ],
+              waits: [
+                { waitType: 'ClientRead', waitingTasks: 1, waitMs: 8, signalWaitMs: 0, resource: 'client socket' },
+              ],
+              statements: [
+                { query: 'select * from public.accounts where status = $1', count: 128, meanMs: 3.4, p99Ms: 12.8, rows: 1280, retries: 0 },
+              ],
+              indexHealth: [
+                { table: 'public.orders', index: 'orders_updated_at_idx', scans: 0, tuplesRead: 0, tuplesFetched: 0, bloatRisk: 'review', lastVacuum: '2026-05-10' },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('PostgreSQL Diagnostics').length).toBeGreaterThan(0)
+    expect(screen.getByText('ClientRead')).toBeInTheDocument()
+    expect(screen.getByText('orders_updated_at_idx')).toBeInTheDocument()
+    expect(screen.getByText(/SELECT statement/)).toBeInTheDocument()
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
+
   it('renders SQLite table metadata as a native file-backed workspace', () => {
     const onOpenQuery = vi.fn()
 
@@ -1840,6 +1902,55 @@ describe('ObjectViewWorkspace', () => {
     }))
   })
 
+  it('renders SQLite maintenance as a native health workflow', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={sqliteConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: sqliteConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'Maintenance',
+          objectViewState: {
+            connectionId: sqliteConnection.id,
+            environmentId: environment.id,
+            nodeId: 'maintenance:main',
+            label: 'Maintenance',
+            kind: 'maintenance',
+            path: ['Main Database'],
+            warnings: [],
+            payload: {
+              engine: 'sqlite',
+              schema: 'main',
+              objectName: 'maintenance',
+              objectView: 'maintenance',
+              pageCount: 256,
+              freelistCount: 0,
+              quickCheckStatus: 'ok',
+              checks: [
+                { name: 'quick_check', status: 'ok', detail: 'No corruption was reported by the preview check.' },
+              ],
+              maintenance: [
+                { name: 'Optimize', scope: 'database', status: 'available', risk: 'low' },
+                { name: 'Vacuum', scope: 'database', status: 'preview', risk: 'medium' },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('SQLite Maintenance').length).toBeGreaterThan(0)
+    expect(screen.getByText('quick_check')).toBeInTheDocument()
+    expect(screen.getByText('Vacuum')).toBeInTheDocument()
+    expect(screen.getAllByText('ok').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
+
   it('renders LiteDB collection metadata as a native local document workspace', () => {
     const onOpenQuery = vi.fn()
 
@@ -1894,9 +2005,10 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText(/Inspect documents, inferred schema, indexes/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open Collection Query' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Schema Preview').length).toBeGreaterThan(0)
+    expect(screen.getByRole('region', { name: 'LiteDB collection posture' })).toBeInTheDocument()
     expect(screen.getAllByText('Indexes').length).toBeGreaterThan(0)
     expect(screen.getAllByText('sku').length).toBeGreaterThan(0)
-    expect(screen.getByText('$.sku')).toBeInTheDocument()
+    expect(screen.getAllByText('$.sku').length).toBeGreaterThan(0)
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Open Collection Query' })[0] as HTMLElement)
@@ -1946,6 +2058,7 @@ describe('ObjectViewWorkspace', () => {
 
     expect(screen.getAllByText('LiteDB File Storage').length).toBeGreaterThan(0)
     expect(screen.getByText('invoice-001.pdf')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'LiteDB file storage posture' })).toBeInTheDocument()
     expect(screen.getByText('64 KB')).toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
     expect(screen.queryByText(/"operation"/)).not.toBeInTheDocument()
@@ -2015,7 +2128,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getAllByText('Partition Key').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Indexing Policy').length).toBeGreaterThan(0)
     expect(screen.getAllByText('/tenantId').length).toBeGreaterThan(0)
-    expect(screen.getByText('autoscale')).toBeInTheDocument()
+    expect(screen.getAllByText('autoscale').length).toBeGreaterThan(0)
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Open Items Query' })[0] as HTMLElement)
@@ -2068,7 +2181,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getAllByText('Cosmos DB Account').length).toBeGreaterThan(0)
     expect(screen.getAllByText('West Europe').length).toBeGreaterThan(0)
     expect(screen.getByText('ReadOnlyApp')).toBeInTheDocument()
-    expect(screen.getByText('Session')).toBeInTheDocument()
+    expect(screen.getAllByText('Session').length).toBeGreaterThan(0)
     expect(screen.queryByText(/"operation"/)).not.toBeInTheDocument()
   })
 
@@ -2144,8 +2257,60 @@ describe('ObjectViewWorkspace', () => {
     }))
   })
 
-  it('renders Elasticsearch index metadata as a native search workspace', () => {
+  it('renders MySQL diagnostics without raw status command output', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={mysqlConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: mysqlConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'Slow Queries',
+          objectViewState: {
+            connectionId: mysqlConnection.id,
+            environmentId: environment.id,
+            nodeId: 'mysql:diagnostics:slow-queries',
+            label: 'Slow Queries',
+            kind: 'slow-queries',
+            path: ['Diagnostics'],
+            warnings: [],
+            payload: {
+              engine: 'mysql',
+              objectView: 'diagnostics',
+              sessions: [
+                { sessionId: 11, user: 'app', database: 'datapadplusplus', state: 'executing', wait: 'none' },
+              ],
+              statistics: [
+                { name: 'Slow_queries', rows: 2, scans: 0, size: '' },
+              ],
+              slowQueries: [
+                { digest: 'SELECT * FROM accounts WHERE status = ?', count: 128, avgMs: 4.2, maxMs: 39.8, rowsExamined: 1280 },
+              ],
+              innodbStatus: [
+                { name: 'Buffer pool hit rate', value: '99.1%', status: 'healthy', detail: 'Read pressure is low.' },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('MySQL Slow Queries').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Slow Queries').length).toBeGreaterThan(0)
+    expect(screen.getByText('SELECT * FROM accounts WHERE status = ?')).toBeInTheDocument()
+    expect(screen.getByText(/4[,.]2/)).toBeInTheDocument()
+    expect(screen.queryByText('show full processlist')).not.toBeInTheDocument()
+    expect(screen.queryByText('show engine innodb status')).not.toBeInTheDocument()
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
+
+  it('renders Elasticsearch index metadata as a native search workspace', async () => {
     const onOpenQuery = vi.fn()
+    const onPlanOperation = vi.fn(async (request): Promise<OperationPlanResponse> => operationPlanResponse(request.operationId))
 
     render(
       <ObjectViewWorkspace
@@ -2196,16 +2361,25 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
     expect(screen.getAllByText('Search Index').length).toBeGreaterThan(0)
     expect(screen.queryByText(/Inspect mapping fields, aliases, shards/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mappings' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Shards' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Profile' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create Index' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Bulk' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Lifecycle' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('region', { name: 'Field capabilities' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Shard health' })).toBeInTheDocument()
     expect(screen.getAllByText('Mappings').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Shards').length).toBeGreaterThan(0)
     expect(screen.getByText('sku')).toBeInTheDocument()
-    expect(screen.getByText('keyword')).toBeInTheDocument()
+    expect(screen.getAllByText('keyword').length).toBeGreaterThan(0)
     expect(screen.getByText('products-read')).toBeInTheDocument()
     expect(screen.getByText(/JSON object \(1 field\)/)).toBeInTheDocument()
     expect(screen.queryByText(/"term"/i)).not.toBeInTheDocument()
@@ -2216,10 +2390,21 @@ describe('ObjectViewWorkspace', () => {
       preferredBuilder: 'search-dsl',
       queryTemplate: expect.stringContaining('products-v1'),
     }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Profile' }))
+    await waitFor(() => expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'elasticsearch.query.profile',
+      objectName: 'products-v1',
+      parameters: expect.objectContaining({
+        index: 'products-v1',
+        size: 20,
+      }),
+    })))
   })
 
-  it('renders DynamoDB table metadata as a native key-condition workspace', () => {
+  it('renders DynamoDB table metadata as a native key-condition workspace', async () => {
     const onOpenQuery = vi.fn()
+    const onPlanOperation = vi.fn(async (request): Promise<OperationPlanResponse> => operationPlanResponse(request.operationId))
 
     render(
       <ObjectViewWorkspace
@@ -2279,16 +2464,24 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
     expect(screen.getAllByText('DynamoDB Table').length).toBeGreaterThan(0)
     expect(screen.queryByText(/Inspect partition\/sort keys/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Items' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Keys' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Indexes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Capacity' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Metrics' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create GSI' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Access' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument()
     expect(screen.getAllByText('Keys').length).toBeGreaterThan(0)
-    expect(screen.getByText('customer-status-index')).toBeInTheDocument()
-    expect(screen.getByText('NEW_AND_OLD_IMAGES')).toBeInTheDocument()
-    expect(screen.getByText('CUSTOMER#123')).toBeInTheDocument()
+    expect(screen.getAllByText('customer-status-index').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('NEW_AND_OLD_IMAGES').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('CUSTOMER#123').length).toBeGreaterThan(0)
     expect(screen.getByText(/JSON object \(1 field\)/)).toBeInTheDocument()
     expect(screen.queryByText(/"environment"/i)).not.toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
@@ -2298,10 +2491,21 @@ describe('ObjectViewWorkspace', () => {
       preferredBuilder: 'dynamodb-key-condition',
       queryTemplate: expect.stringContaining('Orders'),
     }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create GSI' }))
+    await waitFor(() => expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'dynamodb.index.create',
+      objectName: 'Orders',
+      parameters: expect.objectContaining({
+        tableName: 'Orders',
+        indexName: 'customer-status-index',
+      }),
+    })))
   })
 
-  it('renders Cassandra table metadata as a native partition-query workspace', () => {
+  it('renders Cassandra table metadata as a native partition-query workspace', async () => {
     const onOpenQuery = vi.fn()
+    const onPlanOperation = vi.fn(async (request): Promise<OperationPlanResponse> => operationPlanResponse(request.operationId))
     render(
       <ObjectViewWorkspace
         connection={cassandraConnection}
@@ -2357,12 +2561,18 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
     expect(screen.getAllByText('Cassandra Table').length).toBeGreaterThan(0)
     expect(screen.queryByText(/Inspect partition keys/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Rows' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Review Keys' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Indexes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Trace' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create Index' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Permissions' })).toBeInTheDocument()
     expect(screen.getAllByText('Primary Key').length).toBeGreaterThan(0)
     expect(screen.getAllByText('customer_id').length).toBeGreaterThan(0)
     expect(screen.getByText('orders_status_sai')).toBeInTheDocument()
@@ -2375,10 +2585,57 @@ describe('ObjectViewWorkspace', () => {
       preferredBuilder: 'cql-partition',
       queryTemplate: expect.stringContaining('customer_id'),
     }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trace' }))
+    await waitFor(() => expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'cassandra.query.profile',
+      objectName: '"app"."orders_by_customer"',
+      parameters: expect.objectContaining({
+        keyspace: 'app',
+        tableName: 'orders_by_customer',
+      }),
+    })))
   })
 
-  it('renders Prometheus metric metadata as a native PromQL workspace', () => {
+  it('does not dump unknown Cassandra inspection payload fields', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={cassandraConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: cassandraConnection.id,
+          family: 'widecolumn',
+          language: 'cql',
+          title: 'Cassandra diagnostics',
+          objectViewState: {
+            connectionId: cassandraConnection.id,
+            environmentId: environment.id,
+            nodeId: 'cassandra:diagnostics:unknown',
+            label: 'Diagnostics',
+            kind: 'diagnostics',
+            path: ['Diagnostics'],
+            warnings: [],
+            payload: {
+              engine: 'cassandra',
+              objectView: 'diagnostics',
+              rawDriverMetadata: { cql: 'select * from system.local' },
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('No diagnostics were returned')).toBeInTheDocument()
+    expect(screen.queryByText('rawDriverMetadata')).not.toBeInTheDocument()
+    expect(screen.queryByText(/system\.local/i)).not.toBeInTheDocument()
+  })
+
+  it('renders Prometheus metric metadata as a native PromQL workspace', async () => {
     const onOpenQuery = vi.fn()
+    const onPlanOperation = vi.fn(async (request): Promise<OperationPlanResponse> => operationPlanResponse(request.operationId))
 
     render(
       <ObjectViewWorkspace
@@ -2426,12 +2683,18 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
     expect(screen.getAllByText('Prometheus Metric').length).toBeGreaterThan(0)
     expect(screen.queryByText(/Inspect one metric family/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Metric' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Profile' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Metrics' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cardinality' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Time-series cardinality posture' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Time-series ingestion posture' })).toBeInTheDocument()
     expect(screen.getAllByText('Series').length).toBeGreaterThan(0)
     expect(screen.getAllByText('http_requests_total').length).toBeGreaterThan(0)
     expect(screen.getByText('counter')).toBeInTheDocument()
@@ -2443,10 +2706,20 @@ describe('ObjectViewWorkspace', () => {
     expect(onOpenQuery).toHaveBeenCalledWith(expect.objectContaining({
       queryTemplate: 'http_requests_total',
     }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Profile' }))
+    await waitFor(() => expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'prometheus.query.profile',
+      objectName: 'http_requests_total',
+      parameters: expect.objectContaining({
+        metric: 'http_requests_total',
+      }),
+    })))
   })
 
-  it('renders InfluxDB measurement metadata as a native Flux workspace', () => {
+  it('renders InfluxDB measurement metadata as a native Flux workspace', async () => {
     const onOpenQuery = vi.fn()
+    const onPlanOperation = vi.fn(async (request): Promise<OperationPlanResponse> => operationPlanResponse(request.operationId))
 
     render(
       <ObjectViewWorkspace
@@ -2493,12 +2766,18 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
     expect(screen.getAllByText('Measurement').length).toBeGreaterThan(0)
     expect(screen.queryByText(/Inspect fields, tags, series cardinality/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Measurement' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Profile' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Metrics' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Time-series cardinality posture' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Time-series retention posture' })).toBeInTheDocument()
     expect(screen.getAllByText('Tags').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Fields').length).toBeGreaterThan(0)
     expect(screen.getByText('usage_user')).toBeInTheDocument()
@@ -2508,10 +2787,22 @@ describe('ObjectViewWorkspace', () => {
     expect(onOpenQuery).toHaveBeenCalledWith(expect.objectContaining({
       queryTemplate: expect.stringContaining('_measurement == "cpu"'),
     }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    await waitFor(() => expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'influxdb.data.import-export',
+      objectName: 'cpu',
+      parameters: expect.objectContaining({
+        bucket: 'telemetry',
+        measurement: 'cpu',
+        format: 'line-protocol',
+      }),
+    })))
   })
 
-  it('renders OpenTSDB metric metadata as a native time-series workspace', () => {
+  it('renders OpenTSDB metric metadata as a native time-series workspace', async () => {
     const onOpenQuery = vi.fn()
+    const onPlanOperation = vi.fn(async (request): Promise<OperationPlanResponse> => operationPlanResponse(request.operationId))
 
     render(
       <ObjectViewWorkspace
@@ -2561,15 +2852,20 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
     expect(screen.getAllByText('OpenTSDB Metric').length).toBeGreaterThan(0)
     expect(screen.queryByText(/Inspect one metric, related tag keys/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Metric' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Stats' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'UID Repair' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Time-series governance posture' })).toBeInTheDocument()
     expect(screen.getAllByText('Tags').length).toBeGreaterThan(0)
     expect(screen.getAllByText('UID Metadata').length).toBeGreaterThan(0)
-    expect(screen.getByText('endpoint')).toBeInTheDocument()
+    expect(screen.getAllByText('endpoint').length).toBeGreaterThan(0)
     expect(screen.getByText('HTTP Requests')).toBeInTheDocument()
     expect(screen.queryByText(/"metric"/i)).not.toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
@@ -2578,10 +2874,20 @@ describe('ObjectViewWorkspace', () => {
     expect(onOpenQuery).toHaveBeenCalledWith(expect.objectContaining({
       queryTemplate: expect.stringContaining('"metric": "http.requests"'),
     }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stats' }))
+    await waitFor(() => expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'opentsdb.diagnostics.metrics',
+      objectName: 'http.requests',
+      parameters: expect.objectContaining({
+        metric: 'http.requests',
+      }),
+    })))
   })
 
-  it('renders Neo4j node label metadata as a native graph workspace', () => {
+  it('renders Neo4j node label metadata as a native graph workspace', async () => {
     const onOpenQuery = vi.fn()
+    const onPlanOperation = vi.fn(async (request): Promise<OperationPlanResponse> => operationPlanResponse(request.operationId))
 
     render(
       <ObjectViewWorkspace
@@ -2635,6 +2941,7 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
@@ -2652,10 +2959,21 @@ describe('ObjectViewWorkspace', () => {
     expect(onOpenQuery).toHaveBeenCalledWith(expect.objectContaining({
       queryTemplate: 'MATCH (n:`Account`) RETURN n LIMIT 25',
     }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Profile' }))
+    await waitFor(() => expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'neo4j.query.profile',
+      objectName: 'Account',
+      parameters: expect.objectContaining({
+        label: 'Account',
+        query: 'MATCH (n:`Account`) RETURN n LIMIT 25',
+      }),
+    })))
   })
 
-  it('renders Snowflake table metadata as a native warehouse workspace', () => {
+  it('renders Snowflake table metadata as a native warehouse workspace', async () => {
     const onOpenQuery = vi.fn()
+    const onPlanOperation = vi.fn(async (request): Promise<OperationPlanResponse> => operationPlanResponse(request.operationId))
 
     render(
       <ObjectViewWorkspace
@@ -2703,6 +3021,7 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
@@ -2710,8 +3029,11 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText(/Inspect columns, partitions, clustering/i)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Query Table' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Columns').length).toBeGreaterThan(0)
+    expect(screen.getByRole('region', { name: 'Warehouse cost posture' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Warehouse storage posture' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Warehouse access posture' })).toBeInTheDocument()
     expect(screen.getByText('created_at')).toBeInTheDocument()
-    expect(screen.getByText('ANALYST_ROLE')).toBeInTheDocument()
+    expect(screen.getAllByText('ANALYST_ROLE').length).toBeGreaterThan(0)
     expect(screen.queryByText(/select \* from/i)).not.toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
 
@@ -2719,10 +3041,22 @@ describe('ObjectViewWorkspace', () => {
     expect(onOpenQuery).toHaveBeenCalledWith(expect.objectContaining({
       queryTemplate: 'select * from "ANALYTICS"."orders" limit 100;',
     }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cost' }))
+    await waitFor(() => expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'snowflake.query.profile',
+      objectName: 'orders',
+      parameters: expect.objectContaining({
+        database: 'ANALYTICS',
+        tableName: 'orders',
+        query: 'select * from "ANALYTICS"."orders" limit 100;',
+      }),
+    })))
   })
 
   it('renders DuckDB table metadata as a native embedded analytics workspace', () => {
     const onOpenQuery = vi.fn()
+    const onPlanOperation = vi.fn(async (request): Promise<OperationPlanResponse> => operationPlanResponse(request.operationId))
 
     render(
       <ObjectViewWorkspace
@@ -2772,6 +3106,7 @@ describe('ObjectViewWorkspace', () => {
         }}
         onRefresh={vi.fn()}
         onOpenQuery={onOpenQuery}
+        onPlanOperation={onPlanOperation}
       />,
     )
 
@@ -2781,12 +3116,21 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getAllByText('Columns').length).toBeGreaterThan(0)
     expect(screen.getByText('orders_id_idx')).toBeInTheDocument()
     expect(screen.getByText('memory_limit')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'DuckDB local file posture' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'DuckDB maintenance posture' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Analyze' })).toBeInTheDocument()
     expect(screen.queryByText(/select \* from/i)).not.toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Open Data Query' })[0]!)
     expect(onOpenQuery).toHaveBeenCalledWith(expect.objectContaining({
       queryTemplate: 'select * from "main"."orders" limit 100;',
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'duckdb.table.analyze',
+      objectName: '"main"."orders"',
     }))
   })
 
@@ -2832,14 +3176,65 @@ describe('ObjectViewWorkspace', () => {
 
     expect(screen.getAllByText('Query Store').length).toBeGreaterThan(0)
     expect(screen.queryByText(/Review top queries, regressed queries/i)).not.toBeInTheDocument()
-    expect(screen.getAllByText('Sessions').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Waits').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Sessions')).not.toBeInTheDocument()
+    expect(screen.queryByText('Waits')).not.toBeInTheDocument()
     expect(screen.getAllByText('Plans').length).toBeGreaterThan(0)
     expect(screen.getByText('Top Queries')).toBeInTheDocument()
     expect(screen.getByText('18')).toBeInTheDocument()
     expect(screen.getByText(/SELECT statement \(\d+ chars\)/)).toBeInTheDocument()
     expect(screen.queryByText(/select \* from dbo\.accounts/i)).not.toBeInTheDocument()
     expect(screen.queryByText('Open View')).not.toBeInTheDocument()
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
+
+  it('renders SQL Server performance views with sessions, waits, and tuning hints', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={sqlServerConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: sqlServerConnection.id,
+          family: 'sql',
+          language: 'sql',
+          title: 'Performance',
+          objectViewState: {
+            connectionId: sqlServerConnection.id,
+            environmentId: environment.id,
+            nodeId: 'sqlserver:datapadplusplus:performance',
+            label: 'Performance',
+            kind: 'performance',
+            path: ['Databases', 'datapadplusplus'],
+            warnings: [],
+            payload: {
+              engine: 'sqlserver',
+              database: 'datapadplusplus',
+              sessions: [
+                { sessionId: 52, user: 'app_user', database: 'datapadplusplus', state: 'running', wait: 'PAGEIOLATCH_SH', blockedBy: '' },
+              ],
+              locks: [
+                { sessionId: 52, object: 'dbo.orders', mode: 'S', granted: true, blocking: '' },
+              ],
+              waits: [
+                { waitType: 'PAGEIOLATCH_SH', waitingTasks: 4, waitMs: 128, signalWaitMs: 2, resource: 'data file reads' },
+              ],
+              missingIndexes: [
+                { table: 'dbo.orders', equalityColumns: 'status', inequalityColumns: 'updated_at', includedColumns: 'customer_id,total', impact: 'medium' },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('SQL Server Performance').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Review active sessions, locks/i)).not.toBeInTheDocument()
+    expect(screen.getAllByText('Sessions').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('PAGEIOLATCH_SH').length).toBeGreaterThan(0)
+    expect(screen.getByText('Missing Indexes')).toBeInTheDocument()
+    expect(screen.getAllByText('dbo.orders').length).toBeGreaterThan(0)
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
   })
 
@@ -2953,8 +3348,8 @@ describe('ObjectViewWorkspace', () => {
 
     expect(screen.getAllByText('CockroachDB Cluster').length).toBeGreaterThan(0)
     expect(screen.queryByText(/Review nodes, ranges, regions, jobs/i)).not.toBeInTheDocument()
-    expect(screen.getAllByText('Sessions').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Waits').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Nodes').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Ranges').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Jobs').length).toBeGreaterThan(0)
     expect(screen.getByText('n1.local:26257')).toBeInTheDocument()
     expect(screen.getByText('public.accounts')).toBeInTheDocument()

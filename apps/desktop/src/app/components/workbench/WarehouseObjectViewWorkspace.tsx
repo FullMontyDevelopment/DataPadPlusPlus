@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -13,17 +15,24 @@ import {
   ObjectTableIcon,
   ObjectWarehouseIcon,
   PlayIcon,
-  RefreshIcon,
   WarningIcon,
 } from './icons'
 import {
   getWarehouseObjectViewDescriptor,
   type WarehouseObjectViewDescriptor,
 } from './WarehouseObjectViewDescriptors'
-import { ExplorerNodeIcon } from './SideBar.node-icons'
+import {
+  warehouseWorkflows,
+  type WarehouseWorkflowIconName,
+} from './WarehouseObjectViewWorkflows'
+import { WarehouseOperationStrip } from './WarehouseObjectViewOperations'
+import { ObjectViewHeader } from './ObjectViewHeader'
+import { WarehouseObjectViewInsights } from './WarehouseObjectViewInsights'
+import { ClickHouseObjectViewInsights } from './ClickHouseObjectViewInsights'
+import { CloudWarehouseObjectViewInsights } from './CloudWarehouseObjectViewInsights'
 
 type JsonRecord = Record<string, unknown>
-type WarehouseSectionIconName = 'database' | 'table' | 'stage' | 'warehouse' | 'job' | 'security' | 'diagnostics'
+type WarehouseSectionIconName = WarehouseWorkflowIconName
 
 interface WarehouseObjectViewWorkspaceProps {
   connection: ConnectionProfile
@@ -31,6 +40,7 @@ interface WarehouseObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function WarehouseObjectViewWorkspace({
@@ -39,6 +49,7 @@ export function WarehouseObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onPlanOperation,
 }: WarehouseObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -54,39 +65,39 @@ export function WarehouseObjectViewWorkspace({
     }
   }, [onRefresh, tab.id])
   const queryTarget = useMemo(() => warehouseQueryTargetFromObjectView(tab), [tab])
-  const workflows = warehouseWorkflows(kind, descriptor, Boolean(queryTarget), connection.engine)
   const cards = warehouseMetricCards(payload, connection)
   const sections = warehouseSections(kind, payload, descriptor)
+  const availableSectionKeys = new Set(sections.map((section) => section.key))
+  const workflows = warehouseWorkflows(kind, descriptor, Boolean(queryTarget), connection.engine, availableSectionKeys)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
-      <div className="object-view-toolbar">
-        <div className="object-view-heading">
-          <ExplorerNodeIcon connection={connection} kind={kind} />
-          <div>
-            <strong>{descriptor.title}</strong>
-            <span>
-              {[connection.name, environment.label, ...(state?.path ?? [])].filter(Boolean).join(' / ')}
-            </span>
-          </div>
-        </div>
-        <div className="object-view-actions">
-          {queryTarget && descriptor.primaryQueryLabel ? (
-            <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-              <PlayIcon className="panel-inline-icon" />
-              {descriptor.primaryQueryLabel}
-            </button>
-          ) : null}
-          <button type="button" className="drawer-button" disabled={refreshing} onClick={refresh}>
-            <RefreshIcon className="panel-inline-icon" />
-            {refreshing ? 'Refreshing' : 'Refresh'}
+      <ObjectViewHeader
+        connection={connection}
+        environment={environment}
+        kind={kind}
+        path={state?.path}
+        title={descriptor.title}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      >
+        {queryTarget && descriptor.primaryQueryLabel ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel}
           </button>
-        </div>
-      </div>
+        ) : null}
+      </ObjectViewHeader>
 
       <WarehouseWarningList warnings={warehouseWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         {workflows.length ? (
           <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
             <div className="object-view-action-chips">
@@ -105,6 +116,16 @@ export function WarehouseObjectViewWorkspace({
                     className="object-view-action-chip object-view-action-chip--button"
                     title={workflow.title}
                     onClick={() => onOpenQuery(queryTarget)}
+                  >
+                    {chip}
+                  </button>
+                ) : workflow.targetSection ? (
+                  <button
+                    key={workflow.label}
+                    type="button"
+                    className="object-view-action-chip object-view-action-chip--button"
+                    title={workflow.title}
+                    onClick={() => focusSection(workflow.targetSection!)}
                   >
                     {chip}
                   </button>
@@ -132,9 +153,29 @@ export function WarehouseObjectViewWorkspace({
           </section>
         ) : null}
 
+        <WarehouseOperationStrip
+          connection={connection}
+          environment={environment}
+          tab={tab}
+          kind={kind}
+          payload={payload}
+          onPlanOperation={onPlanOperation}
+        />
+
+        <WarehouseObjectViewInsights engine={connection.engine} kind={kind} payload={payload} />
+        <CloudWarehouseObjectViewInsights engine={connection.engine} kind={kind} payload={payload} />
+        {connection.engine === 'clickhouse' ? (
+          <ClickHouseObjectViewInsights kind={kind} payload={payload} />
+        ) : null}
+
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <WarehouseSectionHeading icon={section.icon} title={section.title} unit={section.unit} />
               <WarehouseObjectViewTable columns={section.columns} rows={section.rows} emptyText={section.emptyText} />
             </section>
@@ -216,61 +257,6 @@ function WarehouseObjectViewTable({
   )
 }
 
-function warehouseWorkflows(
-  kind: string,
-  descriptor: WarehouseObjectViewDescriptor,
-  hasQueryTarget: boolean,
-  engine: ConnectionProfile['engine'],
-) {
-  const dialect = engine === 'bigquery' ? 'BigQuery SQL' : engine === 'snowflake' ? 'Snowflake SQL' : engine === 'clickhouse' ? 'ClickHouse SQL' : 'SQL'
-  const workflows: Array<{
-    label: string
-    title: string
-    icon: WarehouseSectionIconName
-    action?: 'query'
-  }> = []
-
-  if (hasQueryTarget && descriptor.primaryQueryLabel) {
-    workflows.push({
-      label: descriptor.primaryQueryLabel,
-      title: `Open a scoped ${dialect} query for this warehouse object.`,
-      icon: 'table',
-      action: 'query',
-    })
-  }
-
-  if (['database', 'databases', 'dataset', 'datasets', 'schema', 'schemas'].includes(kind)) {
-    workflows.push(
-      { label: 'Objects', title: 'Review tables, views, materialized views, stages, and jobs.', icon: 'database' },
-      { label: 'Access', title: 'Review role, grant, or IAM coverage.', icon: 'security' },
-      { label: 'Cost', title: 'Review scanned bytes, queues, and failed jobs.', icon: 'diagnostics' },
-    )
-  }
-
-  if (['table', 'tables', 'view', 'views', 'materialized-view', 'materialized-views'].includes(kind)) {
-    workflows.push(
-      { label: 'Columns', title: 'Review column types, clustering, partitions, and freshness.', icon: 'table' },
-      { label: 'Dry Run', title: 'Estimate scan cost before running broad queries.', icon: 'diagnostics' },
-    )
-  }
-
-  if (['warehouse', 'warehouses', 'jobs', 'job', 'tasks', 'task', 'diagnostics'].includes(kind)) {
-    workflows.push(
-      { label: 'Utilization', title: 'Review queueing, runtime, credits, slots, and bytes scanned.', icon: 'warehouse' },
-      { label: 'Failures', title: 'Review failed jobs and actionable warnings.', icon: 'job' },
-    )
-  }
-
-  if (['stages', 'stage', 'security'].includes(kind)) {
-    workflows.push(
-      { label: kind === 'security' ? 'Grants' : 'Files', title: kind === 'security' ? 'Review roles, grants, and policies.' : 'Review staged files and load readiness.', icon: kind === 'security' ? 'security' : 'stage' },
-      { label: 'Preview Changes', title: 'Generate guarded import, export, or access-change previews.', icon: 'diagnostics' },
-    )
-  }
-
-  return dedupeWorkflows(workflows).slice(0, 5)
-}
-
 function warehouseSections(
   kind: string,
   payload: JsonRecord,
@@ -283,6 +269,7 @@ function warehouseSections(
     }
 
     return [{
+      key: candidate.key,
       title: candidate.title,
       icon: candidate.icon,
       unit: `${rows.length} row(s)`,
@@ -296,6 +283,7 @@ function warehouseSections(
     const rows = arrayOfRecords(payload.objects)
     if (rows.length) {
       return [{
+        key: 'objects',
         title: descriptor.title,
         icon: 'warehouse' as const,
         unit: `${rows.length} row(s)`,
@@ -324,16 +312,34 @@ function warehouseSectionCandidates(kind: string) {
     section('tasks', 'Tasks', ['name', 'schedule', 'state', 'lastRun', 'owner'], 'No tasks were returned.', 'job' as const),
     section('security', 'Access', ['principal', 'role', 'privilege', 'object', 'effect'], 'No access metadata was returned.', 'security' as const),
     section('diagnostics', 'Diagnostics', ['signal', 'value', 'status', 'guidance'], 'No diagnostics were returned.', 'diagnostics' as const),
+    section('queryHistory', 'Query History', ['queryId', 'warehouse', 'status', 'duration', 'bytesScanned', 'credits'], 'No query history was returned.', 'job' as const),
+    section('warehouseLoad', 'Warehouse Load', ['warehouse', 'state', 'queued', 'running', 'credits', 'load'], 'No warehouse load was returned.', 'warehouse' as const),
+    section('credits', 'Credits', ['warehouse', 'window', 'credits', 'queries'], 'No credit usage was returned.', 'diagnostics' as const),
+    section('streams', 'Streams', ['name', 'table', 'stale', 'mode'], 'No streams were returned.', 'table' as const),
+    section('shares', 'Shares', ['name', 'kind', 'objects', 'status'], 'No shares were returned.', 'security' as const),
+    section('jobTimeline', 'Job Timeline', ['jobId', 'state', 'duration', 'bytesProcessed', 'slotMs'], 'No job timeline was returned.', 'job' as const),
+    section('reservations', 'Reservations', ['name', 'slots', 'assignedProjects', 'idleSlots', 'autoscale'], 'No reservations were returned.', 'warehouse' as const),
+    section('slotUsage', 'Slot Usage', ['reservation', 'window', 'slotMs', 'utilization'], 'No slot usage was returned.', 'diagnostics' as const),
+    section('scheduledQueries', 'Scheduled Queries', ['name', 'schedule', 'state', 'lastRun'], 'No scheduled queries were returned.', 'job' as const),
+    section('tableStorage', 'Table Storage', ['table', 'bytes', 'longTermBytes', 'partitions', 'clustering'], 'No table storage was returned.', 'table' as const),
+    section('iamBindings', 'IAM Bindings', ['principal', 'role', 'resource', 'status'], 'No IAM bindings were returned.', 'security' as const),
+    section('queryLog', 'Query Log', ['queryId', 'type', 'duration', 'readRows', 'readBytes', 'memoryUsage'], 'No query log events were returned.', 'job' as const),
+    section('parts', 'Parts', ['name', 'partition', 'active', 'rows', 'compressedBytes', 'marks'], 'No MergeTree parts were returned.', 'table' as const),
+    section('partitions', 'Partitions', ['partition', 'parts', 'rows', 'bytes', 'minDate', 'maxDate'], 'No partitions were returned.', 'table' as const),
+    section('clusters', 'Cluster Nodes', ['cluster', 'shard', 'replica', 'host', 'port', 'health'], 'No cluster nodes were returned.', 'warehouse' as const),
+    section('replicas', 'Replicas', ['database', 'table', 'replica', 'status', 'queueSize', 'absoluteDelay'], 'No replica metadata was returned.', 'warehouse' as const),
+    section('merges', 'Merges', ['database', 'table', 'partition', 'progress', 'elapsed'], 'No active merges were returned.', 'diagnostics' as const),
+    section('mutations', 'Mutations', ['mutationId', 'table', 'command', 'status', 'partsToDo'], 'No mutations were returned.', 'diagnostics' as const),
   ]
 
   if (['databases', 'database', 'datasets', 'dataset'].includes(kind)) {
-    return common.filter((candidate) => ['databases', 'datasets', 'schemas', 'tables', 'views', 'warehouses', 'jobs', 'diagnostics'].includes(candidate.key))
+    return common.filter((candidate) => ['databases', 'datasets', 'schemas', 'tables', 'views', 'warehouses', 'jobs', 'queryHistory', 'jobTimeline', 'warehouseLoad', 'reservations', 'slotUsage', 'tableStorage', 'diagnostics'].includes(candidate.key))
   }
   if (['schemas', 'schema'].includes(kind)) {
-    return common.filter((candidate) => ['schemas', 'tables', 'views', 'materializedViews', 'stages', 'tasks', 'security', 'diagnostics'].includes(candidate.key))
+    return common.filter((candidate) => ['schemas', 'tables', 'views', 'materializedViews', 'stages', 'tasks', 'scheduledQueries', 'streams', 'security', 'iamBindings', 'diagnostics'].includes(candidate.key))
   }
   if (['tables', 'table'].includes(kind)) {
-    return common.filter((candidate) => ['tables', 'columns', 'diagnostics', 'security'].includes(candidate.key))
+    return common.filter((candidate) => ['tables', 'columns', 'tableStorage', 'parts', 'partitions', 'merges', 'mutations', 'diagnostics', 'security', 'iamBindings'].includes(candidate.key))
   }
   if (['views', 'view', 'materialized-views', 'materialized-view'].includes(kind)) {
     return common.filter((candidate) => ['views', 'materializedViews', 'columns', 'diagnostics', 'security'].includes(candidate.key))
@@ -342,16 +348,16 @@ function warehouseSectionCandidates(kind: string) {
     return common.filter((candidate) => ['stages', 'jobs', 'diagnostics'].includes(candidate.key))
   }
   if (['warehouses', 'warehouse'].includes(kind)) {
-    return common.filter((candidate) => ['warehouses', 'jobs', 'diagnostics'].includes(candidate.key))
+    return common.filter((candidate) => ['warehouses', 'warehouseLoad', 'credits', 'reservations', 'slotUsage', 'jobs', 'queryHistory', 'jobTimeline', 'diagnostics'].includes(candidate.key))
   }
   if (['jobs', 'job', 'tasks', 'task'].includes(kind)) {
-    return common.filter((candidate) => ['jobs', 'tasks', 'diagnostics'].includes(candidate.key))
+    return common.filter((candidate) => ['jobs', 'tasks', 'queryHistory', 'jobTimeline', 'scheduledQueries', 'diagnostics'].includes(candidate.key))
   }
   if (kind === 'security') {
-    return common.filter((candidate) => candidate.key === 'security')
+    return common.filter((candidate) => ['security', 'iamBindings', 'shares'].includes(candidate.key))
   }
   if (kind === 'diagnostics') {
-    return common.filter((candidate) => ['diagnostics', 'jobs', 'warehouses'].includes(candidate.key))
+    return common.filter((candidate) => ['diagnostics', 'jobs', 'queryHistory', 'jobTimeline', 'warehouseLoad', 'credits', 'reservations', 'slotUsage', 'tableStorage', 'queryLog', 'warehouses', 'clusters', 'replicas', 'merges', 'mutations'].includes(candidate.key))
   }
 
   return common
@@ -507,15 +513,4 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function normalizeKind(kind: string) {
   return kind.trim().toLowerCase().replace(/[_\s]+/g, '-')
-}
-
-function dedupeWorkflows<T extends { label: string }>(workflows: T[]) {
-  const seen = new Set<string>()
-  return workflows.filter((workflow) => {
-    if (seen.has(workflow.label)) {
-      return false
-    }
-    seen.add(workflow.label)
-    return true
-  })
 }

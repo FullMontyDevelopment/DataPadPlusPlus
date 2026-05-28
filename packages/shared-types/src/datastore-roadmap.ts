@@ -503,6 +503,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Compression and retention workflows',
       'Chunk stats and policy status',
       'Time-series dashboards',
+      'Guarded compression-policy, retention-policy, and continuous aggregate refresh previews',
     ],
     diagnosticFeatures: [
       'Chunk health panels',
@@ -616,11 +617,12 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Table and item browser',
       'Key-condition Query builder',
       'GSI/LSI viewer and add/drop GSI workflow',
-      'TTL and streams viewer',
+      'TTL, streams, and backup viewer',
     ],
     advancedFeatures: [
       'Consumed capacity display',
       'CloudWatch throttle and latency dashboards',
+      'Guarded capacity, TTL, stream, and backup previews',
       'Cost estimate panels',
       'Single-table modeling hints',
     ],
@@ -677,6 +679,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     advancedFeatures: [
       'SAI/index guidance',
       'Query tracing',
+      'Partition model, tombstone, and cluster health panels',
       'Nodetool/JMX readouts',
       'Repair and compaction status',
     ],
@@ -734,6 +737,8 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     advancedFeatures: [
       'RU charge and query metrics',
       'Index metrics and latency charts',
+      'Partition, RU, indexing, and global distribution panels',
+      'Guarded throughput, consistency, and failover previews',
       'Per-API adapters',
       'Throughput and region dashboards',
     ],
@@ -773,6 +778,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_visual_query_builder',
       'supports_result_snapshots',
       'supports_local_database_creation',
+      'supports_admin_operations',
       'supports_index_management',
       'supports_import_export',
       'supports_backup_restore',
@@ -788,6 +794,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Schema sampling',
       'File backup workflow',
       'Collection compaction status',
+      'Guarded checkpoint and compact previews',
     ],
     localDatabase: {
       defaultExtension: 'db',
@@ -943,6 +950,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_result_snapshots',
       'supports_metrics_collection',
       'supports_import_export',
+      'supports_admin_operations',
     ],
     baselineFeatures: [
       'Server stats',
@@ -955,6 +963,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Hit-rate dashboards',
       'Eviction charts',
       'Item-size analysis',
+      'Guarded stats reset and cache flush previews',
     ],
     diagnosticFeatures: [
       'Stats panels',
@@ -1233,6 +1242,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     ],
     advancedFeatures: [
       'Retention and task management',
+      'Guarded retention update previews',
       'Cardinality analysis',
       'Dashboard-ready series',
       'v1/v2/v3 compatibility',
@@ -1286,6 +1296,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     advancedFeatures: [
       'Alerts, rules, and status panels',
       'TSDB/head stats',
+      'Cardinality analysis previews',
       'Recording-rule insights',
       'Expensive query warnings',
     ],
@@ -1338,6 +1349,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     advancedFeatures: [
       '/api/stats dashboards',
       'UID and tree management',
+      'Guarded UID repair previews',
       'Network ACL warnings',
       'HBase backend status hooks',
     ],
@@ -1512,7 +1524,9 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     advancedFeatures: [
       'EXPLAIN pipeline renderer',
       'system.query_log dashboards',
+      'MergeTree parts and replica posture panels',
       'Metrics dashboards',
+      'Guarded table optimization, TTL materialization, and freeze snapshot previews',
       'Cluster topology',
     ],
     diagnosticFeatures: [
@@ -1574,6 +1588,8 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     advancedFeatures: [
       'EXPLAIN/ANALYZE/profiling',
       'PRAGMA metadata panels',
+      'Local-file and extension posture panels',
+      'Guarded analyze, checkpoint, extension, and import previews',
       'Extension manager',
       'Local-file analytics templates',
     ],
@@ -1627,6 +1643,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     advancedFeatures: [
       'Query history and profile',
       'Cost and warehouse utilization charts',
+      'Guarded zero-copy clone and suspend/resume previews',
       'Tasks, streams, and shares',
       'Role/grant inspection',
     ],
@@ -1680,6 +1697,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     advancedFeatures: [
       'INFORMATION_SCHEMA.JOBS performance/cost dashboards',
       'Slot usage panels',
+      'Guarded table copy previews',
       'Scheduled queries',
       'IAM explanation and permission-aware controls',
     ],

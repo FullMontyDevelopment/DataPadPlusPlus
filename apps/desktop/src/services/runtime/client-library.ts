@@ -30,6 +30,7 @@ import {
   validateSaveQueryTabToLocalFileRequest,
   validateSetLibraryNodeEnvironmentRequest,
 } from './request-validation'
+import { validateRequiredId } from './request-validation-core'
 
 export const clientLibrary = {
   async createLibraryFolder(request: LibraryCreateFolderRequest): Promise<BootstrapPayload> {
@@ -90,6 +91,7 @@ export const clientLibrary = {
   },
 
   async openLibraryItem(libraryItemId: string): Promise<BootstrapPayload> {
+    validateRequiredId(libraryItemId, 'Library item id')
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('open_library_item', { libraryItemId })
     }
@@ -116,7 +118,11 @@ export const clientLibrary = {
     request: SaveQueryTabToLocalFileRequest,
   ): Promise<BootstrapPayload> {
     if (isTauriRuntime()) {
-      validateRequiredTabId(request.tabId)
+      if (request.path?.trim()) {
+        request = validateSaveQueryTabToLocalFileRequest(request)
+      } else {
+        validateRequiredTabId(request.tabId)
+      }
       return invokeDesktop<BootstrapPayload>('save_query_tab_to_local_file', { request })
     }
 

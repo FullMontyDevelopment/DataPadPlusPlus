@@ -742,7 +742,12 @@ function DesktopWorkspace() {
       }
 
       const secretDrafts = environmentSecretDraftsRef.current[tabId] ?? {}
-      await actions.saveEnvironment(draft, secretDrafts)
+      const saved = await actions.saveEnvironment(draft, secretDrafts)
+
+      if (!saved) {
+        return
+      }
+
       setEnvironmentDrafts((current) => {
         const next = { ...current }
         delete next[tabId]
@@ -1227,6 +1232,10 @@ function DesktopWorkspace() {
   }
 
   const closeDrawer = () => {
+    if (snapshot.ui.rightDrawer === 'diagnostics') {
+      setExportPassphrase('')
+      setImportPayload('')
+    }
     setConnectionDraft(undefined)
     setConnectionDraftParentId(undefined)
     void actions.updateUiState({
@@ -1235,39 +1244,45 @@ function DesktopWorkspace() {
     })
   }
 
-  const saveConnectionProfile = (
+  const saveConnectionProfile = async (
     profile: ConnectionProfile,
     secret: string | undefined,
   ) => {
-    void (async () => {
-      let nextProfile = profile
+    let nextProfile = profile
 
-      if (connectionDraft?.id === profile.id && profile.environmentIds.length === 0) {
-        const environment = createEnvironmentProfile()
-        await actions.saveEnvironment(environment)
-        nextProfile = {
-          ...profile,
-          environmentIds: [environment.id],
-          updatedAt: new Date().toISOString(),
-        }
+    if (connectionDraft?.id === profile.id && profile.environmentIds.length === 0) {
+      const environment = createEnvironmentProfile()
+      const environmentSaved = await actions.saveEnvironment(environment)
+
+      if (!environmentSaved) {
+        return false
       }
 
-      const saved = await actions.saveConnection(nextProfile, secret)
-      if (!saved) {
-        return
+      nextProfile = {
+        ...profile,
+        environmentIds: [environment.id],
+        updatedAt: new Date().toISOString(),
       }
-      if (connectionDraftParentId !== undefined) {
-        await actions.moveLibraryNode({
-          nodeId: connectionLibraryNodeId(nextProfile.id),
-          parentId: connectionDraftParentId,
-        })
-      }
+    }
 
-      if (connectionDraft?.id === profile.id) {
-        setConnectionDraft(undefined)
-        setConnectionDraftParentId(undefined)
-      }
-    })()
+    const saved = await actions.saveConnection(nextProfile, secret)
+    if (!saved) {
+      return false
+    }
+
+    if (connectionDraftParentId !== undefined) {
+      await actions.moveLibraryNode({
+        nodeId: connectionLibraryNodeId(nextProfile.id),
+        parentId: connectionDraftParentId,
+      })
+    }
+
+    if (connectionDraft?.id === profile.id) {
+      setConnectionDraft(undefined)
+      setConnectionDraftParentId(undefined)
+    }
+
+    return true
   }
 
   const cloneEnvironmentProfile = (environment: EnvironmentProfile) => {
@@ -1289,7 +1304,12 @@ function DesktopWorkspace() {
     })
 
     void (async () => {
-      await actions.saveEnvironment(clone)
+      const saved = await actions.saveEnvironment(clone)
+
+      if (!saved) {
+        return
+      }
+
       await actions.createEnvironmentTab(clone.id)
     })()
   }
@@ -2150,7 +2170,6 @@ function DesktopWorkspace() {
               key={[
                 snapshot.ui.rightDrawer,
                 drawerConnection?.id ?? 'none',
-                activeEnvironment?.id ?? 'none',
               ].join('-')}
               view={snapshot.ui.rightDrawer}
               width={snapshot.ui.rightDrawerWidth}

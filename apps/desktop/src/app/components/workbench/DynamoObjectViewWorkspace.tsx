@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -11,17 +13,23 @@ import {
   ObjectSecurityIcon,
   ObjectTableIcon,
   PlayIcon,
-  RefreshIcon,
   WarningIcon,
 } from './icons'
 import {
   getDynamoObjectViewDescriptor,
   type DynamoObjectViewDescriptor,
 } from './DynamoObjectViewDescriptors'
-import { ExplorerNodeIcon } from './SideBar.node-icons'
+import {
+  dynamoWorkflows,
+  type DynamoWorkflowIconName,
+} from './DynamoObjectViewWorkflows'
+import { DynamoObjectViewInsights } from './DynamoObjectViewInsights'
+import { dynamoOperationActions } from './DynamoObjectViewOperations.helpers'
+import { ObjectViewHeader } from './ObjectViewHeader'
+import { WideColumnOperationStrip } from './WideColumnObjectViewOperations'
 
 type JsonRecord = Record<string, unknown>
-type DynamoSectionIconName = 'table' | 'index' | 'security' | 'job'
+type DynamoSectionIconName = DynamoWorkflowIconName
 
 interface DynamoObjectViewWorkspaceProps {
   connection: ConnectionProfile
@@ -29,6 +37,7 @@ interface DynamoObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function DynamoObjectViewWorkspace({
@@ -37,6 +46,7 @@ export function DynamoObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onPlanOperation,
 }: DynamoObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -52,39 +62,40 @@ export function DynamoObjectViewWorkspace({
     }
   }, [onRefresh, tab.id])
   const queryTarget = useMemo(() => dynamoQueryTargetFromObjectView(tab), [tab])
-  const workflows = dynamoWorkflows(kind, descriptor, Boolean(queryTarget))
   const cards = dynamoMetricCards(payload)
   const sections = dynamoSections(kind, payload, descriptor)
+  const availableSectionKeys = new Set(sections.map((section) => section.key))
+  const workflows = dynamoWorkflows(kind, descriptor, Boolean(queryTarget), availableSectionKeys)
+  const operationActions = dynamoOperationActions(connection, tab, kind, payload)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
-      <div className="object-view-toolbar">
-        <div className="object-view-heading">
-          <ExplorerNodeIcon connection={connection} kind={kind} />
-          <div>
-            <strong>{descriptor.title}</strong>
-            <span>
-              {[connection.name, environment.label, ...(state?.path ?? [])].filter(Boolean).join(' / ')}
-            </span>
-          </div>
-        </div>
-        <div className="object-view-actions">
-          {queryTarget && descriptor.primaryQueryLabel ? (
-            <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-              <PlayIcon className="panel-inline-icon" />
-              {descriptor.primaryQueryLabel}
-            </button>
-          ) : null}
-          <button type="button" className="drawer-button" disabled={refreshing} onClick={refresh}>
-            <RefreshIcon className="panel-inline-icon" />
-            {refreshing ? 'Refreshing' : 'Refresh'}
+      <ObjectViewHeader
+        connection={connection}
+        environment={environment}
+        kind={kind}
+        path={state?.path}
+        title={descriptor.title}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      >
+        {queryTarget && descriptor.primaryQueryLabel ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel}
           </button>
-        </div>
-      </div>
+        ) : null}
+      </ObjectViewHeader>
 
       <DynamoWarningList warnings={dynamoWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         {workflows.length ? (
           <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
             <div className="object-view-action-chips">
@@ -106,6 +117,16 @@ export function DynamoObjectViewWorkspace({
                   >
                     {chip}
                   </button>
+                ) : workflow.targetSection ? (
+                  <button
+                    key={workflow.label}
+                    type="button"
+                    className="object-view-action-chip object-view-action-chip--button"
+                    title={workflow.title}
+                    onClick={() => focusSection(workflow.targetSection!)}
+                  >
+                    {chip}
+                  </button>
                 ) : (
                   <span key={workflow.label} className="object-view-action-chip" title={workflow.title}>
                     {chip}
@@ -115,6 +136,15 @@ export function DynamoObjectViewWorkspace({
             </div>
           </section>
         ) : null}
+
+        <WideColumnOperationStrip
+          actions={operationActions}
+          connection={connection}
+          environment={environment}
+          onPlanOperation={onPlanOperation}
+        />
+
+        <DynamoObjectViewInsights kind={kind} payload={payload} />
 
         {cards.length ? (
           <section className="object-view-section">
@@ -132,7 +162,12 @@ export function DynamoObjectViewWorkspace({
 
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <DynamoSectionHeading icon={section.icon} title={section.title} unit={section.unit} />
               <DynamoObjectViewTable columns={section.columns} rows={section.rows} emptyText={section.emptyText} />
             </section>
@@ -210,60 +245,6 @@ function DynamoObjectViewTable({
   )
 }
 
-function dynamoWorkflows(
-  kind: string,
-  descriptor: DynamoObjectViewDescriptor,
-  hasQueryTarget: boolean,
-) {
-  const workflows: Array<{
-    label: string
-    title: string
-    icon: DynamoSectionIconName
-    action?: 'query'
-  }> = []
-
-  if (hasQueryTarget) {
-    workflows.push({
-      label: 'Items',
-      title: descriptor.primaryQueryLabel ?? 'Open a key-condition query',
-      icon: 'table',
-      action: 'query',
-    })
-  }
-
-  if (['table', 'tables', 'items'].includes(kind)) {
-    workflows.push(
-      { label: 'Keys', title: 'Review partition and sort keys', icon: 'table' },
-      { label: 'Indexes', title: 'Review GSIs and LSIs', icon: 'index' },
-      { label: 'Capacity', title: 'Review consumed capacity and throttles', icon: 'job' },
-    )
-  }
-
-  if (['indexes', 'global-secondary-indexes', 'local-secondary-indexes'].includes(kind)) {
-    workflows.push(
-      { label: 'Projection', title: 'Review projected attributes', icon: 'index' },
-      { label: 'Capacity', title: 'Review index capacity and backfill state', icon: 'job' },
-    )
-  }
-
-  if (['diagnostics', 'capacity', 'hot-partitions', 'alarms'].includes(kind)) {
-    workflows.push(
-      { label: 'Capacity', title: 'Review read/write usage and throttles', icon: 'job' },
-      { label: 'Hot Keys', title: 'Review high-traffic partition keys', icon: 'job' },
-      { label: 'Alarms', title: 'Review configured alarms', icon: 'job' },
-    )
-  }
-
-  if (['security', 'permissions'].includes(kind)) {
-    workflows.push(
-      { label: 'Policies', title: 'Review IAM-style policies', icon: 'security' },
-      { label: 'Principals', title: 'Review principals and access scope', icon: 'security' },
-    )
-  }
-
-  return dedupeWorkflows(workflows).slice(0, 5)
-}
-
 function dynamoSections(
   kind: string,
   payload: JsonRecord,
@@ -277,6 +258,7 @@ function dynamoSections(
     }
 
     return [{
+      key: candidate.key,
       title: candidate.title,
       icon: candidate.icon,
       unit: `${rows.length} row(s)`,
@@ -290,6 +272,7 @@ function dynamoSections(
     const rows = arrayOfRecords(payload.objects)
     if (rows.length) {
       return [{
+        key: 'objects',
         title: descriptor.title,
         icon: 'table' as const,
         unit: `${rows.length} row(s)`,
@@ -517,15 +500,4 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function normalizeKind(kind: string) {
   return kind.trim().toLowerCase().replace(/[_\s]+/g, '-')
-}
-
-function dedupeWorkflows<T extends { label: string }>(workflows: T[]) {
-  const seen = new Set<string>()
-  return workflows.filter((workflow) => {
-    if (seen.has(workflow.label)) {
-      return false
-    }
-    seen.add(workflow.label)
-    return true
-  })
 }

@@ -21,6 +21,7 @@ mod tests_workbench;
 mod ui;
 mod validators;
 mod workspace;
+mod workspace_bundle;
 
 use crate::domain::models::WorkspaceSnapshot;
 

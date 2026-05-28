@@ -37,6 +37,9 @@ const DESCRIPTORS: Record<string, MysqlObjectViewDescriptor> = {
   permissions: descriptor('permissions', 'Review Grants', 'MySQL Grants', 'Review database, table, routine, and global grants for visible principals.', 'No grants were returned', 'The current account may not be allowed to inspect grants.'),
   diagnostics: descriptor('diagnostics', 'Open Diagnostics', 'MySQL Diagnostics', 'Review sessions, processlist, InnoDB status, slow-query signals, replication, and performance_schema counters.', 'No diagnostics are loaded', 'Refresh diagnostics to collect available MySQL status metadata.'),
   sessions: descriptor('sessions', 'Review Sessions', 'MySQL Sessions', 'Review active sessions, commands, state, duration, and lock/blocking hints.', 'No sessions were returned', 'Processlist metadata may be restricted.'),
+  'slow-queries': descriptor('slow-queries', 'Review Slow Queries', 'MySQL Slow Queries', 'Review digest latency, counts, max latency, and rows examined from performance_schema where available.', 'No slow-query rows were returned', 'performance_schema digest metadata may be disabled or restricted.'),
+  'innodb-status': descriptor('innodb-status', 'Review InnoDB Status', 'InnoDB Status', 'Review buffer pool, row-lock waits, purge lag, and storage-engine pressure without raw SHOW output.', 'No InnoDB status rows were returned', 'The server may not use InnoDB or metadata may be restricted.'),
+  'status-counters': descriptor('status-counters', 'Review Status Counters', 'MySQL Status Counters', 'Review global status counters, threads, slow query counts, and workload signals.', 'No status counters were returned', 'SHOW GLOBAL STATUS may be restricted.'),
   replication: descriptor('replication', 'Open Replication', 'MySQL Replication', 'Review replica/source status, lag, threads, GTID, and channel health.', 'No replication metadata was returned', 'This server may not be configured for replication.'),
 }
 

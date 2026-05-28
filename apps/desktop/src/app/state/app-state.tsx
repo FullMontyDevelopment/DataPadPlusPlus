@@ -30,7 +30,7 @@ const defaultActions: Actions = {
   deleteConnection: noop,
   saveConnection: noopFalse,
   createEnvironment: noop,
-  saveEnvironment: noop,
+  saveEnvironment: noopFalse,
   deleteEnvironment: noop,
   createTab: noop,
   createExplorerTab: noop,

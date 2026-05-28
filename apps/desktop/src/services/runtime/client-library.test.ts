@@ -30,6 +30,29 @@ describe('client library local-file saves', () => {
     })
   })
 
+  it('rejects invalid supplied desktop local-save paths before invoking Tauri', async () => {
+    window.__TAURI_INTERNALS__ = {}
+    const { clientLibrary } = await import('./client-library')
+
+    await expect(
+      clientLibrary.saveQueryTabToLocalFile({
+        tabId: 'tab-1',
+        path: '..\\orders.sql',
+      }),
+    ).rejects.toThrow(/absolute file path/)
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid library item ids before invoking Tauri', async () => {
+    window.__TAURI_INTERNALS__ = {}
+    const { clientLibrary } = await import('./client-library')
+
+    await expect(clientLibrary.openLibraryItem('../secret')).rejects.toThrow(
+      /unsupported characters/,
+    )
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
   it('still validates browser-preview local saves before mutating storage', async () => {
     const { clientLibrary } = await import('./client-library')
 

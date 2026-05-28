@@ -178,6 +178,30 @@ describe('RedisKeyBrowserPanel', () => {
     )
     expect(screen.queryByRole('dialog', { name: /Delete Redis key/ })).not.toBeInTheDocument()
   })
+
+  it('reports Redis delete guardrail blocks without opening a second confirmation dialog', async () => {
+    vi.useFakeTimers()
+    const onExecuteDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> =>
+      redisDeleteConfirmationRequiredResponse(),
+    )
+
+    render(
+      <RedisHarness
+        onBuilderStateChange={vi.fn()}
+        onExecuteDataEdit={onExecuteDataEdit}
+        onScanRedisKeys={vi.fn(async () => redisScanResponse())}
+      />,
+    )
+
+    await flushDebouncedScan()
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete perf:1' }))
+    await flushPromises()
+
+    expect(onExecuteDataEdit).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog', { name: /Delete this Redis key/ })).not.toBeInTheDocument()
+    expect(screen.getByText('This data edit needs confirmation before it can run.')).toBeInTheDocument()
+  })
 })
 
 function RedisHarness({
@@ -287,5 +311,19 @@ function redisDeleteResponse(): DataEditExecutionResponse {
     },
     messages: ['Deleted key.'],
     warnings: [],
+  }
+}
+
+function redisDeleteConfirmationRequiredResponse(): DataEditExecutionResponse {
+  return {
+    ...redisDeleteResponse(),
+    executed: false,
+    plan: {
+      ...redisDeleteResponse().plan,
+      confirmationText: 'CONFIRM QA',
+      warnings: ['This data edit needs confirmation before it can run.'],
+    },
+    messages: [],
+    warnings: ['This data edit needs confirmation before it can run.'],
   }
 }

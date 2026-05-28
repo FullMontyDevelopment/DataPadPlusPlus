@@ -31,6 +31,10 @@ import {
   sectionCandidates,
   type RelationalSectionIcon,
 } from './RelationalObjectViewSections'
+export {
+  relationalWorkflows,
+  type RelationalWorkflow,
+} from './RelationalObjectViewWorkflows'
 
 export type JsonRecord = Record<string, unknown>
 export type RelationalObjectViewDescriptor =
@@ -40,79 +44,14 @@ export type RelationalObjectViewDescriptor =
   | PostgresObjectViewDescriptor
   | SqlServerObjectViewDescriptor
   | SqliteObjectViewDescriptor
-export type RelationalWorkflow = {
-  label: string
-  title: string
-  icon: RelationalSectionIcon
-  action?: 'query'
-}
 export type RelationalSection = {
+  key: string
   title: string
   icon: RelationalSectionIcon
   unit: string
   columns: string[]
   rows: string[][]
   emptyText: string
-}
-
-export function relationalWorkflows(
-  connection: ConnectionProfile,
-  kind: string,
-  descriptor: RelationalObjectViewDescriptor,
-  hasQueryTarget: boolean,
-) {
-  const workflows: RelationalWorkflow[] = []
-
-  if (hasQueryTarget) {
-    workflows.push({
-      label: 'Data',
-      title: descriptor.primaryQueryLabel ?? 'Open a bounded data query',
-      icon: 'table',
-      action: 'query',
-    })
-  }
-
-  if (['table', 'view', 'materialized-view', 'hypertable'].includes(kind)) {
-    workflows.push(
-      { label: 'Columns', title: 'Review columns and types', icon: 'table' },
-      { label: 'Indexes', title: 'Review access paths and index health', icon: 'index' },
-      { label: 'Grants', title: 'Review object permissions', icon: 'security' },
-    )
-  }
-
-  if (['procedure', 'function', 'stored-procedures', 'functions'].includes(kind)) {
-    workflows.push(
-      { label: connection.engine === 'sqlserver' ? 'T-SQL' : 'Source', title: 'Review routine source summary', icon: 'table' },
-      { label: 'Params', title: 'Review parameters and signatures', icon: 'table' },
-      { label: 'Grants', title: 'Review execute permissions', icon: 'security' },
-    )
-  }
-
-  if (['security', 'roles', 'users', 'permissions', 'schemas'].includes(kind)) {
-    workflows.push(
-      { label: 'Users', title: 'Review users and principals', icon: 'security' },
-      { label: 'Roles', title: 'Review role membership', icon: 'security' },
-      { label: 'Grants', title: 'Review effective permissions', icon: 'security' },
-    )
-  }
-
-  if (['diagnostics', 'query-store', 'query-store-view', 'cluster'].includes(kind)) {
-    workflows.push(
-      { label: 'Sessions', title: 'Review active sessions', icon: 'job' },
-      { label: 'Waits', title: 'Review waits and blocking signals', icon: 'job' },
-      { label: connection.engine === 'cockroachdb' ? 'Jobs' : 'Plans', title: 'Review workload health signals', icon: 'job' },
-    )
-  }
-
-  if (['indexes', 'index'].includes(kind)) {
-    workflows.push(
-      { label: 'Usage', title: 'Review index usage', icon: 'index' },
-      { label: 'Health', title: 'Review validity and fragmentation hints', icon: 'job' },
-      { label: 'Preview', title: 'Plan guarded index maintenance', icon: 'security' },
-    )
-  }
-
-  return dedupeWorkflows(workflows).slice(0, 5)
 }
 
 export function relationalSections(
@@ -129,6 +68,7 @@ export function relationalSections(
     }
 
     return [{
+      key: candidate.key,
       title: candidate.title,
       icon: candidate.icon,
       unit: `${rows.length} row(s)`,
@@ -142,6 +82,7 @@ export function relationalSections(
     const genericRows = arrayOfRecords(payload.objects)
     if (genericRows.length) {
       return [{
+        key: 'objects',
         title: descriptor.title,
         icon: 'table',
         unit: `${genericRows.length} row(s)`,
@@ -176,6 +117,9 @@ export function metricCardsForPayload(
     ['Regions', ['regionCount']],
     ['Jobs', ['jobCount']],
     ['Retries', ['retryCount']],
+    ['Pages', ['pageCount']],
+    ['Freelist', ['freelistCount']],
+    ['Check', ['quickCheckStatus']],
     ['Engine', ['engine']],
   ]
 
@@ -371,15 +315,4 @@ function sqlTextSummary(value: unknown) {
   const keyword = text.match(/\b(select|insert|update|delete|merge|create|alter|drop|exec|execute|with)\b/i)?.[1]
   const label = keyword ? `${keyword.toUpperCase()} statement` : 'SQL text'
   return `${label} (${text.length.toLocaleString()} chars)`
-}
-
-function dedupeWorkflows<T extends { label: string }>(workflows: T[]) {
-  const seen = new Set<string>()
-  return workflows.filter((workflow) => {
-    if (seen.has(workflow.label)) {
-      return false
-    }
-    seen.add(workflow.label)
-    return true
-  })
 }

@@ -314,6 +314,14 @@ function sqlServerDatabaseChildren(): DatastoreTreeNodeManifest[] {
       ],
     }),
     node('query-store', 'Query Store', 'query-store', 'Runtime stats, plans, and regressed queries'),
+    node('performance', 'Performance', 'performance', 'Sessions, locks, waits, and tuning hints', {
+      children: [
+        node('sessions', 'Sessions', 'sessions', 'Active sessions and requests'),
+        node('locks', 'Locks', 'locks', 'Locks and blocking chains'),
+        node('waits', 'Wait Stats', 'waits', 'Wait categories and pressure'),
+        node('missing-indexes', 'Missing Indexes', 'missing-indexes', 'Optimizer missing-index hints'),
+      ],
+    }),
     node('extended-events', 'Extended Events', 'extended-events', 'Database-scoped Extended Events sessions'),
     node('agent', 'Agent', 'sql-server-agent', 'Jobs, schedules, alerts, operators, and proxies', {
       children: [
@@ -344,8 +352,13 @@ function postgresFamilyTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[
     node('tables', 'Tables', 'tables', 'Base tables'),
     node('views', 'Views', 'views', 'Views'),
     node('materialized-views', 'Materialized Views', 'materialized-views', 'Persisted query projections'),
-    sqlProgrammabilityNode(engine !== 'cockroachdb'),
     node('indexes', 'Indexes', 'indexes', 'Indexes and access paths'),
+    node('functions', 'Functions', 'functions', 'Stored functions'),
+    ...(engine === 'cockroachdb'
+      ? []
+      : [node('procedures', 'Procedures', 'procedures', 'Stored procedures')]),
+    node('sequences', 'Sequences', 'sequences', 'Sequence generators'),
+    node('types', 'Types', 'types', 'Enum, composite, domain, and range types'),
     node('extensions', 'Extensions', 'extensions', 'Installed extensions'),
     node('security', 'Security', 'security', 'Roles, grants, and privileges'),
   ]
@@ -360,7 +373,16 @@ function postgresFamilyTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[
     }),
     node('system-schemas', 'System Schemas', 'system-schemas', 'pg_catalog, information_schema, and extension internals'),
     node('security', 'Security', 'security', 'Roles and permissions'),
-    node('diagnostics', 'Diagnostics', 'diagnostics', 'Sessions, locks, stats, and health metadata'),
+    node('diagnostics', 'Diagnostics', 'diagnostics', 'Sessions, locks, waits, statements, and relation health', {
+      children: [
+        node('sessions', 'Sessions', 'sessions', 'pg_stat_activity sessions'),
+        node('locks', 'Locks', 'locks', 'pg_locks and blocking hints'),
+        node('waits', 'Wait Events', 'waits', 'Wait event categories and pressure'),
+        node('statements', 'Statement Stats', 'statements', 'pg_stat_statements summaries where available'),
+        node('statistics', 'Relation Statistics', 'statistics', 'pg_stat relation and database stats'),
+        node('index-health', 'Index Health', 'index-health', 'Index usage and maintenance signals'),
+      ],
+    }),
   ]
 }
 
@@ -426,17 +448,35 @@ function mysqlTree(): DatastoreTreeNodeManifest[] {
       children: [
         node('selected-database', '{{database:default}}', 'database', 'Selected database', {
           children: [
-            node('tables', 'Tables', 'tables', 'Base tables'),
-            node('views', 'Views', 'views', 'Views'),
-            sqlProgrammabilityNode(true),
-            node('indexes', 'Indexes', 'indexes', 'Indexes and foreign keys'),
-            node('security', 'Security', 'security', 'Users, host grants, and roles'),
+            node('tables', 'Tables', 'tables', 'Base tables and storage engines'),
+            node('views', 'Views', 'views', 'Stored SELECT definitions'),
+            node('procedures', 'Stored Procedures', 'procedures', 'Stored procedure routines'),
+            node('functions', 'Functions', 'functions', 'Stored functions'),
+            node('events', 'Events', 'events', 'Scheduled event jobs'),
+            node('triggers', 'Triggers', 'triggers', 'Database and table triggers'),
+            node('indexes', 'Indexes', 'indexes', 'Schema-level index list'),
+            node('storage', 'Storage', 'storage', 'Storage engines, table sizes, and fragmentation'),
           ],
         }),
       ],
     }),
     node('system-schemas', 'System Schemas', 'system-schemas', 'information_schema, performance_schema, mysql, and sys'),
-    node('diagnostics', 'Diagnostics', 'diagnostics', 'Status, performance schema, and slow query metadata'),
+    node('security', 'Users / Privileges', 'security', 'Users, roles, grants, authentication plugins, and privilege scope', {
+      children: [
+        node('users', 'Users', 'users', 'User accounts and authentication plugins'),
+        node('roles', 'Roles', 'roles', 'Role assignments where supported'),
+        node('permissions', 'Grants', 'permissions', 'Visible grants and privilege scopes'),
+      ],
+    }),
+    node('diagnostics', 'Diagnostics', 'diagnostics', 'Status, performance schema, and slow query metadata', {
+      children: [
+        node('sessions', 'Sessions', 'sessions', 'Processlist and active statements'),
+        node('status-counters', 'Status Counters', 'statistics', 'Global status and table counters'),
+        node('slow-queries', 'Slow Queries', 'slow-queries', 'Digest latency and slow-query signals'),
+        node('innodb-status', 'InnoDB Status', 'innodb-status', 'Buffer pool, lock waits, and engine health'),
+        node('replication', 'Replication', 'replication', 'Source/replica channel health'),
+      ],
+    }),
   ]
 }
 
@@ -591,66 +631,111 @@ function sqliteDatabaseChildren(): DatastoreTreeNodeManifest[] {
     node('views', 'Views', 'views', 'Stored SELECT definitions'),
     node('indexes', 'Indexes', 'indexes', 'Standalone and table indexes'),
     node('triggers', 'Triggers', 'triggers', 'Database and table triggers'),
+    node('maintenance', 'Maintenance', 'maintenance', 'Integrity checks, analyze, optimize, vacuum, and backup workflows'),
   ]
-}
-
-function sqlProgrammabilityNode(includeStoredProcedures: boolean): DatastoreTreeNodeManifest {
-  return node('programmability', 'Programmability', 'programmability', 'Procedures, functions, triggers, and types', {
-    children: [
-      ...(includeStoredProcedures
-        ? [node('stored-procedures', 'Stored Procedures', 'stored-procedures', 'Callable stored routines')]
-        : []),
-      node('functions', 'Functions', 'functions', 'Scalar and table-valued functions'),
-      node('triggers', 'Triggers', 'triggers', 'Triggers'),
-      node('sequences', 'Sequences', 'sequences', 'Generated numeric sequences'),
-      node('types', 'Types', 'types', 'User-defined types'),
-      node('synonyms', 'Synonyms', 'synonyms', 'Object aliases'),
-    ],
-  })
 }
 
 function searchTree(): DatastoreTreeNodeManifest[] {
   return [
-    node('cluster', 'Cluster', 'cluster', 'Cluster health and topology'),
+    node('cluster', 'Cluster', 'cluster', 'Cluster health and topology', {
+      children: [
+        node('health', 'Health', 'health', 'Cluster health and shard allocation'),
+        node('nodes', 'Nodes', 'nodes', 'Node roles, heap, disk, CPU, and indexing/search load'),
+        node('shard-allocation', 'Shard Allocation', 'shards', 'Shard routing and node placement'),
+      ],
+    }),
     node('indices', 'Indices', 'indices', 'Search indexes'),
     node('data-streams', 'Data Streams', 'data-streams', 'Append-oriented streams'),
     node('aliases', 'Aliases', 'aliases', 'Index aliases'),
-    node('mappings', 'Mappings', 'mappings', 'Mappings and analyzers'),
-    node('templates', 'Templates', 'templates', 'Index and component templates'),
+    node('templates', 'Templates', 'templates', 'Index and component templates', {
+      children: [
+        node('index-templates', 'Index Templates', 'templates', 'Composable index templates'),
+        node('component-templates', 'Component Templates', 'templates', 'Reusable template components'),
+      ],
+    }),
     node('pipelines', 'Pipelines', 'pipelines', 'Ingest pipelines'),
-    node('security', 'Security', 'security', 'Roles, users, and index privileges'),
-    node('diagnostics', 'Diagnostics', 'diagnostics', 'Shards, segments, cat APIs, and profile data'),
+    node('security', 'Security', 'security', 'Roles, users, and index privileges', {
+      children: [
+        node('users', 'Users', 'users', 'Visible users and realms'),
+        node('roles', 'Roles', 'roles', 'Cluster and index privileges'),
+        node('api-keys', 'API Keys', 'api-keys', 'API keys and expiry state'),
+      ],
+    }),
+    node('diagnostics', 'Diagnostics', 'diagnostics', 'Shards, segments, tasks, snapshots, and lifecycle', {
+      children: [
+        node('shards', 'Shards', 'shards', 'Shard routing and state'),
+        node('segments', 'Segments', 'segments', 'Lucene segment counts and deleted docs'),
+        node('tasks', 'Tasks', 'tasks', 'Active task list'),
+        node('snapshots', 'Snapshots', 'snapshots', 'Snapshot repositories and states'),
+        node('lifecycle-policies', 'Lifecycle Policies', 'lifecycle-policies', 'ILM or ISM policy status'),
+      ],
+    }),
   ]
 }
 
 function dynamoDbTree(): DatastoreTreeNodeManifest[] {
   return [
-    node('tables', 'Tables', 'tables', 'DynamoDB tables', {
+    node('tables', 'Tables', 'tables', 'DynamoDB tables'),
+    node('security', 'Access', 'security', 'IAM and table policies', {
       children: [
-        node('items', 'Items', 'items', 'Table items'),
-        node('global-secondary-indexes', 'Global Secondary Indexes', 'indexes', 'GSIs'),
-        node('local-secondary-indexes', 'Local Secondary Indexes', 'indexes', 'LSIs'),
-        node('streams', 'Streams', 'streams', 'DynamoDB Streams'),
-        node('ttl', 'TTL', 'ttl', 'Time-to-live settings'),
+        node('permissions', 'Permissions', 'permissions', 'Visible table, stream, and index privileges'),
+        node('policies', 'Table Policies', 'policies', 'Resource policies and disabled action reasons'),
       ],
     }),
-    node('security', 'Security', 'security', 'IAM and table policies'),
-    node('diagnostics', 'Diagnostics', 'diagnostics', 'Consumed capacity, throttles, and costs'),
+    node('diagnostics', 'Diagnostics', 'diagnostics', 'Consumed capacity, throttles, and costs', {
+      children: [
+        node('capacity', 'Capacity', 'capacity', 'Read/write usage, throttles, and latency'),
+        node('hot-partitions', 'Hot Partitions', 'hot-partitions', 'High-traffic partition keys'),
+        node('alarms', 'Alarms', 'alarms', 'Capacity, latency, and stream alarms'),
+        node('backups', 'Backups', 'backups', 'PITR and on-demand backups'),
+      ],
+    }),
   ]
 }
 
 function cassandraTree(): DatastoreTreeNodeManifest[] {
   return [
+    node('selected-keyspace', '{{database}}', 'keyspace', 'Selected Cassandra keyspace', {
+      requiresDatabase: true,
+      children: cassandraKeyspaceChildren(),
+    }),
     node('keyspaces', 'Keyspaces', 'keyspaces', 'Cassandra keyspaces', {
+      hiddenWhenDatabaseSelected: true,
+    }),
+    node('system-keyspaces', 'System Keyspaces', 'system-keyspaces', 'system_schema, system, and tracing metadata'),
+    node('cluster', 'Cluster', 'cluster', 'Nodes, datacenters, token ownership, and replication', {
       children: [
-        node('tables', 'Tables', 'tables', 'Partition-key tables'),
-        node('materialized-views', 'Materialized Views', 'materialized-views', 'Materialized views'),
-        node('indexes', 'Indexes', 'indexes', 'Secondary indexes and SAI'),
-        node('types', 'Types', 'types', 'User-defined types'),
+        node('nodes', 'Nodes', 'nodes', 'Node status, datacenter, rack, and token ownership'),
+        node('replication', 'Replication', 'statistics', 'Replication strategy and factor by keyspace'),
+        node('repairs', 'Repairs', 'repairs', 'Repair and anti-entropy posture'),
       ],
     }),
-    node('security', 'Security', 'security', 'Roles and permissions'),
-    node('diagnostics', 'Diagnostics', 'diagnostics', 'Tracing, compaction, repair, and cluster status'),
+    node('security', 'Security', 'security', 'Roles and permissions', {
+      children: [
+        node('roles', 'Roles', 'security', 'Role hierarchy and login state'),
+        node('permissions', 'Permissions', 'permissions', 'Visible grants and resource permissions'),
+      ],
+    }),
+    node('diagnostics', 'Diagnostics', 'diagnostics', 'Tracing, compaction, repair, and cluster status', {
+      children: [
+        node('tracing', 'Tracing', 'tracing', 'Trace sessions and latency detail'),
+        node('compaction', 'Compaction', 'compaction', 'Pending compactions and compaction throughput'),
+        node('statistics', 'Statistics', 'statistics', 'Read/write latency, tombstones, and dropped messages'),
+        node('repairs', 'Repairs', 'repairs', 'Repair schedules and pending ranges'),
+      ],
+    }),
+  ]
+}
+
+function cassandraKeyspaceChildren(): DatastoreTreeNodeManifest[] {
+  return [
+    node('tables', 'Tables', 'tables', 'Partition-key-first tables'),
+    node('materialized-views', 'Materialized Views', 'materialized-views', 'Derived query tables'),
+    node('indexes', 'Indexes', 'indexes', 'SAI and secondary indexes'),
+    node('types', 'Types', 'types', 'User-defined types'),
+    node('functions', 'Functions', 'functions', 'User-defined functions'),
+    node('aggregates', 'Aggregates', 'aggregates', 'User-defined aggregates'),
+    node('permissions', 'Permissions', 'permissions', 'Visible grants for this keyspace'),
   ]
 }
 
@@ -661,23 +746,33 @@ function prometheusTree(): DatastoreTreeNodeManifest[] {
     node('targets', 'Targets', 'targets', 'Scrape targets'),
     node('rules', 'Rules', 'rules', 'Recording and alerting rules'),
     node('alerts', 'Alerts', 'alerts', 'Alert states'),
+    node('service-discovery', 'Service Discovery', 'service-discovery', 'Discovered and dropped targets'),
+    node('tsdb', 'TSDB Status', 'tsdb', 'Head series, chunks, blocks, WAL, and retention'),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'TSDB, runtime, and status metadata'),
   ]
 }
 
 function influxTree(): DatastoreTreeNodeManifest[] {
   return [
+    node('selected-bucket', '{{database}}', 'bucket', 'Selected InfluxDB bucket', {
+      requiresDatabase: true,
+      children: influxBucketChildren(),
+    }),
     node('buckets', 'Buckets', 'buckets', 'InfluxDB buckets and retention scopes', {
-      children: [
-        node('measurements', 'Measurements', 'measurements', 'Measurement names'),
-        node('tags', 'Tags', 'tags', 'Indexed dimensions'),
-        node('fields', 'Fields', 'fields', 'Field values'),
-        node('retention-policies', 'Retention Policies', 'retention-policies', 'Retention and shard groups'),
-      ],
+      hiddenWhenDatabaseSelected: true,
     }),
     node('tasks', 'Tasks', 'tasks', 'Scheduled Flux tasks'),
     node('security', 'Tokens', 'security', 'Authorizations and bucket scopes'),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'Cardinality, storage, and query health'),
+  ]
+}
+
+function influxBucketChildren(): DatastoreTreeNodeManifest[] {
+  return [
+    node('measurements', 'Measurements', 'measurements', 'Measurement names'),
+    node('tags', 'Tags', 'tags', 'Indexed dimensions'),
+    node('fields', 'Fields', 'fields', 'Field values'),
+    node('retention-policies', 'Retention Policies', 'retention-policies', 'Retention and shard groups'),
   ]
 }
 
@@ -714,15 +809,12 @@ function graphTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[] {
   const proceduresLabel = engine === 'neptune' ? 'Loader Jobs' : engine === 'arango' ? 'Services' : 'Procedures'
 
   return [
-    node('graphs', rootLabel, 'graphs', `${engine} graph scopes`, {
-      children: [
-        node('node-labels', 'Node Labels', 'node-labels', 'Node categories'),
-        node('relationship-types', 'Relationship Types', 'relationship-types', 'Edge categories'),
-        node('property-keys', 'Property Keys', 'property-keys', 'Property definitions'),
-        node('indexes', 'Indexes', 'indexes', 'Graph indexes'),
-        node('constraints', 'Constraints', 'constraints', 'Graph constraints'),
-      ],
-    }),
+    node('graphs', rootLabel, 'graphs', `${engine} graph scopes`),
+    node('node-labels', 'Node Labels', 'node-labels', 'Node categories'),
+    node('relationship-types', 'Relationship Types', 'relationship-types', 'Edge categories'),
+    node('property-keys', 'Property Keys', 'property-keys', 'Property definitions'),
+    node('indexes', 'Indexes', 'indexes', 'Graph indexes'),
+    node('constraints', 'Constraints', 'constraints', 'Graph constraints'),
     node('procedures', proceduresLabel, 'procedures', 'Procedures, services, algorithms, or loader jobs'),
     node('security', 'Security', 'security', 'Users, roles, and graph permissions'),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'Explain/profile and backend health'),
@@ -731,39 +823,32 @@ function graphTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[] {
 
 function bigQueryTree(): DatastoreTreeNodeManifest[] {
   return [
-    node('projects', 'Projects', 'projects', 'Google Cloud projects', {
-      children: [
-        node('datasets', 'Datasets', 'datasets', 'BigQuery datasets', {
-          children: [
-            node('tables', 'Tables', 'tables', 'Tables'),
-            node('views', 'Views', 'views', 'Views'),
-            node('routines', 'Routines', 'functions', 'Routines and functions'),
-            node('jobs', 'Jobs', 'jobs', 'Query and load jobs'),
-          ],
-        }),
-      ],
-    }),
+    node('datasets', 'Datasets', 'datasets', 'BigQuery datasets'),
+    node('tables', 'Tables', 'tables', 'Partitioned and clustered tables'),
+    node('views', 'Views', 'views', 'Views'),
+    node('materialized-views', 'Materialized Views', 'materialized-views', 'Materialized views'),
+    node('stages', 'External Tables', 'stages', 'External tables and object sources'),
+    node('warehouses', 'Reservations', 'warehouses', 'Slots, reservations, and assignments'),
+    node('jobs', 'Jobs', 'jobs', 'Query and load jobs'),
     node('security', 'Security', 'security', 'IAM and dataset access'),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'Slots, bytes, jobs, and cost metadata'),
   ]
 }
 
 function warehouseTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[] {
+  const namespaceLabel = engine === 'clickhouse' ? 'Databases' : 'Databases'
+  const computeLabel = engine === 'clickhouse' ? 'Clusters' : 'Warehouses'
+  const jobsLabel = engine === 'snowflake' ? 'Tasks & Query History' : 'Jobs'
+  const stageLabel = engine === 'clickhouse' ? 'External Tables' : 'Stages'
+
   return [
-    node('databases', 'Databases', 'databases', `${engine} databases`, {
-      children: [
-        node('schemas', 'Schemas', 'schemas', 'Schemas', {
-          children: [
-            node('tables', 'Tables', 'tables', 'Tables'),
-            node('views', 'Views', 'views', 'Views'),
-            node('materialized-views', 'Materialized Views', 'materialized-views', 'Materialized views'),
-            node('stages', 'Stages', 'stages', 'Internal and external stages'),
-            node('tasks', 'Tasks', 'tasks', 'Tasks and scheduled work'),
-          ],
-        }),
-      ],
-    }),
-    node('warehouses', 'Warehouses', 'warehouses', 'Compute warehouses'),
+    node('databases', namespaceLabel, 'databases', `${engine} databases`),
+    node('tables', 'Tables', 'tables', 'Tables'),
+    node('views', 'Views', 'views', 'Views'),
+    node('materialized-views', 'Materialized Views', 'materialized-views', 'Materialized views'),
+    node('stages', stageLabel, 'stages', 'Internal and external stages'),
+    node('warehouses', computeLabel, 'warehouses', 'Compute warehouses'),
+    node('jobs', jobsLabel, 'jobs', 'Query history, jobs, and scheduled work'),
     node('security', 'Security', 'security', 'Roles and grants'),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'Query history, cost, and utilization'),
   ]

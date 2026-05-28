@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import type { MongoObjectViewDescriptor } from './MongoObjectViewDescriptors'
-import { ObjectRoleIcon, TrashIcon } from './icons'
+import { CloseIcon, ObjectRoleIcon, PlusIcon, TrashIcon } from './icons'
 import { PurposeEmptyState, SectionHeading } from './ObjectViewPrimitives'
 
 type JsonRecord = Record<string, unknown>
@@ -36,6 +36,7 @@ export function MongoSecurityView({
   const [privilegeDatabase, setPrivilegeDatabase] = useState(database || 'admin')
   const [privilegeCollection, setPrivilegeCollection] = useState('')
   const [privilegeActions, setPrivilegeActions] = useState('find, insert, update')
+  const [showCreateForm, setShowCreateForm] = useState(false)
   const [validationError, setValidationError] = useState('')
   const rows = isRoleView
     ? roles.map((role) => [
@@ -80,6 +81,7 @@ export function MongoSecurityView({
         }]
       : []
     setValidationError('')
+    setShowCreateForm(false)
     onPlanOperation?.({
       title: `${isRoleView ? 'Create role' : 'Create user'} ${name}`,
       operationId: isRoleView ? 'mongodb.role.create' : 'mongodb.user.create',
@@ -118,7 +120,22 @@ export function MongoSecurityView({
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectRoleIcon} title={descriptor.title} unit={`${rows.length} row(s)`} />
+      <div className="object-view-section-heading-row">
+        <SectionHeading Icon={ObjectRoleIcon} title={descriptor.title} unit={`${rows.length} row(s)`} />
+        <button
+          type="button"
+          className="drawer-button"
+          disabled={!onPlanOperation}
+          title={isRoleView ? 'Create a MongoDB role' : 'Create a MongoDB user'}
+          onClick={() => {
+            setValidationError('')
+            setShowCreateForm((current) => !current)
+          }}
+        >
+          {showCreateForm ? <CloseIcon className="panel-inline-icon" /> : <PlusIcon className="panel-inline-icon" />}
+          {showCreateForm ? 'Close' : isRoleView ? 'Create Role' : 'Create User'}
+        </button>
+      </div>
       <div className="object-view-card-grid">
         <div className="object-view-card">
           <span>{isRoleView ? 'Roles' : 'Users'}</span>
@@ -174,6 +191,7 @@ export function MongoSecurityView({
           </table>
         </div>
       )}
+      {showCreateForm ? (
       <div className="object-view-management">
         <strong>{isRoleView ? 'Create Role' : 'Create User'}</strong>
         <div className="object-view-form-grid">
@@ -248,10 +266,11 @@ export function MongoSecurityView({
             disabled={!onPlanOperation}
             onClick={previewCreate}
           >
-            {isRoleView ? 'Create Role' : 'Create User'}
+            Review
           </button>
         </div>
       </div>
+      ) : null}
     </div>
   )
 }

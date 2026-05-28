@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -11,14 +13,19 @@ import {
   ObjectSearchIcon,
   ObjectSecurityIcon,
   PlayIcon,
-  RefreshIcon,
   WarningIcon,
 } from './icons'
 import {
   getSearchObjectViewDescriptor,
   type SearchObjectViewDescriptor,
 } from './SearchObjectViewDescriptors'
-import { ExplorerNodeIcon } from './SideBar.node-icons'
+import {
+  searchWorkflows,
+  type SearchWorkflowIconName,
+} from './SearchObjectViewWorkflows'
+import { SearchObjectViewInsights } from './SearchObjectViewInsights'
+import { SearchOperationStrip } from './SearchObjectViewOperations'
+import { ObjectViewHeader } from './ObjectViewHeader'
 
 type JsonRecord = Record<string, unknown>
 
@@ -28,6 +35,7 @@ interface SearchObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function SearchObjectViewWorkspace({
@@ -36,6 +44,7 @@ export function SearchObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onPlanOperation,
 }: SearchObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -53,37 +62,37 @@ export function SearchObjectViewWorkspace({
   const queryTarget = useMemo(() => searchQueryTargetFromObjectView(tab), [tab])
   const sections = searchSections(kind, payload, descriptor)
   const cards = searchMetricCards(payload, connection)
-  const workflows = searchWorkflows(kind, descriptor, Boolean(queryTarget))
+  const availableSectionKeys = new Set(sections.map((section) => section.key))
+  const workflows = searchWorkflows(kind, descriptor, Boolean(queryTarget), availableSectionKeys)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
-      <div className="object-view-toolbar">
-        <div className="object-view-heading">
-          <ExplorerNodeIcon connection={connection} kind={kind} />
-          <div>
-            <strong>{descriptor.title}</strong>
-            <span>
-              {[connection.name, environment.label, ...(state?.path ?? [])].filter(Boolean).join(' / ')}
-            </span>
-          </div>
-        </div>
-        <div className="object-view-actions">
-          {queryTarget && descriptor.primaryQueryLabel ? (
-            <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-              <PlayIcon className="panel-inline-icon" />
-              {descriptor.primaryQueryLabel}
-            </button>
-          ) : null}
-          <button type="button" className="drawer-button" disabled={refreshing} onClick={refresh}>
-            <RefreshIcon className="panel-inline-icon" />
-            {refreshing ? 'Refreshing' : 'Refresh'}
+      <ObjectViewHeader
+        connection={connection}
+        environment={environment}
+        kind={kind}
+        path={state?.path}
+        title={descriptor.title}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      >
+        {queryTarget && descriptor.primaryQueryLabel ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel}
           </button>
-        </div>
-      </div>
+        ) : null}
+      </ObjectViewHeader>
 
       <SearchWarningList warnings={searchWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         {workflows.length ? (
           <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
             <div className="object-view-action-chips">
@@ -105,6 +114,16 @@ export function SearchObjectViewWorkspace({
                   >
                     {chip}
                   </button>
+                ) : workflow.targetSection ? (
+                  <button
+                    key={workflow.label}
+                    type="button"
+                    className="object-view-action-chip object-view-action-chip--button"
+                    title={workflow.title}
+                    onClick={() => focusSection(workflow.targetSection!)}
+                  >
+                    {chip}
+                  </button>
                 ) : (
                   <span key={workflow.label} className="object-view-action-chip" title={workflow.title}>
                     {chip}
@@ -114,6 +133,21 @@ export function SearchObjectViewWorkspace({
             </div>
           </section>
         ) : null}
+
+        <SearchOperationStrip
+          connection={connection}
+          environment={environment}
+          tab={tab}
+          kind={kind}
+          payload={payload}
+          onPlanOperation={onPlanOperation}
+        />
+
+        <SearchObjectViewInsights
+          connection={connection}
+          kind={kind}
+          payload={payload}
+        />
 
         {cards.length ? (
           <section className="object-view-section">
@@ -131,7 +165,12 @@ export function SearchObjectViewWorkspace({
 
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <SearchSectionHeading icon={section.icon} title={section.title} unit={section.unit} />
               <SearchObjectViewTable columns={section.columns} rows={section.rows} emptyText={section.emptyText} />
             </section>
@@ -165,7 +204,7 @@ function SearchSectionHeading({
   )
 }
 
-type SearchSectionIconName = 'search' | 'index' | 'security' | 'job'
+type SearchSectionIconName = SearchWorkflowIconName
 
 function SearchSectionIcon({ icon }: { icon: SearchSectionIconName }) {
   const Icon =
@@ -211,72 +250,6 @@ function SearchObjectViewTable({
   )
 }
 
-function searchWorkflows(
-  kind: string,
-  descriptor: SearchObjectViewDescriptor,
-  hasQueryTarget: boolean,
-) {
-  const workflows: Array<{
-    label: string
-    title: string
-    icon: SearchSectionIconName
-    action?: 'query'
-  }> = []
-
-  if (hasQueryTarget) {
-    workflows.push({
-      label: 'Search',
-      title: descriptor.primaryQueryLabel ?? 'Open a bounded Query DSL search',
-      icon: 'search',
-      action: 'query',
-    })
-  }
-
-  if (['cluster', 'health', 'diagnostics'].includes(kind)) {
-    workflows.push(
-      { label: 'Health', title: 'Review cluster health and allocation status', icon: 'job' },
-      { label: 'Nodes', title: 'Review node roles, heap, disk, and load', icon: 'job' },
-      { label: 'Shards', title: 'Review shard placement and state', icon: 'index' },
-    )
-  }
-
-  if (['index', 'indices', 'data-stream', 'data-streams'].includes(kind)) {
-    workflows.push(
-      { label: 'Mappings', title: 'Review field mappings and analyzers', icon: 'search' },
-      { label: 'Shards', title: 'Review shard placement and health', icon: 'index' },
-      { label: 'Lifecycle', title: 'Review ILM or ISM state', icon: 'job' },
-    )
-  }
-
-  if (['security', 'users', 'roles', 'api-keys'].includes(kind)) {
-    workflows.push(
-      { label: 'Users', title: 'Review users and realms', icon: 'security' },
-      { label: 'Roles', title: 'Review cluster and index privileges', icon: 'security' },
-      { label: 'API Keys', title: 'Review API key state', icon: 'security' },
-    )
-  }
-
-  if (['templates', 'index-template', 'component-template', 'pipelines', 'pipeline'].includes(kind)) {
-    workflows.push(
-      { label: 'Definition', title: 'Review definition summary', icon: 'search' },
-      { label: 'Usage', title: 'Review dependent indices or pipelines', icon: 'index' },
-    )
-  }
-
-  return dedupeWorkflows(workflows).slice(0, 5)
-}
-
-function dedupeWorkflows<T extends { label: string }>(workflows: T[]) {
-  const seen = new Set<string>()
-  return workflows.filter((workflow) => {
-    if (seen.has(workflow.label)) {
-      return false
-    }
-    seen.add(workflow.label)
-    return true
-  })
-}
-
 function searchSections(
   kind: string,
   payload: JsonRecord,
@@ -291,6 +264,7 @@ function searchSections(
     }
 
     return [{
+      key: candidate.key,
       title: candidate.title,
       icon: candidate.icon,
       unit: `${rows.length} row(s)`,
@@ -304,6 +278,7 @@ function searchSections(
     const rows = arrayOfRecords(payload.objects)
     if (rows.length) {
       return [{
+        key: 'objects',
         title: descriptor.title,
         icon: 'search' as const,
         unit: `${rows.length} row(s)`,
@@ -376,7 +351,7 @@ function searchSectionCandidates(kind: string) {
   }
 
   if (kind === 'index' || kind === 'indices' || kind === 'documents') {
-    return common.filter((candidate) => ['indices', 'fields', 'aliases', 'shards', 'segments', 'settings', 'statistics'].includes(candidate.key))
+    return common.filter((candidate) => ['indices', 'fields', 'aliases', 'shards', 'segments', 'settings', 'lifecyclePolicies', 'statistics'].includes(candidate.key))
   }
 
   return common

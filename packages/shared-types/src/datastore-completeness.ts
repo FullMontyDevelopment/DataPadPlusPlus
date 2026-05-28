@@ -235,11 +235,11 @@ const BETA_PROFILE = profile({
   intellisense: preview('Most beta engines only have keyword or generic suggestions.', [
     'Add metadata-backed completions before promotion.',
   ]),
-  'object-views': missing('Purpose-built object views are not complete for this engine.', [
-    'Add engine-specific object-view descriptors and workspaces.',
+  'object-views': preview('Descriptor-backed object views exist for most beta engines, but many remain summary-first rather than deep native management tools.', [
+    'Deepen engine-specific object-view workspaces and remove remaining generic or raw-payload-first presentations.',
   ]),
-  'safe-editing': missing('Safe live editing is not complete for this engine.', [
-    'Add edit target validation and guarded data-edit plans first.',
+  'safe-editing': preview('Safe edit contracts exist at the platform level, but live editing is incomplete or unavailable for most beta engines.', [
+    'Add edit target validation, identity checks, and guarded live edits only where the adapter can prove the target.',
   ]),
   'guarded-operations': preview('Admin/destructive workflows are generally preview-only or absent.', [
     'Add operation manifests and environment-guarded previews.',
@@ -374,8 +374,4 @@ function partial(note: string, next: string[]) {
 
 function preview(note: string, next: string[]) {
   return { status: 'preview' as const, note, next }
-}
-
-function missing(note: string, next: string[]) {
-  return { status: 'missing' as const, note, next }
 }

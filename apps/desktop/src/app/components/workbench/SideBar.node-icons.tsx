@@ -287,6 +287,7 @@ const KIND_ICON_GROUPS: Array<[string[], IconDescriptor]> = [
       'chain',
       'chains',
       'management',
+      'maintenance',
       'operator',
       'operators',
       'program',

@@ -3196,6 +3196,12 @@ button:disabled:hover {
   min-width: 0;
   flex-direction: column;
   gap: 10px;
+  outline: none;
+  scroll-margin-block-start: 8px;
+}
+
+.object-view-section:focus-visible {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .object-view-section-heading {
@@ -3659,6 +3665,105 @@ button:disabled:hover {
 
 .object-view-status.is-success {
   color: var(--success);
+}
+
+.profile-result-view {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.profile-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-result-header > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.profile-result-header span,
+.profile-result-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.profile-result-header strong {
+  color: var(--heading);
+  font-size: 15px;
+}
+
+.profile-result-summary {
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.profile-stage-list {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-stage {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.profile-stage-marker {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--border);
+}
+
+.profile-stage-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.profile-stage-title,
+.profile-stage-details {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.profile-stage-title strong {
+  color: var(--heading);
+}
+
+.profile-stage-title span,
+.profile-stage-details span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.profile-stage-details span {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+}
+
+.profile-stage-details strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .metrics-dashboard {

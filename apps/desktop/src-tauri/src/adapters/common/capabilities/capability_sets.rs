@@ -104,6 +104,7 @@ pub(crate) const TIMESERIES_SQL_CAPABILITIES: &[&str] = &[
     "supports_schema_browser",
     "supports_result_snapshots",
     "supports_visual_query_builder",
+    "supports_admin_operations",
     "supports_explain_plan",
     "supports_plan_visualization",
     "supports_query_profile",

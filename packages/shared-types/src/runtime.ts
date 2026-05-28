@@ -63,6 +63,7 @@ export const DATASTORE_OPERATION_SCOPES = [
   'user',
   'role',
   'file',
+  'extension',
 ] as const
 
 export type DatastoreOperationScope = (typeof DATASTORE_OPERATION_SCOPES)[number]

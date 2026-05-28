@@ -13,7 +13,7 @@ interface ConnectionFooterProps {
   secretDraft: string
   selectedEnvironmentId: string
   getConnectionForAction(): ConnectionProfile
-  onSaveConnection(profile: ConnectionProfile, secret?: string): void
+  onSaveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
   onTestConnection(profile: ConnectionProfile, environmentId: string, secret?: string): void
 }
 
@@ -63,7 +63,7 @@ export function ConnectionFooter({
           type="button"
           className="drawer-button drawer-button--primary"
           title="Save this connection profile locally and close the drawer."
-          onClick={() => onSaveConnection(getConnectionForAction(), secretDraft)}
+          onClick={() => void onSaveConnection(getConnectionForAction(), secretDraft)}
         >
           Save Connection
         </button>

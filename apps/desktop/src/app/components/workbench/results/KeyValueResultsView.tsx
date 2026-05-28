@@ -115,6 +115,7 @@ export function KeyValueResultsView({
   const [pendingAdd, setPendingAdd] = useState<PendingAddState>()
   const [pendingRename, setPendingRename] = useState<PendingRenameState>()
   const [statusMessage, setStatusMessage] = useState('')
+  const [deletedSelectedKey, setDeletedSelectedKey] = useState<{ deletedKey: string; payloadKey: string }>()
   const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const canEdit = keyValueCanEdit(connection, editContext) && Boolean(onExecuteDataEdit)
   const activeEntryPatches = entryPatchState.version === entriesVersion
@@ -380,17 +381,17 @@ export function KeyValueResultsView({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(
-      onExecuteDataEdit,
-      request,
-      {
-        actionLabel: targetKind === 'member' && selectedKey
-          ? `Delete ${keyName} from ${selectedKey}.`
-          : `Delete ${keyName}.`,
-        confirm: confirmDataEdit,
-        confirmationTitle: targetKind === 'member' ? 'Delete this Redis item?' : 'Delete this key?',
-      },
-    )
+    const response =
+      request.editKind === 'delete-key' && targetKind === 'key'
+        ? await onExecuteDataEdit(request)
+        : await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+            actionLabel: targetKind === 'member' && selectedKey
+              ? `Delete ${keyName} from ${selectedKey}.`
+              : `Delete ${keyName}.`,
+            confirm: confirmDataEdit,
+            confirmationTitle: targetKind === 'member' ? 'Delete this Redis item?' : 'Delete this key?',
+          })
+
     if (response?.executed) {
       updateDraftEntries((current) => {
         const next = { ...current }
@@ -400,6 +401,9 @@ export function KeyValueResultsView({
         delete next[keyName]
         return next
       })
+      if (targetKind === 'key' && selectedKey === keyName) {
+        setDeletedSelectedKey({ deletedKey: keyName, payloadKey: selectedKey })
+      }
       setStatusMessage(targetKind === 'member' && selectedKey
         ? `Deleted ${keyName} from ${selectedKey}.`
         : `Deleted ${keyName}.`)
@@ -410,6 +414,11 @@ export function KeyValueResultsView({
 
   const redisType = payload?.redisType
   const selectedKey = payload?.key
+  const selectedKeyDeleted = Boolean(
+    selectedKey &&
+      deletedSelectedKey?.payloadKey === selectedKey &&
+      deletedSelectedKey.deletedKey === selectedKey,
+  )
   const canPlanKeyOperation = Boolean(onPlanOperation && selectedKey && connection && editContext)
 
   const planKeyExport = async () => {
@@ -454,7 +463,7 @@ export function KeyValueResultsView({
 
   return (
     <div className="keyvalue-results" aria-label="Key-value results">
-      {payload && selectedKey ? (
+      {payload && selectedKey && !selectedKeyDeleted ? (
         <RedisKeyDetailHeader
           canEdit={canEdit}
           canPlanKeyOperation={canPlanKeyOperation}

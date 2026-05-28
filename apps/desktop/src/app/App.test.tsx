@@ -378,6 +378,9 @@ describe('App', () => {
     expect(testConnectionSpy).toHaveBeenCalledWith(
       expect.objectContaining({ secret: 'datapadplusplus' }),
     )
+    expect(within(drawer).getByLabelText('Password / Credential')).toHaveValue(
+      'datapadplusplus',
+    )
     expect(
       within(screen.getByLabelText('library sidebar')).queryByText('MongoDB connection'),
     ).not.toBeInTheDocument()
@@ -963,6 +966,69 @@ describe('App', () => {
     ).toBeInTheDocument()
   })
 
+  it('keeps environment secret drafts visible when secure storage save fails', async () => {
+    vi.spyOn(desktopClient, 'storeSecret').mockRejectedValueOnce(
+      new Error('Secure store unavailable'),
+    )
+    render(<App />)
+
+    await createFirstConnection()
+    const sidebar = screen.getByLabelText('library sidebar')
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Environment actions for Local' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit environment Local' }))
+
+    const workspace = await screen.findByLabelText('Environment workspace')
+    fireEvent.change(within(workspace).getByLabelText('New variable key'), {
+      target: { value: 'API_TOKEN' },
+    })
+    fireEvent.change(within(workspace).getByLabelText('New variable value'), {
+      target: { value: 'token-value' },
+    })
+    fireEvent.click(within(workspace).getByRole('button', { name: 'Mark new variable as secret' }))
+    fireEvent.click(within(workspace).getByRole('button', { name: 'Add' }))
+
+    await waitFor(() => {
+      expect(within(workspace).getByLabelText('Environment secret value API_TOKEN')).toHaveValue(
+        'token-value',
+      )
+    })
+
+    fireEvent.click(within(workspace).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(desktopClient.storeSecret).toHaveBeenCalled()
+    })
+    expect(
+      within(screen.getByLabelText('Environment workspace')).getByLabelText(
+        'Environment secret value API_TOKEN',
+      ),
+    ).toHaveValue('token-value')
+    expect(
+      within(screen.getByLabelText('Environment workspace')).getByRole('button', { name: 'Save' }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not open a cloned environment tab when cloning fails to save', async () => {
+    render(<App />)
+
+    await createFirstConnection()
+    const sidebar = screen.getByLabelText('library sidebar')
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Environment actions for Local' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit environment Local' }))
+
+    const workspace = await screen.findByLabelText('Environment workspace')
+    const upsertEnvironmentSpy = vi
+      .spyOn(desktopClient, 'upsertEnvironment')
+      .mockRejectedValueOnce(new Error('Environment save failed'))
+
+    fireEvent.click(within(workspace).getByRole('button', { name: 'Clone' }))
+
+    await waitFor(() => {
+      expect(upsertEnvironmentSpy).toHaveBeenCalled()
+    })
+    expect(screen.queryByRole('tab', { name: /Environment - Copy of Local/ })).not.toBeInTheDocument()
+  })
+
   it('shows SQLite local database actions and creates a starter database path', async () => {
     const createLocalDatabaseSpy = vi.spyOn(desktopClient, 'createLocalDatabase')
     render(<App />)
@@ -1272,6 +1338,17 @@ describe('App', () => {
 
     expect(within(drawer).getByText('Bundle format looks valid.')).toBeInTheDocument()
     expect(within(drawer).getByRole('button', { name: 'Restore Workspace' })).toBeEnabled()
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Close drawer' }))
+    await waitFor(() => {
+      expect(screen.queryByLabelText('settings drawer')).not.toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByLabelText('Open settings'))
+    const reopenedDrawer = await screen.findByLabelText('settings drawer')
+
+    expect(within(reopenedDrawer).getByLabelText('Backup passphrase')).toHaveValue('')
+    expect(within(reopenedDrawer).getByLabelText('Workspace bundle')).toHaveValue('')
   })
 
   it('saves, opens, and deletes library query work from a real tab', async () => {

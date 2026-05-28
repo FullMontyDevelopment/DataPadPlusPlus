@@ -18,11 +18,7 @@ describe('browser explorer runtime', () => {
     expect(createExplorerNodes(connection, 'database:catalog').map((node) => node.label)).toEqual([
       'Collections',
       'Views',
-      'Time Series Collections',
-      'Capped Collections',
       'GridFS',
-      'Search Indexes',
-      'Vector Indexes',
       'Users',
       'Roles',
       'Database Statistics',
@@ -338,11 +334,30 @@ describe('browser explorer runtime', () => {
       nodeId: 'postgres:diagnostics',
     })
 
+    expect(createExplorerNodes(connection, 'postgres:diagnostics').map((node) => node.label)).toEqual([
+      'Sessions',
+      'Locks',
+      'Wait Events',
+      'Statement Stats',
+      'Relation Statistics',
+      'Index Health',
+    ])
+
     expect(diagnosticsResponse.payload).toMatchObject({
       engine: 'postgresql',
       activeSessions: 4,
       sessions: expect.arrayContaining([expect.objectContaining({ state: 'active' })]),
+      waits: expect.arrayContaining([expect.objectContaining({ waitType: 'CPU' })]),
+      statements: expect.arrayContaining([expect.objectContaining({ meanMs: 3.4 })]),
+      indexHealth: expect.arrayContaining([expect.objectContaining({ index: 'orders_updated_at_idx' })]),
     })
+
+    const statementsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'postgres:diagnostics:statements',
+    })
+    expect(statementsResponse.queryTemplate).toContain('pg_stat_statements')
   })
 
   it('returns PostgreSQL routine source payloads for native source previews', () => {
@@ -390,6 +405,96 @@ describe('browser explorer runtime', () => {
           definition: expect.stringContaining('refresh materialized view'),
         }),
       ],
+    })
+  })
+
+  it('mirrors TimescaleDB native time-series branches without live dependencies', () => {
+    const connection = timescaleConnection()
+
+    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+      'public',
+      'observability',
+      'pg_catalog',
+      'Hypertables',
+      'Continuous Aggregates',
+      'Jobs',
+      'Diagnostics',
+      'Security',
+    ])
+
+    expect(createExplorerNodes(connection, 'timescale:hypertables')).toEqual([
+      expect.objectContaining({
+        label: 'public.order_metrics',
+        kind: 'hypertable',
+        scope: 'hypertable:public:order_metrics',
+        queryTemplate: 'select * from "public"."order_metrics" limit 100;',
+      }),
+      expect.objectContaining({
+        label: 'observability.cpu_metrics',
+        kind: 'hypertable',
+      }),
+    ])
+
+    expect(createExplorerNodes(connection, 'hypertable:public:order_metrics').map((node) => node.label)).toEqual([
+      'Chunks',
+      'Compression',
+      'Retention Policy',
+      'Indexes',
+      'Statistics',
+    ])
+
+    expect(createExplorerNodes(connection, 'timescale:continuous-aggregates').map((node) => node.label)).toEqual([
+      'observability.hourly_order_metrics',
+      'observability.daily_cpu_metrics',
+    ])
+  })
+
+  it('returns TimescaleDB inspection payloads for hypertables, chunks, policies, and aggregates', () => {
+    const connection = timescaleConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const hypertableResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'hypertable:public:order_metrics',
+    })
+
+    expect(hypertableResponse.queryTemplate).toBe('select * from "public"."order_metrics" limit 100;')
+    expect(hypertableResponse.payload).toMatchObject({
+      engine: 'timescaledb',
+      tableName: 'order_metrics',
+      hypertables: expect.arrayContaining([expect.objectContaining({ name: 'order_metrics' })]),
+      chunks: expect.arrayContaining([expect.objectContaining({ chunk: '_hyper_1_42_chunk' })]),
+      compressionPolicies: expect.arrayContaining([expect.objectContaining({ policy: 'compress after 7 days' })]),
+      retentionPolicies: expect.arrayContaining([expect.objectContaining({ window: '90 days' })]),
+    })
+
+    const aggregateResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'continuous-aggregate:observability:hourly_order_metrics',
+    })
+
+    expect(aggregateResponse.payload).toMatchObject({
+      engine: 'timescaledb',
+      viewName: 'hourly_order_metrics',
+      continuousAggregates: expect.arrayContaining([expect.objectContaining({ bucket: '1 hour' })]),
+    })
+
+    const diagnosticsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'timescale:diagnostics',
+    })
+
+    expect(diagnosticsResponse.queryTemplate).toContain('timescaledb_information.chunks')
+    expect(diagnosticsResponse.payload).toMatchObject({
+      hypertableCount: 2,
+      chunkCount: 3,
+      jobs: expect.arrayContaining([expect.objectContaining({ jobType: 'compression policy' })]),
+      diagnostics: expect.arrayContaining([expect.objectContaining({ signal: 'Compression Coverage' })]),
     })
   })
 
@@ -494,6 +599,7 @@ describe('browser explorer runtime', () => {
       'Types',
       'Security',
       'Query Store',
+      'Performance',
       'Storage',
       'Extended Events',
       'Agent',
@@ -542,6 +648,20 @@ describe('browser explorer runtime', () => {
       engine: 'sqlserver',
       database: 'datapadplusplus',
       queryStore: expect.arrayContaining([expect.objectContaining({ name: 'Top Queries' })]),
+    })
+
+    const performanceResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'performance:datapadplusplus:sessions',
+    })
+
+    expect(performanceResponse.payload).toMatchObject({
+      engine: 'sqlserver',
+      database: 'datapadplusplus',
+      sessions: expect.arrayContaining([expect.objectContaining({ sessionId: 52 })]),
+      waits: expect.arrayContaining([expect.objectContaining({ waitType: 'PAGEIOLATCH_SH' })]),
+      missingIndexes: expect.arrayContaining([expect.objectContaining({ table: 'dbo.orders' })]),
     })
   })
 
@@ -601,7 +721,6 @@ describe('browser explorer runtime', () => {
 
     expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
       'Main Database',
-      'Attached Databases',
     ])
 
     expect(createExplorerNodes(connection, 'database:main').map((node) => node.label)).toEqual([
@@ -609,13 +728,7 @@ describe('browser explorer runtime', () => {
       'Views',
       'Indexes',
       'Triggers',
-      'Virtual Tables',
-      'FTS Tables',
-      'RTree Tables',
-      'Generated Columns',
-      'Attached Databases',
-      'Pragmas',
-      'Schema',
+      'Maintenance',
     ])
 
     const tableResponse = inspectExplorerNodeLocally(snapshot, {
@@ -645,6 +758,19 @@ describe('browser explorer runtime', () => {
       checks: [expect.objectContaining({ status: 'ok' })],
     })
     expect(JSON.stringify(pragmaResponse.payload)).not.toContain('PRAGMA quick_check')
+
+    const maintenanceResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'maintenance:main',
+    })
+    expect(maintenanceResponse.payload).toMatchObject({
+      engine: 'sqlite',
+      objectView: 'maintenance',
+      quickCheckStatus: 'ok',
+      checks: expect.arrayContaining([expect.objectContaining({ name: 'quick_check' })]),
+      maintenance: expect.arrayContaining([expect.objectContaining({ name: 'Vacuum', status: 'preview' })]),
+    })
   })
 
   it('returns LiteDB local-file tree and object-view payloads without generic document clutter', () => {
@@ -821,6 +947,14 @@ describe('browser explorer runtime', () => {
       expect.objectContaining({ label: 'products', kind: 'table' }),
     ])
 
+    expect(createExplorerNodes(connection, 'mysql:diagnostics').map((node) => node.label)).toEqual([
+      'Sessions',
+      'Status Counters',
+      'Slow Queries',
+      'InnoDB Status',
+      'Replication',
+    ])
+
     expect(createExplorerNodes(mysqlConnection('mariadb')).map((node) => node.label)).toEqual([
       'datapadplusplus',
       'System Schemas',
@@ -873,8 +1007,24 @@ describe('browser explorer runtime', () => {
     expect(diagnosticsResponse.payload).toMatchObject({
       engine: 'mysql',
       sessions: expect.arrayContaining([expect.objectContaining({ state: 'executing' })]),
+      slowQueries: expect.arrayContaining([expect.objectContaining({ digest: expect.stringContaining('accounts') })]),
+      innodbStatus: expect.arrayContaining([expect.objectContaining({ name: 'Buffer pool hit rate' })]),
       replication: expect.arrayContaining([expect.objectContaining({ state: 'not configured' })]),
     })
+
+    const slowQueryResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'mysql:diagnostics:slow-queries',
+    })
+    expect(slowQueryResponse.queryTemplate).toContain('events_statements_summary_by_digest')
+
+    const innodbResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'mysql:diagnostics:innodb-status',
+    })
+    expect(innodbResponse.queryTemplate).toBe('show engine innodb status;')
   })
 
   it('returns MySQL and MariaDB routine source payloads for native source previews', () => {
@@ -1494,6 +1644,9 @@ describe('browser explorer runtime', () => {
       ],
       columns: expect.arrayContaining([expect.objectContaining({ name: 'created_at' })]),
       diagnostics: expect.arrayContaining([expect.objectContaining({ signal: 'Broad Scan Risk' })]),
+      queryHistory: expect.arrayContaining([expect.objectContaining({ queryId: 'sf-query-1001' })]),
+      warehouseLoad: expect.arrayContaining([expect.objectContaining({ warehouse: 'ANALYTICS_XS' })]),
+      streams: expect.arrayContaining([expect.objectContaining({ name: 'orders_stream' })]),
     })
     expect(response.payload).not.toHaveProperty('command')
     expect(response.payload).not.toHaveProperty('raw')
@@ -1781,6 +1934,31 @@ function postgresConnection(): ConnectionProfile {
     favorite: false,
     readOnly: false,
     icon: 'postgresql',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: { username: 'app' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function timescaleConnection(): ConnectionProfile {
+  return {
+    id: 'conn-timescale',
+    name: 'TimescaleDB',
+    engine: 'timescaledb',
+    family: 'timeseries',
+    host: 'localhost',
+    port: 5432,
+    database: 'datapadplusplus',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'timescaledb',
     color: undefined,
     group: undefined,
     notes: undefined,

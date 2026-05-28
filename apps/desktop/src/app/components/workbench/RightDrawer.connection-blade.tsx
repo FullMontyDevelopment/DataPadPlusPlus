@@ -26,7 +26,7 @@ interface ConnectionBladeProps {
   environments: EnvironmentProfile[]
   connectionTest?: ConnectionTestResult
   onClose(): void
-  onSaveConnection(profile: ConnectionProfile, secret?: string): void
+  onSaveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
   onTestConnection(profile: ConnectionProfile, environmentId: string, secret?: string): void
   onPickLocalDatabaseFile(request: LocalDatabasePickRequest): Promise<LocalDatabasePickResult>
   onCreateLocalDatabase(
@@ -205,9 +205,14 @@ export function ConnectionBlade({
     onClose()
   }
 
-  const saveConnectionAndClearSecret = (profile: ConnectionProfile, secret?: string) => {
-    onSaveConnection(profile, secret)
-    setSecretDraft('')
+  const saveConnectionAndClearSecret = async (profile: ConnectionProfile, secret?: string) => {
+    const saved = await onSaveConnection(profile, secret)
+
+    if (saved) {
+      setSecretDraft('')
+    }
+
+    return saved
   }
 
   const testConnectionWithDraftSecret = (

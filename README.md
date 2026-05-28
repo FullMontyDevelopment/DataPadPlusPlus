@@ -71,7 +71,16 @@ Depending on the datastore, DataPad++ can show:
 - databases, schemas, tables, views, indexes, functions, procedures, packages, triggers, users, and roles
 - MongoDB databases, collections, views, GridFS, indexes, validation rules, schema previews, users, roles, and statistics
 - Redis logical databases, type folders, keys, TTLs, memory usage, streams, ACLs, slow logs, and diagnostics
-- search indexes, mappings, shards, aliases, data streams, and query tools
+- search indexes, mappings, field capabilities, shards, aliases, lifecycle state, data streams, profile results, and query tools
+- DynamoDB tables, keys, GSIs, LSIs, TTL, streams, backups, capacity, hot partitions, index coverage, and access previews
+- Cassandra keyspaces, tables, primary keys, indexes, materialized views, partition/storage health, tracing, grants, and diagnostics
+- Prometheus, InfluxDB, and OpenTSDB metrics, labels, measurements, tags, targets, rules, UID metadata, stats, posture panels, and guarded profile/cardinality/retention/UID/export previews
+- Neo4j, ArangoDB, JanusGraph, and Neptune graph labels, relationships, indexes, constraints, access, metrics, and guarded profile/export previews
+- Snowflake, BigQuery, and ClickHouse warehouse objects, jobs, stages/reservations, access, cost/storage/compute posture, ClickHouse query-log/MergeTree/cluster posture, dry-run/cost, table clone/copy/optimize/TTL/freeze, metrics, and import/export previews
+- DuckDB local files, schemas, tables, views, extensions, external file sources, PRAGMAs, local file posture, extension posture, analyze/checkpoint, and CSV/Parquet import/export previews
+- Cosmos DB containers, partition keys, indexing policy, RU throughput, regions, consistency, access, and guarded throughput/index/failover/export previews
+- LiteDB local files, collections, indexes, file storage, storage health, checkpoint/compact, backup/export, and guarded local management previews
+- Memcached stats, slabs, item classes, settings, connections, native cache metadata dumps, stats reset, and guarded flush previews
 - local database files, metadata, pragmas, tables, indexes, and integrity checks
 
 Right-click menus are designed to be object-aware. A table should feel like a table. A Redis key should feel like a Redis key. A MongoDB collection should feel like a collection, not a generic blob of JSON.
@@ -265,6 +274,7 @@ See [Docker Fixtures](tests/fixtures/README.md) for connection details and comma
 - [Testing Strategy](docs/testing/strategy.md)
 - [Architecture Overview](docs/architecture/overview.md)
 - [Datastore Adapter Roadmap](docs/architecture/datastore-adapter-roadmap.md)
+- [Datastore Readiness And Completion Plan](docs/architecture/datastore-readiness.md)
 - [Security And Safety](docs/architecture/security-and-safety.md)
 
 ## Contributing

@@ -7,8 +7,9 @@ use super::{
     tabs::reorder_query_tabs_in_place,
     timestamp_now,
     workspace::migrate_snapshot,
-    workspace::parse_workspace_bundle_payload,
-    workspace::{validate_bundle_passphrase, validate_bundle_payload_size},
+    workspace_bundle::{
+        parse_workspace_bundle_payload, validate_bundle_passphrase, validate_bundle_payload_size,
+    },
 };
 use crate::domain::models::{ConnectionAuth, ConnectionProfile, QueryTabState};
 
@@ -230,6 +231,59 @@ fn workspace_bundle_payload_accepts_legacy_snapshot_and_secret_envelope() {
         "secret-connection"
     );
     assert_eq!(parsed_envelope.secrets[0].value, "secret-value");
+}
+
+#[test]
+fn workspace_bundle_payload_rejects_malformed_secret_envelopes() {
+    let snapshot = blank_workspace_snapshot();
+
+    for (secret_ref, value) in [
+        (
+            serde_json::json!({
+                "id": "",
+                "provider": "os-keyring",
+                "service": "DataPad++",
+                "account": "connection:local",
+                "label": "Local connection password"
+            }),
+            serde_json::json!("secret-value"),
+        ),
+        (
+            serde_json::json!({
+                "id": "secret-connection",
+                "provider": "os-keyring",
+                "service": "DataPad++",
+                "account": "connection:local",
+                "label": "Local connection password"
+            }),
+            serde_json::json!(""),
+        ),
+        (
+            serde_json::json!({
+                "id": "secret-connection",
+                "provider": "os-keyring",
+                "service": "DataPad++",
+                "account": "connection:local",
+                "label": "Local connection password"
+            }),
+            serde_json::json!("secret\0value"),
+        ),
+    ] {
+        let envelope_json = serde_json::json!({
+            "snapshot": snapshot.clone(),
+            "secrets": [{
+                "secretRef": secret_ref,
+                "value": value
+            }]
+        })
+        .to_string();
+        let error = match parse_workspace_bundle_payload(&envelope_json) {
+            Ok(_) => panic!("malformed secret envelope should be rejected"),
+            Err(error) => error,
+        };
+
+        assert!(error.code.starts_with("workspace-bundle-secret"));
+    }
 }
 
 #[test]

@@ -124,3 +124,5 @@ The current core+popular completion set is:
 - Cassandra
 
 Other engines remain beta, contract-backed, fixture-backed, or roadmap-oriented until their native execution, identity, permission, and diagnostics surfaces are hardened.
+
+For the current per-engine gap list and recommended completion order, see the [Datastore Readiness And Completion Plan](datastore-readiness.md).

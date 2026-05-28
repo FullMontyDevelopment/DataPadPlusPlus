@@ -181,7 +181,7 @@ describe('ResultsView', () => {
     })
   })
 
-  it('reschedules render acknowledgment when a rerender cancels the pending frame', () => {
+  it('keeps a pending render acknowledgment alive across equivalent rerenders', () => {
     const result = resultEnvelope([{ _id: 'document-1', status: 'active' }], false)
     const activeExecution = {
       executionId: 'execution-rerender',
@@ -228,14 +228,24 @@ describe('ResultsView', () => {
         />,
       )
 
+      flushAnimationFrames(callbacks)
+      expect(onResultRendered).not.toHaveBeenCalled()
+
+      const clonedResult = {
+        ...result,
+        payloads: [...result.payloads],
+      }
+
       rerender(
         <ResultsView
           {...props}
-          activeTab={queryTab(result, activeExecution)}
+          payload={clonedResult.payloads[0]}
+          result={clonedResult}
+          activeTab={queryTab(clonedResult, activeExecution)}
         />,
       )
 
-      flushAnimationFrames(callbacks)
+      expect(cancelAnimationFrameSpy).not.toHaveBeenCalled()
       flushAnimationFrames(callbacks)
 
       expect(onResultRendered).toHaveBeenCalledWith(

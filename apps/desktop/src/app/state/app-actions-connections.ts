@@ -211,8 +211,10 @@ export function useConnectionActions({
         }
 
         applyPayload(await desktopClient.upsertEnvironment(sanitizedProfile))
+        return true
       } catch (error) {
         handleError(error)
+        return false
       }
     },
     [applyPayload, handleError, state.payload],

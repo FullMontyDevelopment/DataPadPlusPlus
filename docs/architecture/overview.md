@@ -80,7 +80,7 @@ The Tauri native host and infrastructure modules provide:
 1. A user creates or selects a saved connection and environment.
 2. The UI resolves the adapter manifest and datastore experience manifest.
 3. A query tab is opened explicitly from a connection/object context menu or tab-strip action.
-4. The query window chooses raw editor, builder, or split layout based on the active tab and builder support.
+4. The query window chooses the datastore-owned mode for the active tab, such as raw SQL, MongoDB Query Builder, MongoDB Scripting, Redis Key Browser, Redis Console, or a scoped visual builder.
 5. The application layer resolves variables, evaluates read-only/safe-mode guardrails, and dispatches to the Rust runtime.
 6. The adapter executes the read request or returns a guarded plan.
 7. Results are normalized into renderer payloads and routed to the results workbench.

@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
@@ -14,17 +16,23 @@ import {
   ObjectMetricIcon,
   ObjectStageIcon,
   PlayIcon,
-  RefreshIcon,
   WarningIcon,
 } from './icons'
 import {
   getLiteDbObjectViewDescriptor,
   type LiteDbObjectViewDescriptor,
 } from './LiteDbObjectViewDescriptors'
-import { ExplorerNodeIcon } from './SideBar.node-icons'
+import {
+  liteDbWorkflows,
+  type LiteDbWorkflowIconName,
+} from './LiteDbObjectViewWorkflows'
+import { liteDbOperationActions } from './LiteDbObjectViewOperations.helpers'
+import { ObjectViewOperationStrip } from './ObjectViewOperationStrip'
+import { ObjectViewHeader } from './ObjectViewHeader'
+import { LiteDbObjectViewInsights } from './LiteDbObjectViewInsights'
 
 type JsonRecord = Record<string, unknown>
-type LiteDbSectionIconName = 'database' | 'collection' | 'document' | 'index' | 'file' | 'storage' | 'diagnostics'
+type LiteDbSectionIconName = LiteDbWorkflowIconName
 
 interface LiteDbObjectViewWorkspaceProps {
   connection: ConnectionProfile
@@ -32,6 +40,7 @@ interface LiteDbObjectViewWorkspaceProps {
   tab: QueryTabState
   onRefresh(tabId: string): Promise<void> | void
   onOpenQuery(target: ScopedQueryTarget): void
+  onPlanOperation?: (request: OperationPlanRequest) => Promise<OperationPlanResponse | undefined>
 }
 
 export function LiteDbObjectViewWorkspace({
@@ -40,6 +49,7 @@ export function LiteDbObjectViewWorkspace({
   tab,
   onRefresh,
   onOpenQuery,
+  onPlanOperation,
 }: LiteDbObjectViewWorkspaceProps) {
   const state = tab.objectViewState
   const payload = asRecord(state?.payload)
@@ -55,39 +65,40 @@ export function LiteDbObjectViewWorkspace({
     }
   }, [onRefresh, tab.id])
   const queryTarget = useMemo(() => liteDbQueryTargetFromObjectView(tab), [tab])
-  const workflows = liteDbWorkflows(kind, descriptor, Boolean(queryTarget))
   const cards = liteDbMetricCards(payload, connection)
   const sections = liteDbSections(kind, payload, descriptor)
+  const availableSectionKeys = new Set(sections.map((section) => section.key))
+  const workflows = liteDbWorkflows(kind, descriptor, Boolean(queryTarget), availableSectionKeys)
+  const operationActions = liteDbOperationActions(connection, tab, kind, payload)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const focusSection = useCallback((sectionKey: string) => {
+    const section = bodyRef.current?.querySelector<HTMLElement>(`[data-relational-section-key="${sectionKey}"]`)
+    section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    section?.focus({ preventScroll: true })
+  }, [])
 
   return (
     <section className="object-view-workspace" aria-label={`${descriptor.title} object view`}>
-      <div className="object-view-toolbar">
-        <div className="object-view-heading">
-          <ExplorerNodeIcon connection={connection} kind={kind} />
-          <div>
-            <strong>{descriptor.title}</strong>
-            <span>
-              {[connection.name, environment.label, ...(state?.path ?? [])].filter(Boolean).join(' / ')}
-            </span>
-          </div>
-        </div>
-        <div className="object-view-actions">
-          {queryTarget && descriptor.primaryQueryLabel ? (
-            <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-              <PlayIcon className="panel-inline-icon" />
-              {descriptor.primaryQueryLabel}
-            </button>
-          ) : null}
-          <button type="button" className="drawer-button" disabled={refreshing} onClick={refresh}>
-            <RefreshIcon className="panel-inline-icon" />
-            {refreshing ? 'Refreshing' : 'Refresh'}
+      <ObjectViewHeader
+        connection={connection}
+        environment={environment}
+        kind={kind}
+        path={state?.path}
+        title={descriptor.title}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      >
+        {queryTarget && descriptor.primaryQueryLabel ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel}
           </button>
-        </div>
-      </div>
+        ) : null}
+      </ObjectViewHeader>
 
       <LiteDbWarningList warnings={liteDbWarnings(tab, payload)} />
 
-      <div className="object-view-body">
+      <div className="object-view-body" ref={bodyRef}>
         {workflows.length ? (
           <section className="object-view-section object-view-workflow-section" aria-label={`${descriptor.title} workflows`}>
             <div className="object-view-action-chips">
@@ -106,6 +117,16 @@ export function LiteDbObjectViewWorkspace({
                     className="object-view-action-chip object-view-action-chip--button"
                     title={workflow.title}
                     onClick={() => onOpenQuery(queryTarget)}
+                  >
+                    {chip}
+                  </button>
+                ) : workflow.targetSection ? (
+                  <button
+                    key={workflow.label}
+                    type="button"
+                    className="object-view-action-chip object-view-action-chip--button"
+                    title={workflow.title}
+                    onClick={() => focusSection(workflow.targetSection!)}
                   >
                     {chip}
                   </button>
@@ -133,9 +154,24 @@ export function LiteDbObjectViewWorkspace({
           </section>
         ) : null}
 
+        <ObjectViewOperationStrip
+          actions={operationActions}
+          ariaLabel="Guarded LiteDB operation previews"
+          connection={connection}
+          environment={environment}
+          onPlanOperation={onPlanOperation}
+        />
+
+        <LiteDbObjectViewInsights kind={kind} payload={payload} />
+
         {sections.length ? (
           sections.map((section) => (
-            <section className="object-view-section" key={section.title}>
+            <section
+              className="object-view-section"
+              key={section.key}
+              data-relational-section-key={section.key}
+              tabIndex={-1}
+            >
               <LiteDbSectionHeading icon={section.icon} title={section.title} unit={section.unit} />
               <LiteDbObjectViewTable columns={section.columns} rows={section.rows} emptyText={section.emptyText} />
             </section>
@@ -219,58 +255,13 @@ function LiteDbObjectViewTable({
   )
 }
 
-function liteDbWorkflows(
-  kind: string,
-  descriptor: LiteDbObjectViewDescriptor,
-  hasQueryTarget: boolean,
-) {
-  const workflows: Array<{
-    label: string
-    title: string
-    icon: LiteDbSectionIconName
-    action?: 'query'
-  }> = []
-
-  if (hasQueryTarget && descriptor.primaryQueryLabel) {
-    workflows.push({
-      label: descriptor.primaryQueryLabel,
-      title: 'Open a bounded LiteDB document query for this collection.',
-      icon: 'document',
-      action: 'query',
-    })
-  }
-
-  if (['database', 'collections'].includes(kind)) {
-    workflows.push(
-      { label: 'Collections', title: 'Review collection counts, indexes, and inferred fields.', icon: 'collection' },
-      { label: 'File Storage', title: 'Review LiteDB file storage metadata and chunk health.', icon: 'file' },
-      { label: 'Maintenance', title: 'Review checkpoint, shrink, and rebuild guidance before running maintenance.', icon: 'storage' },
-    )
-  }
-
-  if (['collection', 'schema', 'indexes', 'index'].includes(kind)) {
-    workflows.push(
-      { label: 'Schema', title: 'Review sampled field paths and mixed-type warnings.', icon: 'document' },
-      { label: 'Indexes', title: 'Review index expressions, uniqueness, and coverage.', icon: 'index' },
-    )
-  }
-
-  if (['storage', 'settings', 'diagnostics', 'file-storage', 'files', 'chunks'].includes(kind)) {
-    workflows.push(
-      { label: 'Storage', title: 'Review page allocation, free pages, and file footprint.', icon: 'storage' },
-      { label: 'Health', title: 'Review maintenance warnings and local-file health.', icon: 'diagnostics' },
-    )
-  }
-
-  return dedupeWorkflows(workflows).slice(0, 5)
-}
-
 function liteDbSections(
   kind: string,
   payload: JsonRecord,
   descriptor: LiteDbObjectViewDescriptor,
 ) {
   const sections: Array<{
+    key: string
     title: string
     icon: LiteDbSectionIconName
     unit?: string
@@ -288,35 +279,35 @@ function liteDbSections(
   const diagnostics = rowsFromRecords(payload.diagnostics, ['signal', 'value', 'status', 'guidance'])
 
   if (['database', 'collections'].includes(kind)) {
-    sections.push({ title: 'Collections', icon: 'collection', columns: ['name', 'documentCount', 'indexes', 'avgDocumentSize'], rows: collections, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'collections', title: 'Collections', icon: 'collection', columns: ['name', 'documentCount', 'indexes', 'avgDocumentSize'], rows: collections, emptyText: descriptor.emptyDescription })
   }
 
   if (['database', 'collection', 'schema'].includes(kind)) {
-    sections.push({ title: 'Schema Preview', icon: 'document', columns: ['path', 'types', 'presence', 'example', 'warning'], rows: fields, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'fields', title: 'Schema Preview', icon: 'document', columns: ['path', 'types', 'presence', 'example', 'warning'], rows: fields, emptyText: descriptor.emptyDescription })
   }
 
   if (['database', 'collection', 'indexes', 'index'].includes(kind)) {
-    sections.push({ title: 'Indexes', icon: 'index', columns: ['collection', 'name', 'expression', 'unique', 'status'], rows: indexes, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'indexes', title: 'Indexes', icon: 'index', columns: ['collection', 'name', 'expression', 'unique', 'status'], rows: indexes, emptyText: descriptor.emptyDescription })
   }
 
   if (['database', 'file-storage', 'files'].includes(kind)) {
-    sections.push({ title: 'Files', icon: 'file', columns: ['id', 'filename', 'length', 'uploadDate', 'chunks'], rows: files, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'files', title: 'Files', icon: 'file', columns: ['id', 'filename', 'length', 'uploadDate', 'chunks'], rows: files, emptyText: descriptor.emptyDescription })
   }
 
   if (['file-storage', 'chunks'].includes(kind)) {
-    sections.push({ title: 'Chunks', icon: 'file', columns: ['fileId', 'chunk', 'size', 'status'], rows: chunks, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'chunks', title: 'Chunks', icon: 'file', columns: ['fileId', 'chunk', 'size', 'status'], rows: chunks, emptyText: descriptor.emptyDescription })
   }
 
   if (['database', 'storage'].includes(kind)) {
-    sections.push({ title: 'Storage Health', icon: 'storage', columns: ['name', 'value', 'status', 'guidance'], rows: storage, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'storage', title: 'Storage Health', icon: 'storage', columns: ['name', 'value', 'status', 'guidance'], rows: storage, emptyText: descriptor.emptyDescription })
   }
 
   if (['database', 'settings'].includes(kind)) {
-    sections.push({ title: 'Settings', icon: 'storage', columns: ['name', 'value', 'scope'], rows: settings, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'settings', title: 'Settings', icon: 'storage', columns: ['name', 'value', 'scope'], rows: settings, emptyText: descriptor.emptyDescription })
   }
 
   if (['database', 'diagnostics'].includes(kind)) {
-    sections.push({ title: 'Diagnostics', icon: 'diagnostics', columns: ['signal', 'value', 'status', 'guidance'], rows: diagnostics, emptyText: descriptor.emptyDescription })
+    sections.push({ key: 'diagnostics', title: 'Diagnostics', icon: 'diagnostics', columns: ['signal', 'value', 'status', 'guidance'], rows: diagnostics, emptyText: descriptor.emptyDescription })
   }
 
   return sections.filter((section) => section.rows.length || kind === section.icon)
@@ -396,18 +387,6 @@ function stringArray(value: unknown) {
     : typeof value === 'string' && value.trim()
       ? [value.trim()]
       : []
-}
-
-function dedupeWorkflows<T extends { label: string }>(workflows: T[]) {
-  const seen = new Set<string>()
-  return workflows.filter((workflow) => {
-    if (seen.has(workflow.label)) {
-      return false
-    }
-
-    seen.add(workflow.label)
-    return true
-  })
 }
 
 function formatValue(value: unknown): string {

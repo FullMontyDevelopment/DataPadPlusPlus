@@ -62,17 +62,20 @@ For MongoDB, it can show:
 
 - databases
 - collections
+- views
+- GridFS buckets and files
 - indexes
-- document samples and inferred shapes
+- validation rules
+- schema previews based on bounded sampling
+- users, roles, and database statistics
 
 For Redis and Valkey, it can show:
 
-- key groups
+- logical databases
+- type folders
 - key names
-- types
-- TTL information
-- memory usage
-- typed value previews
+- TTL, memory, and encoding information
+- ACL, scripts, functions, diagnostics, and module sections when supported
 
 For search engines, it can show:
 
@@ -80,7 +83,7 @@ For search engines, it can show:
 - mappings
 - aliases
 - data streams
-- search result structures
+- field capabilities, shard health, lifecycle status, and search result structures
 
 For wide-column stores such as Cassandra, it can show:
 
@@ -89,6 +92,14 @@ For wide-column stores such as Cassandra, it can show:
 - primary-key structure
 - indexes
 - materialized views
+- partition, storage, tombstone, and cluster health signals
+
+For DynamoDB, it can show:
+
+- tables
+- partition and sort keys
+- global and local secondary indexes
+- streams, TTL, backups, capacity, hot partitions, alarms, index coverage, and access metadata
 
 Object menus provide relevant actions for the selected item. A table, collection, key, index, or folder should expose actions that make sense for that kind of object.
 
@@ -100,21 +111,15 @@ Raw editors are useful when you already know the query language. Visual builders
 
 Current query experiences include:
 
-- SQL editors for relational databases
+- SQL editors for relational databases, with raw SQL as the default
 - SQL SELECT builder for table-focused queries
-- MongoDB find builder
-- Redis and Valkey key browser
+- MongoDB query builder, raw command JSON, aggregation work, and safe scripting
+- Redis and Valkey key browser plus Redis console
 - Elasticsearch/OpenSearch query builder
 - DynamoDB key-condition builder
 - Cassandra partition-key builder
 
-When a builder is available, the toolbar can switch between:
-
-- Builder and Raw
-- Builder only
-- Raw only
-
-The builder and raw query stay synchronized, so the visual view can teach you the underlying query instead of hiding it.
+When a builder is available, the toolbar shows the modes that make sense for that datastore. MongoDB, for example, offers Query Builder, Raw, and Scripting. Redis offers Key Browser and Console. SQL tabs open as editors by default, and scoped table or view actions can open a SELECT builder when useful.
 
 ## MongoDB Experience
 
@@ -128,11 +133,14 @@ You can:
 - add filters with AND/OR grouping
 - turn filters on and off without deleting them
 - add projections and sort fields
-- control result size through paging
+- control result size through fetch size and Load More
 - view documents as expandable rows
+- turn on efficiency mode for large documents so nested content is fetched only when expanded
 - drag document fields into filters, projections, or sort
 - edit fields, values, and types where safe
-- inspect JSON and raw result output
+- inspect field JSON in a side panel
+- review Mongo explain plans in a purpose-built plan dashboard
+- open purpose-built views for schema, indexes, validation, GridFS, users, roles, statistics, and document insert/upload workflows
 
 Document editing is deliberate. You double-click to edit, and the app only enables edits when the adapter can identify the document safely.
 
@@ -183,9 +191,65 @@ You can:
 - browse indexes, data streams, and mappings
 - build search queries visually
 - inspect search hits, source documents, highlights, and aggregations
+- review field capability, shard-health, lifecycle, and profile views without reading raw API payloads
+- preview mapping, settings, alias, template, pipeline, rollover, snapshot, bulk, and security workflows behind guardrails
 - switch to raw query DSL
 - view profile, explain, shard, index, and cluster diagnostics where supported
 - plan index and mapping operations behind safety prompts
+
+## Graph Experience
+
+Graph stores use graph-native tree and object views instead of generic tables.
+
+Depending on the engine, DataPad++ can help you:
+
+- browse graphs, node labels, relationship types, properties, indexes, constraints, procedures, security, and diagnostics
+- open scoped Cypher, AQL, or Gremlin queries from graph objects
+- prepare guarded profile requests before running expensive traversals
+- review metrics, permissions, CloudWatch/IAM-style access, schema indexes, and constraints
+- preview index, constraint, and graph export workflows through environment guardrails
+
+Neo4j, ArangoDB, JanusGraph, and Amazon Neptune each keep their own request shapes and labels so the UI feels native to the graph engine.
+
+## Warehouse Experience
+
+Cloud and analytical warehouses use SQL-first workflows with cost and job awareness.
+
+DataPad++ can show:
+
+- databases, datasets, schemas, tables, views, stages, compute warehouses, jobs, reservations, security, and diagnostics
+- scoped Snowflake SQL, GoogleSQL, or ClickHouse SQL queries
+- dry-run or plan previews before broad warehouse queries
+- compact cost, compute, storage, access, query-history, warehouse-load, reservation, slot-usage, and job-timeline posture panels
+- cost/profile, query history, utilization, job, access, table clone/copy/optimize, warehouse suspend/resume, and import/export operation previews
+- guarded suspend/resume/drop plans for warehouse objects where supported
+
+Snowflake, BigQuery, and ClickHouse previews use their native concepts such as query history, credit usage, warehouse load, streams, shares, zero-copy clones, dry-run estimates, job timelines, reservations, slot usage, scheduled queries, copy jobs, system query logs, MergeTree parts, replicas, table optimization, TTL materialization, freeze snapshots, stages, and warehouse utilization.
+
+## Time-Series SQL Experience
+
+TimescaleDB builds on the PostgreSQL workflow with time-series native surfaces:
+
+- hypertables, chunks, compression, retention, continuous aggregates, and jobs in the tree
+- compact hypertable, policy, aggregate, and diagnostic posture panels
+- scoped data queries for hypertables and continuous aggregates
+- guarded compression-policy, retention-policy, and continuous-aggregate refresh previews
+- PostgreSQL-style roles, grants, indexes, explain/profile, and export workflows where they apply
+
+Prometheus, InfluxDB, and OpenTSDB keep their own non-SQL time-series workflows, with metric/label/bucket/tag trees, chart-ready results, cardinality and retention surfaces, and guarded metadata-operation previews.
+
+## Document, Local, And Cache Engines
+
+Document-like cloud and local engines keep their own management surfaces.
+
+DataPad++ can help you:
+
+- review Cosmos DB containers, partition keys, indexing policy, RU throughput, regions, consistency, access, and diagnostics
+- preview Cosmos DB query metrics, throughput changes, consistency changes, indexing policy updates, region failover, access checks, exports, and guarded drops
+- inspect LiteDB local files, collections, schema previews, indexes, file storage, storage health, and settings
+- preview LiteDB local health checks, checkpoint/compact, index changes, exports, backups, and collection drops
+- review Memcached stats, slabs, item classes, settings, connection pressure, and cache diagnostics
+- preview Memcached stats collection, stats reset, guarded flush, and LRU crawler metadata dumps without exposing fake key lists
 
 ## Results
 
@@ -268,34 +332,46 @@ Examples include:
 - index and storage stats
 - Redis INFO, SLOWLOG, ACL, and memory information
 - search-engine profile and shard details
+- DynamoDB capacity, TTL, stream, backup, IAM-style access, GSI, and export/import previews
+- Cassandra tracing, SAI/index, grants, and diagnostics previews
+- Prometheus, InfluxDB, and OpenTSDB profile, metrics/stats, access, posture panels, cardinality, retention, UID repair, export, and guarded metadata-operation previews
+- DuckDB local file posture, extension posture, PRAGMA/maintenance panels, table/database analyze, checkpoint, extension load/install, and CSV/Parquet import/export previews
 - cloud dry-run or cost estimates where available
 
 Destructive or administrative actions should be previewed first, with the generated SQL, command, or API request visible before execution is allowed.
 
 ## Datastore Coverage
 
-DataPad++ is growing in layers.
+DataPad++ is growing in layers. The complete current readiness matrix lives in the [Datastore Readiness And Completion Plan](architecture/datastore-readiness.md).
 
-### Main Completion Focus
+### Strongest Current Areas
 
-These engines are the main product focus:
+These engines have the deepest native-feeling surfaces today:
 
-- PostgreSQL
-- CockroachDB
-- SQL Server and Azure SQL
-- MySQL
-- MariaDB
-- SQLite
 - MongoDB
 - Redis and Valkey
+- SQL Server and Azure SQL
+- PostgreSQL
+- SQLite
+- CockroachDB
+- MySQL and MariaDB
+
+### Next Completion Focus
+
+The next hardening focus is:
+
+- finish MongoDB and Redis/Valkey as reference native datastores
+- deepen core SQL object views, diagnostics, safe row edits, and import/export
+- productionize Elasticsearch/OpenSearch, DynamoDB, and Cassandra
+- deepen local, cloud, analytics, graph, and time-series engines with native object views, operation previews, and live adapter depth
+
+### Broader Adapter Set
+
+The broader adapter set includes:
+
 - Elasticsearch and OpenSearch
 - DynamoDB
 - Cassandra
-
-### Broader Roadmap
-
-The broader roadmap includes:
-
 - Oracle
 - TimescaleDB
 - Cosmos DB
@@ -313,7 +389,7 @@ The broader roadmap includes:
 - Snowflake
 - BigQuery
 
-Some roadmap adapters are available as beta, preview, local fixture, mock, or read-oriented experiences while live production workflows are hardened.
+Some adapters are available as beta, preview, local fixture, cloud-contract, or read-oriented experiences while live production workflows are hardened.
 
 ## Sample Data And Fixtures
 

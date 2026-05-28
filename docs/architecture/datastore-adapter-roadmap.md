@@ -17,12 +17,14 @@ Current live or partially live product surfaces include:
 - explicit connection creation and save behavior
 - connection context menus for New Query, Explore, Edit Connection, duplicate, and delete-style workflows
 - explorer and object-tree surfaces that vary by datastore family
-- query builders for MongoDB find, SQL SELECT, DynamoDB key condition, Cassandra partition-key CQL, and search Query DSL
-- builder/raw toolbar layout modes for builder-capable query tabs
+- query builders for MongoDB find/aggregation, SQL SELECT, DynamoDB key condition, Cassandra partition-key CQL, and search Query DSL
+- datastore-specific query modes such as MongoDB Query Builder/Raw/Scripting, Redis Key Browser/Console, and raw SQL defaults for SQL engines
 - rich table and document result renderers, document-only paging, non-document virtualization, result runtime footer, query history, messages, and details
 - drag-and-drop document fields into filters, projection, and sort builder sections
 - safe edit planning/execution for supported natural data edits
 - guarded operation plans for admin/destructive/costly actions
+- datastore completeness tracking in `packages/shared-types/src/datastore-completeness.ts`
+- a current production-readiness reference in [Datastore Readiness And Completion Plan](datastore-readiness.md)
 - Docker fixture profiles with deterministic seed data
 - release workflow automation that bumps versions, tags `app-vX.Y.Z`, and creates draft Tauri releases
 
@@ -228,28 +230,28 @@ Goals:
 | MariaDB | `sql` | SQL | `mvp` | MySQL-compatible surfaces plus MariaDB roles, MariaDB EXPLAIN/ANALYZE output, engine/status panels. |
 | SQLite | `sql` | SQLite SQL / PRAGMA | `mvp` | Open/create DB, tables/indexes/views/triggers, PRAGMA metadata, `EXPLAIN QUERY PLAN`, integrity check, vacuum/analyze, local backup/export. |
 | Oracle | `sql` | SQL/PLSQL | `beta` | Schema/table/index/sequence/package browser, DDL editor, EXPLAIN PLAN/DBMS_XPLAN renderer, session/wait metrics, object grants, client-runtime warnings. |
-| TimescaleDB | `timeseries` | SQL / PostgreSQL wire | `beta` then `mvp` | PostgreSQL features plus hypertables, chunks, continuous aggregates, compression, retention, chunk stats, time-series dashboards. |
+| TimescaleDB | `timeseries` | SQL / PostgreSQL wire | `beta` then `mvp` | PostgreSQL features plus native hypertable/chunk/compression/retention/continuous-aggregate/job branches, compact posture panels, guarded policy/refresh previews, and deeper time-series dashboards. |
 | MongoDB | `document` | Query API / aggregation | `mvp` | Database/collection/index browser, document CRUD planning, visual find/filter builder, aggregation builder, explain, index stats, schema inference, shard/replica metrics. |
-| DynamoDB | `widecolumn` | Query/Scan/PartiQL | `beta` | Table/item browser, key-condition builder, GSI/LSI viewer, add/drop GSI plans, TTL/streams, consumed capacity, CloudWatch/throttle/cost dashboards. |
+| DynamoDB | `widecolumn` | Query/Scan/PartiQL | `beta` | Table/item browser, key-condition builder, key design, GSI/LSI viewer, TTL/streams/backups/capacity panels, hot partition signals, and guarded AWS-shaped previews for GSI, TTL, streams, capacity, backup, access, and export workflows. |
 | Cassandra | `widecolumn` | CQL | `beta` | Keyspace/table/type/index/materialized-view browser, CQL editor, partition-key builder, SAI/index guidance, tracing, repair/compaction status. |
-| Cosmos DB | `document` | SQL API and multi-model APIs | `beta` | Account/database/container browser, SQL query builder, partition key/indexing policy, RU charge, query metrics, latency charts, API adapters. |
-| LiteDB | `document` | LiteDB API / .NET bridge | `beta` | Open/create file, collection/document/index CRUD planning, query editor, password/encryption, export/import, schema sampling. |
+| Cosmos DB | `document` | SQL API and multi-model APIs | `beta` | Account/database/container browser, SQL query builder, partition/RU/indexing/global distribution panels, guarded throughput/consistency/failover previews, RU charge, query metrics, latency charts, API adapters. |
+| LiteDB | `document` | LiteDB API / .NET bridge | `beta` | Open/create file, collection/document/index CRUD planning, query editor, password/encryption, export/import, schema sampling, checkpoint/compact previews. |
 | Redis | `keyvalue` | RESP commands | `mvp` | Key browser, SCAN, typed editors, TTL, delete/rename plans, INFO/SLOWLOG/ACL, Streams/JSON/Search module support. |
 | Valkey | `keyvalue` | RESP commands | `beta` then `mvp` | Redis-compatible connection, SCAN, typed reads, TTL, diagnostics, ACL where supported. |
-| Memcached | `keyvalue` | Text/binary protocol | `beta` | Server stats, version, known-key get/gets, set/delete/incr/decr plans, slab/hit-rate/eviction dashboards. |
+| Memcached | `keyvalue` | Text/binary protocol | `beta` | Server stats, version, known-key get/gets, set/delete/incr/decr plans, slab/hit-rate/eviction dashboards, guarded stats reset and flush previews. |
 | Neo4j | `graph` | Cypher | `beta` | Database/node-label/relationship/index/constraint browser, Cypher editor, graph renderer, EXPLAIN/PROFILE, role/security browser. |
 | Neptune | `graph` | Gremlin/openCypher/SPARQL | `beta` | Language editors, graph/RDF renderers, status/cancel, explain/profile, CloudWatch metrics, bulk loader workflows. |
 | ArangoDB | `graph` | AQL / HTTP API | `beta` | Collection/document/edge/graph browser, AQL editor, index CRUD planning, AQL explain/profile, permissions, Foxx later. |
 | JanusGraph | `graph` | Gremlin | `beta` | Schema/index/property/label browser, Gremlin editor, graph renderer, index lifecycle/reindex, backend health. |
-| InfluxDB | `timeseries` | Flux/InfluxQL/SQL | `beta` | Bucket/measurement/field/tag explorer, query editor, line protocol import, retention/tasks, cardinality, v1/v2/v3 compatibility. |
-| Prometheus | `timeseries` | PromQL / HTTP API | `beta` | PromQL editor, series/label/target/rule browser, instant/range charts, alerts/rules/status, TSDB/head stats. |
-| OpenTSDB | `timeseries` | HTTP/Telnet API | `beta` | Metric/tag explorer, query builder with aggregator/downsample, stats, UID/tree management, network ACL warnings. |
+| InfluxDB | `timeseries` | Flux/InfluxQL/SQL | `beta` | Bucket/measurement/field/tag explorer, query editor, line protocol import, retention/tasks, cardinality posture, guarded retention previews, v1/v2/v3 compatibility. |
+| Prometheus | `timeseries` | PromQL / HTTP API | `beta` | PromQL editor, series/label/target/rule browser, instant/range charts, alerts/rules/status, TSDB/head stats, guarded cardinality previews. |
+| OpenTSDB | `timeseries` | HTTP/Telnet API | `beta` | Metric/tag explorer, query builder with aggregator/downsample, stats, UID/tree management, guarded UID repair previews, network ACL warnings. |
 | Elasticsearch | `search` | Query DSL / ES\|QL / SQL | `beta` | Cluster/index/data-stream/mapping browser, Query DSL editor, hits/aggs/charts, explain/profile, shard/segment/cat stats, role privileges, ILM/snapshot later. |
 | OpenSearch | `search` | Query DSL / OpenSearch APIs | `beta` | Elasticsearch-like adapter with version/plugin detection, security plugin, performance analyzer, ISM workflows. |
-| ClickHouse | `warehouse` | ClickHouse SQL | `beta` then `mvp` | Database/table/materialized-view browser, SQL editor, import/export plans, EXPLAIN pipeline, `system.query_log`, metrics dashboards, cluster topology. |
-| DuckDB | `embedded-olap` | SQL | `beta` | Open/create DB, table/view/schema browser, SQL over CSV/Parquet, EXPLAIN/ANALYZE/profiling, PRAGMA metadata, extension manager. |
-| Snowflake | `warehouse` | Snowflake SQL | `beta` | Account/database/schema/table/stage/warehouse browser, SQL editor, role/warehouse selector, query history/profile, cost/utilization charts, tasks/streams/shares. |
-| BigQuery | `warehouse` | GoogleSQL | `beta` | Project/dataset/table/job browser, SQL editor, dry-run byte estimate, INFORMATION_SCHEMA.JOBS dashboards, slot usage, scheduled queries. |
+| ClickHouse | `warehouse` | ClickHouse SQL | `beta` then `mvp` | Database/table/materialized-view browser, SQL editor, import/export plans, EXPLAIN pipeline, `system.query_log`, MergeTree parts, replicas, metrics dashboards, guarded table optimization/TTL/freeze previews, cluster topology. |
+| DuckDB | `embedded-olap` | SQL | `beta` | Open/create DB, table/view/schema browser, SQL over CSV/Parquet, EXPLAIN/ANALYZE/profiling, PRAGMA metadata, local-file/extension/maintenance posture panels, guarded analyze/checkpoint/extension/import/export previews. |
+| Snowflake | `warehouse` | Snowflake SQL | `beta` | Account/database/schema/table/stage/warehouse browser, SQL editor, role/warehouse selector, query history/profile, cost/utilization charts, guarded zero-copy clone and warehouse suspend/resume previews, tasks/streams/shares. |
+| BigQuery | `warehouse` | GoogleSQL | `beta` | Project/dataset/table/job browser, SQL editor, dry-run byte estimate, INFORMATION_SCHEMA.JOBS dashboards, slot usage, guarded table copy previews, scheduled queries. |
 
 ## Architecture Refactor Plan
 
@@ -387,9 +389,11 @@ At the current milestone:
 - The results workbench has split renderer components for table, document, JSON/tree, key-value, search, raw, messages, details, and history-style workflows.
 - Natural data edits are being added through safe edit contracts; admin/destructive operations remain guarded preview plans.
 - PostgreSQL, CockroachDB, SQL Server, MySQL, MariaDB, SQLite, MongoDB, Redis, TimescaleDB, ClickHouse, Valkey, Memcached, ArangoDB, BigQuery, Cassandra, Cosmos DB, DuckDB, DynamoDB, Elasticsearch/OpenSearch, InfluxDB, JanusGraph, LiteDB, Neo4j, Neptune, OpenTSDB, Oracle, Prometheus, and Snowflake have concrete adapter structs.
+- Every declared datastore now has an adapter backlog entry, tree manifest, object-view descriptor owner, and object-view route or family workspace route.
 - TimescaleDB, ClickHouse, Valkey, Memcached, Cassandra, LiteDB, Oracle, and cloud/managed adapters remain beta/read-diagnostic oriented where appropriate.
 - Snowflake and BigQuery now use concrete cloud-contract request builders rather than the generic beta adapter.
 - Cassandra now has a concrete CQL contract adapter with partition-key guardrails while native binary protocol execution remains a future driver pass.
 - LiteDB now has a concrete .NET sidecar bridge contract adapter while live sidecar dispatch remains a future bridge pass.
 - Oracle now has a concrete SQL/PLSQL contract adapter with Oracle client/runtime prerequisite warnings while native OCI/thin execution remains a future driver pass.
-- The largest immediate architecture risk has shifted from raw adapter sprawl to continued frontend/runtime hardening, quality budgets, and drift tests between Rust manifests, TypeScript contracts, fixtures, and docs.
+- The largest immediate architecture risk has shifted from raw adapter sprawl to live-depth gaps, capability hiding, object-view quality, quality budgets, and drift tests between Rust manifests, TypeScript contracts, fixtures, and docs.
+- The current per-engine completion inventory is maintained in [Datastore Readiness And Completion Plan](datastore-readiness.md).
