@@ -35,8 +35,11 @@ pub(super) fn open_duckdb_connection(
 
 pub(super) fn duckdb_database_path(connection: &ResolvedConnectionProfile) -> String {
     connection
-        .connection_string
-        .as_deref()
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.file_path.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .or(connection.connection_string.as_deref())
         .map(|value| {
             value
                 .strip_prefix("duckdb://")
@@ -50,6 +53,22 @@ pub(super) fn duckdb_database_path(connection: &ResolvedConnectionProfile) -> St
         })
         .unwrap_or(":memory:")
         .to_string()
+}
+
+#[cfg(test)]
+fn duckdb_extensions(connection: &ResolvedConnectionProfile) -> Vec<String> {
+    connection
+        .warehouse_options
+        .as_ref()
+        .map(|options| {
+            options
+                .extensions
+                .iter()
+                .filter(|extension| !extension.trim().is_empty())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub(super) fn duckdb_error(error: duckdb::Error) -> CommandError {
@@ -112,10 +131,58 @@ mod tests {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: true,
         };
 
         assert_eq!(duckdb_database_path(&connection), ":memory:");
+    }
+
+    #[test]
+    fn duckdb_database_path_prefers_warehouse_file_path() {
+        let connection = ResolvedConnectionProfile {
+            id: "conn-duckdb".into(),
+            name: "DuckDB".into(),
+            engine: "duckdb".into(),
+            family: "embedded-olap".into(),
+            host: String::new(),
+            port: None,
+            database: Some("ignored.duckdb".into()),
+            username: None,
+            password: None,
+            connection_string: Some("duckdb://other.duckdb".into()),
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: Some(crate::domain::models::WarehouseConnectionOptions {
+                file_path: Some("duckdb://C:/data/analytics.duckdb".into()),
+                extensions: vec!["httpfs".into(), "parquet".into()],
+                ..crate::domain::models::WarehouseConnectionOptions::default()
+            }),
+            read_only: true,
+        };
+
+        assert_eq!(
+            duckdb_database_path(&connection),
+            "C:/data/analytics.duckdb"
+        );
+        assert_eq!(
+            super::duckdb_extensions(&connection),
+            vec!["httpfs", "parquet"]
+        );
     }
 
     #[test]

@@ -124,6 +124,14 @@ async fn list_scope_nodes(
         return list_database_sections(connection, pool, rest).await;
     }
 
+    if scope == "mysql:security" {
+        return Ok(mysql_server_section_nodes(connection, "security"));
+    }
+
+    if scope == "mysql:diagnostics" {
+        return Ok(mysql_server_section_nodes(connection, "diagnostics"));
+    }
+
     if let Some(rest) = scope.strip_prefix("mysql:") {
         let parts = rest.split(':').collect::<Vec<_>>();
         if parts.len() >= 2 {
@@ -255,6 +263,86 @@ async fn list_database_sections(
 ) -> Result<Vec<ExplorerNode>, CommandError> {
     let counts = database_section_counts(pool, database).await;
     Ok(mysql_database_section_nodes(connection, database, counts))
+}
+
+fn mysql_server_section_nodes(
+    connection: &ResolvedConnectionProfile,
+    section: &str,
+) -> Vec<ExplorerNode> {
+    let section_label = if section == "security" {
+        "Users / Privileges"
+    } else {
+        "Diagnostics"
+    };
+    let rows: &[(&str, &str, &str, &str)] = if section == "security" {
+        &[
+            (
+                "users",
+                "Users",
+                "users",
+                "User accounts and authentication plugins",
+            ),
+            (
+                "roles",
+                "Roles",
+                "roles",
+                "Role assignments where supported",
+            ),
+            (
+                "permissions",
+                "Grants",
+                "permissions",
+                "Visible grants and privilege scopes",
+            ),
+        ]
+    } else {
+        &[
+            (
+                "sessions",
+                "Sessions",
+                "sessions",
+                "Processlist and active statements",
+            ),
+            (
+                "statistics",
+                "Status Counters",
+                "status-counters",
+                "Global status and workload counters",
+            ),
+            (
+                "slow-queries",
+                "Slow Queries",
+                "slow-queries",
+                "Digest latency and rows examined",
+            ),
+            (
+                "innodb-status",
+                "InnoDB Status",
+                "innodb-status",
+                "Buffer pool, row locks, and engine health",
+            ),
+            (
+                "replication",
+                "Replication",
+                "replication",
+                "Source/replica channel health",
+            ),
+        ]
+    };
+
+    rows.iter()
+        .map(|(id, label, kind, detail)| ExplorerNode {
+            id: format!("mysql:{section}:{id}"),
+            family: "sql".into(),
+            label: (*label).into(),
+            kind: (*kind).into(),
+            detail: (*detail).into(),
+            scope: None,
+            path: Some(vec![connection.name.clone(), section_label.into()]),
+            query_template: Some(mysql_server_query_template(section, id)),
+            expandable: Some(false),
+        })
+        .collect()
 }
 
 fn mysql_database_section_nodes(
@@ -653,6 +741,31 @@ async fn mysql_inspection_payload(
         "database": database,
     });
 
+    if matches!(
+        node.kind.as_str(),
+        "security" | "users" | "roles" | "permissions"
+    ) {
+        merge_payload(&mut payload, security_payload(pool, &database).await);
+        return payload;
+    }
+
+    if matches!(
+        node.kind.as_str(),
+        "diagnostics"
+            | "sessions"
+            | "statistics"
+            | "status-counters"
+            | "slow-queries"
+            | "innodb-status"
+            | "replication"
+    ) {
+        merge_payload(
+            &mut payload,
+            diagnostics_payload(pool, &database, &node.kind).await,
+        );
+        return payload;
+    }
+
     let Some(object) = node.object_name.as_deref() else {
         merge_payload(&mut payload, database_payload(pool, &database).await);
         return payload;
@@ -795,6 +908,56 @@ async fn index_payload(
     json!({
         "objectName": index.unwrap_or("Indexes"),
         "indexes": index_records(pool, database, table, index).await,
+    })
+}
+
+async fn security_payload(pool: &MySqlPool, database: &str) -> Value {
+    let users = user_records(pool).await;
+    json!({
+        "objectName": "Users / Privileges",
+        "users": users,
+        "roles": role_records(pool).await,
+        "permissions": permission_records(pool, database).await,
+    })
+}
+
+async fn diagnostics_payload(pool: &MySqlPool, database: &str, kind: &str) -> Value {
+    let sessions = if matches!(kind, "diagnostics" | "sessions") {
+        session_records(pool).await
+    } else {
+        Vec::new()
+    };
+    let slow_queries = if matches!(kind, "diagnostics" | "slow-queries") {
+        slow_query_records(pool).await
+    } else {
+        Vec::new()
+    };
+    let innodb_status = if matches!(kind, "diagnostics" | "innodb-status") {
+        innodb_status_records(pool).await
+    } else {
+        Vec::new()
+    };
+    let replication = if matches!(kind, "diagnostics" | "replication") {
+        replication_records(pool).await
+    } else {
+        Vec::new()
+    };
+    let statistics = if matches!(kind, "diagnostics" | "statistics" | "status-counters") {
+        status_counter_records(pool).await
+    } else {
+        Vec::new()
+    };
+
+    json!({
+        "objectName": "Diagnostics",
+        "activeSessions": sessions.len(),
+        "sessions": sessions,
+        "slowQueries": slow_queries,
+        "innodbStatus": innodb_status,
+        "replication": replication,
+        "statistics": statistics,
+        "engines": engine_records(pool).await,
+        "databaseSize": database_size(pool, database).await,
     })
 }
 
@@ -1171,6 +1334,173 @@ async fn permission_records(pool: &MySqlPool, database: &str) -> Vec<Value> {
         .collect()
 }
 
+async fn user_records(pool: &MySqlPool) -> Vec<Value> {
+    optional_rows(
+        pool,
+        "select user as name, host, plugin, account_locked as accountLocked, password_expired as passwordExpired from mysql.user order by user, host limit 500",
+    )
+    .await
+    .into_iter()
+    .map(|row| {
+        json!({
+            "name": string_cell(&row, "name"),
+            "host": optional_string(&row, "host").unwrap_or_default(),
+            "type": "user",
+            "authenticationType": optional_string(&row, "plugin").unwrap_or_default(),
+            "accountLocked": optional_string(&row, "accountLocked").unwrap_or_default(),
+            "passwordExpired": optional_string(&row, "passwordExpired").unwrap_or_default(),
+        })
+    })
+    .collect()
+}
+
+async fn role_records(pool: &MySqlPool) -> Vec<Value> {
+    optional_rows(
+        pool,
+        "select from_user as name, from_host as host, to_user as member, to_host as memberHost from mysql.role_edges order by from_user, to_user limit 500",
+    )
+    .await
+    .into_iter()
+    .map(|row| {
+        json!({
+            "name": string_cell(&row, "name"),
+            "host": optional_string(&row, "host").unwrap_or_default(),
+            "login": "role",
+            "inherit": "yes",
+            "memberships": format!(
+                "{}@{}",
+                optional_string(&row, "member").unwrap_or_default(),
+                optional_string(&row, "memberHost").unwrap_or_default()
+            ),
+        })
+    })
+    .collect()
+}
+
+async fn session_records(pool: &MySqlPool) -> Vec<Value> {
+    optional_rows(
+        pool,
+        "select id as sessionId, user, db as databaseName, command, state, time from information_schema.processlist order by time desc limit 200",
+    )
+    .await
+    .into_iter()
+    .map(|row| {
+        json!({
+            "sessionId": optional_i64(&row, "sessionId").unwrap_or_default(),
+            "user": optional_string(&row, "user").unwrap_or_default(),
+            "database": optional_string(&row, "databaseName").unwrap_or_default(),
+            "state": optional_string(&row, "state").unwrap_or_else(|| optional_string(&row, "command").unwrap_or_default()),
+            "wait": optional_string(&row, "command").unwrap_or_default(),
+            "blockedBy": "",
+            "seconds": optional_i64(&row, "time").unwrap_or_default(),
+        })
+    })
+    .collect()
+}
+
+async fn slow_query_records(pool: &MySqlPool) -> Vec<Value> {
+    optional_rows(
+        pool,
+        "select digest_text as digest, count_star as count, avg_timer_wait / 1000000000 as avgMs, max_timer_wait / 1000000000 as maxMs, sum_rows_examined as rowsExamined from performance_schema.events_statements_summary_by_digest order by avg_timer_wait desc limit 50",
+    )
+    .await
+    .into_iter()
+    .map(|row| {
+        json!({
+            "digest": optional_string(&row, "digest").unwrap_or_default(),
+            "count": optional_i64(&row, "count").unwrap_or_default(),
+            "avgMs": optional_i64(&row, "avgMs").unwrap_or_default(),
+            "maxMs": optional_i64(&row, "maxMs").unwrap_or_default(),
+            "rowsExamined": optional_i64(&row, "rowsExamined").unwrap_or_default(),
+        })
+    })
+    .collect()
+}
+
+async fn innodb_status_records(pool: &MySqlPool) -> Vec<Value> {
+    optional_rows(
+        pool,
+        "show global status where Variable_name in ('Innodb_buffer_pool_reads','Innodb_buffer_pool_read_requests','Innodb_row_lock_waits','Innodb_row_lock_time','Innodb_history_list_length')",
+    )
+    .await
+    .into_iter()
+    .map(|row| {
+        let name = string_cell(&row, "Variable_name");
+        json!({
+            "name": name,
+            "value": optional_string(&row, "Value").unwrap_or_default(),
+            "status": mysql_status_health(&name),
+            "detail": mysql_status_detail(&name),
+        })
+    })
+    .collect()
+}
+
+async fn replication_records(pool: &MySqlPool) -> Vec<Value> {
+    optional_rows(pool, "show replica status")
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "channel": optional_string(&row, "Channel_Name").unwrap_or_else(|| "default".into()),
+                "role": "replica",
+                "state": optional_string(&row, "Replica_IO_Running").unwrap_or_default(),
+                "lagSeconds": optional_i64(&row, "Seconds_Behind_Source").unwrap_or_default(),
+                "sourceHost": optional_string(&row, "Source_Host").unwrap_or_default(),
+                "gtid": optional_string(&row, "Retrieved_Gtid_Set").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn status_counter_records(pool: &MySqlPool) -> Vec<Value> {
+    optional_rows(
+        pool,
+        "show global status where Variable_name in ('Threads_connected','Threads_running','Questions','Slow_queries','Created_tmp_disk_tables','Handler_read_rnd_next','Bytes_received','Bytes_sent')",
+    )
+    .await
+    .into_iter()
+    .map(|row| {
+        json!({
+            "name": string_cell(&row, "Variable_name"),
+            "rows": optional_string(&row, "Value").unwrap_or_default(),
+            "scans": 0,
+            "size": "",
+        })
+    })
+    .collect()
+}
+
+async fn engine_records(pool: &MySqlPool) -> Vec<Value> {
+    optional_rows(pool, "show engines")
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "name": string_cell(&row, "Engine"),
+                "support": optional_string(&row, "Support").unwrap_or_default(),
+                "transactions": optional_string(&row, "Transactions").unwrap_or_default(),
+                "xa": optional_string(&row, "XA").unwrap_or_default(),
+                "savepoints": optional_string(&row, "Savepoints").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+async fn database_size(pool: &MySqlPool, database: &str) -> i64 {
+    optional_rows(
+        pool,
+        &format!(
+            "select coalesce(sum(data_length + index_length), 0) as size from information_schema.tables where table_schema = '{}'",
+            sql_literal(database)
+        ),
+    )
+    .await
+    .first()
+    .and_then(|row| optional_i64(row, "size"))
+    .unwrap_or_default()
+}
+
 async fn optional_rows(pool: &MySqlPool, query: &str) -> Vec<MySqlRow> {
     sqlx::query(query).fetch_all(pool).await.unwrap_or_default()
 }
@@ -1272,6 +1602,32 @@ fn mysql_category_query_template(database: &str, section: &str) -> String {
     }
 }
 
+fn mysql_server_query_template(section: &str, id: &str) -> String {
+    match (section, id) {
+        ("security", "users") => {
+            "select user, host, plugin, account_locked from mysql.user order by user, host;".into()
+        }
+        ("security", "roles") => {
+            "select from_user, from_host, to_user, to_host from mysql.role_edges order by from_user, to_user;".into()
+        }
+        ("security", "permissions") => "show grants;".into(),
+        ("diagnostics", "sessions") => {
+            "select id, user, db, command, state, time from information_schema.processlist order by time desc;".into()
+        }
+        ("diagnostics", "slow-queries") => {
+            "select digest_text, count_star, avg_timer_wait, max_timer_wait, sum_rows_examined from performance_schema.events_statements_summary_by_digest order by avg_timer_wait desc limit 50;".into()
+        }
+        ("diagnostics", "innodb-status") => {
+            "show global status where Variable_name like 'Innodb%';".into()
+        }
+        ("diagnostics", "replication") => "show replica status;".into(),
+        ("diagnostics", "statistics") | ("diagnostics", "status-counters") => {
+            "show global status;".into()
+        }
+        _ => "select 1;".into(),
+    }
+}
+
 fn mysql_table_child_query_template(database: &str, table: &str, section: &str) -> String {
     match section {
         "columns" => format!(
@@ -1346,6 +1702,15 @@ fn parse_mysql_node_ref(node_id: &str, connection: &ResolvedConnectionProfile) -
 
     if let Some(rest) = node_id.strip_prefix("mysql:") {
         let parts = rest.split(':').collect::<Vec<_>>();
+        if matches!(parts.first().copied(), Some("security" | "diagnostics")) {
+            return MysqlNodeRef {
+                database: connection.database.clone(),
+                kind: parts.get(1).copied().unwrap_or(parts[0]).into(),
+                object_name: None,
+                child_kind: None,
+            };
+        }
+
         if parts.len() >= 2 {
             return MysqlNodeRef {
                 database: Some(parts[0].into()),
@@ -1418,7 +1783,9 @@ fn mysql_object_view_kind(node: &MysqlNodeRef) -> String {
         }
         "table" | "view" | "procedure" | "function" | "trigger" | "event" | "index" | "tables"
         | "views" | "procedures" | "functions" | "triggers" | "events" | "indexes" | "columns"
-        | "constraints" | "partitions" | "storage" | "security" | "diagnostics" => node
+        | "constraints" | "partitions" | "storage" | "security" | "users" | "roles"
+        | "permissions" | "diagnostics" | "sessions" | "statistics" | "status-counters"
+        | "slow-queries" | "innodb-status" | "replication" => node
             .child_kind
             .as_deref()
             .unwrap_or(node.kind.as_str())
@@ -1481,6 +1848,24 @@ fn optional_i64(row: &MySqlRow, name: &str) -> Option<i64> {
         .or_else(|| row.try_get::<u64, _>(name).ok().map(|value| value as i64))
 }
 
+fn mysql_status_health(name: &str) -> &'static str {
+    if name.contains("wait") || name.contains("reads") {
+        "review"
+    } else {
+        "observed"
+    }
+}
+
+fn mysql_status_detail(name: &str) -> &'static str {
+    if name.contains("buffer_pool") {
+        "Buffer pool read pressure"
+    } else if name.contains("row_lock") {
+        "Row lock pressure"
+    } else {
+        "InnoDB status counter"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1501,6 +1886,13 @@ mod tests {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: false,
         }
     }
@@ -1602,10 +1994,16 @@ mod tests {
         let table = parse_mysql_node_ref("mysql:app:table:accounts", &connection);
         let system = parse_mysql_node_ref("mysql:database:performance_schema", &connection);
         let fk = parse_mysql_node_ref("mysql:app:table:accounts:foreign-keys", &connection);
+        let users = parse_mysql_node_ref("mysql:security:users", &connection);
+        let slow_queries = parse_mysql_node_ref("mysql:diagnostics:slow-queries", &connection);
 
         assert_eq!(mysql_object_view_kind(&table), "table");
         assert_eq!(mysql_object_view_kind(&system), "system-schemas");
         assert_eq!(mysql_object_view_kind(&fk), "foreign-keys");
+        assert_eq!(mysql_object_view_kind(&users), "users");
+        assert_eq!(mysql_object_view_kind(&slow_queries), "slow-queries");
+        assert_eq!(users.database.as_deref(), Some("app"));
+        assert_eq!(slow_queries.database.as_deref(), Some("app"));
     }
 
     #[test]
@@ -1615,5 +2013,45 @@ mod tests {
         assert!(query.contains("routine_definition as definition"));
         assert!(query.contains("routine_schema = 'app'"));
         assert!(query.contains("routine_type = 'PROCEDURE'"));
+    }
+
+    #[test]
+    fn mysql_server_scopes_return_native_security_and_diagnostic_nodes() {
+        let connection = test_connection(Some("app"));
+        let security = mysql_server_section_nodes(&connection, "security");
+        let diagnostics = mysql_server_section_nodes(&connection, "diagnostics");
+
+        assert_eq!(
+            security
+                .iter()
+                .map(|node| node.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Users", "Roles", "Grants"]
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|node| node.label.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "Sessions",
+                "Status Counters",
+                "Slow Queries",
+                "InnoDB Status",
+                "Replication"
+            ]
+        );
+        assert_eq!(security[0].kind, "users");
+        assert_eq!(diagnostics[2].kind, "slow-queries");
+        assert!(security[0]
+            .query_template
+            .as_deref()
+            .unwrap_or_default()
+            .contains("mysql.user"));
+        assert!(diagnostics[2]
+            .query_template
+            .as_deref()
+            .unwrap_or_default()
+            .contains("events_statements_summary_by_digest"));
     }
 }

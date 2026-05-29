@@ -78,6 +78,16 @@ pub(super) async fn prometheus_get(
 
 impl PrometheusEndpoint {
     fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+        if let Some(options) = connection.time_series_options.as_ref() {
+            if let Some(endpoint_url) = options
+                .endpoint_url
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                return Self::from_url_with_prefix(endpoint_url, options.path_prefix.as_deref());
+            }
+        }
+
         if let Some(connection_string) = connection.connection_string.as_deref() {
             return Self::from_url(connection_string);
         }
@@ -94,8 +104,10 @@ impl PrometheusEndpoint {
             host: host.into(),
             port: connection.port.unwrap_or(9090),
             prefix: connection
-                .database
-                .as_deref()
+                .time_series_options
+                .as_ref()
+                .and_then(|options| options.path_prefix.as_deref())
+                .or(connection.database.as_deref())
                 .filter(|value| value.starts_with('/'))
                 .unwrap_or("")
                 .trim_end_matches('/')
@@ -104,6 +116,13 @@ impl PrometheusEndpoint {
     }
 
     fn from_url(url: &str) -> Result<Self, CommandError> {
+        Self::from_url_with_prefix(url, None)
+    }
+
+    fn from_url_with_prefix(
+        url: &str,
+        prefix_override: Option<&str>,
+    ) -> Result<Self, CommandError> {
         let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
             CommandError::new(
                 "prometheus-unsupported-url",
@@ -128,11 +147,9 @@ impl PrometheusEndpoint {
         Ok(Self {
             host: host.into(),
             port,
-            prefix: if path.is_empty() {
-                String::new()
-            } else {
-                format!("/{}", path.trim_end_matches('/'))
-            },
+            prefix: normalized_prefix(prefix_override)
+                .or_else(|| normalized_prefix(Some(path)))
+                .unwrap_or_default(),
         })
     }
 
@@ -146,6 +163,15 @@ impl PrometheusEndpoint {
                 format!("/{path_and_query}")
             }
         )
+    }
+}
+
+fn normalized_prefix(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(format!("/{trimmed}"))
     }
 }
 
@@ -196,11 +222,56 @@ mod tests {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: true,
         };
         let endpoint = PrometheusEndpoint::from_connection(&connection).unwrap();
         assert_eq!(endpoint.port, 9090);
         assert_eq!(endpoint.path("/api/v1/labels"), "/metrics/api/v1/labels");
+    }
+
+    #[test]
+    fn prometheus_endpoint_prefers_timeseries_endpoint_and_prefix() {
+        let connection = ResolvedConnectionProfile {
+            id: "conn-prom".into(),
+            name: "Prometheus".into(),
+            engine: "prometheus".into(),
+            family: "timeseries".into(),
+            host: "ignored".into(),
+            port: Some(9090),
+            database: None,
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: Some(crate::domain::models::TimeSeriesConnectionOptions {
+                endpoint_url: Some("http://localhost:19090/reverse".into()),
+                path_prefix: Some("/prometheus".into()),
+                ..crate::domain::models::TimeSeriesConnectionOptions::default()
+            }),
+            graph_options: None,
+            warehouse_options: None,
+            read_only: true,
+        };
+
+        let endpoint = PrometheusEndpoint::from_connection(&connection).unwrap();
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 19090);
+        assert_eq!(endpoint.path("/api/v1/query"), "/prometheus/api/v1/query");
     }
 
     #[test]

@@ -85,30 +85,6 @@ export function MongoExplainPlanView({ payload }: { payload: PlanPayload }) {
   )
 }
 
-export function GenericPlanPayloadView({ payload }: { payload: PlanPayload }) {
-  return (
-    <section className="mongo-explain" aria-label="Execution plan">
-      <header className="mongo-explain-header">
-        <div>
-          <span className="mongo-explain-eyebrow">
-            <ExplainIcon className="panel-inline-icon" />
-            Execution Plan
-          </span>
-          <h3>{payload.summary ?? 'Execution plan'}</h3>
-        </div>
-        <span className="mongo-explain-verbosity">{payload.format}</span>
-      </header>
-      <div className="mongo-explain-panel">
-        {payload.format === 'text' ? (
-          <pre className="panel-code raw-result-code">{String(payload.value ?? '')}</pre>
-        ) : (
-          <JsonTreeView value={payload.value} label="plan" />
-        )}
-      </div>
-    </section>
-  )
-}
-
 function SummaryGrid({ summary }: { summary: MongoExplainSummary }) {
   const cards = [
     { label: 'Namespace', value: summary.namespace ?? 'Unknown', icon: ObjectTableIcon },

@@ -28,10 +28,18 @@ impl DatastoreAdapter for SqlServerAdapter {
                 "supports_sql_editor",
                 "supports_schema_browser",
                 "supports_explain_plan",
+                "supports_plan_visualization",
+                "supports_query_profile",
+                "supports_admin_operations",
+                "supports_index_management",
+                "supports_user_role_browser",
+                "supports_permission_inspection",
                 "supports_transactions",
                 "supports_result_snapshots",
                 "supports_metrics_collection",
                 "supports_structure_visualization",
+                "supports_import_export",
+                "supports_backup_restore",
             ],
         )
     }

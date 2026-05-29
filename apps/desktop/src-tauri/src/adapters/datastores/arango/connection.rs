@@ -112,6 +112,22 @@ async fn arango_request(
 
 impl ArangoEndpoint {
     fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+        if let Some(options) = connection.graph_options.as_ref() {
+            if let Some(endpoint_url) = options
+                .endpoint_url
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                return Self::from_url(
+                    endpoint_url,
+                    options
+                        .database_name
+                        .as_deref()
+                        .or(connection.database.as_deref()),
+                );
+            }
+        }
+
         if let Some(connection_string) = connection.connection_string.as_deref() {
             return Self::from_url(connection_string, connection.database.as_deref());
         }
@@ -128,8 +144,10 @@ impl ArangoEndpoint {
             host: host.into(),
             port: connection.port.unwrap_or(8529),
             database: connection
-                .database
-                .clone()
+                .graph_options
+                .as_ref()
+                .and_then(|options| options.database_name.clone())
+                .or_else(|| connection.database.clone())
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| "_system".into()),
         })
@@ -180,6 +198,7 @@ impl ArangoEndpoint {
 #[cfg(test)]
 mod tests {
     use super::ArangoEndpoint;
+    use crate::domain::models::ResolvedConnectionProfile;
 
     #[test]
     fn arango_endpoint_parses_database_from_url() {
@@ -187,5 +206,43 @@ mod tests {
         assert_eq!(endpoint.host, "localhost");
         assert_eq!(endpoint.port, 8529);
         assert_eq!(endpoint.path("/_api/version"), "/_db/app/_api/version");
+    }
+
+    #[test]
+    fn arango_endpoint_prefers_graph_options() {
+        let connection = ResolvedConnectionProfile {
+            id: "conn-arango".into(),
+            name: "ArangoDB".into(),
+            engine: "arango".into(),
+            family: "graph".into(),
+            host: "ignored".into(),
+            port: Some(8529),
+            database: Some("_system".into()),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: Some(crate::domain::models::GraphConnectionOptions {
+                endpoint_url: Some("http://localhost:18529".into()),
+                database_name: Some("fraud".into()),
+                ..crate::domain::models::GraphConnectionOptions::default()
+            }),
+            warehouse_options: None,
+            read_only: true,
+        };
+
+        let endpoint = ArangoEndpoint::from_connection(&connection).unwrap();
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 18529);
+        assert_eq!(endpoint.path("/_api/version"), "/_db/fraud/_api/version");
     }
 }

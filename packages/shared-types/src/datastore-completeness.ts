@@ -136,8 +136,8 @@ const RELATIONAL_CORE_PROFILE = profile({
   intellisense: partial('SQL IntelliSense exists from cached metadata.', [
     'Improve alias, parameter, routine, and dialect-specific identifier suggestions.',
   ]),
-  'object-views': partial('PostgreSQL, CockroachDB, and SQL Server have native descriptor-backed object views.', [
-    'Extend purpose-built views to MySQL, MariaDB, and SQLite and deepen SQL Server/PostgreSQL views.',
+  'object-views': partial('PostgreSQL, CockroachDB, SQL Server, MySQL, and MariaDB have native descriptor-backed object views.', [
+    'Extend purpose-built views to SQLite and deepen SQL Server/PostgreSQL/MySQL-family views.',
   ]),
   'safe-editing': preview('Row edits generate safe plans, but live execution is not broadly enabled.', [
     'Enable live row edits with complete primary keys and environment/read-only checks.',
@@ -157,8 +157,8 @@ const RELATIONAL_CORE_PROFILE = profile({
 })
 
 const SEARCH_PROFILE = profile({
-  'connection-flow': partial('HTTP connection and basic auth-style flows exist.', [
-    'Add cloud/IAM and certificate option coverage for Elastic/OpenSearch deployments.',
+  'connection-flow': partial('Typed HTTP, Elastic Cloud, managed OpenSearch, AWS SigV4, default-index, TLS, timeout, and credential option contracts now exist.', [
+    'Promote cloud/IAM, certificate, API key, bearer token, and SigV4 options into the live HTTPS/runtime path.',
   ]),
   'object-tree': partial('Indexes, data streams, aliases, and cluster sections exist.', [
     'Add capability-aware ILM/ISM, security, templates, ingest pipelines, shards, and segments.',
@@ -169,17 +169,17 @@ const SEARCH_PROFILE = profile({
   intellisense: partial('Search DSL suggestions are started.', [
     'Add mapping-aware field suggestions and aggregation snippets.',
   ]),
-  'object-views': preview('Search object views are mostly generic compared with Mongo/Redis/relational stores.', [
-    'Build native index, mapping, shard, segment, search profile, and security views.',
+  'object-views': partial('Search object views now include cluster, field-capability, shard, segment, lifecycle, ingestion, and security posture panels.', [
+    'Deepen rendered profile/explain detail and add richer index/security management screens.',
   ]),
   'safe-editing': preview('Document edit plans exist, but live execution is not broadly enabled.', [
     'Enable safe single-document index/update/delete when target id is explicit.',
   ]),
-  'guarded-operations': preview('Index/admin actions need richer guarded operation plans.', [
-    'Add create/delete index, mapping/template, ILM/ISM, and reindex previews.',
+  'guarded-operations': partial('Search has guarded HTTP-shaped previews for index, template, pipeline, lifecycle, task, snapshot, alias, rollover, bulk, and security workflows.', [
+    'Promote safe live admin execution only after capability and permission checks are adapter-backed.',
   ]),
-  'diagnostics-performance': partial('Basic diagnostics exist through HTTP metadata.', [
-    'Add cluster health, shard allocation, segment stats, slow logs, and profile dashboards.',
+  'diagnostics-performance': partial('Cluster, shard, segment, lifecycle, and profile-friendly signals are visible in object views.', [
+    'Add slow logs, allocation explanations, OpenSearch Performance Analyzer, and richer profile dashboards.',
   ]),
   'import-export': preview('No native search import/export workflow yet.', [
     'Add bulk export/import and reindex plan flows.',
@@ -190,8 +190,9 @@ const SEARCH_PROFILE = profile({
 })
 
 const WIDE_COLUMN_PROFILE = profile({
-  'connection-flow': partial('Connection models exist but are still uneven across wide-column engines.', [
-    'Complete AWS SDK/IAM/local endpoint options for DynamoDB and native Cassandra options.',
+  'connection-flow': partial('DynamoDB and Cassandra now have typed option contracts for their native connection models.', [
+    'Promote DynamoDB local endpoint, AWS profile, static key, assume-role, and web-identity options into the live AWS SDK/SigV4 runtime path.',
+    'Promote Cassandra contact-point, TLS, auth, policy, and secure-bundle options into a live CQL driver path.',
   ]),
   'object-tree': partial('Tables/keyspaces and table children exist at a basic level.', [
     'Add indexes, materialized views, GSIs/LSIs, TTL/streams, and permission-aware optional sections.',
@@ -202,23 +203,23 @@ const WIDE_COLUMN_PROFILE = profile({
   intellisense: partial('Keyword and object suggestions are started.', [
     'Add key/index-aware completions and expression helper suggestions.',
   ]),
-  'object-views': preview('Object views are not yet native enough for DynamoDB or Cassandra.', [
-    'Build table/item/index/capacity/stream/tracing views.',
+  'object-views': partial('DynamoDB and Cassandra now have native object-view posture panels for common table/index/capacity/storage/cluster workflows.', [
+    'Deepen live object-view payloads and richer editors for table/item/index/tracing workflows.',
   ]),
   'safe-editing': preview('Item/row edit plans exist, but live execution is not broadly enabled.', [
     'Enable guarded live item edits and Cassandra primary-key-safe row edits.',
   ]),
-  'guarded-operations': preview('Admin operation plans are skeletal.', [
-    'Add table/index/TTL/stream/throughput/repair/compaction previews.',
+  'guarded-operations': partial('DynamoDB and Cassandra object views expose guarded table/index/TTL/stream/throughput/tracing/repair-style previews.', [
+    'Promote selected safe operations to live execution only after capability and environment guard checks.',
   ]),
-  'diagnostics-performance': preview('Diagnostics are shallow.', [
-    'Add consumed capacity, hot partitions, tracing, compaction, repair, and cluster status.',
+  'diagnostics-performance': partial('Capacity, hot partition, tracing, compaction, repair, and cluster status panels are started with deterministic payloads.', [
+    'Connect live CloudWatch/account metrics and optional Cassandra nodetool/JMX-backed diagnostics.',
   ]),
   'import-export': preview('No native import/export workflow yet.', [
     'Add JSON/CSV item import/export and table backup/restore plan surfaces.',
   ]),
-  tests: partial('Builder and edit-plan tests exist.', [
-    'Add browser-preview object-view and guardrail tests for DynamoDB and Cassandra.',
+  tests: partial('Builder, edit-plan, object-view, operation-preview, connection-option UI, validation, and migration tests exist for the wide-column slice.', [
+    'Add optional live fixture tests for DynamoDB Local and Cassandra-compatible drivers when dependencies are available.',
   ]),
 })
 
@@ -283,38 +284,38 @@ const ENGINE_OVERRIDES: Partial<Record<DatastoreEngine, {
     summary: 'Valkey should share the Redis-native workflow, with Redis Stack/module features hidden unless supported.',
     profile: REDIS_PROFILE,
   },
-  postgresql: relational(3, 3, 'PostgreSQL has the relational base and descriptors, but needs deeper pg-native diagnostics, roles/grants, and maintenance tooling.'),
-  cockroachdb: relational(2.75, 3, 'CockroachDB builds on the PostgreSQL base and needs native jobs, ranges, regions, contention, and distributed diagnostics.'),
-  sqlserver: relational(3, 3, 'SQL Server has live TDS and an SSMS-inspired tree; Query Store, Agent, security, storage, and plan tooling need deeper views.'),
-  mysql: relational(2.5, 3, 'MySQL has live adapter support but still needs Workbench-like object views, grants, performance_schema, and explain tooling.'),
-  mariadb: relational(2.5, 3, 'MariaDB shares the MySQL base and needs MariaDB-specific roles, engines, status panels, and explain handling.'),
-  sqlite: relational(2.75, 3, 'SQLite has strong local-file basics and should receive native PRAGMA, trigger, index, integrity, vacuum, and backup views.'),
+  postgresql: relational(3.1, 3, 'PostgreSQL now has compact storage, index-health, security, and activity posture panels plus guarded vacuum/analyze/reindex previews; deeper live pg_stat payloads and rendered plan details remain.'),
+  cockroachdb: relational(3, 3, 'CockroachDB now has compact table, cluster, locality, job, contention, and security posture panels plus guarded jobs, ranges, regions, sessions, contention, roles/grants, backup, restore, import, and zone-configuration previews; deeper live crdb_internal payloads and distributed plan rendering remain.'),
+  sqlserver: relational(3.15, 3, 'SQL Server now has compact storage, index, workload, security, and Agent posture panels plus guarded statistics, index maintenance, and Query Store workload previews; deeper plan rendering, Azure auth, and live management execution remain.'),
+  mysql: relational(2.75, 3, 'MySQL has live adapter support, Workbench-style tree branches, compact storage/index/security/diagnostic panels, and guarded maintenance previews; it still needs deeper performance_schema and live management execution.'),
+  mariadb: relational(2.75, 3, 'MariaDB shares the MySQL base with native status/security panels and MariaDB profile preview handling; it still needs deeper role semantics, optimizer traces, and live management execution.'),
+  sqlite: relational(2.9, 3, 'SQLite now has local-file posture panels and guarded PRAGMA, integrity, analyze, optimize, vacuum, reindex, export, and backup previews; live row edits and richer EXPLAIN rendering remain.'),
   elasticsearch: {
     readiness: 'foundation',
-    nativeScore: 2.25,
+    nativeScore: 2.45,
     targetPhase: 4,
-    summary: 'Search support has a DSL builder and live HTTP adapter, but native index/mapping/profile/admin views are still shallow.',
+    summary: 'Search support now has native posture panels and guarded HTTP-shaped admin previews, but still needs richer explain/profile rendering and live management execution.',
     profile: SEARCH_PROFILE,
   },
   opensearch: {
     readiness: 'foundation',
-    nativeScore: 2.25,
+    nativeScore: 2.45,
     targetPhase: 4,
-    summary: 'OpenSearch shares the search base and needs OpenSearch-specific ISM/security/profile surfaces.',
+    summary: 'OpenSearch shares the deepened search base with ISM-aware previews, but still needs Performance Analyzer, SigV4/IAM, plugin detection, and live management execution.',
     profile: SEARCH_PROFILE,
   },
   dynamodb: {
     readiness: 'foundation',
-    nativeScore: 2,
+    nativeScore: 2.25,
     targetPhase: 4,
-    summary: 'DynamoDB has a key-condition builder and edit plans, but needs item/table/index/capacity/streams-native workspaces.',
+    summary: 'DynamoDB has a key-condition builder, typed connection-option contract, native table/index/capacity/TTL/stream panels, and guarded AWS-shaped previews; the next gap is live AWS SDK/SigV4 execution and deeper CloudWatch diagnostics.',
     profile: WIDE_COLUMN_PROFILE,
   },
   cassandra: {
     readiness: 'foundation',
-    nativeScore: 1.75,
+    nativeScore: 2.05,
     targetPhase: 4,
-    summary: 'Cassandra has CQL builder scaffolding, but native keyspace/table/tracing/repair/compaction experiences are still early.',
+    summary: 'Cassandra now has typed contact-point, TLS, auth, consistency, and policy connection options plus CQL builder and native keyspace/table/tracing/repair/compaction surfaces; the next gap is live CQL driver execution and deeper cluster diagnostics.',
     profile: WIDE_COLUMN_PROFILE,
   },
 }

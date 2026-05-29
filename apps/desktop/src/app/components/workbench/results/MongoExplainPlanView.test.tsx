@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import { describe, expect, it } from 'vitest'
+import { normalizeGenericPlanPayload } from './generic-plan-payload'
 import { ResultPayloadView } from './ResultPayloadView'
 import { normalizeMongoExplainPlan } from './mongo-explain-plan'
 
@@ -107,6 +108,44 @@ describe('MongoExplainPlanView', () => {
     expect(screen.getByRole('region', { name: 'Execution plan' })).toBeInTheDocument()
     expect(screen.getByText('PostgreSQL plan')).toBeInTheDocument()
     expect(screen.queryByText('MongoDB Explain')).not.toBeInTheDocument()
+  })
+
+  it('renders DuckDB text-shaped plan rows without object string leaks', () => {
+    render(
+      <ResultPayloadView
+        connection={connection('duckdb')}
+        payload={{
+          renderer: 'plan',
+          format: 'text',
+          value: [
+            ['physical_plan', 'SEQ_SCAN table=orders'],
+            ['physical_plan', 'HASH_JOIN customers'],
+          ],
+          summary: 'DuckDB EXPLAIN plan returned.',
+        }}
+      />,
+    )
+
+    expect(screen.getByText('DuckDB Plan')).toBeInTheDocument()
+    expect(screen.getAllByText(/SEQ_SCAN table=orders/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/HASH_JOIN customers/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('[object Object]')).not.toBeInTheDocument()
+    expect(screen.getByRole('note', { name: 'Execution plan warnings' })).toHaveTextContent('memory-sensitive')
+  })
+
+  it('normalizes ClickHouse plan arrays from structured text payloads', () => {
+    const model = normalizeGenericPlanPayload({
+      plan: [
+        'Expression ((Projection + Before ORDER BY))',
+        '  ReadFromMergeTree default.orders',
+      ],
+    })
+
+    expect(model.lines).toEqual([
+      'Expression ((Projection + Before ORDER BY))',
+      '  ReadFromMergeTree default.orders',
+    ])
+    expect(model.raw).toBeDefined()
   })
 
   it('keeps unfamiliar MongoDB explain details behind a disclosure', () => {

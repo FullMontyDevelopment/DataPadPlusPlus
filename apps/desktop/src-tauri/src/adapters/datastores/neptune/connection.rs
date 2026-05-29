@@ -134,6 +134,16 @@ async fn neptune_request(
 
 impl NeptuneEndpoint {
     fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+        if let Some(options) = connection.graph_options.as_ref() {
+            if let Some(endpoint_url) = options
+                .endpoint_url
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                return Self::from_url_with_prefix(endpoint_url, options.path_prefix.as_deref());
+            }
+        }
+
         if let Some(connection_string) = connection.connection_string.as_deref() {
             return Self::from_url(connection_string);
         }
@@ -150,8 +160,10 @@ impl NeptuneEndpoint {
             host: host.into(),
             port: connection.port.unwrap_or(8182),
             prefix: connection
-                .database
-                .as_deref()
+                .graph_options
+                .as_ref()
+                .and_then(|options| options.path_prefix.as_deref())
+                .or(connection.database.as_deref())
                 .filter(|value| value.starts_with('/'))
                 .unwrap_or("")
                 .trim_end_matches('/')
@@ -160,6 +172,13 @@ impl NeptuneEndpoint {
     }
 
     fn from_url(url: &str) -> Result<Self, CommandError> {
+        Self::from_url_with_prefix(url, None)
+    }
+
+    fn from_url_with_prefix(
+        url: &str,
+        prefix_override: Option<&str>,
+    ) -> Result<Self, CommandError> {
         let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
             CommandError::new(
                 "neptune-unsupported-url",
@@ -184,11 +203,9 @@ impl NeptuneEndpoint {
         Ok(Self {
             host: host.into(),
             port,
-            prefix: if path.is_empty() {
-                String::new()
-            } else {
-                format!("/{}", path.trim_end_matches('/'))
-            },
+            prefix: normalized_prefix(prefix_override)
+                .or_else(|| normalized_prefix(Some(path)))
+                .unwrap_or_default(),
         })
     }
 
@@ -202,6 +219,15 @@ impl NeptuneEndpoint {
                 format!("/{path}")
             }
         )
+    }
+}
+
+fn normalized_prefix(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(format!("/{trimmed}"))
     }
 }
 
@@ -261,5 +287,43 @@ mod tests {
             percent_encode_form("MATCH (n) RETURN n"),
             "MATCH+%28n%29+RETURN+n"
         );
+    }
+
+    #[test]
+    fn neptune_endpoint_prefers_graph_options() {
+        let connection = crate::domain::models::ResolvedConnectionProfile {
+            id: "conn-neptune".into(),
+            name: "Neptune".into(),
+            engine: "neptune".into(),
+            family: "graph".into(),
+            host: "ignored".into(),
+            port: Some(8182),
+            database: None,
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: Some(crate::domain::models::GraphConnectionOptions {
+                endpoint_url: Some("http://localhost:18182/proxy".into()),
+                path_prefix: Some("/neptune".into()),
+                ..crate::domain::models::GraphConnectionOptions::default()
+            }),
+            warehouse_options: None,
+            read_only: true,
+        };
+
+        let endpoint = NeptuneEndpoint::from_connection(&connection).unwrap();
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 18182);
+        assert_eq!(endpoint.path("/status"), "/neptune/status");
     }
 }

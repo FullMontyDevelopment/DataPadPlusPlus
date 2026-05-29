@@ -12,7 +12,7 @@ mod query;
 pub(crate) use metadata::load_mysql_structure;
 pub(crate) use paging::fetch_mysql_page;
 
-use catalog::mysql_manifest;
+use catalog::{mysql_manifest, mysql_operation_manifests};
 use connection::test_mysql_connection;
 use diagnostics::collect_mysql_diagnostics;
 use editing::execute_mysql_data_edit;
@@ -30,6 +30,10 @@ impl DatastoreAdapter for MysqlLikeAdapter {
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         sql_capabilities(false, false)
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        mysql_operation_manifests(&self.manifest())
     }
 
     async fn test_connection(

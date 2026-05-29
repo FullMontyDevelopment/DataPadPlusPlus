@@ -114,6 +114,13 @@ fn resolved_connection(engine: &str, family: &str) -> ResolvedConnectionProfile 
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: true,
     }
 }
@@ -375,6 +382,13 @@ async fn data_edit_plans_are_guarded_and_engine_specific() -> Result<(), Command
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: true,
         ..resolved_connection("mongodb", "document")
     };
@@ -709,6 +723,15 @@ async fn cockroach_operation_plans_include_cluster_specific_templates() -> Resul
     assert!(operations
         .iter()
         .any(|operation| operation.id == "cockroachdb.cockroach.contention"));
+    assert!(operations
+        .iter()
+        .any(|operation| operation.id == "cockroachdb.cockroach.ranges"));
+    assert!(operations
+        .iter()
+        .any(|operation| operation.id == "cockroachdb.cockroach.backup"));
+    assert!(operations
+        .iter()
+        .any(|operation| operation.id == "cockroachdb.cockroach.restore"));
 
     let plan =
         adapters::plan_operation(&connection, "cockroachdb.cockroach.contention", None, None)
@@ -719,6 +742,33 @@ async fn cockroach_operation_plans_include_cluster_specific_templates() -> Resul
         .as_deref()
         .unwrap_or_default()
         .contains("crdb_internal"));
+
+    let ranges =
+        adapters::plan_operation(&connection, "cockroachdb.cockroach.ranges", None, None).await?;
+    assert!(ranges
+        .generated_request
+        .contains("crdb_internal.ranges_no_leases"));
+
+    let backup = adapters::plan_operation(
+        &connection,
+        "cockroachdb.cockroach.backup",
+        Some("\"datapadplusplus\""),
+        None,
+    )
+    .await?;
+    assert!(backup
+        .generated_request
+        .contains("backup database \"datapadplusplus\""));
+    assert!(backup.confirmation_text.is_some());
+
+    let restore = adapters::plan_operation(
+        &connection,
+        "cockroachdb.cockroach.restore",
+        Some("\"datapadplusplus\""),
+        None,
+    )
+    .await?;
+    assert!(restore.destructive);
     Ok(())
 }
 
@@ -750,6 +800,13 @@ async fn postgres_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
 
@@ -885,6 +942,13 @@ async fn sqlserver_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
 
@@ -965,6 +1029,13 @@ async fn mysql_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
 
@@ -1074,6 +1145,13 @@ async fn sqlite_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
 
@@ -1260,6 +1338,13 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
 
@@ -1436,6 +1521,13 @@ async fn redis_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
 
@@ -1589,6 +1681,13 @@ async fn cache_profile_fixture_roundtrips() -> Result<(), CommandError> {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: false,
         };
 
@@ -1660,6 +1759,13 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let mariadb_result = adapters::execute(
@@ -1715,6 +1821,13 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let test_result = adapters::test_connection(&timescale, Vec::new()).await?;
@@ -1748,6 +1861,13 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let cockroach_result = adapters::execute(
@@ -1788,6 +1908,13 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let clickhouse_result = adapters::execute(
@@ -1819,6 +1946,13 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let influx_result = adapters::execute(
@@ -1850,6 +1984,13 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let prom_result = adapters::execute(
@@ -1886,6 +2027,13 @@ async fn search_profile_fixture_roundtrips() -> Result<(), CommandError> {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: false,
         };
         let result = adapters::execute(
@@ -1927,6 +2075,13 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let neo4j_result = adapters::execute(
@@ -1958,6 +2113,13 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let arango_result = adapters::execute(
@@ -1998,6 +2160,13 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let dynamodb_result = adapters::execute(
@@ -2061,6 +2230,13 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let bigquery_result = adapters::execute(
@@ -2090,6 +2266,13 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let snowflake_result = adapters::execute(
@@ -2116,6 +2299,13 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let cosmos_result = adapters::execute(
@@ -2147,6 +2337,13 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only: false,
     };
     let neptune_result = adapters::execute(

@@ -21,14 +21,46 @@ describe('SearchObjectViewWorkspace', () => {
     )
 
     expect(screen.getByRole('region', { name: 'Search Index object view' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search cluster posture' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Field capabilities' })).toBeInTheDocument()
     expect(screen.getByText('sku')).toBeInTheDocument()
     expect(screen.getAllByText('dense_vector').length).toBeGreaterThan(0)
     expect(screen.getByRole('region', { name: 'Shard health' })).toBeInTheDocument()
     expect(screen.getAllByText('node-a').length).toBeGreaterThan(0)
+    expect(screen.getByRole('region', { name: 'Lucene segment posture' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Lifecycle status' })).toBeInTheDocument()
     expect(screen.getByText('products-ilm')).toBeInTheDocument()
     expect(screen.queryByText(/"_source"/)).not.toBeInTheDocument()
+  })
+
+  it('renders search ingestion and security views as purpose-built panels', () => {
+    render(
+      <SearchObjectViewWorkspace
+        connection={searchConnection}
+        environment={environment}
+        tab={securityTab}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('region', { name: 'Search Security object view' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search security posture' })).toBeInTheDocument()
+    expect(screen.getAllByText('search_writer').length).toBeGreaterThan(0)
+
+    render(
+      <SearchObjectViewWorkspace
+        connection={searchConnection}
+        environment={environment}
+        tab={pipelineTab}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('region', { name: 'Ingest Pipelines object view' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search ingestion posture' })).toBeInTheDocument()
+    expect(screen.getAllByText('normalize-products').length).toBeGreaterThan(0)
   })
 
   it('plans native search mapping, settings, alias, and lifecycle operations from the index view', async () => {
@@ -161,8 +193,66 @@ const indexTab = {
       lifecyclePolicies: [
         { name: 'products-ilm', type: 'ILM', phase: 'hot', managedIndices: 1, status: 'active' },
       ],
+      nodes: [
+        { name: 'node-a', roles: 'master,data_hot,ingest', heapUsed: '41%', diskUsed: '33%', status: 'online' },
+        { name: 'node-b', roles: 'data_hot,ingest', heapUsed: '38%', diskUsed: '29%', status: 'online' },
+      ],
+      segments: [
+        { index: 'products-v1', shard: 0, segments: 8, deletedDocs: 3, memory: '12 MB' },
+      ],
       indices: [
         { name: 'products-v1', health: 'green', status: 'open', documents: 100000, primaryShards: 1, replicaShards: 1, storage: '420 MB' },
+      ],
+    },
+  },
+} as QueryTabState
+
+const securityTab = {
+  ...indexTab,
+  id: 'tab-search-security',
+  title: 'Security',
+  objectViewState: {
+    ...indexTab.objectViewState!,
+    nodeId: 'search:security',
+    kind: 'security',
+    label: 'Security',
+    path: ['Security'],
+    queryTemplate: undefined,
+    payload: {
+      engine: 'elasticsearch',
+      objectView: 'security',
+      users: [
+        { name: 'app-search', realm: 'native', roles: 'search_writer', enabled: true },
+      ],
+      roles: [
+        { name: 'search_writer', clusterPrivileges: 'monitor', indexPrivileges: 'read/write on products-*' },
+      ],
+      apiKeys: [
+        { name: 'ingest-pipeline-key', owner: 'app-search', status: 'active' },
+      ],
+    },
+  },
+} as QueryTabState
+
+const pipelineTab = {
+  ...indexTab,
+  id: 'tab-search-pipelines',
+  title: 'Pipelines',
+  objectViewState: {
+    ...indexTab.objectViewState!,
+    nodeId: 'search:pipelines',
+    kind: 'pipelines',
+    label: 'Pipelines',
+    path: ['Pipelines'],
+    queryTemplate: undefined,
+    payload: {
+      engine: 'elasticsearch',
+      objectView: 'pipelines',
+      pipelines: [
+        { name: 'normalize-products', description: 'Normalize products', processors: 3, onFailure: 'dead-letter' },
+      ],
+      templates: [
+        { name: 'products-template', type: 'index', patterns: 'products-*', priority: 100 },
       ],
     },
   },

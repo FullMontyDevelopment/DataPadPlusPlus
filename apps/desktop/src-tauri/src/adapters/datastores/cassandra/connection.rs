@@ -25,14 +25,25 @@ pub(super) async fn test_cassandra_connection(
 
 pub(super) fn cassandra_keyspace(connection: &ResolvedConnectionProfile) -> String {
     connection
-        .database
-        .as_deref()
+        .cassandra_options
+        .as_ref()
+        .and_then(|options| options.default_keyspace.as_deref())
+        .or(connection.database.as_deref())
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("datapadplusplus")
         .to_string()
 }
 
 pub(super) fn cassandra_contact_point(connection: &ResolvedConnectionProfile) -> String {
+    if let Some(contact_point) = connection
+        .cassandra_options
+        .as_ref()
+        .and_then(|options| options.contact_points.first())
+        .filter(|value| !value.trim().is_empty())
+    {
+        return contact_point.trim().to_string();
+    }
+
     let host = if connection.host.trim().is_empty() {
         "127.0.0.1"
     } else {
@@ -44,18 +55,45 @@ pub(super) fn cassandra_contact_point(connection: &ResolvedConnectionProfile) ->
 #[cfg(test)]
 mod tests {
     use super::{cassandra_contact_point, cassandra_keyspace};
-    use crate::domain::models::ResolvedConnectionProfile;
+    use crate::domain::models::{CassandraConnectionOptions, ResolvedConnectionProfile};
 
     #[test]
     fn cassandra_profile_defaults_to_cql_port_and_keyspace() {
-        let connection = ResolvedConnectionProfile {
+        let connection = connection(None, None, None);
+
+        assert_eq!(cassandra_contact_point(&connection), "node1:9042");
+        assert_eq!(cassandra_keyspace(&connection), "datapadplusplus");
+    }
+
+    #[test]
+    fn cassandra_profile_prefers_native_options_when_present() {
+        let connection = connection(
+            Some("legacy_keyspace".into()),
+            None,
+            Some(CassandraConnectionOptions {
+                contact_points: vec!["node-a:9042".into(), "node-b:9042".into()],
+                default_keyspace: Some("catalog".into()),
+                ..CassandraConnectionOptions::default()
+            }),
+        );
+
+        assert_eq!(cassandra_contact_point(&connection), "node-a:9042");
+        assert_eq!(cassandra_keyspace(&connection), "catalog");
+    }
+
+    fn connection(
+        database: Option<String>,
+        port: Option<u16>,
+        cassandra_options: Option<CassandraConnectionOptions>,
+    ) -> ResolvedConnectionProfile {
+        ResolvedConnectionProfile {
             id: "conn-cassandra".into(),
             name: "Cassandra".into(),
             engine: "cassandra".into(),
             family: "widecolumn".into(),
             host: "node1".into(),
-            port: None,
-            database: None,
+            port,
+            database,
             username: None,
             password: None,
             connection_string: None,
@@ -63,10 +101,14 @@ mod tests {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: true,
-        };
-
-        assert_eq!(cassandra_contact_point(&connection), "node1:9042");
-        assert_eq!(cassandra_keyspace(&connection), "datapadplusplus");
+        }
     }
 }

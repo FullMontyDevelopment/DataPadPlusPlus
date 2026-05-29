@@ -46,7 +46,7 @@ export function sectionCandidates(kind: string) {
     section('permissions', 'Permissions', ['principal', 'privilege', 'object', 'state', 'grantor'], 'No permissions were returned.', 'security'),
     section('grants', 'Grants', ['principal', 'privilege', 'object', 'state', 'grantor'], 'No grants were returned.', 'security'),
     section('roles', 'Roles', ['name', 'login', 'superuser', 'inherit', 'memberships'], 'No roles were returned.', 'security'),
-    section('users', 'Users', ['name', 'type', 'defaultSchema', 'authenticationType'], 'No users were returned.', 'security'),
+    section('users', 'Users', ['name', 'host', 'type', 'defaultSchema', 'authenticationType', 'accountLocked'], 'No users were returned.', 'security'),
     section('replication', 'Replication', ['channel', 'role', 'state', 'lagSeconds', 'sourceHost', 'gtid'], 'No replication rows were returned.', 'job'),
     section('slowQueries', 'Slow Queries', ['digest', 'count', 'avgMs', 'maxMs', 'rowsExamined'], 'No slow-query rows were returned.', 'job'),
     section('innodbStatus', 'InnoDB Status', ['name', 'value', 'status', 'detail'], 'No InnoDB status rows were returned.', 'job'),

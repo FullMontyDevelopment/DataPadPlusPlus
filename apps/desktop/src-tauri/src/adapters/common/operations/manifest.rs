@@ -194,6 +194,131 @@ pub(crate) fn operation_manifests_for_manifest(
         ]);
     }
 
+    if manifest.family == "search" && manifest_has(manifest, "supports_index_management") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "index.force-merge",
+                "Force Merge",
+                "index",
+                "costly",
+                &["supports_index_management"],
+                &["profile", "metrics", "raw"],
+                "Preview a guarded Lucene segment force-merge request.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "index.clear-cache",
+                "Clear Cache",
+                "index",
+                "diagnostic",
+                &["supports_index_management"],
+                &["metrics", "raw"],
+                "Preview clearing index-level query/request caches.",
+                false,
+            ),
+            operation_manifest(
+                manifest,
+                "index.reindex",
+                "Reindex",
+                "index",
+                "write",
+                &["supports_index_management"],
+                &["diff", "profile", "raw"],
+                "Preview copying documents into a destination index.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "index.close",
+                "Close Index",
+                "index",
+                "write",
+                &["supports_index_management"],
+                &["diff", "raw"],
+                "Preview closing an index.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "index.open",
+                "Open Index",
+                "index",
+                "write",
+                &["supports_index_management"],
+                &["diff", "raw"],
+                "Preview opening a closed index.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "template.delete",
+                "Delete Template",
+                "index",
+                "destructive",
+                &["supports_index_management"],
+                &["diff", "raw"],
+                "Preview deleting an index or component template.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "pipeline.put",
+                "Update Pipeline",
+                "schema",
+                "write",
+                &["supports_index_management"],
+                &["schema", "diff", "raw"],
+                "Preview creating or updating an ingest pipeline.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "lifecycle.put",
+                if manifest.engine == "opensearch" {
+                    "Update ISM Policy"
+                } else {
+                    "Update ILM Policy"
+                },
+                "schema",
+                "write",
+                &["supports_index_management"],
+                &["schema", "diff", "raw"],
+                "Preview updating index lifecycle or state-management policy.",
+                true,
+            ),
+        ]);
+    }
+
+    if manifest.family == "search" && manifest_has(manifest, "supports_query_profile") {
+        operations.push(operation_manifest(
+            manifest,
+            "task.cancel",
+            "Cancel Task",
+            "query",
+            "write",
+            &["supports_query_profile"],
+            &["diff", "raw"],
+            "Preview canceling a running search cluster task.",
+            true,
+        ));
+    }
+
+    if manifest.family == "search" && manifest_has(manifest, "supports_backup_restore") {
+        operations.push(operation_manifest(
+            manifest,
+            "snapshot.restore",
+            "Restore Snapshot",
+            "connection",
+            "destructive",
+            &["supports_backup_restore"],
+            &["diff", "raw"],
+            "Preview restoring a snapshot into the cluster.",
+            true,
+        ));
+    }
+
     if manifest.engine == "mongodb" && manifest_has(manifest, "supports_admin_operations") {
         operations.push(operation_manifest(
             manifest,
@@ -356,6 +481,142 @@ pub(crate) fn operation_manifests_for_manifest(
             "Preview creating a DuckDB table from a selected CSV, JSON, or Parquet file.",
             true,
         ));
+    }
+
+    if manifest.engine == "postgresql" && manifest_has(manifest, "supports_admin_operations") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "table.analyze",
+                "Analyze Table",
+                "table",
+                "costly",
+                &["supports_admin_operations"],
+                &["profile", "metrics", "raw"],
+                "Preview refreshing PostgreSQL planner statistics for a table or materialized view.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "table.vacuum",
+                "Vacuum Table",
+                "table",
+                "costly",
+                &["supports_admin_operations"],
+                &["profile", "metrics", "raw"],
+                "Preview PostgreSQL VACUUM maintenance for a table.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "database.analyze",
+                "Analyze Database",
+                "database",
+                "costly",
+                &["supports_admin_operations"],
+                &["profile", "metrics", "raw"],
+                "Preview database-wide PostgreSQL ANALYZE.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "database.vacuum",
+                "Vacuum Database",
+                "database",
+                "costly",
+                &["supports_admin_operations"],
+                &["profile", "metrics", "raw"],
+                "Preview database-wide PostgreSQL VACUUM maintenance.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "index.reindex",
+                "Reindex",
+                "index",
+                "costly",
+                &["supports_admin_operations"],
+                &["diff", "profile", "raw"],
+                "Preview a guarded PostgreSQL REINDEX request.",
+                true,
+            ),
+        ]);
+    }
+
+    if manifest.engine == "sqlserver" && manifest_has(manifest, "supports_admin_operations") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "statistics.update",
+                "Update Statistics",
+                "table",
+                "costly",
+                &["supports_admin_operations"],
+                &["profile", "metrics", "raw"],
+                "Preview refreshing SQL Server optimizer statistics for a table or indexed view.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "query-store.top-queries",
+                "Query Store Top Queries",
+                "query",
+                "diagnostic",
+                &["supports_admin_operations", "supports_query_profile"],
+                &["table", "profile", "metrics"],
+                "Preview a Query Store top workload review.",
+                false,
+            ),
+        ]);
+    }
+
+    if manifest.engine == "sqlserver" && manifest_has(manifest, "supports_index_management") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "index.reorganize",
+                "Reorganize Index",
+                "index",
+                "costly",
+                &["supports_index_management"],
+                &["diff", "profile", "raw"],
+                "Preview online-friendly SQL Server index reorganization.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "index.rebuild",
+                "Rebuild Index",
+                "index",
+                "costly",
+                &["supports_index_management"],
+                &["diff", "profile", "raw"],
+                "Preview guarded SQL Server index rebuild.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "index.disable",
+                "Disable Index",
+                "index",
+                "write",
+                &["supports_index_management"],
+                &["diff", "raw"],
+                "Preview disabling a SQL Server index.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "index.enable",
+                "Enable Index",
+                "index",
+                "costly",
+                &["supports_index_management"],
+                &["diff", "profile", "raw"],
+                "Preview rebuilding a disabled SQL Server index.",
+                true,
+            ),
+        ]);
     }
 
     if manifest.engine == "clickhouse" && manifest_has(manifest, "supports_admin_operations") {
@@ -601,6 +862,128 @@ mod tests {
                 .find(|operation| operation.id == "duckdb.table.analyze")
                 .map(|operation| operation.risk.as_str()),
             Some("costly")
+        );
+    }
+
+    #[test]
+    fn postgresql_operation_manifest_exposes_native_maintenance_previews() {
+        let manifest = AdapterManifest {
+            id: "adapter-postgresql".into(),
+            engine: "postgresql".into(),
+            family: "sql".into(),
+            label: "PostgreSQL".into(),
+            maturity: "stable".into(),
+            capabilities: vec![
+                "supports_schema_browser".into(),
+                "supports_result_snapshots".into(),
+                "supports_admin_operations".into(),
+                "supports_index_management".into(),
+                "supports_query_profile".into(),
+            ],
+            default_language: "sql".into(),
+            local_database: None,
+            tree: None,
+        };
+
+        let operations = operation_manifests_for_manifest(&manifest);
+        let operation_ids = operations
+            .iter()
+            .map(|operation| operation.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(operation_ids.contains(&"postgresql.table.analyze"));
+        assert!(operation_ids.contains(&"postgresql.table.vacuum"));
+        assert!(operation_ids.contains(&"postgresql.database.analyze"));
+        assert!(operation_ids.contains(&"postgresql.database.vacuum"));
+        assert!(operation_ids.contains(&"postgresql.index.reindex"));
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "postgresql.index.reindex")
+                .map(|operation| operation.risk.as_str()),
+            Some("costly")
+        );
+    }
+
+    #[test]
+    fn sqlserver_operation_manifest_exposes_native_maintenance_previews() {
+        let manifest = AdapterManifest {
+            id: "adapter-sqlserver".into(),
+            engine: "sqlserver".into(),
+            family: "sql".into(),
+            label: "SQL Server".into(),
+            maturity: "stable".into(),
+            capabilities: vec![
+                "supports_schema_browser".into(),
+                "supports_result_snapshots".into(),
+                "supports_admin_operations".into(),
+                "supports_index_management".into(),
+                "supports_query_profile".into(),
+            ],
+            default_language: "sql".into(),
+            local_database: None,
+            tree: None,
+        };
+
+        let operations = operation_manifests_for_manifest(&manifest);
+        let operation_ids = operations
+            .iter()
+            .map(|operation| operation.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(operation_ids.contains(&"sqlserver.statistics.update"));
+        assert!(operation_ids.contains(&"sqlserver.index.reorganize"));
+        assert!(operation_ids.contains(&"sqlserver.index.rebuild"));
+        assert!(operation_ids.contains(&"sqlserver.index.disable"));
+        assert!(operation_ids.contains(&"sqlserver.index.enable"));
+        assert!(operation_ids.contains(&"sqlserver.query-store.top-queries"));
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "sqlserver.index.disable")
+                .map(|operation| operation.risk.as_str()),
+            Some("write")
+        );
+    }
+
+    #[test]
+    fn search_operation_manifest_exposes_native_admin_previews() {
+        let manifest = AdapterManifest {
+            id: "adapter-elasticsearch".into(),
+            engine: "elasticsearch".into(),
+            family: "search".into(),
+            label: "Elasticsearch".into(),
+            maturity: "beta".into(),
+            capabilities: vec![
+                "supports_schema_browser".into(),
+                "supports_result_snapshots".into(),
+                "supports_index_management".into(),
+                "supports_query_profile".into(),
+                "supports_backup_restore".into(),
+            ],
+            default_language: "query-dsl".into(),
+            local_database: None,
+            tree: None,
+        };
+
+        let operations = operation_manifests_for_manifest(&manifest);
+        let operation_ids = operations
+            .iter()
+            .map(|operation| operation.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(operation_ids.contains(&"elasticsearch.index.force-merge"));
+        assert!(operation_ids.contains(&"elasticsearch.index.reindex"));
+        assert!(operation_ids.contains(&"elasticsearch.lifecycle.put"));
+        assert!(operation_ids.contains(&"elasticsearch.pipeline.put"));
+        assert!(operation_ids.contains(&"elasticsearch.task.cancel"));
+        assert!(operation_ids.contains(&"elasticsearch.snapshot.restore"));
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "elasticsearch.snapshot.restore")
+                .map(|operation| operation.risk.as_str()),
+            Some("destructive")
         );
     }
 

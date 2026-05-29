@@ -12,7 +12,7 @@ mod query;
 pub(crate) use metadata::load_sqlite_structure;
 pub(crate) use paging::fetch_sqlite_page;
 
-use catalog::sqlite_manifest;
+use catalog::{sqlite_manifest, sqlite_operation_manifests};
 use connection::test_sqlite_connection;
 use diagnostics::collect_sqlite_diagnostics;
 use editing::execute_sqlite_data_edit;
@@ -28,6 +28,10 @@ impl DatastoreAdapter for SqliteAdapter {
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         sql_capabilities(false, false)
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        sqlite_operation_manifests(&self.manifest())
     }
 
     async fn test_connection(

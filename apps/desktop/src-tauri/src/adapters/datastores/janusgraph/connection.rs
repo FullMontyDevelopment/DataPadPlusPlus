@@ -98,6 +98,20 @@ async fn janusgraph_post_json(
 
 impl JanusGraphEndpoint {
     fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+        if let Some(options) = connection.graph_options.as_ref() {
+            if let Some(endpoint_url) = options
+                .endpoint_url
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                return Self::from_url_with_prefix(
+                    endpoint_url,
+                    graph_traversal_override(options).or(connection.database.as_deref()),
+                    options.path_prefix.as_deref(),
+                );
+            }
+        }
+
         if let Some(connection_string) = connection.connection_string.as_deref() {
             return Self::from_url(connection_string, connection.database.as_deref());
         }
@@ -113,12 +127,30 @@ impl JanusGraphEndpoint {
         Ok(Self {
             host: host.into(),
             port: connection.port.unwrap_or(8182),
-            prefix: String::new(),
-            traversal_source: traversal_source(connection.database.as_deref()),
+            prefix: connection
+                .graph_options
+                .as_ref()
+                .and_then(|options| normalized_prefix(options.path_prefix.as_deref()))
+                .unwrap_or_default(),
+            traversal_source: traversal_source(
+                connection
+                    .graph_options
+                    .as_ref()
+                    .and_then(graph_traversal_override)
+                    .or(connection.database.as_deref()),
+            ),
         })
     }
 
     fn from_url(url: &str, traversal_override: Option<&str>) -> Result<Self, CommandError> {
+        Self::from_url_with_prefix(url, traversal_override, None)
+    }
+
+    fn from_url_with_prefix(
+        url: &str,
+        traversal_override: Option<&str>,
+        prefix_override: Option<&str>,
+    ) -> Result<Self, CommandError> {
         let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
             CommandError::new(
                 "janusgraph-unsupported-url",
@@ -140,11 +172,15 @@ impl JanusGraphEndpoint {
             ));
         }
 
-        let prefix = if path.is_empty() || path == "gremlin" {
-            String::new()
-        } else {
-            format!("/{}", path.trim_end_matches('/'))
-        };
+        let prefix = normalized_prefix(prefix_override)
+            .or_else(|| {
+                if path == "gremlin" {
+                    None
+                } else {
+                    normalized_prefix(Some(path))
+                }
+            })
+            .unwrap_or_default();
 
         Ok(Self {
             host: host.into(),
@@ -213,8 +249,33 @@ fn traversal_source(value: Option<&str>) -> String {
         .unwrap_or_else(|| "g".into())
 }
 
+fn graph_traversal_override(
+    options: &crate::domain::models::GraphConnectionOptions,
+) -> Option<&str> {
+    options
+        .traversal_source
+        .as_deref()
+        .or(options.database_name.as_deref())
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn normalized_prefix(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(format!("/{trimmed}"))
+    }
+}
+
 fn janusgraph_auth_header(connection: &ResolvedConnectionProfile) -> String {
-    match (&connection.username, &connection.password) {
+    let username = connection
+        .graph_options
+        .as_ref()
+        .and_then(|options| options.username.as_deref())
+        .map(str::to_string)
+        .or_else(|| connection.username.clone());
+    match (&username, &connection.password) {
         (Some(username), Some(password)) if !username.is_empty() => {
             let encoded = base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
@@ -257,6 +318,13 @@ mod tests {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: true,
         };
         let body = janusgraph_gremlin_body(&connection, "g.V().limit(1)").unwrap();
@@ -264,5 +332,47 @@ mod tests {
 
         assert_eq!(value["gremlin"], "g.V().limit(1)");
         assert_eq!(value["aliases"]["g"], "graphTraversal");
+    }
+
+    #[test]
+    fn janusgraph_endpoint_prefers_graph_options() {
+        let connection = ResolvedConnectionProfile {
+            id: "conn-janus".into(),
+            name: "JanusGraph".into(),
+            engine: "janusgraph".into(),
+            family: "graph".into(),
+            host: "ignored".into(),
+            port: Some(8182),
+            database: Some("fallback".into()),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: Some(crate::domain::models::GraphConnectionOptions {
+                endpoint_url: Some("http://localhost:18182/proxy".into()),
+                path_prefix: Some("/janus".into()),
+                traversal_source: Some("analyticsTraversal".into()),
+                ..crate::domain::models::GraphConnectionOptions::default()
+            }),
+            warehouse_options: None,
+            read_only: true,
+        };
+
+        let body = janusgraph_gremlin_body(&connection, "g.V().limit(1)").unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let endpoint = JanusGraphEndpoint::from_connection(&connection).unwrap();
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 18182);
+        assert_eq!(endpoint.path("/gremlin"), "/janus/gremlin");
+        assert_eq!(value["aliases"]["g"], "analyticsTraversal");
     }
 }

@@ -79,6 +79,13 @@ export function createConnectionProfile(
     sqliteOptions: source?.sqliteOptions ? { ...source.sqliteOptions } : undefined,
     sqlServerOptions: source?.sqlServerOptions ? { ...source.sqlServerOptions } : undefined,
     oracleOptions: source?.oracleOptions ? { ...source.oracleOptions } : undefined,
+    dynamoDbOptions: source?.dynamoDbOptions ? { ...source.dynamoDbOptions } : undefined,
+    cassandraOptions: source?.cassandraOptions ? { ...source.cassandraOptions } : undefined,
+    cosmosDbOptions: source?.cosmosDbOptions ? { ...source.cosmosDbOptions } : undefined,
+    searchOptions: source?.searchOptions ? { ...source.searchOptions } : undefined,
+    timeSeriesOptions: source?.timeSeriesOptions ? { ...source.timeSeriesOptions } : undefined,
+    graphOptions: source?.graphOptions ? { ...source.graphOptions } : undefined,
+    warehouseOptions: source?.warehouseOptions ? { ...source.warehouseOptions } : undefined,
     createdAt: timestamp,
     updatedAt: timestamp,
   }

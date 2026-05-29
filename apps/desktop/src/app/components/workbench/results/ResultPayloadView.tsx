@@ -13,9 +13,10 @@ import { DataGridView } from './DataGridView'
 import { dataGridRowsVersion } from './data-grid-row-patches'
 import type { DocumentEditContext } from './document-edit-context'
 import { DocumentResultsView } from './DocumentResultsView'
+import { GenericPlanPayloadView } from './GenericPlanPayloadView'
 import { JsonTreeView } from './JsonTreeView'
 import { KeyValueResultsView } from './KeyValueResultsView'
-import { GenericPlanPayloadView, MongoExplainPlanView } from './MongoExplainPlanView'
+import { MongoExplainPlanView } from './MongoExplainPlanView'
 import { ProfileResultsView } from './ProfileResultsView'
 import { RawResultView } from './RawResultView'
 import { SearchHitsResultsView } from './SearchHitsResultsView'
@@ -152,7 +153,7 @@ export function ResultPayloadView({
   if (payload.renderer === 'plan') {
     return connection?.engine === 'mongodb'
       ? <MongoExplainPlanView payload={payload} />
-      : <GenericPlanPayloadView payload={payload} />
+      : <GenericPlanPayloadView connection={connection} payload={payload} />
   }
 
   if (payload.renderer === 'profile') {

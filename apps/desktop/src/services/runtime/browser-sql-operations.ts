@@ -1,5 +1,18 @@
 import type { ConnectionProfile, OperationPlanRequest } from '@datapadplusplus/shared-types'
 import { defaultQueryTextForConnection } from '../../app/state/helpers'
+import {
+  cockroachOperationRequest,
+  duckDbOperationRequest,
+  mysqlOperationRequest,
+  postgresOperationRequest,
+  sqlServerOperationRequest,
+  sqliteOperationRequest,
+} from './browser-sql-dialect-operations'
+import {
+  duckDbImportFileRequest,
+  quoteSqlIdentifier,
+  suggestedSqlIndexName,
+} from './browser-sql-operation-format'
 
 export function sqlOperationRequest(connection: ConnectionProfile, request: OperationPlanRequest) {
   const parameters = request.parameters ?? {}
@@ -33,6 +46,41 @@ export function sqlOperationRequest(connection: ConnectionProfile, request: Oper
 
   if (request.operationId.endsWith('data.backup-restore')) {
     return sqlBackupRestoreRequest(connection, objectName)
+  }
+
+  if (connection.engine === 'sqlserver') {
+    const sqlServerRequest = sqlServerOperationRequest(connection, request.operationId, objectName, parameters)
+    if (sqlServerRequest) {
+      return sqlServerRequest
+    }
+  }
+
+  if (connection.engine === 'mysql' || connection.engine === 'mariadb') {
+    const mysqlRequest = mysqlOperationRequest(request.operationId, objectName)
+    if (mysqlRequest) {
+      return mysqlRequest
+    }
+  }
+
+  if (connection.engine === 'postgresql') {
+    const postgresRequest = postgresOperationRequest(request.operationId, objectName)
+    if (postgresRequest) {
+      return postgresRequest
+    }
+  }
+
+  if (connection.engine === 'cockroachdb') {
+    const cockroachRequest = cockroachOperationRequest(request.operationId, objectName)
+    if (cockroachRequest) {
+      return cockroachRequest
+    }
+  }
+
+  if (connection.engine === 'sqlite') {
+    const sqliteRequest = sqliteOperationRequest(request.operationId, objectName)
+    if (sqliteRequest) {
+      return sqliteRequest
+    }
   }
 
   if (connection.engine === 'duckdb') {
@@ -186,106 +234,10 @@ function sqlBackupRestoreRequest(connection: ConnectionProfile, objectName: stri
   return `-- Backup with pg_dump or the DataPad++ file workflow.\n-- Scope: ${objectName}`
 }
 
-function duckDbOperationRequest(
-  operationId: string,
-  objectName: string,
-  parameters: Record<string, unknown>,
-) {
-  if (operationId.endsWith('table.analyze')) {
-    return `analyze ${objectName};`
-  }
-
-  if (operationId.endsWith('database.analyze')) {
-    return 'analyze;'
-  }
-
-  if (operationId.endsWith('database.checkpoint')) {
-    return 'checkpoint;'
-  }
-
-  if (operationId.endsWith('extension.install')) {
-    return `install ${duckDbExtensionName(parameters.extensionName ?? objectName)};`
-  }
-
-  if (operationId.endsWith('extension.load')) {
-    return `load ${duckDbExtensionName(parameters.extensionName ?? objectName)};`
-  }
-
-  if (operationId.endsWith('file.import')) {
-    return duckDbImportFileRequest(String(parameters.tableName ?? objectName), parameters)
-  }
-
-  return undefined
-}
-
-function duckDbImportFileRequest(objectName: string, parameters: Record<string, unknown>) {
-  const format = String(parameters.sourceFormat ?? parameters.format ?? 'parquet').toLowerCase()
-  const reader = format === 'csv'
-    ? "read_csv_auto('<selected-file>.csv')"
-    : format === 'json'
-      ? "read_json_auto('<selected-file>.json')"
-      : "read_parquet('<selected-file>.parquet')"
-
-  return `create or replace table ${objectName} as\nselect * from ${reader};`
-}
-
 function sqlSelectPreview(connection: ConnectionProfile, objectName: string) {
   if (connection.engine === 'sqlserver') {
     return `select top (100) * from ${objectName};`
   }
 
   return `select * from ${objectName} limit 100;`
-}
-
-function quoteSqlIdentifier(connection: ConnectionProfile, value: string) {
-  const cleaned = stripSqlIdentifierWrapper(value)
-
-  if (connection.engine === 'sqlserver' || connection.engine === 'sqlite') {
-    return `[${cleaned.replace(/]/g, ']]')}]`
-  }
-
-  if (connection.engine === 'mysql' || connection.engine === 'mariadb') {
-    return `\`${cleaned.replace(/`/g, '``')}\``
-  }
-
-  return `"${cleaned.replace(/"/g, '""')}"`
-}
-
-function duckDbExtensionName(value: unknown) {
-  const cleaned = String(value ?? 'parquet')
-    .replace(/[`"[\]]/g, '')
-    .replace(/[^a-zA-Z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase()
-
-  return cleaned || 'parquet'
-}
-
-function suggestedSqlIndexName(objectName: string, columnName: string) {
-  const object = objectName
-    .replace(/[`"[\]]/g, '')
-    .replace(/[^a-zA-Z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase() || 'object'
-  const column = columnName
-    .replace(/[^a-zA-Z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase() || 'id'
-
-  return `idx_${object}_${column}`.slice(0, 80)
-}
-
-function stripSqlIdentifierWrapper(value: string) {
-  const trimmed = value.trim()
-  const first = trimmed[0]
-  const last = trimmed[trimmed.length - 1]
-  if (
-    (first === '[' && last === ']') ||
-    (first === '"' && last === '"') ||
-    (first === '`' && last === '`')
-  ) {
-    return trimmed.slice(1, -1)
-  }
-
-  return trimmed
 }

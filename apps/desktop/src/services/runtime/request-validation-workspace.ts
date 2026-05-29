@@ -31,6 +31,13 @@ import {
   validateRequiredId,
   validateRequiredText,
 } from './request-validation-core'
+import { validateCassandraConnectionOptions } from './request-validation-cassandra'
+import { validateCosmosDbConnectionOptions } from './request-validation-cosmosdb'
+import { validateDynamoDbConnectionOptions } from './request-validation-dynamodb'
+import { validateGraphConnectionOptions } from './request-validation-graph'
+import { validateSearchConnectionOptions } from './request-validation-search'
+import { validateTimeSeriesConnectionOptions } from './request-validation-timeseries'
+import { validateWarehouseConnectionOptions } from './request-validation-warehouse'
 
 const MAX_TAGS = 32
 const MAX_TAG_LENGTH = 80
@@ -89,6 +96,13 @@ export function validateConnectionProfile(profile: ConnectionProfile): Connectio
     icon: icon?.trim() || 'database',
     color: color?.trim() || undefined,
     auth,
+    dynamoDbOptions: validateDynamoDbConnectionOptions(profile.dynamoDbOptions),
+    cassandraOptions: validateCassandraConnectionOptions(profile.cassandraOptions),
+    cosmosDbOptions: validateCosmosDbConnectionOptions(profile.cosmosDbOptions),
+    searchOptions: validateSearchConnectionOptions(profile.searchOptions),
+    timeSeriesOptions: validateTimeSeriesConnectionOptions(profile.timeSeriesOptions),
+    graphOptions: validateGraphConnectionOptions(profile.graphOptions),
+    warehouseOptions: validateWarehouseConnectionOptions(profile.warehouseOptions),
     connectionString,
     environmentIds: normalizeIds(profile.environmentIds, 'Connection environment id'),
     tags: normalizeTags(profile.tags),

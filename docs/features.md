@@ -85,10 +85,13 @@ For search engines, it can show:
 - data streams
 - field capabilities, shard health, lifecycle status, and search result structures
 
+For time-series engines, it can keep native connection context such as Prometheus endpoints, InfluxDB orgs and buckets, OpenTSDB API prefixes, tenant headers, TLS posture, and default query ranges alongside the metric, bucket, tag, and field tree.
+
 For wide-column stores such as Cassandra, it can show:
 
 - keyspaces
 - tables
+- contact-point, secure-bundle, TLS, consistency, retry, and load-balancing connection options
 - primary-key structure
 - indexes
 - materialized views
@@ -97,6 +100,7 @@ For wide-column stores such as Cassandra, it can show:
 For DynamoDB, it can show:
 
 - tables
+- local endpoints, AWS profiles, assume-role/web-identity settings, retry and capacity preferences
 - partition and sort keys
 - global and local secondary indexes
 - streams, TTL, backups, capacity, hot partitions, alarms, index coverage, and access metadata
@@ -182,17 +186,28 @@ You can:
 
 DataPad++ aims to respect each SQL dialect. PostgreSQL, SQL Server, MySQL, MariaDB, SQLite, and CockroachDB have different identifier rules, metadata surfaces, and diagnostics. The app should guide you instead of pretending they are all identical.
 
+PostgreSQL workspaces include compact storage, index-health, security, and activity panels so common `pg_stat` and catalog signals are visible without digging through raw metadata. Guarded PostgreSQL maintenance previews cover `VACUUM`, `ANALYZE`, and `REINDEX`, alongside explain/profile, grants, export, and backup workflows.
+
+SQL Server and Azure SQL workspaces include compact storage, index, workload, security, and Agent posture panels. Guarded previews cover `UPDATE STATISTICS`, index rebuild/reorganize/disable/enable workflows, and Query Store workload review.
+
+CockroachDB workspaces include compact table, cluster, locality, job, contention, and security posture panels for distributed SQL signals. Guarded previews cover jobs, ranges, regions, sessions, contention, roles/grants, zone configuration, backup, restore, and import workflows.
+
+MySQL and MariaDB expose Workbench-style storage, index, security, session, status, slow-query, InnoDB, and replication surfaces where metadata is available. Maintenance actions such as check, analyze, optimize, repair, and scheduled event enable/disable are shown as guarded previews rather than raw command dumps.
+
+SQLite gets a local-file workbench treatment: file posture, attached databases, PRAGMA health, integrity checks, indexes, triggers, generated columns, and virtual tables are summarized in compact panels. Local maintenance actions such as check, analyze, optimize, vacuum, reindex, backup, and export are planned with guardrails so file-affecting work is explicit.
+
 ## Search Experience
 
 For Elasticsearch and OpenSearch, DataPad++ focuses on search-oriented workflows.
 
 You can:
 
+- configure HTTP, Elastic Cloud, managed OpenSearch, AWS SigV4, API key, default-index, TLS, and timeout options without storing secrets in plaintext
 - browse indexes, data streams, and mappings
 - build search queries visually
 - inspect search hits, source documents, highlights, and aggregations
-- review field capability, shard-health, lifecycle, and profile views without reading raw API payloads
-- preview mapping, settings, alias, template, pipeline, rollover, snapshot, bulk, and security workflows behind guardrails
+- review cluster, field capability, shard-health, Lucene segment, lifecycle, ingestion, security, and profile views without reading raw API payloads
+- preview force merge, cache clear, reindex, open/close, mapping, settings, alias, template, pipeline, rollover, lifecycle policy, task cancel, snapshot/restore, bulk, and security workflows behind guardrails
 - switch to raw query DSL
 - view profile, explain, shard, index, and cluster diagnostics where supported
 - plan index and mapping operations behind safety prompts
@@ -203,6 +218,7 @@ Graph stores use graph-native tree and object views instead of generic tables.
 
 Depending on the engine, DataPad++ can help you:
 
+- configure endpoint, database or graph name, traversal source, auth mode, AWS/SigV4, TLS, timeout, fetch-size, and default query-language options without storing secrets in plaintext
 - browse graphs, node labels, relationship types, properties, indexes, constraints, procedures, security, and diagnostics
 - open scoped Cypher, AQL, or Gremlin queries from graph objects
 - prepare guarded profile requests before running expensive traversals
@@ -217,6 +233,7 @@ Cloud and analytical warehouses use SQL-first workflows with cost and job awaren
 
 DataPad++ can show:
 
+- configure Snowflake, BigQuery, ClickHouse, and DuckDB endpoint, account/project, database/dataset/schema, compute, auth, TLS, timeout, row, cost, and local-file options without storing secrets in plaintext
 - databases, datasets, schemas, tables, views, stages, compute warehouses, jobs, reservations, security, and diagnostics
 - scoped Snowflake SQL, GoogleSQL, or ClickHouse SQL queries
 - dry-run or plan previews before broad warehouse queries
@@ -236,7 +253,7 @@ TimescaleDB builds on the PostgreSQL workflow with time-series native surfaces:
 - guarded compression-policy, retention-policy, and continuous-aggregate refresh previews
 - PostgreSQL-style roles, grants, indexes, explain/profile, and export workflows where they apply
 
-Prometheus, InfluxDB, and OpenTSDB keep their own non-SQL time-series workflows, with metric/label/bucket/tag trees, chart-ready results, cardinality and retention surfaces, and guarded metadata-operation previews.
+Prometheus, InfluxDB, and OpenTSDB keep their own non-SQL time-series workflows, with typed endpoint/auth/bucket/metric connection options, metric/label/bucket/tag trees, chart-ready results, cardinality and retention surfaces, and guarded metadata-operation previews.
 
 ## Document, Local, And Cache Engines
 

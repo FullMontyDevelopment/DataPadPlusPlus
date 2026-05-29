@@ -464,6 +464,13 @@ fn connection(engine: &str, family: &str, read_only: bool) -> ResolvedConnection
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
         read_only,
     }
 }

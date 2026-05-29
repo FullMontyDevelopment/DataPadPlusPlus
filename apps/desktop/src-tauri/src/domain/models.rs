@@ -197,6 +197,239 @@ pub struct OracleConnectionOptions {
     pub trace_directory: Option<String>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DynamoDbConnectionOptions {
+    pub connect_mode: Option<String>,
+    pub region: Option<String>,
+    pub endpoint_url: Option<String>,
+    pub table_prefix: Option<String>,
+    pub account_id: Option<String>,
+    pub profile_name: Option<String>,
+    pub credentials_provider: Option<String>,
+    pub access_key_id: Option<String>,
+    pub secret_access_key_ref: Option<SecretRef>,
+    pub session_token_ref: Option<SecretRef>,
+    pub role_arn: Option<String>,
+    pub external_id: Option<String>,
+    pub role_session_name: Option<String>,
+    pub web_identity_token_file: Option<String>,
+    pub use_dual_stack_endpoint: Option<bool>,
+    pub use_fips_endpoint: Option<bool>,
+    pub force_path_style: Option<bool>,
+    pub signer_region: Option<String>,
+    pub retry_mode: Option<String>,
+    pub max_attempts: Option<u32>,
+    pub connect_timeout_ms: Option<u64>,
+    pub request_timeout_ms: Option<u64>,
+    pub read_timeout_ms: Option<u64>,
+    pub tcp_keep_alive: Option<bool>,
+    pub api_version: Option<String>,
+    pub scan_page_size: Option<u32>,
+    pub consistent_read_default: Option<bool>,
+    pub return_consumed_capacity: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CassandraConnectionOptions {
+    pub connect_mode: Option<String>,
+    #[serde(default)]
+    pub contact_points: Vec<String>,
+    pub default_keyspace: Option<String>,
+    pub local_datacenter: Option<String>,
+    pub protocol_version: Option<String>,
+    pub auth_provider: Option<String>,
+    pub secure_connect_bundle_path: Option<String>,
+    pub use_tls: Option<bool>,
+    pub ca_certificate_path: Option<String>,
+    pub client_certificate_path: Option<String>,
+    pub client_key_path: Option<String>,
+    pub certificate_password_secret_ref: Option<SecretRef>,
+    pub compression: Option<String>,
+    pub consistency_level: Option<String>,
+    pub serial_consistency_level: Option<String>,
+    pub load_balancing_policy: Option<String>,
+    pub retry_policy: Option<String>,
+    pub page_size: Option<u32>,
+    pub connect_timeout_ms: Option<u64>,
+    pub request_timeout_ms: Option<u64>,
+    pub read_timeout_ms: Option<u64>,
+    pub heartbeat_interval_ms: Option<u64>,
+    pub application_name: Option<String>,
+    pub client_id: Option<String>,
+    pub enable_tracing_default: Option<bool>,
+    pub allow_beta_protocol: Option<bool>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CosmosDbConnectionOptions {
+    pub connect_mode: Option<String>,
+    pub api: Option<String>,
+    pub account_endpoint: Option<String>,
+    pub account_name: Option<String>,
+    pub database_name: Option<String>,
+    pub container_prefix: Option<String>,
+    pub auth_mode: Option<String>,
+    pub account_key_secret_ref: Option<SecretRef>,
+    pub resource_token_secret_ref: Option<SecretRef>,
+    pub tenant_id: Option<String>,
+    pub client_id: Option<String>,
+    pub managed_identity_client_id: Option<String>,
+    pub subscription_id: Option<String>,
+    pub resource_group: Option<String>,
+    #[serde(default)]
+    pub preferred_regions: Vec<String>,
+    pub write_region: Option<String>,
+    pub consistency_level: Option<String>,
+    pub enable_cross_partition_queries: Option<bool>,
+    pub max_item_count: Option<u32>,
+    pub return_request_charge: Option<bool>,
+    pub gateway_mode: Option<String>,
+    pub use_tls: Option<bool>,
+    pub allow_self_signed_emulator_certificate: Option<bool>,
+    pub retry_mode: Option<String>,
+    pub max_retry_attempts: Option<u32>,
+    pub request_timeout_ms: Option<u64>,
+    pub connection_timeout_ms: Option<u64>,
+    pub application_name: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchConnectionOptions {
+    pub connect_mode: Option<String>,
+    pub endpoint_url: Option<String>,
+    pub cloud_id: Option<String>,
+    pub default_index: Option<String>,
+    pub path_prefix: Option<String>,
+    pub auth_mode: Option<String>,
+    pub username: Option<String>,
+    pub api_key_id: Option<String>,
+    pub api_key_secret_ref: Option<SecretRef>,
+    pub bearer_token_secret_ref: Option<SecretRef>,
+    pub service_token_secret_ref: Option<SecretRef>,
+    pub aws_region: Option<String>,
+    pub aws_service: Option<String>,
+    pub aws_profile_name: Option<String>,
+    pub aws_role_arn: Option<String>,
+    pub verify_certificates: Option<bool>,
+    pub use_tls: Option<bool>,
+    pub ca_certificate_path: Option<String>,
+    pub client_certificate_path: Option<String>,
+    pub client_key_path: Option<String>,
+    pub compression: Option<bool>,
+    pub request_timeout_ms: Option<u64>,
+    pub connection_timeout_ms: Option<u64>,
+    pub max_retries: Option<u32>,
+    pub sniff_on_start: Option<bool>,
+    pub opaque_id: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeSeriesConnectionOptions {
+    pub connect_mode: Option<String>,
+    pub endpoint_url: Option<String>,
+    pub path_prefix: Option<String>,
+    pub organization: Option<String>,
+    pub bucket: Option<String>,
+    pub database_name: Option<String>,
+    pub retention_policy: Option<String>,
+    pub default_metric: Option<String>,
+    pub default_range: Option<String>,
+    pub default_step: Option<String>,
+    pub default_query_language: Option<String>,
+    pub auth_mode: Option<String>,
+    pub username: Option<String>,
+    pub token_secret_ref: Option<SecretRef>,
+    pub custom_header_name: Option<String>,
+    pub custom_header_secret_ref: Option<SecretRef>,
+    pub tenant_header_name: Option<String>,
+    pub tenant_id: Option<String>,
+    pub verify_certificates: Option<bool>,
+    pub use_tls: Option<bool>,
+    pub ca_certificate_path: Option<String>,
+    pub client_certificate_path: Option<String>,
+    pub client_key_path: Option<String>,
+    pub connection_timeout_ms: Option<u64>,
+    pub query_timeout_ms: Option<u64>,
+    pub max_series: Option<u32>,
+    pub max_data_points: Option<u32>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphConnectionOptions {
+    pub connect_mode: Option<String>,
+    pub endpoint_url: Option<String>,
+    pub path_prefix: Option<String>,
+    pub database_name: Option<String>,
+    pub traversal_source: Option<String>,
+    pub graph_name: Option<String>,
+    pub default_query_language: Option<String>,
+    pub auth_mode: Option<String>,
+    pub username: Option<String>,
+    pub token_secret_ref: Option<SecretRef>,
+    pub aws_region: Option<String>,
+    pub aws_profile_name: Option<String>,
+    pub aws_role_arn: Option<String>,
+    pub use_iam_auth: Option<bool>,
+    pub verify_certificates: Option<bool>,
+    pub use_tls: Option<bool>,
+    pub ca_certificate_path: Option<String>,
+    pub client_certificate_path: Option<String>,
+    pub client_key_path: Option<String>,
+    pub connection_timeout_ms: Option<u64>,
+    pub query_timeout_ms: Option<u64>,
+    pub fetch_size: Option<u32>,
+    pub explain_by_default: Option<bool>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct WarehouseConnectionOptions {
+    pub connect_mode: Option<String>,
+    pub endpoint_url: Option<String>,
+    pub path_prefix: Option<String>,
+    pub account_name: Option<String>,
+    pub project_id: Option<String>,
+    pub dataset_id: Option<String>,
+    pub database_name: Option<String>,
+    pub schema_name: Option<String>,
+    pub warehouse_name: Option<String>,
+    pub role_name: Option<String>,
+    pub catalog_name: Option<String>,
+    pub region: Option<String>,
+    pub location: Option<String>,
+    pub file_path: Option<String>,
+    pub temp_directory: Option<String>,
+    pub memory_limit: Option<String>,
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    pub default_query_language: Option<String>,
+    pub auth_mode: Option<String>,
+    pub username: Option<String>,
+    pub token_secret_ref: Option<SecretRef>,
+    pub service_account_key_secret_ref: Option<SecretRef>,
+    pub client_id: Option<String>,
+    pub client_secret_ref: Option<SecretRef>,
+    pub profile_name: Option<String>,
+    pub use_tls: Option<bool>,
+    pub verify_certificates: Option<bool>,
+    pub ca_certificate_path: Option<String>,
+    pub client_certificate_path: Option<String>,
+    pub client_key_path: Option<String>,
+    pub connection_timeout_ms: Option<u64>,
+    pub query_timeout_ms: Option<u64>,
+    pub max_rows: Option<u32>,
+    pub threads: Option<u32>,
+    pub dry_run_by_default: Option<bool>,
+    pub explain_by_default: Option<bool>,
+    pub cost_limit_usd: Option<f64>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionProfile {
@@ -229,6 +462,20 @@ pub struct ConnectionProfile {
     pub sqlserver_options: Option<SqlServerConnectionOptions>,
     #[serde(default)]
     pub oracle_options: Option<OracleConnectionOptions>,
+    #[serde(default)]
+    pub dynamo_db_options: Option<DynamoDbConnectionOptions>,
+    #[serde(default)]
+    pub cassandra_options: Option<CassandraConnectionOptions>,
+    #[serde(default)]
+    pub cosmos_db_options: Option<CosmosDbConnectionOptions>,
+    #[serde(default)]
+    pub search_options: Option<SearchConnectionOptions>,
+    #[serde(default)]
+    pub time_series_options: Option<TimeSeriesConnectionOptions>,
+    #[serde(default)]
+    pub graph_options: Option<GraphConnectionOptions>,
+    #[serde(default)]
+    pub warehouse_options: Option<WarehouseConnectionOptions>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -249,6 +496,13 @@ pub struct ResolvedConnectionProfile {
     pub sqlite_options: Option<SqliteConnectionOptions>,
     pub sqlserver_options: Option<SqlServerConnectionOptions>,
     pub oracle_options: Option<OracleConnectionOptions>,
+    pub dynamo_db_options: Option<DynamoDbConnectionOptions>,
+    pub cassandra_options: Option<CassandraConnectionOptions>,
+    pub cosmos_db_options: Option<CosmosDbConnectionOptions>,
+    pub search_options: Option<SearchConnectionOptions>,
+    pub time_series_options: Option<TimeSeriesConnectionOptions>,
+    pub graph_options: Option<GraphConnectionOptions>,
+    pub warehouse_options: Option<WarehouseConnectionOptions>,
     pub read_only: bool,
 }
 

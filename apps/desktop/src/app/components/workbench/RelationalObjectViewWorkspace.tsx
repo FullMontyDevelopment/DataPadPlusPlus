@@ -34,7 +34,12 @@ import {
 import { RelationalSourcePreview } from './RelationalSourcePreview'
 import { relationalSourceText } from './RelationalSourcePreview.helpers'
 import { RelationalOperationStrip } from './RelationalObjectViewOperations'
+import { CockroachObjectViewInsights } from './CockroachObjectViewInsights'
 import { DuckDbObjectViewInsights } from './DuckDbObjectViewInsights'
+import { MysqlObjectViewInsights } from './MysqlObjectViewInsights'
+import { PostgresObjectViewInsights } from './PostgresObjectViewInsights'
+import { SqlServerObjectViewInsights } from './SqlServerObjectViewInsights'
+import { SqliteObjectViewInsights } from './SqliteObjectViewInsights'
 import { TimescaleObjectViewInsights } from './TimescaleObjectViewInsights'
 
 interface RelationalObjectViewWorkspaceProps {
@@ -146,8 +151,28 @@ export function RelationalObjectViewWorkspace({
           sectionKey="source"
         />
 
+        {connection.engine === 'cockroachdb' ? (
+          <CockroachObjectViewInsights kind={kind} payload={payload} />
+        ) : null}
+
         {connection.engine === 'duckdb' ? (
           <DuckDbObjectViewInsights kind={kind} payload={payload} />
+        ) : null}
+
+        {connection.engine === 'mysql' || connection.engine === 'mariadb' ? (
+          <MysqlObjectViewInsights kind={kind} payload={payload} />
+        ) : null}
+
+        {connection.engine === 'postgresql' ? (
+          <PostgresObjectViewInsights kind={kind} payload={payload} />
+        ) : null}
+
+        {connection.engine === 'sqlserver' ? (
+          <SqlServerObjectViewInsights kind={kind} payload={payload} />
+        ) : null}
+
+        {connection.engine === 'sqlite' ? (
+          <SqliteObjectViewInsights kind={kind} payload={payload} />
         ) : null}
 
         {connection.engine === 'timescaledb' ? (

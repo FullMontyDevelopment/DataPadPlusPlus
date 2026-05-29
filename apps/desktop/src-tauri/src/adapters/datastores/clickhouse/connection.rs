@@ -5,18 +5,20 @@ use tokio::{
 
 use super::super::super::*;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ClickHouseEndpoint {
+    host: String,
+    port: u16,
+    database: String,
+    prefix: String,
+}
+
 pub(super) async fn clickhouse_query(
     connection: &ResolvedConnectionProfile,
     query: &str,
 ) -> Result<String, CommandError> {
-    let host = connection.host.trim();
-    let port = connection.port.unwrap_or(8123);
-    let database = connection
-        .database
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("default");
-    let path = format!("/?database={database}");
+    let endpoint = ClickHouseEndpoint::from_connection(connection)?;
+    let path = endpoint.path(&format!("/?database={}", endpoint.database));
     let auth_header = match (&connection.username, &connection.password) {
         (Some(username), Some(password)) => Some(format!(
             "X-ClickHouse-User: {username}\r\nX-ClickHouse-Key: {password}\r\n"
@@ -26,12 +28,14 @@ pub(super) async fn clickhouse_query(
     };
     let body = query.as_bytes();
     let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: text/plain; charset=utf-8\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "POST {path} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: text/plain; charset=utf-8\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+        endpoint.host,
+        endpoint.port,
         auth_header.unwrap_or_default(),
         body.len(),
         query
     );
-    let mut stream = TcpStream::connect((host, port)).await?;
+    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port)).await?;
     stream.write_all(request.as_bytes()).await?;
     let mut response = Vec::new();
     stream.read_to_end(&mut response).await?;
@@ -65,4 +69,154 @@ pub(super) async fn test_clickhouse_connection(
         resolved_database: connection.database.clone(),
         duration_ms: Some(duration_ms(started)),
     })
+}
+
+impl ClickHouseEndpoint {
+    fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+        if let Some(options) = &connection.warehouse_options {
+            if let Some(endpoint_url) = options
+                .endpoint_url
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                return Self::from_url(
+                    endpoint_url,
+                    options
+                        .database_name
+                        .as_deref()
+                        .or(connection.database.as_deref()),
+                    options.path_prefix.as_deref(),
+                );
+            }
+        }
+
+        if let Some(connection_string) = connection.connection_string.as_deref() {
+            return Self::from_url(connection_string, connection.database.as_deref(), None);
+        }
+
+        let host = connection.host.trim();
+        if host.is_empty() {
+            return Err(CommandError::new(
+                "clickhouse-endpoint-missing",
+                "ClickHouse requires a host, endpoint URL, or connection string.",
+            ));
+        }
+
+        Ok(Self {
+            host: host.into(),
+            port: connection.port.unwrap_or(8123),
+            database: database_name(connection.database.as_deref()),
+            prefix: String::new(),
+        })
+    }
+
+    fn from_url(
+        url: &str,
+        database_override: Option<&str>,
+        prefix_override: Option<&str>,
+    ) -> Result<Self, CommandError> {
+        let without_scheme = url
+            .strip_prefix("http://")
+            .or_else(|| url.strip_prefix("https://"))
+            .ok_or_else(|| {
+                CommandError::new(
+                    "clickhouse-unsupported-url",
+                    "ClickHouse adapter expects an http:// or https:// endpoint URL.",
+                )
+            })?;
+        let (authority, path) = without_scheme
+            .split_once('/')
+            .unwrap_or((without_scheme, ""));
+        let (host, port) = authority
+            .rsplit_once(':')
+            .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
+            .unwrap_or((authority, 8123));
+        let prefix = prefix_override
+            .and_then(normalized_prefix)
+            .or_else(|| normalized_prefix(path))
+            .unwrap_or_default();
+
+        Ok(Self {
+            host: host.into(),
+            port,
+            database: database_name(database_override),
+            prefix,
+        })
+    }
+
+    fn path(&self, path: &str) -> String {
+        format!(
+            "{}{}",
+            self.prefix,
+            if path.starts_with('/') {
+                path.to_string()
+            } else {
+                format!("/{path}")
+            }
+        )
+    }
+}
+
+fn database_name(value: Option<&str>) -> String {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("default")
+        .to_string()
+}
+
+fn normalized_prefix(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(format!("/{trimmed}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ClickHouseEndpoint;
+
+    #[test]
+    fn clickhouse_endpoint_prefers_warehouse_options() {
+        let connection = crate::domain::models::ResolvedConnectionProfile {
+            id: "conn-clickhouse".into(),
+            name: "ClickHouse".into(),
+            engine: "clickhouse".into(),
+            family: "warehouse".into(),
+            host: "ignored".into(),
+            port: Some(8123),
+            database: Some("fallback".into()),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: Some(crate::domain::models::WarehouseConnectionOptions {
+                endpoint_url: Some("http://localhost:18123/reverse".into()),
+                path_prefix: Some("/clickhouse".into()),
+                database_name: Some("analytics".into()),
+                ..crate::domain::models::WarehouseConnectionOptions::default()
+            }),
+            read_only: true,
+        };
+
+        let endpoint = ClickHouseEndpoint::from_connection(&connection).unwrap();
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 18123);
+        assert_eq!(endpoint.database, "analytics");
+        assert_eq!(
+            endpoint.path("/?database=analytics"),
+            "/clickhouse/?database=analytics"
+        );
+    }
 }

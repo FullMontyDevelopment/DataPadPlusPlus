@@ -17,6 +17,11 @@ describe('SearchObjectViewOperations helpers', () => {
       'Profile',
       'Create Index',
       'Refresh Index',
+      'Force Merge',
+      'Clear Cache',
+      'Reindex',
+      'Close',
+      'Open',
       'Update Mapping',
       'Update Settings',
       'Delete Index',
@@ -38,6 +43,52 @@ describe('SearchObjectViewOperations helpers', () => {
     expect(searchOperationObjectName(indexTab, {
       name: 'catalog-search',
     })).toBe('catalog-search')
+  })
+
+  it('adds native search lifecycle, pipeline, snapshot, and task previews', () => {
+    const lifecycleActions = searchOperationActions(searchConnection, indexTab, 'lifecycle-policies', {
+      name: 'products-ilm',
+    })
+    expect(lifecycleActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: 'Update ILM',
+        operationId: 'elasticsearch.lifecycle.put',
+        objectName: 'products-ilm',
+      }),
+    ]))
+
+    const pipelineActions = searchOperationActions(searchConnection, indexTab, 'pipeline', {
+      name: 'normalize-products',
+    })
+    expect(pipelineActions.map((action) => action.label)).toEqual(['Update Pipeline', 'Simulate'])
+
+    const taskActions = searchOperationActions(searchConnection, indexTab, 'tasks', {
+      id: 'node-a:123',
+    })
+    expect(taskActions).toEqual([
+      expect.objectContaining({
+        label: 'Cancel Task',
+        operationId: 'elasticsearch.task.cancel',
+        objectName: 'node-a:123',
+      }),
+    ])
+
+    const snapshotActions = searchOperationActions(searchConnection, indexTab, 'snapshots', {
+      repository: 'daily',
+      snapshot: 'snap-2026-05-22',
+    })
+    expect(snapshotActions).toEqual([
+      expect.objectContaining({
+        label: 'Restore',
+        operationId: 'elasticsearch.snapshot.restore',
+        objectName: 'snap-2026-05-22',
+      }),
+      expect.objectContaining({
+        label: 'Snapshot',
+        operationId: 'elasticsearch.data.backup-restore',
+        objectName: 'snap-2026-05-22',
+      }),
+    ])
   })
 })
 

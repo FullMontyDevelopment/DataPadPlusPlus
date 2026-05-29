@@ -91,7 +91,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     defaultPort: 5432,
     managementModel: 'Relational catalogs with databases, schemas, tables, views, functions, extensions, roles, grants, locks, and sessions.',
     queryModel: 'SQL editor first, with a visual schema/table/filter builder for common SELECT, DDL, index, and row-editing workflows.',
-    presentationModel: 'Tabular rows, schema details, JSON EXPLAIN plans, profile output, metrics, and chart-ready statistics.',
+    presentationModel: 'Tabular rows, schema details, compact storage/index/security/activity panels, JSON EXPLAIN plans, profile output, metrics, and chart-ready statistics.',
     securityModel: 'Database roles, memberships, grants, SSL modes, read-only profiles, and production guardrails determine which actions are enabled.',
     resultRenderers: [...tableSchemaPlan],
     capabilities: [
@@ -115,7 +115,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'EXPLAIN JSON renderer and guarded EXPLAIN ANALYZE',
       'Locks, sessions, and blocking tree views',
       'pg_stat* panels for table, index, and query health',
-      'Vacuum, analyze, and maintenance helpers',
+      'Vacuum, analyze, reindex, and maintenance helpers',
     ],
     diagnosticFeatures: [
       'Plan visualization',
@@ -146,7 +146,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     defaultPort: 26257,
     managementModel: 'Distributed SQL catalogs with databases, schemas, tables, indexes, constraints, ranges, regions, jobs, sessions, contention, roles, and grants.',
     queryModel: 'SQL editor first, with guarded DDL/table/index builders and Cockroach-specific SHOW/crdb_internal diagnostic templates.',
-    presentationModel: 'Tabular rows, schema details, distributed SQL plans, EXPLAIN ANALYZE profiles, jobs, contention, latency metrics, and chart-ready cluster signals.',
+    presentationModel: 'Tabular rows, schema details, compact table/cluster/locality/job/contention/security posture panels, distributed SQL plans, EXPLAIN ANALYZE profiles, jobs, contention, latency metrics, and chart-ready cluster signals.',
     securityModel: 'SQL users, roles, grants/default privileges, TLS/certificates, cloud IAM signals, read-only profiles, and production guardrails for DDL/admin operations.',
     resultRenderers: [...tableSchemaPlan, 'series'],
     capabilities: [
@@ -172,6 +172,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Contention, session, job, range, and node status panels',
       'Role, grant, and default privilege inspection',
       'Backup/restore and import/export operation plans with explicit confirmation',
+      'Guarded jobs, ranges, regions, sessions, contention, zone configuration, backup, restore, and import previews',
     ],
     diagnosticFeatures: [
       'Plan visualization',
@@ -206,7 +207,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     defaultPort: 1433,
     managementModel: 'Relational catalogs with databases, schemas, tables, views, procedures, functions, indexes, logins, users, roles, DMVs, and Query Store.',
     queryModel: 'T-SQL editor plus visual table/schema builders for common SELECT and DDL tasks.',
-    presentationModel: 'Tables, schema views, XML/JSON showplans, Query Store history, DMV metrics, and dashboard charts.',
+    presentationModel: 'Tables, schema views, compact storage/index/workload/security/Agent posture panels, XML/JSON showplans, Query Store history, DMV metrics, and dashboard charts.',
     securityModel: 'Server logins, database users, roles, object grants, Entra identity, encrypted connections, and read-only profile guardrails.',
     resultRenderers: [...tableSchemaPlan],
     capabilities: [
@@ -230,6 +231,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Query Store history and regressions',
       'DMV dashboards for waits, sessions, locks, and IO',
       'Role and permission inspection',
+      'Guarded statistics refresh, index maintenance, and Query Store workload previews',
     ],
     diagnosticFeatures: [
       'Showplan visualization',
@@ -282,6 +284,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Slow query and performance_schema panels',
       'User and privilege browser',
       'Engine/status panels',
+      'Guarded CHECK, ANALYZE, OPTIMIZE, REPAIR, and event state previews',
     ],
     diagnosticFeatures: [
       'Plan table visualization',
@@ -334,6 +337,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Role management and grant inspection',
       'Storage engine and status dashboards',
       'Slow query analysis',
+      'Guarded table maintenance and event state previews',
     ],
     diagnosticFeatures: [
       'Plan and optimizer output renderer',
@@ -362,7 +366,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     ],
     managementModel: 'Embedded file database with tables, views, triggers, indexes, PRAGMA metadata, and file-level access controls.',
     queryModel: 'SQL editor, file open/create workflows, and visual builders for tables, indexes, views, triggers, and row edits.',
-    presentationModel: 'Tables, schema metadata, raw EXPLAIN QUERY PLAN rows, PRAGMA outputs, and export files.',
+    presentationModel: 'Tables, schema metadata, compact local-file/PRAGMA posture panels, EXPLAIN QUERY PLAN rows, and export files.',
     securityModel: 'File-system permissions, optional application-level read-only mode, secret-free local profiles, and destructive-action guardrails.',
     resultRenderers: ['table', 'schema', 'json', 'plan', 'raw'],
     capabilities: [
@@ -392,7 +396,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     advancedFeatures: [
       'EXPLAIN QUERY PLAN renderer',
       'Integrity check workflow',
-      'Vacuum/analyze helpers',
+      'Vacuum/analyze/optimize/reindex helpers',
       'Local backup/export',
     ],
     diagnosticFeatures: [
@@ -614,6 +618,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_streaming_results',
     ],
     baselineFeatures: [
+      'Typed local endpoint, AWS profile, static key, assume-role, and web-identity connection options',
       'Table and item browser',
       'Key-condition Query builder',
       'GSI/LSI viewer and add/drop GSI workflow',
@@ -671,6 +676,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_structure_visualization',
     ],
     baselineFeatures: [
+      'Typed contact-point, secure-bundle, TLS, consistency, retry, and load-balancing connection options',
       'Keyspace, table, type, index, and materialized-view browser',
       'CQL editor',
       'Partition-key visual query builder',
@@ -1403,6 +1409,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_structure_visualization',
     ],
     baselineFeatures: [
+      'Typed HTTP, Elastic Cloud, API key, default-index, TLS, and timeout connection options',
       'Cluster, index, data stream, and mapping browser',
       'Query DSL editor',
       'Search hits and aggregation charts',
@@ -1410,9 +1417,10 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     ],
     advancedFeatures: [
       'Explain/profile renderer',
-      'Shard, segment, and cat stats',
+      'Cluster, shard, segment, lifecycle, ingestion, and security posture panels',
       'Role/index privilege viewer',
-      'ILM and snapshot workflows later',
+      'Guarded force-merge, reindex, template, pipeline, ILM, task, snapshot, and restore previews',
+      'Live HTTPS/cloud auth remains planned after the typed option contract',
     ],
     diagnosticFeatures: [
       'Profile tree',
@@ -1464,6 +1472,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_structure_visualization',
     ],
     baselineFeatures: [
+      'Typed HTTP, managed endpoint, AWS SigV4, default-index, TLS, and timeout connection options',
       'Cluster, index, data stream, and mapping browser',
       'Query DSL editor',
       'Search hits and aggregation charts',
@@ -1472,8 +1481,9 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     advancedFeatures: [
       'Plugin-aware security browser',
       'Performance Analyzer panels',
-      'Index State Management workflows',
-      'Snapshot workflows later',
+      'Index State Management posture and guarded update previews',
+      'Guarded force-merge, reindex, pipeline, task, snapshot, and restore previews',
+      'Live HTTPS/SigV4 execution remains planned after the typed option contract',
     ],
     diagnosticFeatures: [
       'Profile tree',

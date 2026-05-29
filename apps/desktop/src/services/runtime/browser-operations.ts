@@ -36,6 +36,7 @@ export function planOperationLocally(
     request.operationId.includes('retention-policy') ||
     request.operationId.includes('backup') ||
     request.operationId.includes('restore') ||
+    request.operationId.includes('.repair') ||
     request.operationId.includes('.flush')
   const adminWrite =
     request.operationId.includes('.create') ||
@@ -43,8 +44,16 @@ export function planOperationLocally(
     request.operationId.includes('.hide') ||
     request.operationId.includes('.unhide') ||
     request.operationId.includes('.put-mapping') ||
+    request.operationId.includes('.force-merge') ||
+    request.operationId.includes('.clear-cache') ||
+    request.operationId.includes('.reindex') ||
+    request.operationId.includes('.close') ||
+    request.operationId.includes('.open') ||
     request.operationId.includes('.alias.') ||
     request.operationId.includes('.data-stream.rollover') ||
+    request.operationId.includes('.lifecycle.put') ||
+    request.operationId.includes('.task.cancel') ||
+    request.operationId.includes('.pipeline.put') ||
     request.operationId.includes('.pipeline.simulate') ||
     request.operationId.includes('.user.') ||
     request.operationId.includes('.role.') ||
@@ -53,12 +62,21 @@ export function planOperationLocally(
     request.operationId.includes('.collection.import') ||
     request.operationId.includes('.gridfs.upload') ||
     request.operationId.includes('.key.import') ||
+    request.operationId.includes('.cockroach.import') ||
+    request.operationId.includes('.zone-configs') ||
+    request.operationId.includes('.event.') ||
     request.operationId.includes('validation') ||
     request.operationId.includes('validator') ||
     request.operationId.includes('import-export') ||
     request.operationId.includes('backup') ||
     request.operationId.includes('restore') ||
     request.operationId.includes('.checkpoint') ||
+    request.operationId.includes('.vacuum') ||
+    request.operationId.includes('.reindex') ||
+    request.operationId.includes('.rebuild') ||
+    request.operationId.includes('.reorganize') ||
+    request.operationId.includes('.disable') ||
+    request.operationId.includes('.enable') ||
     request.operationId.includes('.compact') ||
     request.operationId.includes('.reset') ||
     request.operationId.includes('.clone') ||

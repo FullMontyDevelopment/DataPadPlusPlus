@@ -20,7 +20,14 @@ pub(super) async fn execute_search_query(
         ));
     }
 
-    let query = parse_search_query(query_text)?;
+    let query = parse_search_query_with_default(
+        query_text,
+        connection
+            .search_options
+            .as_ref()
+            .and_then(|options| options.default_index.as_deref())
+            .or(connection.database.as_deref()),
+    )?;
     let path = format!("/{}/_search", query.index);
     let response = search_post_json(connection, &path, &query.body).await?;
     let value: Value = serde_json::from_str(&response.body).map_err(|error| {
@@ -74,7 +81,10 @@ pub(crate) struct SearchQuery {
     pub(crate) body: String,
 }
 
-pub(crate) fn parse_search_query(query_text: &str) -> Result<SearchQuery, CommandError> {
+pub(crate) fn parse_search_query_with_default(
+    query_text: &str,
+    default_index: Option<&str>,
+) -> Result<SearchQuery, CommandError> {
     let value: Value = serde_json::from_str(query_text).map_err(|error| {
         CommandError::new(
             "search-query-json-invalid",
@@ -85,6 +95,7 @@ pub(crate) fn parse_search_query(query_text: &str) -> Result<SearchQuery, Comman
         .get("index")
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
+        .or(default_index.filter(|value| !value.trim().is_empty()))
         .unwrap_or("_all")
         .to_string();
     let body = value.get("body").cloned().unwrap_or(value);
@@ -139,16 +150,29 @@ pub(crate) fn normalize_search_response(value: &Value) -> (u64, Value, Value, Ve
 mod tests {
     use serde_json::json;
 
-    use super::{normalize_search_response, parse_search_query};
+    use super::{normalize_search_response, parse_search_query_with_default};
 
     #[test]
     fn search_query_supports_wrapped_index_and_body() {
-        let parsed = parse_search_query(
+        let parsed = parse_search_query_with_default(
             r#"{ "index": "logs-*", "body": { "query": { "match_all": {} } } }"#,
+            None,
         )
         .unwrap();
 
         assert_eq!(parsed.index, "logs-*");
+        assert_eq!(parsed.body, r#"{"query":{"match_all":{}}}"#);
+    }
+
+    #[test]
+    fn search_query_uses_profile_default_index_when_query_omits_it() {
+        let parsed = parse_search_query_with_default(
+            r#"{ "query": { "match_all": {} } }"#,
+            Some("catalog-*"),
+        )
+        .unwrap();
+
+        assert_eq!(parsed.index, "catalog-*");
         assert_eq!(parsed.body, r#"{"query":{"match_all":{}}}"#);
     }
 

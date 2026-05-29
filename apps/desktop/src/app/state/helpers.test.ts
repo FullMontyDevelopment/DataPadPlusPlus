@@ -251,6 +251,163 @@ describe('migrateWorkspaceSnapshot', () => {
     )
   })
 
+  it('preserves typed connection options and migrates variable tokens inside option fields', () => {
+    const snapshot = createSeedSnapshot()
+    const migrated = migrateWorkspaceSnapshot({
+      ...snapshot,
+      connections: [
+        {
+          ...snapshot.connections[0]!,
+          id: 'conn-dynamo-options',
+          engine: 'dynamodb',
+          family: 'widecolumn',
+          connectionMode: 'cloud-iam',
+          host: 'dynamodb.${AWS_REGION}.amazonaws.com',
+          dynamoDbOptions: {
+            connectMode: 'assume-role',
+            region: '${AWS_REGION}',
+            endpointUrl: 'http://${LOCALSTACK_HOST}:4566',
+            profileName: '${AWS_PROFILE}',
+            roleArn: 'arn:aws:iam::${AWS_ACCOUNT}:role/DataPadReadOnly',
+            returnConsumedCapacity: 'indexes',
+            scanPageSize: 100,
+          },
+        },
+        {
+          ...snapshot.connections[0]!,
+          id: 'conn-cassandra-options',
+          engine: 'cassandra',
+          family: 'widecolumn',
+          connectionMode: 'native',
+          host: '${CASSANDRA_HOST}',
+          cassandraOptions: {
+            connectMode: 'contact-points',
+            contactPoints: ['${CASSANDRA_HOST}:9042', 'node2:9042'],
+            defaultKeyspace: '${CASSANDRA_KEYSPACE}',
+            localDatacenter: '${CASSANDRA_DC}',
+            secureConnectBundlePath: 'C:/bundles/${CASSANDRA_BUNDLE}.zip',
+          },
+        },
+        {
+          ...snapshot.connections[0]!,
+          id: 'conn-search-options',
+          engine: 'elasticsearch',
+          family: 'search',
+          connectionMode: 'cloud-iam',
+          host: '${SEARCH_HOST}',
+          searchOptions: {
+            connectMode: 'elastic-cloud',
+            endpointUrl: 'https://${SEARCH_CLUSTER}.es.example.com',
+            defaultIndex: '${SEARCH_INDEX}-*',
+            apiKeyId: '${SEARCH_KEY_ID}',
+            awsRegion: '${AWS_REGION}',
+          },
+        },
+        {
+          ...snapshot.connections[0]!,
+          id: 'conn-timeseries-options',
+          engine: 'influxdb',
+          family: 'timeseries',
+          connectionMode: 'native',
+          host: '${INFLUX_HOST}',
+          timeSeriesOptions: {
+            connectMode: 'influx-v2',
+            endpointUrl: 'http://${INFLUX_HOST}:8086',
+            organization: '${INFLUX_ORG}',
+            bucket: '${INFLUX_BUCKET}',
+            defaultQueryLanguage: 'flux',
+          },
+        },
+        {
+          ...snapshot.connections[0]!,
+          id: 'conn-graph-options',
+          engine: 'neo4j',
+          family: 'graph',
+          connectionMode: 'native',
+          host: '${NEO4J_HOST}',
+          graphOptions: {
+            connectMode: 'neo4j-http',
+            endpointUrl: 'http://${NEO4J_HOST}:7474',
+            databaseName: '${NEO4J_DATABASE}',
+            username: '${NEO4J_USER}',
+            defaultQueryLanguage: 'cypher',
+          },
+        },
+        {
+          ...snapshot.connections[0]!,
+          id: 'conn-warehouse-options',
+          engine: 'snowflake',
+          family: 'warehouse',
+          connectionMode: 'cloud-sdk',
+          host: '${SNOWFLAKE_HOST}',
+          warehouseOptions: {
+            connectMode: 'snowflake-sql-api',
+            endpointUrl: 'http://${SNOWFLAKE_HOST}:19100',
+            databaseName: '${SNOWFLAKE_DATABASE}',
+            schemaName: '${SNOWFLAKE_SCHEMA}',
+            warehouseName: '${SNOWFLAKE_WAREHOUSE}',
+            defaultQueryLanguage: 'snowflake-sql',
+          },
+        },
+      ],
+      tabs: [],
+      closedTabs: [],
+    } as unknown as typeof snapshot)
+
+    expect(migrated.connections[0]?.host).toBe('dynamodb.{{AWS_REGION}}.amazonaws.com')
+    expect(migrated.connections[0]?.connectionMode).toBe('cloud-iam')
+    expect(migrated.connections[0]?.dynamoDbOptions).toMatchObject({
+      connectMode: 'assume-role',
+      region: '{{AWS_REGION}}',
+      endpointUrl: 'http://{{LOCALSTACK_HOST}}:4566',
+      profileName: '{{AWS_PROFILE}}',
+      roleArn: 'arn:aws:iam::{{AWS_ACCOUNT}}:role/DataPadReadOnly',
+      returnConsumedCapacity: 'indexes',
+      scanPageSize: 100,
+    })
+    expect(migrated.connections[1]?.host).toBe('{{CASSANDRA_HOST}}')
+    expect(migrated.connections[1]?.cassandraOptions).toMatchObject({
+      connectMode: 'contact-points',
+      contactPoints: ['{{CASSANDRA_HOST}}:9042', 'node2:9042'],
+      defaultKeyspace: '{{CASSANDRA_KEYSPACE}}',
+      localDatacenter: '{{CASSANDRA_DC}}',
+      secureConnectBundlePath: 'C:/bundles/{{CASSANDRA_BUNDLE}}.zip',
+    })
+    expect(migrated.connections[2]?.host).toBe('{{SEARCH_HOST}}')
+    expect(migrated.connections[2]?.searchOptions).toMatchObject({
+      connectMode: 'elastic-cloud',
+      endpointUrl: 'https://{{SEARCH_CLUSTER}}.es.example.com',
+      defaultIndex: '{{SEARCH_INDEX}}-*',
+      apiKeyId: '{{SEARCH_KEY_ID}}',
+      awsRegion: '{{AWS_REGION}}',
+    })
+    expect(migrated.connections[3]?.host).toBe('{{INFLUX_HOST}}')
+    expect(migrated.connections[3]?.timeSeriesOptions).toMatchObject({
+      connectMode: 'influx-v2',
+      endpointUrl: 'http://{{INFLUX_HOST}}:8086',
+      organization: '{{INFLUX_ORG}}',
+      bucket: '{{INFLUX_BUCKET}}',
+      defaultQueryLanguage: 'flux',
+    })
+    expect(migrated.connections[4]?.host).toBe('{{NEO4J_HOST}}')
+    expect(migrated.connections[4]?.graphOptions).toMatchObject({
+      connectMode: 'neo4j-http',
+      endpointUrl: 'http://{{NEO4J_HOST}}:7474',
+      databaseName: '{{NEO4J_DATABASE}}',
+      username: '{{NEO4J_USER}}',
+      defaultQueryLanguage: 'cypher',
+    })
+    expect(migrated.connections[5]?.host).toBe('{{SNOWFLAKE_HOST}}')
+    expect(migrated.connections[5]?.warehouseOptions).toMatchObject({
+      connectMode: 'snowflake-sql-api',
+      endpointUrl: 'http://{{SNOWFLAKE_HOST}}:19100',
+      databaseName: '{{SNOWFLAKE_DATABASE}}',
+      schemaName: '{{SNOWFLAKE_SCHEMA}}',
+      warehouseName: '{{SNOWFLAKE_WAREHOUSE}}',
+      defaultQueryLanguage: 'snowflake-sql',
+    })
+  })
+
   it('preserves persisted sidebar display state when migrating workspace state', () => {
     const snapshot = createSeedSnapshot()
     const migrated = migrateWorkspaceSnapshot({

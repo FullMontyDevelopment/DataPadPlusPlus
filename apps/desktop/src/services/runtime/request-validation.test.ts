@@ -348,6 +348,452 @@ describe('runtime request validation', () => {
     ).toBeUndefined()
   })
 
+  it('normalizes DynamoDB connection options and rejects unsafe limits', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-dynamo',
+      name: 'DynamoDB',
+      engine: 'dynamodb',
+      family: 'widecolumn',
+      host: 'https://dynamodb.us-east-1.amazonaws.com',
+      database: 'us-east-1',
+      connectionMode: 'cloud-sdk',
+      environmentIds: ['env-qa'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'dynamodb',
+      auth: {},
+      dynamoDbOptions: {
+        connectMode: 'access-keys',
+        credentialsProvider: 'static-keys',
+        region: ' us-east-1 ',
+        endpointUrl: ' http://localhost:8000 ',
+        accessKeyId: '{{AWS_ACCESS_KEY_ID}}',
+        returnConsumedCapacity: 'indexes',
+        retryMode: 'adaptive',
+        maxAttempts: 4,
+        scanPageSize: 250,
+        consistentReadDefault: true,
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile.dynamoDbOptions).toMatchObject({
+      connectMode: 'access-keys',
+      credentialsProvider: 'static-keys',
+      region: 'us-east-1',
+      endpointUrl: 'http://localhost:8000',
+      returnConsumedCapacity: 'indexes',
+      retryMode: 'adaptive',
+      maxAttempts: 4,
+      scanPageSize: 250,
+      consistentReadDefault: true,
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        dynamoDbOptions: {
+          connectMode: 'magic-runtime',
+          scanPageSize: 250_000,
+        },
+      } as never),
+    ).toThrow(/Unsupported DynamoDB connection mode/)
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        dynamoDbOptions: {
+          connectMode: 'aws-profile',
+          scanPageSize: 250_000,
+        },
+      } as never),
+    ).toThrow(/DynamoDB scan page size/)
+  })
+
+  it('normalizes Cassandra connection options and rejects invalid policies', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-cassandra',
+      name: 'Cassandra',
+      engine: 'cassandra',
+      family: 'widecolumn',
+      host: 'node1',
+      port: 9042,
+      database: 'app',
+      connectionMode: 'native',
+      environmentIds: ['env-qa'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'cassandra',
+      auth: {},
+      cassandraOptions: {
+        connectMode: 'contact-points',
+        contactPoints: [' node1:9042 ', 'node2:9042'],
+        defaultKeyspace: ' catalog ',
+        localDatacenter: ' dc1 ',
+        consistencyLevel: 'local-quorum',
+        loadBalancingPolicy: 'token-aware',
+        pageSize: 500,
+        useTls: true,
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile.cassandraOptions).toMatchObject({
+      connectMode: 'contact-points',
+      contactPoints: ['node1:9042', 'node2:9042'],
+      defaultKeyspace: 'catalog',
+      localDatacenter: 'dc1',
+      consistencyLevel: 'local-quorum',
+      loadBalancingPolicy: 'token-aware',
+      pageSize: 500,
+      useTls: true,
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        cassandraOptions: {
+          connectMode: 'contact-points',
+          consistencyLevel: 'eventual',
+        },
+      } as never),
+    ).toThrow(/Unsupported Cassandra consistency level/)
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        cassandraOptions: {
+          connectMode: 'contact-points',
+          pageSize: 50_000,
+        },
+      } as never),
+    ).toThrow(/Cassandra page size/)
+  })
+
+  it('normalizes Cosmos DB connection options and rejects unsafe item counts', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-cosmos',
+      name: 'Cosmos DB',
+      engine: 'cosmosdb',
+      family: 'document',
+      host: 'localhost',
+      port: 8081,
+      database: 'catalog',
+      connectionMode: 'cloud-sdk',
+      environmentIds: ['env-qa'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'cosmosdb',
+      auth: {},
+      cosmosDbOptions: {
+        connectMode: 'account-endpoint',
+        api: 'nosql',
+        accountEndpoint: ' http://localhost:8081/cosmos ',
+        databaseName: ' catalog ',
+        authMode: 'account-key',
+        preferredRegions: [' North Europe ', 'West Europe'],
+        consistencyLevel: 'session',
+        enableCrossPartitionQueries: true,
+        maxItemCount: 250,
+        returnRequestCharge: true,
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile.cosmosDbOptions).toMatchObject({
+      connectMode: 'account-endpoint',
+      api: 'nosql',
+      accountEndpoint: 'http://localhost:8081/cosmos',
+      databaseName: 'catalog',
+      authMode: 'account-key',
+      preferredRegions: ['North Europe', 'West Europe'],
+      consistencyLevel: 'session',
+      enableCrossPartitionQueries: true,
+      maxItemCount: 250,
+      returnRequestCharge: true,
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        cosmosDbOptions: {
+          connectMode: 'account-endpoint',
+          api: 'sql-api',
+        },
+      } as never),
+    ).toThrow(/Unsupported Cosmos DB API/)
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        cosmosDbOptions: {
+          connectMode: 'account-endpoint',
+          maxItemCount: 50_000,
+        },
+      } as never),
+    ).toThrow(/Cosmos DB max item count/)
+  })
+
+  it('normalizes search connection options and rejects unsupported auth modes', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-search',
+      name: 'Elasticsearch',
+      engine: 'elasticsearch',
+      family: 'search',
+      host: 'localhost',
+      port: 9200,
+      database: 'logs-*',
+      connectionMode: 'cloud-iam',
+      environmentIds: ['env-qa'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'elasticsearch',
+      auth: {},
+      searchOptions: {
+        connectMode: 'aws-sigv4',
+        endpointUrl: ' http://localhost:9200/elastic ',
+        defaultIndex: ' logs-* ',
+        pathPrefix: 'elastic',
+        authMode: 'aws-sigv4',
+        awsRegion: ' us-west-2 ',
+        awsService: 'aoss',
+        requestTimeoutMs: 120_000,
+        compression: true,
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile.searchOptions).toMatchObject({
+      connectMode: 'aws-sigv4',
+      endpointUrl: 'http://localhost:9200/elastic',
+      defaultIndex: 'logs-*',
+      pathPrefix: '/elastic',
+      authMode: 'aws-sigv4',
+      awsRegion: 'us-west-2',
+      awsService: 'aoss',
+      requestTimeoutMs: 120_000,
+      compression: true,
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        searchOptions: {
+          connectMode: 'http',
+          authMode: 'magic-token',
+        },
+      } as never),
+    ).toThrow(/Unsupported Search auth mode/)
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        searchOptions: {
+          connectMode: 'http',
+          maxRetries: 100,
+        },
+      } as never),
+    ).toThrow(/Search max retries/)
+  })
+
+  it('normalizes time-series connection options and rejects unsafe query limits', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-influx',
+      name: 'InfluxDB',
+      engine: 'influxdb',
+      family: 'timeseries',
+      host: 'localhost',
+      port: 8086,
+      database: 'telegraf',
+      connectionMode: 'native',
+      environmentIds: ['env-qa'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'influxdb',
+      auth: {},
+      timeSeriesOptions: {
+        connectMode: 'influx-v2',
+        endpointUrl: ' http://localhost:8086/influx ',
+        pathPrefix: 'influx',
+        organization: ' qa-org ',
+        bucket: ' telemetry ',
+        authMode: 'api-token',
+        defaultQueryLanguage: 'flux',
+        queryTimeoutMs: 120_000,
+        maxSeries: 5_000,
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile.timeSeriesOptions).toMatchObject({
+      connectMode: 'influx-v2',
+      endpointUrl: 'http://localhost:8086/influx',
+      pathPrefix: '/influx',
+      organization: 'qa-org',
+      bucket: 'telemetry',
+      authMode: 'api-token',
+      defaultQueryLanguage: 'flux',
+      queryTimeoutMs: 120_000,
+      maxSeries: 5_000,
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        timeSeriesOptions: {
+          connectMode: 'telnet',
+        },
+      } as never),
+    ).toThrow(/Unsupported time-series connection mode/)
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        timeSeriesOptions: {
+          connectMode: 'http',
+          maxSeries: 2_000_000,
+        },
+      } as never),
+    ).toThrow(/time-series max series/)
+  })
+
+  it('normalizes graph connection options and rejects invalid modes', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-neo4j',
+      name: 'Neo4j',
+      engine: 'neo4j',
+      family: 'graph',
+      host: 'localhost',
+      port: 7474,
+      database: 'neo4j',
+      connectionMode: 'native',
+      environmentIds: ['env-qa'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'neo4j',
+      auth: {},
+      graphOptions: {
+        connectMode: 'neo4j-http',
+        endpointUrl: ' http://localhost:7474/neo4j ',
+        pathPrefix: 'neo4j',
+        databaseName: ' analytics ',
+        defaultQueryLanguage: 'cypher',
+        authMode: 'basic',
+        username: ' {{NEO4J_USER}} ',
+        fetchSize: 500,
+        explainByDefault: true,
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile.graphOptions).toMatchObject({
+      connectMode: 'neo4j-http',
+      endpointUrl: 'http://localhost:7474/neo4j',
+      pathPrefix: '/neo4j',
+      databaseName: 'analytics',
+      defaultQueryLanguage: 'cypher',
+      authMode: 'basic',
+      username: '{{NEO4J_USER}}',
+      fetchSize: 500,
+      explainByDefault: true,
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        graphOptions: {
+          connectMode: 'graph-magic',
+        },
+      } as never),
+    ).toThrow(/Unsupported Graph connection mode/)
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        graphOptions: {
+          connectMode: 'neo4j-http',
+          fetchSize: 250_000,
+        },
+      } as never),
+    ).toThrow(/Graph fetch size/)
+  })
+
+  it('normalizes warehouse connection options and rejects invalid limits', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-snowflake',
+      name: 'Snowflake',
+      engine: 'snowflake',
+      family: 'warehouse',
+      host: 'account.snowflakecomputing.com',
+      database: 'ANALYTICS',
+      connectionMode: 'cloud-sdk',
+      environmentIds: ['env-qa'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'snowflake',
+      auth: {},
+      warehouseOptions: {
+        connectMode: 'snowflake-sql-api',
+        endpointUrl: ' http://localhost:19100/snow ',
+        pathPrefix: 'snowflake',
+        databaseName: ' FINANCE ',
+        schemaName: ' MART ',
+        warehouseName: ' REPORTING_WH ',
+        authMode: 'oauth',
+        defaultQueryLanguage: 'snowflake-sql',
+        maxRows: 10_000,
+        costLimitUsd: 25.5,
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile.warehouseOptions).toMatchObject({
+      connectMode: 'snowflake-sql-api',
+      endpointUrl: 'http://localhost:19100/snow',
+      pathPrefix: '/snowflake',
+      databaseName: 'FINANCE',
+      schemaName: 'MART',
+      warehouseName: 'REPORTING_WH',
+      authMode: 'oauth',
+      defaultQueryLanguage: 'snowflake-sql',
+      maxRows: 10_000,
+      costLimitUsd: 25.5,
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        warehouseOptions: {
+          connectMode: 'warehouse-magic',
+        },
+      } as never),
+    ).toThrow(/Unsupported Warehouse connection mode/)
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        warehouseOptions: {
+          connectMode: 'snowflake-sql-api',
+          maxRows: 2_000_000,
+        },
+      } as never),
+    ).toThrow(/Warehouse max rows/)
+  })
+
   it('rejects plaintext secret environment variables and duplicate names', () => {
     expect(() =>
       validateEnvironmentProfile({

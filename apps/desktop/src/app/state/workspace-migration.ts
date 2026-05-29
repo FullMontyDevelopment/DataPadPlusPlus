@@ -10,8 +10,9 @@ import {
   DATAPADPLUSPLUS_ADAPTER_MANIFESTS,
   datastoreBacklogByEngine,
 } from '@datapadplusplus/shared-types'
-import { legacyToBraceVariables, sanitizeEnvironmentProfile } from './environment-variables'
+import { sanitizeEnvironmentProfile } from './environment-variables'
 import { connectionStringContainsPlainSecret } from './security-redaction'
+import { migrateLegacyVariableTokens } from './workspace-variable-migration'
 
 const MIN_BOTTOM_PANEL_HEIGHT = 120
 const DEFAULT_BOTTOM_PANEL_HEIGHT = 260
@@ -259,51 +260,6 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   return next
 }
 
-function migrateLegacyVariableTokens(snapshot: WorkspaceSnapshot) {
-  for (const connection of snapshot.connections) {
-    connection.host = legacyToBraceVariables(connection.host)
-    connection.database = connection.database
-      ? legacyToBraceVariables(connection.database)
-      : connection.database
-    connection.auth.username = connection.auth.username
-      ? legacyToBraceVariables(connection.auth.username)
-      : connection.auth.username
-    connection.connectionString = connection.connectionString
-      ? legacyToBraceVariables(connection.connectionString)
-      : connection.connectionString
-  }
-
-  for (const tab of snapshot.tabs) {
-    tab.queryText = legacyToBraceVariables(tab.queryText)
-    tab.scriptText = tab.scriptText ? legacyToBraceVariables(tab.scriptText) : tab.scriptText
-    if (tab.testSuite) {
-      tab.testSuite = migrateJsonVariableTokens(tab.testSuite)
-    }
-  }
-
-  for (const closedTab of snapshot.closedTabs) {
-    closedTab.queryText = legacyToBraceVariables(closedTab.queryText)
-    closedTab.scriptText = closedTab.scriptText
-      ? legacyToBraceVariables(closedTab.scriptText)
-      : closedTab.scriptText
-    if (closedTab.testSuite) {
-      closedTab.testSuite = migrateJsonVariableTokens(closedTab.testSuite)
-    }
-  }
-
-  for (const node of snapshot.libraryNodes) {
-    node.queryText = node.queryText ? legacyToBraceVariables(node.queryText) : node.queryText
-    node.scriptText = node.scriptText ? legacyToBraceVariables(node.scriptText) : node.scriptText
-    if (node.testSuite) {
-      node.testSuite = migrateJsonVariableTokens(node.testSuite)
-    }
-  }
-
-  for (const item of snapshot.savedWork) {
-    item.queryText = item.queryText ? legacyToBraceVariables(item.queryText) : item.queryText
-  }
-}
-
 function stripSecretBearingConnectionStrings(snapshot: WorkspaceSnapshot) {
   for (const connection of snapshot.connections) {
     if (
@@ -313,27 +269,6 @@ function stripSecretBearingConnectionStrings(snapshot: WorkspaceSnapshot) {
       connection.connectionString = undefined
     }
   }
-}
-
-function migrateJsonVariableTokens<T>(value: T): T {
-  if (typeof value === 'string') {
-    return legacyToBraceVariables(value) as T
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => migrateJsonVariableTokens(item)) as T
-  }
-
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, child]) => [
-        key,
-        migrateJsonVariableTokens(child),
-      ]),
-    ) as T
-  }
-
-  return value
 }
 
 function normalizeActivity(value: string | undefined): UiState['activeActivity'] {

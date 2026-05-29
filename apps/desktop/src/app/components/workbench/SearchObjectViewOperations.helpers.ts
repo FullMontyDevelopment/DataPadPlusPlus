@@ -57,6 +57,17 @@ export function searchOperationActions(
 
   if (['index', 'indices'].includes(kind) && supported.has('index')) {
     actions.push(action(connection, 'index.refresh', 'Refresh Index', 'Prepare a refresh request for this index', 'index', objectName, baseParameters))
+    actions.push(action(connection, 'index.force-merge', 'Force Merge', 'Prepare a guarded segment merge request', 'index', objectName, {
+      ...baseParameters,
+      maxNumSegments: 1,
+    }))
+    actions.push(action(connection, 'index.clear-cache', 'Clear Cache', 'Prepare a cache clear request for this index', 'job', objectName, baseParameters))
+    actions.push(action(connection, 'index.reindex', 'Reindex', 'Prepare a guarded reindex request into a new index', 'index', objectName, {
+      ...baseParameters,
+      destinationIndex: `${objectName}-reindexed`,
+    }))
+    actions.push(action(connection, 'index.close', 'Close', 'Prepare a guarded index close request', 'index', objectName, baseParameters))
+    actions.push(action(connection, 'index.open', 'Open', 'Prepare a guarded index open request', 'index', objectName, baseParameters))
     actions.push(action(connection, 'index.put-mapping', 'Update Mapping', 'Prepare a guarded mapping update', 'search', objectName, {
       ...baseParameters,
       mappings: { properties: { new_field: { type: 'keyword' } } },
@@ -103,6 +114,21 @@ export function searchOperationActions(
     actions.push(action(connection, 'data-stream.rollover', 'Rollover', 'Prepare a guarded data stream rollover', 'index', objectName, baseParameters))
   }
 
+  if (kind === 'tasks' && supported.has('profile')) {
+    actions.push(action(connection, 'task.cancel', 'Cancel Task', 'Prepare a guarded task cancellation request', 'job', objectName, {
+      ...baseParameters,
+      taskId: payload.taskId ?? payload.id ?? objectName,
+    }))
+  }
+
+  if (kind === 'snapshots' && supported.has('backupRestore')) {
+    actions.push(action(connection, 'snapshot.restore', 'Restore', 'Prepare a guarded snapshot restore request', 'job', objectName, {
+      ...baseParameters,
+      repository: payload.repository ?? '<repository>',
+      snapshot: payload.snapshot ?? objectName,
+    }))
+  }
+
   if (securityLike && supported.has('permissions')) {
     actions.push(action(connection, 'security.inspect', 'Security', 'Review users, roles, and privileges', 'security', objectName, baseParameters))
   }
@@ -113,12 +139,26 @@ export function searchOperationActions(
       indexPatterns: [`${objectName}-*`],
       template: { settings: { number_of_shards: 1 }, mappings: { properties: {} } },
     }))
+    actions.push(action(connection, 'template.delete', 'Delete Template', 'Prepare a guarded template deletion request', 'index', objectName, baseParameters))
   }
 
   if (pipelineLike && supported.has('index')) {
+    actions.push(action(connection, 'pipeline.put', 'Update Pipeline', 'Prepare a guarded ingest pipeline update', 'job', objectName, {
+      ...baseParameters,
+      processors: [{ set: { field: 'processed_at', value: '{{_ingest.timestamp}}' } }],
+    }))
     actions.push(action(connection, 'pipeline.simulate', 'Simulate', 'Prepare an ingest pipeline simulation', 'job', objectName, {
       ...baseParameters,
       documents: [{ _source: { message: 'sample' } }],
+    }))
+  }
+
+  if (kind === 'lifecycle-policies' && supported.has('index')) {
+    actions.push(action(connection, 'lifecycle.put', connection.engine === 'opensearch' ? 'Update ISM' : 'Update ILM', 'Prepare a guarded lifecycle policy update', 'job', objectName, {
+      ...baseParameters,
+      policy: connection.engine === 'opensearch'
+        ? { policy: { description: 'DataPad++ preview policy', states: [] } }
+        : { policy: { phases: { hot: { actions: {} } } } },
     }))
   }
 
@@ -137,13 +177,16 @@ export function searchOperationActions(
     }))
   }
 
-  return dedupeActions(actions).slice(0, 10)
+  return dedupeActions(actions).slice(0, 16)
 }
 
 export function searchOperationObjectName(tab: QueryTabState, payload: JsonRecord) {
   return stringValue(
     payload.index ??
       payload.objectName ??
+      payload.snapshot ??
+      payload.taskId ??
+      payload.id ??
       payload.name ??
       payload.alias ??
       payload.dataStream ??

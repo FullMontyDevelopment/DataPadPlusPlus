@@ -49,7 +49,12 @@ pub(crate) fn generated_operation_request(
             }
 
             if manifest.engine == "sqlserver" {
-                return sqlserver_operation_request(operation_id, object_name, &parameter_json);
+                return sqlserver_operation_request(
+                    operation_id,
+                    object_name,
+                    parameters,
+                    &parameter_json,
+                );
             }
 
             if manifest.engine == "sqlite" {
@@ -58,6 +63,19 @@ pub(crate) fn generated_operation_request(
 
             if manifest.engine == "duckdb" {
                 return duckdb_operation_request(operation_id, object_name, parameters);
+            }
+
+            if matches!(manifest.engine.as_str(), "mysql" | "mariadb") {
+                if let Some(request) = mysql_operation_request(manifest, operation_id, object_name)
+                {
+                    return request;
+                }
+            }
+
+            if manifest.engine == "postgresql" {
+                if let Some(request) = postgres_operation_request(operation_id, object_name) {
+                    return request;
+                }
             }
 
             if operation_id.ends_with("index.create") {
@@ -646,6 +664,65 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
         .unwrap_or_else(|_| "{}".into());
     }
 
+    if operation_id.ends_with("index.force-merge") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "POST",
+            "path": format!("/{object_name}/_forcemerge"),
+            "body": {
+                "max_num_segments": 1,
+                "only_expunge_deletes": false
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("index.clear-cache") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "POST",
+            "path": format!("/{object_name}/_cache/clear"),
+            "body": {
+                "query": true,
+                "request": true,
+                "fielddata": false
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("index.reindex") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "POST",
+            "path": "/_reindex",
+            "body": {
+                "source": {
+                    "index": object_name,
+                    "query": { "match_all": {} }
+                },
+                "dest": {
+                    "index": format!("{object_name}-reindexed")
+                },
+                "conflicts": "proceed"
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("index.close") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "POST",
+            "path": format!("/{object_name}/_close")
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("index.open") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "POST",
+            "path": format!("/{object_name}/_open")
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
     if operation_id.ends_with("index.put-mapping") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "PUT",
@@ -749,6 +826,29 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
         .unwrap_or_else(|_| "{}".into());
     }
 
+    if operation_id.ends_with("template.delete") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "DELETE",
+            "path": format!("/_index_template/{object_name}")
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("pipeline.put") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "PUT",
+            "path": format!("/_ingest/pipeline/{object_name}"),
+            "body": {
+                "description": "DataPad++ pipeline preview",
+                "processors": [
+                    { "set": { "field": "processed_at", "value": "{{_ingest.timestamp}}" } }
+                ],
+                "on_failure": []
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
     if operation_id.ends_with("pipeline.simulate") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
@@ -757,6 +857,56 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
                 "docs": [
                     { "_source": { "message": "sample" } }
                 ]
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("lifecycle.put") {
+        let path = if operation_id.starts_with("opensearch.") {
+            format!("/_plugins/_ism/policies/{object_name}")
+        } else {
+            format!("/_ilm/policy/{object_name}")
+        };
+        let body = if operation_id.starts_with("opensearch.") {
+            serde_json::json!({
+                "policy": {
+                    "description": "DataPad++ preview policy",
+                    "states": []
+                }
+            })
+        } else {
+            serde_json::json!({
+                "policy": {
+                    "phases": {
+                        "hot": { "actions": {} }
+                    }
+                }
+            })
+        };
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "PUT",
+            "path": path,
+            "body": body
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("task.cancel") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "POST",
+            "path": format!("/_tasks/{object_name}/_cancel")
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("snapshot.restore") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "POST",
+            "path": format!("/_snapshot/<repository>/{object_name}/_restore"),
+            "body": {
+                "indices": "*",
+                "include_global_state": false
             }
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -1910,6 +2060,22 @@ fn sqlite_operation_request(operation_id: &str, object_name: &str, parameter_jso
         return "pragma quick_check;\n-- Full check can be slower on large files:\npragma integrity_check;".into();
     }
 
+    if operation_id.ends_with("database.analyze") {
+        return "analyze;".into();
+    }
+
+    if operation_id.ends_with("table.analyze") {
+        return format!("analyze {object_name};");
+    }
+
+    if operation_id.ends_with("database.optimize") {
+        return "pragma optimize;".into();
+    }
+
+    if operation_id.ends_with("index.reindex") {
+        return format!("reindex {object_name};");
+    }
+
     if operation_id.contains("vacuum") {
         return "-- Review file path and locks before running.\nvacuum;\n-- Or compact into a new file:\n-- vacuum into 'compact.sqlite';".into();
     }
@@ -2060,9 +2226,97 @@ fn safe_duckdb_extension_name(value: &str) -> String {
     }
 }
 
+fn mysql_operation_request(
+    manifest: &AdapterManifest,
+    operation_id: &str,
+    object_name: &str,
+) -> Option<String> {
+    if operation_id.ends_with("table.analyze") {
+        return Some(format!("analyze table {object_name};"));
+    }
+
+    if operation_id.ends_with("table.optimize") {
+        return Some(format!("optimize table {object_name};"));
+    }
+
+    if operation_id.ends_with("table.check") {
+        return Some(format!("check table {object_name};"));
+    }
+
+    if operation_id.ends_with("table.repair") {
+        return Some(format!("repair table {object_name};"));
+    }
+
+    if operation_id.ends_with("event.enable") {
+        return Some(format!("alter event {object_name} enable;"));
+    }
+
+    if operation_id.ends_with("event.disable") {
+        return Some(format!("alter event {object_name} disable;"));
+    }
+
+    if operation_id.ends_with("security.inspect") {
+        return Some(
+            "show grants;\nselect user, host, plugin, account_locked from mysql.user order by user, host;"
+                .into(),
+        );
+    }
+
+    if operation_id.ends_with("diagnostics.metrics") || operation_id.ends_with("metrics") {
+        return Some("show global status;\nshow full processlist;".into());
+    }
+
+    if operation_id.ends_with("query.profile") {
+        if manifest.engine == "mariadb" {
+            return Some(format!(
+                "analyze format=json select * from {object_name} limit 100;"
+            ));
+        }
+        return Some(format!(
+            "explain analyze select * from {object_name} limit 100;"
+        ));
+    }
+
+    None
+}
+
+fn postgres_operation_request(operation_id: &str, object_name: &str) -> Option<String> {
+    if operation_id.ends_with("table.analyze") {
+        return Some(format!("analyze verbose {object_name};"));
+    }
+
+    if operation_id.ends_with("table.vacuum") {
+        return Some(format!("vacuum (verbose, analyze) {object_name};"));
+    }
+
+    if operation_id.ends_with("database.analyze") {
+        return Some("analyze verbose;".into());
+    }
+
+    if operation_id.ends_with("database.vacuum") {
+        return Some("vacuum (verbose, analyze);".into());
+    }
+
+    if operation_id.ends_with("index.reindex") {
+        return Some(format!(
+            "-- REINDEX may take stronger locks; review before running.\nreindex index concurrently {object_name};"
+        ));
+    }
+
+    if operation_id.ends_with("diagnostics.metrics") || operation_id.ends_with("metrics") {
+        return Some(
+            "select * from pg_stat_activity order by query_start desc nulls last limit 100;\nselect * from pg_stat_database where datname = current_database();"
+                .into(),
+        );
+    }
+
+    None
+}
+
 fn sqlserver_operation_request(
     operation_id: &str,
     object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
     parameter_json: &str,
 ) -> String {
     if operation_id.ends_with("index.create") {
@@ -2073,7 +2327,16 @@ fn sqlserver_operation_request(
     }
 
     if operation_id.ends_with("index.drop") {
-        return "-- Review before running.\ndrop index [IX_name] on [schema].[table];".into();
+        let index_name = safe_sqlserver_index_name(parameters);
+        let target = sqlserver_target_object(object_name, parameters);
+        return format!("-- Review before running.\ndrop index {index_name} on {target};");
+    }
+
+    if operation_id.ends_with("statistics.update") {
+        return format!(
+            "update statistics {} with fullscan;",
+            sqlserver_target_object(object_name, parameters)
+        );
     }
 
     if operation_id.ends_with("data.import-export") || operation_id.contains("import-export") {
@@ -2085,19 +2348,42 @@ fn sqlserver_operation_request(
     }
 
     if operation_id.ends_with("index.rebuild") {
-        return "alter index [IX_name] on [schema].[table] rebuild with (online = on);".into();
+        return format!(
+            "alter index {} on {} rebuild with (online = on);",
+            safe_sqlserver_index_name(parameters),
+            sqlserver_target_object(object_name, parameters)
+        );
     }
 
     if operation_id.ends_with("index.reorganize") {
-        return "alter index [IX_name] on [schema].[table] reorganize;".into();
+        return format!(
+            "alter index {} on {} reorganize;",
+            safe_sqlserver_index_name(parameters),
+            sqlserver_target_object(object_name, parameters)
+        );
     }
 
     if operation_id.ends_with("index.disable") {
-        return "-- Review carefully before disabling an index.\nalter index [IX_name] on [schema].[table] disable;".into();
+        return format!(
+            "-- Review carefully before disabling an index.\nalter index {} on {} disable;",
+            safe_sqlserver_index_name(parameters),
+            sqlserver_target_object(object_name, parameters)
+        );
     }
 
-    if operation_id.ends_with("query-store") || operation_id.contains("query-store") {
-        return "select top 50\n  qsq.query_id,\n  qsp.plan_id,\n  rs.avg_duration,\n  rs.count_executions\nfrom sys.query_store_query qsq\njoin sys.query_store_plan qsp on qsq.query_id = qsp.query_id\njoin sys.query_store_runtime_stats rs on qsp.plan_id = rs.plan_id\norder by rs.avg_duration desc;".into();
+    if operation_id.ends_with("index.enable") {
+        return format!(
+            "alter index {} on {} rebuild with (online = on);",
+            safe_sqlserver_index_name(parameters),
+            sqlserver_target_object(object_name, parameters)
+        );
+    }
+
+    if operation_id.ends_with("query-store.top-queries")
+        || operation_id.ends_with("query-store")
+        || operation_id.contains("query-store")
+    {
+        return "select top (50)\n  qsq.query_id,\n  qsp.plan_id,\n  rs.avg_duration,\n  rs.count_executions\nfrom sys.query_store_query qsq\njoin sys.query_store_plan qsp on qsq.query_id = qsp.query_id\njoin sys.query_store_runtime_stats rs on qsp.plan_id = rs.plan_id\norder by rs.avg_duration desc;".into();
     }
 
     match operation_id.rsplit('.').next().unwrap_or(operation_id) {
@@ -2280,6 +2566,36 @@ fn safe_sqlserver_name(value: &str) -> String {
         .collect::<String>()
 }
 
+fn safe_sqlserver_index_name(parameters: Option<&BTreeMap<String, Value>>) -> String {
+    string_parameter(parameters, "indexName")
+        .map(|value| sqlserver_quoted_identifier(&value))
+        .unwrap_or_else(|| "[IX_name]".into())
+}
+
+fn sqlserver_target_object(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let table = string_parameter(parameters, "table");
+    if let Some(table) = table {
+        if let Some(schema) = string_parameter(parameters, "schema") {
+            return format!(
+                "{}.{}",
+                sqlserver_quoted_identifier(&schema),
+                sqlserver_quoted_identifier(&table)
+            );
+        }
+        return sqlserver_quoted_identifier(&table);
+    }
+
+    object_name.into()
+}
+
+fn sqlserver_quoted_identifier(value: &str) -> String {
+    let cleaned = strip_identifier_wrapper(value);
+    format!("[{}]", cleaned.replace(']', "]]"))
+}
+
 pub(crate) fn default_operation_plan(
     connection: &ResolvedConnectionProfile,
     manifest: &AdapterManifest,
@@ -2291,6 +2607,7 @@ pub(crate) fn default_operation_plan(
     let destructive = operation_id.contains(".drop")
         || operation_id.contains("backup-restore")
         || operation_id.contains(".backup.restore")
+        || operation_id.contains(".repair")
         || operation_id.contains(".flush");
     let admin_write = operation_id.contains(".create")
         || operation_id.contains(".update")
@@ -2305,6 +2622,7 @@ pub(crate) fn default_operation_plan(
         || operation_id.contains(".extension.")
         || operation_id.contains(".file.import")
         || operation_id.contains(".collection.import")
+        || operation_id.contains(".event.")
         || (operation_id.contains(".security.") && !operation_id.ends_with("security.inspect"))
         || operation_id.contains("validation")
         || operation_id.contains("validator")
@@ -2313,6 +2631,12 @@ pub(crate) fn default_operation_plan(
         || operation_id.contains(".backup.create")
         || operation_id.contains(".failover")
         || operation_id.contains(".checkpoint")
+        || operation_id.contains(".vacuum")
+        || operation_id.contains(".reindex")
+        || operation_id.contains(".rebuild")
+        || operation_id.contains(".reorganize")
+        || operation_id.contains(".disable")
+        || operation_id.contains(".enable")
         || operation_id.contains(".compact")
         || operation_id.contains(".reset")
         || operation_id.contains(".clone")
@@ -2506,6 +2830,8 @@ mod tests {
         let postgres_manifest = manifest_for("postgresql", "sql", "sql");
         let sqlite_manifest = manifest_for("sqlite", "sql", "sql");
         let duckdb_manifest = manifest_for("duckdb", "embedded-olap", "sql");
+        let mysql_manifest = manifest_for("mysql", "sql", "sql");
+        let mariadb_manifest = manifest_for("mariadb", "sql", "sql");
 
         let sqlserver_explain = generated_operation_request(
             &connection,
@@ -2517,6 +2843,42 @@ mod tests {
         assert!(sqlserver_explain.contains("set showplan_text on"));
         assert!(sqlserver_explain.contains("select top 100 * from [dbo].[Accounts];"));
 
+        let sqlserver_parameters = BTreeMap::from([
+            ("schema".into(), json!("dbo")),
+            ("table".into(), json!("Accounts")),
+            ("indexName".into(), json!("IX_Accounts_status")),
+        ]);
+        let sqlserver_stats = generated_operation_request(
+            &connection,
+            &sqlserver_manifest,
+            "sqlserver.statistics.update",
+            "[dbo].[Accounts]",
+            Some(&sqlserver_parameters),
+        );
+        assert_eq!(
+            sqlserver_stats,
+            "update statistics [dbo].[Accounts] with fullscan;"
+        );
+
+        let sqlserver_rebuild = generated_operation_request(
+            &connection,
+            &sqlserver_manifest,
+            "sqlserver.index.rebuild",
+            "[dbo].[Accounts]",
+            Some(&sqlserver_parameters),
+        );
+        assert!(sqlserver_rebuild
+            .contains("alter index [IX_Accounts_status] on [dbo].[Accounts] rebuild"));
+
+        let sqlserver_query_store = generated_operation_request(
+            &connection,
+            &sqlserver_manifest,
+            "sqlserver.query-store.top-queries",
+            "Query Store",
+            None,
+        );
+        assert!(sqlserver_query_store.contains("from sys.query_store_query"));
+
         let postgres_export = generated_operation_request(
             &connection,
             &postgres_manifest,
@@ -2525,6 +2887,37 @@ mod tests {
             None,
         );
         assert!(postgres_export.contains("copy (select * from \"public\".\"accounts\")"));
+
+        let postgres_analyze = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.table.analyze",
+            "\"public\".\"accounts\"",
+            None,
+        );
+        assert_eq!(postgres_analyze, "analyze verbose \"public\".\"accounts\";");
+
+        let postgres_vacuum = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.table.vacuum",
+            "\"public\".\"accounts\"",
+            None,
+        );
+        assert_eq!(
+            postgres_vacuum,
+            "vacuum (verbose, analyze) \"public\".\"accounts\";"
+        );
+
+        let postgres_reindex = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.index.reindex",
+            "\"public\".\"accounts_name_idx\"",
+            None,
+        );
+        assert!(postgres_reindex
+            .contains("reindex index concurrently \"public\".\"accounts_name_idx\";"));
 
         let sqlite_export = generated_operation_request(
             &connection,
@@ -2535,6 +2928,34 @@ mod tests {
         );
         assert!(sqlite_export.contains(".mode csv"));
         assert!(sqlite_export.contains("select * from [accounts];"));
+
+        let sqlite_integrity = generated_operation_request(
+            &connection,
+            &sqlite_manifest,
+            "sqlite.database.integrity-check",
+            "[main]",
+            None,
+        );
+        assert!(sqlite_integrity.contains("pragma quick_check"));
+        assert!(sqlite_integrity.contains("pragma integrity_check"));
+
+        let sqlite_analyze = generated_operation_request(
+            &connection,
+            &sqlite_manifest,
+            "sqlite.table.analyze",
+            "[accounts]",
+            None,
+        );
+        assert_eq!(sqlite_analyze, "analyze [accounts];");
+
+        let sqlite_reindex = generated_operation_request(
+            &connection,
+            &sqlite_manifest,
+            "sqlite.index.reindex",
+            "[accounts_name_idx]",
+            None,
+        );
+        assert_eq!(sqlite_reindex, "reindex [accounts_name_idx];");
 
         let duckdb_analyze = generated_operation_request(
             &connection,
@@ -2566,6 +2987,45 @@ mod tests {
         );
         assert!(duckdb_import.contains("read_csv_auto"));
         assert!(duckdb_import.contains("create or replace table \"main\".\"orders_import\""));
+
+        let mysql_check = generated_operation_request(
+            &connection,
+            &mysql_manifest,
+            "mysql.table.check",
+            "`shop`.`orders`",
+            None,
+        );
+        assert_eq!(mysql_check, "check table `shop`.`orders`;");
+
+        let mysql_repair = generated_operation_request(
+            &connection,
+            &mysql_manifest,
+            "mysql.table.repair",
+            "`shop`.`orders`",
+            None,
+        );
+        assert_eq!(mysql_repair, "repair table `shop`.`orders`;");
+
+        let mysql_event = generated_operation_request(
+            &connection,
+            &mysql_manifest,
+            "mysql.event.disable",
+            "`shop`.`refresh_rollups`",
+            None,
+        );
+        assert_eq!(mysql_event, "alter event `shop`.`refresh_rollups` disable;");
+
+        let mariadb_profile = generated_operation_request(
+            &connection,
+            &mariadb_manifest,
+            "mariadb.query.profile",
+            "`shop`.`orders`",
+            None,
+        );
+        assert_eq!(
+            mariadb_profile,
+            "analyze format=json select * from `shop`.`orders` limit 100;"
+        );
     }
 
     #[test]
@@ -2637,6 +3097,58 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&lifecycle_request).unwrap();
         assert_eq!(lifecycle_value["method"], "GET");
         assert_eq!(lifecycle_value["path"], "/products-v1/_ilm/explain");
+
+        let merge_request = generated_operation_request(
+            &connection,
+            &manifest,
+            "elasticsearch.index.force-merge",
+            "products-v1",
+            None,
+        );
+        let merge_value = serde_json::from_str::<serde_json::Value>(&merge_request).unwrap();
+        assert_eq!(merge_value["method"], "POST");
+        assert_eq!(merge_value["path"], "/products-v1/_forcemerge");
+        assert_eq!(merge_value["body"]["max_num_segments"], 1);
+
+        let reindex_request = generated_operation_request(
+            &connection,
+            &manifest,
+            "elasticsearch.index.reindex",
+            "products-v1",
+            None,
+        );
+        let reindex_value = serde_json::from_str::<serde_json::Value>(&reindex_request).unwrap();
+        assert_eq!(reindex_value["method"], "POST");
+        assert_eq!(reindex_value["path"], "/_reindex");
+        assert_eq!(
+            reindex_value["body"]["dest"]["index"],
+            "products-v1-reindexed"
+        );
+
+        let pipeline_request = generated_operation_request(
+            &connection,
+            &manifest,
+            "elasticsearch.pipeline.put",
+            "normalize-products",
+            None,
+        );
+        let pipeline_value = serde_json::from_str::<serde_json::Value>(&pipeline_request).unwrap();
+        assert_eq!(pipeline_value["method"], "PUT");
+        assert_eq!(
+            pipeline_value["path"],
+            "/_ingest/pipeline/normalize-products"
+        );
+
+        let task_request = generated_operation_request(
+            &connection,
+            &manifest,
+            "elasticsearch.task.cancel",
+            "node-a:123",
+            None,
+        );
+        let task_value = serde_json::from_str::<serde_json::Value>(&task_request).unwrap();
+        assert_eq!(task_value["method"], "POST");
+        assert_eq!(task_value["path"], "/_tasks/node-a:123/_cancel");
     }
 
     #[test]
@@ -3155,6 +3667,13 @@ mod tests {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: false,
         }
     }

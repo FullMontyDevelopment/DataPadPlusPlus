@@ -11,7 +11,7 @@ use super::{
         parse_workspace_bundle_payload, validate_bundle_passphrase, validate_bundle_payload_size,
     },
 };
-use crate::domain::models::{ConnectionAuth, ConnectionProfile, QueryTabState};
+use crate::domain::models::{ConnectionProfile, QueryTabState};
 
 static ENV_LOCK: TestMutex<()> = TestMutex::new(());
 
@@ -107,25 +107,12 @@ fn existing_debug_workspace_is_not_empty_and_should_be_preserved() {
         engine: "sqlite".into(),
         family: "sql".into(),
         host: "localhost".into(),
-        port: None,
         database: Some("local.sqlite3".into()),
-        connection_string: None,
         connection_mode: Some("file".into()),
-        environment_ids: Vec::new(),
-        tags: Vec::new(),
-        favorite: false,
-        redis_options: None,
-        sqlite_options: None,
-        sqlserver_options: None,
-        oracle_options: None,
-        read_only: false,
         icon: "sqlite".into(),
-        color: None,
-        group: None,
-        notes: None,
-        auth: ConnectionAuth::default(),
         created_at: timestamp_now(),
         updated_at: timestamp_now(),
+        ..ConnectionProfile::default()
     });
 
     assert!(!workspace_is_empty(&snapshot));
@@ -156,21 +143,10 @@ fn migration_strips_connection_strings_with_plaintext_secrets() {
         database: Some("catalog".into()),
         connection_string: Some("mongodb://user:plain-secret@localhost:27017/catalog".into()),
         connection_mode: Some("connection-string".into()),
-        environment_ids: Vec::new(),
-        tags: Vec::new(),
-        favorite: false,
-        redis_options: None,
-        sqlite_options: None,
-        sqlserver_options: None,
-        oracle_options: None,
-        read_only: false,
         icon: "mongodb".into(),
-        color: None,
-        group: None,
-        notes: None,
-        auth: ConnectionAuth::default(),
         created_at: timestamp_now(),
         updated_at: timestamp_now(),
+        ..ConnectionProfile::default()
     });
 
     let migrated = migrate_snapshot(snapshot);

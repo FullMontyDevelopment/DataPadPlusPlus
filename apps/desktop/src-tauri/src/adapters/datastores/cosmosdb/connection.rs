@@ -118,6 +118,19 @@ async fn cosmosdb_request(
 
 impl CosmosDbEndpoint {
     fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+        if let Some(endpoint) = connection
+            .cosmos_db_options
+            .as_ref()
+            .and_then(|options| options.account_endpoint.as_deref())
+            .filter(|value| !value.trim().is_empty())
+        {
+            return Self::from_url_or_host(
+                endpoint,
+                connection.port,
+                connection.database.as_deref(),
+            );
+        }
+
         if let Some(connection_string) = connection.connection_string.as_deref() {
             return Self::from_url(connection_string);
         }
@@ -144,6 +157,36 @@ impl CosmosDbEndpoint {
     }
 
     fn from_url(url: &str) -> Result<Self, CommandError> {
+        Self::from_url_or_host(url, None, None)
+    }
+
+    fn from_url_or_host(
+        url: &str,
+        fallback_port: Option<u16>,
+        database_prefix: Option<&str>,
+    ) -> Result<Self, CommandError> {
+        if !url.starts_with("http://") {
+            let host = url
+                .trim()
+                .trim_start_matches("https://")
+                .trim_end_matches('/');
+            if host.is_empty() {
+                return Err(CommandError::new(
+                    "cosmosdb-endpoint-missing",
+                    "Cosmos DB endpoint did not include a host.",
+                ));
+            }
+            return Ok(Self {
+                host: host.into(),
+                port: fallback_port.unwrap_or(443),
+                prefix: database_prefix
+                    .filter(|value| value.starts_with('/'))
+                    .unwrap_or("")
+                    .trim_end_matches('/')
+                    .into(),
+            });
+        }
+
         let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
             CommandError::new(
                 "cosmosdb-unsupported-url",
@@ -200,8 +243,10 @@ pub(super) fn parse_cosmosdb_json(body: &str) -> Result<Value, CommandError> {
 
 pub(super) fn cosmosdb_default_database(connection: &ResolvedConnectionProfile) -> String {
     connection
-        .database
-        .as_deref()
+        .cosmos_db_options
+        .as_ref()
+        .and_then(|options| options.database_name.as_deref())
+        .or(connection.database.as_deref())
         .filter(|value| !value.starts_with('/') && !value.trim().is_empty())
         .unwrap_or("datapadplusplus")
         .to_string()
@@ -218,7 +263,8 @@ fn cosmosdb_auth_header(connection: &ResolvedConnectionProfile) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::CosmosDbEndpoint;
+    use super::{cosmosdb_default_database, CosmosDbEndpoint};
+    use crate::domain::models::{CosmosDbConnectionOptions, ResolvedConnectionProfile};
 
     #[test]
     fn cosmosdb_endpoint_parses_prefixed_http_url() {
@@ -226,5 +272,50 @@ mod tests {
         assert_eq!(endpoint.host, "localhost");
         assert_eq!(endpoint.port, 18081);
         assert_eq!(endpoint.path("/dbs"), "/cosmos/dbs");
+    }
+
+    #[test]
+    fn cosmosdb_endpoint_prefers_typed_account_endpoint() {
+        let connection = connection(Some(CosmosDbConnectionOptions {
+            account_endpoint: Some("http://localhost:18081/cosmos".into()),
+            database_name: Some("catalog".into()),
+            ..CosmosDbConnectionOptions::default()
+        }));
+
+        let endpoint = CosmosDbEndpoint::from_connection(&connection).unwrap();
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 18081);
+        assert_eq!(endpoint.path("/dbs"), "/cosmos/dbs");
+        assert_eq!(cosmosdb_default_database(&connection), "catalog");
+    }
+
+    fn connection(
+        cosmos_db_options: Option<CosmosDbConnectionOptions>,
+    ) -> ResolvedConnectionProfile {
+        ResolvedConnectionProfile {
+            id: "conn-cosmos".into(),
+            name: "Cosmos DB".into(),
+            engine: "cosmosdb".into(),
+            family: "document".into(),
+            host: "localhost".into(),
+            port: Some(8081),
+            database: None,
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
+            read_only: true,
+        }
     }
 }

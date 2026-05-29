@@ -4155,6 +4155,10 @@ button:disabled:hover {
   padding: 8px;
 }
 
+.mongo-explain-layout--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .mongo-explain-panel {
   min-width: 0;
   border: 1px solid var(--border);
@@ -4290,6 +4294,10 @@ button:disabled:hover {
   cursor: pointer;
   color: var(--muted);
   font-size: 11px;
+}
+
+.generic-plan-raw {
+  padding: 8px;
 }
 
 .mongo-explain-table {

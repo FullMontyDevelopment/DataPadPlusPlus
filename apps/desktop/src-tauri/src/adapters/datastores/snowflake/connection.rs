@@ -104,6 +104,16 @@ pub(super) async fn snowflake_post_json(
 
 impl SnowflakeEndpoint {
     fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+        if let Some(options) = &connection.warehouse_options {
+            if let Some(endpoint_url) = options
+                .endpoint_url
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                return Self::from_url_with_prefix(endpoint_url, options.path_prefix.as_deref());
+            }
+        }
+
         if let Some(connection_string) = connection.connection_string.as_deref() {
             return Self::from_url(connection_string);
         }
@@ -124,6 +134,13 @@ impl SnowflakeEndpoint {
     }
 
     fn from_url(url: &str) -> Result<Self, CommandError> {
+        Self::from_url_with_prefix(url, None)
+    }
+
+    fn from_url_with_prefix(
+        url: &str,
+        prefix_override: Option<&str>,
+    ) -> Result<Self, CommandError> {
         let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
             CommandError::new(
                 "snowflake-unsupported-url",
@@ -141,11 +158,10 @@ impl SnowflakeEndpoint {
         Ok(Self {
             host: host.into(),
             port,
-            prefix: if path.is_empty() {
-                String::new()
-            } else {
-                format!("/{}", path.trim_end_matches('/'))
-            },
+            prefix: prefix_override
+                .and_then(normalized_prefix)
+                .or_else(|| normalized_prefix(path))
+                .unwrap_or_default(),
         })
     }
 
@@ -162,6 +178,15 @@ impl SnowflakeEndpoint {
     }
 }
 
+fn normalized_prefix(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(format!("/{trimmed}"))
+    }
+}
+
 pub(super) fn has_live_auth(connection: &ResolvedConnectionProfile) -> bool {
     connection
         .password
@@ -171,12 +196,26 @@ pub(super) fn has_live_auth(connection: &ResolvedConnectionProfile) -> bool {
 
 pub(super) fn has_http_endpoint(connection: &ResolvedConnectionProfile) -> bool {
     connection
-        .connection_string
-        .as_deref()
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.endpoint_url.as_deref())
         .is_some_and(|value| value.starts_with("http://"))
+        || connection
+            .connection_string
+            .as_deref()
+            .is_some_and(|value| value.starts_with("http://"))
 }
 
 pub(super) fn snowflake_account(connection: &ResolvedConnectionProfile) -> String {
+    if let Some(account) = connection
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.account_name.as_deref())
+        .filter(|value| !value.trim().is_empty())
+    {
+        return account.to_string();
+    }
+
     let host = connection.host.trim();
     if !host.is_empty() && host != "127.0.0.1" && host != "localhost" {
         host.to_string()
@@ -187,8 +226,10 @@ pub(super) fn snowflake_account(connection: &ResolvedConnectionProfile) -> Strin
 
 pub(super) fn snowflake_database(connection: &ResolvedConnectionProfile) -> String {
     connection
-        .database
-        .as_deref()
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.database_name.as_deref())
+        .or(connection.database.as_deref())
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("DATAPADPLUSPLUS")
         .to_string()
@@ -196,11 +237,22 @@ pub(super) fn snowflake_database(connection: &ResolvedConnectionProfile) -> Stri
 
 pub(super) fn snowflake_schema(connection: &ResolvedConnectionProfile) -> String {
     connection
-        .username
-        .as_deref()
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.schema_name.as_deref())
+        .or(connection.username.as_deref())
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("PUBLIC")
         .to_string()
+}
+
+pub(super) fn snowflake_warehouse(connection: &ResolvedConnectionProfile) -> Option<String> {
+    connection
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.warehouse_name.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
 }
 
 pub(super) fn snowflake_statement_body(
@@ -219,6 +271,7 @@ pub(super) fn snowflake_statement_body(
         "timeout": 60,
         "database": snowflake_database(connection),
         "schema": snowflake_schema(connection),
+        "warehouse": snowflake_warehouse(connection),
         "resultSetMetaData": {
             "format": "jsonv2",
             "rowLimit": row_limit
@@ -256,6 +309,13 @@ mod tests {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: true,
         }
     }
@@ -278,5 +338,32 @@ mod tests {
         assert_eq!(body["schema"], "PUBLIC");
         assert_eq!(body["resultSetMetaData"]["rowLimit"], 25);
         assert_eq!(body["statement"], "explain using json select 1");
+    }
+
+    #[test]
+    fn snowflake_endpoint_and_context_prefer_warehouse_options() {
+        let mut connection = connection();
+        connection.warehouse_options = Some(crate::domain::models::WarehouseConnectionOptions {
+            endpoint_url: Some("http://localhost:19061/reverse".into()),
+            path_prefix: Some("/snowflake".into()),
+            database_name: Some("FINANCE".into()),
+            schema_name: Some("MART".into()),
+            warehouse_name: Some("REPORTING_WH".into()),
+            account_name: Some("account.eu-west-1".into()),
+            ..crate::domain::models::WarehouseConnectionOptions::default()
+        });
+
+        let endpoint = SnowflakeEndpoint::from_connection(&connection).unwrap();
+        let body = snowflake_statement_body("select 1", 10, &connection, false);
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 19061);
+        assert_eq!(
+            endpoint.path("/api/v2/statements"),
+            "/snowflake/api/v2/statements"
+        );
+        assert_eq!(body["database"], "FINANCE");
+        assert_eq!(body["schema"], "MART");
+        assert_eq!(body["warehouse"], "REPORTING_WH");
     }
 }

@@ -123,6 +123,16 @@ async fn bigquery_request(
 
 impl BigQueryEndpoint {
     fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+        if let Some(options) = &connection.warehouse_options {
+            if let Some(endpoint_url) = options
+                .endpoint_url
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                return Self::from_url_with_prefix(endpoint_url, options.path_prefix.as_deref());
+            }
+        }
+
         if let Some(connection_string) = connection.connection_string.as_deref() {
             return Self::from_url(connection_string);
         }
@@ -143,6 +153,13 @@ impl BigQueryEndpoint {
     }
 
     fn from_url(url: &str) -> Result<Self, CommandError> {
+        Self::from_url_with_prefix(url, None)
+    }
+
+    fn from_url_with_prefix(
+        url: &str,
+        prefix_override: Option<&str>,
+    ) -> Result<Self, CommandError> {
         let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
             CommandError::new(
                 "bigquery-unsupported-url",
@@ -160,11 +177,10 @@ impl BigQueryEndpoint {
         Ok(Self {
             host: host.into(),
             port,
-            prefix: if path.is_empty() {
-                String::new()
-            } else {
-                format!("/{}", path.trim_end_matches('/'))
-            },
+            prefix: prefix_override
+                .and_then(normalized_prefix)
+                .or_else(|| normalized_prefix(path))
+                .unwrap_or_default(),
         })
     }
 
@@ -181,6 +197,15 @@ impl BigQueryEndpoint {
     }
 }
 
+fn normalized_prefix(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(format!("/{trimmed}"))
+    }
+}
+
 pub(super) fn has_live_auth(connection: &ResolvedConnectionProfile) -> bool {
     connection
         .password
@@ -190,15 +215,22 @@ pub(super) fn has_live_auth(connection: &ResolvedConnectionProfile) -> bool {
 
 pub(super) fn has_http_endpoint(connection: &ResolvedConnectionProfile) -> bool {
     connection
-        .connection_string
-        .as_deref()
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.endpoint_url.as_deref())
         .is_some_and(|value| value.starts_with("http://"))
+        || connection
+            .connection_string
+            .as_deref()
+            .is_some_and(|value| value.starts_with("http://"))
 }
 
 pub(super) fn bigquery_project_id(connection: &ResolvedConnectionProfile) -> String {
     connection
-        .username
-        .as_deref()
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.project_id.as_deref())
+        .or(connection.username.as_deref())
         .or(connection.database.as_deref())
         .or_else(|| {
             let host = connection.host.trim();
@@ -210,10 +242,23 @@ pub(super) fn bigquery_project_id(connection: &ResolvedConnectionProfile) -> Str
 
 pub(super) fn bigquery_dataset_id(connection: &ResolvedConnectionProfile) -> String {
     connection
-        .database
-        .as_deref()
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.dataset_id.as_deref())
+        .or(connection.database.as_deref())
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("datapadplusplus")
+        .to_string()
+}
+
+#[cfg(test)]
+fn bigquery_location(connection: &ResolvedConnectionProfile) -> String {
+    connection
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.location.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("US")
         .to_string()
 }
 
@@ -237,7 +282,10 @@ pub(super) fn parse_bigquery_json(body: &str) -> Result<Value, CommandError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bigquery_query_body, BigQueryEndpoint};
+    use super::{
+        bigquery_dataset_id, bigquery_location, bigquery_project_id, bigquery_query_body,
+        BigQueryEndpoint,
+    };
 
     #[test]
     fn bigquery_endpoint_parses_prefixed_http_url() {
@@ -257,5 +305,52 @@ mod tests {
         assert_eq!(body["useLegacySql"], false);
         assert_eq!(body["dryRun"], true);
         assert_eq!(body["maxResults"], 25);
+    }
+
+    #[test]
+    fn bigquery_endpoint_and_scope_prefer_warehouse_options() {
+        let connection = crate::domain::models::ResolvedConnectionProfile {
+            id: "conn-bigquery".into(),
+            name: "BigQuery".into(),
+            engine: "bigquery".into(),
+            family: "warehouse".into(),
+            host: "ignored".into(),
+            port: None,
+            database: Some("fallback".into()),
+            username: Some("fallback-project".into()),
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: Some(crate::domain::models::WarehouseConnectionOptions {
+                endpoint_url: Some("http://localhost:19050/reverse".into()),
+                path_prefix: Some("/bq".into()),
+                project_id: Some("project-qa".into()),
+                dataset_id: Some("mart".into()),
+                location: Some("EU".into()),
+                ..crate::domain::models::WarehouseConnectionOptions::default()
+            }),
+            read_only: true,
+        };
+
+        let endpoint = BigQueryEndpoint::from_connection(&connection).unwrap();
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 19050);
+        assert_eq!(
+            endpoint.path("/bigquery/v2/projects/p/datasets"),
+            "/bq/bigquery/v2/projects/p/datasets"
+        );
+        assert_eq!(bigquery_project_id(&connection), "project-qa");
+        assert_eq!(bigquery_dataset_id(&connection), "mart");
+        assert_eq!(bigquery_location(&connection), "EU");
     }
 }

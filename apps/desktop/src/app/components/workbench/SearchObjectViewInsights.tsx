@@ -1,5 +1,6 @@
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import { ObjectIndexIcon, ObjectJobIcon, ObjectSearchIcon } from './icons'
+import { SearchObjectViewPostures } from './SearchObjectViewPostures'
 
 type JsonRecord = Record<string, unknown>
 
@@ -24,6 +25,7 @@ export function SearchObjectViewInsights({
 
   return (
     <>
+      <SearchObjectViewPostures payload={payload} />
       <FieldCapabilities fields={fields} />
       <ShardHealth shards={shards} />
       <LifecycleStatus
@@ -123,6 +125,7 @@ function ShardHealth({ shards }: { shards: JsonRecord[] }) {
   )
 }
 
+
 function LifecycleStatus({
   connection,
   lifecyclePolicies,
@@ -157,6 +160,7 @@ function LifecycleStatus({
   )
 }
 
+
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="object-view-card">
@@ -179,6 +183,16 @@ function isInsightKind(kind: string) {
     'mapping',
     'shards',
     'lifecycle-policies',
+    'segments',
+    'templates',
+    'index-template',
+    'component-template',
+    'pipelines',
+    'pipeline',
+    'security',
+    'users',
+    'roles',
+    'api-keys',
   ].includes(kind)
 }
 

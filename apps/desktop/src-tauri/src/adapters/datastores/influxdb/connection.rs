@@ -80,6 +80,20 @@ pub(super) async fn influxdb_get(
 
 impl InfluxDbEndpoint {
     fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+        if let Some(options) = connection.time_series_options.as_ref() {
+            if let Some(endpoint_url) = options
+                .endpoint_url
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                return Self::from_url_with_options(
+                    endpoint_url,
+                    connection.database.as_deref(),
+                    options,
+                );
+            }
+        }
+
         if let Some(connection_string) = connection.connection_string.as_deref() {
             return Self::from_url(connection_string, connection.database.as_deref());
         }
@@ -95,12 +109,42 @@ impl InfluxDbEndpoint {
         Ok(Self {
             host: host.into(),
             port: connection.port.unwrap_or(8086),
-            prefix: String::new(),
-            database: connection_database(connection.database.as_deref()),
+            prefix: connection
+                .time_series_options
+                .as_ref()
+                .and_then(|options| normalized_prefix(options.path_prefix.as_deref()))
+                .unwrap_or_default(),
+            database: connection_database(
+                connection
+                    .time_series_options
+                    .as_ref()
+                    .and_then(timeseries_database)
+                    .or(connection.database.as_deref()),
+            ),
         })
     }
 
     fn from_url(url: &str, database_override: Option<&str>) -> Result<Self, CommandError> {
+        Self::from_url_with_parts(url, database_override, None)
+    }
+
+    fn from_url_with_options(
+        url: &str,
+        database_override: Option<&str>,
+        options: &crate::domain::models::TimeSeriesConnectionOptions,
+    ) -> Result<Self, CommandError> {
+        Self::from_url_with_parts(
+            url,
+            timeseries_database(options).or(database_override),
+            options.path_prefix.as_deref(),
+        )
+    }
+
+    fn from_url_with_parts(
+        url: &str,
+        database_override: Option<&str>,
+        prefix_override: Option<&str>,
+    ) -> Result<Self, CommandError> {
         let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
             CommandError::new(
                 "influxdb-unsupported-url",
@@ -132,11 +176,15 @@ impl InfluxDbEndpoint {
                     .map(str::to_string)
             })
             .unwrap_or_else(|| "_internal".into());
-        let prefix = if path.is_empty() || path.starts_with("db/") {
-            String::new()
-        } else {
-            format!("/{}", path)
-        };
+        let prefix = normalized_prefix(prefix_override)
+            .or_else(|| {
+                if path.starts_with("db/") {
+                    None
+                } else {
+                    normalized_prefix(Some(path))
+                }
+            })
+            .unwrap_or_default();
 
         Ok(Self {
             host: host.into(),
@@ -193,6 +241,25 @@ fn connection_database(value: Option<&str>) -> String {
         .unwrap_or_else(|| "_internal".into())
 }
 
+fn timeseries_database(
+    options: &crate::domain::models::TimeSeriesConnectionOptions,
+) -> Option<&str> {
+    options
+        .database_name
+        .as_deref()
+        .or(options.bucket.as_deref())
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn normalized_prefix(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(format!("/{trimmed}"))
+    }
+}
+
 fn influxdb_auth_header(connection: &ResolvedConnectionProfile) -> String {
     match (&connection.username, &connection.password) {
         (Some(username), Some(password)) if !username.is_empty() => {
@@ -239,11 +306,58 @@ mod tests {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: true,
         };
         let endpoint = InfluxDbEndpoint::from_connection(&connection).unwrap();
         assert_eq!(endpoint.port, 8086);
         assert_eq!(endpoint.database, "telegraf");
+    }
+
+    #[test]
+    fn influxdb_endpoint_prefers_timeseries_endpoint_bucket_and_prefix() {
+        let connection = ResolvedConnectionProfile {
+            id: "conn-influx".into(),
+            name: "InfluxDB".into(),
+            engine: "influxdb".into(),
+            family: "timeseries".into(),
+            host: "ignored".into(),
+            port: Some(8086),
+            database: None,
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: Some(crate::domain::models::TimeSeriesConnectionOptions {
+                endpoint_url: Some("http://localhost:18086/proxy".into()),
+                path_prefix: Some("/influx".into()),
+                bucket: Some("telemetry".into()),
+                ..crate::domain::models::TimeSeriesConnectionOptions::default()
+            }),
+            graph_options: None,
+            warehouse_options: None,
+            read_only: true,
+        };
+
+        let endpoint = InfluxDbEndpoint::from_connection(&connection).unwrap();
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 18086);
+        assert_eq!(endpoint.database, "telemetry");
+        assert_eq!(endpoint.path("/ping"), "/influx/ping");
     }
 
     #[test]

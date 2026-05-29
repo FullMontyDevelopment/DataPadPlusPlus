@@ -16,6 +16,7 @@ describe('RelationalObjectViewOperations helpers', () => {
     expect(actions.map((action) => action.label)).toEqual([
       'Explain',
       'Profile',
+      'Update Stats',
       'Create Index',
       'Grants',
       'Export',
@@ -28,6 +29,85 @@ describe('RelationalObjectViewOperations helpers', () => {
         indexName: 'idx_dbo_accounts_account_id',
       }),
     })
+    expect(actions.find((action) => action.label === 'Update Stats')).toMatchObject({
+      operationId: 'sqlserver.statistics.update',
+      objectName: '[dbo].[Accounts]',
+    })
+  })
+
+  it('adds SQL Server index maintenance and Query Store operation previews', () => {
+    const indexActions = relationalOperationActions(sqlServerConnection, tableTab, 'index', {
+      schema: 'dbo',
+      tableName: 'Accounts',
+      indexName: 'IX_Accounts_status',
+    })
+
+    expect(indexActions.map((action) => action.label)).toEqual([
+      'Reorganize',
+      'Rebuild',
+      'Disable',
+      'Enable',
+      'Drop Index',
+    ])
+    expect(indexActions.find((action) => action.label === 'Rebuild')).toMatchObject({
+      operationId: 'sqlserver.index.rebuild',
+      objectName: '[dbo].[Accounts]',
+      parameters: expect.objectContaining({
+        indexName: 'IX_Accounts_status',
+      }),
+    })
+
+    const queryStoreActions = relationalOperationActions(sqlServerConnection, tableTab, 'query-store', {
+      database: 'datapadplusplus',
+      objectName: 'Query Store',
+    })
+
+    expect(queryStoreActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: 'Top Queries',
+        operationId: 'sqlserver.query-store.top-queries',
+      }),
+    ]))
+  })
+
+  it('adds CockroachDB cluster, security, and placement operation previews', () => {
+    const clusterActions = relationalOperationActions(cockroachConnection, tableTab, 'cluster', {
+      database: 'datapadplusplus',
+      objectName: 'Cluster',
+    })
+
+    expect(clusterActions.map((action) => action.label)).toEqual([
+      'Jobs',
+      'Ranges',
+      'Regions',
+      'Backup',
+      'Restore',
+    ])
+    expect(clusterActions.find((action) => action.label === 'Ranges')).toMatchObject({
+      operationId: 'cockroachdb.cockroach.ranges',
+      objectName: '"Cluster"',
+    })
+
+    const securityActions = relationalOperationActions(cockroachConnection, tableTab, 'security', {
+      objectName: 'Security',
+    })
+
+    expect(securityActions.map((action) => action.label)).toEqual(['Grants'])
+    expect(securityActions[0]).toMatchObject({
+      operationId: 'cockroachdb.cockroach.roles-grants',
+    })
+
+    const zoneActions = relationalOperationActions(cockroachConnection, tableTab, 'zone-configurations', {
+      schema: 'public',
+      tableName: 'accounts',
+    })
+
+    expect(zoneActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: 'Zones',
+        operationId: 'cockroachdb.cockroach.zone-configs',
+      }),
+    ]))
   })
 
   it('uses native identifier quoting for MySQL-compatible object names', () => {
@@ -35,6 +115,38 @@ describe('RelationalObjectViewOperations helpers', () => {
       schema: 'shop',
       tableName: 'orders',
     })).toBe('`shop`.`orders`')
+  })
+
+  it('adds MySQL table maintenance and event operation previews', () => {
+    const tableActions = relationalOperationActions(mysqlConnection, tableTab, 'table', {
+      schema: 'shop',
+      tableName: 'orders',
+      columns: [{ name: 'order_id', type: 'bigint' }],
+    })
+
+    expect(tableActions.map((action) => action.label)).toEqual([
+      'Explain',
+      'Profile',
+      'Check',
+      'Analyze',
+      'Optimize',
+      'Repair',
+    ])
+    expect(tableActions.find((action) => action.label === 'Check')).toMatchObject({
+      operationId: 'mysql.table.check',
+      objectName: '`shop`.`orders`',
+    })
+
+    const eventActions = relationalOperationActions(mysqlConnection, tableTab, 'event', {
+      schema: 'shop',
+      name: 'refresh_rollups',
+    })
+
+    expect(eventActions.map((action) => action.label)).toEqual(['Enable', 'Disable'])
+    expect(eventActions[0]).toMatchObject({
+      operationId: 'mysql.event.enable',
+      objectName: '`shop`.`refresh_rollups`',
+    })
   })
 
   it('adds DuckDB local analytics operations with schema-qualified object names', () => {
@@ -83,6 +195,94 @@ describe('RelationalObjectViewOperations helpers', () => {
       operationId: 'duckdb.extension.install',
       parameters: expect.objectContaining({ extensionName: 'httpfs' }),
     })
+  })
+
+  it('adds SQLite local maintenance and index operations', () => {
+    const sqliteTab = {
+      ...tableTab,
+      connectionId: sqliteConnection.id,
+      objectViewState: {
+        ...tableTab.objectViewState!,
+        connectionId: sqliteConnection.id,
+        nodeId: 'database:main',
+        kind: 'database',
+        label: 'main',
+      },
+    } as QueryTabState
+
+    const databaseActions = relationalOperationActions(sqliteConnection, sqliteTab, 'maintenance', {
+      objectName: 'main',
+      pragmas: [{ name: 'quick_check', value: 'ok' }],
+    })
+
+    expect(databaseActions.map((action) => action.label)).toEqual([
+      'Check',
+      'Analyze',
+      'Optimize',
+      'Vacuum',
+      'Export',
+      'Backup',
+    ])
+    expect(databaseActions.find((action) => action.label === 'Vacuum')).toMatchObject({
+      operationId: 'sqlite.database.vacuum',
+      objectName: '[main]',
+    })
+
+    const indexActions = relationalOperationActions(sqliteConnection, sqliteTab, 'index', {
+      indexName: 'accounts_name_idx',
+    })
+    expect(indexActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: 'Reindex',
+        operationId: 'sqlite.index.reindex',
+        objectName: '[accounts_name_idx]',
+      }),
+    ]))
+  })
+
+  it('adds PostgreSQL vacuum, analyze, and reindex previews', () => {
+    const postgresTab = {
+      ...tableTab,
+      connectionId: postgresConnection.id,
+      objectViewState: {
+        ...tableTab.objectViewState!,
+        connectionId: postgresConnection.id,
+        nodeId: 'table:public.accounts',
+        kind: 'table',
+        label: 'accounts',
+      },
+    } as QueryTabState
+
+    const tableActions = relationalOperationActions(postgresConnection, postgresTab, 'table', {
+      schema: 'public',
+      tableName: 'accounts',
+      columns: [{ name: 'account_id', type: 'bigint' }],
+    })
+
+    expect(tableActions.map((action) => action.label)).toEqual([
+      'Explain',
+      'Profile',
+      'Analyze',
+      'Vacuum',
+      'Create Index',
+      'Grants',
+    ])
+    expect(tableActions.find((action) => action.label === 'Vacuum')).toMatchObject({
+      operationId: 'postgresql.table.vacuum',
+      objectName: '"public"."accounts"',
+    })
+
+    const indexActions = relationalOperationActions(postgresConnection, postgresTab, 'index', {
+      schema: 'public',
+      indexName: 'accounts_name_idx',
+    })
+
+    expect(indexActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: 'Reindex',
+        operationId: 'postgresql.index.reindex',
+      }),
+    ]))
   })
 
   it('adds TimescaleDB policy actions for hypertables and aggregate refresh actions', () => {
@@ -200,6 +400,47 @@ const duckDbConnection: ConnectionProfile = {
   engine: 'duckdb',
   family: 'embedded-olap',
   icon: 'duckdb',
+}
+
+const sqliteConnection: ConnectionProfile = {
+  ...sqlServerConnection,
+  id: 'conn-sqlite',
+  name: 'SQLite',
+  engine: 'sqlite',
+  family: 'sql',
+  icon: 'sqlite',
+}
+
+const postgresConnection: ConnectionProfile = {
+  ...sqlServerConnection,
+  id: 'conn-postgres',
+  name: 'PostgreSQL',
+  engine: 'postgresql',
+  family: 'sql',
+  icon: 'postgresql',
+}
+
+const cockroachConnection: ConnectionProfile = {
+  id: 'conn-cockroach',
+  name: 'CockroachDB',
+  engine: 'cockroachdb',
+  family: 'sql',
+  host: 'localhost',
+  port: 26257,
+  database: 'datapadplusplus',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'cockroachdb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
 }
 
 const timescaleConnection: ConnectionProfile = {

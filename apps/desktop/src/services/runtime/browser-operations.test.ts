@@ -571,6 +571,209 @@ describe('browser operation runtime', () => {
     ]))
   })
 
+  it('generates SQL Server maintenance operation previews', () => {
+    const operations = buildOperationManifestsForConnection(sqlServerConnection)
+
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'sqlserver.statistics.update', label: 'Update Statistics', risk: 'costly' }),
+      expect.objectContaining({ id: 'sqlserver.index.reorganize', label: 'Reorganize Index', risk: 'costly' }),
+      expect.objectContaining({ id: 'sqlserver.index.rebuild', label: 'Rebuild Index', risk: 'costly' }),
+      expect.objectContaining({ id: 'sqlserver.query-store.top-queries', label: 'Query Store Top Queries', risk: 'diagnostic' }),
+    ]))
+
+    const snapshot = snapshotWith(sqlServerConnection)
+    const statsPlan = planOperationLocally(snapshot, {
+      connectionId: sqlServerConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlserver.statistics.update',
+      objectName: '[dbo].[Accounts]',
+      parameters: {
+        schema: 'dbo',
+        table: 'Accounts',
+      },
+    })
+    expect(statsPlan.plan.generatedRequest).toBe('update statistics [dbo].[Accounts] with fullscan;')
+    expect(statsPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
+    const rebuildPlan = planOperationLocally(snapshot, {
+      connectionId: sqlServerConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlserver.index.rebuild',
+      objectName: '[dbo].[Accounts]',
+      parameters: {
+        schema: 'dbo',
+        table: 'Accounts',
+        indexName: 'IX_Accounts_status',
+      },
+    })
+    expect(rebuildPlan.plan.generatedRequest).toContain('alter index [IX_Accounts_status] on [dbo].[Accounts] rebuild with (online = on);')
+    expect(rebuildPlan.plan.confirmationText).toBeTruthy()
+
+    const queryStorePlan = planOperationLocally(snapshot, {
+      connectionId: sqlServerConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlserver.query-store.top-queries',
+      objectName: 'Query Store',
+    })
+    expect(queryStorePlan.plan.generatedRequest).toContain('from sys.query_store_query')
+    expect(queryStorePlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
+  })
+
+  it('generates CockroachDB cluster and data-movement operation previews', () => {
+    const operations = buildOperationManifestsForConnection(cockroachConnection)
+
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'cockroachdb.cockroach.jobs', label: 'Browse Jobs', risk: 'diagnostic' }),
+      expect.objectContaining({ id: 'cockroachdb.cockroach.ranges', label: 'Review Ranges', risk: 'diagnostic' }),
+      expect.objectContaining({ id: 'cockroachdb.cockroach.contention', label: 'Analyze Contention', risk: 'diagnostic' }),
+      expect.objectContaining({ id: 'cockroachdb.cockroach.backup', label: 'Backup Database', risk: 'costly' }),
+      expect.objectContaining({ id: 'cockroachdb.cockroach.restore', label: 'Restore Database', risk: 'destructive' }),
+      expect.objectContaining({ id: 'cockroachdb.cockroach.import', label: 'Import Data', risk: 'write' }),
+    ]))
+
+    const snapshot = snapshotWith(cockroachConnection)
+    const rangesPlan = planOperationLocally(snapshot, {
+      connectionId: cockroachConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cockroachdb.cockroach.ranges',
+      objectName: '"public"."accounts"',
+    })
+    expect(rangesPlan.plan.generatedRequest).toContain('crdb_internal.ranges_no_leases')
+    expect(rangesPlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
+
+    const backupPlan = planOperationLocally(snapshot, {
+      connectionId: cockroachConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cockroachdb.cockroach.backup',
+      objectName: '"datapadplusplus"',
+    })
+    expect(backupPlan.plan.generatedRequest).toContain('backup database "datapadplusplus"')
+    expect(backupPlan.plan.confirmationText).toBeTruthy()
+
+    const importPlan = planOperationLocally(snapshot, {
+      connectionId: cockroachConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cockroachdb.cockroach.import',
+      objectName: '"public"."accounts"',
+    })
+    expect(importPlan.plan.generatedRequest).toContain('import into "public"."accounts" csv data')
+    expect(importPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+  })
+
+  it('generates PostgreSQL maintenance operation previews', () => {
+    const operations = buildOperationManifestsForConnection(postgresConnection)
+
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'postgresql.table.analyze', label: 'Analyze Table', risk: 'costly' }),
+      expect.objectContaining({ id: 'postgresql.table.vacuum', label: 'Vacuum Table', risk: 'costly' }),
+      expect.objectContaining({ id: 'postgresql.index.reindex', label: 'Reindex', risk: 'costly' }),
+    ]))
+
+    const snapshot = snapshotWith(postgresConnection)
+    const analyzePlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.table.analyze',
+      objectName: '"public"."accounts"',
+    })
+    expect(analyzePlan.plan.generatedRequest).toBe('analyze verbose "public"."accounts";')
+    expect(analyzePlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
+    const vacuumPlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.table.vacuum',
+      objectName: '"public"."accounts"',
+    })
+    expect(vacuumPlan.plan.generatedRequest).toBe('vacuum (verbose, analyze) "public"."accounts";')
+    expect(vacuumPlan.plan.confirmationText).toBeTruthy()
+
+    const reindexPlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.index.reindex',
+      objectName: '"public"."accounts_name_idx"',
+    })
+    expect(reindexPlan.plan.generatedRequest).toContain('reindex index concurrently "public"."accounts_name_idx";')
+    expect(reindexPlan.plan.confirmationText).toBeTruthy()
+  })
+
+  it('generates MySQL-family table maintenance and event operation previews', () => {
+    const operations = buildOperationManifestsForConnection(mysqlConnection)
+
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'mysql.table.check', label: 'Check Table', risk: 'diagnostic' }),
+      expect.objectContaining({ id: 'mysql.table.analyze', label: 'Analyze Table', risk: 'costly' }),
+      expect.objectContaining({ id: 'mysql.table.repair', label: 'Repair Table', risk: 'destructive' }),
+      expect.objectContaining({ id: 'mysql.event.enable', label: 'Enable Event', risk: 'write' }),
+    ]))
+
+    const snapshot = snapshotWith(mysqlConnection)
+    const checkPlan = planOperationLocally(snapshot, {
+      connectionId: mysqlConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mysql.table.check',
+      objectName: '`shop`.`orders`',
+    })
+    expect(checkPlan.plan.generatedRequest).toBe('check table `shop`.`orders`;')
+    expect(checkPlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
+
+    const repairPlan = planOperationLocally(snapshot, {
+      connectionId: mysqlConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mysql.table.repair',
+      objectName: '`shop`.`orders`',
+    })
+    expect(repairPlan.plan.generatedRequest).toBe('repair table `shop`.`orders`;')
+    expect(repairPlan.plan.destructive).toBe(true)
+
+    const eventPlan = planOperationLocally(snapshot, {
+      connectionId: mysqlConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mysql.event.disable',
+      objectName: '`shop`.`refresh_rollups`',
+    })
+    expect(eventPlan.plan.generatedRequest).toBe('alter event `shop`.`refresh_rollups` disable;')
+  })
+
+  it('generates SQLite local-file maintenance operation previews', () => {
+    const operations = buildOperationManifestsForConnection(sqliteConnection)
+
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'sqlite.database.integrity-check', label: 'Integrity Check', risk: 'diagnostic' }),
+      expect.objectContaining({ id: 'sqlite.database.vacuum', label: 'Vacuum Database', risk: 'write' }),
+      expect.objectContaining({ id: 'sqlite.index.reindex', label: 'Reindex', risk: 'write' }),
+    ]))
+
+    const snapshot = snapshotWith(sqliteConnection)
+    const integrityPlan = planOperationLocally(snapshot, {
+      connectionId: sqliteConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlite.database.integrity-check',
+      objectName: '[main]',
+    })
+    expect(integrityPlan.plan.generatedRequest).toBe('pragma quick_check;\npragma integrity_check;')
+    expect(integrityPlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
+
+    const vacuumPlan = planOperationLocally(snapshot, {
+      connectionId: sqliteConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlite.database.vacuum',
+      objectName: '[main]',
+    })
+    expect(vacuumPlan.plan.generatedRequest).toContain('vacuum;')
+    expect(vacuumPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+    expect(vacuumPlan.plan.confirmationText).toBeTruthy()
+
+    const reindexPlan = planOperationLocally(snapshot, {
+      connectionId: sqliteConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlite.index.reindex',
+      objectName: '[accounts_name_idx]',
+    })
+    expect(reindexPlan.plan.generatedRequest).toBe('reindex [accounts_name_idx];')
+  })
+
   it('generates TimescaleDB native policy and aggregate refresh previews', () => {
     const operations = buildOperationManifestsForConnection(timescaleConnection)
 
@@ -667,6 +870,13 @@ describe('browser operation runtime', () => {
 
   it('generates search-family profile, index, and security operation previews', () => {
     const snapshot = snapshotWith(searchConnection)
+    const operations = buildOperationManifestsForConnection(searchConnection)
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'elasticsearch.index.force-merge', label: 'Force Merge' }),
+      expect.objectContaining({ id: 'elasticsearch.index.reindex', label: 'Reindex' }),
+      expect.objectContaining({ id: 'elasticsearch.pipeline.put', label: 'Update Pipeline' }),
+      expect.objectContaining({ id: 'elasticsearch.snapshot.restore', label: 'Restore Snapshot' }),
+    ]))
 
     const profilePlan = planOperationLocally(snapshot, {
       connectionId: searchConnection.id,
@@ -767,6 +977,60 @@ describe('browser operation runtime', () => {
     expect(JSON.parse(lifecyclePlan.plan.generatedRequest)).toMatchObject({
       method: 'GET',
       path: '/products-v1/_ilm/explain',
+    })
+
+    const forceMergePlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.index.force-merge',
+      objectName: 'products-v1',
+      parameters: { maxNumSegments: 1 },
+    })
+    expect(JSON.parse(forceMergePlan.plan.generatedRequest)).toMatchObject({
+      method: 'POST',
+      path: '/products-v1/_forcemerge',
+      body: { max_num_segments: 1 },
+    })
+    expect(forceMergePlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
+    const reindexPlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.index.reindex',
+      objectName: 'products-v1',
+      parameters: { destinationIndex: 'products-v2' },
+    })
+    expect(JSON.parse(reindexPlan.plan.generatedRequest)).toMatchObject({
+      method: 'POST',
+      path: '/_reindex',
+      body: {
+        source: { index: 'products-v1' },
+        dest: { index: 'products-v2' },
+      },
+    })
+
+    const pipelinePlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.pipeline.put',
+      objectName: 'normalize-products',
+    })
+    expect(JSON.parse(pipelinePlan.plan.generatedRequest)).toMatchObject({
+      method: 'PUT',
+      path: '/_ingest/pipeline/normalize-products',
+      body: { description: 'DataPad++ pipeline preview' },
+    })
+
+    const taskPlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.task.cancel',
+      objectName: 'node-a:123',
+      parameters: { taskId: 'node-a:123' },
+    })
+    expect(JSON.parse(taskPlan.plan.generatedRequest)).toMatchObject({
+      method: 'POST',
+      path: '/_tasks/node-a%3A123/_cancel',
     })
   })
 
@@ -1533,6 +1797,52 @@ const postgresConnection: ConnectionProfile = {
   updatedAt: '2026-01-01T00:00:00.000Z',
 }
 
+const cockroachConnection: ConnectionProfile = {
+  id: 'conn-cockroach',
+  name: 'CockroachDB',
+  engine: 'cockroachdb',
+  family: 'sql',
+  host: 'localhost',
+  port: 26257,
+  database: 'datapadplusplus',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'cockroachdb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const mysqlConnection: ConnectionProfile = {
+  id: 'conn-mysql',
+  name: 'MySQL',
+  engine: 'mysql',
+  family: 'sql',
+  host: 'localhost',
+  port: 3306,
+  database: 'shop',
+  connectionString: undefined,
+  connectionMode: 'native',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'mysql',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
 const timescaleConnection: ConnectionProfile = {
   id: 'conn-timescale',
   name: 'TimescaleDB',
@@ -1570,6 +1880,29 @@ const duckDbConnection: ConnectionProfile = {
   favorite: false,
   readOnly: false,
   icon: 'duckdb',
+  color: undefined,
+  group: undefined,
+  notes: undefined,
+  auth: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const sqliteConnection: ConnectionProfile = {
+  id: 'conn-sqlite',
+  name: 'SQLite',
+  engine: 'sqlite',
+  family: 'sql',
+  host: 'tests/fixtures/sqlite/datapad.sqlite',
+  port: undefined,
+  database: 'tests/fixtures/sqlite/datapad.sqlite',
+  connectionString: undefined,
+  connectionMode: 'local-file',
+  environmentIds: ['env-local'],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'sqlite',
   color: undefined,
   group: undefined,
   notes: undefined,

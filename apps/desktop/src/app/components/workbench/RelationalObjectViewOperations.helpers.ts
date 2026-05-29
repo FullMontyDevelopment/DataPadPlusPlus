@@ -5,6 +5,15 @@ import type {
 import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 import type { JsonRecord } from './RelationalObjectViewWorkspace.helpers'
 import type { RelationalSectionIcon } from './RelationalObjectViewSections'
+import {
+  cockroachOperationActions,
+  duckDbOperationActions,
+  mysqlOperationActions,
+  postgresOperationActions,
+  sqlServerOperationActions,
+  sqliteOperationActions,
+  timescaleOperationActions,
+} from './RelationalObjectViewOperationDialects'
 
 export type RelationalOperationAction = {
   label: string
@@ -52,6 +61,26 @@ export function relationalOperationActions(
     actions.push(...timescaleOperationActions(connection, kind, objectName, baseParameters))
   }
 
+  if (connection.engine === 'cockroachdb') {
+    actions.push(...cockroachOperationActions(connection, kind, objectName, baseParameters))
+  }
+
+  if (connection.engine === 'mysql' || connection.engine === 'mariadb') {
+    actions.push(...mysqlOperationActions(connection, kind, objectName, baseParameters))
+  }
+
+  if (connection.engine === 'postgresql') {
+    actions.push(...postgresOperationActions(connection, kind, objectName, baseParameters))
+  }
+
+  if (connection.engine === 'sqlserver') {
+    actions.push(...sqlServerOperationActions(connection, kind, objectName, baseParameters))
+  }
+
+  if (connection.engine === 'sqlite') {
+    actions.push(...sqliteOperationActions(connection, kind, objectName, baseParameters))
+  }
+
   if (tableLike && supported.has('index')) {
     actions.push(action(connection, 'index.create', 'Create Index', 'Prepare an index creation plan', 'index', objectName, {
       ...baseParameters,
@@ -63,7 +92,7 @@ export function relationalOperationActions(
     actions.push(action(connection, 'index.drop', 'Drop Index', 'Prepare an index drop plan', 'index', objectName, baseParameters))
   }
 
-  if ((tableLike || securityLike) && supported.has('permissions')) {
+  if ((tableLike || securityLike) && supported.has('permissions') && !(connection.engine === 'cockroachdb' && securityLike)) {
     actions.push(action(connection, 'security.inspect', 'Grants', 'Inspect permissions and grants', 'security', objectName, baseParameters))
   }
 
@@ -113,82 +142,6 @@ export function relationalOperationObjectName(
 
   return quoteQualifiedName(connection, [schema, name])
 }
-
-function duckDbOperationActions(
-  connection: ConnectionProfile,
-  kind: string,
-  objectName: string,
-  baseParameters: Record<string, unknown>,
-): RelationalOperationAction[] {
-  const actions: RelationalOperationAction[] = []
-
-  if (['table', 'view'].includes(kind)) {
-    actions.push(action(connection, 'table.analyze', 'Analyze', 'Refresh DuckDB planner statistics for this object', 'job', objectName, baseParameters))
-  }
-
-  if (['database', 'statistics', 'diagnostics', 'pragmas', 'maintenance'].includes(kind)) {
-    actions.push(
-      action(connection, 'database.analyze', 'Analyze', 'Refresh DuckDB planner statistics', 'job', objectName, baseParameters),
-      action(connection, 'database.checkpoint', 'Checkpoint', 'Prepare a local checkpoint workflow', 'security', objectName, baseParameters),
-    )
-  }
-
-  if (['extensions', 'extension'].includes(kind)) {
-    actions.push(
-      action(connection, 'extension.install', 'Install', 'Prepare a guarded DuckDB extension install', 'index', objectName, {
-        ...baseParameters,
-        extensionName: extensionNameFromObject(objectName),
-      }),
-      action(connection, 'extension.load', 'Load', 'Prepare a guarded DuckDB extension load', 'index', objectName, {
-        ...baseParameters,
-        extensionName: extensionNameFromObject(objectName),
-      }),
-    )
-  }
-
-  if (kind === 'files') {
-    actions.push(action(connection, 'file.import', 'Import File', 'Prepare a CSV/Parquet import workflow', 'table', objectName, {
-      ...baseParameters,
-      sourceFormat: 'parquet',
-      tableName: 'imported_data',
-    }))
-  }
-
-  return actions
-}
-
-function timescaleOperationActions(
-  connection: ConnectionProfile,
-  kind: string,
-  objectName: string,
-  baseParameters: Record<string, unknown>,
-): RelationalOperationAction[] {
-  const actions: RelationalOperationAction[] = []
-
-  if (['table', 'hypertable'].includes(kind)) {
-    actions.push(
-      action(connection, 'timescale.compression-policy', 'Compression', 'Preview a guarded compression policy', 'job', objectName, {
-        ...baseParameters,
-        compressAfter: '7 days',
-      }),
-      action(connection, 'timescale.retention-policy', 'Retention', 'Preview a guarded retention policy', 'job', objectName, {
-        ...baseParameters,
-        dropAfter: '90 days',
-      }),
-    )
-  }
-
-  if (['continuous-aggregate', 'continuous-aggregates'].includes(kind)) {
-    actions.push(action(connection, 'timescale.refresh-continuous-aggregate', 'Refresh', 'Preview a continuous aggregate refresh', 'job', objectName, {
-      ...baseParameters,
-      startOffset: '7 days',
-      endOffset: '0 minutes',
-    }))
-  }
-
-  return actions
-}
-
 
 function supportedOperationCapabilities(connection: ConnectionProfile) {
   const capabilities = new Set(datastoreBacklogByEngine(connection.engine)?.capabilities ?? [])
@@ -289,10 +242,6 @@ function preferredExportFormat(connection: ConnectionProfile) {
 function suggestedIndexName(objectName: string, columnName: unknown) {
   const column = stringValue(columnName) || 'id'
   return `idx_${safeIdentifier(objectName)}_${safeIdentifier(column)}`.slice(0, 80)
-}
-
-function extensionNameFromObject(objectName: string) {
-  return safeIdentifier(objectName) || 'parquet'
 }
 
 function quoteQualifiedName(connection: ConnectionProfile, parts: string[]) {

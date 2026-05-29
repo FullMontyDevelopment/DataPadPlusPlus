@@ -98,6 +98,23 @@ pub(super) async fn neo4j_post_json(
 
 impl Neo4jEndpoint {
     fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+        if let Some(options) = connection.graph_options.as_ref() {
+            if let Some(endpoint_url) = options
+                .endpoint_url
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                return Self::from_url_with_parts(
+                    endpoint_url,
+                    options
+                        .database_name
+                        .as_deref()
+                        .or(connection.database.as_deref()),
+                    options.path_prefix.as_deref(),
+                );
+            }
+        }
+
         if let Some(connection_string) = connection.connection_string.as_deref() {
             return Self::from_url(connection_string, connection.database.as_deref());
         }
@@ -113,12 +130,30 @@ impl Neo4jEndpoint {
         Ok(Self {
             host: host.into(),
             port: connection.port.unwrap_or(7474),
-            prefix: String::new(),
-            database: connection_database(connection.database.as_deref()),
+            prefix: connection
+                .graph_options
+                .as_ref()
+                .and_then(|options| normalized_prefix(options.path_prefix.as_deref()))
+                .unwrap_or_default(),
+            database: connection_database(
+                connection
+                    .graph_options
+                    .as_ref()
+                    .and_then(|options| options.database_name.as_deref())
+                    .or(connection.database.as_deref()),
+            ),
         })
     }
 
     fn from_url(url: &str, database_override: Option<&str>) -> Result<Self, CommandError> {
+        Self::from_url_with_parts(url, database_override, None)
+    }
+
+    fn from_url_with_parts(
+        url: &str,
+        database_override: Option<&str>,
+        prefix_override: Option<&str>,
+    ) -> Result<Self, CommandError> {
         let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
             CommandError::new(
                 "neo4j-unsupported-url",
@@ -150,11 +185,15 @@ impl Neo4jEndpoint {
                     .map(str::to_string)
             })
             .unwrap_or_else(|| "neo4j".into());
-        let prefix = if path.is_empty() || path.starts_with("db/") {
-            String::new()
-        } else {
-            format!("/{}", path.trim_end_matches('/'))
-        };
+        let prefix = normalized_prefix(prefix_override)
+            .or_else(|| {
+                if path.starts_with("db/") {
+                    None
+                } else {
+                    normalized_prefix(Some(path))
+                }
+            })
+            .unwrap_or_default();
 
         Ok(Self {
             host: host.into(),
@@ -231,8 +270,23 @@ fn connection_database(value: Option<&str>) -> String {
         .unwrap_or_else(|| "neo4j".into())
 }
 
+fn normalized_prefix(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(format!("/{trimmed}"))
+    }
+}
+
 fn neo4j_auth_header(connection: &ResolvedConnectionProfile) -> String {
-    match (&connection.username, &connection.password) {
+    let username = connection
+        .graph_options
+        .as_ref()
+        .and_then(|options| options.username.as_deref())
+        .map(str::to_string)
+        .or_else(|| connection.username.clone());
+    match (&username, &connection.password) {
         (Some(username), Some(password)) if !username.is_empty() => {
             let encoded = base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
@@ -275,12 +329,62 @@ mod tests {
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
             read_only: true,
         };
 
         assert_eq!(
             neo4j_commit_path(&connection).unwrap(),
             "/db/analytics/tx/commit"
+        );
+    }
+
+    #[test]
+    fn neo4j_endpoint_prefers_graph_options() {
+        let connection = ResolvedConnectionProfile {
+            id: "conn-neo4j".into(),
+            name: "Neo4j".into(),
+            engine: "neo4j".into(),
+            family: "graph".into(),
+            host: "ignored".into(),
+            port: Some(7474),
+            database: Some("fallback".into()),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: Some(crate::domain::models::GraphConnectionOptions {
+                endpoint_url: Some("http://localhost:17474/proxy".into()),
+                path_prefix: Some("/neo4j".into()),
+                database_name: Some("analytics".into()),
+                ..crate::domain::models::GraphConnectionOptions::default()
+            }),
+            warehouse_options: None,
+            read_only: true,
+        };
+
+        let endpoint = Neo4jEndpoint::from_connection(&connection).unwrap();
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 17474);
+        assert_eq!(endpoint.database, "analytics");
+        assert_eq!(
+            endpoint.path("/db/analytics/tx/commit"),
+            "/neo4j/db/analytics/tx/commit"
         );
     }
 
