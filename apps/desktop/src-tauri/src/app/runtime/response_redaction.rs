@@ -128,6 +128,10 @@ pub(super) fn redact_structure_response_for_environment(
     for node in &mut response.nodes {
         node.label = redact_runtime_string(&node.label, &secret_values);
         node.detail = redact_optional_string(&node.detail, &secret_values);
+        node.database = redact_optional_string(&node.database, &secret_values);
+        node.schema = redact_optional_string(&node.schema, &secret_values);
+        node.object_name = redact_optional_string(&node.object_name, &secret_values);
+        node.qualified_name = redact_optional_string(&node.qualified_name, &secret_values);
         for metric in &mut node.metrics {
             redact_structure_metric(metric, &secret_values);
         }
@@ -143,6 +147,12 @@ pub(super) fn redact_structure_response_for_environment(
 
     for edge in &mut response.edges {
         edge.label = redact_runtime_string(&edge.label, &secret_values);
+        edge.from_field = redact_optional_string(&edge.from_field, &secret_values);
+        edge.to_field = redact_optional_string(&edge.to_field, &secret_values);
+        edge.constraint_name = redact_optional_string(&edge.constraint_name, &secret_values);
+        edge.cardinality = redact_optional_string(&edge.cardinality, &secret_values);
+        edge.delete_rule = redact_optional_string(&edge.delete_rule, &secret_values);
+        edge.update_rule = redact_optional_string(&edge.update_rule, &secret_values);
     }
 
     for metric in &mut response.metrics {

@@ -6,6 +6,7 @@ import type {
   ResultPageResponse,
   ResultPayload,
 } from '@datapadplusplus/shared-types'
+import { withDisplayTiming, withServerTiming } from './app-state-execution-payload'
 import { createId } from './helpers'
 import type {
   AppAction,
@@ -143,11 +144,11 @@ export function applyExecutionToPayload(
   const executionTab = {
     ...execution.tab,
     result: execution.tab.result
-      ? {
+      ? withServerTiming({
           ...execution.tab.result,
           payloads: execution.tab.result.payloads.map((item) =>
             normalizeResultPayload(item, execution.tab.result?.defaultRenderer)),
-        }
+        })
       : execution.tab.result,
   }
   const isActiveTab = next.snapshot.ui.activeTabId === executionTab.id
@@ -157,8 +158,16 @@ export function applyExecutionToPayload(
 
   if (index >= 0) {
     const currentTab = next.snapshot.tabs[index]
+    const result =
+      executionTab.result && !shouldWaitForDisplay
+        ? withDisplayTiming(
+            executionTab.result,
+            currentTab?.activeExecution?.startedAt,
+          )
+        : executionTab.result
     next.snapshot.tabs[index] = {
       ...executionTab,
+      result,
       title: currentTab?.title ?? executionTab.title,
       editorLabel: currentTab?.editorLabel ?? executionTab.editorLabel,
       pinned: currentTab?.pinned ?? executionTab.pinned,
@@ -264,9 +273,13 @@ export function markTabExecutionDisplayed(
   }
 
   const phase = tab.activeExecution.phase
+  const startedAt = tab.activeExecution.startedAt
   tab.activeExecution = undefined
   if (phase === 'rendering' || phase === 'paging') {
     tab.status = tab.error ? 'error' : 'success'
+  }
+  if (tab.result) {
+    tab.result = withDisplayTiming(tab.result, startedAt)
   }
   next.snapshot.updatedAt = new Date().toISOString()
   return next
@@ -374,6 +387,9 @@ export function applyResultPageToPayload(
     }
   } else {
     tab.status = tab.error ? 'error' : 'success'
+    if (tab.result) {
+      tab.result = withDisplayTiming(tab.result, tab.activeExecution?.startedAt)
+    }
     tab.activeExecution = undefined
   }
   if (isActiveTab) {

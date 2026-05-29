@@ -1,8 +1,9 @@
 use futures_util::TryStreamExt;
-use mongodb::bson::{self, doc, Document};
+use mongodb::bson::{doc, Document};
 use serde_json::{json, Value};
 
 use super::super::super::*;
+use super::bson_extjson::mongodb_json_to_document;
 use super::connection::{mongodb_client, mongodb_database_name_for_collection_query};
 use super::document_lazy::{can_use_efficiency_mode, mongodb_document_payload};
 
@@ -46,7 +47,7 @@ pub(crate) async fn fetch_mongodb_page(
     let documents = if let Some(pipeline) = input.get("pipeline").and_then(Value::as_array) {
         let mut pipeline = pipeline
             .iter()
-            .map(bson::to_document)
+            .map(|stage| mongodb_json_to_document(stage, "pipeline[]", "mongodb-paging-bson"))
             .collect::<Result<Vec<Document>, _>>()?;
         pipeline.push(doc! { "$skip": i64::try_from(skip).unwrap_or(i64::MAX) });
         pipeline.push(doc! { "$limit": i64::from(effective_page_size + 1) });
@@ -58,16 +59,28 @@ pub(crate) async fn fetch_mongodb_page(
     } else {
         let filter = input.get("filter").cloned().unwrap_or_else(|| json!({}));
         let mut find = collection
-            .find(bson::to_document(&filter)?)
+            .find(mongodb_json_to_document(
+                &filter,
+                "filter",
+                "mongodb-paging-bson",
+            )?)
             .skip(skip)
             .limit(i64::from(effective_page_size + 1));
 
         if let Some(projection) = input.get("projection") {
-            find = find.projection(bson::to_document(projection)?);
+            find = find.projection(mongodb_json_to_document(
+                projection,
+                "projection",
+                "mongodb-paging-bson",
+            )?);
         }
 
         if let Some(sort) = input.get("sort") {
-            find = find.sort(bson::to_document(sort)?);
+            find = find.sort(mongodb_json_to_document(
+                sort,
+                "sort",
+                "mongodb-paging-bson",
+            )?);
         }
 
         find.await?.try_collect::<Vec<Document>>().await?

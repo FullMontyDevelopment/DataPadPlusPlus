@@ -1337,7 +1337,7 @@ function LibraryTreeItem({
               title="Loading metadata"
             />
           ) : null}
-          {environmentState ? (
+          {environmentState?.source === 'direct' ? (
             <span
               className={`library-env-badge is-${environmentState.source}`}
               title={environmentBadgeTitle(environmentState)}

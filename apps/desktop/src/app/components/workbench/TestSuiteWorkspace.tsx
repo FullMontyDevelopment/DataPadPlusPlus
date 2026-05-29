@@ -16,7 +16,7 @@ type TestWindowMode = 'both' | 'builder' | 'raw'
 interface TestSuiteWorkspaceProps {
   tab: QueryTabState
   connection: ConnectionProfile
-  resolvedTheme: 'dark' | 'light'
+  resolvedTheme: string
   testWindowMode: TestWindowMode
   executionStatus: 'idle' | 'loading' | 'ready'
   onModeChange(mode: TestWindowMode): void

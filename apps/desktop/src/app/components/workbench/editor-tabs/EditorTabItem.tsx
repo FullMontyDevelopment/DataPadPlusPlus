@@ -10,7 +10,7 @@ import type {
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { DatastoreIcon } from '../DatastoreIcon'
-import { CloseIcon, DatabaseIcon, EnvironmentsIcon, RefreshIcon, WarningIcon } from '../icons'
+import { CloseIcon, DatabaseIcon, EnvironmentsIcon, RefreshIcon, SettingsIcon, WarningIcon } from '../icons'
 import { colorWithAlpha, normalizeTabDisplayTitle } from './tab-title'
 
 export interface EditorTabDropTarget {
@@ -73,25 +73,32 @@ export function EditorTabItem({
     '--tab-env-tint': colorWithAlpha(environmentColor, 0.16),
   } as CSSProperties
   const tabCanBeSaved =
-    tab.tabKind !== 'explorer' && tab.tabKind !== 'metrics' && tab.tabKind !== 'object-view'
-  const showUnsavedChanges = tabCanBeSaved && tab.dirty
+    tab.tabKind !== 'explorer' &&
+    tab.tabKind !== 'metrics' &&
+    tab.tabKind !== 'object-view' &&
+    tab.tabKind !== 'settings'
+  const tabRunning = Boolean(tab.activeExecution) || tab.status === 'queued' || tab.status === 'running'
+  const showUnsavedChanges = tabCanBeSaved && tab.dirty && !tabRunning
   const connectionName =
-    tab.tabKind === 'environment'
+    tab.tabKind === 'settings'
+      ? 'Workspace settings'
+      : tab.tabKind === 'environment'
       ? 'Workspace environment'
       : connection?.name ?? 'Unknown connection'
   const environmentName = environment?.label ?? 'No environment'
   const tooltip = `${tab.title}\nConnection: ${connectionName}\nEnvironment: ${environmentName}${
-    tab.status === 'queued' || tab.status === 'running' ? `\nStatus: ${tab.status}` : ''
+    tabRunning
+      ? `\nStatus: ${tab.activeExecution?.phase ?? tab.status}`
+      : ''
   }${
     tab.status === 'error' || tab.status === 'blocked'
       ? `\nStatus: ${tab.status}${tab.error?.message ? ` - ${tab.error.message}` : ''}`
       : ''
   }${
-    showUnsavedChanges ? '\nUnsaved changes' : ''
+    tabCanBeSaved && tab.dirty ? '\nUnsaved changes' : ''
   }`
   const dropBefore = dropTarget?.tabId === tab.id && dropTarget.placement === 'before'
   const dropAfter = dropTarget?.tabId === tab.id && dropTarget.placement === 'after'
-  const tabRunning = tab.status === 'queued' || tab.status === 'running'
   const tabFailed = tab.status === 'error' || tab.status === 'blocked'
 
   return (
@@ -114,7 +121,12 @@ export function EditorTabItem({
       onDragEnd={onDragEnd}
       onKeyDown={(event) => onKeyDown(event, tab)}
     >
-      {tab.tabKind === 'environment' ? (
+      {tab.tabKind === 'settings' ? (
+        <SettingsIcon
+          className="editor-tab-fallback-icon"
+          aria-label="Settings icon"
+        />
+      ) : tab.tabKind === 'environment' ? (
         <EnvironmentsIcon
           className="editor-tab-fallback-icon"
           aria-label="Environment icon"
@@ -161,7 +173,7 @@ export function EditorTabItem({
       {showUnsavedChanges ? (
         <span className="editor-tab-dirty" title="Unsaved changes" aria-hidden="true" />
       ) : null}
-      <EditorTabStatusIcon tab={tab} />
+      <EditorTabStatusIcon tab={tab} running={tabRunning} />
       {tab.pinned ? (
         <span className="editor-tab-pin" title="Pinned tab" aria-label="Pinned tab">
           Pinned
@@ -187,12 +199,19 @@ export function EditorTabItem({
   )
 }
 
-function EditorTabStatusIcon({ tab }: { tab: QueryTabState }) {
-  if (tab.status === 'queued' || tab.status === 'running') {
+function EditorTabStatusIcon({
+  running,
+  tab,
+}: {
+  running: boolean
+  tab: QueryTabState
+}) {
+  if (running) {
+    const phase = tab.activeExecution?.phase
     return (
       <span
         className="editor-tab-status-icon editor-tab-status-icon--running"
-        aria-label={tab.status === 'queued' ? 'Query queued' : 'Query running'}
+        aria-label={phase === 'rendering' ? 'Query rendering' : tab.status === 'queued' ? 'Query queued' : 'Query running'}
         role="img"
       >
         <RefreshIcon className="editor-tab-status-svg" />

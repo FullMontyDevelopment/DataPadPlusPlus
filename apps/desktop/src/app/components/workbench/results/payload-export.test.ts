@@ -1,6 +1,13 @@
 import type { ResultPayload } from '@datapadplusplus/shared-types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { copyText, payloadToText, sanitizePayloadForExport } from './payload-export'
+import {
+  copyText,
+  createResultExportFile,
+  exportOptionsForPayload,
+  payloadToText,
+  sanitizePayloadForExport,
+  serializePayloadForExport,
+} from './payload-export'
 
 describe('payload export security', () => {
   afterEach(() => {
@@ -76,5 +83,44 @@ describe('payload export security', () => {
     await copyText('Bearer abc123 password=open-sesame')
 
     expect(writeText).toHaveBeenCalledWith('Bearer ******** password=********')
+  })
+
+  it('offers row-oriented export formats for document payloads', () => {
+    const payload: ResultPayload = {
+      renderer: 'document',
+      documents: [
+        { _id: 1, profile: { name: 'Ada' }, roles: ['admin'] },
+        { _id: 2, profile: { name: 'Lin' }, roles: ['reader'] },
+      ],
+    }
+
+    expect(exportOptionsForPayload(payload).map((option) => option.format)).toEqual([
+      'json',
+      'ndjson',
+      'csv',
+    ])
+    expect(serializePayloadForExport(payload, 'csv')).toBe(
+      '_id,profile.name,roles\n1,Ada,"[""admin""]"\n2,Lin,"[""reader""]"',
+    )
+    expect(serializePayloadForExport(payload, 'ndjson')).toContain('{"_id":1')
+  })
+
+  it('builds sanitized export file requests with the selected format', () => {
+    const payload: ResultPayload = {
+      renderer: 'table',
+      columns: ['token', 'value'],
+      rows: [['plain-secret', '42']],
+    }
+    const option = exportOptionsForPayload(payload).find((item) => item.format === 'json')
+
+    expect(option).toBeDefined()
+    const file = createResultExportFile(payload, undefined, option!)
+
+    expect(file).toMatchObject({
+      extension: 'json',
+      mimeType: 'application/json;charset=utf-8',
+    })
+    expect(file.contents).toContain('********')
+    expect(file.contents).not.toContain('plain-secret')
   })
 })

@@ -26,6 +26,8 @@ pub(crate) fn structure_field(
         detail,
         nullable,
         primary,
+        ordinal: None,
+        indexed: None,
     }
 }
 

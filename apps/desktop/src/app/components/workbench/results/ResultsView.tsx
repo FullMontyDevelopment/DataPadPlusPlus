@@ -8,6 +8,8 @@ import type {
   EnvironmentProfile,
   ExecutionCapabilities,
   ExecutionResultEnvelope,
+  ExportResultFileRequest,
+  ExportResultFileResponse,
   OperationPlanRequest,
   OperationPlanResponse,
   QueryTabState,
@@ -16,8 +18,9 @@ import type {
 import { ClockIcon, CopyIcon, DownloadIcon } from '../icons'
 import { resultEditQueryText } from '../../../result-edit-context'
 import { ResultPayloadView } from './ResultPayloadView'
+import { ResultExportDialog } from './ResultExportDialog'
 import { TestRunResultsView } from './TestRunResultsView'
-import { copyText, exportPayload, payloadToText } from './payload-export'
+import { copyText, payloadToText } from './payload-export'
 import { formatDurationClock } from './result-runtime'
 
 interface ResultsViewProps {
@@ -31,6 +34,9 @@ interface ResultsViewProps {
   onSelectRenderer(renderer: string): void
   onLoadNextPage(): void
   onResultRendered(tabId: string, executionId: string): void
+  onExportResultFile?(
+    request: ExportResultFileRequest,
+  ): Promise<ExportResultFileResponse | undefined>
   onFetchDocumentNodeChildren?(
     request: DocumentNodeChildrenRequest,
   ): Promise<DocumentNodeChildrenResponse | undefined>
@@ -53,11 +59,13 @@ export function ResultsView({
   onSelectRenderer,
   onLoadNextPage,
   onResultRendered,
+  onExportResultFile,
   onFetchDocumentNodeChildren,
   onExecuteDataEdit,
   onPlanOperation,
 }: ResultsViewProps) {
   const [operationMessage, setOperationMessage] = useState('')
+  const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const acknowledgedRenderRef = useRef('')
   const activeTabId = activeTab?.id
   const activeExecutionId = activeTab?.activeExecution?.executionId
@@ -133,8 +141,11 @@ export function ResultsView({
     operationMessage || undefined,
   ].filter((message): message is string => Boolean(message))
   const runtimeLabel = result && payload?.renderer !== 'document'
-    ? formatDurationClock(result.durationMs)
+    ? formatDurationClock(result.displayDurationMs ?? result.durationMs)
     : ''
+  const runtimeTitle = result?.serverDurationMs !== undefined
+    ? `Visible total: ${formatDurationClock(result.displayDurationMs ?? result.durationMs)} / Server: ${formatDurationClock(result.serverDurationMs)}`
+    : 'Query runtime'
   const documentFooterControls = payload && usesDocumentPayload && result?.pageInfo?.hasMore ? (
     <div className="document-results-footer-controls">
       <button
@@ -166,8 +177,21 @@ export function ResultsView({
       return
     }
 
-    exportPayload(payload, result)
-    setOperationMessage('Result export prepared.')
+    setExportDialogOpen(true)
+  }
+
+  const saveExportFile = async (request: ExportResultFileRequest) => {
+    if (!onExportResultFile) {
+      throw new Error('Result file export is unavailable.')
+    }
+
+    const response = await onExportResultFile(request)
+
+    if (response?.saved) {
+      setOperationMessage('Result exported.')
+    }
+
+    setExportDialogOpen(false)
   }
 
   return (
@@ -230,7 +254,8 @@ export function ResultsView({
         payload={payload}
         tabId={activeTab?.id}
         documentFooterControls={documentFooterControls}
-        resultDurationMs={result?.durationMs}
+        resultDurationMs={result?.displayDurationMs ?? result?.durationMs}
+        resultRuntimeTitle={runtimeTitle}
         resultSummary={result?.summary}
         onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
         onExecuteDataEdit={onExecuteDataEdit}
@@ -257,12 +282,21 @@ export function ResultsView({
         <div className="results-status-footer">
           <span>{footerMessages.join(' / ')}</span>
           {runtimeLabel ? (
-            <strong className="result-runtime-label" title="Query runtime">
+            <strong className="result-runtime-label" title={runtimeTitle}>
               <ClockIcon className="panel-inline-icon" />
               {runtimeLabel}
             </strong>
           ) : null}
         </div>
+      ) : null}
+
+      {exportDialogOpen && payload ? (
+        <ResultExportDialog
+          payload={payload}
+          result={result}
+          onCancel={() => setExportDialogOpen(false)}
+          onExport={saveExportFile}
+        />
       ) : null}
     </div>
   )

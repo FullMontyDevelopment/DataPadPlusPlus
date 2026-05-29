@@ -796,6 +796,101 @@ pub struct SaveQueryTabToLocalFileRequest {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct ExportResultFileRequest {
+    pub suggested_file_name: String,
+    pub extension: String,
+    pub mime_type: String,
+    pub contents: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResultFileResponse {
+    pub saved: bool,
+    pub path: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBundleFileExportRequest {
+    pub passphrase: String,
+    #[serde(default)]
+    pub include_secrets: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBundleFileExportResponse {
+    pub saved: bool,
+    pub path: Option<String>,
+    #[serde(default)]
+    pub includes_secrets: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_count: Option<usize>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBundleFileImportRequest {
+    pub passphrase: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBackupSettingsRequest {
+    pub enabled: bool,
+    pub passphrase: Option<String>,
+    pub interval_minutes: Option<u32>,
+    pub max_backups: Option<u32>,
+    #[serde(default)]
+    pub include_secrets: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBackupRunRequest {
+    #[serde(default)]
+    pub automatic: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBackupSummary {
+    pub id: String,
+    pub file_name: String,
+    pub created_at: String,
+    pub size_bytes: u64,
+    pub includes_secrets: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u32>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBackupRunResponse {
+    pub created: bool,
+    pub backup: Option<WorkspaceBackupSummary>,
+    pub backups: Vec<WorkspaceBackupSummary>,
+    pub message: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBackupRestoreRequest {
+    pub backup_id: String,
+    pub passphrase: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBackupDeleteRequest {
+    pub backup_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateTestSuiteTabRequest {
     pub connection_id: Option<String>,
     pub environment_id: Option<String>,
@@ -871,6 +966,10 @@ pub struct StructureField {
     pub detail: Option<String>,
     pub nullable: Option<bool>,
     pub primary: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordinal: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub indexed: Option<bool>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -892,6 +991,26 @@ pub struct StructureNode {
     pub kind: String,
     pub group_id: Option<String>,
     pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualified_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_count_estimate: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_system: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_view: Option<bool>,
     pub metrics: Vec<StructureMetric>,
     pub fields: Vec<StructureField>,
     pub sample: Option<Value>,
@@ -906,6 +1025,20 @@ pub struct StructureEdge {
     pub label: String,
     pub kind: String,
     pub inferred: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constraint_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cardinality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delete_rule: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_rule: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1211,11 +1344,40 @@ pub struct LockState {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct WorkspaceBackupPreferences {
+    pub enabled: bool,
+    pub interval_minutes: u32,
+    pub max_backups: u32,
+    pub include_secrets: bool,
+    pub passphrase_secret_ref: Option<SecretRef>,
+    pub last_backup_at: Option<String>,
+    pub last_workspace_updated_at: Option<String>,
+}
+
+impl Default for WorkspaceBackupPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_minutes: 30,
+            max_backups: 20,
+            include_secrets: false,
+            passphrase_secret_ref: None,
+            last_backup_at: None,
+            last_workspace_updated_at: None,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppPreferences {
     pub theme: String,
     pub telemetry: String,
     pub lock_after_minutes: u32,
     pub safe_mode_enabled: bool,
+    #[serde(default)]
+    pub workspace_backups: WorkspaceBackupPreferences,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1402,6 +1564,22 @@ pub struct StructureRequest {
     pub environment_id: String,
     pub limit: Option<u32>,
     pub scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_system_objects: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_inferred_relationships: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_nodes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_edges: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

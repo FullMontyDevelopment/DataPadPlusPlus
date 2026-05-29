@@ -120,6 +120,11 @@ const SideBar = lazy(() =>
     default: module.SideBar,
   })),
 )
+const SettingsWorkspace = lazy(() =>
+  import('./components/workbench/SettingsWorkspace').then((module) => ({
+    default: module.SettingsWorkspace,
+  })),
+)
 const StructureWorkspace = lazy(() =>
   import('./components/workbench/StructureWorkspace').then((module) => ({
     default: module.StructureWorkspace,
@@ -256,6 +261,7 @@ function DesktopWorkspace() {
     (item) =>
       item.id === snapshot.ui.activeTabId &&
       (item.tabKind === 'environment' ||
+        item.tabKind === 'settings' ||
         !activeConnection ||
         item.connectionId === activeConnection.id),
   )
@@ -276,14 +282,33 @@ function DesktopWorkspace() {
   const activeTabIsObjectView = activeTab?.tabKind === 'object-view'
   const activeTabIsTestSuite = activeTab?.tabKind === 'test-suite'
   const activeTabIsEnvironment = activeTab?.tabKind === 'environment'
+  const activeTabIsSettings = activeTab?.tabKind === 'settings'
   const activeEnvironment =
     snapshot?.environments.find((item) => item.id === snapshot.ui.activeEnvironmentId) ??
     snapshot?.environments[0]
+  const autoBackupEnabled = snapshot?.preferences.workspaceBackups?.enabled
+  const autoBackupIntervalMinutes = snapshot?.preferences.workspaceBackups?.intervalMinutes
   const loadExplorer = actions.loadExplorer
   const activeSidebarPane = snapshot?.ui.activeSidebarPane
   useLayoutEffect(() => {
     bottomPanelVisibleRef.current = Boolean(snapshot?.ui.bottomPanelVisible)
   }, [snapshot?.ui.bottomPanelVisible])
+  useEffect(() => {
+    if (!autoBackupEnabled) {
+      return
+    }
+
+    const intervalMs = Math.max(5, autoBackupIntervalMinutes ?? 30) * 60 * 1000
+    const timer = window.setInterval(() => {
+      void actions.createWorkspaceBackupNow({ automatic: true })
+    }, intervalMs)
+
+    return () => window.clearInterval(timer)
+  }, [
+    actions,
+    autoBackupEnabled,
+    autoBackupIntervalMinutes,
+  ])
   const activeConnectionId = activeConnection?.id
   const activeEnvironmentId = activeEnvironment?.id
   const activeExplorerCacheEntry =
@@ -371,6 +396,7 @@ function DesktopWorkspace() {
     !activeTabIsObjectView &&
     !activeTabIsTestSuite &&
     !activeTabIsEnvironment &&
+    !activeTabIsSettings &&
     activeConnection
       ? builderStateForTab(activeTab, activeConnection, builderStateDrafts)
       : undefined
@@ -433,7 +459,8 @@ function DesktopWorkspace() {
       activeTabIsMetrics ||
       activeTabIsObjectView ||
       activeTabIsTestSuite ||
-      activeTabIsEnvironment
+      activeTabIsEnvironment ||
+      activeTabIsSettings
     ) {
       return undefined
     }
@@ -456,6 +483,7 @@ function DesktopWorkspace() {
     activeTabIsObjectView,
     activeTabIsTestSuite,
     activeTabIsEnvironment,
+    activeTabIsSettings,
     intellisenseCatalog,
     runtimeCapabilities.editorLanguage,
   ])
@@ -821,7 +849,8 @@ function DesktopWorkspace() {
       activeTabIsMetrics ||
       activeTabIsObjectView ||
       activeTabIsTestSuite ||
-      activeTabIsEnvironment
+      activeTabIsEnvironment ||
+      activeTabIsSettings
     ) {
       return
     }
@@ -850,6 +879,7 @@ function DesktopWorkspace() {
     activeTabIsObjectView,
     activeTabIsEnvironment,
     activeTabIsTestSuite,
+    activeTabIsSettings,
   ])
 
   useEffect(() => {
@@ -859,7 +889,7 @@ function DesktopWorkspace() {
       if (event.key === 'F5') {
         event.preventDefault()
 
-        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment) {
+        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings) {
           runCurrentTabQuery()
         }
 
@@ -878,7 +908,7 @@ function DesktopWorkspace() {
 
       if (key === 's') {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView) {
+        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsSettings) {
           requestSaveQuery(activeTab.id)
         }
         return
@@ -886,7 +916,7 @@ function DesktopWorkspace() {
 
       if (key === 'enter') {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsEnvironment) {
+        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings) {
           runCurrentTabQuery()
         }
         return
@@ -909,7 +939,8 @@ function DesktopWorkspace() {
           !activeTabIsMetrics &&
           !activeTabIsObjectView &&
           !activeTabIsTestSuite &&
-          !activeTabIsEnvironment
+          !activeTabIsEnvironment &&
+          !activeTabIsSettings
         ) {
           runCurrentTabQuery('explain')
         }
@@ -926,6 +957,7 @@ function DesktopWorkspace() {
     activeTabIsMetrics,
     activeTabIsObjectView,
     activeTabIsTestSuite,
+    activeTabIsSettings,
     requestSaveQuery,
     runCurrentTabQuery,
     snapshot,
@@ -1091,7 +1123,8 @@ function DesktopWorkspace() {
       !activeTabIsMetrics &&
       !activeTabIsObjectView &&
       !activeTabIsTestSuite &&
-      !activeTabIsEnvironment,
+      !activeTabIsEnvironment &&
+      !activeTabIsSettings,
   )
   const isMessagePanelRequested = snapshot.ui.activeBottomPanelTab === 'messages'
   const isExplorerDetailsRequested =
@@ -1118,7 +1151,11 @@ function DesktopWorkspace() {
     const tab = snapshot.tabs.find((item) => item.id === tabId)
 
     if (!tab) {
-      requestCloseTabQueue(remainingTabIds)
+      if (displayTabs.some((item) => item.id === tabId)) {
+        void actions.closeTab(tabId).then(() => requestCloseTabQueue(remainingTabIds))
+      } else {
+        requestCloseTabQueue(remainingTabIds)
+      }
       return
     }
 
@@ -1223,12 +1260,7 @@ function DesktopWorkspace() {
 
   const openDiagnosticsDrawer = () => {
     setConnectionDraft(undefined)
-    void actions.updateUiState({
-      activeActivity: 'library',
-      activeSidebarPane: 'library',
-      rightDrawer: 'diagnostics',
-      sidebarCollapsed: false,
-    })
+    void actions.createSettingsTab()
   }
 
   const closeDrawer = () => {
@@ -1797,7 +1829,36 @@ function DesktopWorkspace() {
                 />
 
               <Suspense fallback={<WorkbenchPaneFallback />}>
-                {activeTabIsEnvironment && activeTab ? (
+                {activeTabIsSettings && activeTab ? (
+                  <SettingsWorkspace
+                    diagnostics={diagnostics}
+                    health={payload.health}
+                    preferences={snapshot.preferences}
+                    onCreateBackup={async (automatic = false) => {
+                      await actions.createWorkspaceBackupNow({ automatic })
+                    }}
+                    onDeleteBackup={(backupId) =>
+                      actions.deleteWorkspaceBackup({ backupId })
+                    }
+                    onExportWorkspaceFile={async (passphrase, includeSecrets) => {
+                      const response = await actions.exportWorkspaceFile({
+                        passphrase,
+                        includeSecrets,
+                      })
+                      return response?.path
+                    }}
+                    onImportWorkspaceFile={(passphrase) =>
+                      actions.importWorkspaceFile({ passphrase })
+                    }
+                    onListBackups={actions.listWorkspaceBackups}
+                    onRefreshDiagnostics={() => void actions.refreshDiagnostics()}
+                    onRestoreBackup={(backupId, passphrase) =>
+                      actions.restoreWorkspaceBackup({ backupId, passphrase })
+                    }
+                    onSetTheme={(theme) => void actions.setTheme(theme)}
+                    onUpdateBackupSettings={actions.updateWorkspaceBackupSettings}
+                  />
+                ) : activeTabIsEnvironment && activeTab ? (
                   <EnvironmentWorkspace
                     key={activeTab.id}
                     activeEnvironment={activeEnvironmentDraft}
@@ -1826,17 +1887,38 @@ function DesktopWorkspace() {
                     status={structureStatus}
                     structure={structure}
                     error={structureError}
-                    onRefresh={() =>
+                    onRefresh={(options) =>
                       activeConnection && activeEnvironment
                         ? void actions.loadStructureMap({
                             connectionId: activeConnection.id,
                             environmentId: activeEnvironment.id,
                             limit: 120,
+                            ...options,
                           })
                         : undefined
                     }
                     onInspectNode={(node) => {
                       inspectExplorerNode(node.id)
+                    }}
+                    onOpenQuery={(node, queryText) => {
+                      if (!activeConnection) {
+                        return
+                      }
+
+                      openScopedQuery(activeConnection.id, {
+                        kind: node.isView ? 'view' : 'table',
+                        label: node.objectName,
+                        path: [node.schema, node.objectName],
+                        scope: node.qualifiedName,
+                        queryTemplate: queryText,
+                      })
+                    }}
+                    onOpenObjectView={(node) => {
+                      if (!activeConnection) {
+                        return
+                      }
+
+                      openObjectView(activeConnection.id, node)
                     }}
                   />
                 ) : activeTabIsMetrics && activeConnection && activeEnvironment && activeTab ? (
@@ -2125,6 +2207,7 @@ function DesktopWorkspace() {
                     : undefined
                 }
                 onResultRendered={actions.markExecutionDisplayed}
+                onExportResultFile={actions.exportResultFile}
                 onFetchDocumentNodeChildren={actions.fetchDocumentNodeChildren}
                 onResize={(nextSize) =>
                   void actions.updateUiState(

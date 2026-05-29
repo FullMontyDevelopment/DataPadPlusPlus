@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
 import {
   coerceValue,
+  documentValueTypeLabel,
   editableValue,
   parseEditedValue,
   type DocumentGridRow,
@@ -153,7 +154,7 @@ export function DocumentGridRowView({
             className={`document-type-badge is-${row.type}`}
             onDoubleClick={() => onBeginEditing(row, 'type')}
           >
-            {row.type}
+            {documentValueTypeLabel(row.type)}
           </span>
         )}
       </div>
@@ -283,11 +284,46 @@ function documentDragValueType(value: unknown, fallbackType: DocumentValueType) 
     return 'array'
   }
 
-  if (typeof value === 'object') {
-    return 'object'
+  if (isBsonDateValue(value)) {
+    return 'date'
   }
 
-  return fallbackType
+  if (isBsonObjectIdValue(value)) {
+    return 'objectid'
+  }
+
+  if (isBsonNumberValue(value)) {
+    return 'number'
+  }
+
+  if (typeof value === 'object') {
+    return fallbackType
+  }
+
+  return typeof value as DocumentValueType
+}
+
+function isBsonDateValue(value: unknown) {
+  return isRecord(value) && (
+    typeof value.$date === 'string' ||
+    (isRecord(value.$date) && typeof value.$date.$numberLong === 'string')
+  )
+}
+
+function isBsonObjectIdValue(value: unknown) {
+  return isRecord(value) && typeof value.$oid === 'string'
+}
+
+function isBsonNumberValue(value: unknown) {
+  return isRecord(value) && (
+    typeof value.$numberLong === 'string' ||
+    typeof value.$numberInt === 'string' ||
+    typeof value.$numberDouble === 'string'
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function FieldNameEditor({

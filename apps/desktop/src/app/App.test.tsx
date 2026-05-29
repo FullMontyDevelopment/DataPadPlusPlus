@@ -462,8 +462,8 @@ describe('App', () => {
     expect(within(methods).queryByRole('tab', { name: /Fields/i })).not.toBeInTheDocument()
 
     fireEvent.click(within(methods).getByRole('tab', { name: /Cloud SDK/i }))
-    expect(within(drawer).getByLabelText('SDK endpoint / host')).toBeInTheDocument()
-    expect(within(drawer).getByLabelText('SDK profile / principal')).toBeInTheDocument()
+    expect(within(drawer).getByLabelText('DynamoDB connection mode')).toBeInTheDocument()
+    expect(within(drawer).getByLabelText('DynamoDB profile name')).toBeInTheDocument()
   })
 
   it('opens diagnostics from the status bar without losing the active editor tab', async () => {
@@ -486,8 +486,10 @@ describe('App', () => {
     expect(screen.queryByLabelText('Activity bar')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Open settings'))
-    expect(await screen.findByLabelText('settings drawer')).toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText('Close drawer'))
+    const settingsTab = await screen.findByRole('tab', { name: /Settings/i })
+    expect(settingsTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('heading', { level: 2, name: 'Appearance' })).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Close tab Settings'))
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Explorer - PostgreSQL connection/i })).toHaveAttribute(
@@ -1298,57 +1300,62 @@ describe('App', () => {
     await screen.findByLabelText('library sidebar')
     fireEvent.click(screen.getByLabelText('Open settings'))
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Shortcuts' }))
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 2, name: 'Settings' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 2, name: 'Shortcuts' })).toBeInTheDocument()
     })
-    expect(screen.getByText('Keyboard Shortcuts')).toBeInTheDocument()
+    expect(screen.getByText('Save query')).toBeInTheDocument()
     expect(screen.queryByText('Ctrl K')).not.toBeInTheDocument()
   })
 
-  it('guides workspace backup and restore from Settings', async () => {
+  it('guides workspace file backup and restore from Settings', async () => {
+    const bootstrapPayload = await desktopClient.bootstrapApp()
+    const exportSpy = vi.spyOn(desktopClient, 'exportWorkspaceBundleFile').mockResolvedValueOnce({
+      path: 'C:\\Users\\gmont\\Backups\\workspace.datapadpp-workspace',
+      saved: true,
+      secretCount: 0,
+    })
+    const importSpy = vi
+      .spyOn(desktopClient, 'importWorkspaceBundleFile')
+      .mockResolvedValueOnce(bootstrapPayload)
+
     render(<App />)
 
     await screen.findByLabelText('library sidebar')
     fireEvent.click(screen.getByLabelText('Open settings'))
-    const drawer = await screen.findByLabelText('settings drawer')
-    const createBackup = within(drawer).getByRole('button', {
-      name: 'Create Backup Bundle',
-    })
+    const settings = await screen.findByLabelText('Settings')
+    fireEvent.click(within(settings).getByRole('button', { name: 'Workspace' }))
+    const exportButton = within(settings).getByRole('button', { name: 'Export' })
+    const importButton = within(settings).getByRole('button', { name: 'Import' })
 
-    expect(within(drawer).getByRole('heading', { level: 2, name: 'Settings' })).toBeInTheDocument()
-    expect(createBackup).toBeDisabled()
+    expect(within(settings).getByRole('heading', { level: 2, name: 'Workspace' })).toBeInTheDocument()
+    expect(exportButton).toBeDisabled()
+    expect(importButton).toBeDisabled()
 
-    fireEvent.change(within(drawer).getByLabelText('Backup passphrase'), {
-      target: { value: 'strong-backup-passphrase' },
+    fireEvent.change(within(settings).getByLabelText('Passphrase'), {
+      target: { value: 'strong-backup-passphrase!' },
     })
-    expect(createBackup).toBeEnabled()
-    fireEvent.click(createBackup)
+    expect(exportButton).toBeEnabled()
+    expect(importButton).toBeEnabled()
+    fireEvent.click(exportButton)
 
     await waitFor(() => {
-      expect(within(drawer).getByText('Backup bundle ready')).toBeInTheDocument()
+      expect(exportSpy).toHaveBeenCalledWith({
+        passphrase: 'strong-backup-passphrase!',
+        includeSecrets: false,
+      })
     })
-    expect(within(drawer).queryByText(/"format": "datapadplusplus-bundle"/)).not.toBeInTheDocument()
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Show encrypted bundle text' }))
-    const bundleText = within(drawer).getByLabelText('Encrypted workspace bundle').textContent
-      ?? ''
+    expect(within(settings).getByText('Workspace exported.')).toBeInTheDocument()
 
-    fireEvent.change(within(drawer).getByLabelText('Workspace bundle'), {
-      target: { value: bundleText },
-    })
-
-    expect(within(drawer).getByText('Bundle format looks valid.')).toBeInTheDocument()
-    expect(within(drawer).getByRole('button', { name: 'Restore Workspace' })).toBeEnabled()
-
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Close drawer' }))
+    fireEvent.click(importButton)
     await waitFor(() => {
-      expect(screen.queryByLabelText('settings drawer')).not.toBeInTheDocument()
+      expect(importSpy).toHaveBeenCalledWith({ passphrase: 'strong-backup-passphrase!' })
     })
 
-    fireEvent.click(screen.getByLabelText('Open settings'))
-    const reopenedDrawer = await screen.findByLabelText('settings drawer')
-
-    expect(within(reopenedDrawer).getByLabelText('Backup passphrase')).toHaveValue('')
-    expect(within(reopenedDrawer).getByLabelText('Workspace bundle')).toHaveValue('')
+    fireEvent.click(screen.getByLabelText('Close tab Settings'))
+    await waitFor(() => {
+      expect(screen.queryByRole('tab', { name: /Settings/i })).not.toBeInTheDocument()
+    })
   })
 
   it('saves, opens, and deletes library query work from a real tab', async () => {
@@ -1897,8 +1904,8 @@ describe('App', () => {
 
     await screen.findByLabelText('library sidebar')
     fireEvent.click(screen.getByLabelText('Open settings'))
-    const drawer = await screen.findByLabelText('settings drawer')
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Switch theme' }))
+    const settings = await screen.findByLabelText('Settings')
+    fireEvent.click(within(settings).getByRole('button', { name: 'Light' }))
 
     await waitFor(() => {
       expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
@@ -1934,8 +1941,8 @@ describe('App', () => {
 
     await screen.findByLabelText('library sidebar')
     fireEvent.click(screen.getByLabelText('Open settings'))
-    const drawer = await screen.findByLabelText('settings drawer')
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Switch theme' }))
+    const settings = await screen.findByLabelText('Settings')
+    fireEvent.click(within(settings).getByRole('button', { name: 'Light' }))
 
     await waitFor(() => {
       expect(screen.getByText('Theme switch exploded')).toBeInTheDocument()
@@ -2005,10 +2012,16 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Export result' }))
 
     await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'Export result' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save As' }))
+
+    await waitFor(() => {
       expect(createObjectUrl).toHaveBeenCalled()
     })
     expect(anchorClick).toHaveBeenCalled()
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:datapadplusplus-result')
+    expect(screen.getByText(/Result exported\./)).toBeInTheDocument()
     expect(screen.getByText(/\d{2}:\d{2}:\d{2}\.\d{3}/)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Query editor'), {

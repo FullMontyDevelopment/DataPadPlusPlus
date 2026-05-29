@@ -2,6 +2,9 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use super::workspace_bundle_integrity::{
+    create_workspace_bundle_integrity, validate_workspace_bundle_integrity,
+};
 use crate::{
     domain::{
         error::CommandError,
@@ -20,6 +23,8 @@ pub(super) struct WorkspaceBundlePayload {
     pub(super) snapshot: WorkspaceSnapshot,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) secrets: Vec<WorkspaceBundleSecret>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) integrity: Option<WorkspaceBundleIntegrity>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -29,11 +34,33 @@ pub(super) struct WorkspaceBundleSecret {
     pub(super) value: String,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct WorkspaceBundleIntegrity {
+    pub(super) algorithm: String,
+    pub(super) scope: String,
+    pub(super) digest: String,
+}
+
+pub(super) fn workspace_bundle_payload_with_integrity(
+    snapshot: WorkspaceSnapshot,
+    secrets: Vec<WorkspaceBundleSecret>,
+) -> Result<WorkspaceBundlePayload, CommandError> {
+    let mut payload = WorkspaceBundlePayload {
+        snapshot,
+        secrets,
+        integrity: None,
+    };
+    payload.integrity = Some(create_workspace_bundle_integrity(&payload)?);
+    Ok(payload)
+}
+
 pub(super) fn parse_workspace_bundle_payload(
     decrypted: &str,
 ) -> Result<WorkspaceBundlePayload, CommandError> {
     if let Ok(payload) = serde_json::from_str::<WorkspaceBundlePayload>(decrypted) {
         validate_workspace_bundle_secrets(&payload.secrets)?;
+        validate_workspace_bundle_integrity(&payload)?;
         return Ok(payload);
     }
 
@@ -41,6 +68,7 @@ pub(super) fn parse_workspace_bundle_payload(
     Ok(WorkspaceBundlePayload {
         snapshot,
         secrets: Vec::new(),
+        integrity: None,
     })
 }
 

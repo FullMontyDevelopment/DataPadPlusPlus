@@ -17,6 +17,8 @@ import type {
   EnvironmentProfile,
   ExecutionRequest,
   ExecutionResponse,
+  ExportResultFileRequest,
+  ExportResultFileResponse,
   ExecuteTestSuiteRequest,
   ExecuteTestSuiteResponse,
   ExportBundle,
@@ -51,6 +53,15 @@ import type {
   UpdateTestSuiteTabRequest,
   UpdateQueryBuilderStateRequest,
   UpdateUiStateRequest,
+  WorkspaceBackupDeleteRequest,
+  WorkspaceBackupRestoreRequest,
+  WorkspaceBackupRunRequest,
+  WorkspaceBackupRunResponse,
+  WorkspaceBackupSettingsRequest,
+  WorkspaceBackupSummary,
+  WorkspaceBundleFileExportRequest,
+  WorkspaceBundleFileExportResponse,
+  WorkspaceBundleFileImportRequest,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 
@@ -141,6 +152,7 @@ export interface Actions {
   createExplorerTab(connectionId: string): Promise<void>
   createMetricsTab(connectionId: string, environmentId?: string): Promise<void>
   createEnvironmentTab(environmentId: string): Promise<void>
+  createSettingsTab(): Promise<void>
   refreshMetricsTab(tabId: string): Promise<void>
   createObjectViewTab(request: CreateObjectViewTabRequest): Promise<void>
   refreshObjectViewTab(tabId: string): Promise<void>
@@ -223,8 +235,24 @@ export interface Actions {
   setTheme(theme: WorkspaceSnapshot['preferences']['theme']): Promise<void>
   updateUiState(patch: UpdateUiStateRequest): Promise<void>
   refreshDiagnostics(): Promise<void>
+  exportResultFile(
+    request: ExportResultFileRequest,
+  ): Promise<ExportResultFileResponse | undefined>
   exportWorkspace(passphrase: string, includeSecrets?: boolean): Promise<void>
   importWorkspace(passphrase: string, encryptedPayload: string): Promise<void>
+  exportWorkspaceFile(
+    request: WorkspaceBundleFileExportRequest,
+  ): Promise<WorkspaceBundleFileExportResponse | undefined>
+  importWorkspaceFile(request: WorkspaceBundleFileImportRequest): Promise<void>
+  updateWorkspaceBackupSettings(request: WorkspaceBackupSettingsRequest): Promise<void>
+  listWorkspaceBackups(): Promise<WorkspaceBackupSummary[] | undefined>
+  createWorkspaceBackupNow(
+    request: WorkspaceBackupRunRequest,
+  ): Promise<WorkspaceBackupRunResponse | undefined>
+  restoreWorkspaceBackup(request: WorkspaceBackupRestoreRequest): Promise<void>
+  deleteWorkspaceBackup(
+    request: WorkspaceBackupDeleteRequest,
+  ): Promise<WorkspaceBackupSummary[] | undefined>
 }
 
 export interface AppContextValue extends StateShape {

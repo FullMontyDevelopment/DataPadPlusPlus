@@ -3,11 +3,15 @@ import type { CSSProperties } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
+  ExplorerNode,
   StructureNode,
+  StructureRequest,
   StructureResponse,
 } from '@datapadplusplus/shared-types'
 import { DatastoreIcon } from './DatastoreIcon'
 import { environmentAccentVariables } from './SideBar.helpers'
+import { isSqlStyleConnection, type SqlExplorerNode } from './SqlRelationshipExplorer.model'
+import { SqlRelationshipExplorerWorkspace } from './SqlRelationshipExplorerWorkspace'
 import {
   DatabaseIcon,
   ExplorerIcon,
@@ -24,11 +28,55 @@ interface StructureWorkspaceProps {
   status: 'idle' | 'loading' | 'ready'
   structure?: StructureResponse
   error?: string
-  onRefresh(): void
+  onRefresh(options?: Partial<StructureRequest>): void
   onInspectNode(node: StructureNode): void
+  onOpenQuery(node: SqlExplorerNode, queryText: string): void
+  onOpenObjectView(node: ExplorerNode): void
 }
 
 export function StructureWorkspace({
+  activeConnection,
+  activeEnvironment,
+  status,
+  structure,
+  error,
+  onRefresh,
+  onInspectNode,
+  onOpenQuery,
+  onOpenObjectView,
+}: StructureWorkspaceProps) {
+  if (activeConnection && isSqlStyleConnection(activeConnection)) {
+    return (
+      <SqlRelationshipExplorerWorkspace
+        activeConnection={activeConnection}
+        activeEnvironment={activeEnvironment}
+        status={status}
+        structure={structure}
+        error={error}
+        onRefresh={onRefresh}
+        onInspectNode={onInspectNode}
+        onOpenQuery={onOpenQuery}
+        onOpenObjectView={onOpenObjectView}
+      />
+    )
+  }
+
+  return (
+    <DefaultStructureWorkspace
+      activeConnection={activeConnection}
+      activeEnvironment={activeEnvironment}
+      status={status}
+      structure={structure}
+      error={error}
+      onRefresh={onRefresh}
+      onInspectNode={onInspectNode}
+      onOpenQuery={onOpenQuery}
+      onOpenObjectView={onOpenObjectView}
+    />
+  )
+}
+
+function DefaultStructureWorkspace({
   activeConnection,
   activeEnvironment,
   status,
@@ -81,7 +129,7 @@ export function StructureWorkspace({
             className="toolbar-action"
             disabled={!activeConnection || !activeEnvironment || status === 'loading'}
             title="Reload the visual structure map using safe bounded metadata limits."
-            onClick={onRefresh}
+            onClick={() => onRefresh()}
           >
             <RefreshIcon className="toolbar-icon" />
             Refresh

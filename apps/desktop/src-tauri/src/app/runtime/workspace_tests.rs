@@ -9,6 +9,7 @@ use super::{
     workspace::migrate_snapshot,
     workspace_bundle::{
         parse_workspace_bundle_payload, validate_bundle_passphrase, validate_bundle_payload_size,
+        workspace_bundle_payload_with_integrity,
     },
 };
 use crate::domain::models::{ConnectionProfile, QueryTabState};
@@ -207,6 +208,42 @@ fn workspace_bundle_payload_accepts_legacy_snapshot_and_secret_envelope() {
         "secret-connection"
     );
     assert_eq!(parsed_envelope.secrets[0].value, "secret-value");
+}
+
+#[test]
+fn workspace_bundle_payload_adds_and_verifies_integrity_metadata() {
+    let snapshot = blank_workspace_snapshot();
+    let payload = workspace_bundle_payload_with_integrity(snapshot.clone(), Vec::new())
+        .expect("create integrity bundle");
+    let integrity = payload.integrity.as_ref().expect("integrity metadata");
+
+    assert_eq!(integrity.algorithm, "sha256");
+    assert_eq!(integrity.scope, "workspace-bundle-payload-v1");
+    assert_eq!(integrity.digest.len(), 64);
+
+    let envelope_json = serde_json::to_string(&payload).expect("serialize integrity bundle");
+    let parsed = parse_workspace_bundle_payload(&envelope_json).expect("parse integrity bundle");
+
+    assert_eq!(parsed.snapshot.schema_version, snapshot.schema_version);
+    assert!(parsed.secrets.is_empty());
+}
+
+#[test]
+fn workspace_bundle_payload_rejects_integrity_mismatch() {
+    let payload = workspace_bundle_payload_with_integrity(blank_workspace_snapshot(), Vec::new())
+        .expect("create integrity bundle");
+    let mut value = serde_json::to_value(payload).expect("serialize integrity bundle");
+    value["snapshot"]["updatedAt"] = serde_json::json!("2026-05-29T00:00:00.000Z");
+    let error = match parse_workspace_bundle_payload(&value.to_string()) {
+        Ok(_) => panic!("tampered workspace bundle should be rejected"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.code, "workspace-bundle-integrity-mismatch");
+    assert_eq!(
+        error.message,
+        "Workspace bundle integrity check failed. The file may be corrupt or modified."
+    );
 }
 
 #[test]

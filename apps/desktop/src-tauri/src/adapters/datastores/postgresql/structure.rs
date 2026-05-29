@@ -82,6 +82,20 @@ pub(crate) async fn load_postgres_structure(
             kind: row.get::<String, _>("table_type").to_lowercase(),
             group_id: Some(schema.clone()),
             detail: Some(format!("{schema}.{table}")),
+            database: connection.database.clone(),
+            schema: Some(schema.clone()),
+            object_name: Some(table.clone()),
+            qualified_name: Some(format!("{schema}.{table}")),
+            column_count: None,
+            relationship_count: None,
+            row_count_estimate: None,
+            index_count: None,
+            is_system: Some(false),
+            is_view: Some(
+                row.get::<String, _>("table_type")
+                    .to_lowercase()
+                    .contains("view"),
+            ),
             metrics: Vec::new(),
             fields: Vec::new(),
             sample: None,
@@ -124,6 +138,13 @@ pub(crate) async fn load_postgres_structure(
                 ),
                 kind: "foreign-key".into(),
                 inferred: Some(false),
+                from_field: Some(row.get::<String, _>("column_name")),
+                to_field: Some(row.get::<String, _>("foreign_column_name")),
+                constraint_name: None,
+                cardinality: Some("many-to-one".into()),
+                delete_rule: None,
+                update_rule: None,
+                confidence: Some(1.0),
             }
         })
         .collect::<Vec<StructureEdge>>();

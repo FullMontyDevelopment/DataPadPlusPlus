@@ -18,6 +18,12 @@ export const defaultPreferences: AppPreferences = {
   telemetry: 'opt-in',
   lockAfterMinutes: 15,
   safeModeEnabled: true,
+  workspaceBackups: {
+    enabled: false,
+    intervalMinutes: 30,
+    maxBackups: 20,
+    includeSecrets: false,
+  },
 }
 
 export function createBlankSnapshot(): WorkspaceSnapshot {

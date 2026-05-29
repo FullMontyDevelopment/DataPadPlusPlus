@@ -108,6 +108,12 @@ export function redactStructureResponseForEnvironment(
       ...node,
       label: redactTextForEnvironment(node.label, environment),
       detail: node.detail ? redactTextForEnvironment(node.detail, environment) : undefined,
+      database: node.database ? redactTextForEnvironment(node.database, environment) : undefined,
+      schema: node.schema ? redactTextForEnvironment(node.schema, environment) : undefined,
+      objectName: node.objectName ? redactTextForEnvironment(node.objectName, environment) : undefined,
+      qualifiedName: node.qualifiedName
+        ? redactTextForEnvironment(node.qualifiedName, environment)
+        : undefined,
       metrics: node.metrics?.map((metric) => redactStructureMetric(metric, environment)),
       fields: node.fields?.map((field) => ({
         ...field,
@@ -120,6 +126,16 @@ export function redactStructureResponseForEnvironment(
     edges: response.edges.map((edge) => ({
       ...edge,
       label: redactTextForEnvironment(edge.label, environment),
+      fromField: edge.fromField ? redactTextForEnvironment(edge.fromField, environment) : undefined,
+      toField: edge.toField ? redactTextForEnvironment(edge.toField, environment) : undefined,
+      constraintName: edge.constraintName
+        ? redactTextForEnvironment(edge.constraintName, environment)
+        : undefined,
+      cardinality: edge.cardinality
+        ? redactTextForEnvironment(edge.cardinality, environment)
+        : undefined,
+      deleteRule: edge.deleteRule ? redactTextForEnvironment(edge.deleteRule, environment) : undefined,
+      updateRule: edge.updateRule ? redactTextForEnvironment(edge.updateRule, environment) : undefined,
     })),
     metrics: response.metrics.map((metric) => redactStructureMetric(metric, environment)),
   }

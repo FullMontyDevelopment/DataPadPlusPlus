@@ -67,6 +67,33 @@ pub(crate) async fn load_sqlserver_structure(
                 .to_lowercase(),
             group_id: Some(schema),
             detail: Some(table),
+            database: connection.database.clone(),
+            schema: Some(
+                row.get::<&str, _>("table_schema")
+                    .unwrap_or("dbo")
+                    .to_string(),
+            ),
+            object_name: Some(
+                row.get::<&str, _>("table_name")
+                    .unwrap_or_default()
+                    .to_string(),
+            ),
+            qualified_name: Some(format!(
+                "{}.{}",
+                row.get::<&str, _>("table_schema").unwrap_or("dbo"),
+                row.get::<&str, _>("table_name").unwrap_or_default()
+            )),
+            column_count: None,
+            relationship_count: None,
+            row_count_estimate: None,
+            index_count: None,
+            is_system: Some(false),
+            is_view: Some(
+                row.get::<&str, _>("table_type")
+                    .unwrap_or("table")
+                    .to_lowercase()
+                    .contains("view"),
+            ),
             metrics: Vec::new(),
             fields: Vec::new(),
             sample: None,
@@ -109,6 +136,21 @@ pub(crate) async fn load_sqlserver_structure(
                 ),
                 kind: "foreign-key".into(),
                 inferred: Some(false),
+                from_field: Some(
+                    row.get::<&str, _>("column_name")
+                        .unwrap_or_default()
+                        .to_string(),
+                ),
+                to_field: Some(
+                    row.get::<&str, _>("foreign_column_name")
+                        .unwrap_or_default()
+                        .to_string(),
+                ),
+                constraint_name: None,
+                cardinality: Some("many-to-one".into()),
+                delete_rule: None,
+                update_rule: None,
+                confidence: Some(1.0),
             }
         })
         .collect();

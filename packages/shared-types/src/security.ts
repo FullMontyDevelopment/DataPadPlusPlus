@@ -4,10 +4,28 @@ import type {
   ResolvedEnvironment,
 } from './connection'
 
-export type ThemeMode = 'system' | 'light' | 'dark'
+export type ThemeMode =
+  | 'system'
+  | 'light'
+  | 'dark'
+  | 'midnight'
+  | 'graphite'
+  | 'solarized-dark'
+  | 'solarized-light'
+  | 'high-contrast'
 export type TelemetryMode = 'disabled' | 'opt-in'
 export type GuardrailAction = 'connect' | 'execute-query' | 'export'
 export type GuardrailStatus = 'allow' | 'confirm' | 'block'
+
+export interface WorkspaceBackupPreferences {
+  enabled: boolean
+  intervalMinutes: number
+  maxBackups: number
+  includeSecrets: boolean
+  passphraseSecretRef?: import('./connection').SecretRef
+  lastBackupAt?: string
+  lastWorkspaceUpdatedAt?: string
+}
 
 export interface GuardrailPolicy {
   id: string
@@ -39,6 +57,7 @@ export interface AppPreferences {
   telemetry: TelemetryMode
   lockAfterMinutes: number
   safeModeEnabled: boolean
+  workspaceBackups?: WorkspaceBackupPreferences
 }
 
 export interface LockState {

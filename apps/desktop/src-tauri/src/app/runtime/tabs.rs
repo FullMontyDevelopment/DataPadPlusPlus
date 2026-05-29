@@ -353,12 +353,9 @@ impl ManagedAppState {
 
     pub fn close_query_tab(&mut self, tab_id: &str) -> Result<BootstrapPayload, CommandError> {
         validate_required_tab_id(tab_id)?;
-        let tab_index = self
-            .snapshot
-            .tabs
-            .iter()
-            .position(|item| item.id == tab_id)
-            .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
+        let Some(tab_index) = self.snapshot.tabs.iter().position(|item| item.id == tab_id) else {
+            return Ok(self.bootstrap_payload());
+        };
         let closed_tab = self.snapshot.tabs.remove(tab_index);
 
         archive_closed_tab(&mut self.snapshot, closed_tab.clone(), "user");

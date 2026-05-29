@@ -251,6 +251,7 @@ mod tests {
         );
 
         assert_eq!(payload["renderer"], "costEstimate");
+        assert_eq!(payload["estimatedBytes"], 123);
         assert_eq!(payload["details"]["estimatedBytes"], 123);
         assert_eq!(payload["details"]["estimatedPartitions"], 2);
     }

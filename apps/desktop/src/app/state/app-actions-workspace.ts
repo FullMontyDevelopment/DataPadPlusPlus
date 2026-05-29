@@ -11,8 +11,16 @@ type WorkspaceActions = Pick<
   | 'setTheme'
   | 'updateUiState'
   | 'refreshDiagnostics'
+  | 'exportResultFile'
   | 'exportWorkspace'
   | 'importWorkspace'
+  | 'exportWorkspaceFile'
+  | 'importWorkspaceFile'
+  | 'updateWorkspaceBackupSettings'
+  | 'listWorkspaceBackups'
+  | 'createWorkspaceBackupNow'
+  | 'restoreWorkspaceBackup'
+  | 'deleteWorkspaceBackup'
 >
 
 export function useWorkspaceActions({
@@ -76,6 +84,18 @@ export function useWorkspaceActions({
     [dispatch, handleError],
   )
 
+  const exportResultFile = useCallback<Actions['exportResultFile']>(
+    async (request) => {
+      try {
+        return await desktopClient.exportResultFile(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
   const exportWorkspace = useCallback<Actions['exportWorkspace']>(
     async (passphrase, includeSecrets = false) => {
       try {
@@ -103,6 +123,93 @@ export function useWorkspaceActions({
     [applyPayload, handleError, state.payload],
   )
 
+  const exportWorkspaceFile = useCallback<Actions['exportWorkspaceFile']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.exportWorkspaceBundleFile(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
+  const importWorkspaceFile = useCallback<Actions['importWorkspaceFile']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.importWorkspaceBundleFile(request))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const updateWorkspaceBackupSettings = useCallback<Actions['updateWorkspaceBackupSettings']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.updateWorkspaceBackupSettings(request))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const listWorkspaceBackups = useCallback<Actions['listWorkspaceBackups']>(
+    async () => {
+      try {
+        return await desktopClient.listWorkspaceBackups()
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const createWorkspaceBackupNow = useCallback<Actions['createWorkspaceBackupNow']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.createWorkspaceBackupNow(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
+  const restoreWorkspaceBackup = useCallback<Actions['restoreWorkspaceBackup']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.restoreWorkspaceBackup(request))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const deleteWorkspaceBackup = useCallback<Actions['deleteWorkspaceBackup']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.deleteWorkspaceBackup(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
   return useMemo(
     () => ({
       openWorkbenchMessages,
@@ -111,14 +218,30 @@ export function useWorkspaceActions({
       setTheme,
       updateUiState,
       refreshDiagnostics,
+      exportResultFile,
       exportWorkspace,
       importWorkspace,
+      exportWorkspaceFile,
+      importWorkspaceFile,
+      updateWorkspaceBackupSettings,
+      listWorkspaceBackups,
+      createWorkspaceBackupNow,
+      restoreWorkspaceBackup,
+      deleteWorkspaceBackup,
     }),
     [
       clearWorkbenchMessages,
       dismissWorkbenchMessage,
       exportWorkspace,
+      exportResultFile,
+      exportWorkspaceFile,
       importWorkspace,
+      importWorkspaceFile,
+      updateWorkspaceBackupSettings,
+      listWorkspaceBackups,
+      createWorkspaceBackupNow,
+      restoreWorkspaceBackup,
+      deleteWorkspaceBackup,
       openWorkbenchMessages,
       refreshDiagnostics,
       setTheme,

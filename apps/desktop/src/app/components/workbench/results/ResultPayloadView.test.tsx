@@ -74,6 +74,52 @@ describe('ResultPayloadView', () => {
     expect(screen.getByText('No documents returned.')).toBeInTheDocument()
   })
 
+  it('renders cloud cost estimates as a native estimate panel', () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'costEstimate',
+          currency: 'USD',
+          estimatedBytes: 1_099_511_627_776,
+          estimatedCost: 6,
+          estimatedCredits: 0,
+          details: {
+            engine: 'bigquery',
+            dryRun: true,
+            basis: 'BigQuery dry-run totalBytesProcessed when available',
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('region', { name: 'Cost estimate' })).toBeInTheDocument()
+    expect(screen.getByText('BigQuery dry-run estimate')).toBeInTheDocument()
+    expect(screen.getAllByText('1.0 TB')).toHaveLength(2)
+    expect(screen.getByRole('region', { name: 'Cost estimate' })).toHaveTextContent(/6[,.]00/)
+    expect(screen.getByText('Dry run')).toBeInTheDocument()
+    expect(screen.getByText('Basis')).toBeInTheDocument()
+    expect(screen.queryByText('renderer')).not.toBeInTheDocument()
+  })
+
+  it('renders zero cloud estimates as real values', () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'costEstimate',
+          currency: 'USD',
+          estimatedBytes: 0,
+          estimatedCost: 0,
+          estimatedCredits: 0,
+          details: { engine: 'snowflake', liveCosting: true },
+        }}
+      />,
+    )
+
+    expect(screen.getAllByText('0 B')).toHaveLength(2)
+    expect(screen.getByRole('region', { name: 'Cost estimate' })).toHaveTextContent(/0[,.]00/)
+    expect(screen.getByText('Live')).toBeInTheDocument()
+  })
+
   it('shows non-string document _id values as the root label value', () => {
     render(
       <ResultPayloadView
@@ -330,6 +376,50 @@ describe('ResultPayloadView', () => {
       },
     })
     expect(document.body).not.toHaveClass('is-field-pointer-dragging')
+
+    window.removeEventListener(FIELD_POINTER_DRAG_DROP_EVENT, onDrop)
+  })
+
+  it('keeps native BSON scalar metadata in document field drag payloads', () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'document',
+          documents: [
+            {
+              _id: 'event-1',
+              createdAt: { $date: { $numberLong: '1778925741369' } },
+            },
+          ],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand event-1' }))
+
+    const drops: FieldPointerDragDetail[] = []
+    const onDrop = (event: Event) => {
+      drops.push((event as CustomEvent<FieldPointerDragDetail>).detail)
+    }
+    window.addEventListener(FIELD_POINTER_DRAG_DROP_EVENT, onDrop)
+
+    fireEvent.pointerDown(screen.getByText('createdAt'), {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+      pointerId: 8,
+    })
+    fireEvent.pointerMove(window, { clientX: 18, clientY: 20, pointerId: 8 })
+    fireEvent.pointerUp(window, { clientX: 30, clientY: 40, pointerId: 8 })
+
+    expect(drops[0]).toMatchObject({
+      payload: {
+        fieldPath: 'createdAt',
+        value: { $date: { $numberLong: '1778925741369' } },
+        valueLabel: 'ISODate("2026-05-16T10:02:21.369Z")',
+        valueType: 'date',
+      },
+    })
 
     window.removeEventListener(FIELD_POINTER_DRAG_DROP_EVENT, onDrop)
   })

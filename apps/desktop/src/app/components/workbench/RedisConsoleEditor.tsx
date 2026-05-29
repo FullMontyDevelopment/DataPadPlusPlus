@@ -13,7 +13,7 @@ interface RedisConsoleEditorProps {
   engineLabel: string
   history?: string[]
   pipelineMode?: boolean
-  theme: 'light' | 'dark'
+  theme: string
   completionContext?: EditorCompletionContext
   completionProviders?: DatastoreCompletionProvider[]
   onRequestCompletionRefresh?(): void

@@ -1,4 +1,5 @@
 import type { AppAction, StateShape } from './app-state-types'
+import { preserveActiveExecutionsOnPayload } from './app-state-execution-payload'
 import {
   applyExecutionToPayload,
   applyResultPageToPayload,
@@ -36,14 +37,21 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         startupErrorMessage: undefined,
       }
     case 'COMMAND_SUCCESS':
+    {
+      const payload = preserveActiveExecutionsOnPayload(
+        action.payload,
+        state.payload,
+        state.executionsByTab,
+      )
       return {
         ...state,
         status: 'ready',
-        payload: action.payload,
-        diagnostics: action.payload.diagnostics,
+        payload,
+        diagnostics: payload.diagnostics,
         executionStatus:
           Object.keys(state.executionsByTab).length > 0 ? 'loading' : 'ready',
       }
+    }
     case 'DIAGNOSTICS_READY':
       return {
         ...state,

@@ -14,7 +14,8 @@ use super::{
     ui::normalize_ui_state,
     workspace_bundle::{
         collect_workspace_bundle_secrets, parse_workspace_bundle_payload,
-        validate_bundle_passphrase, validate_bundle_payload_size, WorkspaceBundlePayload,
+        validate_bundle_passphrase, validate_bundle_payload_size,
+        workspace_bundle_payload_with_integrity,
     },
     ManagedAppState,
 };
@@ -140,10 +141,7 @@ impl ManagedAppState {
             Vec::new()
         };
         let secret_count = secret_entries.len();
-        let payload = WorkspaceBundlePayload {
-            snapshot: sanitized,
-            secrets: secret_entries,
-        };
+        let payload = workspace_bundle_payload_with_integrity(sanitized, secret_entries)?;
         let serialized = serde_json::to_string_pretty(&payload)?;
         let encrypted_payload = security::encrypt_export_payload(passphrase, &serialized)?;
         Ok(ExportBundle {
@@ -438,6 +436,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
                     telemetry: "opt-in".into(),
                     lock_after_minutes: 15,
                     safe_mode_enabled: true,
+                    workspace_backups: Default::default(),
                 },
                 guardrails: Vec::new(),
                 lock_state: LockState {
@@ -477,6 +476,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
             telemetry: "opt-in".into(),
             lock_after_minutes: 15,
             safe_mode_enabled: true,
+            workspace_backups: Default::default(),
         },
         guardrails: Vec::new(),
         lock_state: LockState {

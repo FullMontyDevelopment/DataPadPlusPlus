@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { AdapterManifest, ConnectionProfile, EnvironmentProfile } from '@datapadplusplus/shared-types'
 import { datastoreTreeForEngine } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
@@ -79,6 +79,66 @@ describe('ConnectionObjectTree', () => {
     expect(screen.getByText('Availability Groups')).toBeInTheDocument()
   })
 
+  it('loads SQL Server tables when an already-expanded structural folder receives a live scope', async () => {
+    const onLoadExplorerScope = vi.fn()
+    const connection = sqlServerConnection()
+    const { rerender } = render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(connection)}
+        connection={connection}
+        onLoadExplorerScope={onLoadExplorerScope}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('datapadplusplus')
+    expandTreeItem('Tables')
+    onLoadExplorerScope.mockClear()
+
+    rerender(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(connection)}
+        connection={connection}
+        explorerNodes={[
+          {
+            id: 'database:datapadplusplus',
+            label: 'datapadplusplus',
+            kind: 'database',
+            detail: 'ONLINE',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases'],
+            scope: 'database:datapadplusplus',
+            expandable: true,
+          },
+          {
+            id: 'sqlserver:datapadplusplus:tables',
+            label: 'Tables',
+            kind: 'tables',
+            detail: 'Base, system, external, and graph tables',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases', 'datapadplusplus'],
+            scope: 'sqlserver:datapadplusplus:tables',
+            expandable: true,
+          },
+        ]}
+        explorerStatus="ready"
+        onLoadExplorerScope={onLoadExplorerScope}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(treeItemForLabel('datapadplusplus')).toHaveAttribute('aria-expanded', 'true')
+    expect(treeItemForLabel('Tables')).toHaveAttribute('aria-expanded', 'true')
+
+    await waitFor(() => {
+      expect(onLoadExplorerScope).toHaveBeenCalledWith(
+        'conn-sqlserver',
+        'sqlserver:datapadplusplus:tables',
+      )
+    })
+  })
+
   it('does not nest live SQL Server category folders inside duplicate category folders', () => {
     render(
       <ConnectionObjectTree
@@ -127,6 +187,95 @@ describe('ConnectionObjectTree', () => {
 
     expect(screen.getAllByText('Tables')).toHaveLength(1)
     expect(screen.getByText('dbo.accounts')).toBeInTheDocument()
+    expect(screen.queryByText('System Tables')).not.toBeInTheDocument()
+    expect(screen.queryByText('FileTables')).not.toBeInTheDocument()
+    expect(screen.queryByText('External Tables')).not.toBeInTheDocument()
+    expect(screen.queryByText('Graph Tables')).not.toBeInTheDocument()
+  })
+
+  it('places live SQL Server table columns under the selected table', () => {
+    render(
+      <ConnectionObjectTree
+        connection={sqlServerConnection()}
+        explorerNodes={[
+          {
+            id: 'database:datapadplusplus',
+            label: 'datapadplusplus',
+            kind: 'database',
+            detail: 'online',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases'],
+            scope: 'database:datapadplusplus',
+            expandable: true,
+          },
+          {
+            id: 'sqlserver:datapadplusplus:tables',
+            label: 'Tables',
+            kind: 'tables',
+            detail: 'Base tables',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases', 'datapadplusplus', 'Tables'],
+            scope: 'sqlserver:datapadplusplus:tables',
+            expandable: true,
+          },
+          {
+            id: 'table:datapadplusplus:dbo:accounts',
+            label: 'dbo.accounts',
+            kind: 'table',
+            detail: 'base table',
+            family: 'sql',
+            path: ['Fixture SQL Server', 'Databases', 'datapadplusplus', 'Tables'],
+            scope: 'table:datapadplusplus:dbo:accounts',
+            expandable: true,
+          },
+          {
+            id: 'columns:datapadplusplus:dbo:accounts',
+            label: 'Columns',
+            kind: 'columns',
+            detail: 'Column definitions',
+            family: 'sql',
+            path: [
+              'Fixture SQL Server',
+              'Databases',
+              'datapadplusplus',
+              'Tables',
+              'dbo.accounts',
+            ],
+            scope: 'columns:datapadplusplus:dbo:accounts',
+            expandable: true,
+          },
+          {
+            id: 'column:datapadplusplus:dbo:accounts:sku',
+            label: 'sku',
+            kind: 'column',
+            detail: 'nvarchar not null',
+            family: 'sql',
+            path: [
+              'Fixture SQL Server',
+              'Databases',
+              'datapadplusplus',
+              'Tables',
+              'dbo.accounts',
+              'Columns',
+            ],
+            expandable: false,
+          },
+        ]}
+        explorerStatus="ready"
+        onLoadExplorerScope={vi.fn()}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('datapadplusplus')
+    expandTreeItem('Tables')
+    expandTreeItem('dbo.accounts')
+    expandTreeItem('Columns')
+
+    const tableRow = treeItemForLabel('dbo.accounts')
+    expect(within(tableRow).queryByText('sku')).not.toBeInTheDocument()
+    expect(screen.getByText('sku')).toBeInTheDocument()
   })
 
   it('uses SQLite-owned file database folders', () => {

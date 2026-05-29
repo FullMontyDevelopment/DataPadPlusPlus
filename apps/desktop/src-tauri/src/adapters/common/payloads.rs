@@ -171,12 +171,28 @@ pub(crate) fn payload_graph(nodes: Value, edges: Value) -> Value {
 }
 
 pub(crate) fn payload_cost_estimate(details: Value) -> Value {
+    let currency = details
+        .get("currency")
+        .and_then(Value::as_str)
+        .unwrap_or("USD");
+    let estimated_bytes = details
+        .get("estimatedBytes")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let estimated_credits = details
+        .get("estimatedCredits")
+        .and_then(Value::as_f64)
+        .unwrap_or_default();
+    let estimated_cost = details
+        .get("estimatedCost")
+        .and_then(Value::as_f64)
+        .unwrap_or_default();
     json!({
         "renderer": "costEstimate",
-        "currency": "USD",
-        "estimatedBytes": 0,
-        "estimatedCredits": 0,
-        "estimatedCost": 0,
+        "currency": currency,
+        "estimatedBytes": estimated_bytes,
+        "estimatedCredits": estimated_credits,
+        "estimatedCost": estimated_cost,
         "details": details,
     })
 }

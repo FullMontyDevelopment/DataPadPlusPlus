@@ -58,6 +58,24 @@ pub(crate) async fn load_mysql_structure(
             kind: row.get::<String, _>("table_type").to_lowercase(),
             group_id: Some(schema),
             detail: Some(table),
+            database: connection.database.clone(),
+            schema: Some(row.get::<String, _>("table_schema")),
+            object_name: Some(row.get::<String, _>("table_name")),
+            qualified_name: Some(format!(
+                "{}.{}",
+                row.get::<String, _>("table_schema"),
+                row.get::<String, _>("table_name")
+            )),
+            column_count: None,
+            relationship_count: None,
+            row_count_estimate: None,
+            index_count: None,
+            is_system: Some(false),
+            is_view: Some(
+                row.get::<String, _>("table_type")
+                    .to_lowercase()
+                    .contains("view"),
+            ),
             metrics: Vec::new(),
             fields: Vec::new(),
             sample: None,
@@ -94,6 +112,13 @@ pub(crate) async fn load_mysql_structure(
                 ),
                 kind: "foreign-key".into(),
                 inferred: Some(false),
+                from_field: Some(row.get::<String, _>("column_name")),
+                to_field: Some(row.get::<String, _>("referenced_column_name")),
+                constraint_name: None,
+                cardinality: Some("many-to-one".into()),
+                delete_rule: None,
+                update_rule: None,
+                confidence: Some(1.0),
             }
         })
         .collect();

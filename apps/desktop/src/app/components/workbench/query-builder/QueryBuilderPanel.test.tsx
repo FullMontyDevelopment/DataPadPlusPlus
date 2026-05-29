@@ -183,6 +183,38 @@ describe('QueryBuilderPanel', () => {
     expect(onBuilderStateChange).toHaveBeenCalledTimes(3)
   })
 
+  it('keeps native Mongo document types when fields are dropped into filters', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(
+      <div>
+        <ResultPayloadView
+          payload={{
+            renderer: 'document',
+            documents: [
+              {
+                _id: { $oid: '507f1f77bcf86cd799439011' },
+                createdAt: { $date: { $numberLong: '1778925741369' } },
+              },
+            ],
+          }}
+        />
+        <BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />
+      </div>,
+    )
+
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Expand {"$oid":"507f1f77bcf86cd799439011"}',
+    }))
+
+    pointerDragDocumentFieldToTarget('createdAt', section('Filters'))
+
+    expect(screen.getByLabelText('Filter field')).toHaveValue('createdAt')
+    expect(screen.getByLabelText('Filter operator')).toHaveValue('gte')
+    expect(screen.getByLabelText('Value type')).toHaveValue('date')
+    expect(screen.getByLabelText('Filter value')).toHaveValue('2026-05-16T10:02:21.369Z')
+  })
+
   it('accepts document field pointer drops when native drag data is not involved', () => {
     const onBuilderStateChange = vi.fn()
 

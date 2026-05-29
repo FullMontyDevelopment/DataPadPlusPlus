@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject, ReactNode } from 'react'
-import type { DocumentGridRow, DocumentValueType } from './document-grid-model'
+import {
+  documentValueTypeLabel,
+  type DocumentGridRow,
+  type DocumentValueType,
+} from './document-grid-model'
 import { copyText } from './payload-export'
 
 const TYPE_OPTIONS: DocumentValueType[] = ['string', 'number', 'boolean', 'null', 'object', 'array']
@@ -78,7 +82,9 @@ export function DocumentFieldInspector({
                 ))}
               </select>
             ) : (
-              <span className={`document-type-badge is-${row.type}`}>{row.type}</span>
+              <span className={`document-type-badge is-${row.type}`}>
+                {documentValueTypeLabel(row.type)}
+              </span>
             )}
           </dd>
         </div>

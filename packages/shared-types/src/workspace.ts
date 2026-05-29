@@ -86,7 +86,7 @@ export type QuerySaveTarget =
 export interface QueryTabDefinition {
   id: string
   title: string
-  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics' | 'object-view' | 'environment'
+  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics' | 'object-view' | 'environment' | 'settings'
   connectionId: string
   environmentId: string
   family: DatastoreFamily
@@ -157,7 +157,14 @@ export type MongoFilterOperator =
   | 'exists'
   | 'in'
 
-export type MongoBuilderValueType = 'string' | 'number' | 'boolean' | 'null' | 'json'
+export type MongoBuilderValueType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'null'
+  | 'json'
+  | 'date'
+  | 'objectId'
 
 export interface MongoFindFilterRow {
   id: string
@@ -794,6 +801,8 @@ export interface ExecutionResultEnvelope {
   notices: QueryExecutionNotice[]
   executedAt: string
   durationMs: number
+  serverDurationMs?: number
+  displayDurationMs?: number
   truncated?: boolean
   rowLimit?: number
   continuationToken?: string
@@ -919,6 +928,72 @@ export interface SaveQueryTabToLocalFileRequest {
   path?: string
 }
 
+export interface ExportResultFileRequest {
+  suggestedFileName: string
+  extension: string
+  mimeType: string
+  contents: string
+}
+
+export interface ExportResultFileResponse {
+  saved: boolean
+  path?: string
+}
+
+export interface WorkspaceBundleFileExportRequest {
+  passphrase: string
+  includeSecrets?: boolean
+}
+
+export interface WorkspaceBundleFileExportResponse {
+  saved: boolean
+  path?: string
+  includesSecrets?: boolean
+  secretCount?: number
+}
+
+export interface WorkspaceBundleFileImportRequest {
+  passphrase: string
+}
+
+export interface WorkspaceBackupSettingsRequest {
+  enabled: boolean
+  passphrase?: string
+  intervalMinutes?: number
+  maxBackups?: number
+  includeSecrets?: boolean
+}
+
+export interface WorkspaceBackupRunRequest {
+  automatic?: boolean
+}
+
+export interface WorkspaceBackupSummary {
+  id: string
+  fileName: string
+  createdAt: string
+  sizeBytes: number
+  includesSecrets: boolean
+  secretCount?: number
+  version?: number
+}
+
+export interface WorkspaceBackupRunResponse {
+  created: boolean
+  backup?: WorkspaceBackupSummary
+  backups: WorkspaceBackupSummary[]
+  message: string
+}
+
+export interface WorkspaceBackupRestoreRequest {
+  backupId: string
+  passphrase?: string
+}
+
+export interface WorkspaceBackupDeleteRequest {
+  backupId: string
+}
+
 export interface ExplorerNode {
   id: string
   family: DatastoreFamily | 'shared'
@@ -942,6 +1017,8 @@ export interface StructureField {
   detail?: string
   nullable?: boolean
   primary?: boolean
+  ordinal?: number
+  indexed?: boolean
 }
 
 export interface StructureGroup {
@@ -959,6 +1036,16 @@ export interface StructureNode {
   kind: string
   groupId?: string
   detail?: string
+  database?: string
+  schema?: string
+  objectName?: string
+  qualifiedName?: string
+  columnCount?: number
+  relationshipCount?: number
+  rowCountEstimate?: number
+  indexCount?: number
+  isSystem?: boolean
+  isView?: boolean
   metrics?: StructureMetric[]
   fields?: StructureField[]
   sample?: unknown
@@ -971,6 +1058,13 @@ export interface StructureEdge {
   label: string
   kind: string
   inferred?: boolean
+  fromField?: string
+  toField?: string
+  constraintName?: string
+  cardinality?: string
+  deleteRule?: string
+  updateRule?: string
+  confidence?: number
 }
 
 export interface DiagnosticsReport {

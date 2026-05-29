@@ -18,6 +18,7 @@ interface DocumentResultsFooterProps {
   documentCountLabel: string
   footerControls?: ReactNode
   resultDurationMs?: number
+  resultRuntimeTitle?: string
 }
 
 export function DocumentResultsToolbar({
@@ -64,6 +65,7 @@ export function DocumentResultsFooter({
   documentCountLabel,
   footerControls,
   resultDurationMs,
+  resultRuntimeTitle = 'Query runtime',
 }: DocumentResultsFooterProps) {
   return (
     <div className="document-data-grid-footer">
@@ -74,7 +76,7 @@ export function DocumentResultsFooter({
       <div className="document-data-grid-footer-right">
         <strong>{documentCountLabel}</strong>
         {resultDurationMs !== undefined ? (
-          <span className="result-runtime-label" title="Query runtime">
+          <span className="result-runtime-label" title={resultRuntimeTitle}>
             <ClockIcon className="panel-inline-icon" />
             {formatDurationClock(resultDurationMs)}
           </span>

@@ -1,4 +1,16 @@
-export type DocumentValueType = 'object' | 'array' | 'string' | 'number' | 'boolean' | 'null'
+export type DocumentValueType =
+  | 'object'
+  | 'array'
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'null'
+  | 'objectid'
+  | 'date'
+  | 'decimal'
+  | 'binary'
+  | 'regex'
+  | 'timestamp'
 
 export interface DocumentGridRow {
   id: string
@@ -65,6 +77,18 @@ export function editableValue(value: unknown) {
 }
 
 export function parseEditedValue(value: string, type: DocumentValueType) {
+  if (type === 'objectid') {
+    return { $oid: value.trim() }
+  }
+
+  if (type === 'date') {
+    return { $date: value.trim() }
+  }
+
+  if (type === 'decimal') {
+    return { $numberDecimal: value.trim() }
+  }
+
   if (type === 'number') {
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : 0
@@ -90,6 +114,18 @@ export function parseEditedValue(value: string, type: DocumentValueType) {
 }
 
 export function coerceValue(value: unknown, type: DocumentValueType) {
+  if (type === 'objectid') {
+    return { $oid: typeof value === 'string' ? value : '' }
+  }
+
+  if (type === 'date') {
+    return { $date: typeof value === 'string' ? value : new Date().toISOString() }
+  }
+
+  if (type === 'decimal') {
+    return { $numberDecimal: typeof value === 'number' ? String(value) : '0' }
+  }
+
   if (type === 'string') {
     return value === null ? '' : String(value)
   }
@@ -309,6 +345,10 @@ export function isExpandableValue(value: unknown): value is Array<unknown> | Rec
     return value.childCount > 0
   }
 
+  if (bsonScalarInfo(value)) {
+    return false
+  }
+
   return typeof value === 'object' && value !== null && Object.keys(value).length > 0
 }
 
@@ -325,6 +365,11 @@ export function valueEntries(value: Array<unknown> | Record<string, unknown> | D
 function valueType(value: unknown): DocumentValueType {
   if (isDocumentLazyNode(value)) {
     return value.type
+  }
+
+  const bsonScalar = bsonScalarInfo(value)
+  if (bsonScalar) {
+    return bsonScalar.type
   }
 
   if (value === null) {
@@ -349,6 +394,11 @@ export function compactValue(value: unknown) {
       : `{${value.childCount} field(s)}`
   }
 
+  const bsonScalar = bsonScalarInfo(value)
+  if (bsonScalar) {
+    return bsonScalar.label
+  }
+
   if (value === null) {
     return 'null'
   }
@@ -366,6 +416,116 @@ export function compactValue(value: unknown) {
   }
 
   return String(value)
+}
+
+export function documentValueTypeLabel(type: DocumentValueType) {
+  if (type === 'objectid') {
+    return 'ObjectId'
+  }
+
+  if (type === 'date') {
+    return 'Date'
+  }
+
+  if (type === 'decimal') {
+    return 'Decimal'
+  }
+
+  if (type === 'binary') {
+    return 'Binary'
+  }
+
+  if (type === 'regex') {
+    return 'Regex'
+  }
+
+  if (type === 'timestamp') {
+    return 'Timestamp'
+  }
+
+  return type
+}
+
+export function isEditableDocumentValueType(type: DocumentValueType) {
+  return ['string', 'number', 'boolean', 'null', 'object', 'array'].includes(type)
+}
+
+function bsonScalarInfo(value: unknown): { type: DocumentValueType; label: string } | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  if (typeof value.$oid === 'string') {
+    return { type: 'objectid', label: `ObjectId("${value.$oid}")` }
+  }
+
+  if (typeof value.$date === 'string') {
+    return { type: 'date', label: `ISODate("${value.$date}")` }
+  }
+
+  if (isRecord(value.$date) && typeof value.$date.$numberLong === 'string') {
+    return { type: 'date', label: dateLabelFromMilliseconds(value.$date.$numberLong) }
+  }
+
+  if (typeof value.$numberDecimal === 'string') {
+    return { type: 'decimal', label: `Decimal128("${value.$numberDecimal}")` }
+  }
+
+  if (typeof value.$numberLong === 'string') {
+    return { type: 'number', label: `NumberLong("${value.$numberLong}")` }
+  }
+
+  if (typeof value.$numberInt === 'string') {
+    return { type: 'number', label: value.$numberInt }
+  }
+
+  if (typeof value.$numberDouble === 'string') {
+    return { type: 'number', label: value.$numberDouble }
+  }
+
+  if (isRecord(value.$binary)) {
+    const subType = typeof value.$binary.subType === 'string' ? value.$binary.subType : undefined
+    return { type: 'binary', label: subType ? `Binary(${subType})` : 'Binary' }
+  }
+
+  if (isRecord(value.$regularExpression)) {
+    const pattern =
+      typeof value.$regularExpression.pattern === 'string' ? value.$regularExpression.pattern : ''
+    const options =
+      typeof value.$regularExpression.options === 'string' ? value.$regularExpression.options : ''
+    return { type: 'regex', label: `/${pattern}/${options}` }
+  }
+
+  if (isRecord(value.$timestamp)) {
+    const timestamp = value.$timestamp
+    const t = typeof timestamp.t === 'number' ? timestamp.t : timestamp.t
+    const i = typeof timestamp.i === 'number' ? timestamp.i : timestamp.i
+    return { type: 'timestamp', label: `Timestamp(${String(t)}, ${String(i)})` }
+  }
+
+  if (value.$minKey === 1) {
+    return { type: 'object', label: 'MinKey' }
+  }
+
+  if (value.$maxKey === 1) {
+    return { type: 'object', label: 'MaxKey' }
+  }
+
+  return undefined
+}
+
+function dateLabelFromMilliseconds(value: string) {
+  const milliseconds = Number(value)
+
+  if (!Number.isFinite(milliseconds)) {
+    return `Date(${value})`
+  }
+
+  return `ISODate("${new Date(milliseconds).toISOString()}")`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 export function valueAtPath(value: unknown, path: Array<string | number>) {

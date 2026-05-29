@@ -34,13 +34,17 @@ describe('EditorTabItem', () => {
     )
   })
 
-  it('shows running and error state icons without replacing the dirty marker', () => {
+  it('prioritizes running state over the visible dirty marker', () => {
     const { unmount } = renderEditorTabItem({
       tab: { ...tab, dirty: true, status: 'running' },
     })
 
     expect(screen.getByRole('img', { name: 'Query running' })).toBeInTheDocument()
-    expect(screen.getByTitle('Unsaved changes')).toBeInTheDocument()
+    expect(screen.queryByTitle('Unsaved changes')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab')).toHaveAttribute(
+      'title',
+      expect.stringContaining('Unsaved changes'),
+    )
 
     unmount()
 

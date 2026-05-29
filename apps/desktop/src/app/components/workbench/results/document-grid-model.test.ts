@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRows,
   compactValue,
+  documentValueTypeLabel,
   isDocumentLazyNode,
   isExpandableValue,
 } from './document-grid-model'
@@ -67,5 +68,37 @@ describe('document-grid-model lazy nodes', () => {
     )
 
     expect(rows.map((row) => row.fieldPath)).toEqual(['_id', '_id', 'inventory'])
+  })
+
+  it('renders Extended JSON BSON scalars as native terminal values', () => {
+    const createdAt = { $date: '2026-05-29T10:00:00.000Z' }
+    const ownerId = { $oid: '60a840ad652b980ac314bb89' }
+    const modifiedAt = { $date: { $numberLong: '1770036000000' } }
+    const total = { $numberDecimal: '12.50' }
+
+    expect(isExpandableValue(createdAt)).toBe(false)
+    expect(isExpandableValue(ownerId)).toBe(false)
+    expect(compactValue(createdAt)).toBe('ISODate("2026-05-29T10:00:00.000Z")')
+    expect(compactValue(ownerId)).toBe('ObjectId("60a840ad652b980ac314bb89")')
+    expect(compactValue(modifiedAt)).toBe('ISODate("2026-02-02T12:40:00.000Z")')
+    expect(compactValue(total)).toBe('Decimal128("12.50")')
+
+    const rows = buildRows(
+      [{ _id: ownerId, ownerId, createdAt, modifiedAt, total }],
+      new Set(['document-0']),
+    )
+
+    expect(rows.find((row) => row.fieldPath === 'createdAt')).toMatchObject({
+      type: 'date',
+      expandable: false,
+      valueLabel: 'ISODate("2026-05-29T10:00:00.000Z")',
+    })
+    expect(rows.find((row) => row.fieldPath === 'ownerId')).toMatchObject({
+      type: 'objectid',
+      expandable: false,
+      valueLabel: 'ObjectId("60a840ad652b980ac314bb89")',
+    })
+    expect(documentValueTypeLabel('objectid')).toBe('ObjectId')
+    expect(documentValueTypeLabel('date')).toBe('Date')
   })
 })

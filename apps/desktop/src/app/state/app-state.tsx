@@ -36,6 +36,7 @@ const defaultActions: Actions = {
   createExplorerTab: noop,
   createMetricsTab: noop,
   createEnvironmentTab: noop,
+  createSettingsTab: noop,
   refreshMetricsTab: noop,
   createObjectViewTab: noop,
   refreshObjectViewTab: noop,
@@ -86,8 +87,16 @@ const defaultActions: Actions = {
   setTheme: noop,
   updateUiState: noop,
   refreshDiagnostics: noop,
+  exportResultFile: async () => undefined,
   exportWorkspace: noop,
   importWorkspace: noop,
+  exportWorkspaceFile: async () => undefined,
+  importWorkspaceFile: noop,
+  updateWorkspaceBackupSettings: noop,
+  listWorkspaceBackups: async () => undefined,
+  createWorkspaceBackupNow: async () => undefined,
+  restoreWorkspaceBackup: noop,
+  deleteWorkspaceBackup: async () => undefined,
 }
 
 const AppStateContext = createContext<AppContextValue>({

@@ -92,6 +92,10 @@ fn summarize_document(fields: Map<String, Value>) -> Map<String, Value> {
 }
 
 fn summarize_hydrated_value(value: Value, path: &[Value]) -> Value {
+    if is_extended_json_scalar(&value) {
+        return value;
+    }
+
     match value {
         Value::Object(fields) => Value::Object(
             fields
@@ -119,11 +123,41 @@ fn summarize_hydrated_value(value: Value, path: &[Value]) -> Value {
 }
 
 fn summarize_nested_value(value: Value, path: &[Value]) -> Value {
+    if is_extended_json_scalar(&value) {
+        return value;
+    }
+
     match value {
         Value::Object(fields) => lazy_marker("object", fields.len(), path),
         Value::Array(items) => lazy_marker("array", items.len(), path),
         other => other,
     }
+}
+
+fn is_extended_json_scalar(value: &Value) -> bool {
+    let Some(fields) = value.as_object() else {
+        return false;
+    };
+
+    if fields.len() != 1 {
+        return false;
+    }
+
+    fields.iter().any(|(key, child)| match key.as_str() {
+        "$oid" | "$numberInt" | "$numberLong" | "$numberDouble" | "$numberDecimal" | "$uuid"
+        | "$symbol" => child.is_string(),
+        "$date" => {
+            child.is_string()
+                || child
+                    .as_object()
+                    .and_then(|date| date.get("$numberLong"))
+                    .is_some_and(Value::is_string)
+        }
+        "$binary" | "$regularExpression" | "$timestamp" | "$dbPointer" => child.is_object(),
+        "$minKey" | "$maxKey" => child.is_number(),
+        "$undefined" => child.is_boolean(),
+        _ => false,
+    })
 }
 
 fn lazy_marker(kind: &str, child_count: usize, path: &[Value]) -> Value {
@@ -196,7 +230,7 @@ fn projection_path(path: &[Value]) -> Result<String, CommandError> {
         ));
     }
 
-    Ok(path
+    let segments = path
         .iter()
         .map(|item| {
             item.as_str()
@@ -205,8 +239,16 @@ fn projection_path(path: &[Value]) -> Result<String, CommandError> {
                 .unwrap_or_default()
         })
         .filter(|item| !item.is_empty())
-        .collect::<Vec<_>>()
-        .join("."))
+        .collect::<Vec<_>>();
+
+    if segments.iter().any(|segment| segment.starts_with('$')) {
+        return Err(CommandError::new(
+            "mongodb-document-bson-scalar",
+            "BSON scalar wrappers such as ObjectId and Date are displayed inline and cannot be expanded as document paths.",
+        ));
+    }
+
+    Ok(segments.join("."))
 }
 
 fn value_at_path<'a>(value: &'a Value, path: &[Value]) -> Option<&'a Value> {
@@ -255,6 +297,54 @@ mod tests {
             payload["documents"][0]["_id"]["$oid"],
             "60a840ad652b980ac314bb89"
         );
+    }
+
+    #[test]
+    fn efficiency_mode_keeps_extended_json_scalars_inline() {
+        let payload = mongodb_document_payload(
+            json!([
+                {
+                    "_id": { "$oid": "60a840ad652b980ac314bb89" },
+                    "ownerId": { "$oid": "60a840ad652b980ac314bb90" },
+                    "createdAt": { "$date": "2026-05-29T10:00:00.000Z" },
+                    "modifiedAt": { "$date": { "$numberLong": "1770036000000" } },
+                    "total": { "$numberDecimal": "12.50" },
+                    "inventory": { "reserved": 4, "available": 18 }
+                }
+            ]),
+            "catalog",
+            "products",
+            true,
+        );
+
+        assert_eq!(
+            payload["documents"][0]["ownerId"]["$oid"],
+            "60a840ad652b980ac314bb90"
+        );
+        assert_eq!(
+            payload["documents"][0]["createdAt"]["$date"],
+            "2026-05-29T10:00:00.000Z"
+        );
+        assert_eq!(
+            payload["documents"][0]["modifiedAt"]["$date"]["$numberLong"],
+            "1770036000000"
+        );
+        assert_eq!(payload["documents"][0]["total"]["$numberDecimal"], "12.50");
+        assert_eq!(
+            payload["documents"][0]["inventory"]["__datapadLazyNode"],
+            true
+        );
+    }
+
+    #[test]
+    fn lazy_projection_rejects_extended_json_wrapper_segments() {
+        let error = projection_path(&[
+            Value::String("createdAt".into()),
+            Value::String("$date".into()),
+        ])
+        .expect_err("wrapper paths should be blocked before MongoDB receives them");
+
+        assert_eq!(error.code, "mongodb-document-bson-scalar");
     }
 
     #[test]

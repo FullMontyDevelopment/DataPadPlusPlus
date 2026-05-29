@@ -1,4 +1,5 @@
 use std::{
+    fs,
     path::{Path, PathBuf},
     sync::MutexGuard,
 };
@@ -21,18 +22,22 @@ use crate::{
             DatastoreExperienceResponse, DocumentNodeChildrenRequest, DocumentNodeChildrenResponse,
             EnvironmentProfile, ExecuteTestSuiteRequest, ExecuteTestSuiteResponse,
             ExecutionRequest, ExecutionResponse, ExplorerInspectRequest, ExplorerInspectResponse,
-            ExplorerRequest, ExplorerResponse, ExportBundle, LibraryCreateFolderRequest,
-            LibraryDeleteNodeRequest, LibraryMoveNodeRequest, LibraryRenameNodeRequest,
-            LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest, LocalDatabaseCreateResult,
-            LocalDatabasePickRequest, LocalDatabasePickResult, OpenTestSuiteTemplateRequest,
-            OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest,
-            OperationManifestResponse, OperationPlanRequest, OperationPlanResponse,
-            PermissionInspectionRequest, PermissionInspectionResponse, QueryTabActiveExecution,
-            QueryTabReorderRequest, RedisKeyInspectRequest, RedisKeyScanRequest,
-            RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
-            SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
-            StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
+            ExplorerRequest, ExplorerResponse, ExportBundle, ExportResultFileRequest,
+            ExportResultFileResponse, LibraryCreateFolderRequest, LibraryDeleteNodeRequest,
+            LibraryMoveNodeRequest, LibraryRenameNodeRequest, LibrarySetEnvironmentRequest,
+            LocalDatabaseCreateRequest, LocalDatabaseCreateResult, LocalDatabasePickRequest,
+            LocalDatabasePickResult, OpenTestSuiteTemplateRequest, OperationExecutionRequest,
+            OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse,
+            OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest,
+            PermissionInspectionResponse, QueryTabActiveExecution, QueryTabReorderRequest,
+            RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest,
+            ResultPageResponse, SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest,
+            SavedWorkItem, StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
             UpdateTestSuiteTabRequest, UpdateUiStateRequest, UserFacingError,
+            WorkspaceBackupDeleteRequest, WorkspaceBackupRestoreRequest, WorkspaceBackupRunRequest,
+            WorkspaceBackupRunResponse, WorkspaceBackupSettingsRequest, WorkspaceBackupSummary,
+            WorkspaceBundleFileExportRequest, WorkspaceBundleFileExportResponse,
+            WorkspaceBundleFileImportRequest,
         },
     },
 };
@@ -286,6 +291,14 @@ pub fn create_environment_tab(
 }
 
 #[tauri::command]
+pub fn create_settings_tab(
+    state: State<'_, SharedAppState>,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.create_settings_tab()
+}
+
+#[tauri::command]
 pub fn create_object_view_tab(
     state: State<'_, SharedAppState>,
     request: CreateObjectViewTabRequest,
@@ -529,6 +542,49 @@ pub fn save_query_tab_to_local_file(
 
     let mut state = lock_state(&state)?;
     state.save_query_tab_to_local_file(request)
+}
+
+#[tauri::command]
+pub fn export_result_file(
+    app: AppHandle,
+    request: ExportResultFileRequest,
+) -> Result<ExportResultFileResponse, CommandError> {
+    validate_export_result_file_request(&request)?;
+
+    let suggested_file_name = format!(
+        "{}.{}",
+        safe_export_file_name(&request.suggested_file_name),
+        request.extension
+    );
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("Export result")
+        .set_file_name(suggested_file_name)
+        .add_filter(
+            export_filter_label(&request.extension),
+            &[request.extension.as_str()],
+        )
+        .blocking_save_file();
+
+    let Some(selected) = selected else {
+        return Ok(ExportResultFileResponse {
+            saved: false,
+            path: None,
+        });
+    };
+    let path = dialog_path_to_string(selected)?;
+    fs::write(&path, request.contents.as_bytes()).map_err(|error| {
+        CommandError::new(
+            "result-export-failed",
+            format!("Unable to write the result export: {error}"),
+        )
+    })?;
+
+    Ok(ExportResultFileResponse {
+        saved: true,
+        path: Some(path),
+    })
 }
 
 #[tauri::command]
@@ -903,10 +959,145 @@ pub fn import_workspace_bundle(
     state.import_bundle(&passphrase, &encrypted_payload)
 }
 
+#[tauri::command]
+pub fn export_workspace_bundle_file(
+    app: AppHandle,
+    state: State<'_, SharedAppState>,
+    request: WorkspaceBundleFileExportRequest,
+) -> Result<WorkspaceBundleFileExportResponse, CommandError> {
+    let bundle = {
+        let state = lock_state(&state)?;
+        state.export_bundle(&request.passphrase, request.include_secrets)?
+    };
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("Export DataPad++ workspace")
+        .set_file_name(default_workspace_bundle_file_name())
+        .add_filter("DataPad++ workspace", &["datapadpp-workspace"])
+        .blocking_save_file();
+
+    let Some(selected) = selected else {
+        return Ok(WorkspaceBundleFileExportResponse {
+            saved: false,
+            path: None,
+            includes_secrets: bundle.includes_secrets,
+            secret_count: bundle.secret_count,
+        });
+    };
+
+    let path = dialog_path_to_string(selected)?;
+    fs::write(&path, serde_json::to_string_pretty(&bundle)?).map_err(|error| {
+        CommandError::new(
+            "workspace-bundle-export-failed",
+            format!("Unable to write the workspace bundle: {error}"),
+        )
+    })?;
+
+    Ok(WorkspaceBundleFileExportResponse {
+        saved: true,
+        path: Some(path),
+        includes_secrets: bundle.includes_secrets,
+        secret_count: bundle.secret_count,
+    })
+}
+
+#[tauri::command]
+pub fn import_workspace_bundle_file(
+    app: AppHandle,
+    state: State<'_, SharedAppState>,
+    request: WorkspaceBundleFileImportRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    {
+        let state = lock_state(&state)?;
+        state.ensure_unlocked()?;
+    }
+
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("Import DataPad++ workspace")
+        .add_filter("DataPad++ workspace", &["datapadpp-workspace", "json"])
+        .blocking_pick_file();
+
+    let Some(selected) = selected else {
+        let state = lock_state(&state)?;
+        return Ok(state.bootstrap_payload());
+    };
+
+    let path = dialog_path_to_string(selected)?;
+    let text = fs::read_to_string(&path).map_err(|error| {
+        CommandError::new(
+            "workspace-bundle-import-failed",
+            format!("Unable to read the selected workspace bundle: {error}"),
+        )
+    })?;
+    let bundle = serde_json::from_str::<ExportBundle>(&text).map_err(|error| {
+        CommandError::new(
+            "workspace-bundle-import-invalid",
+            format!("The selected file is not a DataPad++ workspace bundle: {error}"),
+        )
+    })?;
+
+    let mut state = lock_state(&state)?;
+    state.import_bundle(&request.passphrase, &bundle.encrypted_payload)
+}
+
+#[tauri::command]
+pub fn update_workspace_backup_settings(
+    state: State<'_, SharedAppState>,
+    request: WorkspaceBackupSettingsRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.update_workspace_backup_settings(request)
+}
+
+#[tauri::command]
+pub fn list_workspace_backups(
+    state: State<'_, SharedAppState>,
+) -> Result<Vec<WorkspaceBackupSummary>, CommandError> {
+    let state = lock_state(&state)?;
+    state.list_workspace_backups()
+}
+
+#[tauri::command]
+pub fn create_workspace_backup_now(
+    state: State<'_, SharedAppState>,
+    request: WorkspaceBackupRunRequest,
+) -> Result<WorkspaceBackupRunResponse, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.create_workspace_backup(request)
+}
+
+#[tauri::command]
+pub fn restore_workspace_backup(
+    state: State<'_, SharedAppState>,
+    request: WorkspaceBackupRestoreRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.restore_workspace_backup(request)
+}
+
+#[tauri::command]
+pub fn delete_workspace_backup(
+    state: State<'_, SharedAppState>,
+    request: WorkspaceBackupDeleteRequest,
+) -> Result<Vec<WorkspaceBackupSummary>, CommandError> {
+    let state = lock_state(&state)?;
+    state.delete_workspace_backup(request)
+}
+
 fn dialog_path_to_string(path: FilePath) -> Result<String, CommandError> {
     path.into_path()
         .map(|path| path.to_string_lossy().to_string())
         .map_err(|error| CommandError::new("dialog-path-error", error.to_string()))
+}
+
+fn default_workspace_bundle_file_name() -> String {
+    format!(
+        "datapadplusplus-workspace-{}.datapadpp-workspace",
+        timestamp_now()
+    )
 }
 
 fn default_query_file_name(title: &str, language: &str, tab_kind: &str) -> String {
@@ -931,6 +1122,56 @@ fn default_query_file_name(title: &str, language: &str, tab_kind: &str) -> Strin
     };
     let trimmed = title.trim().trim_end_matches(&format!(".{extension}"));
     format!("{}.{}", safe_file_stem(trimmed, "query"), extension)
+}
+
+fn validate_export_result_file_request(
+    request: &ExportResultFileRequest,
+) -> Result<(), CommandError> {
+    if request.suggested_file_name.trim().is_empty() {
+        return Err(CommandError::new(
+            "result-export-invalid",
+            "Choose a result export name before saving.",
+        ));
+    }
+
+    if !matches!(
+        request.extension.as_str(),
+        "csv" | "json" | "ndjson" | "txt"
+    ) {
+        return Err(CommandError::new(
+            "result-export-invalid",
+            "Choose a supported result export format.",
+        ));
+    }
+
+    if request.mime_type.trim().is_empty() {
+        return Err(CommandError::new(
+            "result-export-invalid",
+            "Result export format is missing its content type.",
+        ));
+    }
+
+    Ok(())
+}
+
+fn export_filter_label(extension: &str) -> &'static str {
+    match extension {
+        "csv" => "CSV",
+        "json" => "JSON",
+        "ndjson" => "NDJSON",
+        "txt" => "Text",
+        _ => "Result export",
+    }
+}
+
+fn safe_export_file_name(value: &str) -> String {
+    let stem = safe_file_stem(value.trim(), "result");
+
+    if stem.trim_matches('-').is_empty() {
+        "result".into()
+    } else {
+        stem
+    }
 }
 
 fn safe_file_stem(stem: &str, fallback: &str) -> String {

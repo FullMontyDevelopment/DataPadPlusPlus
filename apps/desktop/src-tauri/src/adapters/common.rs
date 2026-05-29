@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use serde_json::Value;
 
 use crate::domain::{
@@ -84,6 +85,60 @@ pub(crate) fn stringify_sqlx_common<const N: usize>(
     fallback: String,
 ) -> String {
     candidates.into_iter().flatten().next().unwrap_or(fallback)
+}
+
+pub(crate) fn format_native_date_time(value: NaiveDateTime) -> String {
+    format!(
+        "{} {}",
+        format_native_date(value.date()),
+        format_native_time(value.time())
+    )
+}
+
+pub(crate) fn format_native_date(value: NaiveDate) -> String {
+    value.to_string()
+}
+
+pub(crate) fn format_native_time(value: NaiveTime) -> String {
+    let base = value.format("%H:%M:%S").to_string();
+    let nanos = value.nanosecond();
+
+    if nanos == 0 {
+        return base;
+    }
+
+    let mut fraction = format!("{nanos:09}");
+    while fraction.ends_with('0') {
+        fraction.pop();
+    }
+
+    format!("{base}.{fraction}")
+}
+
+pub(crate) fn date_from_days_since(days: i64, start_year: i32) -> Option<NaiveDate> {
+    NaiveDate::from_ymd_opt(start_year, 1, 1)?.checked_add_signed(Duration::days(days))
+}
+
+pub(crate) fn time_from_nanos_since_midnight(total_nanos: i128) -> Option<NaiveTime> {
+    let nanos_per_day = 86_400_i128 * 1_000_000_000_i128;
+
+    if !(0..nanos_per_day).contains(&total_nanos) {
+        return None;
+    }
+
+    let seconds = total_nanos / 1_000_000_000_i128;
+    let nanos = total_nanos % 1_000_000_000_i128;
+
+    NaiveTime::from_num_seconds_from_midnight_opt(seconds as u32, nanos as u32)
+}
+
+pub(crate) fn time_from_scaled_increments(increments: u64, scale: u8) -> Option<NaiveTime> {
+    if scale > 9 {
+        return None;
+    }
+
+    let nanos_per_increment = 10_i128.pow(u32::from(9 - scale));
+    time_from_nanos_since_midnight(i128::from(increments) * nanos_per_increment)
 }
 
 pub(crate) fn renderer_modes_for_payloads(payloads: &[Value]) -> (String, Vec<String>) {

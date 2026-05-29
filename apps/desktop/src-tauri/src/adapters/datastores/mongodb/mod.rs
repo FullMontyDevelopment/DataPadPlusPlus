@@ -1,5 +1,6 @@
 use super::super::*;
 
+mod bson_extjson;
 mod catalog;
 mod connection;
 mod diagnostics;

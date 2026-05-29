@@ -208,7 +208,7 @@ function sqlObjectPartsFromExplorerNode(
   const [labelSchema, labelObjectName] = splitSqlName(node.label)
   const normalizedPath =
     node.path?.[0] === connection.name ? node.path.slice(1) : node.path ?? []
-  const pathObject = normalizedPath.find((segment) => splitSqlName(segment)[1])
+  const pathObject = normalizedPath.find(isQualifiedSqlPathSegment)
   const [pathSchema, pathObjectName] = splitSqlName(pathObject)
   const categoryFreePath = normalizedPath.filter((segment) => !isSqlTreeCategory(segment))
 
@@ -266,6 +266,11 @@ function splitSqlName(value: string | undefined) {
   }
 
   return [undefined, parts[0]] as const
+}
+
+function isQualifiedSqlPathSegment(segment: string) {
+  const [schema, objectName] = splitSqlName(segment)
+  return Boolean(schema && objectName)
 }
 
 function isSqlTreeCategory(label: string) {

@@ -1,7 +1,8 @@
-use mongodb::bson::{self, doc, oid::ObjectId, Bson, Document};
+use mongodb::bson::{doc, Bson, Document};
 use serde_json::{json, Value};
 
 use super::super::super::*;
+use super::bson_extjson::{mongodb_json_to_bson, mongodb_json_to_document};
 use super::connection::{mongodb_client, mongodb_database_name};
 
 pub(super) async fn execute_mongodb_data_edit(
@@ -166,8 +167,7 @@ pub(super) fn mongodb_insert_document(
         ));
     }
 
-    bson::to_document(value)
-        .map_err(|error| CommandError::new("mongodb-insert-bson", error.to_string()))
+    mongodb_json_to_document(value, "document", "mongodb-insert-bson")
 }
 
 pub(super) fn mongodb_update_document(
@@ -265,17 +265,7 @@ fn data_edit_path(change: &DataEditChange) -> Result<String, CommandError> {
 }
 
 fn json_value_to_bson(value: &Value) -> Result<Bson, CommandError> {
-    if let Some(oid) = value
-        .as_object()
-        .and_then(|object| object.get("$oid"))
-        .and_then(Value::as_str)
-    {
-        return ObjectId::parse_str(oid)
-            .map(Bson::ObjectId)
-            .map_err(|error| CommandError::new("mongodb-edit-object-id", error.to_string()));
-    }
-
-    bson::to_bson(value).map_err(|error| CommandError::new("mongodb-edit-bson", error.to_string()))
+    mongodb_json_to_bson(value, "mongodb-edit-bson")
 }
 
 fn bson_value_to_json(value: &Bson) -> Result<Value, CommandError> {
@@ -286,6 +276,7 @@ fn bson_value_to_json(value: &Bson) -> Result<Value, CommandError> {
 #[cfg(test)]
 mod tests {
     use crate::domain::models::DataEditTarget;
+    use mongodb::bson::oid::ObjectId;
 
     use super::*;
 
@@ -385,6 +376,10 @@ mod tests {
             json_value_to_bson(&json!({"$oid": "507f1f77bcf86cd799439011"})).expect("object id"),
             Bson::ObjectId(ObjectId::parse_str("507f1f77bcf86cd799439011").unwrap())
         );
+        assert!(matches!(
+            json_value_to_bson(&json!({"$date": "2026-05-16T10:02:21.369Z"})).expect("date"),
+            Bson::DateTime(_)
+        ));
         assert_eq!(
             json_value_to_bson(&json!("sku-1")).unwrap(),
             Bson::String("sku-1".into())

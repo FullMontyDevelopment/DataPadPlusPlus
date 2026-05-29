@@ -167,7 +167,9 @@ pub(super) fn normalize_ui_state(snapshot: &WorkspaceSnapshot) -> UiState {
             "bottom".into()
         },
         results_side_width: clamp_results_side_width(snapshot.ui.results_side_width),
-        right_drawer: if snapshot.ui.right_drawer == "inspection" {
+        right_drawer: if snapshot.ui.right_drawer == "inspection"
+            || snapshot.ui.right_drawer == "diagnostics"
+        {
             "none".into()
         } else if is_right_drawer(&snapshot.ui.right_drawer) {
             snapshot.ui.right_drawer.clone()

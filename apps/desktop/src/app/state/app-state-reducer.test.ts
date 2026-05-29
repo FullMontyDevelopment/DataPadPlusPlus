@@ -255,6 +255,39 @@ describe('app-state reducer tab-scoped execution', () => {
 
     expect(state.executionsByTab[tab.id]).toBeUndefined()
     expect(state.payload?.snapshot.tabs[0]?.status).toBe('success')
+    expect(state.payload?.snapshot.tabs[0]?.result?.serverDurationMs).toBe(10)
+    expect(state.payload?.snapshot.tabs[0]?.result?.displayDurationMs).toBeGreaterThan(10)
+  })
+
+  it('preserves running state when a command payload updates the running tab', () => {
+    const payload = payloadWithTwoTabs()
+    const tab = expectTab(payload.snapshot.tabs[0])
+    let state: StateShape = {
+      ...initialState,
+      status: 'ready',
+      payload,
+    }
+
+    state = reducer(state, {
+      type: 'EXECUTION_LOADING',
+      tabId: tab.id,
+      execution: activeExecution('execution-a'),
+    })
+
+    const incomingPayload = payloadWithTwoTabs()
+    const incomingTab = expectTab(incomingPayload.snapshot.tabs[0])
+    incomingTab.queryText = 'select 2;'
+    incomingTab.dirty = true
+
+    state = reducer(state, {
+      type: 'COMMAND_SUCCESS',
+      payload: incomingPayload,
+    })
+
+    const updatedTab = state.payload?.snapshot.tabs.find((item) => item.id === tab.id)
+    expect(updatedTab?.status).toBe('running')
+    expect(updatedTab?.dirty).toBe(true)
+    expect(updatedTab?.activeExecution?.executionId).toBe('execution-a')
   })
 })
 

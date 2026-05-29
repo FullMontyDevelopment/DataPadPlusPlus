@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import type {
   ClosedQueryTabSnapshot,
   ConnectionProfile,
@@ -316,19 +316,17 @@ describe('LibraryPane', () => {
 
     const childRow = treeRowForLabel('Child query')
     const topRow = treeRowForLabel('Top query')
+    const childFolderRow = treeRowForLabel('Child')
 
     expect(childRow).toHaveClass('has-library-env')
     expect(childRow).toHaveClass('is-library-env-inherited')
     expect(childRow).toHaveStyle({ '--library-env-color': '#e06c75' })
-    expect(withinRow(childRow).getByText('Prod')).toHaveAttribute(
-      'title',
-      'Prod is inherited from Child.',
+    expect(childRow.querySelector('.library-tree-meta .library-env-badge')).toBeNull()
+    expect(childFolderRow.querySelector('.library-tree-meta .library-env-badge')).toHaveTextContent(
+      'Prod',
     )
     expect(topRow).toHaveStyle({ '--library-env-color': '#2dbf9b' })
-    expect(withinRow(topRow).getByText('Dev')).toHaveAttribute(
-      'title',
-      'Dev is inherited from Top.',
-    )
+    expect(topRow.querySelector('.library-tree-meta .library-env-badge')).toBeNull()
   })
 
   it('keeps environment badges and ellipsis actions in the right aligned lane', () => {
@@ -345,7 +343,7 @@ describe('LibraryPane', () => {
 
     expect(topRow.querySelector('.library-tree-meta .library-env-badge')).toHaveTextContent('Dev')
     expect(topRow.querySelector('.library-tree-meta .library-row-menu-button')).toBeInTheDocument()
-    expect(queryRow.querySelector('.library-tree-meta .library-env-badge')).toHaveTextContent('Dev')
+    expect(queryRow.querySelector('.library-tree-meta .library-env-badge')).toBeNull()
     expect(queryRow.querySelector('.library-tree-meta .library-row-menu-button')).toBeInTheDocument()
     expect(queryRow.querySelector('.saved-work-actions')).not.toBeInTheDocument()
   })
@@ -523,10 +521,6 @@ function treeRowForLabel(label: string) {
   }
 
   return row
-}
-
-function withinRow(row: Element) {
-  return within(row as HTMLElement)
 }
 
 function treeItemForLabel(label: string) {

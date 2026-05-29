@@ -62,10 +62,23 @@ export function validateExplorerRequest(request: ExplorerRequest): ExplorerReque
 export function validateStructureRequest(request: StructureRequest): StructureRequest {
   validateRequiredId(request.connectionId, 'Connection id')
   validateRequiredId(request.environmentId, 'Environment id')
+  const mode = validateOptionalText(request.mode, 'Structure mode', 32)
+  validateOptionalId(request.focusNodeId, 'Structure focus node id')
+
+  if (mode && mode !== 'overview' && mode !== 'relationships') {
+    throw new Error('Structure mode is invalid.')
+  }
+
   return {
     ...request,
     scope: validateOptionalText(request.scope, 'Structure scope', MAX_SCOPE_LENGTH),
+    cursor: validateOptionalText(request.cursor, 'Structure cursor', MAX_SCOPE_LENGTH),
+    focusNodeId: request.focusNodeId,
     limit: clampOptionalInteger(request.limit, 'Structure limit', 1, MAX_STRUCTURE_LIMIT),
+    maxNodes: clampOptionalInteger(request.maxNodes, 'Structure max nodes', 1, MAX_STRUCTURE_LIMIT),
+    maxEdges: clampOptionalInteger(request.maxEdges, 'Structure max edges', 0, MAX_STRUCTURE_LIMIT * 4),
+    depth: clampOptionalInteger(request.depth, 'Structure depth', 0, 6),
+    mode: mode as StructureRequest['mode'],
   }
 }
 

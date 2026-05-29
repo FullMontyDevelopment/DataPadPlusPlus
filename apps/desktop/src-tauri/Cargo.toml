@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 aes-gcm = "0.10"
 async-trait = "0.1"
 base64 = "0.22"
+chrono = { version = "0.4", default-features = false }
 duckdb = { version = "1.10502.0", features = ["bundled"] }
 futures-util = "0.3"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }

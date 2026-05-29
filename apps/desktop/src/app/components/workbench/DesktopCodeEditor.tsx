@@ -30,7 +30,7 @@ export function DesktopCodeEditor({
 }: {
   value: string
   language: string
-  theme: 'light' | 'dark'
+  theme: string
   ariaLabel?: string
   completionContext?: EditorCompletionContext
   completionProviders?: DatastoreCompletionProvider[]
@@ -190,7 +190,7 @@ export function DesktopCodeEditor({
         height="100%"
         language={language}
         value={value}
-        theme={theme === 'light' ? 'vs' : 'vs-dark'}
+        theme={monacoThemeForWorkbenchTheme(theme)}
         options={{
           minimap: { enabled: false },
           fontSize: 13,
@@ -208,6 +208,10 @@ export function DesktopCodeEditor({
       />
     </div>
   )
+}
+
+function monacoThemeForWorkbenchTheme(theme: string) {
+  return theme === 'light' || theme === 'solarized-light' ? 'vs' : 'vs-dark'
 }
 
 function variableDecorations(

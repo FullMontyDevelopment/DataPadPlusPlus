@@ -30,7 +30,21 @@ pub(in crate::app::runtime) fn validate_structure_request(
         "Structure scope",
         MAX_SCOPE_LENGTH,
     )?;
+    validate_optional_text(
+        request.cursor.as_deref(),
+        "Structure cursor",
+        MAX_SCOPE_LENGTH,
+    )?;
+    validate_optional_id(request.focus_node_id.as_deref(), "Structure focus node id")?;
+    if let Some(mode) = request.mode.as_deref() {
+        if mode != "overview" && mode != "relationships" {
+            return Err(invalid_request("Structure mode is invalid."));
+        }
+    }
     clamp_optional_u32(&mut request.limit, 1, MAX_STRUCTURE_LIMIT);
+    clamp_optional_u32(&mut request.max_nodes, 1, MAX_STRUCTURE_LIMIT);
+    clamp_optional_u32(&mut request.max_edges, 0, MAX_STRUCTURE_LIMIT * 4);
+    clamp_optional_u32(&mut request.depth, 0, 6);
     Ok(())
 }
 

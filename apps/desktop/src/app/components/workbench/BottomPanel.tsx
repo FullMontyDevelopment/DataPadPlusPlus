@@ -12,6 +12,8 @@ import type {
   ExecutionRequest,
   ExecutionResponse,
   ExecutionResultEnvelope,
+  ExportResultFileRequest,
+  ExportResultFileResponse,
   ExplorerInspectResponse,
   OperationPlanRequest,
   OperationPlanResponse,
@@ -54,6 +56,9 @@ interface BottomPanelProps {
   onSelectRenderer(renderer: string): void
   onLoadNextPage(): void
   onResultRendered?(tabId: string, executionId: string): void
+  onExportResultFile?(
+    request: ExportResultFileRequest,
+  ): Promise<ExportResultFileResponse | undefined>
   onFetchDocumentNodeChildren?(
     request: DocumentNodeChildrenRequest,
   ): Promise<DocumentNodeChildrenResponse | undefined>
@@ -92,6 +97,7 @@ export function BottomPanel({
   onSelectRenderer,
   onLoadNextPage,
   onResultRendered = () => undefined,
+  onExportResultFile,
   onFetchDocumentNodeChildren,
   onResize,
   onClose,
@@ -347,6 +353,7 @@ export function BottomPanel({
             onSelectRenderer={onSelectRenderer}
             onLoadNextPage={onLoadNextPage}
             onResultRendered={onResultRendered}
+            onExportResultFile={onExportResultFile}
             onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
             onExecuteDataEdit={onExecuteDataEdit}
             onPlanOperation={onPlanOperation}

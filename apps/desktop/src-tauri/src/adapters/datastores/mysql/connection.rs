@@ -1,4 +1,7 @@
-use sqlx::{Column, Row, TypeInfo};
+use sqlx::{
+    types::chrono::{NaiveDate, NaiveDateTime, NaiveTime},
+    Column, Row, TypeInfo,
+};
 
 use super::super::super::*;
 
@@ -6,6 +9,18 @@ pub(super) fn stringify_mysql_cell(row: &sqlx::mysql::MySqlRow, index: usize) ->
     stringify_sqlx_common(
         [
             row.try_get::<Option<String>, _>(index).ok().flatten(),
+            row.try_get::<Option<NaiveDateTime>, _>(index)
+                .ok()
+                .flatten()
+                .map(format_native_date_time),
+            row.try_get::<Option<NaiveDate>, _>(index)
+                .ok()
+                .flatten()
+                .map(format_native_date),
+            row.try_get::<Option<NaiveTime>, _>(index)
+                .ok()
+                .flatten()
+                .map(format_native_time),
             row.try_get::<Option<bool>, _>(index)
                 .ok()
                 .flatten()
@@ -22,7 +37,6 @@ pub(super) fn stringify_mysql_cell(row: &sqlx::mysql::MySqlRow, index: usize) ->
                 .ok()
                 .flatten()
                 .map(|item| item.to_string()),
-            None,
             row.try_get::<Option<Vec<u8>>, _>(index)
                 .ok()
                 .flatten()
@@ -32,7 +46,10 @@ pub(super) fn stringify_mysql_cell(row: &sqlx::mysql::MySqlRow, index: usize) ->
     )
 }
 
-fn stringify_sqlx_common(candidates: [Option<String>; 7], fallback: String) -> String {
+fn stringify_sqlx_common<const N: usize>(
+    candidates: [Option<String>; N],
+    fallback: String,
+) -> String {
     candidates.into_iter().flatten().next().unwrap_or(fallback)
 }
 

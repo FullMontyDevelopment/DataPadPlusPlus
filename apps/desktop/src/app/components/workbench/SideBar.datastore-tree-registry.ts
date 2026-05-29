@@ -1829,7 +1829,7 @@ function sqlServerQualifiedDisplayName(schema: string | undefined, objectName: s
   const object = objectName?.trim() || 'Object'
   const [labelSchema, labelObject] = splitSqlName(object)
 
-  if (labelObject) {
+  if (labelSchema && labelObject) {
     return `${labelSchema}.${labelObject}`
   }
 
@@ -2716,7 +2716,7 @@ function sqlObjectPartsFromExplorerNode(
   const kind = normalizeExplorerKind(connection, node.kind)
   const scopeName = node.scope?.split(':').slice(1).join(':')
   const [scopeSchema, scopeObject, scopeChild] = splitSqlName(scopeName)
-  const pathObject = normalizedPath.find((segment) => splitSqlName(segment)[1])
+  const pathObject = normalizedPath.find(isQualifiedSqlPathSegment)
   const [pathSchema, pathObjectName] = splitSqlName(pathObject)
   const [labelSchema, labelObject] = splitSqlName(node.label)
   const categoryFreePath = normalizedPath.filter((segment) => !isCategoryLabel(segment))
@@ -2762,6 +2762,11 @@ function splitSqlName(value: string | undefined) {
   }
 
   return [undefined, parts[0], undefined] as const
+}
+
+function isQualifiedSqlPathSegment(segment: string) {
+  const [schema, objectName] = splitSqlName(segment)
+  return Boolean(schema && objectName)
 }
 
 function sqlObjectPartsFromTreeNode(connection: ConnectionProfile, node: ConnectionTreeNode) {

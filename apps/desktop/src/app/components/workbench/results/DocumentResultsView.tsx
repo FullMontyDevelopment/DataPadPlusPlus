@@ -56,6 +56,7 @@ interface DocumentResultsViewProps {
   hydrationMode?: 'full' | 'lazy'
   tabId?: string
   resultDurationMs?: number
+  resultRuntimeTitle?: string
   resultSummary?: string
   onFetchDocumentNodeChildren?(
     request: DocumentNodeChildrenRequest,
@@ -102,6 +103,7 @@ export function DocumentResultsView({
   hydrationMode = 'full',
   tabId,
   resultDurationMs,
+  resultRuntimeTitle,
   resultSummary,
   onFetchDocumentNodeChildren,
   onExecuteDataEdit,
@@ -564,6 +566,7 @@ export function DocumentResultsView({
         documentCountLabel={documentCountLabel}
         footerControls={footerControls}
         resultDurationMs={resultDurationMs}
+        resultRuntimeTitle={resultRuntimeTitle}
       />
       {activeContextMenu ? (
         <DocumentContextMenu

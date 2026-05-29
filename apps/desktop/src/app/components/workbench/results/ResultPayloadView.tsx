@@ -9,6 +9,7 @@ import type {
   ResultPayload,
 } from '@datapadplusplus/shared-types'
 import type { ReactNode } from 'react'
+import { CostEstimateResultsView } from './CostEstimateResultsView'
 import { DataGridView } from './DataGridView'
 import { dataGridRowsVersion } from './data-grid-row-patches'
 import type { DocumentEditContext } from './document-edit-context'
@@ -20,6 +21,7 @@ import { MongoExplainPlanView } from './MongoExplainPlanView'
 import { ProfileResultsView } from './ProfileResultsView'
 import { RawResultView } from './RawResultView'
 import { SearchHitsResultsView } from './SearchHitsResultsView'
+import { formatResultCellValue } from './result-cell-format'
 
 export function ResultPayloadView({
   connection,
@@ -28,6 +30,7 @@ export function ResultPayloadView({
   payload,
   tabId,
   resultDurationMs,
+  resultRuntimeTitle,
   resultSummary,
   editContext,
   documentFooterControls,
@@ -43,6 +46,7 @@ export function ResultPayloadView({
   payload?: ResultPayload
   tabId?: string
   resultDurationMs?: number
+  resultRuntimeTitle?: string
   resultSummary?: string
   onFetchDocumentNodeChildren?(
     request: DocumentNodeChildrenRequest,
@@ -59,8 +63,8 @@ export function ResultPayloadView({
   }
 
   if (payload.renderer === 'table') {
-    const columns = arrayValue<string>(payload.columns)
-    const rows = arrayValue<string[]>(payload.rows)
+    const columns = arrayValue<unknown>(payload.columns).map(formatResultCellValue)
+    const rows = tableRowsValue(payload.rows)
 
     return (
       <DataGridView
@@ -88,6 +92,7 @@ export function ResultPayloadView({
         hydrationMode={payload.hydrationMode}
         tabId={tabId}
         resultDurationMs={resultDurationMs}
+        resultRuntimeTitle={resultRuntimeTitle}
         resultSummary={resultSummary}
         onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
         onExecuteDataEdit={onExecuteDataEdit}
@@ -158,6 +163,10 @@ export function ResultPayloadView({
 
   if (payload.renderer === 'profile') {
     return <ProfileResultsView payload={payload} />
+  }
+
+  if (payload.renderer === 'costEstimate') {
+    return <CostEstimateResultsView payload={payload} />
   }
 
   if (payload.renderer === 'metrics') {
@@ -281,6 +290,14 @@ function sliceItems<T>(items: T[], pageIndex: number, pageSize: number | undefin
 
 function arrayValue<T = unknown>(value: unknown): T[] {
   return Array.isArray(value) ? value as T[] : []
+}
+
+function tableRowsValue(value: unknown): string[][] {
+  return arrayValue<unknown>(value).map((row) =>
+    Array.isArray(row)
+      ? row.map(formatResultCellValue)
+      : [formatResultCellValue(row)],
+  )
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

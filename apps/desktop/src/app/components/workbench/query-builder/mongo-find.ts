@@ -216,6 +216,14 @@ function coerceMongoValue(
     }
   }
 
+  if (valueType === 'date') {
+    return { $date: normalizeMongoDateInput(value) }
+  }
+
+  if (valueType === 'objectId') {
+    return { $oid: normalizeMongoObjectIdInput(value) }
+  }
+
   return value
 }
 
@@ -247,6 +255,18 @@ function parseBoolean(value: string, fallback: boolean) {
   }
 
   return fallback
+}
+
+function normalizeMongoDateInput(value: string) {
+  const trimmed = value.trim()
+  const isoDate = trimmed.match(/^ISODate\("([^"]+)"\)$/)
+  return isoDate?.[1] ?? trimmed
+}
+
+function normalizeMongoObjectIdInput(value: string) {
+  const trimmed = value.trim()
+  const objectId = trimmed.match(/^ObjectId\("([^"]+)"\)$/)
+  return objectId?.[1] ?? trimmed
 }
 
 function escapeMongoRegex(value: string) {

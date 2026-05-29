@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clientWorkspace } from './client-workspace'
+import { encryptBrowserWorkspacePayload } from './client-workspace-bundles'
+import { createBrowserWorkspaceBundlePayloadText } from './client-workspace-integrity'
+import { loadBrowserSnapshot } from './browser-store'
 
 const invoke = vi.fn()
 
@@ -115,5 +118,51 @@ describe('client workspace import validation', () => {
         schemaVersion: expect.any(Number),
       }),
     })
+  })
+
+  it.runIf(globalThis.crypto?.subtle)('adds encrypted integrity metadata to browser-preview bundles', async () => {
+    const payloadText = await createBrowserWorkspaceBundlePayloadText(loadBrowserSnapshot())
+    const payload = JSON.parse(payloadText) as {
+      integrity?: { algorithm?: string; scope?: string; digest?: string }
+      secrets?: unknown[]
+      snapshot?: unknown
+    }
+
+    expect(payload.snapshot).toBeTruthy()
+    expect(payload.secrets).toEqual([])
+    expect(payload.integrity).toMatchObject({
+      algorithm: 'sha256',
+      scope: 'workspace-bundle-payload-v1',
+      digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
+
+    const encryptedPayload = await encryptBrowserWorkspacePayload('correct horse', payloadText)
+
+    await expect(
+      clientWorkspace.importWorkspaceBundle('correct horse', encryptedPayload),
+    ).resolves.toMatchObject({
+      snapshot: expect.objectContaining({
+        schemaVersion: expect.any(Number),
+      }),
+    })
+  })
+
+  it.runIf(globalThis.crypto?.subtle)('rejects browser-preview bundles with mismatched integrity metadata', async () => {
+    const payload = JSON.parse(
+      await createBrowserWorkspaceBundlePayloadText(loadBrowserSnapshot()),
+    ) as {
+      snapshot: { updatedAt?: string }
+    }
+    payload.snapshot.updatedAt = '2026-05-29T00:00:00.000Z'
+    const encryptedPayload = await encryptBrowserWorkspacePayload(
+      'correct horse',
+      JSON.stringify(payload),
+    )
+
+    await expect(
+      clientWorkspace.importWorkspaceBundle('correct horse', encryptedPayload),
+    ).rejects.toThrow(
+      'Workspace bundle integrity check failed. The file may be corrupt or modified.',
+    )
   })
 })

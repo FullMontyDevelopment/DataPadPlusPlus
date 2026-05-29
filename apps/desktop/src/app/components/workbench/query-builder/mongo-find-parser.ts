@@ -50,7 +50,7 @@ function filterRowsFromQuery(filter: unknown): MongoFindBuilderState['filters'] 
   }
 
   return Object.entries(filter as Record<string, unknown>).flatMap(([field, value]) => {
-    if (isPlainObject(value)) {
+    if (isPlainObject(value) && !isMongoNativeScalar(value)) {
       const operators = Object.entries(value)
         .map(([operator, operatorValue]) => filterRowForOperator(field, operator, operatorValue))
         .filter(Boolean)
@@ -141,6 +141,24 @@ function sortRowsFromQuery(sort: unknown): MongoFindBuilderState['sort'] {
 }
 
 function valueTypeForBuilder(value: unknown): MongoBuilderValueType {
+  if (isPlainObject(value)) {
+    if (isMongoDateValue(value)) {
+      return 'date'
+    }
+
+    if (typeof value.$oid === 'string') {
+      return 'objectId'
+    }
+
+    if (
+      typeof value.$numberLong === 'string' ||
+      typeof value.$numberInt === 'string' ||
+      typeof value.$numberDouble === 'string'
+    ) {
+      return 'number'
+    }
+  }
+
   if (value === null) {
     return 'null'
   }
@@ -165,6 +183,23 @@ function valueToBuilderInput(value: unknown) {
     return ''
   }
 
+  if (isPlainObject(value)) {
+    const dateInput = mongoDateInput(value)
+    if (dateInput !== undefined) {
+      return dateInput
+    }
+
+    if (typeof value.$oid === 'string') {
+      return value.$oid
+    }
+
+    for (const key of ['$numberLong', '$numberInt', '$numberDouble']) {
+      if (typeof value[key] === 'string') {
+        return value[key]
+      }
+    }
+  }
+
   if (typeof value === 'string') {
     return value
   }
@@ -179,4 +214,38 @@ function numberOrUndefined(value: unknown) {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isMongoNativeScalar(value: Record<string, unknown>) {
+  return (
+    isMongoDateValue(value) ||
+    typeof value.$oid === 'string' ||
+    typeof value.$numberLong === 'string' ||
+    typeof value.$numberInt === 'string' ||
+    typeof value.$numberDouble === 'string' ||
+    typeof value.$numberDecimal === 'string'
+  )
+}
+
+function isMongoDateValue(value: Record<string, unknown>) {
+  return typeof value.$date === 'string' || isMongoDateNumberLong(value.$date)
+}
+
+function mongoDateInput(value: Record<string, unknown>) {
+  if (typeof value.$date === 'string') {
+    return value.$date
+  }
+
+  if (isMongoDateNumberLong(value.$date)) {
+    const milliseconds = Number(value.$date.$numberLong)
+    return Number.isFinite(milliseconds)
+      ? new Date(milliseconds).toISOString()
+      : value.$date.$numberLong
+  }
+
+  return undefined
+}
+
+function isMongoDateNumberLong(value: unknown): value is { $numberLong: string } {
+  return isPlainObject(value) && typeof value.$numberLong === 'string'
 }

@@ -51,6 +51,16 @@ pub(crate) async fn load_mongodb_structure(
             kind: "collection".into(),
             group_id: Some(database_name.clone()),
             detail: Some(format!("{} index(es)", index_names.len())),
+            database: Some(database_name.clone()),
+            schema: Some(database_name.clone()),
+            object_name: Some(collection_name.clone()),
+            qualified_name: Some(format!("{database_name}.{collection_name}")),
+            column_count: Some(fields.len() as u32),
+            relationship_count: None,
+            row_count_estimate: Some(count),
+            index_count: Some(index_names.len() as u32),
+            is_system: Some(false),
+            is_view: Some(false),
             metrics: vec![
                 structure_metric("Documents", count.to_string()),
                 structure_metric("Indexes", index_names.len().to_string()),
@@ -69,6 +79,13 @@ pub(crate) async fn load_mongodb_structure(
                     label: format!("{} may reference {}", field.name, target),
                     kind: "inferred-reference".into(),
                     inferred: Some(true),
+                    from_field: Some(field.name.clone()),
+                    to_field: Some("_id".into()),
+                    constraint_name: None,
+                    cardinality: Some("many-to-one".into()),
+                    delete_rule: None,
+                    update_rule: None,
+                    confidence: Some(0.7),
                 });
             }
         }

@@ -405,6 +405,14 @@ export interface StructureRequest {
   environmentId: string
   limit?: number
   scope?: string
+  cursor?: string
+  focusNodeId?: string
+  includeSystemObjects?: boolean
+  includeInferredRelationships?: boolean
+  maxNodes?: number
+  maxEdges?: number
+  depth?: number
+  mode?: 'overview' | 'relationships'
 }
 
 export interface StructureResponse {

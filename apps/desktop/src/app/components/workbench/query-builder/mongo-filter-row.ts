@@ -23,6 +23,7 @@ export function mongoFilterRowFromDroppedField(
 
   return {
     ...mongoFilterRow(groupId, field),
+    operator: valueType === 'date' ? 'gte' as const : 'eq' as const,
     value: mongoBuilderValue(payload.value, valueType),
     valueType,
   }
@@ -32,6 +33,14 @@ function mongoBuilderValueType(
   value: unknown,
   dragValueType: string | undefined,
 ): MongoBuilderValueType {
+  if (dragValueType === 'date') {
+    return 'date'
+  }
+
+  if (dragValueType === 'objectid' || dragValueType === 'objectId') {
+    return 'objectId'
+  }
+
   if (dragValueType === 'number' || typeof value === 'number') {
     return 'number'
   }
@@ -60,9 +69,66 @@ function mongoBuilderValue(value: unknown, valueType: MongoBuilderValueType) {
     return ''
   }
 
+  if (valueType === 'date') {
+    return mongoDateInput(value)
+  }
+
+  if (valueType === 'objectId') {
+    return mongoObjectIdInput(value)
+  }
+
+  if (valueType === 'number') {
+    return mongoNumberInput(value)
+  }
+
   if (valueType === 'json') {
     return JSON.stringify(value ?? null)
   }
 
   return value === undefined || value === null ? '' : String(value)
+}
+
+function mongoDateInput(value: unknown) {
+  if (isRecord(value)) {
+    if (typeof value.$date === 'string') {
+      return value.$date
+    }
+
+    if (isRecord(value.$date) && typeof value.$date.$numberLong === 'string') {
+      const milliseconds = Number(value.$date.$numberLong)
+      return Number.isFinite(milliseconds)
+        ? new Date(milliseconds).toISOString()
+        : value.$date.$numberLong
+    }
+  }
+
+  const label = value === undefined || value === null ? '' : String(value)
+  const isoDate = label.match(/ISODate\("([^"]+)"\)/)
+  return isoDate?.[1] ?? label
+}
+
+function mongoObjectIdInput(value: unknown) {
+  if (isRecord(value) && typeof value.$oid === 'string') {
+    return value.$oid
+  }
+
+  const label = value === undefined || value === null ? '' : String(value)
+  const objectId = label.match(/ObjectId\("([^"]+)"\)/)
+  return objectId?.[1] ?? label
+}
+
+function mongoNumberInput(value: unknown) {
+  if (isRecord(value)) {
+    for (const key of ['$numberLong', '$numberInt', '$numberDouble']) {
+      if (typeof value[key] === 'string') {
+        return value[key]
+      }
+    }
+  }
+
+  return value === undefined || value === null ? '' : String(value)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }

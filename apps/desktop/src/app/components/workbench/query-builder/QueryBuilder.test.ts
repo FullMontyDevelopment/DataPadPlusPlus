@@ -14,7 +14,11 @@ import {
   createDefaultMongoAggregationBuilderState,
   parseMongoAggregationQueryText,
 } from './mongo-aggregation'
-import { buildMongoFindQueryText, createDefaultMongoFindBuilderState } from './mongo-find'
+import {
+  buildMongoFindQueryText,
+  createDefaultMongoFindBuilderState,
+  parseMongoFindQueryText,
+} from './mongo-find'
 import {
   buildSqlSelectQueryText,
   createDefaultSqlSelectBuilderState,
@@ -148,6 +152,66 @@ describe('Mongo query builder', () => {
 
     expect(query.filter.metadata).toEqual({ source: 'fixture' })
     expect(query.projection).toEqual({ secret: 0 })
+  })
+
+  it('generates native Mongo scalar filters for dates and object ids', () => {
+    const query = JSON.parse(
+      buildMongoFindQueryText({
+        kind: 'mongo-find',
+        collection: 'events',
+        filters: [
+          {
+            id: 'filter-created',
+            field: 'createdAt',
+            operator: 'gte',
+            value: '2026-05-16T10:02:21.369Z',
+            valueType: 'date',
+          },
+          {
+            id: 'filter-id',
+            field: '_id',
+            operator: 'eq',
+            value: '507f1f77bcf86cd799439011',
+            valueType: 'objectId',
+          },
+        ],
+        projectionMode: 'all',
+        projectionFields: [],
+        sort: [],
+      }),
+    )
+
+    expect(query.filter).toEqual({
+      createdAt: { $gte: { $date: '2026-05-16T10:02:21.369Z' } },
+      _id: { $oid: '507f1f77bcf86cd799439011' },
+    })
+  })
+
+  it('parses native Mongo scalar filters back into builder rows', () => {
+    expect(
+      parseMongoFindQueryText(`{
+        "collection": "events",
+        "filter": {
+          "createdAt": { "$gte": { "$date": { "$numberLong": "1778925741369" } } },
+          "_id": { "$oid": "507f1f77bcf86cd799439011" }
+        }
+      }`),
+    ).toMatchObject({
+      filters: [
+        {
+          field: 'createdAt',
+          operator: 'gte',
+          value: '2026-05-16T10:02:21.369Z',
+          valueType: 'date',
+        },
+        {
+          field: '_id',
+          operator: 'eq',
+          value: '507f1f77bcf86cd799439011',
+          valueType: 'objectId',
+        },
+      ],
+    })
   })
 
   it('supports OR filter groups and disabled filters', () => {

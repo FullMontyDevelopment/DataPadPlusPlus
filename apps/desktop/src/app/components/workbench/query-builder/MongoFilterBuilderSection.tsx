@@ -19,7 +19,15 @@ const FILTER_OPERATORS: Array<{ value: MongoFilterOperator; label: string }> = [
   { value: 'in', label: 'In' },
 ]
 
-const VALUE_TYPES: MongoBuilderValueType[] = ['string', 'number', 'boolean', 'null', 'json']
+const VALUE_TYPES: Array<{ value: MongoBuilderValueType; label: string }> = [
+  { value: 'string', label: 'string' },
+  { value: 'number', label: 'number' },
+  { value: 'boolean', label: 'boolean' },
+  { value: 'date', label: 'Date' },
+  { value: 'objectId', label: 'ObjectId' },
+  { value: 'null', label: 'null' },
+  { value: 'json', label: 'json' },
+]
 
 export function MongoFilterBuilderSection({
   dragActive,
@@ -248,8 +256,8 @@ function FilterRows({
             }
           >
             {VALUE_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type}
+              <option key={type.value} value={type.value}>
+                {type.label}
               </option>
             ))}
           </select>

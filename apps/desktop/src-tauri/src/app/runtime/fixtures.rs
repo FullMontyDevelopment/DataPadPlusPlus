@@ -111,6 +111,7 @@ pub(super) fn fixture_workspace_seed_for_profile(
             telemetry: "opt-in".into(),
             lock_after_minutes: 15,
             safe_mode_enabled: true,
+            workspace_backups: Default::default(),
         },
         guardrails: Vec::new(),
         lock_state: LockState {

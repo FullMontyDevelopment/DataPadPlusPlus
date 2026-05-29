@@ -324,6 +324,10 @@ function summarizeValueForLazyHydration(value: unknown, path: Array<string | num
   }
 
   if (isPlainRecord(value)) {
+    if (isBsonScalarRecord(value)) {
+      return value
+    }
+
     return Object.fromEntries(
       Object.entries(value).map(([key, childValue]) => [
         key,
@@ -347,6 +351,10 @@ function summarizeNestedValue(value: unknown, path: Array<string | number>): unk
   }
 
   if (isPlainRecord(value)) {
+    if (isBsonScalarRecord(value)) {
+      return value
+    }
+
     return {
       __datapadLazyNode: true,
       type: 'object',
@@ -375,6 +383,50 @@ function documentIdsEqual(left: unknown, right: unknown) {
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function isBsonScalarRecord(value: Record<string, unknown>) {
+  const entries = Object.entries(value)
+
+  if (entries.length !== 1) {
+    return false
+  }
+
+  const entry = entries[0]
+
+  if (!entry) {
+    return false
+  }
+
+  const [key, child] = entry
+
+  if (
+    [
+      '$oid',
+      '$numberInt',
+      '$numberLong',
+      '$numberDouble',
+      '$numberDecimal',
+      '$uuid',
+      '$symbol',
+    ].includes(key)
+  ) {
+    return typeof child === 'string'
+  }
+
+  if (key === '$date') {
+    return typeof child === 'string' || (isPlainRecord(child) && typeof child.$numberLong === 'string')
+  }
+
+  if (['$binary', '$regularExpression', '$timestamp', '$dbPointer'].includes(key)) {
+    return isPlainRecord(child)
+  }
+
+  if (key === '$minKey' || key === '$maxKey') {
+    return typeof child === 'number'
+  }
+
+  return key === '$undefined' && typeof child === 'boolean'
 }
 
 function isLazyMarker(value: unknown): value is { type: 'object' | 'array' } {

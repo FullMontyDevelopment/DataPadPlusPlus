@@ -20,13 +20,16 @@ mod profiles;
 mod query_tabs;
 mod response_redaction;
 mod saved_work;
+mod settings_tabs;
 mod sql_hints;
 mod tabs;
 mod tests_workbench;
 mod ui;
 mod validators;
 mod workspace;
+mod workspace_backups;
 mod workspace_bundle;
+mod workspace_bundle_integrity;
 
 use crate::domain::models::WorkspaceSnapshot;
 

@@ -9,6 +9,7 @@ import {
   createScopedQueryTabInSnapshot,
   scopedTargetsMatch,
 } from './browser-tabs'
+import { createSettingsTabInSnapshot } from './browser-settings-tab'
 
 describe('browser tab runtime', () => {
   it('opens Explorer as one unsaveable tab per connection', () => {
@@ -80,6 +81,27 @@ describe('browser tab runtime', () => {
 
     expect(reopened.tabs.filter((tab) => tab.tabKind === 'environment')).toHaveLength(1)
     expect(reopened.ui.activeTabId).toBe(environmentTab?.id)
+  })
+
+  it('opens Settings as one closeable unsaveable tab', () => {
+    const snapshot = createSeedSnapshot()
+    const opened = createSettingsTabInSnapshot(snapshot)
+    const settingsTab = opened.tabs.find((tab) => tab.tabKind === 'settings')
+
+    expect(settingsTab).toMatchObject({
+      dirty: false,
+      editorLabel: 'Settings',
+      queryText: '',
+      title: 'Settings',
+    })
+    expect(settingsTab?.saveTarget).toBeUndefined()
+    expect(opened.ui.activeTabId).toBe(settingsTab?.id)
+    expect(opened.ui.rightDrawer).toBe('none')
+
+    const reopened = createSettingsTabInSnapshot(opened)
+
+    expect(reopened.tabs.filter((tab) => tab.tabKind === 'settings')).toHaveLength(1)
+    expect(reopened.ui.activeTabId).toBe(settingsTab?.id)
   })
 
   it('opens object views once per connection, environment, and object node', () => {

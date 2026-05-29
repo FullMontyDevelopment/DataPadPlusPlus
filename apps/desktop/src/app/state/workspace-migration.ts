@@ -192,7 +192,7 @@ export function normalizeUiState(snapshot: WorkspaceSnapshot): UiState {
     ? legacyUi.activeBottomPanelTab
     : 'results'
   const rightDrawer =
-    legacyUi?.rightDrawer === 'inspection'
+    legacyUi?.rightDrawer === 'inspection' || legacyUi?.rightDrawer === 'diagnostics'
       ? 'none'
       : isRightDrawer(legacyUi?.rightDrawer)
         ? legacyUi.rightDrawer
@@ -239,6 +239,7 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   migrateLegacyVariableTokens(next)
   stripSecretBearingConnectionStrings(next)
   migrateConnectionModes(next.connections)
+  next.preferences = normalizePreferences(next.preferences)
   next.libraryNodes = migrateLibraryNodes(next.libraryNodes, next.savedWork)
   ensureConnectionLibraryNodes(next.libraryNodes, next.connections)
   pruneEmptyDefaultLibraryRoots(next.libraryNodes)
@@ -258,6 +259,32 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   }
 
   return next
+}
+
+function normalizePreferences(
+  preferences: WorkspaceSnapshot['preferences'] | undefined,
+): WorkspaceSnapshot['preferences'] {
+  return {
+    theme: preferences?.theme ?? 'dark',
+    telemetry: preferences?.telemetry ?? 'opt-in',
+    lockAfterMinutes: preferences?.lockAfterMinutes ?? 15,
+    safeModeEnabled: preferences?.safeModeEnabled ?? true,
+    workspaceBackups: {
+      enabled: Boolean(preferences?.workspaceBackups?.enabled),
+      intervalMinutes: clampNumber(preferences?.workspaceBackups?.intervalMinutes, 30, 5, 1440),
+      maxBackups: clampNumber(preferences?.workspaceBackups?.maxBackups, 20, 1, 20),
+      includeSecrets: Boolean(preferences?.workspaceBackups?.includeSecrets),
+      passphraseSecretRef: preferences?.workspaceBackups?.passphraseSecretRef,
+      lastBackupAt: preferences?.workspaceBackups?.lastBackupAt,
+      lastWorkspaceUpdatedAt: preferences?.workspaceBackups?.lastWorkspaceUpdatedAt,
+    },
+  }
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, Math.floor(value)))
+    : fallback
 }
 
 function stripSecretBearingConnectionStrings(snapshot: WorkspaceSnapshot) {

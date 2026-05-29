@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { MouseEvent } from 'react'
 import type {
@@ -156,7 +156,7 @@ export function ConnectionObjectTree({
     }
 
     if (shouldOverlayLiveExplorer(connection)) {
-      return mergeConnectionTrees(structuralNodes, liveNodes ?? [])
+      return mergeConnectionTrees(connection, structuralNodes, liveNodes ?? [])
     }
 
     return liveNodes ?? []
@@ -164,11 +164,29 @@ export function ConnectionObjectTree({
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({})
   const [visibleChildCounts, setVisibleChildCounts] = useState<Record<string, number>>({})
   const [contextMenu, setContextMenu] = useState<ConnectionObjectContextMenuState>()
+  const autoLoadedScopesRef = useRef(new Set<string>())
+  const environmentId = environment?.id ?? ''
   const toggleNode = (nodeKey: string) =>
     setExpandedNodes((current) => ({
       ...current,
       [nodeKey]: !current[nodeKey],
     }))
+  const requestAutoLoadScope = useCallback(
+    (scope: string | undefined) => {
+      if (!scope || !onLoadExplorerScope) {
+        return
+      }
+
+      const key = `${connection.id}::${environmentId}::${scope}`
+      if (autoLoadedScopesRef.current.has(key)) {
+        return
+      }
+
+      autoLoadedScopesRef.current.add(key)
+      onLoadExplorerScope(connection.id, scope)
+    },
+    [connection.id, environmentId, onLoadExplorerScope],
+  )
   const loadMoreChildren = (nodeKey: string) =>
     setVisibleChildCounts((current) => ({
       ...current,
@@ -240,6 +258,10 @@ export function ConnectionObjectTree({
   }
 
   useEffect(() => {
+    autoLoadedScopesRef.current.clear()
+  }, [connection.id, environmentId])
+
+  useEffect(() => {
     if (!contextMenu) {
       return
     }
@@ -276,28 +298,33 @@ export function ConnectionObjectTree({
               : 'Loading live metadata...'}
           </div>
         ) : null}
-        {nodes.map((node) => (
-          <ConnectionObjectTreeNode
-            key={node.id}
-            connection={connection}
-            depth={1}
-            visualDepth={1 + visualDepthOffset}
-            expandedNodes={expandedNodes}
-            environment={environment}
-            node={node}
-            nodeKey={node.id}
-            explorerStatus={explorerStatus}
-            isExplorerScopeLoading={isExplorerScopeLoading}
-            visibleChildCounts={visibleChildCounts}
-            canInspectNode={Boolean(onInspectNode)}
-            onContextMenu={openObjectContextMenu}
-            onLoadExplorerScope={onLoadExplorerScope}
-            onLoadMoreChildren={loadMoreChildren}
-            onOpenObjectView={openObjectView}
-            onOpenQuery={openNodeQuery}
-            onToggleNode={toggleNode}
-          />
-        ))}
+        {nodes.map((node) => {
+          const nodeKey = connectionTreeNodeKey(connection, node)
+
+          return (
+            <ConnectionObjectTreeNode
+              key={nodeKey}
+              connection={connection}
+              depth={1}
+              visualDepth={1 + visualDepthOffset}
+              expandedNodes={expandedNodes}
+              environment={environment}
+              node={node}
+              nodeKey={nodeKey}
+              explorerStatus={explorerStatus}
+              isExplorerScopeLoading={isExplorerScopeLoading}
+              visibleChildCounts={visibleChildCounts}
+              canInspectNode={Boolean(onInspectNode)}
+              onContextMenu={openObjectContextMenu}
+              onLoadExplorerScope={onLoadExplorerScope}
+              onLoadMoreChildren={loadMoreChildren}
+              onOpenObjectView={openObjectView}
+              onOpenQuery={openNodeQuery}
+              onRequestAutoLoadScope={requestAutoLoadScope}
+              onToggleNode={toggleNode}
+            />
+          )
+        })}
       </div>
 
       {contextMenu ? (
@@ -349,6 +376,7 @@ function shouldOverlayLiveExplorer(connection: ConnectionProfile) {
 }
 
 function mergeConnectionTrees(
+  connection: ConnectionProfile,
   structuralNodes: ConnectionTreeNode[],
   liveNodes: ConnectionTreeNode[],
 ): ConnectionTreeNode[] {
@@ -363,6 +391,7 @@ function mergeConnectionTrees(
     const existingNode = merged[existingIndex]
     if (existingIndex >= 0 && existingNode) {
       merged[existingIndex] = mergeConnectionTreeNode(
+        connection,
         existingNode,
         liveNode,
       )
@@ -375,12 +404,14 @@ function mergeConnectionTrees(
 }
 
 function mergeConnectionTreeNode(
+  connection: ConnectionProfile,
   structuralNode: ConnectionTreeNode,
   liveNode: ConnectionTreeNode,
 ): ConnectionTreeNode {
-  const children = shouldPreferLiveSchemaChildren(structuralNode, liveNode)
+  const children = shouldPreferLiveChildren(connection, structuralNode, liveNode)
     ? (liveNode.children ?? []).map(cloneConnectionTreeNode)
     : mergeConnectionTrees(
+        connection,
         structuralNode.children ?? [],
         liveNode.children ?? [],
       )
@@ -392,10 +423,25 @@ function mergeConnectionTreeNode(
   }
 }
 
-function shouldPreferLiveSchemaChildren(
+function shouldPreferLiveChildren(
+  connection: ConnectionProfile,
   structuralNode: ConnectionTreeNode,
   liveNode: ConnectionTreeNode,
 ) {
+  if (connection.engine === 'sqlserver' && liveNode.label === 'Tables') {
+    const hasLiveTables = Boolean(
+      liveNode.children?.some((child) => child.kind === 'table'),
+    )
+    const hasStructuralTableTypeGroups = Boolean(
+      structuralNode.children?.some((child) =>
+        ['system-tables', 'filetables', 'external-tables', 'graph-tables'].includes(child.kind) ||
+        ['System Tables', 'FileTables', 'External Tables', 'Graph Tables', 'Node Tables', 'Edge Tables'].includes(child.label),
+      ),
+    )
+
+    return hasLiveTables && hasStructuralTableTypeGroups
+  }
+
   if (!['User Schemas', 'System Schemas', 'Schemas'].includes(liveNode.label)) {
     return false
   }
@@ -421,6 +467,26 @@ function connectionTreeMergeKey(node: ConnectionTreeNode) {
   return node.label.trim().toLowerCase()
 }
 
+function connectionTreeNodeKey(connection: ConnectionProfile, node: ConnectionTreeNode) {
+  const path =
+    node.path?.[0] === connection.name
+      ? node.path.slice(1)
+      : (node.path ?? [])
+  const pathAlreadyIncludesNode =
+    path.at(-1)?.trim().toLowerCase() === node.label.trim().toLowerCase()
+  const keyParts = path.length
+    ? pathAlreadyIncludesNode
+      ? path
+      : [...path, node.label]
+    : [node.label]
+  const normalized = keyParts
+    .map((part) => part.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'))
+    .filter(Boolean)
+    .join('/')
+
+  return normalized || node.id
+}
+
 function ConnectionObjectTreeNode({
   canInspectNode,
   connection,
@@ -438,6 +504,7 @@ function ConnectionObjectTreeNode({
   onLoadMoreChildren,
   onOpenQuery,
   onOpenObjectView,
+  onRequestAutoLoadScope,
   onToggleNode,
 }: {
   canInspectNode: boolean
@@ -456,6 +523,7 @@ function ConnectionObjectTreeNode({
   onLoadMoreChildren(nodeKey: string): void
   onOpenQuery(node: ConnectionTreeNode): void
   onOpenObjectView?(node: ConnectionTreeNode): void
+  onRequestAutoLoadScope(scope: string | undefined): void
   onToggleNode(nodeKey: string): void
 }) {
   const children = node.children ?? []
@@ -479,6 +547,8 @@ function ConnectionObjectTreeNode({
     canOpenObjectView: Boolean(onOpenObjectView),
     canRefreshNode: Boolean(onLoadExplorerScope),
   })
+  const shouldAutoLoadChildren =
+    expanded && shouldLoadScopedChildren(node, children, branchLoading)
   const toggleNode = () => {
     if (!canExpand) {
       return
@@ -488,7 +558,7 @@ function ConnectionObjectTreeNode({
     onToggleNode(nodeKey)
 
     if (nextExpanded && shouldLoadScopedChildren(node, children, branchLoading)) {
-      onLoadExplorerScope?.(connection.id, node.scope)
+      onRequestAutoLoadScope(node.scope)
     }
   }
   const openLeafQuery = () => {
@@ -498,6 +568,12 @@ function ConnectionObjectTreeNode({
       onOpenObjectView?.(node)
     }
   }
+
+  useEffect(() => {
+    if (shouldAutoLoadChildren) {
+      onRequestAutoLoadScope(node.scope)
+    }
+  }, [node.scope, onRequestAutoLoadScope, shouldAutoLoadChildren])
 
   return (
     <>
@@ -613,7 +689,7 @@ function ConnectionObjectTreeNode({
 
       {expanded
         ? visibleChildren.map((child) => {
-            const childKey = `${nodeKey}/${child.id}`
+            const childKey = `${nodeKey}/${connectionTreeNodeKey(connection, child)}`
 
             return (
               <ConnectionObjectTreeNode
@@ -634,6 +710,7 @@ function ConnectionObjectTreeNode({
                 onLoadMoreChildren={onLoadMoreChildren}
                 onOpenObjectView={onOpenObjectView}
                 onOpenQuery={onOpenQuery}
+                onRequestAutoLoadScope={onRequestAutoLoadScope}
                 onToggleNode={onToggleNode}
               />
             )

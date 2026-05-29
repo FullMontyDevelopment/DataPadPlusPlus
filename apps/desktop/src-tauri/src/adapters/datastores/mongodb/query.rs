@@ -1,8 +1,9 @@
 use futures_util::TryStreamExt;
-use mongodb::bson::{self, doc, Bson, Document};
+use mongodb::bson::{doc, Bson, Document};
 use serde_json::{json, Value};
 
 use super::super::super::*;
+use super::bson_extjson::{mongodb_json_to_array, mongodb_json_to_document};
 use super::connection::{
     mongodb_client, mongodb_database_name_for_collection_query, mongodb_database_name_from_query,
 };
@@ -186,9 +187,8 @@ async fn read_mongodb_documents(
 fn bounded_pipeline(pipeline: &[Value], cursor_limit: i64) -> Result<Vec<Document>, CommandError> {
     let mut pipeline = pipeline
         .iter()
-        .map(bson::to_document)
-        .collect::<Result<Vec<Document>, _>>()
-        .map_err(|error| friendly_mongodb_error("mongodb-pipeline", error.to_string()))?;
+        .map(|stage| mongodb_json_to_document(stage, "pipeline[]", "mongodb-pipeline"))
+        .collect::<Result<Vec<Document>, _>>()?;
 
     // Keep the server-side work bounded even when the user supplied a larger
     // or earlier $limit stage. A final $limit preserves result semantics while
@@ -689,24 +689,13 @@ fn required_value<'a>(input: &'a Value, field: &str) -> Result<&'a Value, Comman
 }
 
 fn bson_document(value: &Value, label: &str) -> Result<Document, CommandError> {
-    bson::to_document(value).map_err(|error| {
-        friendly_mongodb_error(
-            "mongodb-bson-document",
-            format!("MongoDB `{label}` must be a JSON object that can be encoded as BSON: {error}"),
-        )
-    })
+    mongodb_json_to_document(value, label, "mongodb-bson-document")
+        .map_err(|error| friendly_mongodb_error("mongodb-bson-document", error.message))
 }
 
 fn bson_array(value: &Value, label: &str) -> Result<Vec<Bson>, CommandError> {
-    bson::to_bson(value)
-        .map_err(|error| friendly_mongodb_error("mongodb-bson-array", error.to_string()))
-        .and_then(|value| match value {
-            Bson::Array(items) => Ok(items),
-            _ => Err(friendly_mongodb_error(
-                "mongodb-bson-array",
-                format!("MongoDB `{label}` must be an array."),
-            )),
-        })
+    mongodb_json_to_array(value, label, "mongodb-bson-array")
+        .map_err(|error| friendly_mongodb_error("mongodb-bson-array", error.message))
 }
 
 fn positive_u32(value: Option<&Value>) -> Option<u32> {
@@ -880,5 +869,26 @@ mod tests {
 
         assert_eq!(error.code, "mongodb-bson-document");
         assert!(error.message.contains("filter"));
+    }
+
+    #[test]
+    fn bson_document_converts_extended_json_filter_values_to_native_bson() {
+        let filter = bson_document(
+            &json!({
+                "createdAt": { "$gte": { "$date": "2026-05-16T10:02:21.369Z" } },
+                "_id": { "$oid": "507f1f77bcf86cd799439011" }
+            }),
+            "filter",
+        )
+        .expect("filter");
+
+        assert!(matches!(
+            filter
+                .get_document("createdAt")
+                .expect("operator")
+                .get("$gte"),
+            Some(Bson::DateTime(_))
+        ));
+        assert!(matches!(filter.get("_id"), Some(Bson::ObjectId(_))));
     }
 }

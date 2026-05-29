@@ -204,8 +204,8 @@ async fn list_sqlserver_category(
     let category = parts.next().unwrap_or_default();
 
     match category {
-        "tables" => query_object_rows(connection, database, "tables", table_query(), "table").await,
-        "views" => query_object_rows(connection, database, "views", view_query(), "view").await,
+        "tables" => query_object_rows(connection, database, "Tables", table_query(), "table").await,
+        "views" => query_object_rows(connection, database, "Views", view_query(), "view").await,
         "stored-procedures" => {
             query_object_rows(connection, database, "Stored Procedures", procedure_query(), "procedure").await
         }
@@ -308,6 +308,56 @@ async fn query_named_rows(
         }
     })
     .await
+}
+
+async fn query_table_child_rows(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    schema: &str,
+    table: &str,
+    path_label: &str,
+    query: &str,
+    kind: &str,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let path = sqlserver_table_child_path(connection, database, schema, table, path_label);
+    let database_id = database.to_string();
+    let schema_id = schema.to_string();
+    let table_id = table.to_string();
+    let kind_id = kind.to_string();
+
+    query_category_rows(connection, database, path_label, query, kind, move |row| {
+        let name = row.get::<&str, _>("name").unwrap_or_default().to_string();
+        let detail = cell_to_string(row.get::<&str, _>("detail"));
+        ExplorerNode {
+            id: format!("{kind_id}:{database_id}:{schema_id}:{table_id}:{name}"),
+            family: "sql".into(),
+            label: name,
+            kind: kind_id.clone(),
+            detail,
+            scope: None,
+            path: Some(path.clone()),
+            query_template: None,
+            expandable: Some(false),
+        }
+    })
+    .await
+}
+
+fn sqlserver_table_child_path(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    schema: &str,
+    table: &str,
+    path_label: &str,
+) -> Vec<String> {
+    vec![
+        connection.name.clone(),
+        "Databases".into(),
+        database.into(),
+        "Tables".into(),
+        format!("{schema}.{table}"),
+        path_label.into(),
+    ]
 }
 
 async fn query_category_rows<F>(
@@ -642,7 +692,10 @@ async fn list_table_columns(
         sql_literal(&schema),
         sql_literal(&table)
     );
-    query_named_rows(connection, &database, "Columns", &query, "column").await
+    query_table_child_rows(
+        connection, &database, &schema, &table, "Columns", &query, "column",
+    )
+    .await
 }
 
 async fn list_table_indexes(
@@ -667,7 +720,10 @@ async fn list_table_indexes(
         sql_literal(&schema),
         sql_literal(&table)
     );
-    query_named_rows(connection, &database, "Indexes", &query, "index").await
+    query_table_child_rows(
+        connection, &database, &schema, &table, "Indexes", &query, "index",
+    )
+    .await
 }
 
 async fn list_table_triggers(
@@ -692,7 +748,10 @@ async fn list_table_triggers(
         sql_literal(&schema),
         sql_literal(&table)
     );
-    query_named_rows(connection, &database, "Triggers", &query, "trigger").await
+    query_table_child_rows(
+        connection, &database, &schema, &table, "Triggers", &query, "trigger",
+    )
+    .await
 }
 
 async fn query_store_nodes(
@@ -1825,6 +1884,29 @@ mod tests {
                 .query_template
                 .as_deref(),
             Some("use [datapadplusplus];\nselect top 100 * from [dbo].[accounts];")
+        );
+    }
+
+    #[test]
+    fn table_child_path_keeps_metadata_under_the_table() {
+        let connection = connection();
+
+        assert_eq!(
+            sqlserver_table_child_path(
+                &connection,
+                "datapadplusplus",
+                "dbo",
+                "accounts",
+                "Columns"
+            ),
+            vec![
+                "SQL Server".to_string(),
+                "Databases".to_string(),
+                "datapadplusplus".to_string(),
+                "Tables".to_string(),
+                "dbo.accounts".to_string(),
+                "Columns".to_string(),
+            ]
         );
     }
 
