@@ -329,6 +329,60 @@ describe('sidebar connection tree helpers', () => {
     })
   })
 
+  it('assigns Redis manifest scopes and treats databases as key-browser targets', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-cache')!
+    const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
+
+    expect(findNode(tree, 'redis:databases')).toMatchObject({
+      label: 'Databases',
+      scope: 'databases',
+    })
+    expect(findNode(tree, 'redis:db:0')).toMatchObject({
+      label: 'DB 0',
+      kind: 'database',
+      scope: 'db:0',
+      queryable: true,
+      builderKind: 'redis-key-browser',
+      queryTemplate: expect.stringContaining('"database": 0'),
+    })
+    expect(findNode(tree, 'redis:db:0:keys')).toMatchObject({
+      label: 'Keys',
+      scope: 'db:0:type:keys',
+    })
+  })
+
+  it('maps Redis database explorer nodes to DB-scoped key-browser targets', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-cache')!
+    const tree = buildConnectionObjectTreeFromExplorerNodes(connection, [
+      {
+        id: 'redis:db:1',
+        label: 'DB 1',
+        kind: 'database',
+        detail: '25 keys',
+        family: 'keyvalue',
+        path: [connection.name],
+        scope: 'db:1',
+        expandable: true,
+      },
+    ])
+    const database = findNode(tree, 'redis:db:1')
+
+    expect(database).toMatchObject({
+      label: 'DB 1',
+      kind: 'database',
+      queryable: true,
+      builderKind: 'redis-key-browser',
+      queryTemplate: expect.stringContaining('"database": 1'),
+    })
+    expect(connectionTreeNodeTarget(database!)).toMatchObject({
+      preferredBuilder: 'redis-key-browser',
+      scope: 'db:1',
+      queryTemplate: expect.stringContaining('"pattern": "*"'),
+    })
+  })
+
   it('maps Redis prefix nodes to the Redis key browser instead of a raw console template', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-cache')!

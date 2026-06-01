@@ -44,6 +44,7 @@ pub(super) async fn execute_mongodb_script(
     let mut remaining = requested_row_limit;
     let mut documents = Vec::<Document>::new();
     let mut statement_results = Vec::<Value>::new();
+    let mut batch_sections = Vec::<Value>::new();
     let mut truncated = false;
 
     for (index, operation) in operations.into_iter().enumerate() {
@@ -97,12 +98,34 @@ pub(super) async fn execute_mongodb_script(
                     truncated = true;
                     result_documents.truncate(effective_limit as usize);
                 }
+                let section_documents = serde_json::to_value(&result_documents)?;
+                let section_payloads = vec![
+                    payload_document(section_documents.clone()),
+                    payload_json(json!({
+                        "statement": index + 1,
+                        "operation": "find",
+                        "collection": collection.clone(),
+                        "documents": section_documents,
+                    })),
+                ];
                 remaining = remaining.saturating_sub(result_documents.len() as u32);
                 statement_results.push(json!({
                     "statement": index + 1,
                     "operation": "find",
                     "collection": collection,
                     "documents": result_documents,
+                }));
+                batch_sections.push(batch_section(BatchSectionPayload {
+                    id: format!("mongodb-script-{}", index + 1),
+                    label: format!("Statement {}", index + 1),
+                    statement: Some(script_statement_preview(script, index)),
+                    status: "success",
+                    duration_ms: None,
+                    row_count: Some(result_documents.len()),
+                    default_renderer: "document".into(),
+                    renderer_modes: vec!["document".into(), "json".into()],
+                    payloads: section_payloads,
+                    notices: Vec::new(),
                 }));
                 documents.extend(result_documents);
             }
@@ -138,6 +161,16 @@ pub(super) async fn execute_mongodb_script(
                     truncated = true;
                     result_documents.truncate(remaining as usize);
                 }
+                let section_documents = serde_json::to_value(&result_documents)?;
+                let section_payloads = vec![
+                    payload_document(section_documents.clone()),
+                    payload_json(json!({
+                        "statement": index + 1,
+                        "operation": "aggregate",
+                        "collection": collection.clone(),
+                        "documents": section_documents,
+                    })),
+                ];
                 remaining = remaining.saturating_sub(result_documents.len() as u32);
                 statement_results.push(json!({
                     "statement": index + 1,
@@ -145,16 +178,48 @@ pub(super) async fn execute_mongodb_script(
                     "collection": collection,
                     "documents": result_documents,
                 }));
+                batch_sections.push(batch_section(BatchSectionPayload {
+                    id: format!("mongodb-script-{}", index + 1),
+                    label: format!("Statement {}", index + 1),
+                    statement: Some(script_statement_preview(script, index)),
+                    status: "success",
+                    duration_ms: None,
+                    row_count: Some(result_documents.len()),
+                    default_renderer: "document".into(),
+                    renderer_modes: vec!["document".into(), "json".into()],
+                    payloads: section_payloads,
+                    notices: Vec::new(),
+                }));
                 documents.extend(result_documents);
             }
             MongoScriptOperation::RunCommand { command } => {
                 let database = client.database(&mongodb_database_name(connection));
                 let command = value_to_document(&command)?;
                 let command_result = database.run_command(command).await?;
+                let command_result_json = serde_json::to_value(&command_result)?;
                 statement_results.push(json!({
                     "statement": index + 1,
                     "operation": "runCommand",
                     "result": command_result,
+                }));
+                batch_sections.push(batch_section(BatchSectionPayload {
+                    id: format!("mongodb-script-{}", index + 1),
+                    label: format!("Statement {}", index + 1),
+                    statement: Some(script_statement_preview(script, index)),
+                    status: "success",
+                    duration_ms: None,
+                    row_count: Some(1),
+                    default_renderer: "json".into(),
+                    renderer_modes: vec!["json".into(), "document".into()],
+                    payloads: vec![
+                        payload_json(json!({
+                            "statement": index + 1,
+                            "operation": "runCommand",
+                            "result": command_result_json.clone(),
+                        })),
+                        payload_document(json!([command_result_json])),
+                    ],
+                    notices: Vec::new(),
                 }));
                 documents.push(command_result);
                 remaining = remaining.saturating_sub(1);
@@ -169,6 +234,33 @@ pub(super) async fn execute_mongodb_script(
     });
     let raw_documents = serde_json::to_string_pretty(&json_payload).unwrap_or_else(|_| "[]".into());
 
+    let batch_payload = (batch_sections.len() > 1).then(|| {
+        payload_batch(
+            batch_sections,
+            format!(
+                "{} MongoDB script statement(s) returned {} document(s).",
+                statement_results.len(),
+                documents.len()
+            ),
+        )
+    });
+    let mut payloads = Vec::new();
+    if let Some(payload) = batch_payload.clone() {
+        payloads.push(payload);
+    }
+    payloads.extend([
+        payload_document(documents_json.clone()),
+        payload_json(json_payload),
+        payload_table(
+            vec!["document".into()],
+            documents
+                .iter()
+                .map(|item| vec![serde_json::to_string(item).unwrap_or_else(|_| "{}".into())])
+                .collect(),
+        ),
+        payload_raw(raw_documents),
+    ]);
+
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
         summary: format!(
@@ -176,26 +268,30 @@ pub(super) async fn execute_mongodb_script(
             documents.len(),
             connection.name
         ),
-        default_renderer: "document",
-        renderer_modes: vec!["document", "json", "table", "raw"],
-        payloads: vec![
-            payload_document(documents_json.clone()),
-            payload_json(json_payload),
-            payload_table(
-                vec!["document".into()],
-                documents
-                    .iter()
-                    .map(|item| vec![serde_json::to_string(item).unwrap_or_else(|_| "{}".into())])
-                    .collect(),
-            ),
-            payload_raw(raw_documents),
-        ],
+        default_renderer: if batch_payload.is_some() {
+            "batch"
+        } else {
+            "document"
+        },
+        renderer_modes: if batch_payload.is_some() {
+            vec!["batch", "document", "json", "table", "raw"]
+        } else {
+            vec!["document", "json", "table", "raw"]
+        },
+        payloads,
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(requested_row_limit),
         truncated,
         explain_payload: None,
     }))
+}
+
+fn script_statement_preview(script: &str, index: usize) -> String {
+    split_statements(script)
+        .get(index)
+        .cloned()
+        .unwrap_or_else(|| format!("Statement {}", index + 1))
 }
 
 fn parse_mongo_script(script: &str) -> Result<Vec<MongoScriptOperation>, CommandError> {

@@ -9,6 +9,7 @@ type WorkspaceActions = Pick<
   | 'dismissWorkbenchMessage'
   | 'clearWorkbenchMessages'
   | 'setTheme'
+  | 'setSafeModeEnabled'
   | 'updateUiState'
   | 'refreshDiagnostics'
   | 'exportResultFile'
@@ -54,6 +55,17 @@ export function useWorkspaceActions({
     async (theme) => {
       try {
         applyPayload(await desktopClient.setTheme(theme))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
+  const setSafeModeEnabled = useCallback<Actions['setSafeModeEnabled']>(
+    async (enabled) => {
+      try {
+        applyPayload(await desktopClient.setSafeModeEnabled(enabled))
       } catch (error) {
         handleError(error)
       }
@@ -216,6 +228,7 @@ export function useWorkspaceActions({
       dismissWorkbenchMessage,
       clearWorkbenchMessages,
       setTheme,
+      setSafeModeEnabled,
       updateUiState,
       refreshDiagnostics,
       exportResultFile,
@@ -244,6 +257,7 @@ export function useWorkspaceActions({
       deleteWorkspaceBackup,
       openWorkbenchMessages,
       refreshDiagnostics,
+      setSafeModeEnabled,
       setTheme,
       updateUiState,
     ],

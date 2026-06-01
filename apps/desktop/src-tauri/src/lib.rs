@@ -157,6 +157,7 @@ pub fn run() {
             commands::workspace::set_active_tab,
             commands::workspace::set_library_node_environment,
             commands::workspace::set_tab_environment,
+            commands::workspace::set_safe_mode_enabled,
             commands::workspace::set_theme,
             commands::workspace::set_ui_state,
             commands::workspace::test_connection,

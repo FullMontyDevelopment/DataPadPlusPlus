@@ -2592,6 +2592,75 @@ describe('ConnectionObjectTree', () => {
     expect(screen.queryByText('Sentinel')).not.toBeInTheDocument()
   })
 
+  it('loads Redis database metadata scopes and keeps branch loading visible', async () => {
+    const onLoadExplorerScope = vi.fn()
+    const connection = redisConnection()
+    const { rerender } = render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(connection)}
+        connection={connection}
+        isExplorerScopeLoading={() => false}
+        onLoadExplorerScope={onLoadExplorerScope}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    await waitFor(() => {
+      expect(onLoadExplorerScope).toHaveBeenCalledWith('conn-redis', 'databases')
+    })
+
+    expandTreeItem('DB 0')
+    await waitFor(() => {
+      expect(onLoadExplorerScope).toHaveBeenCalledWith('conn-redis', 'db:0')
+    })
+
+    rerender(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(connection)}
+        connection={connection}
+        isExplorerScopeLoading={(_connectionId, scope) => scope === 'db:0'}
+        onLoadExplorerScope={onLoadExplorerScope}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('status', { name: 'Loading metadata for DB 0' }),
+    ).toBeInTheDocument()
+  })
+
+  it('opens Redis database key-browser tabs from context menu and double click', () => {
+    const onOpenScopedQuery = vi.fn()
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(redisConnection())}
+        connection={redisConnection()}
+        onOpenScopedQuery={onOpenScopedQuery}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    fireEvent.contextMenu(treeItemForLabel('DB 0'), { clientX: 24, clientY: 32 })
+
+    const menu = screen.getByRole('menu', { name: 'Object options for DB 0' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open Key Browser' }))
+
+    expect(onOpenScopedQuery).toHaveBeenCalledWith(
+      'conn-redis',
+      expect.objectContaining({
+        kind: 'database',
+        label: 'DB 0',
+        preferredBuilder: 'redis-key-browser',
+        scope: 'db:0',
+        queryTemplate: expect.stringContaining('"database": 0'),
+      }),
+    )
+
+    fireEvent.doubleClick(treeItemForLabel('DB 0'))
+    expect(onOpenScopedQuery).toHaveBeenCalledTimes(2)
+  })
+
   it('uses datastore/object icons and environment tint for object rows', () => {
     render(
       <ConnectionObjectTree

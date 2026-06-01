@@ -18,6 +18,16 @@ impl ManagedAppState {
         Ok(self.bootstrap_payload())
     }
 
+    pub fn set_safe_mode_enabled(
+        &mut self,
+        enabled: bool,
+    ) -> Result<BootstrapPayload, CommandError> {
+        self.snapshot.preferences.safe_mode_enabled = enabled;
+        self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
     pub fn set_ui_state(
         &mut self,
         patch: UpdateUiStateRequest,

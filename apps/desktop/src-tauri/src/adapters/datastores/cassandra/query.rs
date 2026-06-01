@@ -24,6 +24,16 @@ pub(super) async fn execute_cassandra_query(
             "Cassandra schema/data mutations are operation-plan preview only in this adapter phase.",
         ));
     }
+    let batch_statements = split_sql_batch(statement, SqlBatchDialect::Standard);
+    if batch_statements
+        .iter()
+        .any(|statement| !is_read_only_cql(&statement.text))
+    {
+        return Err(CommandError::new(
+            "cassandra-write-preview-only",
+            "Cassandra schema/data mutations are operation-plan preview only; the batch was blocked before execution.",
+        ));
+    }
 
     let row_limit = bounded_page_size(
         request
@@ -31,6 +41,68 @@ pub(super) async fn execute_cassandra_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let tracing_enabled = matches!(execute_mode(request), "profile" | "trace");
+
+    if batch_statements.len() > 1 {
+        let mut sections = Vec::new();
+        let mut total_rows = 0usize;
+        let mut truncated = false;
+
+        for statement in &batch_statements {
+            let statement_started = Instant::now();
+            let execution_statement = cassandra_statement_for_execution(&statement.text, row_limit);
+            let response = preview_cassandra_response(connection, &execution_statement, row_limit);
+            let normalized = normalize_cassandra_response_bounded(&response, row_limit);
+            let row_count = normalized.rows.len();
+            let section_truncated = normalized.truncated;
+            total_rows += row_count;
+            truncated |= section_truncated;
+            sections.push(batch_section(BatchSectionPayload {
+                id: format!("cassandra-statement-{}", statement.index),
+                label: format!("Result {}", statement.index),
+                statement: Some(statement.text.clone()),
+                status: "success",
+                duration_ms: Some(duration_ms(statement_started)),
+                row_count: Some(row_count),
+                default_renderer: "table".into(),
+                renderer_modes: vec!["table".into(), "json".into()],
+                payloads: vec![
+                    payload_table(normalized.columns, normalized.rows),
+                    payload_json(bounded_cassandra_response(
+                        response,
+                        row_limit,
+                        section_truncated,
+                    )),
+                ],
+                notices: Vec::new(),
+            }));
+        }
+
+        return Ok(build_result(ResultEnvelopeInput {
+            engine: &connection.engine,
+            summary: format!("Cassandra CQL batch normalized {total_rows} row(s)."),
+            default_renderer: "batch",
+            renderer_modes: vec!["batch", "json", "raw"],
+            payloads: vec![
+                payload_batch(
+                    sections,
+                    format!("Cassandra CQL batch normalized {total_rows} row(s)."),
+                ),
+                payload_json(json!({
+                    "engine": connection.engine,
+                    "rowCount": total_rows,
+                    "rowLimit": row_limit,
+                    "statementCount": batch_statements.len(),
+                })),
+                payload_raw(statement.to_string()),
+            ],
+            notices,
+            duration_ms: duration_ms(started),
+            row_limit: Some(row_limit),
+            truncated,
+            explain_payload: None,
+        }));
+    }
+
     let execution_statement = cassandra_statement_for_execution(statement, row_limit);
     notices.push(QueryExecutionNotice {
         code: "cassandra-cql-contract".into(),

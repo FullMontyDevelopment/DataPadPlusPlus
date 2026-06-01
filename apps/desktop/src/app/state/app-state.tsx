@@ -85,6 +85,7 @@ const defaultActions: Actions = {
   dismissWorkbenchMessage: () => undefined,
   clearWorkbenchMessages: () => undefined,
   setTheme: noop,
+  setSafeModeEnabled: noop,
   updateUiState: noop,
   refreshDiagnostics: noop,
   exportResultFile: async () => undefined,

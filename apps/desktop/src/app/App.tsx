@@ -27,6 +27,7 @@ import { EditorToolbar } from './components/workbench/EditorToolbar'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
 import { RedisConsoleEditor } from './components/workbench/RedisConsoleEditor'
 import { StatusBar } from './components/workbench/StatusBar'
+import type { SettingsSection } from './components/workbench/SettingsWorkspace'
 import {
   buildCqlPartitionQueryText,
   isCqlPartitionBuilderState,
@@ -194,6 +195,10 @@ function DesktopWorkspace() {
   }>({})
   const [queryWindowMode, setQueryWindowMode] = useState<QueryViewMode>('raw')
   const [testWindowMode, setTestWindowMode] = useState<'both' | 'builder' | 'raw'>('both')
+  const [settingsInitialSectionRequest, setSettingsInitialSectionRequest] = useState<{
+    revision: number
+    section: SettingsSection
+  }>({ revision: 0, section: 'appearance' })
   const [connectionDraft, setConnectionDraft] = useState<ConnectionProfile | undefined>()
   const [connectionDraftParentId, setConnectionDraftParentId] = useState<string | undefined>()
   const [environmentDrafts, setEnvironmentDrafts] = useState<
@@ -214,6 +219,13 @@ function DesktopWorkspace() {
   const [documentEfficiencyModes, setDocumentEfficiencyModes] = useState<Record<string, boolean>>({})
   const queryTextDraftRef = useRef<Record<string, string>>({})
   const scriptTextDraftRef = useRef<Record<string, string>>({})
+  const queryTextDraftSyncTimersRef = useRef<Record<string, number>>({})
+  const scriptTextDraftSyncTimersRef = useRef<Record<string, number>>({})
+  const [queryTextDrafts, setQueryTextDrafts] = useState<Record<string, string>>({})
+  const [scriptTextDrafts, setScriptTextDrafts] = useState<Record<string, string>>({})
+  const [editorResetRevisions, setEditorResetRevisions] = useState<Record<string, number>>({})
+  const editorSelectionDraftRef = useRef<Record<string, string>>({})
+  const [editorSelectionDrafts, setEditorSelectionDrafts] = useState<Record<string, string>>({})
   const [pendingTabClose, setPendingTabClose] = useState<
     | {
         tab: QueryTabState
@@ -252,6 +264,18 @@ function DesktopWorkspace() {
   useEffect(() => {
     environmentSecretDraftsRef.current = environmentSecretDrafts
   }, [environmentSecretDrafts])
+
+  useEffect(
+    () => () => {
+      for (const timer of Object.values(queryTextDraftSyncTimersRef.current)) {
+        window.clearTimeout(timer)
+      }
+      for (const timer of Object.values(scriptTextDraftSyncTimersRef.current)) {
+        window.clearTimeout(timer)
+      }
+    },
+    [],
+  )
 
   const snapshot = payload?.snapshot
   const activeConnection =
@@ -317,11 +341,12 @@ function DesktopWorkspace() {
       : undefined
   const activeExplorerResponse = activeExplorerCacheEntry?.response
   const runtimeCapabilities =
-    activeConnection && activeExplorerResponse?.capabilities
-      ? activeExplorerResponse.capabilities
-      : activeConnection && snapshot
-        ? deriveCapabilities(snapshot, activeConnection)
-        : defaultCapabilities()
+    activeConnection && snapshot
+      ? {
+          ...deriveCapabilities(snapshot, activeConnection),
+          ...(activeExplorerResponse?.capabilities ?? {}),
+        }
+      : defaultCapabilities()
   const activeConnectionExplorerItems = activeExplorerResponse?.nodes
   const explorerSourceNodes = activeConnectionExplorerItems ?? snapshot?.explorerNodes ?? []
   const activeExplorerStatus =
@@ -414,25 +439,45 @@ function DesktopWorkspace() {
   const activeRedisConsoleVisible =
     activeTabUsesRedisConsole &&
     activeQueryWindowMode === 'raw'
+  const activeTabQueryText =
+    activeTab &&
+    Object.prototype.hasOwnProperty.call(queryTextDrafts, activeTab.id) &&
+    typeof queryTextDrafts[activeTab.id] === 'string'
+      ? queryTextDrafts[activeTab.id]
+      : activeTab?.queryText
+  const activeTabScriptText =
+    activeTab &&
+    Object.prototype.hasOwnProperty.call(scriptTextDrafts, activeTab.id) &&
+    typeof scriptTextDrafts[activeTab.id] === 'string'
+      ? scriptTextDrafts[activeTab.id]
+      : activeTab?.scriptText
   const activeRedisConsoleCommand =
     activeTabUsesRedisConsole && activeTab
-      ? redisConsoleCommandFromQueryText(activeTab.queryText, activeBuilderState)
+      ? redisConsoleCommandFromQueryText(activeTabQueryText ?? activeTab.queryText, activeBuilderState)
       : undefined
   const activeEditorQueryText =
     activeRedisConsoleCommand ??
     (activeTab && activeQueryWindowMode === 'script'
-      ? activeTab.scriptText ?? (activeConnection ? defaultScriptTextForConnection(activeConnection) : '')
+      ? activeTabScriptText ?? (activeConnection ? defaultScriptTextForConnection(activeConnection) : '')
       : undefined) ??
     (activeTab &&
     activeBuilderState &&
     activeQueryWindowMode === 'builder'
       ? buildQueryTextForBuilderState(activeBuilderState, activeConnection)
-      : activeTab?.queryText)
+      : activeTabQueryText)
+  const activeEditorResetKey =
+    activeTabId && activeQueryWindowMode !== 'builder'
+      ? `${activeTabId}:${activeQueryWindowMode}:${editorResetRevisions[activeTabId] ?? 0}`
+      : undefined
+  const activeSelectedText =
+    activeTabId && activeQueryWindowMode !== 'builder'
+      ? editorSelectionDrafts[activeTabId]?.trim()
+      : ''
   const activeMongoQueryScope = mongoQueryScopeForTab({
     builderState: activeBuilderState,
     connection: activeConnection,
     queryText: activeEditorQueryText,
-    scriptText: activeTab?.scriptText,
+    scriptText: activeTabScriptText,
     tab: activeTab,
   })
   const intellisenseCatalog = useQueryIntellisenseCatalog({
@@ -511,6 +556,145 @@ function DesktopWorkspace() {
 
     return hasDraftText ? (queryTextDraftRef.current[tab.id] ?? tab.queryText) : tab.queryText
   }, [])
+  const rememberEditorSelection = useCallback((tabId: string, selectedText: string) => {
+    editorSelectionDraftRef.current[tabId] = selectedText
+    setEditorSelectionDrafts((current) =>
+      current[tabId] === selectedText
+        ? current
+        : {
+            ...current,
+            [tabId]: selectedText,
+          },
+    )
+  }, [])
+  const rememberActiveEditorSelection = useCallback((selectedText: string) => {
+    if (activeTabId) {
+      rememberEditorSelection(activeTabId, selectedText)
+    }
+  }, [activeTabId, rememberEditorSelection])
+  const mirrorQueryTextDraft = useCallback((tabId: string, queryText: string) => {
+    setQueryTextDrafts((current) =>
+      current[tabId] === queryText
+        ? current
+        : {
+            ...current,
+            [tabId]: queryText,
+          },
+    )
+  }, [])
+
+  const mirrorScriptTextDraft = useCallback((tabId: string, scriptText: string) => {
+    setScriptTextDrafts((current) =>
+      current[tabId] === scriptText
+        ? current
+        : {
+            ...current,
+            [tabId]: scriptText,
+          },
+    )
+  }, [])
+
+  const rememberQueryTextDraft = useCallback((tabId: string, queryText: string) => {
+    queryTextDraftRef.current[tabId] = queryText
+  }, [])
+
+  const rememberScriptTextDraft = useCallback((tabId: string, scriptText: string) => {
+    scriptTextDraftRef.current[tabId] = scriptText
+  }, [])
+
+  const bumpEditorResetRevision = useCallback((tabId: string) => {
+    setEditorResetRevisions((current) => ({
+      ...current,
+      [tabId]: (current[tabId] ?? 0) + 1,
+    }))
+  }, [])
+
+  const scheduleQueryTextDraftSync = useCallback((tabId: string, queryText: string) => {
+    rememberQueryTextDraft(tabId, queryText)
+    const existingTimer = queryTextDraftSyncTimersRef.current[tabId]
+
+    if (existingTimer) {
+      window.clearTimeout(existingTimer)
+    }
+
+    queryTextDraftSyncTimersRef.current[tabId] = window.setTimeout(() => {
+      delete queryTextDraftSyncTimersRef.current[tabId]
+      mirrorQueryTextDraft(tabId, queryText)
+    }, 350)
+  }, [mirrorQueryTextDraft, rememberQueryTextDraft])
+
+  const scheduleScriptTextDraftSync = useCallback((tabId: string, scriptText: string) => {
+    rememberScriptTextDraft(tabId, scriptText)
+    const existingTimer = scriptTextDraftSyncTimersRef.current[tabId]
+
+    if (existingTimer) {
+      window.clearTimeout(existingTimer)
+    }
+
+    scriptTextDraftSyncTimersRef.current[tabId] = window.setTimeout(() => {
+      delete scriptTextDraftSyncTimersRef.current[tabId]
+      mirrorScriptTextDraft(tabId, scriptText)
+    }, 350)
+  }, [mirrorScriptTextDraft, rememberScriptTextDraft])
+
+  const commitQueryTextDraft = useCallback((
+    tabId: string,
+    queryText: string,
+    queryViewMode?: QueryViewMode,
+  ) => {
+    const existingTimer = queryTextDraftSyncTimersRef.current[tabId]
+
+    if (existingTimer) {
+      window.clearTimeout(existingTimer)
+      delete queryTextDraftSyncTimersRef.current[tabId]
+    }
+
+    rememberQueryTextDraft(tabId, queryText)
+    mirrorQueryTextDraft(tabId, queryText)
+    bumpEditorResetRevision(tabId)
+    void actions.updateQuery(tabId, queryText, queryViewMode)
+  }, [actions, bumpEditorResetRevision, mirrorQueryTextDraft, rememberQueryTextDraft])
+
+  useEffect(() => {
+    if (!activeTabId) {
+      return
+    }
+
+    const queryDraft = queryTextDraftRef.current[activeTabId]
+    if (queryDraft !== undefined) {
+      mirrorQueryTextDraft(activeTabId, queryDraft)
+    }
+
+    const scriptDraft = scriptTextDraftRef.current[activeTabId]
+    if (scriptDraft !== undefined) {
+      mirrorScriptTextDraft(activeTabId, scriptDraft)
+    }
+  }, [activeTabId, mirrorQueryTextDraft, mirrorScriptTextDraft])
+
+  const replaceActiveRawQueryText = useCallback((queryText: string) => {
+    if (
+      !activeTab ||
+      activeTabIsExplorer ||
+      activeTabIsMetrics ||
+      activeTabIsObjectView ||
+      activeTabIsTestSuite ||
+      activeTabIsEnvironment ||
+      activeTabIsSettings
+    ) {
+      return
+    }
+
+    commitQueryTextDraft(activeTab.id, queryText)
+  }, [
+    activeTab,
+    activeTabIsEnvironment,
+    activeTabIsExplorer,
+    activeTabIsMetrics,
+    activeTabIsObjectView,
+    activeTabIsSettings,
+    activeTabIsTestSuite,
+    commitQueryTextDraft,
+  ])
   const requestIntellisenseRefresh = useCallback(() => {
     if (!activeConnectionId || !activeEnvironmentId) {
       return
@@ -588,6 +772,14 @@ function DesktopWorkspace() {
       return
     }
 
+    const selectedText =
+      activeQueryWindowMode !== 'builder'
+        ? editorSelectionDraftRef.current[activeTab.id]?.trim()
+          ? editorSelectionDraftRef.current[activeTab.id]
+          : undefined
+        : undefined
+    const executionMode = selectedText && !mode ? 'selection' : mode
+
     if (activeQueryWindowMode === 'script') {
       const scriptText =
         scriptTextDraftRef.current[activeTab.id] ??
@@ -596,12 +788,13 @@ function DesktopWorkspace() {
         ''
       void actions.executeQuery(
         activeTab.id,
-        mode,
+        executionMode,
         guardrailId,
         resolveQueryText(activeTab),
         'script',
         scriptText,
         false,
+        selectedText,
       )
       return
     }
@@ -621,9 +814,18 @@ function DesktopWorkspace() {
         resolveQueryText(activeTab),
         builderState,
       )
-      queryTextDraftRef.current[activeTab.id] = redisCommand
+      commitQueryTextDraft(activeTab.id, redisCommand, 'raw')
       rememberRedisConsoleCommand(activeTab.id, builderState, redisCommand)
-      void actions.executeQuery(activeTab.id, mode, guardrailId, redisCommand, 'raw', undefined, false)
+      void actions.executeQuery(
+        activeTab.id,
+        executionMode,
+        guardrailId,
+        redisCommand,
+        'raw',
+        undefined,
+        false,
+        selectedText,
+      )
       return
     }
 
@@ -633,24 +835,26 @@ function DesktopWorkspace() {
     if (!generatedQueryText || !builderState) {
       void actions.executeQuery(
         activeTab.id,
-        mode,
+        executionMode,
         guardrailId,
         resolveQueryText(activeTab),
         'raw',
         undefined,
         documentEfficiencyMode,
+        selectedText,
       )
       return
     }
 
     void actions.executeQuery(
       activeTab.id,
-      mode,
+      executionMode,
       guardrailId,
       generatedQueryText,
       'builder',
       undefined,
       documentEfficiencyMode,
+      undefined,
     )
   }, [
     actions,
@@ -658,6 +862,7 @@ function DesktopWorkspace() {
     activeDocumentEfficiencyMode,
     activeQueryWindowMode,
     activeTab,
+    commitQueryTextDraft,
     rememberRedisConsoleCommand,
     resolveBuilderQueryText,
     resolveQueryText,
@@ -685,7 +890,8 @@ function DesktopWorkspace() {
 
     builderStateDraftRef.current[tabId] = nextBuilderState
     if (liveQueryText !== undefined) {
-      queryTextDraftRef.current[tabId] = liveQueryText
+      rememberQueryTextDraft(tabId, liveQueryText)
+      mirrorQueryTextDraft(tabId, liveQueryText)
     }
     setBuilderStateDrafts((current) => ({
       ...current,
@@ -727,6 +933,18 @@ function DesktopWorkspace() {
       const builderState = builderStateDraftRef.current[tabId]
       const draftQueryText = queryTextDraftRef.current[tabId]
       const draftScriptText = scriptTextDraftRef.current[tabId]
+      const queryTimer = queryTextDraftSyncTimersRef.current[tabId]
+      const scriptTimer = scriptTextDraftSyncTimersRef.current[tabId]
+
+      if (queryTimer) {
+        window.clearTimeout(queryTimer)
+        delete queryTextDraftSyncTimersRef.current[tabId]
+      }
+
+      if (scriptTimer) {
+        window.clearTimeout(scriptTimer)
+        delete scriptTextDraftSyncTimersRef.current[tabId]
+      }
 
       if (draftScriptText !== undefined) {
         await actions.updateQuery(tabId, draftScriptText, 'script')
@@ -1089,9 +1307,32 @@ function DesktopWorkspace() {
       hasSecretDrafts
     )
   }
+  const tabHasMirroredTextDraftChanges = (tab: QueryTabState) => {
+    const queryDraft = queryTextDrafts[tab.id]
+    const scriptDraft = scriptTextDrafts[tab.id]
+
+    return (
+      (queryDraft !== undefined && queryDraft !== tab.queryText) ||
+      (scriptDraft !== undefined && scriptDraft !== (tab.scriptText ?? ''))
+    )
+  }
+  const tabHasLiveTextDraftChanges = (tab: QueryTabState) => {
+    const queryDraft = queryTextDraftRef.current[tab.id]
+    const scriptDraft = scriptTextDraftRef.current[tab.id]
+
+    return (
+      (queryDraft !== undefined && queryDraft !== tab.queryText) ||
+      (scriptDraft !== undefined && scriptDraft !== (tab.scriptText ?? ''))
+    )
+  }
   const displayTabs = snapshot.tabs.map((tab) => {
     if (tab.tabKind !== 'environment') {
-      return tab
+      return tabHasMirroredTextDraftChanges(tab)
+        ? {
+            ...tab,
+            dirty: true,
+          }
+        : tab
     }
 
     const savedEnvironment = snapshot.environments.find(
@@ -1165,7 +1406,7 @@ function DesktopWorkspace() {
       tab.tabKind !== 'object-view' &&
       (tab.tabKind === 'environment'
         ? environmentTabHasChanges(tab)
-        : Boolean((tab.saveTarget || tab.savedQueryId) && tab.dirty))
+        : Boolean((tab.saveTarget || tab.savedQueryId) && (tab.dirty || tabHasLiveTextDraftChanges(tab))))
     ) {
       setPendingTabClose({
         tab: displayTabs.find((item) => item.id === tab.id) ?? tab,
@@ -1258,8 +1499,12 @@ function DesktopWorkspace() {
     }
   }
 
-  const openDiagnosticsDrawer = () => {
+  const openDiagnosticsDrawer = (section?: SettingsSection) => {
     setConnectionDraft(undefined)
+    setSettingsInitialSectionRequest((current) => ({
+      revision: current.revision + 1,
+      section: typeof section === 'string' ? section : 'appearance',
+    }))
     void actions.createSettingsTab()
   }
 
@@ -1831,8 +2076,10 @@ function DesktopWorkspace() {
               <Suspense fallback={<WorkbenchPaneFallback />}>
                 {activeTabIsSettings && activeTab ? (
                   <SettingsWorkspace
+                    key={`settings-workspace-${settingsInitialSectionRequest.revision}`}
                     diagnostics={diagnostics}
                     health={payload.health}
+                    initialSection={settingsInitialSectionRequest.section}
                     preferences={snapshot.preferences}
                     onCreateBackup={async (automatic = false) => {
                       await actions.createWorkspaceBackupNow({ automatic })
@@ -1855,6 +2102,7 @@ function DesktopWorkspace() {
                     onRestoreBackup={(backupId, passphrase) =>
                       actions.restoreWorkspaceBackup({ backupId, passphrase })
                     }
+                    onSetSafeMode={(enabled) => void actions.setSafeModeEnabled(enabled)}
                     onSetTheme={(theme) => void actions.setTheme(theme)}
                     onUpdateBackupSettings={actions.updateWorkspaceBackupSettings}
                   />
@@ -2015,6 +2263,19 @@ function DesktopWorkspace() {
                         setQueryWindowMode(mode)
                         if (activeTab) {
                           queryWindowModeByTabRef.current[activeTab.id] = mode
+                          const queryTimer = queryTextDraftSyncTimersRef.current[activeTab.id]
+                          const scriptTimer = scriptTextDraftSyncTimersRef.current[activeTab.id]
+
+                          if (queryTimer) {
+                            window.clearTimeout(queryTimer)
+                            delete queryTextDraftSyncTimersRef.current[activeTab.id]
+                          }
+
+                          if (scriptTimer) {
+                            window.clearTimeout(scriptTimer)
+                            delete scriptTextDraftSyncTimersRef.current[activeTab.id]
+                          }
+
                           const modeText =
                             mode === 'script'
                               ? scriptTextDraftRef.current[activeTab.id] ??
@@ -2024,15 +2285,34 @@ function DesktopWorkspace() {
                                   : '') ??
                                 ''
                               : resolveQueryText(activeTab)
+                          if (mode === 'script') {
+                            rememberScriptTextDraft(activeTab.id, modeText)
+                            mirrorScriptTextDraft(activeTab.id, modeText)
+                          } else {
+                            rememberQueryTextDraft(activeTab.id, modeText)
+                            mirrorQueryTextDraft(activeTab.id, modeText)
+                          }
                           void actions.updateQuery(activeTab.id, modeText, mode)
                         }
                       }}
-                      executeLabel={activeTabUsesRedisConsole ? 'Run Command' : undefined}
+                      executeLabel={
+                        activeSelectedText
+                          ? 'Run Selection'
+                          : activeTabUsesRedisConsole
+                            ? 'Run Command'
+                            : undefined
+                      }
                       executeAriaLabel={
-                        activeTabUsesRedisConsole ? 'Run Redis command' : undefined
+                        activeSelectedText
+                          ? 'Run selected text'
+                          : activeTabUsesRedisConsole
+                            ? 'Run Redis command'
+                            : undefined
                       }
                       executeTitle={
-                        activeTabUsesRedisConsole
+                        activeSelectedText
+                          ? 'Run only the selected text. Shortcut: Ctrl+Enter.'
+                          : activeTabUsesRedisConsole
                           ? activeRedisConsoleVisible
                             ? 'Run the current Redis command. Shortcut: Ctrl+Enter.'
                             : 'Switch to Redis Console to run a command. Use the browser toolbar to scan keys.'
@@ -2103,10 +2383,12 @@ function DesktopWorkspace() {
                                   : false
                               }
                               theme={resolvedTheme}
+                              resetKey={activeEditorResetKey}
                               completionContext={completionContext}
                               completionProviders={completionProviders}
                               onRequestCompletionRefresh={requestIntellisenseRefresh}
                               onRun={() => runCurrentTabQuery()}
+                              onSelectionChange={rememberActiveEditorSelection}
                               onPipelineModeChange={(enabled) => {
                                 setRedisConsolePipelineMode(
                                   activeTab.id,
@@ -2115,8 +2397,7 @@ function DesktopWorkspace() {
                                 )
                               }}
                               onChange={(value) => {
-                                queryTextDraftRef.current[activeTab.id] = value
-                                void actions.updateQuery(activeTab.id, value)
+                                scheduleQueryTextDraftSync(activeTab.id, value)
                               }}
                             />
                           ) : activeQueryWindowMode === 'script' ? (
@@ -2124,14 +2405,15 @@ function DesktopWorkspace() {
                               value={activeEditorQueryText ?? ''}
                               language="javascript"
                               theme={resolvedTheme}
+                              resetKey={activeEditorResetKey}
                               ariaLabel="MongoDB script editor"
                               completionContext={completionContext}
                               completionProviders={completionProviders}
                               onRequestCompletionRefresh={requestIntellisenseRefresh}
+                              onSelectionChange={rememberActiveEditorSelection}
                               onChange={(value) => {
                                 const nextScriptText = value ?? ''
-                                scriptTextDraftRef.current[activeTab.id] = nextScriptText
-                                void actions.updateQuery(activeTab.id, nextScriptText, 'script')
+                                scheduleScriptTextDraftSync(activeTab.id, nextScriptText)
                               }}
                             />
                           ) : (
@@ -2139,21 +2421,21 @@ function DesktopWorkspace() {
                               value={activeEditorQueryText ?? activeTab.queryText}
                               language={runtimeCapabilities.editorLanguage}
                               theme={resolvedTheme}
+                              resetKey={activeEditorResetKey}
                               completionContext={completionContext}
                               completionProviders={completionProviders}
                               onRequestCompletionRefresh={requestIntellisenseRefresh}
+                              onSelectionChange={rememberActiveEditorSelection}
                               onChange={(value) => {
                                 const nextQueryText = value ?? ''
-                                queryTextDraftRef.current[activeTab.id] = nextQueryText
-                                void actions.updateQuery(activeTab.id, nextQueryText, 'raw')
+                                scheduleQueryTextDraftSync(activeTab.id, nextQueryText)
                               }}
                               onDropField={(fieldPath) => {
                                 const nextQueryText = appendFieldToQueryText(
-                                  activeTab.queryText,
+                                  activeTabQueryText ?? activeTab.queryText,
                                   fieldPath,
                                 )
-                                queryTextDraftRef.current[activeTab.id] = nextQueryText
-                                void actions.updateQuery(activeTab.id, nextQueryText)
+                                commitQueryTextDraft(activeTab.id, nextQueryText, 'raw')
                               }}
                             />
                           )
@@ -2227,21 +2509,14 @@ function DesktopWorkspace() {
                     : undefined
                 }
                 onApplyInspectionTemplate={(queryTemplate) =>
-                  queryTemplate &&
-                  activeTab &&
-                  !activeTabIsExplorer &&
-                  !activeTabIsMetrics &&
-                  !activeTabIsObjectView
-                    ? void actions.updateQuery(activeTab.id, queryTemplate)
-                    : undefined
+                  queryTemplate ? replaceActiveRawQueryText(queryTemplate) : undefined
                 }
-                onRestoreHistory={(queryText) =>
-                  activeTab ? void actions.updateQuery(activeTab.id, queryText) : undefined
-                }
+                onRestoreHistory={replaceActiveRawQueryText}
                 onExecuteDataEdit={actions.executeDataEdit}
                 onPlanOperation={actions.planDatastoreOperation}
                 onDismissWorkbenchMessage={actions.dismissWorkbenchMessage}
                 onClearWorkbenchMessages={actions.clearWorkbenchMessages}
+                onOpenSecuritySettings={() => openDiagnosticsDrawer('security')}
               />
             </Suspense>
           ) : null}
@@ -2287,7 +2562,7 @@ function DesktopWorkspace() {
               }
               onApplyTemplate={(queryTemplate) =>
                 queryTemplate && activeTab
-                  ? void actions.updateQuery(activeTab.id, queryTemplate)
+                  ? replaceActiveRawQueryText(queryTemplate)
                   : undefined
               }
               onToggleTheme={() =>

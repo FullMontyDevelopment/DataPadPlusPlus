@@ -270,7 +270,8 @@ export function validateCancelTestRunRequest(
 function validateScopedQueryTarget(target: ScopedQueryTarget): ScopedQueryTarget {
   validateRequiredText(target.kind, 'Scoped query target kind', 80)
   validateRequiredText(target.label, 'Scoped query target label', MAX_OBJECT_NAME_LENGTH)
-  validatePath(target.path ?? [], 'Scoped query target path')
+  const path = (target as { path?: string[] | null }).path ?? []
+  validatePath(path, 'Scoped query target path')
   validateOptionalText(target.scope, 'Scoped query target scope', MAX_SCOPE_LENGTH)
   validateOptionalText(target.preferredBuilder, 'Scoped query target builder', 80)
   if (target.queryTemplate !== undefined) {
@@ -280,6 +281,7 @@ function validateScopedQueryTarget(target: ScopedQueryTarget): ScopedQueryTarget
     ...target,
     kind: target.kind.trim(),
     label: target.label.trim(),
+    path,
   }
 }
 

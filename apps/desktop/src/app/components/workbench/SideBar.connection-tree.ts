@@ -9,6 +9,7 @@ import { decorateTreeNodes } from './SideBar.connection-tree-decorate'
 import { fallbackConnectionTree } from './SideBar.connection-tree-fallbacks'
 import {
   manifestTreeNodeId,
+  manifestTreeNodeQueryConfig,
   manifestTreeNodeScope,
   resolveManifestTreeLabel,
 } from './SideBar.connection-tree-manifest'
@@ -61,6 +62,12 @@ function connectionTreeNodeFromManifestNode(
     connectionTreeNodeFromManifestNode(connection, child, [...parentPath, label]),
   )
   const scope = manifestTreeNodeScope(connection, manifestNode, label, parentPath)
+  const queryConfig = manifestTreeNodeQueryConfig(
+    connection,
+    manifestNode,
+    label,
+    parentPath,
+  )
 
   return [
     {
@@ -73,6 +80,7 @@ function connectionTreeNodeFromManifestNode(
       category: true,
       expandable: children.length > 0 || Boolean(scope),
       children,
+      ...queryConfig,
     },
   ]
 }

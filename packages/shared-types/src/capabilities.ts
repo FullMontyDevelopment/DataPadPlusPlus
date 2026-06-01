@@ -74,6 +74,9 @@ export interface ExecutionCapabilities {
   canCancel: boolean
   canExplain: boolean
   supportsLiveMetadata: boolean
+  supportsBatchExecution?: boolean
+  supportsSelectionExecution?: boolean
+  batchSplitStrategy?: 'none' | 'sql' | 'sqlserver-go' | 'newline' | 'script'
   editorLanguage: string
   defaultRowLimit: number
 }

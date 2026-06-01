@@ -465,7 +465,7 @@ function ConnectionObjectTreeNode({
     canRefreshNode: Boolean(onLoadExplorerScope),
   })
   const shouldAutoLoadChildren =
-    expanded && shouldLoadScopedChildren(node, children, branchLoading)
+    expanded && shouldLoadScopedChildren(connection, node, children, branchLoading)
   const toggleNode = () => {
     if (!canExpand) {
       return
@@ -474,7 +474,7 @@ function ConnectionObjectTreeNode({
     const nextExpanded = !expanded
     onToggleNode(nodeKey)
 
-    if (nextExpanded && shouldLoadScopedChildren(node, children, branchLoading)) {
+    if (nextExpanded && shouldLoadScopedChildren(connection, node, children, branchLoading)) {
       onRequestAutoLoadScope(node.scope)
     }
   }
@@ -674,6 +674,7 @@ function ConnectionObjectTreeNode({
 }
 
 function shouldLoadScopedChildren(
+  connection: ConnectionProfile,
   node: ConnectionTreeNode,
   children: ConnectionTreeNode[],
   branchLoading: boolean,
@@ -686,7 +687,18 @@ function shouldLoadScopedChildren(
     return true
   }
 
+  if (isRedisBranchScope(connection, node.scope)) {
+    return true
+  }
+
   return children.every((child) => !child.scope || child.scope === node.scope)
+}
+
+function isRedisBranchScope(connection: ConnectionProfile, scope: string) {
+  return (
+    (connection.engine === 'redis' || connection.engine === 'valkey') &&
+    (scope === 'databases' || /^db:\d+$/.test(scope))
+  )
 }
 
 function openObjectMenuFromButton(
@@ -711,7 +723,7 @@ function connectionTreeNodeToExplorerNode(
     kind: node.kind,
     detail: node.detail ?? '',
     scope: node.scope,
-    path: node.path,
+    path: Array.isArray(node.path) ? node.path : [],
     queryTemplate: node.queryTemplate,
     expandable: node.expandable,
   }

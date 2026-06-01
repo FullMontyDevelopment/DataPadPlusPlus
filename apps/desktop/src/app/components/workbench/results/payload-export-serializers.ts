@@ -2,6 +2,7 @@ import type {
   ExecutionResultEnvelope,
   ExportResultFileRequest,
   ResultPayload,
+  SingleResultPayload,
 } from '@datapadplusplus/shared-types'
 import {
   sanitizeExportText,
@@ -24,6 +25,16 @@ export function payloadToText(payload: ResultPayload) {
 }
 
 export function exportOptionsForPayload(payload: ResultPayload): ResultExportOption[] {
+  if (payload.renderer === 'batch') {
+    const rowLikeSections = payload.sections.filter((section) =>
+      section.payloads.some((sectionPayload) => rowLikeRecordsForPayload(sectionPayload).length > 0),
+    )
+
+    return rowLikeSections.length > 0
+      ? [EXPORT_FORMATS.json, EXPORT_FORMATS.txt, EXPORT_FORMATS.ndjson]
+      : [EXPORT_FORMATS.json, EXPORT_FORMATS.txt]
+  }
+
   if (payload.renderer === 'raw' || payload.renderer === 'resp') {
     return [EXPORT_FORMATS.txt]
   }
@@ -89,7 +100,20 @@ export function serializePayloadForExport(
   return sanitizeExportText(JSON.stringify(payloadToJsonValue(safePayload), null, 2))
 }
 
-function payloadToJsonValue(payload: ResultPayload) {
+function payloadToJsonValue(payload: ResultPayload): unknown {
+  if (payload.renderer === 'batch') {
+    return payload.sections.map((section) => ({
+      id: section.id,
+      label: section.label,
+      statement: section.statement,
+      status: section.status,
+      durationMs: section.durationMs,
+      rowCount: section.rowCount,
+      notices: section.notices,
+      result: payloadToJsonValue(sectionPrimaryPayload(section)),
+    }))
+  }
+
   if (payload.renderer === 'table') {
     return tableRowsToObjects(payload.columns, payload.rows)
   }
@@ -129,15 +153,23 @@ function payloadToJsonValue(payload: ResultPayload) {
   return rowRecords.length > 0 ? rowRecords : payload
 }
 
-function payloadToCsv(payload: ResultPayload) {
+function payloadToCsv(payload: ResultPayload): string {
   if (payload.renderer === 'table') {
     return recordsToCsv(tableRowsToObjects(payload.columns, payload.rows))
+  }
+
+  if (payload.renderer === 'batch') {
+    return recordsToCsv(batchRowRecords(payload))
   }
 
   return recordsToCsv(rowLikeRecordsForPayload(payload))
 }
 
-function payloadToNdjson(payload: ResultPayload) {
+function payloadToNdjson(payload: ResultPayload): string {
+  if (payload.renderer === 'batch') {
+    return batchRowRecords(payload).map((record) => JSON.stringify(record)).join('\n')
+  }
+
   const records = rowLikeRecordsForPayload(payload)
 
   if (records.length > 0) {
@@ -147,7 +179,19 @@ function payloadToNdjson(payload: ResultPayload) {
   return JSON.stringify(payloadToJsonValue(payload))
 }
 
-function payloadToPlainText(payload: ResultPayload) {
+function payloadToPlainText(payload: ResultPayload): string {
+  if (payload.renderer === 'batch') {
+    return payload.sections
+      .map((section, index) => {
+        const payloadText = payloadToPlainText(sectionPrimaryPayload(section))
+        const title = `${section.label || `Result ${index + 1}`} (${section.status})`
+        const statement = section.statement ? `\n${section.statement}` : ''
+
+        return `${title}${statement}\n${payloadText}`
+      })
+      .join('\n\n')
+  }
+
   if (payload.renderer === 'raw' || payload.renderer === 'resp') {
     return payload.text
   }
@@ -172,6 +216,10 @@ function tableRowsToObjects(columns: string[], rows: string[][]) {
 }
 
 function rowLikeRecordsForPayload(payload: ResultPayload): Record<string, unknown>[] {
+  if (payload.renderer === 'batch') {
+    return batchRowRecords(payload)
+  }
+
   if (payload.renderer === 'table') {
     return tableRowsToObjects(payload.columns, payload.rows)
   }
@@ -195,6 +243,28 @@ function rowLikeRecordsForPayload(payload: ResultPayload): Record<string, unknow
   }
 
   return []
+}
+
+function batchRowRecords(payload: Extract<ResultPayload, { renderer: 'batch' }>) {
+  return payload.sections.flatMap((section, sectionIndex) =>
+    rowLikeRecordsForPayload(sectionPrimaryPayload(section)).map((record) => ({
+      result: section.label || `Result ${sectionIndex + 1}`,
+      status: section.status,
+      ...record,
+    })),
+  )
+}
+
+function sectionPrimaryPayload(
+  section: Extract<ResultPayload, { renderer: 'batch' }>['sections'][number],
+): SingleResultPayload {
+  return (
+    section.payloads.find((payload) => payload.renderer === section.defaultRenderer) ??
+    section.payloads[0] ?? {
+      renderer: 'raw',
+      text: '',
+    }
+  )
 }
 
 function recordsToCsv(records: Record<string, unknown>[]) {

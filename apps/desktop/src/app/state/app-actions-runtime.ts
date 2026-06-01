@@ -216,6 +216,7 @@ export function useRuntimeActions({
       executionInputMode,
       scriptText,
       documentEfficiencyMode,
+      selectedText,
     ) => {
       const executionId = createId('execution')
       try {
@@ -241,6 +242,7 @@ export function useRuntimeActions({
           queryText: overrideQueryText ?? tab.queryText,
           executionInputMode,
           scriptText,
+          selectedText: selectedText?.trim() ? selectedText : undefined,
           mode,
           rowLimit: 500,
           documentEfficiencyMode,

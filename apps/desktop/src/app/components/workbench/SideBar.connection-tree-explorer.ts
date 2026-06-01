@@ -75,7 +75,9 @@ function explorerNodeToConnectionTreeNode(
     ['collection', 'documents', 'aggregations', 'sample-results', 'gridfs-collection'].includes(
       normalizedKind,
     )
-  const isRedisPrefix = isRedisLikeConnection(connection) && normalizedKind === 'prefix'
+  const isRedisConnection = isRedisLikeConnection(connection)
+  const isRedisPrefix = isRedisConnection && normalizedKind === 'prefix'
+  const isRedisDatabase = isRedisConnection && normalizedKind === 'database'
   const isSearchBuilderNode =
     connection.family === 'search' &&
     ['index', 'data-stream', 'documents'].includes(normalizedKind)
@@ -88,7 +90,13 @@ function explorerNodeToConnectionTreeNode(
   const isGraphQueryNode =
     connection.family === 'graph' &&
     ['graph', 'node-label', 'relationship'].includes(normalizedKind)
-  const redisPattern = isRedisPrefix ? redisPatternFromExplorerNode(node) : undefined
+  const redisPattern =
+    isRedisPrefix || isRedisDatabase
+      ? redisPatternFromExplorerNode(node, normalizedKind)
+      : undefined
+  const redisDatabaseIndex = isRedisConnection
+    ? redisDatabaseIndexFromExplorerNode(node)
+    : undefined
   const label = sqlDisplayLabelForExplorerNode(connection, node, normalizedKind)
 
   return {
@@ -98,12 +106,12 @@ function explorerNodeToConnectionTreeNode(
     detail: node.detail,
     scope: node.scope,
     refreshScope: node.scope,
-    path: node.path,
+    path: Array.isArray(node.path) ? node.path : [],
     queryTemplate:
       redisPattern !== undefined
-        ? redisKeyBrowserQueryTemplate(redisPattern)
+        ? redisKeyBrowserQueryTemplate(redisPattern, 100, redisDatabaseIndex)
         : (node.queryTemplate ?? fallbackExplorerQueryTemplate(connection, node)),
-    queryable: isRedisPrefix || isGraphQueryNode || isExplorerNodeQueryable(connection, node),
+    queryable: isRedisPrefix || isRedisDatabase || isGraphQueryNode || isExplorerNodeQueryable(connection, node),
     expandable: node.expandable,
     builderKind: isMongoBuilderNode
       ? normalizedKind === 'aggregations'
@@ -111,6 +119,8 @@ function explorerNodeToConnectionTreeNode(
         : 'mongo-find'
       : isRedisPrefix
         ? 'redis-key-browser'
+        : isRedisDatabase
+          ? 'redis-key-browser'
         : isSearchBuilderNode
           ? 'search-dsl'
           : isDynamoBuilderNode
@@ -182,7 +192,9 @@ function isRedisLikeConnection(connection: ConnectionProfile) {
   return connection.engine === 'redis' || connection.engine === 'valkey'
 }
 
-function redisPatternFromExplorerNode(node: ExplorerNode) {
+function redisPatternFromExplorerNode(node: ExplorerNode, kind: string) {
+  if (kind === 'database') return '*'
+
   const scopedPrefix = node.scope?.startsWith('prefix:')
     ? node.scope.replace('prefix:', '')
     : undefined
@@ -197,6 +209,17 @@ function redisPatternFromExplorerNode(node: ExplorerNode) {
   }
 
   return pattern
+}
+
+function redisDatabaseIndexFromExplorerNode(node: ExplorerNode) {
+  const scopedDatabase = /^db:(\d+)(?::|$)/.exec(node.scope ?? '')?.[1]
+  const labelDatabase = /^DB\s+(\d+)$/i.exec(node.label.trim())?.[1]
+  const candidate = scopedDatabase ?? labelDatabase
+
+  if (!candidate) return undefined
+
+  const parsed = Number.parseInt(candidate, 10)
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : undefined
 }
 
 function sqlObjectPartsFromExplorerNode(

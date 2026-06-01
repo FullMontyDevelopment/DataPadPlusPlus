@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   validateCreateLibraryFolderRequest,
   validateCreateObjectViewTabRequest,
+  validateCreateScopedQueryTabRequest,
   validateConnectionProfile,
   validateConnectionTestRequest,
   validateDataEditPlanRequest,
@@ -63,6 +64,21 @@ describe('runtime request validation', () => {
         pattern: 'orders\u0000*',
       }),
     ).toThrow(/control characters/)
+  })
+
+  it('normalizes nullable scoped query target paths before desktop commands', () => {
+    expect(
+      validateCreateScopedQueryTabRequest({
+        connectionId: 'conn-redis',
+        target: {
+          kind: 'database',
+          label: 'DB 1',
+          path: null,
+          scope: 'db:1',
+          preferredBuilder: 'redis-key-browser',
+        },
+      } as never).target.path,
+    ).toEqual([])
   })
 
   it('validates object-view requests without allowing arbitrary node identifiers', () => {

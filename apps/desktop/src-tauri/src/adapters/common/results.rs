@@ -79,6 +79,11 @@ pub(crate) fn payload_buffered_rows(payload: &Value) -> u32 {
             .and_then(Value::as_array)
             .map(|items| items.len() as u32)
             .unwrap_or_default(),
+        Some("batch") => payload
+            .get("sections")
+            .and_then(Value::as_array)
+            .map(|items| items.len() as u32)
+            .unwrap_or_default(),
         _ => 1,
     }
 }

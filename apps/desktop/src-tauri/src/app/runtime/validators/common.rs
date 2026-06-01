@@ -75,6 +75,7 @@ pub(super) const RESULT_RENDERERS: &[&str] = &[
     "searchHits",
     "profile",
     "costEstimate",
+    "batch",
 ];
 
 pub(super) fn validate_operation_id(value: &str) -> Result<(), CommandError> {

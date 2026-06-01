@@ -223,6 +223,63 @@ fn scoped_redis_prefix_tab_gets_key_browser_state() {
 }
 
 #[test]
+fn scoped_redis_database_tab_gets_db_scoped_key_browser_state() {
+    let snapshot = blank_workspace_snapshot();
+    let connection = test_connection("conn-redis", "Redis", "redis", "keyvalue");
+    let tab = build_scoped_query_tab(
+        &snapshot,
+        &connection,
+        CreateScopedQueryTabRequest {
+            connection_id: connection.id.clone(),
+            environment_id: Some("env-dev".into()),
+            target: crate::domain::models::ScopedQueryTarget {
+                kind: "database".into(),
+                label: "DB 1".into(),
+                path: vec!["Redis".into(), "Databases".into()],
+                scope: Some("db:1".into()),
+                query_template: None,
+                preferred_builder: Some("redis-key-browser".into()),
+            },
+        },
+    );
+
+    assert_eq!(tab.title, "DB 1.redis");
+    assert!(tab.query_text.contains("\"pattern\": \"*\""));
+    assert!(tab.query_text.contains("\"database\": 1"));
+    assert_eq!(
+        tab.builder_state
+            .as_ref()
+            .and_then(|value| value.get("kind"))
+            .and_then(serde_json::Value::as_str),
+        Some("redis-key-browser")
+    );
+    assert_eq!(
+        tab.builder_state
+            .as_ref()
+            .and_then(|value| value.get("databaseIndex"))
+            .and_then(serde_json::Value::as_u64),
+        Some(1)
+    );
+}
+
+#[test]
+fn scoped_query_target_deserializes_null_path_as_empty_path() {
+    let request: CreateScopedQueryTabRequest = serde_json::from_value(serde_json::json!({
+        "connectionId": "conn-redis",
+        "target": {
+            "kind": "database",
+            "label": "DB 1",
+            "path": null,
+            "scope": "db:1",
+            "preferredBuilder": "redis-key-browser"
+        }
+    }))
+    .expect("scoped query request should tolerate legacy null paths");
+
+    assert!(request.target.path.is_empty());
+}
+
+#[test]
 fn scoped_target_match_reuses_same_connection_object_identity() {
     let base = crate::domain::models::ScopedQueryTarget {
         kind: "collection".into(),

@@ -47,9 +47,16 @@ pub(super) async fn execute_redis_query(
         let mut rows = Vec::new();
         let mut raw_sections = Vec::new();
         let mut json_sections = Vec::new();
+        let mut batch_sections = Vec::new();
 
         for (index, line) in lines.iter().enumerate() {
+            let command_started = Instant::now();
             let outcome = execute_redis_single_command(&mut redis, line, row_limit).await?;
+            let (default_renderer, renderer_modes) = renderer_modes_for_payloads(&outcome.payloads);
+            let row_count = outcome
+                .payloads
+                .first()
+                .map(|payload| payload_buffered_rows(payload) as usize);
             rows.push(vec![
                 (index + 1).to_string(),
                 line.clone(),
@@ -74,10 +81,26 @@ pub(super) async fn execute_redis_query(
                 "payloads": outcome.payloads,
                 "resp": resp_text,
             }));
+            batch_sections.push(batch_section(BatchSectionPayload {
+                id: format!("redis-command-{}", index + 1),
+                label: format!("Command {}", index + 1),
+                statement: Some(line.clone()),
+                status: "success",
+                duration_ms: Some(duration_ms(command_started)),
+                row_count,
+                default_renderer: default_renderer.clone(),
+                renderer_modes,
+                payloads: outcome.payloads,
+                notices: Vec::new(),
+            }));
         }
 
         (
             vec![
+                payload_batch(
+                    batch_sections,
+                    format!("Redis pipeline returned {} command result(s).", lines.len()),
+                ),
                 payload_table(vec!["#".into(), "command".into(), "summary".into()], rows),
                 payload_json(json!({
                     "pipeline": json_sections,

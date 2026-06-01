@@ -14,10 +14,12 @@ interface RedisConsoleEditorProps {
   history?: string[]
   pipelineMode?: boolean
   theme: string
+  resetKey?: string | number
   completionContext?: EditorCompletionContext
   completionProviders?: DatastoreCompletionProvider[]
   onRequestCompletionRefresh?(): void
   onChange(value: string): void
+  onSelectionChange?(selectedText: string): void
   onPipelineModeChange?(enabled: boolean): void
   onRun(): void
 }
@@ -28,10 +30,12 @@ export function RedisConsoleEditor({
   history = [],
   pipelineMode = false,
   theme,
+  resetKey,
   completionContext,
   completionProviders,
   onRequestCompletionRefresh,
   onChange,
+  onSelectionChange,
   onPipelineModeChange,
   onRun,
 }: RedisConsoleEditorProps) {
@@ -98,12 +102,14 @@ export function RedisConsoleEditor({
         <DesktopCodeEditor
           ariaLabel={`${engineLabel} command`}
           value={value}
+          resetKey={resetKey}
           language="plaintext"
           theme={theme}
           completionContext={completionContext}
           completionProviders={completionProviders}
           onRequestCompletionRefresh={onRequestCompletionRefresh}
           onChange={onChange}
+          onSelectionChange={onSelectionChange}
         />
       </div>
       {commandDoc ? (

@@ -118,7 +118,8 @@ pub(super) async fn execute_sqlserver_query(
 ) -> Result<ExecutionResultEnvelope, CommandError> {
     let started = Instant::now();
     let statement = selected_query(request);
-    let query = if execute_mode(request) == "explain" {
+    let explain_mode = execute_mode(request) == "explain";
+    let query = if explain_mode {
         format!("SET SHOWPLAN_TEXT ON; {statement}; SET SHOWPLAN_TEXT OFF;")
     } else {
         statement.to_string()
@@ -127,9 +128,161 @@ pub(super) async fn execute_sqlserver_query(
         .row_limit
         .unwrap_or(adapter.execution_capabilities().default_row_limit);
     let mut client = sqlserver_client(connection).await?;
-    let results = client.simple_query(query).await?.into_results().await?;
-    let first_result = results.into_iter().next().unwrap_or_default();
-    let columns = first_result
+    let batches = if explain_mode {
+        single_statement_batch(&query)
+    } else {
+        split_sql_batch(&query, SqlBatchDialect::SqlServer)
+    };
+    let mut section_rows = Vec::new();
+    let mut total_rows = 0usize;
+    let mut truncated = false;
+
+    for batch in &batches {
+        let batch_started = Instant::now();
+        let results = client
+            .simple_query(batch.text.clone())
+            .await?
+            .into_results()
+            .await?;
+        let empty_result_sets = results.is_empty();
+
+        for result in results {
+            let section = sqlserver_result_section(
+                section_rows.len() + 1,
+                &batch.text,
+                result,
+                row_limit,
+                duration_ms(batch_started),
+            );
+            total_rows += section.row_count;
+            truncated |= section.truncated;
+            section_rows.push(section);
+        }
+
+        if empty_result_sets {
+            section_rows.push(SqlServerResultSection {
+                payload: payload_raw("Statement executed successfully.".into()),
+                row_count: 0,
+                tabular_rows: Vec::new(),
+                duration_ms: duration_ms(batch_started),
+                truncated: false,
+                statement: batch.text.clone(),
+            });
+        }
+    }
+
+    let first_section = section_rows.first();
+    let primary_payload = if explain_mode {
+        payload_raw(
+            first_section
+                .map(|section| section.tabular_rows.as_slice())
+                .unwrap_or_default()
+                .iter()
+                .flat_map(|row| row.iter().cloned())
+                .collect::<Vec<String>>()
+                .join("\n"),
+        )
+    } else {
+        first_section
+            .map(|section| section.payload.clone())
+            .unwrap_or_else(|| payload_raw("Statement executed successfully.".into()))
+    };
+    let explain_payload = if explain_mode {
+        Some(primary_payload.clone())
+    } else {
+        None
+    };
+    let batch_payload = (!explain_mode && section_rows.len() > 1).then(|| {
+        payload_batch(
+            section_rows
+                .iter()
+                .enumerate()
+                .map(|(index, section)| {
+                    let default_renderer = section
+                        .payload
+                        .get("renderer")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("raw")
+                        .to_string();
+
+                    batch_section(BatchSectionPayload {
+                        id: format!("sqlserver-result-{}", index + 1),
+                        label: format!("Result {}", index + 1),
+                        statement: Some(section.statement.clone()),
+                        status: "success",
+                        duration_ms: Some(section.duration_ms),
+                        row_count: Some(section.row_count),
+                        default_renderer: default_renderer.clone(),
+                        renderer_modes: vec![default_renderer.clone()],
+                        payloads: vec![section.payload.clone()],
+                        notices: Vec::new(),
+                    })
+                })
+                .collect(),
+            format!(
+                "{} SQL Server result section(s) returned from {}.",
+                section_rows.len(),
+                connection.name
+            ),
+        )
+    });
+    let mut payloads = Vec::new();
+    if let Some(batch) = batch_payload.clone() {
+        payloads.push(batch);
+    } else {
+        payloads.push(primary_payload);
+    }
+    payloads.push(payload_json(json!({
+        "engine": connection.engine,
+        "rowCount": total_rows,
+        "rowLimit": row_limit,
+        "resultSetCount": section_rows.len(),
+    })));
+    payloads.push(payload_raw(statement.to_string()));
+
+    Ok(build_result(ResultEnvelopeInput {
+        engine: &connection.engine,
+        summary: format!("{total_rows} row(s) returned from {}.", connection.name),
+        default_renderer: if batch_payload.is_some() {
+            "batch"
+        } else if explain_mode {
+            "raw"
+        } else {
+            "table"
+        },
+        renderer_modes: if batch_payload.is_some() {
+            vec!["batch", "json", "raw"]
+        } else if explain_mode {
+            vec!["raw", "table", "json"]
+        } else {
+            vec!["table", "json", "raw"]
+        },
+        payloads,
+        notices,
+        duration_ms: duration_ms(started),
+        row_limit: Some(row_limit),
+        truncated,
+        explain_payload,
+    }))
+}
+
+struct SqlServerResultSection {
+    payload: serde_json::Value,
+    row_count: usize,
+    tabular_rows: Vec<Vec<String>>,
+    duration_ms: u64,
+    truncated: bool,
+    statement: String,
+}
+
+fn sqlserver_result_section(
+    _index: usize,
+    statement: &str,
+    result: Vec<tiberius::Row>,
+    row_limit: u32,
+    duration_ms: u64,
+) -> SqlServerResultSection {
+    let columns: Vec<String> = result
         .first()
         .map(|row| {
             row.columns()
@@ -137,9 +290,9 @@ pub(super) async fn execute_sqlserver_query(
                 .map(|column| column.name().to_string())
                 .collect()
         })
-        .unwrap_or_else(Vec::new);
-    let total_rows = first_result.len();
-    let tabular_rows = first_result
+        .unwrap_or_default();
+    let row_count = result.len();
+    let tabular_rows = result
         .iter()
         .take(row_limit as usize)
         .map(|row| {
@@ -148,54 +301,20 @@ pub(super) async fn execute_sqlserver_query(
                 .collect()
         })
         .collect::<Vec<Vec<String>>>();
-
-    let primary_payload = if execute_mode(request) == "explain" {
-        payload_raw(
-            tabular_rows
-                .iter()
-                .flat_map(|row| row.iter().cloned())
-                .collect::<Vec<String>>()
-                .join("\n"),
-        )
-    } else if columns.is_empty() {
+    let payload = if columns.is_empty() {
         payload_raw("Statement executed successfully.".into())
     } else {
-        payload_table(columns.clone(), tabular_rows)
-    };
-    let explain_payload = if execute_mode(request) == "explain" {
-        Some(primary_payload.clone())
-    } else {
-        None
+        payload_table(columns.clone(), tabular_rows.clone())
     };
 
-    Ok(build_result(ResultEnvelopeInput {
-        engine: &connection.engine,
-        summary: format!("{total_rows} row(s) returned from {}.", connection.name),
-        default_renderer: if execute_mode(request) == "explain" {
-            "raw"
-        } else {
-            "table"
-        },
-        renderer_modes: if execute_mode(request) == "explain" {
-            vec!["raw", "table", "json"]
-        } else {
-            vec!["table", "json", "raw"]
-        },
-        payloads: vec![
-            primary_payload,
-            payload_json(json!({
-                "engine": connection.engine,
-                "rowCount": total_rows,
-                "rowLimit": row_limit,
-            })),
-            payload_raw(statement.to_string()),
-        ],
-        notices,
-        duration_ms: duration_ms(started),
-        row_limit: Some(row_limit),
-        truncated: total_rows > row_limit as usize,
-        explain_payload,
-    }))
+    SqlServerResultSection {
+        payload,
+        row_count,
+        tabular_rows,
+        duration_ms,
+        truncated: row_count > row_limit as usize,
+        statement: statement.to_string(),
+    }
 }
 
 #[cfg(test)]

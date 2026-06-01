@@ -41,7 +41,7 @@ describe('LiteDbObjectViewInsights', () => {
     )
 
     const collection = screen.getByRole('region', { name: 'LiteDB collection posture' })
-    expect(collection).toHaveTextContent(/100\s*428/)
+    expect(collection).toHaveTextContent(/100[\s,]*428/)
     expect(within(collection).getByText('sku')).toBeInTheDocument()
 
     const indexes = screen.getByRole('region', { name: 'LiteDB index posture' })

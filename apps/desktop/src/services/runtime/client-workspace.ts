@@ -57,6 +57,18 @@ export const clientWorkspace = {
     return buildBrowserPayload(next)
   },
 
+  async setSafeModeEnabled(enabled: boolean): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('set_safe_mode_enabled', { enabled })
+    }
+
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    next.preferences.safeModeEnabled = enabled
+    next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
   async createDiagnosticsReport(): Promise<DiagnosticsReport> {
     if (isTauriRuntime()) {
       return invokeDesktop<DiagnosticsReport>('create_diagnostics_report')

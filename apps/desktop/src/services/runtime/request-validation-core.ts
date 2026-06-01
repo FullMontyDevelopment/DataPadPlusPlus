@@ -75,6 +75,7 @@ export const RESULT_RENDERERS = new Set([
   'searchHits',
   'profile',
   'costEstimate',
+  'batch',
 ])
 
 export const QUERY_LANGUAGES = new Set([

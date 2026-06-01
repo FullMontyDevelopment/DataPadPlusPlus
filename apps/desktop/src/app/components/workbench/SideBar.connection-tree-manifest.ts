@@ -2,6 +2,7 @@ import type {
   ConnectionProfile,
   DatastoreTreeNodeManifest,
 } from '@datapadplusplus/shared-types'
+import { redisKeyBrowserQueryTemplate } from './SideBar.datastore-tree-registry'
 import {
   sqlManifestNodeId,
   sqlManifestNodeScope,
@@ -15,6 +16,10 @@ export function manifestTreeNodeId(
 ) {
   const sqlNodeId = sqlManifestNodeId(connection, manifestNode.kind, label, parentPath)
   if (sqlNodeId) return sqlNodeId
+
+  if (isRedisLikeConnection(connection)) {
+    return redisManifestNodeId(connection, manifestNode.kind, label, parentPath)
+  }
 
   if (connection.engine === 'memcached') return memcachedManifestNodeId(manifestNode.kind, label)
   if (connection.engine === 'litedb') return liteDbManifestNodeId(manifestNode.kind, label)
@@ -45,6 +50,10 @@ export function manifestTreeNodeScope(
 ) {
   const sqlScope = sqlManifestNodeScope(connection, manifestNode.kind, label, parentPath)
   if (sqlScope) return sqlScope
+
+  if (isRedisLikeConnection(connection)) {
+    return redisManifestNodeScope(connection, manifestNode.kind, label, parentPath)
+  }
 
   if (connection.engine === 'memcached') return memcachedManifestNodeId(manifestNode.kind, label)
   if (connection.engine === 'litedb') return liteDbManifestNodeId(manifestNode.kind, label)
@@ -84,6 +93,136 @@ export function resolveManifestTreeLabel(
   if (!database && manifestNode.requiresDatabase) return undefined
 
   return manifestNode.label.replace(databasePlaceholder, database || 'default')
+}
+
+export function manifestTreeNodeQueryConfig(
+  connection: ConnectionProfile,
+  manifestNode: DatastoreTreeNodeManifest,
+  label: string,
+  parentPath: string[],
+) {
+  if (!isRedisLikeConnection(connection) || normalizeKind(manifestNode.kind) !== 'database') {
+    return undefined
+  }
+
+  const databaseIndex = redisDatabaseIndexFromPath(connection, label, parentPath)
+
+  return {
+    queryable: true,
+    builderKind: 'redis-key-browser' as const,
+    queryTemplate: redisKeyBrowserQueryTemplate('*', 100, databaseIndex),
+  }
+}
+
+function isRedisLikeConnection(connection: ConnectionProfile) {
+  return connection.engine === 'redis' || connection.engine === 'valkey'
+}
+
+function redisManifestNodeId(
+  connection: ConnectionProfile,
+  kind: string,
+  label: string,
+  parentPath: string[],
+) {
+  const normalizedKind = normalizeKind(kind)
+  const typeKind = redisBrowserTypeKind(normalizedKind)
+
+  if (normalizedKind === 'databases') return 'redis:databases'
+  if (normalizedKind === 'database') {
+    return `redis:db:${redisDatabaseIndexFromPath(connection, label, parentPath)}`
+  }
+  if (typeKind) {
+    return `redis:db:${redisDatabaseIndexFromPath(connection, label, parentPath)}:${typeKind}`
+  }
+  if (normalizedKind === 'cluster') return 'redis:cluster'
+  if (normalizedKind === 'sentinel') return 'redis:sentinel'
+  if (normalizedKind === 'lua-scripts') return 'redis:lua-scripts'
+  if (normalizedKind === 'functions') return 'redis:functions'
+  if (normalizedKind === 'security') return 'redis:acl'
+  if (normalizedKind === 'diagnostics') return 'redis:diagnostics'
+
+  return `redis:${normalizedKind || normalizeKind(label) || 'object'}`
+}
+
+function redisManifestNodeScope(
+  connection: ConnectionProfile,
+  kind: string,
+  label: string,
+  parentPath: string[],
+) {
+  const normalizedKind = normalizeKind(kind)
+  const typeKind = redisBrowserTypeKind(normalizedKind)
+
+  if (normalizedKind === 'databases') return 'databases'
+  if (normalizedKind === 'database') {
+    return `db:${redisDatabaseIndexFromPath(connection, label, parentPath)}`
+  }
+  if (typeKind) {
+    return `db:${redisDatabaseIndexFromPath(connection, label, parentPath)}:type:${typeKind}`
+  }
+  if (normalizedKind === 'cluster') return 'cluster'
+  if (normalizedKind === 'sentinel') return 'sentinel'
+  if (normalizedKind === 'lua-scripts') return 'lua-scripts'
+  if (normalizedKind === 'functions') return 'functions'
+  if (normalizedKind === 'security') return 'acl'
+  if (normalizedKind === 'diagnostics') return 'diagnostics'
+
+  return undefined
+}
+
+function redisBrowserTypeKind(kind: string) {
+  switch (kind) {
+    case 'keys':
+      return 'keys'
+    case 'strings':
+      return 'string'
+    case 'hashes':
+      return 'hash'
+    case 'lists':
+      return 'list'
+    case 'sets':
+      return 'set'
+    case 'sorted-sets':
+      return 'zset'
+    case 'streams':
+      return 'stream'
+    case 'json':
+      return 'json'
+    case 'time-series':
+      return 'timeseries'
+    case 'bloom':
+    case 'bloom-filters':
+      return 'bloom'
+    case 'search-indexes':
+      return 'search-index'
+    case 'vector-indexes':
+      return 'vectorset'
+    case 'pubsub':
+      return 'pubsub'
+    default:
+      return undefined
+  }
+}
+
+function redisDatabaseIndexFromPath(
+  connection: ConnectionProfile,
+  label: string,
+  parentPath: string[],
+) {
+  const candidate = [...parentPath, label]
+    .map((part) => /^DB\s+(\d+)$/i.exec(part.trim())?.[1])
+    .find(Boolean)
+
+  if (candidate) return Math.max(0, Number.parseInt(candidate, 10))
+
+  if (Number.isFinite(connection.redisOptions?.databaseIndex)) {
+    return Math.max(0, Math.trunc(connection.redisOptions?.databaseIndex ?? 0))
+  }
+
+  const parsedConnectionDatabase = Number.parseInt(connection.database ?? '', 10)
+  return Number.isFinite(parsedConnectionDatabase)
+    ? Math.max(0, parsedConnectionDatabase)
+    : 0
 }
 
 function searchManifestNodeId(kind: string, label: string, parentPath: string[]) {

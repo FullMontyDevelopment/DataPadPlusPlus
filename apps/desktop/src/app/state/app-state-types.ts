@@ -201,6 +201,7 @@ export interface Actions {
     executionInputMode?: ExecutionRequest['executionInputMode'],
     scriptText?: string,
     documentEfficiencyMode?: boolean,
+    selectedText?: string,
   ): Promise<void>
   executeTestSuite(request: ExecuteTestSuiteRequest): Promise<ExecuteTestSuiteResponse | undefined>
   cancelTestRun(
@@ -233,6 +234,7 @@ export interface Actions {
   dismissWorkbenchMessage(id: string): void
   clearWorkbenchMessages(): void
   setTheme(theme: WorkspaceSnapshot['preferences']['theme']): Promise<void>
+  setSafeModeEnabled(enabled: boolean): Promise<void>
   updateUiState(patch: UpdateUiStateRequest): Promise<void>
   refreshDiagnostics(): Promise<void>
   exportResultFile(

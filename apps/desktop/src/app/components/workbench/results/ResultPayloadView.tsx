@@ -9,6 +9,7 @@ import type {
   ResultPayload,
 } from '@datapadplusplus/shared-types'
 import type { ReactNode } from 'react'
+import { BatchResultsView } from './BatchResultsView'
 import { CostEstimateResultsView } from './CostEstimateResultsView'
 import { DataGridView } from './DataGridView'
 import { dataGridRowsVersion } from './data-grid-row-patches'
@@ -60,6 +61,31 @@ export function ResultPayloadView({
 }) {
   if (!payload) {
     return <p className="panel-footnote">No result yet.</p>
+  }
+
+  if (payload.renderer === 'batch') {
+    return (
+      <BatchResultsView
+        payload={payload}
+        renderPayload={(sectionPayload, sectionIndex) => (
+          <ResultPayloadView
+            connection={connection}
+            documentFooterControls={documentFooterControls}
+            editContext={editContext}
+            pageIndex={0}
+            pageSize={undefined}
+            payload={sectionPayload}
+            tabId={tabId ? `${tabId}:batch:${sectionIndex}` : undefined}
+            resultDurationMs={resultDurationMs}
+            resultRuntimeTitle={resultRuntimeTitle}
+            resultSummary={resultSummary}
+            onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
+            onExecuteDataEdit={onExecuteDataEdit}
+            onPlanOperation={onPlanOperation}
+          />
+        )}
+      />
+    )
   }
 
   if (payload.renderer === 'table') {

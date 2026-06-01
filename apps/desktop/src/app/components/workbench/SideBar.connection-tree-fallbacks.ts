@@ -151,25 +151,25 @@ function redisConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[
   const roots = [
     branch('redis-databases', 'Databases', 'databases', 'Logical Redis databases', [
       branch(`redis-db-${databaseIndex}`, `DB ${databaseIndex}`, 'database', 'Redis logical database', [
-        branch('redis-keys', 'Keys', 'keys', 'All key types', []),
-        branch('redis-strings', 'Strings', 'strings', 'String, bitmap, and HyperLogLog values', []),
-        branch('redis-hashes', 'Hashes', 'hashes', 'Hash maps', []),
-        branch('redis-lists', 'Lists', 'lists', 'Ordered list values', []),
-        branch('redis-sets', 'Sets', 'sets', 'Set values', []),
-        branch('redis-sorted-sets', 'Sorted Sets', 'sorted-sets', 'Scored set values', []),
-        branch('redis-streams', 'Streams', 'streams', 'Append-only stream values', []),
-      ]),
-    ]),
-    branch('redis-lua-scripts', 'Lua Scripts', 'lua-scripts', 'Loaded scripts and SHA workflows', []),
-    branch('redis-security', 'ACL / Security', 'security', 'ACL users, categories, and permissions', []),
-    branch('redis-diagnostics', 'Diagnostics', 'diagnostics', 'INFO, SLOWLOG, memory, and latency metadata', []),
+        branch('redis-keys', 'Keys', 'keys', 'All key types', [], redisTypeFolderOptions(databaseIndex, 'keys')),
+        branch('redis-strings', 'Strings', 'strings', 'String, bitmap, and HyperLogLog values', [], redisTypeFolderOptions(databaseIndex, 'string')),
+        branch('redis-hashes', 'Hashes', 'hashes', 'Hash maps', [], redisTypeFolderOptions(databaseIndex, 'hash')),
+        branch('redis-lists', 'Lists', 'lists', 'Ordered list values', [], redisTypeFolderOptions(databaseIndex, 'list')),
+        branch('redis-sets', 'Sets', 'sets', 'Set values', [], redisTypeFolderOptions(databaseIndex, 'set')),
+        branch('redis-sorted-sets', 'Sorted Sets', 'sorted-sets', 'Scored set values', [], redisTypeFolderOptions(databaseIndex, 'zset')),
+        branch('redis-streams', 'Streams', 'streams', 'Append-only stream values', [], redisTypeFolderOptions(databaseIndex, 'stream')),
+      ], redisDatabaseNodeOptions(databaseIndex)),
+    ], { scope: 'databases' }),
+    branch('redis-lua-scripts', 'Lua Scripts', 'lua-scripts', 'Loaded scripts and SHA workflows', [], { scope: 'lua-scripts' }),
+    branch('redis-security', 'ACL / Security', 'security', 'ACL users, categories, and permissions', [], { scope: 'acl' }),
+    branch('redis-diagnostics', 'Diagnostics', 'diagnostics', 'INFO, SLOWLOG, memory, and latency metadata', [], { scope: 'diagnostics' }),
   ]
 
   if (connection.redisOptions?.deploymentMode === 'cluster') {
     roots.splice(
       1,
       0,
-      branch('redis-cluster', 'Cluster', 'cluster', 'Cluster slots, nodes, and failover status', []),
+      branch('redis-cluster', 'Cluster', 'cluster', 'Cluster slots, nodes, and failover status', [], { scope: 'cluster' }),
     )
   }
 
@@ -177,11 +177,28 @@ function redisConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[
     roots.splice(
       1,
       0,
-      branch('redis-sentinel', 'Sentinel', 'sentinel', 'Sentinel masters, replicas, and failover status', []),
+      branch('redis-sentinel', 'Sentinel', 'sentinel', 'Sentinel masters, replicas, and failover status', [], { scope: 'sentinel' }),
     )
   }
 
   return roots
+}
+
+function redisDatabaseNodeOptions(databaseIndex: number): Partial<ConnectionTreeNode> {
+  return {
+    scope: `db:${databaseIndex}`,
+    queryable: true,
+    builderKind: 'redis-key-browser',
+  }
+}
+
+function redisTypeFolderOptions(
+  databaseIndex: number,
+  type: string,
+): Partial<ConnectionTreeNode> {
+  return {
+    scope: `db:${databaseIndex}:type:${type}`,
+  }
 }
 
 function redisDatabaseIndex(connection: ConnectionProfile) {

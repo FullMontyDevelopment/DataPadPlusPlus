@@ -1600,7 +1600,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getAllByText('Memcached Slabs').length).toBeGreaterThan(0)
     expect(screen.getAllByText('240 B').length).toBeGreaterThan(0)
     expect(screen.getByRole('region', { name: 'Memcached slab posture' })).toBeInTheDocument()
-    expect(screen.getAllByText(/48\s*128/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/48[\s,]*128/).length).toBeGreaterThan(0)
     expect(screen.getByText('Allocation')).toBeInTheDocument()
     expect(screen.queryByText('stats slabs')).not.toBeInTheDocument()
   })

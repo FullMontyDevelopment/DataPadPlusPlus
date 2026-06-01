@@ -476,10 +476,20 @@ export function documentFindQueryTemplate(
   )
 }
 
-export function redisKeyBrowserQueryTemplate(pattern: string, count = 100) {
+export function redisKeyBrowserQueryTemplate(
+  pattern: string,
+  count = 100,
+  databaseIndex?: number,
+) {
+  const normalizedDatabase =
+    typeof databaseIndex === 'number' && Number.isFinite(databaseIndex)
+      ? Math.max(0, Math.trunc(databaseIndex))
+      : undefined
+
   return JSON.stringify(
     {
       mode: 'redis-key-browser',
+      ...(normalizedDatabase !== undefined ? { database: normalizedDatabase } : {}),
       pattern: normalizeRedisPattern(pattern),
       type: 'all',
       count,

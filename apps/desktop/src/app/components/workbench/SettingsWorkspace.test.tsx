@@ -41,6 +41,7 @@ function renderSettings(overrides: Partial<ComponentProps<typeof SettingsWorkspa
     onListBackups: vi.fn().mockResolvedValue([]),
     onRefreshDiagnostics: vi.fn(),
     onRestoreBackup: vi.fn().mockResolvedValue(undefined),
+    onSetSafeMode: vi.fn(),
     onSetTheme: vi.fn(),
     onUpdateBackupSettings: vi.fn().mockResolvedValue(undefined),
     ...overrides,
@@ -60,6 +61,18 @@ describe('SettingsWorkspace', () => {
     expect(screen.getByRole('heading', { name: 'Security' })).toBeInTheDocument()
     expect(screen.getByText('Credential storage')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Appearance' })).not.toBeInTheDocument()
+  })
+
+  it('can open directly to Security and toggle global safe mode', async () => {
+    const props = renderSettings({ initialSection: 'security' })
+
+    expect(screen.getByRole('heading', { name: 'Security' })).toBeInTheDocument()
+    const safeModeToggle = screen.getByLabelText('Global safe mode')
+    expect(safeModeToggle).toBeChecked()
+
+    fireEvent.click(safeModeToggle)
+
+    expect(props.onSetSafeMode).toHaveBeenCalledWith(false)
   })
 
   it('exports and imports workspace files with the selected passphrase and secret option', async () => {

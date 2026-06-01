@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatastoreCompletionProvider, EditorCompletionContext } from './intellisense/types'
 import { DesktopCodeEditor } from './DesktopCodeEditor'
 
@@ -7,6 +8,8 @@ const registerCompletionItemProvider = vi.fn()
 const dispose = vi.fn()
 const addCommand = vi.fn()
 const trigger = vi.fn()
+let selectedText = ''
+let cursorSelectionHandler: (() => void) | undefined
 
 vi.mock('@monaco-editor/react', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
@@ -22,7 +25,25 @@ vi.mock('@monaco-editor/react', async () => {
   }) {
     React.useEffect(() => {
       onMount?.(
-        { addCommand, trigger },
+        {
+          addCommand,
+          trigger,
+          getSelection: () => ({
+            startLineNumber: 1,
+            startColumn: 1,
+            endLineNumber: 1,
+            endColumn: selectedText.length + 1,
+          }),
+          getModel: () => ({
+            getValue: () => value,
+            getValueInRange: () => selectedText,
+            getPositionAt: () => ({ lineNumber: 1, column: 1 }),
+          }),
+          onDidChangeCursorSelection: (handler: () => void) => {
+            cursorSelectionHandler = handler
+            return { dispose }
+          },
+        },
         {
           KeyMod: { CtrlCmd: 2048 },
           KeyCode: { Space: 10 },
@@ -37,7 +58,7 @@ vi.mock('@monaco-editor/react', async () => {
           },
         },
       )
-    }, [onMount])
+    }, [onMount, value])
 
     return (
       <textarea
@@ -54,6 +75,12 @@ vi.mock('@monaco-editor/react', async () => {
 })
 
 describe('DesktopCodeEditor', () => {
+  beforeEach(() => {
+    selectedText = ''
+    cursorSelectionHandler = undefined
+    vi.clearAllMocks()
+  })
+
   it('registers and disposes Monaco completion providers', async () => {
     registerCompletionItemProvider.mockReturnValue({ dispose })
     const provider: DatastoreCompletionProvider = {
@@ -144,5 +171,58 @@ describe('DesktopCodeEditor', () => {
     })
 
     expect(onChange).toHaveBeenCalledWith('select 2;')
+  })
+
+  it('keeps Monaco keystrokes local when the parent rerenders with a stale value', async () => {
+    const onChange = vi.fn()
+
+    function Harness() {
+      const [renderCount, setRenderCount] = useState(0)
+
+      return (
+        <>
+          <button type="button" onClick={() => setRenderCount((count) => count + 1)}>
+            rerender {renderCount}
+          </button>
+          <DesktopCodeEditor
+            value="select 1;"
+            language="sql"
+            theme="dark"
+            onChange={onChange}
+          />
+        </>
+      )
+    }
+
+    render(<Harness />)
+
+    const editor = await screen.findByLabelText('Query editor')
+    fireEvent.change(editor, {
+      target: { value: 'select 123;' },
+    })
+
+    expect(editor).toHaveValue('select 123;')
+    fireEvent.click(screen.getByRole('button', { name: /rerender/i }))
+
+    expect(editor).toHaveValue('select 123;')
+  })
+
+  it('reports highlighted Monaco text for run selection', async () => {
+    const onSelectionChange = vi.fn()
+    render(
+      <DesktopCodeEditor
+        value="select 1; select 2;"
+        language="sql"
+        theme="dark"
+        onChange={vi.fn()}
+        onSelectionChange={onSelectionChange}
+      />,
+    )
+
+    await waitFor(() => expect(cursorSelectionHandler).toBeDefined())
+    selectedText = 'select 2;'
+    cursorSelectionHandler?.()
+
+    expect(onSelectionChange).toHaveBeenLastCalledWith('select 2;')
   })
 })

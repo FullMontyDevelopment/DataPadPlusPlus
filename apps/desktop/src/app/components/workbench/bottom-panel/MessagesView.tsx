@@ -10,6 +10,7 @@ interface MessagesViewProps {
   onConfirmExecution(guardrailId: string, mode: ExecutionRequest['mode']): void
   onDismissWorkbenchMessage(id: string): void
   onClearWorkbenchMessages(): void
+  onOpenSecuritySettings?(): void
 }
 
 export function MessagesView({
@@ -20,9 +21,13 @@ export function MessagesView({
   onConfirmExecution,
   onDismissWorkbenchMessage,
   onClearWorkbenchMessages,
+  onOpenSecuritySettings,
 }: MessagesViewProps) {
   const confirmationGuardrailId =
     lastExecution?.guardrail.status === 'confirm' ? lastExecution.guardrail.id : undefined
+  const confirmationMentionsGlobalSafeMode = lastExecution?.guardrail.reasons.some(
+    mentionsGlobalSafeMode,
+  )
   const hasMessages = workbenchMessages.length > 0 || messages.length > 0
 
   return (
@@ -67,6 +72,16 @@ export function MessagesView({
                   {message.source} / {formatMessageTime(message.createdAt)}
                 </span>
                 {message.details ? <p>{message.details}</p> : null}
+                {onOpenSecuritySettings &&
+                (mentionsGlobalSafeMode(message.message) || mentionsGlobalSafeMode(message.details)) ? (
+                  <button
+                    type="button"
+                    className="message-inline-action"
+                    onClick={onOpenSecuritySettings}
+                  >
+                    Security settings
+                  </button>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -95,6 +110,15 @@ export function MessagesView({
           <div>
             <strong>Confirmation required</strong>
             <p>{lastExecution?.guardrail.reasons.join(' ')}</p>
+            {onOpenSecuritySettings && confirmationMentionsGlobalSafeMode ? (
+              <button
+                type="button"
+                className="message-inline-action"
+                onClick={onOpenSecuritySettings}
+              >
+                Security settings
+              </button>
+            ) : null}
             {lastExecution?.guardrail.requiredConfirmationText ? (
               <code>{lastExecution.guardrail.requiredConfirmationText}</code>
             ) : null}
@@ -112,6 +136,10 @@ export function MessagesView({
       ) : null}
     </div>
   )
+}
+
+function mentionsGlobalSafeMode(value?: string) {
+  return Boolean(value?.includes('Global safe mode requires confirmation'))
 }
 
 function formatMessageTime(value: string) {

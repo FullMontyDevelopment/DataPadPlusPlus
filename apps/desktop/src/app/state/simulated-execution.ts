@@ -9,6 +9,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { evaluateGuardrails } from './environment-guardrails'
 import { createId } from './query-defaults'
+import { previewBatchSections } from './simulated-batch-execution'
 
 export function simulateExecution(
   connection: ConnectionProfile,
@@ -72,6 +73,21 @@ export function simulateExecution(
     summary = '3 rows returned from SQL adapter preview.'
     rendererModes = ['table', 'schema', 'json']
     defaultRenderer = 'table'
+  }
+
+  const batchSections = previewBatchSections(connection, tab, payloads)
+  if (batchSections.length > 1) {
+    payloads = [
+      {
+        renderer: 'batch',
+        sections: batchSections,
+        summary: `${batchSections.length} command result(s) returned from ${connection.name}.`,
+      },
+      ...payloads,
+    ]
+    rendererModes = ['batch', ...rendererModes.filter((renderer) => renderer !== 'batch')]
+    defaultRenderer = 'batch'
+    summary = `${batchSections.length} command result(s) returned from ${connection.name}.`
   }
 
   return {

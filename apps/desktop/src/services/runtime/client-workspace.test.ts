@@ -165,4 +165,16 @@ describe('client workspace import validation', () => {
       'Workspace bundle integrity check failed. The file may be corrupt or modified.',
     )
   })
+
+  it('persists global safe mode changes in browser preview', async () => {
+    await expect(clientWorkspace.setSafeModeEnabled(false)).resolves.toMatchObject({
+      snapshot: {
+        preferences: expect.objectContaining({
+          safeModeEnabled: false,
+        }),
+      },
+    })
+
+    expect(loadBrowserSnapshot().preferences.safeModeEnabled).toBe(false)
+  })
 })

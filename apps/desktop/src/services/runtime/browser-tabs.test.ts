@@ -252,6 +252,34 @@ describe('browser tab runtime', () => {
     expect(redisTab?.queryText).toContain('"pattern": "perf:*"')
   })
 
+  it('creates Redis database scoped tabs with the selected DB index', () => {
+    const snapshot = createSeedSnapshot()
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-cache',
+      target: {
+        kind: 'database',
+        label: 'DB 1',
+        path: ['Session Redis', 'Databases'],
+        scope: 'db:1',
+        preferredBuilder: 'redis-key-browser',
+      },
+    })
+    const redisTab = opened.tabs.find((tab) => tab.scopedTarget?.scope === 'db:1')
+
+    expect(redisTab).toMatchObject({
+      connectionId: 'conn-cache',
+      title: 'DB 1.redis',
+      builderState: expect.objectContaining({
+        kind: 'redis-key-browser',
+        pattern: '*',
+        databaseIndex: 1,
+        typeFilter: 'all',
+      }),
+      queryText: expect.stringContaining('"database": 1'),
+    })
+    expect(redisTab?.queryText).toContain('"pattern": "*"')
+  })
+
   it('creates SQL scoped tabs in raw editor mode by default', () => {
     const snapshot = createSeedSnapshot()
     const opened = createScopedQueryTabInSnapshot(snapshot, {

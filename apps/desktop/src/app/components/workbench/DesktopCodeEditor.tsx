@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, ElementType } from 'react'
 import {
   acceptFieldDrag,
@@ -19,6 +19,7 @@ import { variableDefinitionsForEnvironment } from '../../state/environment-varia
 
 export function DesktopCodeEditor({
   value,
+  resetKey,
   language,
   theme,
   ariaLabel = 'Query editor',
@@ -26,9 +27,11 @@ export function DesktopCodeEditor({
   completionProviders = [],
   onRequestCompletionRefresh,
   onChange,
+  onSelectionChange,
   onDropField,
 }: {
   value: string
+  resetKey?: string | number
   language: string
   theme: string
   ariaLabel?: string
@@ -36,8 +39,15 @@ export function DesktopCodeEditor({
   completionProviders?: DatastoreCompletionProvider[]
   onRequestCompletionRefresh?(): void
   onChange(value: string): void
+  onSelectionChange?(selectedText: string): void
   onDropField?(fieldPath: string): void
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [localValue, setLocalValue] = useState(value)
+  const localValueRef = useRef(value)
+  const lastExternalValueRef = useRef(value)
+  const lastEmittedValueRef = useRef(value)
+  const lastResetKeyRef = useRef(resetKey)
   const completionRef = useRef({
     completionContext,
     completionProviders,
@@ -64,6 +74,44 @@ export function DesktopCodeEditor({
   const completionRegistrationKey = useMemo(
     () => `${language}:${completionProviderCount}:${hasCompletionContext ? 'on' : 'off'}`,
     [completionProviderCount, hasCompletionContext, language],
+  )
+
+  useEffect(() => {
+    localValueRef.current = localValue
+  }, [localValue])
+
+  useEffect(() => {
+    if (value === lastExternalValueRef.current && resetKey === lastResetKeyRef.current) {
+      return
+    }
+
+    lastExternalValueRef.current = value
+    lastResetKeyRef.current = resetKey
+    if (value !== localValueRef.current) {
+      lastEmittedValueRef.current = value
+      setLocalValue(value)
+    }
+  }, [resetKey, value])
+
+  const handleValueChange = useCallback(
+    (nextValue: string | undefined) => {
+      const resolvedValue = nextValue ?? ''
+      lastEmittedValueRef.current = resolvedValue
+      setLocalValue(resolvedValue)
+      onChange(resolvedValue)
+    },
+    [onChange],
+  )
+  const handleMonacoMount = useCallback(
+    (editor: MonacoEditorLike, monaco: MonacoApiLike) => {
+      setMonacoRuntime((current) =>
+        current?.editor === editor && current.monaco === monaco
+          ? current
+          : { editor, monaco },
+      )
+      onSelectionChange?.(readMonacoSelection(editor))
+    },
+    [onSelectionChange],
   )
 
   useEffect(() => {
@@ -103,6 +151,20 @@ export function DesktopCodeEditor({
   }, [completionContext, completionProviders, onRequestCompletionRefresh])
 
   useEffect(() => {
+    if (!monacoRuntime?.editor || !onSelectionChange) {
+      return undefined
+    }
+
+    const reportSelection = () => {
+      onSelectionChange(readMonacoSelection(monacoRuntime.editor))
+    }
+    const disposable = monacoRuntime.editor.onDidChangeCursorSelection?.(reportSelection)
+    reportSelection()
+
+    return () => disposable?.dispose()
+  }, [monacoRuntime, onSelectionChange])
+
+  useEffect(() => {
     if (!monacoRuntime || !hasCompletionContext || completionProviderCount === 0) {
       return undefined
     }
@@ -125,6 +187,7 @@ export function DesktopCodeEditor({
     }
 
     let decorationIds: string[] = []
+    let animationFrame = 0
     const updateDecorations = () => {
       const model = monacoRuntime.editor.getModel?.()
 
@@ -138,15 +201,28 @@ export function DesktopCodeEditor({
           variableDecorations(model, completionRef.current.completionContext),
         ) ?? []
     }
+    const scheduleUpdateDecorations = () => {
+      if (animationFrame) {
+        window.cancelAnimationFrame(animationFrame)
+      }
 
-    const disposable = monacoRuntime.editor.onDidChangeModelContent?.(updateDecorations)
+      animationFrame = window.requestAnimationFrame(() => {
+        animationFrame = 0
+        updateDecorations()
+      })
+    }
+
+    const disposable = monacoRuntime.editor.onDidChangeModelContent?.(scheduleUpdateDecorations)
     updateDecorations()
 
     return () => {
+      if (animationFrame) {
+        window.cancelAnimationFrame(animationFrame)
+      }
       disposable?.dispose()
       monacoRuntime.editor.deltaDecorations?.(decorationIds, [])
     }
-  }, [monacoRuntime, value])
+  }, [monacoRuntime])
 
   const handleDragOver = (event: DragEvent<HTMLElement>) => {
     if (!onDropField) {
@@ -172,14 +248,27 @@ export function DesktopCodeEditor({
   }
 
   if (!LoadedEditor) {
+    const reportTextareaSelection = () => {
+      const textarea = textareaRef.current
+      if (!textarea || !onSelectionChange) {
+        return
+      }
+
+      onSelectionChange(textarea.value.slice(textarea.selectionStart, textarea.selectionEnd))
+    }
+
     return (
       <textarea
+        ref={textareaRef}
         aria-label={ariaLabel}
         className="editor-textarea"
-        value={value}
+        value={localValue}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
-        onChange={(event) => onChange(event.target.value)}
+        onKeyUp={reportTextareaSelection}
+        onMouseUp={reportTextareaSelection}
+        onSelect={reportTextareaSelection}
+        onChange={(event) => handleValueChange(event.target.value)}
       />
     )
   }
@@ -189,7 +278,7 @@ export function DesktopCodeEditor({
       <LoadedEditor
         height="100%"
         language={language}
-        value={value}
+        value={localValue}
         theme={monacoThemeForWorkbenchTheme(theme)}
         options={{
           minimap: { enabled: false },
@@ -203,11 +292,22 @@ export function DesktopCodeEditor({
           quickSuggestions: true,
           suggestOnTriggerCharacters: true,
         }}
-        onMount={(editor, monaco) => setMonacoRuntime({ editor, monaco })}
-        onChange={(nextValue) => onChange(nextValue ?? '')}
+        onMount={handleMonacoMount}
+        onChange={handleValueChange}
       />
     </div>
   )
+}
+
+function readMonacoSelection(editor: MonacoEditorLike) {
+  const selection = editor.getSelection?.()
+  const model = editor.getModel?.()
+
+  if (!selection || !model?.getValueInRange) {
+    return ''
+  }
+
+  return model.getValueInRange(selection)
 }
 
 function monacoThemeForWorkbenchTheme(theme: string) {

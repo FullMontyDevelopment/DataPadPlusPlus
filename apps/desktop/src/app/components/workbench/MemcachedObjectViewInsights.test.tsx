@@ -45,7 +45,7 @@ describe('MemcachedObjectViewInsights', () => {
     expect(within(slabs).getByText('240 B')).toBeInTheDocument()
 
     const items = screen.getByRole('region', { name: 'Memcached item posture' })
-    expect(items).toHaveTextContent(/10\s*028/)
+    expect(items).toHaveTextContent(/10[\s,]*028/)
     expect(within(items).getByText('493')).toBeInTheDocument()
 
     const connections = screen.getByRole('region', { name: 'Memcached connection posture' })

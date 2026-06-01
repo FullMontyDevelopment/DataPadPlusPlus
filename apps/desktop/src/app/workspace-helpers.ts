@@ -220,6 +220,9 @@ export function defaultCapabilities(): ExecutionCapabilities {
     canCancel: false,
     canExplain: false,
     supportsLiveMetadata: false,
+    supportsBatchExecution: false,
+    supportsSelectionExecution: false,
+    batchSplitStrategy: 'none',
     editorLanguage: 'sql',
     defaultRowLimit: 200,
   }
@@ -237,6 +240,9 @@ export function deriveCapabilities(
   return {
     canCancel: capabilities.has('supports_query_cancellation'),
     canExplain: capabilities.has('supports_explain_plan'),
+    supportsBatchExecution: supportsBatchExecution(connection),
+    supportsSelectionExecution: supportsSelectionExecution(connection),
+    batchSplitStrategy: batchSplitStrategyForConnection(connection),
     supportsLiveMetadata:
       capabilities.has('supports_schema_browser') ||
       capabilities.has('supports_key_browser') ||
@@ -248,6 +254,50 @@ export function deriveCapabilities(
     defaultRowLimit: defaultRowLimitForConnection(connection),
   }
 }
+
+function supportsBatchExecution(connection: ConnectionProfile) {
+  return batchCapableEngines.has(connection.engine)
+}
+
+function supportsSelectionExecution(connection: ConnectionProfile) {
+  return supportsBatchExecution(connection) || editorLanguageForConnection(connection) !== 'plaintext'
+}
+
+function batchSplitStrategyForConnection(
+  connection: ConnectionProfile,
+): NonNullable<ExecutionCapabilities['batchSplitStrategy']> {
+  if (connection.engine === 'sqlserver') {
+    return 'sqlserver-go'
+  }
+
+  if (connection.engine === 'redis' || connection.engine === 'valkey') {
+    return 'newline'
+  }
+
+  if (connection.engine === 'mongodb') {
+    return 'script'
+  }
+
+  if (supportsBatchExecution(connection)) {
+    return 'sql'
+  }
+
+  return 'none'
+}
+
+const batchCapableEngines = new Set([
+  'postgresql',
+  'cockroachdb',
+  'timescaledb',
+  'sqlserver',
+  'sqlite',
+  'mysql',
+  'mariadb',
+  'redis',
+  'valkey',
+  'mongodb',
+  'cassandra',
+])
 
 export function selectPayload(payloads: ResultPayload[], selectedRenderer?: string) {
   if (payloads.length === 0) {

@@ -23,7 +23,7 @@ export function connectionTreeNodeTarget(node: ConnectionTreeNode): ScopedQueryT
   return {
     kind: node.kind,
     label: node.label,
-    path: node.path,
+    path: normalizedTargetPath(node.path),
     scope: node.scope,
     queryTemplate: node.queryTemplate,
     preferredBuilder: node.builderKind,
@@ -62,8 +62,9 @@ export function explorerNodeTarget(
   connection: ConnectionProfile | undefined,
 ): ScopedQueryTarget {
   const kind = node.kind.trim().toLowerCase().replace(/_/g, '-')
-  const redisPrefix =
-    ['redis', 'valkey'].includes(connection?.engine ?? '') && kind === 'prefix'
+  const redisKeyBrowserTarget =
+    ['redis', 'valkey'].includes(connection?.engine ?? '') &&
+    (kind === 'prefix' || kind === 'database')
   const searchTarget =
     connection?.family === 'search' && ['index', 'data-stream', 'documents'].includes(kind)
   const dynamoTarget =
@@ -74,18 +75,28 @@ export function explorerNodeTarget(
   return {
     kind: node.kind,
     label: node.label,
-    path: node.path,
+    path: normalizedTargetPath(node.path),
     scope: node.scope,
-    queryTemplate: redisPrefix ? redisKeyBrowserQueryTemplateForNode(node) : node.queryTemplate,
+    queryTemplate: redisKeyBrowserTarget
+      ? redisKeyBrowserQueryTemplateForNode(node, kind)
+      : node.queryTemplate,
     preferredBuilder: preferredBuilderForExplorerNode({
       cassandraTarget,
       dynamoTarget,
       kind,
-      redisPrefix,
+      redisKeyBrowserTarget,
       searchTarget,
       engine: connection?.engine,
     }),
   }
+}
+
+function normalizedTargetPath(path: unknown): string[] {
+  if (!Array.isArray(path)) {
+    return []
+  }
+
+  return path.filter((part): part is string => typeof part === 'string' && part.length > 0)
 }
 
 function preferredBuilderForExplorerNode({
@@ -93,14 +104,14 @@ function preferredBuilderForExplorerNode({
   dynamoTarget,
   engine,
   kind,
-  redisPrefix,
+  redisKeyBrowserTarget,
   searchTarget,
 }: {
   cassandraTarget: boolean
   dynamoTarget: boolean
   engine?: string
   kind: string
-  redisPrefix: boolean
+  redisKeyBrowserTarget: boolean
   searchTarget: boolean
 }): ScopedQueryTarget['preferredBuilder'] | undefined {
   if (engine === 'mongodb' && kind === 'aggregations') {
@@ -111,7 +122,7 @@ function preferredBuilderForExplorerNode({
     return 'mongo-find'
   }
 
-  if (redisPrefix) {
+  if (redisKeyBrowserTarget) {
     return 'redis-key-browser'
   }
 
@@ -130,11 +141,12 @@ function preferredBuilderForExplorerNode({
   return undefined
 }
 
-function redisKeyBrowserQueryTemplateForNode(node: ExplorerNode) {
+function redisKeyBrowserQueryTemplateForNode(node: ExplorerNode, kind: string) {
+  const databaseIndex = redisDatabaseIndexFromExplorerNode(node)
   const scopedPrefix = node.scope?.startsWith('prefix:')
     ? node.scope.replace('prefix:', '')
     : undefined
-  const candidate = scopedPrefix || node.label || '*'
+  const candidate = kind === 'database' ? '*' : scopedPrefix || node.label || '*'
   const pattern = candidate.includes('*')
     ? candidate
     : candidate.endsWith(':')
@@ -144,6 +156,7 @@ function redisKeyBrowserQueryTemplateForNode(node: ExplorerNode) {
   return JSON.stringify(
     {
       mode: 'redis-key-browser',
+      ...(databaseIndex !== undefined ? { database: databaseIndex } : {}),
       pattern,
       type: 'all',
       count: 100,
@@ -151,6 +164,17 @@ function redisKeyBrowserQueryTemplateForNode(node: ExplorerNode) {
     null,
     2,
   )
+}
+
+function redisDatabaseIndexFromExplorerNode(node: ExplorerNode) {
+  const scopedDatabase = /^db:(\d+)(?::|$)/.exec(node.scope ?? '')?.[1]
+  const labelDatabase = /^DB\s+(\d+)$/i.exec(node.label.trim())?.[1]
+  const candidate = scopedDatabase ?? labelDatabase
+
+  if (!candidate) return undefined
+
+  const parsed = Number.parseInt(candidate, 10)
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : undefined
 }
 
 export function sidebarSectionId(pane: string, scope: string, label: string) {

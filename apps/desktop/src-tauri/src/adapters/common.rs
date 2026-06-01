@@ -18,6 +18,7 @@ mod operations;
 mod paging;
 mod payloads;
 mod results;
+mod sql_batch;
 mod structure;
 mod tree_manifest;
 
@@ -26,6 +27,7 @@ pub(crate) use operations::*;
 pub(crate) use paging::*;
 pub(crate) use payloads::*;
 pub(crate) use results::*;
+pub(crate) use sql_batch::*;
 pub(crate) use structure::*;
 
 pub(crate) fn bounded_page_size(value: Option<u32>) -> u32 {
@@ -41,14 +43,14 @@ pub(crate) fn execute_mode(request: &ExecutionRequest) -> &str {
 }
 
 pub(crate) fn selected_query(request: &ExecutionRequest) -> &str {
+    let selected_text = request
+        .selected_text
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+
     if request.execution_input_mode.as_deref() == Some("script") {
-        if execute_mode(request) == "selection" {
-            return request
-                .selected_text
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .or(request.script_text.as_deref())
-                .unwrap_or(request.query_text.as_str());
+        if let Some(selected_text) = selected_text {
+            return selected_text;
         }
 
         return request
@@ -58,15 +60,7 @@ pub(crate) fn selected_query(request: &ExecutionRequest) -> &str {
             .unwrap_or(request.query_text.as_str());
     }
 
-    if execute_mode(request) == "selection" {
-        request
-            .selected_text
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or(request.query_text.as_str())
-    } else {
-        request.query_text.as_str()
-    }
+    selected_text.unwrap_or(request.query_text.as_str())
 }
 
 pub(crate) fn duration_ms(started: Instant) -> u64 {

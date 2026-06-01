@@ -282,8 +282,16 @@ export function createScopedQueryTabInSnapshot(
       : builderKind === 'mongo-aggregation'
         ? mongoAggregationQueryText(targetLabel, 20, connection.database)
       : builderKind === 'redis-key-browser'
-        ? redisKeyBrowserQueryText(redisPatternFromTarget(request.target))
+        ? redisKeyBrowserQueryText(
+            redisPatternFromTarget(request.target),
+            100,
+            redisDatabaseIndexFromTarget(request.target),
+          )
       : (request.target.queryTemplate ?? defaultQueryTextForConnection(connection))
+  const redisDatabaseIndex =
+    builderKind === 'redis-key-browser'
+      ? redisDatabaseIndexFromTarget(request.target) ?? 0
+      : undefined
   const tab: QueryTabState = {
     id: createId('tab'),
     title: uniqueScopedQueryTitle(
@@ -337,10 +345,14 @@ export function createScopedQueryTabInSnapshot(
               kind: 'redis-key-browser',
               pattern: redisPatternFromTarget(request.target),
               typeFilter: 'all',
+              databaseIndex: redisDatabaseIndex,
+              delimiter: ':',
               cursor: '0',
               scanCount: 100,
               pageSize: 100,
               scannedCount: 0,
+              scanCursorByDb: { [String(redisDatabaseIndex ?? 0)]: '0' },
+              filters: { ttl: 'all' },
               expandedPrefixes: [],
               visibleColumns: ['ttl', 'memory', 'length'],
               viewMode: 'tree',
@@ -669,10 +681,15 @@ export function mongoAggregationQueryText(collection: string, limit: number, dat
   )
 }
 
-export function redisKeyBrowserQueryText(pattern: string, count = 100) {
+export function redisKeyBrowserQueryText(
+  pattern: string,
+  count = 100,
+  databaseIndex?: number,
+) {
   return JSON.stringify(
     {
       mode: 'redis-key-browser',
+      ...(databaseIndex !== undefined ? { database: databaseIndex } : {}),
       pattern,
       type: 'all',
       count,
@@ -683,6 +700,10 @@ export function redisKeyBrowserQueryText(pattern: string, count = 100) {
 }
 
 function redisPatternFromTarget(target: ScopedQueryTarget) {
+  if (target.kind === 'database' || /^db:\d+(?::|$)/.test(target.scope ?? '')) {
+    return '*'
+  }
+
   const scopedPrefix = target.scope?.startsWith('prefix:')
     ? target.scope.replace('prefix:', '')
     : undefined
@@ -697,6 +718,20 @@ function redisPatternFromTarget(target: ScopedQueryTarget) {
   }
 
   return candidate
+}
+
+function redisDatabaseIndexFromTarget(target: ScopedQueryTarget) {
+  const scopedDatabase = /^db:(\d+)(?::|$)/.exec(target.scope ?? '')?.[1]
+  const labelDatabase = /^DB\s+(\d+)$/i.exec(target.label.trim())?.[1]
+  const pathDatabase = (target.path ?? [])
+    .map((part) => /^DB\s+(\d+)$/i.exec(part.trim())?.[1])
+    .find(Boolean)
+  const candidate = scopedDatabase ?? labelDatabase ?? pathDatabase
+
+  if (!candidate) return undefined
+
+  const parsed = Number.parseInt(candidate, 10)
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : undefined
 }
 
 

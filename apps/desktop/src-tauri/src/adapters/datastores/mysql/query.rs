@@ -26,6 +26,21 @@ pub(super) async fn execute_mysql_query(
             "This MySQL-family profile is read-only; write, DDL, administrative, and locking statements are blocked before execution.",
         ));
     }
+    let batch_statements = if execute_mode(request) == "explain" {
+        single_statement_batch(statement)
+    } else {
+        split_sql_batch(statement, SqlBatchDialect::Standard)
+    };
+    if connection.read_only
+        && batch_statements
+            .iter()
+            .any(|statement| is_mutating_mysql(&statement.text))
+    {
+        return Err(CommandError::new(
+            "mysql-read-only",
+            "This MySQL-family profile is read-only; the batch contains a write, DDL, administrative, or locking statement and was blocked before execution.",
+        ));
+    }
     let row_limit = request
         .row_limit
         .unwrap_or(adapter.execution_capabilities().default_row_limit);
@@ -34,6 +49,96 @@ pub(super) async fn execute_mysql_query(
         .connect(&mysql_dsn(connection))
         .await?;
     let explain_mode = execute_mode(request) == "explain";
+
+    if batch_statements.len() > 1 {
+        let mut sections = Vec::new();
+        let mut total_rows = 0usize;
+        let mut truncated = false;
+
+        for statement in &batch_statements {
+            let statement_started = Instant::now();
+            let query = mysql_statement_for_mode(&statement.text, "full", true);
+            match fetch_mysql_rows(&pool, &query, row_limit).await {
+                Ok(rows) => {
+                    let columns = mysql_columns(&rows);
+                    let row_count = rows.len();
+                    total_rows += row_count;
+                    truncated |= row_count > row_limit as usize;
+                    let payload = if columns.is_empty() {
+                        payload_raw("Statement executed successfully.".into())
+                    } else {
+                        payload_table(columns, mysql_table_rows(&rows, row_limit))
+                    };
+                    let default_renderer = payload
+                        .get("renderer")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("raw")
+                        .to_string();
+                    sections.push(batch_section(BatchSectionPayload {
+                        id: format!("mysql-statement-{}", statement.index),
+                        label: format!("Result {}", statement.index),
+                        statement: Some(statement.text.clone()),
+                        status: "success",
+                        duration_ms: Some(duration_ms(statement_started)),
+                        row_count: Some(row_count),
+                        default_renderer: default_renderer.clone(),
+                        renderer_modes: vec![default_renderer.clone()],
+                        payloads: vec![payload],
+                        notices: Vec::new(),
+                    }));
+                }
+                Err(error) => {
+                    sections.push(batch_section(BatchSectionPayload {
+                        id: format!("mysql-statement-{}", statement.index),
+                        label: format!("Command {} failed", statement.index),
+                        statement: Some(statement.text.clone()),
+                        status: "error",
+                        duration_ms: Some(duration_ms(statement_started)),
+                        row_count: None,
+                        default_renderer: "raw".into(),
+                        renderer_modes: vec!["raw".into()],
+                        payloads: vec![payload_raw(error.to_string())],
+                        notices: vec![json!({
+                            "code": "mysql-batch-statement-failed",
+                            "level": "error",
+                            "message": "MySQL stopped the batch at the first failing statement.",
+                        })],
+                    }));
+                    break;
+                }
+            }
+        }
+        pool.close().await;
+
+        return Ok(build_result(ResultEnvelopeInput {
+            engine: &connection.engine,
+            summary: format!(
+                "MySQL-family batch returned {total_rows} row(s) from {}.",
+                connection.name
+            ),
+            default_renderer: "batch",
+            renderer_modes: vec!["batch", "json", "raw"],
+            payloads: vec![
+                payload_batch(
+                    sections,
+                    format!("MySQL-family batch returned {total_rows} row(s)."),
+                ),
+                payload_json(json!({
+                    "engine": connection.engine,
+                    "rowCount": total_rows,
+                    "rowLimit": row_limit,
+                    "statementCount": batch_statements.len(),
+                })),
+                payload_raw(statement.to_string()),
+            ],
+            notices,
+            duration_ms: duration_ms(started),
+            row_limit: Some(row_limit),
+            truncated,
+            explain_payload: None,
+        }));
+    }
+
     let mut query = mysql_statement_for_mode(statement, execute_mode(request), true);
     let rows = match fetch_mysql_rows(&pool, &query, row_limit).await {
         Ok(rows) => rows,

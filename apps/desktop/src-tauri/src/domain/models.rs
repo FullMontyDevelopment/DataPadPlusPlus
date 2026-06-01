@@ -1760,11 +1760,18 @@ pub struct QueryTabReorderRequest {
 pub struct ScopedQueryTarget {
     pub kind: String,
     pub label: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_string_vec_or_default")]
     pub path: Vec<String>,
     pub scope: Option<String>,
     pub query_template: Option<String>,
     pub preferred_builder: Option<String>,
+}
+
+fn deserialize_string_vec_or_default<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<Vec<String>>::deserialize(deserializer).map(Option::unwrap_or_default)
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]

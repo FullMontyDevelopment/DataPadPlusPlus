@@ -75,6 +75,7 @@ interface BottomPanelProps {
   ): Promise<OperationPlanResponse | undefined>
   onDismissWorkbenchMessage(id: string): void
   onClearWorkbenchMessages(): void
+  onOpenSecuritySettings?(): void
 }
 
 export function BottomPanel({
@@ -108,6 +109,7 @@ export function BottomPanel({
   onPlanOperation,
   onDismissWorkbenchMessage,
   onClearWorkbenchMessages,
+  onOpenSecuritySettings,
 }: BottomPanelProps) {
   const hasPanelContext = Boolean(activeTab && activeConnection && activeEnvironment)
   const hasQueryContext = Boolean(
@@ -369,6 +371,7 @@ export function BottomPanel({
             onConfirmExecution={onConfirmExecution}
             onDismissWorkbenchMessage={onDismissWorkbenchMessage}
             onClearWorkbenchMessages={onClearWorkbenchMessages}
+            onOpenSecuritySettings={onOpenSecuritySettings}
           />
         ) : null}
 

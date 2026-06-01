@@ -18,9 +18,17 @@ export interface MonacoWordLike {
 
 export interface MonacoModelLike {
   getValue(): string
+  getValueInRange?(range: MonacoRangeLike): string
   getOffsetAt(position: MonacoPositionLike): number
   getPositionAt?(offset: number): MonacoPositionLike
   getWordUntilPosition(position: MonacoPositionLike): MonacoWordLike
+}
+
+export interface MonacoRangeLike {
+  startLineNumber: number
+  startColumn: number
+  endLineNumber: number
+  endColumn: number
 }
 
 export interface MonacoDisposableLike {
@@ -41,7 +49,9 @@ export interface MonacoEditorLike {
       options: { inlineClassName: string; hoverMessage?: { value: string } }
     }>,
   ): string[]
+  getSelection?(): MonacoRangeLike | null
   getModel?(): MonacoModelLike | null
+  onDidChangeCursorSelection?(handler: () => void): MonacoDisposableLike
   onDidChangeModelContent?(handler: () => void): MonacoDisposableLike
   trigger?(source: string, handlerId: string, payload: unknown): void
 }

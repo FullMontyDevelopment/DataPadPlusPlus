@@ -27,7 +27,7 @@ import {
   SettingsPanel,
 } from './SettingsWorkspace.parts'
 
-type SettingsSection = 'appearance' | 'workspace' | 'backups' | 'security' | 'shortcuts' | 'health'
+export type SettingsSection = 'appearance' | 'workspace' | 'backups' | 'security' | 'shortcuts' | 'health'
 
 const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string }> = [
   { id: 'appearance', label: 'Appearance' },
@@ -52,6 +52,7 @@ const THEMES: Array<{ id: WorkspaceSnapshot['preferences']['theme']; label: stri
 export function SettingsWorkspace({
   diagnostics,
   health,
+  initialSection,
   preferences,
   onCreateBackup,
   onDeleteBackup,
@@ -60,11 +61,13 @@ export function SettingsWorkspace({
   onListBackups,
   onRefreshDiagnostics,
   onRestoreBackup,
+  onSetSafeMode,
   onSetTheme,
   onUpdateBackupSettings,
 }: {
   diagnostics?: DiagnosticsReport
   health: AppHealth
+  initialSection?: SettingsSection
   preferences: WorkspaceSnapshot['preferences']
   onCreateBackup(automatic?: boolean): Promise<void>
   onDeleteBackup(backupId: string): Promise<WorkspaceBackupSummary[] | undefined>
@@ -73,6 +76,7 @@ export function SettingsWorkspace({
   onListBackups(): Promise<WorkspaceBackupSummary[] | undefined>
   onRefreshDiagnostics(): void
   onRestoreBackup(backupId: string, passphrase: string): Promise<void>
+  onSetSafeMode(enabled: boolean): void
   onSetTheme(theme: WorkspaceSnapshot['preferences']['theme']): void
   onUpdateBackupSettings(request: {
     enabled: boolean
@@ -82,7 +86,7 @@ export function SettingsWorkspace({
     includeSecrets?: boolean
   }): Promise<void>
 }) {
-  const [section, setSection] = useState<SettingsSection>('appearance')
+  const [section, setSection] = useState<SettingsSection>(initialSection ?? 'appearance')
   const [bundlePassphrase, setBundlePassphrase] = useState('')
   const [includeSecrets, setIncludeSecrets] = useState(false)
   const [backupPassphrase, setBackupPassphrase] = useState('')
@@ -320,6 +324,16 @@ export function SettingsWorkspace({
 
         {section === 'security' ? (
           <SettingsPanel title="Security" icon={<LockIcon className="panel-inline-icon" />}>
+            <div className="settings-form-grid settings-form-grid--compact">
+              <label className="settings-check-row settings-check-row--card">
+                <input
+                  type="checkbox"
+                  checked={preferences.safeModeEnabled}
+                  onChange={(event) => onSetSafeMode(event.target.checked)}
+                />
+                <span>Global safe mode</span>
+              </label>
+            </div>
             <div className="settings-metric-grid">
               <MetricCard label="Credential storage" value={formatSecretStorageStatus(health.secretStorage)} />
               <MetricCard label="Safe mode" value={preferences.safeModeEnabled ? 'On' : 'Off'} />

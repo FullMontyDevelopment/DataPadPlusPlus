@@ -27,14 +27,13 @@ export function applyExecutionRequestLocally(
   }
 
   const resolvedEnvironment = resolveEnvironment(next.environments, request.environmentId)
+  const selectedText = request.selectedText?.trim() ? request.selectedText : undefined
   const queryTemplate =
     request.executionInputMode === 'script'
-      ? request.mode === 'selection' && request.selectedText
-        ? request.selectedText
+      ? selectedText
+        ? selectedText
         : request.scriptText || request.queryText
-      : request.mode === 'selection' && request.selectedText
-      ? request.selectedText
-      : request.queryText
+      : selectedText ?? request.queryText
 
   const referencedSecrets = referencedSensitiveEnvironmentVariableKeys(
     queryTemplate,

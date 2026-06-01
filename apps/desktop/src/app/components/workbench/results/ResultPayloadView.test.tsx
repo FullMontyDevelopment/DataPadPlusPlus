@@ -31,6 +31,51 @@ afterEach(() => {
 })
 
 describe('ResultPayloadView', () => {
+  it('renders batch payload sections in order', () => {
+    const { container } = render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'batch',
+          sections: [
+            {
+              id: 'result-1',
+              label: 'Result 1',
+              statement: 'select 1',
+              status: 'success',
+              durationMs: 12,
+              rowCount: 1,
+              defaultRenderer: 'table',
+              rendererModes: ['table'],
+              payloads: [
+                {
+                  renderer: 'table',
+                  columns: ['value'],
+                  rows: [['1']],
+                },
+              ],
+            },
+            {
+              id: 'result-2',
+              label: 'Command 2 failed',
+              statement: 'select broken',
+              status: 'error',
+              defaultRenderer: 'raw',
+              rendererModes: ['raw'],
+              payloads: [{ renderer: 'raw', text: 'syntax error' }],
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Result 1')).toBeInTheDocument()
+    expect(screen.getByText('select 1')).toBeInTheDocument()
+    expect(screen.getByText('Command 2 failed')).toBeInTheDocument()
+    expect(screen.getByText('syntax error')).toBeInTheDocument()
+    expect(container.querySelector('.batch-result-section--renderer-table')).toBeInTheDocument()
+    expect(container.querySelector('.batch-result-section--renderer-raw')).toBeInTheDocument()
+  })
+
   it('renders document payloads as an expandable table with closed child rows', () => {
     render(
       <ResultPayloadView

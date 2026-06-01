@@ -18,6 +18,7 @@ export const RESULT_RENDERERS = [
   'searchHits',
   'profile',
   'costEstimate',
+  'batch',
 ] as const
 
 export type ResultRenderer = (typeof RESULT_RENDERERS)[number]
@@ -764,7 +765,7 @@ export interface CostEstimatePayload {
   details?: Record<string, unknown>
 }
 
-export type ResultPayload =
+export type SingleResultPayload =
   | TabularPayload
   | JsonPayload
   | DocumentPayload
@@ -781,6 +782,27 @@ export type ResultPayload =
   | SearchHitsPayload
   | ProfilePayload
   | CostEstimatePayload
+
+export interface BatchResultSection {
+  id: string
+  label: string
+  statement?: string
+  status: 'success' | 'error' | 'skipped'
+  durationMs?: number
+  rowCount?: number
+  notices?: QueryExecutionNotice[]
+  defaultRenderer: ResultRenderer
+  rendererModes: ResultRenderer[]
+  payloads: SingleResultPayload[]
+}
+
+export interface BatchPayload {
+  renderer: 'batch'
+  sections: BatchResultSection[]
+  summary?: string
+}
+
+export type ResultPayload = SingleResultPayload | BatchPayload
 
 export interface ResultPageInfo {
   pageSize: number

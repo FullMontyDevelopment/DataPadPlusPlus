@@ -31,6 +31,42 @@ pub(crate) fn payload_resp(text: String) -> Value {
     })
 }
 
+pub(crate) fn payload_batch(sections: Vec<Value>, summary: String) -> Value {
+    json!({
+        "renderer": "batch",
+        "sections": sections,
+        "summary": summary,
+    })
+}
+
+pub(crate) struct BatchSectionPayload {
+    pub(crate) id: String,
+    pub(crate) label: String,
+    pub(crate) statement: Option<String>,
+    pub(crate) status: &'static str,
+    pub(crate) duration_ms: Option<u64>,
+    pub(crate) row_count: Option<usize>,
+    pub(crate) default_renderer: String,
+    pub(crate) renderer_modes: Vec<String>,
+    pub(crate) payloads: Vec<Value>,
+    pub(crate) notices: Vec<Value>,
+}
+
+pub(crate) fn batch_section(section: BatchSectionPayload) -> Value {
+    json!({
+        "id": section.id,
+        "label": section.label,
+        "statement": section.statement,
+        "status": section.status,
+        "durationMs": section.duration_ms,
+        "rowCount": section.row_count,
+        "defaultRenderer": section.default_renderer,
+        "rendererModes": section.renderer_modes,
+        "payloads": section.payloads,
+        "notices": section.notices,
+    })
+}
+
 pub(crate) fn payload_document(documents: Value) -> Value {
     json!({
         "renderer": "document",

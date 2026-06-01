@@ -925,6 +925,15 @@ pub fn set_theme(
 }
 
 #[tauri::command]
+pub fn set_safe_mode_enabled(
+    state: State<'_, SharedAppState>,
+    enabled: bool,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.set_safe_mode_enabled(enabled)
+}
+
+#[tauri::command]
 pub fn set_ui_state(
     state: State<'_, SharedAppState>,
     patch: UpdateUiStateRequest,
