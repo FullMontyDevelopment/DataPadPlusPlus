@@ -1,4 +1,4 @@
-import type { DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse, ResultPayload, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import type { DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse, GuardrailDecision, ResultPayload, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import {
   interpolateEnvironmentVariables,
   referencedSensitiveEnvironmentVariableKeys,
@@ -46,7 +46,9 @@ export function applyExecutionRequestLocally(
     if (request.executionInputMode === 'script') {
       tab.scriptText = request.scriptText
     }
-    tab.queryViewMode = request.executionInputMode
+    if (request.executionInputMode) {
+      tab.queryViewMode = request.executionInputMode
+    }
     tab.status = 'blocked'
     tab.lastRunAt = new Date().toISOString()
     tab.history.unshift({
@@ -61,7 +63,7 @@ export function applyExecutionRequestLocally(
         'Secret environment variables are resolved only by the desktop secret store. Browser preview will not substitute masked values into executable text.',
     }
     tab.result = undefined
-    next.guardrails = [{
+    const guardrail: GuardrailDecision = {
       id: confirmationGuardrailId(
         connection.id,
         environment.id,
@@ -73,7 +75,8 @@ export function applyExecutionRequestLocally(
       ],
       safeModeApplied: next.preferences.safeModeEnabled || environment.safeMode,
       status: 'block',
-    }]
+    }
+    next.guardrails = [guardrail]
     next.ui.bottomPanelVisible = true
     next.ui.activeBottomPanelTab = 'messages'
     next.updatedAt = new Date().toISOString()
@@ -84,7 +87,7 @@ export function applyExecutionRequestLocally(
         executionId,
         tab,
         result: undefined,
-        guardrail: next.guardrails[0]!,
+        guardrail,
         diagnostics: [
           'Secret environment variables are not substituted in browser preview.',
         ],
@@ -119,7 +122,9 @@ export function applyExecutionRequestLocally(
       if (request.executionInputMode === 'script') {
         tab.scriptText = request.scriptText
       }
-      tab.queryViewMode = request.executionInputMode
+      if (request.executionInputMode) {
+        tab.queryViewMode = request.executionInputMode
+      }
       tab.status = 'blocked'
       tab.lastRunAt = new Date().toISOString()
       tab.history.unshift({
@@ -217,7 +222,9 @@ export function applyExecutionRequestLocally(
   if (request.executionInputMode === 'script') {
     tab.scriptText = request.scriptText
   }
-  tab.queryViewMode = request.executionInputMode
+  if (request.executionInputMode) {
+    tab.queryViewMode = request.executionInputMode
+  }
   tab.status =
     guardrail.status === 'block'
       ? 'blocked'

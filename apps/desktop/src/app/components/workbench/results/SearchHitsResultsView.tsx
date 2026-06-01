@@ -21,7 +21,8 @@ import {
 import { SearchHitsHeader } from './SearchHitsHeader'
 import { SearchHitsRows } from './SearchHitsRows'
 import { usePayloadBackedSearchHits } from './SearchHitsState'
-import { parseSearchHitSourceJson } from './search-hit-json'
+import { hitByTarget, hitIdAt, type SearchHitTarget } from './SearchHitsTargeting'
+import { parseSearchHitSourceJson, stringifySearchHitSource } from './search-hit-json'
 import {
   buildSearchDocumentEditRequest,
   buildSearchDocumentIndexRequest,
@@ -43,19 +44,15 @@ interface SearchHitsResultsViewProps {
   ): Promise<DataEditExecutionResponse | undefined>
 }
 
-interface ContextMenuState {
-  hitIndex: number
+interface ContextMenuState extends SearchHitTarget {
   x: number
   y: number
 }
 
-interface PendingDeleteState {
-  hitIndex: number
-}
+type PendingDeleteState = SearchHitTarget
 
-interface PendingUpdateState {
+interface PendingUpdateState extends SearchHitTarget {
   error?: string
-  hitIndex: number
   sourceText: string
 }
 
@@ -85,7 +82,7 @@ export function SearchHitsResultsView({
   const defaultIndex =
     searchHitIndex(hits[0], editContext) ??
     searchIndexFromQueryText(editContext?.queryText)
-  const contextMenuHit = contextMenu ? hits[contextMenu.hitIndex] : undefined
+  const contextMenuHit = hitByTarget(hits, contextMenu)
 
   useEffect(() => {
     if (!contextMenu) {
@@ -108,7 +105,7 @@ export function SearchHitsResultsView({
       return
     }
 
-    const hit = hits[pendingUpdate.hitIndex]
+    const hit = hitByTarget(hits, pendingUpdate)
     if (!hit) {
       setPendingUpdate(undefined)
       setStatusMessage('Search document is no longer loaded.')
@@ -217,7 +214,7 @@ export function SearchHitsResultsView({
       return
     }
 
-    const hit = hits[pendingDelete.hitIndex]
+    const hit = hitByTarget(hits, pendingDelete)
     if (!hit) {
       setPendingDelete(undefined)
       setStatusMessage('Search document is no longer loaded.')
@@ -306,11 +303,14 @@ export function SearchHitsResultsView({
           hits={hits}
           onBeginUpdate={(hitIndex, source) =>
             setPendingUpdate({
+              hitId: hitIdAt(hits, hitIndex),
               hitIndex,
-              sourceText: JSON.stringify(source, null, 2),
+              sourceText: stringifySearchHitSource(source, 2),
             })
           }
-          onOpenContextMenu={(hitIndex, x, y) => setContextMenu({ hitIndex, x, y })}
+          onOpenContextMenu={(hitIndex, x, y) =>
+            setContextMenu({ hitId: hitIdAt(hits, hitIndex), hitIndex, x, y })
+          }
           onToggleExpanded={(hitIndex) =>
             setExpandedHits((current) => {
               const next = new Set(current)
@@ -369,14 +369,15 @@ export function SearchHitsResultsView({
         <SearchHitsContextMenu
           canEdit={canEdit}
           documentId={searchHitId(contextMenuHit) ?? ''}
-          sourceText={JSON.stringify(searchHitSource(contextMenuHit))}
+          sourceText={stringifySearchHitSource(searchHitSource(contextMenuHit))}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(undefined)}
           onUpdate={() =>
             setPendingUpdate({
+              hitId: contextMenu.hitId,
               hitIndex: contextMenu.hitIndex,
-              sourceText: JSON.stringify(searchHitSource(contextMenuHit), null, 2),
+              sourceText: stringifySearchHitSource(searchHitSource(contextMenuHit), 2),
             })
           }
           onDelete={() => {
@@ -384,6 +385,7 @@ export function SearchHitsResultsView({
               return
             }
             setPendingDelete({
+              hitId: contextMenu.hitId,
               hitIndex: contextMenu.hitIndex,
             })
           }}

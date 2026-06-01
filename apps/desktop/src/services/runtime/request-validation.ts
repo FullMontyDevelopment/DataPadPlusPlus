@@ -36,6 +36,7 @@ import {
   MAX_ROW_LIMIT,
   MAX_SCOPE_LENGTH,
   MAX_STRUCTURE_LIMIT,
+  QUERY_LANGUAGES,
   RESULT_RENDERERS,
   stripWindowsDrivePrefix,
   validateOperationId,
@@ -250,28 +251,55 @@ export function validateExecutionRequest(request: ExecutionRequest): ExecutionRe
   validateRequiredId(request.tabId, 'Tab id')
   validateRequiredId(request.connectionId, 'Connection id')
   validateRequiredId(request.environmentId, 'Environment id')
-  validateRequiredText(request.language, 'Query language', 80)
+  const language = validateQueryLanguage(request.language)
   validateQueryText(request.queryText, 'Query text')
-  validateOptionalText(request.executionInputMode, 'Execution input mode', 32)
+  const executionInputMode = validateOptionalExecutionInputMode(request.executionInputMode)
   if (request.scriptText !== undefined) {
     validateQueryText(request.scriptText, 'Script text')
   }
   if (request.selectedText !== undefined) {
     validateQueryText(request.selectedText, 'Selected text')
   }
-  validateOptionalText(request.mode, 'Execution mode', 32)
+  const mode = validateOptionalExecutionMode(request.mode)
   validateOptionalText(request.confirmedGuardrailId, 'Guardrail confirmation id', MAX_ID_LENGTH)
   return {
     ...request,
+    executionInputMode,
+    language,
+    mode,
     rowLimit: clampOptionalInteger(request.rowLimit, 'Execution row limit', 1, MAX_ROW_LIMIT),
   }
+}
+
+function validateOptionalExecutionInputMode(
+  mode: ExecutionRequest['executionInputMode'],
+) {
+  const normalized = validateOptionalText(mode, 'Execution input mode', 32)?.trim()
+  if (!normalized) {
+    return undefined
+  }
+  if (normalized !== 'builder' && normalized !== 'raw' && normalized !== 'script') {
+    throw new Error(`Unsupported execution input mode: ${normalized}.`)
+  }
+  return normalized
+}
+
+function validateOptionalExecutionMode(mode: ExecutionRequest['mode']) {
+  const normalized = validateOptionalText(mode, 'Execution mode', 32)?.trim()
+  if (!normalized) {
+    return undefined
+  }
+  if (normalized !== 'full' && normalized !== 'selection' && normalized !== 'explain') {
+    throw new Error(`Unsupported execution mode: ${normalized}.`)
+  }
+  return normalized
 }
 
 export function validateResultPageRequest(request: ResultPageRequest): ResultPageRequest {
   validateRequiredId(request.tabId, 'Tab id')
   validateRequiredId(request.connectionId, 'Connection id')
   validateRequiredId(request.environmentId, 'Environment id')
-  validateRequiredText(request.language, 'Query language', 80)
+  const language = validateQueryLanguage(request.language)
   validateQueryText(request.queryText, 'Query text')
   if (request.selectedText !== undefined) {
     validateQueryText(request.selectedText, 'Selected text')
@@ -283,6 +311,7 @@ export function validateResultPageRequest(request: ResultPageRequest): ResultPag
   validateOptionalText(request.cursor, 'Result cursor', MAX_SCOPE_LENGTH)
   return {
     ...request,
+    language,
     pageSize: clampOptionalInteger(
       request.pageSize,
       'Result page size',
@@ -296,6 +325,15 @@ export function validateResultPageRequest(request: ResultPageRequest): ResultPag
       MAX_RESULT_PAGE_INDEX,
     ),
   }
+}
+
+function validateQueryLanguage(language: ExecutionRequest['language']) {
+  validateRequiredText(language, 'Query language', 80)
+  const normalized = language.trim()
+  if (!QUERY_LANGUAGES.has(normalized)) {
+    throw new Error(`Unsupported query language: ${normalized}.`)
+  }
+  return normalized as ExecutionRequest['language']
 }
 
 export function validateDocumentNodeChildrenRequest(

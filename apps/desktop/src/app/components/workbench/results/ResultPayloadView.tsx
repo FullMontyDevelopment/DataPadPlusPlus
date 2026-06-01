@@ -135,7 +135,6 @@ export function ResultPayloadView({
 
     return (
       <SearchHitsResultsView
-        key={searchHitsPayloadKey(hits)}
         connection={connection}
         editContext={editContext}
         payload={{
@@ -333,21 +332,6 @@ function readableLabel(value: string) {
 function keyValuePayloadKey(entries: Record<string, string>, key?: string) {
   return Object.entries(entries)
     .map(([entryKey, value]) => `${key ?? 'entries'}:${entryKey}:${value}`)
-    .join('|')
-}
-
-function searchHitsPayloadKey(hits: Extract<ResultPayload, { renderer: 'searchHits' }>['hits']) {
-  return hits
-    .map((hit, index) => {
-      const rawHit = hit as typeof hit & { _id?: string; _index?: string; _score?: number; _source?: unknown }
-      return [
-        index,
-        hit.id ?? rawHit._id ?? '',
-        rawHit._index ?? '',
-        hit.score ?? rawHit._score ?? '',
-        JSON.stringify(hit.source ?? rawHit._source),
-      ].join(':')
-    })
     .join('|')
 }
 

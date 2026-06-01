@@ -137,7 +137,7 @@ function combineFilterExpressions(
   }
 
   if (logic === 'or') {
-    return expressions.length === 1 ? expressions[0]! : { $or: expressions }
+    return expressions.length === 1 ? expressions[0] ?? {} : { $or: expressions }
   }
 
   return expressions.reduce<Record<string, unknown>>((merged, expression) => {

@@ -7,6 +7,7 @@ import {
   searchHitSource,
   type SearchHit,
 } from './search-hit-edit-requests'
+import { stringifySearchHitSource } from './search-hit-json'
 
 interface SearchHitsRowsProps {
   canEdit: boolean
@@ -34,7 +35,7 @@ export function SearchHitsRows({
         const index = searchHitIndex(hit, editContext) ?? '<index>'
         const score = searchHitScore(hit)
         const source = searchHitSource(hit)
-        const sourceText = JSON.stringify(source)
+        const sourceText = stringifySearchHitSource(source)
         const expanded = expandedHits.has(hitIndex)
 
         return (

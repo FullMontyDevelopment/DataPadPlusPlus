@@ -855,4 +855,50 @@ describe('runtime request validation', () => {
       }),
     ).toThrow(/Unsupported query view mode/)
   })
+
+  it('validates execution modes at the command boundary', () => {
+    expect(
+      validateExecutionRequest({
+        tabId: 'tab-1',
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        executionInputMode: ' raw ',
+        language: ' sql ',
+        mode: ' explain ',
+        queryText: 'select 1',
+      } as never),
+    ).toMatchObject({ executionInputMode: 'raw', language: 'sql', mode: 'explain' })
+
+    expect(() =>
+      validateExecutionRequest({
+        tabId: 'tab-1',
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        language: 'brain-sql' as never,
+        queryText: 'select 1',
+      }),
+    ).toThrow(/Unsupported query language/)
+
+    expect(() =>
+      validateExecutionRequest({
+        tabId: 'tab-1',
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        executionInputMode: 'both' as never,
+        language: 'sql',
+        queryText: 'select 1',
+      }),
+    ).toThrow(/Unsupported execution input mode/)
+
+    expect(() =>
+      validateExecutionRequest({
+        tabId: 'tab-1',
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        language: 'sql',
+        mode: 'drop-everything' as never,
+        queryText: 'select 1',
+      }),
+    ).toThrow(/Unsupported execution mode/)
+  })
 })

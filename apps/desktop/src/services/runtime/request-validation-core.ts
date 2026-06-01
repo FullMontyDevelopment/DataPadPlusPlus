@@ -77,6 +77,28 @@ export const RESULT_RENDERERS = new Set([
   'costEstimate',
 ])
 
+export const QUERY_LANGUAGES = new Set([
+  'sql',
+  'mongodb',
+  'redis',
+  'cypher',
+  'flux',
+  'text',
+  'json',
+  'cql',
+  'aql',
+  'gremlin',
+  'sparql',
+  'promql',
+  'influxql',
+  'opentsdb',
+  'query-dsl',
+  'esql',
+  'google-sql',
+  'snowflake-sql',
+  'clickhouse-sql',
+])
+
 export function validateOperationId(value: string) {
   validateRequiredText(value, 'Operation id', MAX_ID_LENGTH)
   if (!/^[a-z0-9][a-z0-9._:-]*$/i.test(value)) {

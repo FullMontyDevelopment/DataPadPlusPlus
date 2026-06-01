@@ -45,6 +45,49 @@ describe('browser execution runtime', () => {
     expect(executed.tabs.find((item) => item.id === tab.id)?.dirty).toBe(false)
   })
 
+  it('preserves a tab query view mode when execution omits an input mode', () => {
+    const snapshot = createSeedSnapshot()
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-mongo-catalog')
+
+    if (!tab) {
+      throw new Error('Expected seed MongoDB query tab.')
+    }
+
+    tab.queryViewMode = 'builder'
+
+    const { snapshot: executed } = applyExecutionRequestLocally(snapshot, {
+      tabId: tab.id,
+      connectionId: tab.connectionId,
+      environmentId: tab.environmentId,
+      language: tab.language,
+      queryText: tab.queryText,
+    })
+
+    expect(executed.tabs.find((item) => item.id === tab.id)?.queryViewMode).toBe('builder')
+  })
+
+  it('updates a tab query view mode when execution declares the active input mode', () => {
+    const snapshot = createSeedSnapshot()
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-mongo-catalog')
+
+    if (!tab) {
+      throw new Error('Expected seed MongoDB query tab.')
+    }
+
+    tab.queryViewMode = 'builder'
+
+    const { snapshot: executed } = applyExecutionRequestLocally(snapshot, {
+      tabId: tab.id,
+      connectionId: tab.connectionId,
+      environmentId: tab.environmentId,
+      executionInputMode: 'raw',
+      language: tab.language,
+      queryText: tab.queryText,
+    })
+
+    expect(executed.tabs.find((item) => item.id === tab.id)?.queryViewMode).toBe('raw')
+  })
+
   it('rejects stale execution ids instead of falling back to the first tab or connection', () => {
     const snapshot = createSeedSnapshot()
     const tab = snapshot.tabs.find((item) => item.id === 'tab-sql-ops')

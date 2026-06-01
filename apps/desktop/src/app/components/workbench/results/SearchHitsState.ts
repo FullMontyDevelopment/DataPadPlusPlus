@@ -1,22 +1,48 @@
 import { useState } from 'react'
-import type { SearchHit } from './search-hit-edit-requests'
+import {
+  searchHitId,
+  searchHitIndex,
+  searchHitScore,
+  searchHitSource,
+  type SearchHit,
+} from './search-hit-edit-requests'
+import { stringifySearchHitSource } from './search-hit-json'
 
 export function usePayloadBackedSearchHits(payloadHits: SearchHit[]) {
-  const [hitState, setHitState] = useState<{ source: SearchHit[]; hits: SearchHit[] }>({
-    source: payloadHits,
+  const payloadSignature = searchHitsSignature(payloadHits)
+  const [hitState, setHitState] = useState<{
+    hits: SearchHit[]
+    sourceSignature: string
+  }>({
     hits: payloadHits,
+    sourceSignature: payloadSignature,
   })
-  const hits = hitState.source === payloadHits ? hitState.hits : payloadHits
+  const hits = hitState.sourceSignature === payloadSignature ? hitState.hits : payloadHits
 
   const updateHits = (updater: (current: SearchHit[]) => SearchHit[]) => {
     setHitState((current) => {
-      const currentHits = current.source === payloadHits ? current.hits : payloadHits
+      const currentHits =
+        current.sourceSignature === payloadSignature ? current.hits : payloadHits
       return {
-        source: payloadHits,
         hits: updater(currentHits),
+        sourceSignature: payloadSignature,
       }
     })
   }
 
   return { hits, updateHits }
+}
+
+function searchHitsSignature(hits: SearchHit[]) {
+  return hits
+    .map((hit, index) =>
+      [
+        index,
+        searchHitIndex(hit),
+        searchHitId(hit),
+        searchHitScore(hit),
+        stringifySearchHitSource(searchHitSource(hit)),
+      ].join(':'),
+    )
+    .join('|')
 }

@@ -2448,6 +2448,25 @@ describe('ResultPayloadView', () => {
     expect(screen.getByText('2.5')).toBeInTheDocument()
   })
 
+  it('renders search hit sources with non-json primitives without crashing', () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'searchHits',
+          hits: [
+            {
+              id: 'product-1',
+              score: 1,
+              source: { sequence: 9007199254740993n },
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.getByText(/9007199254740993/)).toBeInTheDocument()
+  })
+
   it('closes stale search hit menus when a refreshed payload removes the hit', async () => {
     const { rerender } = render(
       <ResultPayloadView
@@ -2479,6 +2498,88 @@ describe('ResultPayloadView', () => {
     await waitFor(() => {
       expect(screen.queryByRole('menuitem', { name: 'Copy Document ID' })).not.toBeInTheDocument()
     })
+  })
+
+  it('closes stale search hit menus when a refreshed payload replaces the hit at the same index', async () => {
+    const { rerender } = render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'searchHits',
+          hits: [
+            {
+              id: 'product-1',
+              score: 1.25,
+              source: { sku: 'SKU-1' },
+            },
+          ],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'product-1' }))
+    expect(screen.getByRole('menuitem', { name: 'Copy Document ID' })).toBeInTheDocument()
+
+    rerender(
+      <ResultPayloadView
+        payload={{
+          renderer: 'searchHits',
+          hits: [
+            {
+              id: 'product-2',
+              score: 2,
+              source: { sku: 'SKU-2' },
+            },
+          ],
+        }}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole('menuitem', { name: 'Copy Document ID' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('does not apply a pending search update to a different refreshed hit at the same index', async () => {
+    const executeDataEdit = vi.fn()
+    const { rerender } = render(
+      <ResultPayloadView
+        connection={searchConnection()}
+        editContext={{
+          connectionId: 'conn-search',
+          environmentId: 'env-dev',
+          queryText: '{ "index": "orders", "body": { "query": { "match_all": {} } } }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'searchHits',
+          hits: [{ id: 'product-1', score: 1, source: { sku: 'SKU-1' } }],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'product-1' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Update Document' }))
+
+    rerender(
+      <ResultPayloadView
+        connection={searchConnection()}
+        editContext={{
+          connectionId: 'conn-search',
+          environmentId: 'env-dev',
+          queryText: '{ "index": "orders", "body": { "query": { "match_all": {} } } }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'searchHits',
+          hits: [{ id: 'product-2', score: 1, source: { sku: 'SKU-2' } }],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+
+    expect(executeDataEdit).not.toHaveBeenCalled()
+    expect(screen.getByText('Search document is no longer loaded.')).toBeInTheDocument()
   })
 
   it('updates search hit source documents through guarded search edit requests', async () => {
@@ -2560,6 +2661,71 @@ describe('ResultPayloadView', () => {
       })
     })
     expect(screen.getByText(/fulfilled/)).toBeInTheDocument()
+  })
+
+  it('keeps paged search hit edits through parent rerenders with the same payload', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      messages: ['Updated document.'],
+      plan: {
+        destructive: false,
+        engine: 'elasticsearch',
+        generatedRequest: 'POST /orders/_update/101?refresh=true',
+        operationId: 'elasticsearch.data-edit.update-document',
+        requestLanguage: 'query-dsl',
+        requiredPermissions: ['write concrete index document'],
+        summary: 'Updated document.',
+        warnings: [],
+      },
+      warnings: [],
+    }))
+    const payload = {
+      renderer: 'searchHits' as const,
+      total: 1,
+      hits: [
+        {
+          id: '101',
+          score: 1.25,
+          source: { status: 'processing', total: 42 },
+        },
+      ],
+    }
+    const view = (
+      <ResultPayloadView
+        connection={searchConnection()}
+        editContext={{
+          connectionId: 'conn-search',
+          environmentId: 'env-dev',
+          queryText: '{ "index": "orders", "body": { "query": { "match_all": {} } } }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        pageSize={1}
+        payload={payload}
+      />
+    )
+    const { rerender } = render(view)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: '101' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Update Document' }))
+    fireEvent.change(screen.getByLabelText('Search document source JSON'), {
+      target: { value: '{ "status": "fulfilled", "total": 42 }' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/fulfilled/)).toBeInTheDocument()
+    })
+
+    rerender(view)
+
+    expect(screen.getByText(/fulfilled/)).toBeInTheDocument()
+    expect(screen.queryByText(/processing/)).not.toBeInTheDocument()
   })
 
   it('handles rejected search document updates without leaking raw errors', async () => {

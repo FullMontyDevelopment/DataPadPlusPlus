@@ -8,3 +8,15 @@ export function parseSearchHitSourceJson(value: string) {
     return undefined
   }
 }
+
+export function stringifySearchHitSource(value: unknown, space?: number) {
+  try {
+    return JSON.stringify(value, jsonValueReplacer, space) ?? 'null'
+  } catch {
+    return String(value)
+  }
+}
+
+function jsonValueReplacer(_key: string, value: unknown) {
+  return typeof value === 'bigint' ? value.toString() : value
+}
