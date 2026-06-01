@@ -34,6 +34,7 @@ export function CockroachObjectViewInsights({ kind, payload }: CockroachObjectVi
   const roles = records(payload.roles)
   const permissions = records(payload.permissions)
   const grants = records(payload.grants)
+  const certificates = records(payload.certificates)
 
   if (
     !tables.length &&
@@ -52,7 +53,8 @@ export function CockroachObjectViewInsights({ kind, payload }: CockroachObjectVi
     !statements.length &&
     !roles.length &&
     !permissions.length &&
-    !grants.length
+    !grants.length &&
+    !certificates.length
   ) {
     return null
   }
@@ -124,7 +126,7 @@ export function CockroachObjectViewInsights({ kind, payload }: CockroachObjectVi
         </section>
       ) : null}
 
-      {(roles.length || permissions.length || grants.length) ? (
+      {(roles.length || permissions.length || grants.length || certificates.length) ? (
         <section className="object-view-section" aria-label="CockroachDB security posture">
           <CockroachSectionHeading icon="security" title="Security" unit={`${roles.length} role(s)`} />
           <div className="object-view-card-grid">
@@ -132,8 +134,13 @@ export function CockroachObjectViewInsights({ kind, payload }: CockroachObjectVi
             <Card label="Logins" value={countTruthy(roles, 'login')} />
             <Card label="Admins" value={countTruthy(roles, 'superuser')} />
             <Card label="Grants" value={permissions.length || grants.length || undefined} />
+            <Card label="Certs" value={certificates.length || undefined} />
           </div>
-          <ChipRows rows={roles.length ? roles : permissions.length ? permissions : grants} labelKey={roles.length ? 'name' : 'principal'} valueKey={roles.length ? 'memberships' : 'privilege'} />
+          <ChipRows
+            rows={roles.length ? roles : permissions.length ? permissions : grants.length ? grants : certificates}
+            labelKey={roles.length ? 'name' : certificates.length ? 'subject' : 'principal'}
+            valueKey={roles.length ? 'memberships' : certificates.length ? 'validUntil' : 'privilege'}
+          />
         </section>
       ) : null}
     </>

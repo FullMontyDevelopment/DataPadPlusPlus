@@ -58,6 +58,30 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "cockroach:cluster-status",
             "show cluster setting version;",
         ),
+        (
+            "cockroach-statements",
+            "Statement stats",
+            "statements",
+            "Statement fingerprints, latency, rows, and retry signals",
+            "cockroach:statements",
+            "select * from crdb_internal.node_statement_statistics limit 100;",
+        ),
+        (
+            "cockroach-transactions",
+            "Transactions",
+            "transactions",
+            "Transaction state, retry pressure, and contention risk",
+            "cockroach:transactions",
+            "select * from crdb_internal.cluster_transactions limit 100;",
+        ),
+        (
+            "cockroach-zone-configurations",
+            "Zone configurations",
+            "zone-configurations",
+            "Replication, constraints, lease preferences, and GC settings",
+            "cockroach:zone-configurations",
+            "show zone configurations;",
+        ),
     ]
     .into_iter()
     .map(|(id, label, kind, detail, scope, query)| ExplorerNode {

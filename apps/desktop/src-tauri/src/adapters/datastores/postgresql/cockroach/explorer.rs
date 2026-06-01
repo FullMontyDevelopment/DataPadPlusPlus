@@ -1,4 +1,6 @@
 mod inspect;
+mod live;
+mod normalizers;
 mod root;
 mod sections;
 

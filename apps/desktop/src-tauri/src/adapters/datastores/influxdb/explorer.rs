@@ -25,6 +25,7 @@ pub(super) async fn list_influxdb_explorer_nodes(
         Some(scope) if scope.starts_with("retention:") => {
             retention_nodes(connection, scope, request.limit).await?
         }
+        Some("influx:tasks") => task_nodes(connection, request.limit).await?,
         Some(_) => Vec::new(),
         None => root_nodes(connection),
     };
@@ -74,6 +75,26 @@ fn root_nodes(_connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
             vec![],
         ),
         influx_node(
+            "influx:tasks",
+            "Tasks",
+            "tasks",
+            "Scheduled Flux tasks and recent run state",
+            Some("influx:tasks"),
+            true,
+            Some("SHOW TASKS".into()),
+            vec![],
+        ),
+        influx_node(
+            "influx:security",
+            "Tokens",
+            "security",
+            "Authorizations, token scopes, and disabled secret display",
+            Some("influx:security"),
+            false,
+            Some("SHOW AUTHORIZATIONS".into()),
+            vec![],
+        ),
+        influx_node(
             "influx:diagnostics",
             "Diagnostics",
             "diagnostics",
@@ -116,6 +137,34 @@ async fn bucket_nodes(
                 )),
                 vec!["Buckets".into()],
             )
+        })
+        .collect())
+}
+
+async fn task_nodes(
+    connection: &ResolvedConnectionProfile,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+    Ok(live_influx_tasks(connection)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .take(limit)
+        .filter_map(|task| {
+            let name = task.get("name").and_then(Value::as_str)?.to_string();
+            let status = task.get("status").and_then(Value::as_str).unwrap_or("-");
+            let schedule = task.get("schedule").and_then(Value::as_str).unwrap_or("-");
+            Some(influx_node(
+                &format!("task:{name}"),
+                &name,
+                "task",
+                &format!("{status} | {schedule}"),
+                Some(&format!("task:{name}")),
+                false,
+                None,
+                vec!["Tasks".into()],
+            ))
         })
         .collect())
 }
@@ -381,13 +430,23 @@ async fn influx_inspection_payload(connection: &ResolvedConnectionProfile, node_
         &mut warnings,
     )
     .await;
+    let tasks = optional_live_influx_tasks(connection, &mut warnings).await;
+    let tokens = if node_id == "influx:security" || object_view == "security" {
+        optional_live_influx_tokens(connection, &mut warnings).await
+    } else {
+        Vec::new()
+    };
     let diagnostics = diagnostic_records(
         &bucket,
-        buckets.len(),
-        measurements.len(),
-        tags.len(),
-        fields.len(),
-        retention_policies.len(),
+        InfluxDiagnosticCounts {
+            buckets: buckets.len(),
+            measurements: measurements.len(),
+            tags: tags.len(),
+            fields: fields.len(),
+            retention_policies: retention_policies.len(),
+            tasks: tasks.len(),
+            tokens: tokens.len(),
+        },
     );
 
     let mut payload = json!({
@@ -399,12 +458,14 @@ async fn influx_inspection_payload(connection: &ResolvedConnectionProfile, node_
         "seriesCount": "-",
         "retention": retention_label(&retention_policies),
         "storage": "-",
-        "taskCount": 0,
+        "taskCount": tasks.len(),
         "buckets": buckets,
         "measurements": measurements,
         "tags": tags,
         "fields": fields,
         "retentionPolicies": retention_policies,
+        "tasks": tasks,
+        "tokens": tokens,
         "diagnostics": diagnostics,
         "warnings": warnings,
     });
@@ -470,6 +531,107 @@ async fn optional_records(
     }
 }
 
+async fn optional_live_influx_tasks(
+    connection: &ResolvedConnectionProfile,
+    warnings: &mut Vec<String>,
+) -> Vec<Value> {
+    match live_influx_tasks(connection).await {
+        Ok(tasks) => tasks,
+        Err(error) => {
+            warnings.push(format!("tasks metadata is unavailable: {}", error.message));
+            Vec::new()
+        }
+    }
+}
+
+async fn optional_live_influx_tokens(
+    connection: &ResolvedConnectionProfile,
+    warnings: &mut Vec<String>,
+) -> Vec<Value> {
+    match live_influx_tokens(connection).await {
+        Ok(tokens) => tokens,
+        Err(error) => {
+            warnings.push(format!("token metadata is unavailable: {}", error.message));
+            Vec::new()
+        }
+    }
+}
+
+async fn live_influx_tasks(
+    connection: &ResolvedConnectionProfile,
+) -> Result<Vec<Value>, CommandError> {
+    let value = influx_json(connection, "/api/v2/tasks").await?;
+    Ok(value
+        .get("tasks")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|task| {
+            let name = task.get("name").and_then(Value::as_str).unwrap_or("task");
+            let every = task.get("every").and_then(Value::as_str);
+            let cron = task.get("cron").and_then(Value::as_str);
+            json!({
+                "name": name,
+                "status": task.get("status").and_then(Value::as_str).unwrap_or("unknown"),
+                "schedule": every.or(cron).unwrap_or("-"),
+                "lastRun": task.get("latestCompleted").and_then(Value::as_str).unwrap_or("-"),
+                "lastError": task.get("latestError").and_then(Value::as_str).unwrap_or("-"),
+            })
+        })
+        .collect())
+}
+
+async fn live_influx_tokens(
+    connection: &ResolvedConnectionProfile,
+) -> Result<Vec<Value>, CommandError> {
+    let value = influx_json(connection, "/api/v2/authorizations").await?;
+    Ok(value
+        .get("authorizations")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|authorization| {
+            json!({
+                "name": authorization.get("description").and_then(Value::as_str).unwrap_or("authorization"),
+                "scopes": influx_authorization_scopes(authorization),
+                "status": authorization.get("status").and_then(Value::as_str).unwrap_or("unknown"),
+                "expiresAt": "-",
+            })
+        })
+        .collect())
+}
+
+fn influx_authorization_scopes(authorization: &Value) -> String {
+    authorization
+        .get("permissions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(4)
+        .map(|permission| {
+            let action = permission
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("-");
+            let resource = permission
+                .get("resource")
+                .and_then(|resource| resource.get("type"))
+                .and_then(Value::as_str)
+                .unwrap_or("resource");
+            format!("{action}:{resource}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+async fn influx_json(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+) -> Result<Value, CommandError> {
+    let response = influxdb_get(connection, path).await?;
+    parse_influxdb_json(&response.body)
+}
+
 fn filter_influx_payload_for_node(payload: &mut Value, node_id: &str) {
     if let Some((_, bucket, measurement)) = node_id
         .strip_prefix("measurement:")
@@ -522,6 +684,36 @@ fn filter_influx_payload_for_node(payload: &mut Value, node_id: &str) {
         payload["measurements"] = json!([]);
         payload["tags"] = json!([]);
         payload["fields"] = json!([]);
+        payload["tasks"] = json!([]);
+        payload["tokens"] = json!([]);
+        return;
+    }
+
+    if node_id == "influx:tasks" || node_id.starts_with("task:") {
+        payload["buckets"] = json!([]);
+        payload["measurements"] = json!([]);
+        payload["tags"] = json!([]);
+        payload["fields"] = json!([]);
+        payload["retentionPolicies"] = json!([]);
+        payload["tokens"] = json!([]);
+        if let Some(task) = node_id.strip_prefix("task:") {
+            filter_payload_array(payload, "tasks", "name", task);
+            payload["objectView"] = json!("task");
+        }
+        return;
+    }
+
+    if node_id == "influx:security" {
+        payload["buckets"] = json!([]);
+        payload["measurements"] = json!([]);
+        payload["tags"] = json!([]);
+        payload["fields"] = json!([]);
+        payload["retentionPolicies"] = json!([]);
+        payload["tasks"] = json!([]);
+        payload["permissionWarnings"] = json!([{
+            "scope": "tokens",
+            "reason": "Token values are write-only and never displayed after creation."
+        }]);
     }
 }
 
@@ -643,38 +835,53 @@ fn normalize_column_name(column: &str) -> String {
     }
 }
 
-fn diagnostic_records(
-    bucket: &str,
-    bucket_count: usize,
-    measurement_count: usize,
-    tag_count: usize,
-    field_count: usize,
-    retention_count: usize,
-) -> Vec<Value> {
+struct InfluxDiagnosticCounts {
+    buckets: usize,
+    measurements: usize,
+    tags: usize,
+    fields: usize,
+    retention_policies: usize,
+    tasks: usize,
+    tokens: usize,
+}
+
+fn diagnostic_records(bucket: &str, counts: InfluxDiagnosticCounts) -> Vec<Value> {
     vec![
         json!({
             "signal": "Bucket Visibility",
-            "value": bucket_count,
-            "status": if bucket_count > 0 { "healthy" } else { "watch" },
+            "value": counts.buckets,
+            "status": if counts.buckets > 0 { "healthy" } else { "watch" },
             "guidance": format!("Current bucket/database scope is {bucket}."),
         }),
         json!({
             "signal": "Measurement Count",
-            "value": measurement_count,
-            "status": if measurement_count > 0 { "healthy" } else { "watch" },
+            "value": counts.measurements,
+            "status": if counts.measurements > 0 { "healthy" } else { "watch" },
             "guidance": "Measurements are the primary query entry point.",
         }),
         json!({
             "signal": "Schema Width",
-            "value": format!("{tag_count} tag(s), {field_count} field(s)"),
-            "status": if tag_count + field_count > 0 { "healthy" } else { "watch" },
+            "value": format!("{} tag(s), {} field(s)", counts.tags, counts.fields),
+            "status": if counts.tags + counts.fields > 0 { "healthy" } else { "watch" },
             "guidance": "Use tags for filters and fields for measured values.",
         }),
         json!({
             "signal": "Retention Policies",
-            "value": retention_count,
-            "status": if retention_count > 0 { "healthy" } else { "watch" },
+            "value": counts.retention_policies,
+            "status": if counts.retention_policies > 0 { "healthy" } else { "watch" },
             "guidance": "Retention policy metadata helps explain data lifecycle and shard layout.",
+        }),
+        json!({
+            "signal": "Tasks",
+            "value": counts.tasks,
+            "status": if counts.tasks > 0 { "healthy" } else { "watch" },
+            "guidance": "Tasks are available only on InfluxDB versions and tokens that expose task metadata.",
+        }),
+        json!({
+            "signal": "Authorizations",
+            "value": counts.tokens,
+            "status": if counts.tokens > 0 { "healthy" } else { "watch" },
+            "guidance": "Token metadata is permission-sensitive; token secrets are never displayed.",
         }),
     ]
 }
@@ -719,6 +926,8 @@ fn influx_query_template(connection: &ResolvedConnectionProfile, node_id: &str) 
         "tags" | "tag" => "SHOW TAG KEYS".into(),
         "fields" | "field" => "SHOW FIELD KEYS".into(),
         "retention-policies" | "retention" => "SHOW RETENTION POLICIES".into(),
+        "tasks" | "task" => "SHOW TASKS".into(),
+        "security" => "SHOW AUTHORIZATIONS".into(),
         _ => format!(
             "SELECT * FROM /.*/ WHERE time > now() - 1h LIMIT 100 /* {} */",
             influxdb_database(connection)
@@ -761,6 +970,18 @@ fn influx_object_view(node_id: &str) -> &'static str {
     }
     if node_id.starts_with("retention:") {
         return "retention-policies";
+    }
+    if node_id == "influx:tasks" {
+        return "tasks";
+    }
+    if node_id.starts_with("task:") {
+        return "task";
+    }
+    if node_id == "influx:security" {
+        return "security";
+    }
+    if node_id == "influx:diagnostics" {
+        return "diagnostics";
     }
     "diagnostics"
 }
@@ -862,8 +1083,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        bucket_child_nodes, diagnostic_records, first_column_values, influx_object_view,
-        quote_influx_identifier, retention_label, root_nodes, series_table_records,
+        bucket_child_nodes, diagnostic_records, first_column_values, influx_authorization_scopes,
+        influx_object_view, quote_influx_identifier, retention_label, root_nodes,
+        series_table_records, InfluxDiagnosticCounts,
     };
     use crate::domain::models::ResolvedConnectionProfile;
 
@@ -894,7 +1116,7 @@ mod tests {
             .map(|node| node.label.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(labels, vec!["Buckets", "Diagnostics"]);
+        assert_eq!(labels, vec!["Buckets", "Tasks", "Tokens", "Diagnostics"]);
         assert_eq!(nodes[0].id, "influx:buckets");
         assert_eq!(nodes[0].scope.as_deref(), Some("influx:buckets"));
     }
@@ -954,14 +1176,44 @@ mod tests {
             influx_object_view("retention:telemetry:autogen"),
             "retention-policies"
         );
+        assert_eq!(influx_object_view("influx:tasks"), "tasks");
+        assert_eq!(influx_object_view("task:rollup"), "task");
+        assert_eq!(influx_object_view("influx:security"), "security");
     }
 
     #[test]
     fn influxdb_diagnostics_are_view_friendly() {
-        let diagnostics = diagnostic_records("telemetry", 1, 2, 3, 4, 1);
+        let diagnostics = diagnostic_records(
+            "telemetry",
+            InfluxDiagnosticCounts {
+                buckets: 1,
+                measurements: 2,
+                tags: 3,
+                fields: 4,
+                retention_policies: 1,
+                tasks: 1,
+                tokens: 1,
+            },
+        );
 
         assert_eq!(diagnostics[0]["signal"], "Bucket Visibility");
         assert_eq!(diagnostics[2]["value"], "3 tag(s), 4 field(s)");
+        assert_eq!(diagnostics[4]["signal"], "Tasks");
+        assert_eq!(diagnostics[5]["signal"], "Authorizations");
+    }
+
+    #[test]
+    fn influxdb_authorization_scopes_never_include_token_values() {
+        let scopes = influx_authorization_scopes(&json!({
+            "token": "secret-token",
+            "permissions": [
+                { "action": "read", "resource": { "type": "buckets" } },
+                { "action": "write", "resource": { "type": "tasks" } }
+            ]
+        }));
+
+        assert_eq!(scopes, "read:buckets, write:tasks");
+        assert!(!scopes.contains("secret-token"));
     }
 
     fn connection() -> ResolvedConnectionProfile {

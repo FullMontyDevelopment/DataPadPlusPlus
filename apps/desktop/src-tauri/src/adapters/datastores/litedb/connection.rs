@@ -1,5 +1,3 @@
-use serde_json::{json, Value};
-
 use super::super::super::*;
 
 pub(super) async fn test_litedb_connection(
@@ -52,23 +50,9 @@ pub(super) fn litedb_file_path(connection: &ResolvedConnectionProfile) -> String
         .to_string()
 }
 
-pub(super) fn litedb_bridge_payload(
-    connection: &ResolvedConnectionProfile,
-    operation: &str,
-    body: Value,
-) -> Value {
-    json!({
-        "bridge": "dotnet-litedb-sidecar",
-        "databasePath": litedb_file_path(connection),
-        "readOnly": connection.read_only,
-        "operation": operation,
-        "body": body
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{litedb_bridge_payload, litedb_file_path};
+    use super::litedb_file_path;
     use crate::domain::models::ResolvedConnectionProfile;
 
     fn connection() -> ResolvedConnectionProfile {
@@ -104,14 +88,5 @@ mod tests {
         connection.connection_string = Some("litedb://C:/data/app.db".into());
 
         assert_eq!(litedb_file_path(&connection), "C:/data/app.db");
-    }
-
-    #[test]
-    fn litedb_bridge_payload_includes_path_and_read_only() {
-        let payload = litedb_bridge_payload(&connection(), "Find", serde_json::json!({}));
-
-        assert_eq!(payload["bridge"], "dotnet-litedb-sidecar");
-        assert_eq!(payload["databasePath"], "catalog.db");
-        assert_eq!(payload["readOnly"], true);
     }
 }

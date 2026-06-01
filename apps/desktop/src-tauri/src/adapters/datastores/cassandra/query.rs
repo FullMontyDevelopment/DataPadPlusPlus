@@ -30,6 +30,8 @@ pub(super) async fn execute_cassandra_query(
             .row_limit
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
+    let tracing_enabled = matches!(execute_mode(request), "profile" | "trace");
+    let execution_statement = cassandra_statement_for_execution(statement, row_limit);
     notices.push(QueryExecutionNotice {
         code: "cassandra-cql-contract".into(),
         level: "info".into(),
@@ -37,23 +39,48 @@ pub(super) async fn execute_cassandra_query(
             "Cassandra CQL was normalized as a guarded request-builder payload pending native binary protocol execution."
                 .into(),
     });
+    if cql_needs_partition_key_warning(&execution_statement) {
+        notices.push(QueryExecutionNotice {
+            code: "cassandra-partition-key-warning".into(),
+            level: "warning".into(),
+            message: "Cassandra SELECT queries should include a complete partition key to avoid broad partition scans.".into(),
+        });
+    }
+    if execution_statement
+        .to_ascii_lowercase()
+        .contains("allow filtering")
+    {
+        notices.push(QueryExecutionNotice {
+            code: "cassandra-allow-filtering-warning".into(),
+            level: "warning".into(),
+            message: "ALLOW FILTERING can scan large partitions and should be used deliberately."
+                .into(),
+        });
+    }
 
-    let request_payload = cassandra_request_payload(connection, statement, row_limit);
-    let response = preview_cassandra_response(connection, statement, row_limit);
-    let (columns, rows) = normalize_cassandra_response(&response, row_limit);
+    let request_payload =
+        cassandra_request_payload(connection, &execution_statement, row_limit, tracing_enabled);
+    let response = preview_cassandra_response(connection, &execution_statement, row_limit);
+    let normalized = normalize_cassandra_response_bounded(&response, row_limit);
+    let columns = normalized.columns;
+    let rows = normalized.rows;
+    let truncated = normalized.truncated;
     let row_count = rows.len() as u32;
     let profile_payload = payload_profile(
         "Cassandra tracing and partition-key guardrails.",
         json!({
             "contactPoint": cassandra_contact_point(connection),
             "keyspace": cassandra_keyspace(connection),
-            "partitionKeyRequired": cql_needs_partition_key_warning(statement),
-            "tracing": false
+            "statement": execution_statement,
+            "pageSize": row_limit,
+            "partitionKeyRequired": cql_needs_partition_key_warning(&execution_statement),
+            "allowFilteringWarning": execution_statement.to_ascii_lowercase().contains("allow filtering"),
+            "tracing": tracing_enabled
         }),
     );
     let payloads = vec![
         payload_table(columns, rows),
-        payload_json(response),
+        payload_json(bounded_cassandra_response(response, row_limit, truncated)),
         payload_plan(
             "json",
             request_payload.clone(),
@@ -63,7 +90,13 @@ pub(super) async fn execute_cassandra_query(
         payload_metrics(json!([
             {
                 "name": "cassandra.query.partition_key_guard",
-                "value": if cql_needs_partition_key_warning(statement) { 1 } else { 0 },
+                "value": if cql_needs_partition_key_warning(&execution_statement) { 1 } else { 0 },
+                "unit": "flag",
+                "labels": { "keyspace": cassandra_keyspace(connection) }
+            },
+            {
+                "name": "cassandra.query.allow_filtering_guard",
+                "value": if execution_statement.to_ascii_lowercase().contains("allow filtering") { 1 } else { 0 },
                 "unit": "flag",
                 "labels": { "keyspace": cassandra_keyspace(connection) }
             }
@@ -78,14 +111,18 @@ pub(super) async fn execute_cassandra_query(
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: format!("Cassandra CQL contract normalized {row_count} row(s)."),
+        summary: if truncated {
+            format!("Cassandra CQL contract loaded the first {row_count} row(s).")
+        } else {
+            format!("Cassandra CQL contract normalized {row_count} row(s).")
+        },
         default_renderer: &default_renderer,
         renderer_modes,
         payloads,
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
-        truncated: false,
+        truncated,
         explain_payload: None,
     }))
 }
@@ -94,6 +131,7 @@ pub(crate) fn cassandra_request_payload(
     connection: &ResolvedConnectionProfile,
     statement: &str,
     row_limit: u32,
+    tracing_enabled: bool,
 ) -> Value {
     json!({
         "protocol": "cql-native-v4",
@@ -102,12 +140,22 @@ pub(crate) fn cassandra_request_payload(
         "statement": strip_sql_semicolon(statement),
         "consistency": "LOCAL_QUORUM",
         "pageSize": row_limit,
+        "tracing": tracing_enabled,
         "guardrails": {
             "mutationPreviewOnly": true,
             "partitionKeyFirst": true,
             "allowFilteringWarning": statement.to_lowercase().contains("allow filtering")
         }
     })
+}
+
+pub(crate) fn cassandra_statement_for_execution(statement: &str, row_limit: u32) -> String {
+    let stripped = strip_sql_semicolon(statement);
+    if !is_select_cql(&stripped) || cql_has_limit(&stripped) {
+        return stripped;
+    }
+
+    format!("{stripped} LIMIT {}", row_limit.saturating_add(1))
 }
 
 pub(crate) fn preview_cassandra_response(
@@ -131,10 +179,16 @@ pub(crate) fn preview_cassandra_response(
     })
 }
 
-pub(crate) fn normalize_cassandra_response(
+pub(crate) struct CassandraNormalizedResponse {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub truncated: bool,
+}
+
+pub(crate) fn normalize_cassandra_response_bounded(
     response: &Value,
     row_limit: u32,
-) -> (Vec<String>, Vec<Vec<String>>) {
+) -> CassandraNormalizedResponse {
     let columns = response
         .get("columns")
         .and_then(Value::as_array)
@@ -148,11 +202,14 @@ pub(crate) fn normalize_cassandra_response(
     } else {
         columns
     };
-    let rows = response
+    let source_rows = response
         .get("rows")
         .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+        .cloned()
+        .unwrap_or_default();
+    let truncated = source_rows.len() > row_limit as usize || response.get("pagingState").is_some();
+    let rows = source_rows
+        .iter()
         .take(row_limit as usize)
         .map(|row| {
             row.as_array()
@@ -163,10 +220,40 @@ pub(crate) fn normalize_cassandra_response(
         })
         .collect::<Vec<_>>();
     if rows.is_empty() {
-        (columns, vec![vec!["requestBuilt".into()]])
+        CassandraNormalizedResponse {
+            columns,
+            rows: vec![vec!["requestBuilt".into()]],
+            truncated: false,
+        }
     } else {
-        (columns, rows)
+        CassandraNormalizedResponse {
+            columns,
+            rows,
+            truncated,
+        }
     }
+}
+
+fn bounded_cassandra_response(mut response: Value, row_limit: u32, truncated: bool) -> Value {
+    let paging_state = response.get("pagingState").cloned().unwrap_or(Value::Null);
+    if let Some(object) = response.as_object_mut() {
+        if let Some(rows) = object.get("rows").and_then(Value::as_array).cloned() {
+            object.insert(
+                "rows".into(),
+                Value::Array(rows.into_iter().take(row_limit as usize).collect()),
+            );
+        }
+        if truncated {
+            object.insert(
+                "datapad".into(),
+                json!({
+                    "truncated": true,
+                    "pagingState": paging_state,
+                }),
+            );
+        }
+    }
+    response
 }
 
 pub(crate) fn is_read_only_cql(statement: &str) -> bool {
@@ -181,10 +268,20 @@ pub(crate) fn is_read_only_cql(statement: &str) -> bool {
 
 pub(crate) fn cql_needs_partition_key_warning(statement: &str) -> bool {
     let normalized = statement.trim_start().to_lowercase();
-    normalized.starts_with("select")
-        && !normalized.contains("system.")
-        && !normalized.contains(" where ")
-        && !normalized.contains(" limit ")
+    is_select_cql(&normalized) && !normalized.contains("system.") && !normalized.contains(" where ")
+}
+
+fn is_select_cql(statement: &str) -> bool {
+    statement
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("select")
+}
+
+fn cql_has_limit(statement: &str) -> bool {
+    statement
+        .split(|ch: char| ch.is_whitespace() || ch == ';')
+        .any(|token| token.eq_ignore_ascii_case("limit"))
 }
 
 fn cql_value_to_string(value: &Value) -> String {
@@ -199,8 +296,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        cassandra_request_payload, cql_needs_partition_key_warning, is_read_only_cql,
-        normalize_cassandra_response, preview_cassandra_response,
+        bounded_cassandra_response, cassandra_request_payload, cassandra_statement_for_execution,
+        cql_needs_partition_key_warning, is_read_only_cql, normalize_cassandra_response_bounded,
+        preview_cassandra_response,
     };
     use crate::domain::models::ResolvedConnectionProfile;
 
@@ -233,20 +331,21 @@ mod tests {
 
     #[test]
     fn cassandra_request_payload_sets_keyspace_and_page_size() {
-        let payload = cassandra_request_payload(&connection(), "select * from orders", 50);
+        let payload = cassandra_request_payload(&connection(), "select * from orders", 50, true);
 
         assert_eq!(payload["keyspace"], "commerce");
         assert_eq!(payload["pageSize"], 50);
+        assert_eq!(payload["tracing"], true);
         assert_eq!(payload["guardrails"]["mutationPreviewOnly"], true);
     }
 
     #[test]
     fn cassandra_preview_response_normalizes_rows() {
         let response = preview_cassandra_response(&connection(), "select * from orders", 25);
-        let (columns, rows) = normalize_cassandra_response(&response, 25);
+        let result = normalize_cassandra_response_bounded(&response, 25);
 
-        assert_eq!(columns, vec!["keyspace", "status", "row_limit"]);
-        assert_eq!(rows[0][1], "cql-request-built");
+        assert_eq!(result.columns, vec!["keyspace", "status", "row_limit"]);
+        assert_eq!(result.rows[0][1], "cql-request-built");
     }
 
     #[test]
@@ -255,9 +354,10 @@ mod tests {
             "columns": ["id"],
             "rows": [["1"], ["2"]]
         });
-        let (_, rows) = normalize_cassandra_response(&response, 1);
+        let result = normalize_cassandra_response_bounded(&response, 1);
 
-        assert_eq!(rows.len(), 1);
+        assert_eq!(result.rows.len(), 1);
+        assert!(result.truncated);
     }
 
     #[test]
@@ -271,11 +371,45 @@ mod tests {
     #[test]
     fn cassandra_partition_warning_targets_broad_selects() {
         assert!(cql_needs_partition_key_warning("select * from orders"));
+        assert!(cql_needs_partition_key_warning(
+            "select * from orders limit 10"
+        ));
         assert!(!cql_needs_partition_key_warning(
             "select * from orders where account_id = ?"
         ));
         assert!(!cql_needs_partition_key_warning(
             "select * from system.local"
         ));
+    }
+
+    #[test]
+    fn cassandra_statement_for_execution_adds_limit_to_unbounded_selects() {
+        assert_eq!(
+            cassandra_statement_for_execution("select * from orders;", 50),
+            "select * from orders LIMIT 51"
+        );
+        assert_eq!(
+            cassandra_statement_for_execution("select * from orders limit 10;", 50),
+            "select * from orders limit 10"
+        );
+        assert_eq!(
+            cassandra_statement_for_execution("describe keyspaces;", 50),
+            "describe keyspaces"
+        );
+    }
+
+    #[test]
+    fn cassandra_bounded_response_preserves_paging_state() {
+        let response = json!({
+            "columns": ["id"],
+            "rows": [["1"], ["2"], ["3"]],
+            "pagingState": "abc"
+        });
+
+        let bounded = bounded_cassandra_response(response, 2, true);
+
+        assert_eq!(bounded["rows"].as_array().unwrap().len(), 2);
+        assert_eq!(bounded["datapad"]["truncated"], true);
+        assert_eq!(bounded["datapad"]["pagingState"], "abc");
     }
 }

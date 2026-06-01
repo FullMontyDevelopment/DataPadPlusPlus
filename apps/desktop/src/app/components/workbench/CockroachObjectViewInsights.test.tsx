@@ -36,6 +36,7 @@ describe('CockroachObjectViewInsights', () => {
           locks: [{ sessionId: 's1', object: 'public.accounts', granted: true }],
           roles: [{ name: 'root', login: true, superuser: true, memberships: '' }],
           permissions: [{ principal: 'app_reader', privilege: 'SELECT', object: 'public.accounts' }],
+          certificates: [{ subject: 'node', validUntil: '2027-01-01' }],
         }}
       />,
     )

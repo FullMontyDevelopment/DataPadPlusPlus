@@ -60,12 +60,7 @@ pub(super) async fn snowflake_post_json(
 ) -> Result<SnowflakeResponse, CommandError> {
     let endpoint = SnowflakeEndpoint::from_connection(connection)?;
     let path = endpoint.path(path);
-    let auth_header = connection
-        .password
-        .as_deref()
-        .filter(|token| !token.trim().is_empty())
-        .map(|token| format!("Authorization: Bearer {token}\r\n"))
-        .unwrap_or_default();
+    let auth_header = snowflake_auth_header(connection)?;
     let request = format!(
         "POST {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n{}",
         endpoint.host,
@@ -100,6 +95,25 @@ pub(super) async fn snowflake_post_json(
                 .unwrap_or("Snowflake SQL API request failed."),
         ))
     }
+}
+
+fn snowflake_auth_header(connection: &ResolvedConnectionProfile) -> Result<String, CommandError> {
+    let Some(token) = connection
+        .password
+        .as_deref()
+        .filter(|token| !token.trim().is_empty())
+    else {
+        return Ok(String::new());
+    };
+
+    if token.contains('\r') || token.contains('\n') {
+        return Err(CommandError::new(
+            "snowflake-invalid-token",
+            "Snowflake access token contains invalid header characters.",
+        ));
+    }
+
+    Ok(format!("Authorization: Bearer {token}\r\n"))
 }
 
 impl SnowflakeEndpoint {
@@ -266,9 +280,8 @@ pub(super) fn snowflake_statement_body(
     } else {
         statement.to_string()
     };
-    json!({
+    let mut body = json!({
         "statement": statement,
-        "timeout": 60,
         "database": snowflake_database(connection),
         "schema": snowflake_schema(connection),
         "warehouse": snowflake_warehouse(connection),
@@ -276,7 +289,22 @@ pub(super) fn snowflake_statement_body(
             "format": "jsonv2",
             "rowLimit": row_limit
         }
-    })
+    });
+
+    if let Some(timeout) = snowflake_query_timeout_seconds(connection) {
+        body["timeout"] = json!(timeout);
+    }
+
+    body
+}
+
+fn snowflake_query_timeout_seconds(connection: &ResolvedConnectionProfile) -> Option<u64> {
+    let timeout_ms = connection
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.query_timeout_ms)
+        .filter(|timeout| *timeout > 0)?;
+    Some(timeout_ms.div_ceil(1_000).max(1))
 }
 
 pub(super) fn parse_snowflake_json(body: &str) -> Result<Value, CommandError> {
@@ -290,7 +318,7 @@ pub(super) fn parse_snowflake_json(body: &str) -> Result<Value, CommandError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{snowflake_statement_body, SnowflakeEndpoint};
+    use super::{snowflake_auth_header, snowflake_statement_body, SnowflakeEndpoint};
     use crate::domain::models::ResolvedConnectionProfile;
 
     fn connection() -> ResolvedConnectionProfile {
@@ -338,6 +366,7 @@ mod tests {
         assert_eq!(body["schema"], "PUBLIC");
         assert_eq!(body["resultSetMetaData"]["rowLimit"], 25);
         assert_eq!(body["statement"], "explain using json select 1");
+        assert!(body.get("timeout").is_none());
     }
 
     #[test]
@@ -365,5 +394,27 @@ mod tests {
         assert_eq!(body["database"], "FINANCE");
         assert_eq!(body["schema"], "MART");
         assert_eq!(body["warehouse"], "REPORTING_WH");
+    }
+
+    #[test]
+    fn snowflake_statement_body_honors_configured_query_timeout_only() {
+        let mut connection = connection();
+        connection.warehouse_options = Some(crate::domain::models::WarehouseConnectionOptions {
+            query_timeout_ms: Some(2_500),
+            ..crate::domain::models::WarehouseConnectionOptions::default()
+        });
+        let body = snowflake_statement_body("select 1", 10, &connection, false);
+
+        assert_eq!(body["timeout"], 3);
+    }
+
+    #[test]
+    fn snowflake_auth_header_rejects_newline_in_token() {
+        let mut connection = connection();
+        connection.password = Some("token\r\nX-Bad: injected".into());
+
+        let error = snowflake_auth_header(&connection).unwrap_err();
+
+        assert_eq!(error.code, "snowflake-invalid-token");
     }
 }

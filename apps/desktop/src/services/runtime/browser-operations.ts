@@ -36,6 +36,7 @@ export function planOperationLocally(
     request.operationId.includes('retention-policy') ||
     request.operationId.includes('backup') ||
     request.operationId.includes('restore') ||
+    request.operationId.includes('.key.delete') ||
     request.operationId.includes('.repair') ||
     request.operationId.includes('.flush')
   const adminWrite =
@@ -57,6 +58,9 @@ export function planOperationLocally(
     request.operationId.includes('.pipeline.simulate') ||
     request.operationId.includes('.user.') ||
     request.operationId.includes('.role.') ||
+    request.operationId.includes('.key.set') ||
+    request.operationId.includes('.key.touch') ||
+    request.operationId.includes('.key.increment') ||
     request.operationId.includes('.extension.') ||
     request.operationId.includes('.file.import') ||
     request.operationId.includes('.collection.import') ||

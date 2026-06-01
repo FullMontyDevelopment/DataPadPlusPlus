@@ -139,17 +139,20 @@ impl ArangoEndpoint {
                 "ArangoDB requires a host or http:// connection string.",
             ));
         }
+        validate_http_component(host, "ArangoDB host")?;
+        let database = connection
+            .graph_options
+            .as_ref()
+            .and_then(|options| options.database_name.clone())
+            .or_else(|| connection.database.clone())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "_system".into());
+        validate_path_segment(&database, "ArangoDB database")?;
 
         Ok(Self {
             host: host.into(),
             port: connection.port.unwrap_or(8529),
-            database: connection
-                .graph_options
-                .as_ref()
-                .and_then(|options| options.database_name.clone())
-                .or_else(|| connection.database.clone())
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "_system".into()),
+            database,
         })
     }
 
@@ -167,6 +170,13 @@ impl ArangoEndpoint {
             .rsplit_once(':')
             .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
             .unwrap_or((authority, 8529));
+        if host.trim().is_empty() {
+            return Err(CommandError::new(
+                "arango-endpoint-missing",
+                "ArangoDB connection string did not include a host.",
+            ));
+        }
+        validate_http_component(host, "ArangoDB host")?;
         let database = database_override
             .filter(|value| !value.trim().is_empty())
             .map(str::to_string)
@@ -177,6 +187,7 @@ impl ArangoEndpoint {
                     .map(str::to_string)
             })
             .unwrap_or_else(|| "_system".into());
+        validate_path_segment(&database, "ArangoDB database")?;
 
         Ok(Self {
             host: host.into(),
@@ -193,6 +204,27 @@ impl ArangoEndpoint {
         };
         format!("/_db/{}{}", self.database, suffix)
     }
+}
+
+fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "arango-endpoint-invalid",
+            format!("{label} contains an invalid control character."),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_path_segment(value: &str, label: &str) -> Result<(), CommandError> {
+    validate_http_component(value, label)?;
+    if value.contains('/') || value.contains('?') || value.contains('#') {
+        return Err(CommandError::new(
+            "arango-endpoint-invalid",
+            format!("{label} contains an invalid path separator."),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -244,5 +276,16 @@ mod tests {
         assert_eq!(endpoint.host, "localhost");
         assert_eq!(endpoint.port, 18529);
         assert_eq!(endpoint.path("/_api/version"), "/_db/fraud/_api/version");
+    }
+
+    #[test]
+    fn arango_endpoint_rejects_control_characters_and_path_database() {
+        let host_error =
+            ArangoEndpoint::from_url("http://local\nhost:8529/_db/app", None).unwrap_err();
+        assert_eq!(host_error.code, "arango-endpoint-invalid");
+
+        let database_error =
+            ArangoEndpoint::from_url("http://localhost:8529/_db/app", Some("bad/db")).unwrap_err();
+        assert_eq!(database_error.code, "arango-endpoint-invalid");
     }
 }

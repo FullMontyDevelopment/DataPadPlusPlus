@@ -44,7 +44,7 @@ pub(super) async fn influxdb_get(
 ) -> Result<InfluxDbResponse, CommandError> {
     let endpoint = InfluxDbEndpoint::from_connection(connection)?;
     let path = endpoint.path(path_and_query);
-    let auth_header = influxdb_auth_header(connection);
+    let auth_header = influxdb_auth_header(connection)?;
     let request = format!(
         "GET {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\n{}Connection: close\r\n\r\n",
         endpoint.host, endpoint.port, auth_header
@@ -105,6 +105,16 @@ impl InfluxDbEndpoint {
                 "InfluxDB requires a host or http:// connection string.",
             ));
         }
+        validate_http_component(host, "InfluxDB host")?;
+
+        let database = connection_database(
+            connection
+                .time_series_options
+                .as_ref()
+                .and_then(timeseries_database)
+                .or(connection.database.as_deref()),
+        );
+        validate_http_component(&database, "InfluxDB database")?;
 
         Ok(Self {
             host: host.into(),
@@ -112,15 +122,12 @@ impl InfluxDbEndpoint {
             prefix: connection
                 .time_series_options
                 .as_ref()
-                .and_then(|options| normalized_prefix(options.path_prefix.as_deref()))
+                .and_then(|options| options.path_prefix.as_deref())
+                .map(|value| normalized_prefix(Some(value)))
+                .transpose()?
+                .flatten()
                 .unwrap_or_default(),
-            database: connection_database(
-                connection
-                    .time_series_options
-                    .as_ref()
-                    .and_then(timeseries_database)
-                    .or(connection.database.as_deref()),
-            ),
+            database,
         })
     }
 
@@ -165,6 +172,7 @@ impl InfluxDbEndpoint {
                 "InfluxDB connection string did not include a host.",
             ));
         }
+        validate_http_component(host, "InfluxDB host")?;
 
         let path = path.trim_end_matches('/');
         let database = database_override
@@ -176,15 +184,12 @@ impl InfluxDbEndpoint {
                     .map(str::to_string)
             })
             .unwrap_or_else(|| "_internal".into());
-        let prefix = normalized_prefix(prefix_override)
-            .or_else(|| {
-                if path.starts_with("db/") {
-                    None
-                } else {
-                    normalized_prefix(Some(path))
-                }
-            })
-            .unwrap_or_default();
+        validate_http_component(&database, "InfluxDB database")?;
+        let prefix = match normalized_prefix(prefix_override)? {
+            Some(prefix) => prefix,
+            None if path.starts_with("db/") => String::new(),
+            None => normalized_prefix(Some(path))?.unwrap_or_default(),
+        };
 
         Ok(Self {
             host: host.into(),
@@ -251,32 +256,49 @@ fn timeseries_database(
         .filter(|value| !value.trim().is_empty())
 }
 
-fn normalized_prefix(value: Option<&str>) -> Option<String> {
-    let trimmed = value?.trim().trim_matches('/');
+fn normalized_prefix(value: Option<&str>) -> Result<Option<String>, CommandError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().trim_matches('/');
     if trimmed.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(format!("/{trimmed}"))
+        validate_http_component(trimmed, "InfluxDB path prefix")?;
+        Ok(Some(format!("/{trimmed}")))
     }
 }
 
-fn influxdb_auth_header(connection: &ResolvedConnectionProfile) -> String {
+fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "influxdb-endpoint-invalid",
+            format!("{label} contains an invalid control character."),
+        ));
+    }
+    Ok(())
+}
+
+fn influxdb_auth_header(connection: &ResolvedConnectionProfile) -> Result<String, CommandError> {
     match (&connection.username, &connection.password) {
         (Some(username), Some(password)) if !username.is_empty() => {
             let encoded = base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
                 format!("{username}:{password}"),
             );
-            format!("Authorization: Basic {encoded}\r\n")
+            Ok(format!("Authorization: Basic {encoded}\r\n"))
         }
-        (_, Some(token)) if !token.is_empty() => format!("Authorization: Token {token}\r\n"),
-        _ => String::new(),
+        (_, Some(token)) if !token.is_empty() => {
+            validate_http_component(token, "InfluxDB token")?;
+            Ok(format!("Authorization: Token {token}\r\n"))
+        }
+        _ => Ok(String::new()),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{influxdb_query_path, InfluxDbEndpoint};
+    use super::{influxdb_auth_header, influxdb_query_path, InfluxDbEndpoint};
     use crate::domain::models::ResolvedConnectionProfile;
 
     #[test]
@@ -366,5 +388,72 @@ mod tests {
             influxdb_query_path("app metrics", "SELECT * FROM \"cpu load\" LIMIT 10"),
             "/query?db=app+metrics&q=SELECT+%2A+FROM+%22cpu+load%22+LIMIT+10"
         );
+    }
+
+    #[test]
+    fn influxdb_endpoint_rejects_control_characters() {
+        let mut connection = ResolvedConnectionProfile {
+            id: "conn-influx".into(),
+            name: "InfluxDB".into(),
+            engine: "influxdb".into(),
+            family: "timeseries".into(),
+            host: "127.0.0.1\r\nX-Bad: yes".into(),
+            port: None,
+            database: Some("telegraf".into()),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
+            read_only: true,
+        };
+        let host_error = InfluxDbEndpoint::from_connection(&connection).unwrap_err();
+        assert_eq!(host_error.code, "influxdb-endpoint-invalid");
+
+        connection.host = "127.0.0.1".into();
+        connection.database = Some("telegraf\r\nX-Bad: yes".into());
+        let database_error = InfluxDbEndpoint::from_connection(&connection).unwrap_err();
+        assert_eq!(database_error.code, "influxdb-endpoint-invalid");
+    }
+
+    #[test]
+    fn influxdb_token_auth_rejects_control_characters() {
+        let connection = ResolvedConnectionProfile {
+            id: "conn-influx".into(),
+            name: "InfluxDB".into(),
+            engine: "influxdb".into(),
+            family: "timeseries".into(),
+            host: "127.0.0.1".into(),
+            port: None,
+            database: Some("telegraf".into()),
+            username: None,
+            password: Some("token\r\nX-Bad: yes".into()),
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
+            read_only: true,
+        };
+
+        let error = influxdb_auth_header(&connection).unwrap_err();
+
+        assert_eq!(error.code, "influxdb-endpoint-invalid");
     }
 }

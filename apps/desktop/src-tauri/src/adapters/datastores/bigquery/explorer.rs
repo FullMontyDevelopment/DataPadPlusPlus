@@ -17,14 +17,58 @@ pub(super) async fn list_bigquery_explorer_nodes(
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
     let nodes = match request.scope.as_deref() {
-        Some("bigquery:datasets") => dataset_nodes(connection, request.limit).await?,
-        Some(scope) if scope.starts_with("bigquery:dataset:") => {
+        Some("warehouse:datasets") | Some("bigquery:datasets") => {
+            dataset_nodes(connection, request.limit).await?
+        }
+        Some("warehouse:tables") => {
+            table_nodes(
+                connection,
+                &bigquery_dataset_id(connection),
+                Some(BIGQUERY_KIND_TABLE),
+                request.limit,
+            )
+            .await?
+        }
+        Some("warehouse:views") => {
+            table_nodes(
+                connection,
+                &bigquery_dataset_id(connection),
+                Some(BIGQUERY_KIND_VIEW),
+                request.limit,
+            )
+            .await?
+        }
+        Some("warehouse:materialized-views") => {
+            table_nodes(
+                connection,
+                &bigquery_dataset_id(connection),
+                Some(BIGQUERY_KIND_MATERIALIZED_VIEW),
+                request.limit,
+            )
+            .await?
+        }
+        Some("warehouse:stages") => {
+            table_nodes(
+                connection,
+                &bigquery_dataset_id(connection),
+                Some(BIGQUERY_KIND_EXTERNAL),
+                request.limit,
+            )
+            .await?
+        }
+        Some("warehouse:jobs") | Some("bigquery:jobs") => {
+            job_nodes(connection, request.limit).await?
+        }
+        Some("warehouse:warehouses") | Some("bigquery:reservations") => {
+            reservations_nodes(connection, request.limit).await?
+        }
+        Some("warehouse:security") | Some("bigquery:security") => security_nodes(connection),
+        Some("warehouse:diagnostics") | Some("bigquery:diagnostics") => {
+            diagnostics_nodes(connection)
+        }
+        Some(scope) if is_dataset_scope(scope) => {
             dataset_scope_nodes(connection, scope, request.limit).await?
         }
-        Some("bigquery:jobs") => job_template_nodes(connection),
-        Some("bigquery:reservations") => reservations_nodes(connection),
-        Some("bigquery:security") => security_nodes(connection),
-        Some("bigquery:diagnostics") => diagnostics_nodes(connection),
         Some(_) => Vec::new(),
         None => root_nodes(connection),
     };
@@ -49,21 +93,20 @@ pub(super) async fn inspect_bigquery_explorer_node(
 ) -> Result<ExplorerInspectResponse, CommandError> {
     let project = bigquery_project_id(connection);
     let object_view = bigquery_object_view_kind(&request.node_id);
-    let query_template = request
-        .node_id
-        .strip_prefix("bigquery-table:")
-        .and_then(|rest| rest.split_once(':'))
-        .map(|(dataset, table)| bigquery_table_query(&project, dataset, table))
+    let query_template = bigquery_table_from_node_id(&request.node_id)
+        .map(|(dataset, table)| bigquery_table_query(&project, &dataset, &table))
         .unwrap_or_else(|| match request.node_id.as_str() {
-            "bigquery-datasets" => format!("-- GET /bigquery/v2/projects/{project}/datasets"),
-            "bigquery-jobs" => {
+            "warehouse:datasets" | "bigquery-datasets" => {
+                format!("-- GET /bigquery/v2/projects/{project}/datasets")
+            }
+            "warehouse:jobs" | "bigquery-jobs" => {
                 "select * from region-us.INFORMATION_SCHEMA.JOBS_BY_PROJECT limit 100".into()
             }
-            "bigquery-reservations" | "bigquery-reservations-overview" => {
+            "warehouse:warehouses" | "bigquery-reservations" | "bigquery-reservations-overview" => {
                 "select * from region-us.INFORMATION_SCHEMA.RESERVATIONS_BY_PROJECT limit 100"
                     .into()
             }
-            "bigquery-diagnostics" | "bigquery-diagnostics-overview" => {
+            "warehouse:diagnostics" | "bigquery-diagnostics" | "bigquery-diagnostics-overview" => {
                 "select * from region-us.INFORMATION_SCHEMA.JOBS_BY_PROJECT order by creation_time desc limit 100"
                     .into()
             }
@@ -96,7 +139,7 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
     let project = bigquery_project_id(connection);
     [
         (
-            "bigquery-datasets",
+            "warehouse:datasets",
             "Datasets",
             "datasets",
             "Datasets, tables, views, routines, models, and access",
@@ -104,7 +147,32 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
             format!("-- GET /bigquery/v2/projects/{project}/datasets"),
         ),
         (
-            "bigquery-jobs",
+            "warehouse:tables",
+            "Tables",
+            "tables",
+            "Native BigQuery tables in the active dataset",
+            "warehouse:tables",
+            "select * from `<project>.<dataset>.<table>` limit 100".into(),
+        ),
+        (
+            "warehouse:views",
+            "Views",
+            "views",
+            "Logical and authorized views in the active dataset",
+            "warehouse:views",
+            "select * from `<project>.<dataset>.<view>` limit 100".into(),
+        ),
+        (
+            "warehouse:warehouses",
+            "Reservations",
+            "warehouses",
+            "Slots, reservations, and capacity posture",
+            "bigquery:reservations",
+            "select * from region-us.INFORMATION_SCHEMA.RESERVATIONS_BY_PROJECT limit 100"
+                .into(),
+        ),
+        (
+            "warehouse:jobs",
             "Jobs",
             "jobs",
             "Query history, dry-run estimates, and job diagnostics",
@@ -112,16 +180,7 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
             "select * from region-us.INFORMATION_SCHEMA.JOBS_BY_PROJECT limit 100".into(),
         ),
         (
-            "bigquery-reservations",
-            "Reservations",
-            "warehouses",
-            "Slots, reservations, assignments, and capacity posture",
-            "bigquery:reservations",
-            "select * from region-us.INFORMATION_SCHEMA.RESERVATIONS_BY_PROJECT limit 100"
-                .into(),
-        ),
-        (
-            "bigquery-security",
+            "warehouse:security",
             "Access",
             "security",
             "Dataset IAM, authorized views, and policy tags",
@@ -129,7 +188,7 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
             format!("-- Review IAM and dataset access for project {project}"),
         ),
         (
-            "bigquery-diagnostics",
+            "warehouse:diagnostics",
             "Diagnostics",
             "diagnostics",
             "Cost, failed jobs, broad scans, and metadata warnings",
@@ -176,7 +235,7 @@ async fn dataset_scope_nodes(
     scope: &str,
     limit: Option<u32>,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
-    let Some(dataset_scope) = scope.strip_prefix("bigquery:dataset:") else {
+    let Some(dataset_scope) = dataset_scope_body(scope) else {
         return Ok(Vec::new());
     };
     let mut parts = dataset_scope.split(':');
@@ -204,7 +263,7 @@ async fn dataset_scope_nodes(
         }
         "routines" => routine_nodes(connection, dataset, limit).await,
         "models" => model_nodes(connection, dataset, limit).await,
-        "jobs" => Ok(job_template_nodes(connection)),
+        "jobs" => job_nodes(connection, limit).await,
         "security" => Ok(dataset_security_nodes(connection, dataset)),
         "statistics" => Ok(dataset_statistics_nodes(connection, dataset)),
         _ => Ok(Vec::new()),
@@ -233,36 +292,45 @@ async fn table_nodes(
     Ok(Vec::new())
 }
 
-fn job_template_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    vec![ExplorerNode {
-        id: "bigquery-jobs-by-project".into(),
-        family: "warehouse".into(),
-        label: "Jobs By Project".into(),
-        kind: "job".into(),
-        detail: "INFORMATION_SCHEMA job history query".into(),
-        scope: None,
-        path: Some(vec![connection.name.clone(), "Jobs".into()]),
-        query_template: Some(
-            "select * from region-us.INFORMATION_SCHEMA.JOBS_BY_PROJECT limit 100".into(),
-        ),
-        expandable: Some(false),
-    }]
+async fn job_nodes(
+    connection: &ResolvedConnectionProfile,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    if has_live_auth(connection) && has_http_endpoint(connection) {
+        let project = bigquery_project_id(connection);
+        let response = bigquery_get(
+            connection,
+            &format!("/bigquery/v2/projects/{project}/jobs?maxResults=100"),
+        )
+        .await?;
+        let value = parse_bigquery_json(&response.body)?;
+        return Ok(bigquery_job_nodes_from_value(connection, &value, limit));
+    }
+
+    Ok(Vec::new())
 }
 
-fn reservations_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    vec![ExplorerNode {
-        id: "bigquery-reservations-overview".into(),
-        family: "warehouse".into(),
-        label: "Reservation Overview".into(),
-        kind: "warehouse".into(),
-        detail: "Slot commitments, assignments, and capacity checks".into(),
-        scope: None,
-        path: Some(vec![connection.name.clone(), "Reservations".into()]),
-        query_template: Some(
-            "select * from region-us.INFORMATION_SCHEMA.RESERVATIONS_BY_PROJECT limit 100".into(),
-        ),
-        expandable: Some(false),
-    }]
+async fn reservations_nodes(
+    connection: &ResolvedConnectionProfile,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    if has_live_auth(connection) && has_http_endpoint(connection) {
+        let project = bigquery_project_id(connection);
+        let location = bigquery_location(connection);
+        let response = bigquery_get(
+            connection,
+            &format!(
+                "/bigqueryreservation/v1/projects/{project}/locations/{location}/reservations"
+            ),
+        )
+        .await?;
+        let value = parse_bigquery_json(&response.body)?;
+        return Ok(bigquery_reservation_nodes_from_value(
+            connection, &value, limit,
+        ));
+    }
+
+    Ok(Vec::new())
 }
 
 fn security_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
@@ -322,6 +390,78 @@ pub(crate) fn bigquery_dataset_nodes_from_value(
             path: Some(vec![connection.name.clone(), "Datasets".into()]),
             query_template: None,
             expandable: Some(true),
+        })
+        .collect()
+}
+
+fn bigquery_job_nodes_from_value(
+    connection: &ResolvedConnectionProfile,
+    value: &Value,
+    limit: Option<u32>,
+) -> Vec<ExplorerNode> {
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+    bigquery_job_rows_from_value(value)
+        .into_iter()
+        .take(limit)
+        .filter_map(|job| {
+            let job_id = job.get("id").and_then(Value::as_str)?;
+            Some(ExplorerNode {
+                id: format!("job:{job_id}"),
+                family: "warehouse".into(),
+                label: job_id.into(),
+                kind: "job".into(),
+                detail: format!(
+                    "{} | {}",
+                    job.get("status").and_then(Value::as_str).unwrap_or("-"),
+                    job.get("bytesScanned").and_then(Value::as_str).unwrap_or("-")
+                ),
+                scope: Some(format!("job:{job_id}")),
+                path: Some(vec![connection.name.clone(), "Jobs".into()]),
+                query_template: Some(format!(
+                    "select * from region-us.INFORMATION_SCHEMA.JOBS_BY_PROJECT where job_id = '{}' limit 100",
+                    job_id.replace('\'', "''")
+                )),
+                expandable: Some(false),
+            })
+        })
+        .collect()
+}
+
+fn bigquery_reservation_nodes_from_value(
+    connection: &ResolvedConnectionProfile,
+    value: &Value,
+    limit: Option<u32>,
+) -> Vec<ExplorerNode> {
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+    bigquery_reservation_rows_from_value(value)
+        .into_iter()
+        .take(limit)
+        .filter_map(|reservation| {
+            let name = reservation.get("name").and_then(Value::as_str)?;
+            Some(ExplorerNode {
+                id: format!("warehouse-compute:{name}"),
+                family: "warehouse".into(),
+                label: name.rsplit('/').next().unwrap_or(name).into(),
+                kind: "warehouse".into(),
+                detail: format!(
+                    "{} slot(s) | {}",
+                    reservation
+                        .get("slots")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0),
+                    reservation
+                        .get("autoscale")
+                        .and_then(Value::as_str)
+                        .unwrap_or("manual")
+                ),
+                scope: Some(format!("warehouse-compute:{name}")),
+                path: Some(vec![connection.name.clone(), "Reservations".into()]),
+                query_template: Some(
+                    "select * from region-us.INFORMATION_SCHEMA.RESERVATIONS_BY_PROJECT limit 100"
+                        .into(),
+                ),
+                expandable: Some(false),
+            })
         })
         .collect()
 }
@@ -463,12 +603,18 @@ fn bigquery_table_nodes_from_value(
             }
 
             Some(ExplorerNode {
-                id: format!("bigquery-table:{dataset}:{table_id}"),
+                id: format!(
+                    "{}:{dataset}:{table_id}",
+                    bigquery_table_kind(Some(raw_type))
+                ),
                 family: "warehouse".into(),
                 label: table_id.into(),
                 kind: bigquery_table_kind(Some(raw_type)).into(),
                 detail: bigquery_table_detail(raw_type).into(),
-                scope: None,
+                scope: Some(format!(
+                    "{}:{dataset}:{table_id}",
+                    bigquery_table_kind(Some(raw_type))
+                )),
                 path: Some(vec![
                     connection.name.clone(),
                     dataset.into(),
@@ -723,9 +869,90 @@ async fn enrich_live_inspection(
             "status": "ready",
             "guidance": "Live table metadata was loaded from BigQuery REST."
         })]);
+        return Ok(());
+    }
+
+    match bigquery_object_view_kind(node_id) {
+        "datasets" => {
+            let response = bigquery_get(
+                connection,
+                &format!("/bigquery/v2/projects/{project}/datasets?maxResults=100"),
+            )
+            .await?;
+            let value = parse_bigquery_json(&response.body)?;
+            payload["datasets"] = json!(bigquery_dataset_rows_from_value(&value));
+        }
+        "tables" | "views" | "materialized-views" | "stages" => {
+            let dataset = bigquery_dataset_id(connection);
+            let response = bigquery_get(
+                connection,
+                &format!(
+                    "/bigquery/v2/projects/{project}/datasets/{dataset}/tables?maxResults=100"
+                ),
+            )
+            .await?;
+            let value = parse_bigquery_json(&response.body)?;
+            payload["tables"] = json!(bigquery_table_rows_from_value(
+                &value,
+                Some(BIGQUERY_KIND_TABLE)
+            ));
+            payload["views"] = json!(bigquery_table_rows_from_value(
+                &value,
+                Some(BIGQUERY_KIND_VIEW)
+            ));
+            payload["materializedViews"] = json!(bigquery_table_rows_from_value(
+                &value,
+                Some(BIGQUERY_KIND_MATERIALIZED_VIEW),
+            ));
+            payload["stages"] = json!(bigquery_table_rows_from_value(
+                &value,
+                Some(BIGQUERY_KIND_EXTERNAL)
+            ));
+        }
+        "jobs" | "job" | "diagnostics" => {
+            let response = bigquery_get(
+                connection,
+                &format!("/bigquery/v2/projects/{project}/jobs?maxResults=100"),
+            )
+            .await?;
+            let value = parse_bigquery_json(&response.body)?;
+            payload["jobs"] = json!(bigquery_job_rows_from_value(&value));
+            payload["diagnostics"] = json!(bigquery_job_diagnostics(&value));
+        }
+        "warehouses" | "warehouse" => {
+            let location = bigquery_location(connection);
+            let response = bigquery_get(
+                connection,
+                &format!(
+                    "/bigqueryreservation/v1/projects/{project}/locations/{location}/reservations"
+                ),
+            )
+            .await?;
+            let value = parse_bigquery_json(&response.body)?;
+            payload["warehouses"] = json!(bigquery_reservation_rows_from_value(&value));
+        }
+        _ => {}
     }
 
     Ok(())
+}
+
+fn bigquery_dataset_rows_from_value(value: &Value) -> Vec<Value> {
+    value
+        .get("datasets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|dataset| {
+            json!({
+                "name": dataset.pointer("/datasetReference/datasetId").and_then(Value::as_str).unwrap_or("-"),
+                "location": dataset.get("location").and_then(Value::as_str).unwrap_or("-"),
+                "tables": "-",
+                "views": "-",
+                "owner": dataset.get("id").and_then(Value::as_str).unwrap_or("-")
+            })
+        })
+        .collect()
 }
 
 fn bigquery_dataset_metadata_row(value: &Value) -> Value {
@@ -797,6 +1024,82 @@ fn bigquery_dataset_access_rows(value: &Value) -> Vec<Value> {
         .collect()
 }
 
+fn bigquery_job_rows_from_value(value: &Value) -> Vec<Value> {
+    value
+        .get("jobs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|job| {
+            let status = job
+                .pointer("/status/state")
+                .and_then(Value::as_str)
+                .unwrap_or("-");
+            let bytes = job
+                .pointer("/statistics/query/totalBytesProcessed")
+                .and_then(Value::as_str)
+                .map(human_bytes_from_str)
+                .unwrap_or_else(|| "-".into());
+            json!({
+                "id": job.pointer("/jobReference/jobId").and_then(Value::as_str).unwrap_or("-"),
+                "type": job.pointer("/configuration/query").map(|_| "query").unwrap_or("job"),
+                "status": status,
+                "duration": bigquery_job_duration(job),
+                "bytesScanned": bytes,
+                "cost": "dry-run",
+                "location": job.pointer("/jobReference/location").and_then(Value::as_str).unwrap_or("-")
+            })
+        })
+        .collect()
+}
+
+fn bigquery_reservation_rows_from_value(value: &Value) -> Vec<Value> {
+    value
+        .get("reservations")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|reservation| {
+            json!({
+                "name": reservation.get("name").and_then(Value::as_str).unwrap_or("-"),
+                "size": format!("{} slots", reservation.get("slotCapacity").and_then(Value::as_str).unwrap_or("0")),
+                "slots": reservation.get("slotCapacity").and_then(Value::as_str).and_then(|value| value.parse::<u64>().ok()).unwrap_or(0),
+                "state": reservation.get("ignoreIdleSlots").and_then(Value::as_bool).map(|ignore| if ignore { "dedicated" } else { "shared-idle" }).unwrap_or("active"),
+                "autoscale": reservation.get("autoscale").map(|_| "enabled").unwrap_or("manual"),
+                "queued": 0,
+                "running": 0,
+                "credits": "slot-based"
+            })
+        })
+        .collect()
+}
+
+fn bigquery_job_diagnostics(value: &Value) -> Vec<Value> {
+    let jobs = bigquery_job_rows_from_value(value);
+    let failed = jobs
+        .iter()
+        .filter(|job| {
+            job.get("status")
+                .and_then(Value::as_str)
+                .is_some_and(|status| status.eq_ignore_ascii_case("DONE"))
+        })
+        .count();
+    vec![
+        json!({
+            "signal": "Recent Jobs",
+            "value": jobs.len(),
+            "status": "info",
+            "guidance": "Review recent BigQuery jobs for cost and runtime patterns."
+        }),
+        json!({
+            "signal": "Completed Jobs",
+            "value": failed,
+            "status": "healthy",
+            "guidance": "Use dry-run for broad analytical queries before execution."
+        }),
+    ]
+}
+
 fn bigquery_table_rows_from_value(value: &Value, table_type: Option<&str>) -> Vec<Value> {
     value
         .get("tables")
@@ -847,6 +1150,9 @@ fn bigquery_dataset_from_node_id(node_id: &str) -> Option<String> {
     if let Some(dataset) = node_id.strip_prefix("bigquery-dataset:") {
         return Some(dataset.into());
     }
+    if let Some(dataset) = node_id.strip_prefix("dataset:") {
+        return Some(dataset.into());
+    }
     for prefix in [
         "bigquery-tables:",
         "bigquery-views:",
@@ -865,31 +1171,64 @@ fn bigquery_dataset_from_node_id(node_id: &str) -> Option<String> {
 }
 
 fn bigquery_table_from_node_id(node_id: &str) -> Option<(String, String)> {
-    let rest = node_id.strip_prefix("bigquery-table:")?;
+    let rest = [
+        "bigquery-table:",
+        "table:",
+        "view:",
+        "materialized-view:",
+        "stage:",
+    ]
+    .into_iter()
+    .find_map(|prefix| node_id.strip_prefix(prefix))?;
     let (dataset, table) = rest.split_once(':')?;
     Some((dataset.into(), table.into()))
 }
 
 fn bigquery_object_view_kind(node_id: &str) -> &'static str {
-    if node_id == "bigquery-datasets" {
+    if node_id.starts_with("table:") || node_id.starts_with("bigquery-table:") {
+        return "table";
+    }
+    if node_id.starts_with("view:") {
+        return "view";
+    }
+    if node_id.starts_with("materialized-view:") {
+        return "materialized-view";
+    }
+    if node_id.starts_with("stage:") {
+        return "stage";
+    }
+    if node_id.starts_with("warehouse-compute:") {
+        return "warehouse";
+    }
+    if node_id.starts_with("job:") {
+        return "job";
+    }
+    if node_id == "warehouse:datasets" || node_id == "bigquery-datasets" {
         return "datasets";
     }
-    if node_id == "bigquery-jobs" || node_id.starts_with("bigquery-jobs") {
+    if node_id == "warehouse:jobs"
+        || node_id == "bigquery-jobs"
+        || node_id.starts_with("bigquery-jobs")
+    {
         return "jobs";
     }
-    if node_id.contains("reservation") {
+    if node_id == "warehouse:warehouses" || node_id.contains("reservation") {
         return "warehouses";
     }
-    if node_id.contains("security") || node_id.contains("access") {
+    if node_id == "warehouse:security" || node_id.contains("security") || node_id.contains("access")
+    {
         return "security";
     }
-    if node_id.contains("diagnostics") || node_id.contains("statistics") {
+    if node_id == "warehouse:diagnostics"
+        || node_id.contains("diagnostics")
+        || node_id.contains("statistics")
+    {
         return "diagnostics";
     }
-    if node_id.contains("materialized-views") {
+    if node_id == "warehouse:materialized-views" || node_id.contains("materialized-views") {
         return "materialized-views";
     }
-    if node_id.contains("external-tables") {
+    if node_id == "warehouse:stages" || node_id.contains("external-tables") {
         return "stages";
     }
     if node_id.contains("routines") {
@@ -898,16 +1237,13 @@ fn bigquery_object_view_kind(node_id: &str) -> &'static str {
     if node_id.contains("models") {
         return "tasks";
     }
-    if node_id.starts_with("bigquery-table:") {
-        return "table";
-    }
-    if node_id.starts_with("bigquery-dataset:") {
+    if node_id.starts_with("bigquery-dataset:") || node_id.starts_with("dataset:") {
         return "dataset";
     }
-    if node_id.contains("views") {
+    if node_id == "warehouse:views" || node_id.contains("views") {
         return "views";
     }
-    if node_id.contains("tables") {
+    if node_id == "warehouse:tables" || node_id.contains("tables") {
         return "tables";
     }
 
@@ -968,13 +1304,50 @@ pub(crate) fn bigquery_table_query(project: &str, dataset: &str, table: &str) ->
     format!("select * from `{project}.{dataset}.{table}` limit 100")
 }
 
+fn is_dataset_scope(scope: &str) -> bool {
+    dataset_scope_body(scope).is_some()
+}
+
+fn dataset_scope_body(scope: &str) -> Option<&str> {
+    scope
+        .strip_prefix("bigquery:dataset:")
+        .or_else(|| scope.strip_prefix("dataset:"))
+}
+
+fn bigquery_location(connection: &ResolvedConnectionProfile) -> String {
+    connection
+        .warehouse_options
+        .as_ref()
+        .and_then(|options| options.location.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("US")
+        .to_string()
+}
+
+fn bigquery_job_duration(job: &Value) -> String {
+    let start = job
+        .pointer("/statistics/startTime")
+        .and_then(Value::as_str)
+        .and_then(|value| value.parse::<i64>().ok());
+    let end = job
+        .pointer("/statistics/endTime")
+        .and_then(Value::as_str)
+        .and_then(|value| value.parse::<i64>().ok());
+
+    match (start, end) {
+        (Some(start), Some(end)) if end >= start => format!("{} ms", end - start),
+        _ => "-".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::{
-        bigquery_base_payload, bigquery_dataset_nodes_from_value, bigquery_table_nodes_from_value,
-        bigquery_table_query, dataset_child_sections, dataset_scope_nodes, root_nodes,
+        bigquery_base_payload, bigquery_dataset_nodes_from_value, bigquery_object_view_kind,
+        bigquery_table_nodes_from_value, bigquery_table_query, dataset_child_sections,
+        dataset_scope_nodes, root_nodes,
     };
     use crate::domain::models::ResolvedConnectionProfile;
 
@@ -1040,7 +1413,15 @@ mod tests {
 
         assert_eq!(
             labels,
-            vec!["Datasets", "Jobs", "Reservations", "Access", "Diagnostics"]
+            vec![
+                "Datasets",
+                "Tables",
+                "Views",
+                "Reservations",
+                "Jobs",
+                "Access",
+                "Diagnostics"
+            ]
         );
     }
 
@@ -1073,6 +1454,16 @@ mod tests {
         assert!(nodes.is_empty());
     }
 
+    #[tokio::test]
+    async fn bigquery_generic_dataset_scope_is_accepted() {
+        let connection = connection(Some("analytics"));
+        let nodes = dataset_scope_nodes(&connection, "dataset:analytics", Some(100))
+            .await
+            .unwrap();
+
+        assert!(nodes.iter().any(|node| node.label == "Tables"));
+    }
+
     #[test]
     fn bigquery_table_nodes_split_tables_and_views() {
         let connection = connection(Some("analytics"));
@@ -1103,6 +1494,8 @@ mod tests {
 
         assert_eq!(tables.len(), 1);
         assert_eq!(tables[0].label, "orders");
+        assert_eq!(tables[0].id, "table:analytics:orders");
+        assert_eq!(tables[0].scope.as_deref(), Some("table:analytics:orders"));
         assert_eq!(views.len(), 1);
         assert_eq!(views[0].kind, "view");
     }
@@ -1116,5 +1509,15 @@ mod tests {
         assert!(payload.get("api").is_none());
         assert!(payload["datasets"].is_array());
         assert!(payload["diagnostics"].is_array());
+    }
+
+    #[test]
+    fn bigquery_generic_object_ids_map_to_object_views() {
+        assert_eq!(bigquery_object_view_kind("table:analytics:orders"), "table");
+        assert_eq!(bigquery_object_view_kind("view:analytics:orders_v"), "view");
+        assert_eq!(
+            bigquery_object_view_kind("warehouse-compute:default-reservation"),
+            "warehouse"
+        );
     }
 }

@@ -4,25 +4,47 @@ use super::super::super::*;
 use super::catalog::snowflake_execution_capabilities;
 use super::connection::{
     has_http_endpoint, has_live_auth, parse_snowflake_json, snowflake_account, snowflake_database,
-    snowflake_post_json, snowflake_schema, snowflake_statement_body,
+    snowflake_post_json, snowflake_schema, snowflake_statement_body, snowflake_warehouse,
 };
+
+const SNOWFLAKE_QUERY_HISTORY_SQL: &str = "select query_id, query_type, execution_status, total_elapsed_time, bytes_scanned, warehouse_name from table(information_schema.query_history()) order by start_time desc limit 100";
 
 pub(super) async fn list_snowflake_explorer_nodes(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
     let nodes = match request.scope.as_deref() {
-        Some("snowflake:databases") => database_nodes(connection, request.limit).await?,
-        Some(scope) if scope.starts_with("snowflake:database:") => {
+        Some("warehouse:databases") | Some("snowflake:databases") => {
+            database_nodes(connection, request.limit).await?
+        }
+        Some("warehouse:tables") => {
+            schema_object_nodes(connection, "tables", request.limit).await?
+        }
+        Some("warehouse:views") => schema_object_nodes(connection, "views", request.limit).await?,
+        Some("warehouse:materialized-views") => {
+            schema_object_nodes(connection, "materialized-views", request.limit).await?
+        }
+        Some("warehouse:stages") => {
+            schema_object_nodes(connection, "stages", request.limit).await?
+        }
+        Some("warehouse:warehouses") | Some("snowflake:warehouses") => {
+            warehouse_nodes(connection, request.limit).await?
+        }
+        Some("warehouse:jobs") | Some("snowflake:history") => {
+            history_nodes(connection, request.limit).await?
+        }
+        Some("warehouse:security") | Some("snowflake:security") => {
+            security_nodes(connection).await?
+        }
+        Some("warehouse:diagnostics") | Some("snowflake:diagnostics") => {
+            diagnostics_nodes(connection).await?
+        }
+        Some(scope) if is_database_scope(scope) => {
             database_scope_nodes(connection, scope, request.limit).await?
         }
-        Some(scope) if scope.starts_with("snowflake:schema:") => {
+        Some(scope) if is_schema_scope(scope) => {
             schema_scope_nodes(connection, scope, request.limit).await?
         }
-        Some("snowflake:warehouses") => warehouse_nodes(connection),
-        Some("snowflake:history") => history_nodes(connection),
-        Some("snowflake:security") => security_nodes(connection),
-        Some("snowflake:diagnostics") => diagnostics_nodes(connection),
         Some(_) => Vec::new(),
         None => root_nodes(connection),
     };
@@ -41,68 +63,48 @@ pub(super) async fn list_snowflake_explorer_nodes(
     })
 }
 
-pub(super) fn inspect_snowflake_explorer_node(
+pub(super) async fn inspect_snowflake_explorer_node(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerInspectRequest,
-) -> ExplorerInspectResponse {
+) -> Result<ExplorerInspectResponse, CommandError> {
     let query_template = snowflake_object_from_node_id(&request.node_id)
         .map(|(_, database, schema, object_name)| {
             snowflake_table_query(database, schema, object_name)
         })
         .unwrap_or_else(|| match request.node_id.as_str() {
-            "snowflake-databases" => "show databases limit 100".into(),
-            "snowflake-warehouses" => "show warehouses".into(),
-            "snowflake-history" => {
+            "warehouse:databases" | "snowflake-databases" => "show databases limit 100".into(),
+            "warehouse:warehouses" | "snowflake-warehouses" => "show warehouses".into(),
+            "warehouse:jobs" | "snowflake-history" => {
                 "select * from table(information_schema.query_history()) limit 100".into()
             }
-            "snowflake-security" => "show grants to role current_role()".into(),
-            "snowflake-diagnostics" => {
+            "warehouse:security" | "snowflake-security" => "show grants to role current_role()".into(),
+            "warehouse:diagnostics" | "snowflake-diagnostics" => {
                 "select * from table(information_schema.query_history()) order by start_time desc limit 100"
                     .into()
             }
             _ => "select current_version()".into(),
         });
+    let mut payload = snowflake_base_payload(connection, &request.node_id);
 
-    ExplorerInspectResponse {
+    if has_live_auth(connection) && has_http_endpoint(connection) {
+        enrich_snowflake_inspection(connection, &request.node_id, &mut payload).await?;
+    }
+
+    Ok(ExplorerInspectResponse {
         node_id: request.node_id.clone(),
         summary: format!(
             "Snowflake query template ready for {} on {}.",
             request.node_id, connection.name
         ),
         query_template: Some(query_template),
-        payload: Some(json!({
-            "engine": "snowflake",
-            "nodeId": request.node_id,
-            "objectView": snowflake_object_view_kind(&request.node_id),
-            "account": snowflake_account(connection),
-            "database": snowflake_database_from_node_id(&request.node_id).unwrap_or_else(|| snowflake_database(connection)),
-            "schema": snowflake_schema_from_node_id(&request.node_id).unwrap_or_else(|| snowflake_schema(connection)),
-            "databases": configured_database_node(connection).map(|node| vec![json!({
-                "name": node.label,
-                "schemas": "-",
-                "tables": "-",
-                "owner": "connection profile"
-            })]).unwrap_or_default(),
-            "tables": [],
-            "views": [],
-            "materializedViews": [],
-            "stages": [],
-            "jobs": [],
-            "security": [],
-            "diagnostics": [{
-                "signal": "Live metadata",
-                "value": if has_live_auth(connection) && has_http_endpoint(connection) { "enabled" } else { "not configured" },
-                "status": if has_live_auth(connection) && has_http_endpoint(connection) { "ready" } else { "setup required" },
-                "guidance": "Add Snowflake SQL API credentials and endpoint to load live object metadata."
-            }]
-        })),
-    }
+        payload: Some(payload),
+    })
 }
 
 fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
     [
         (
-            "snowflake-databases",
+            "warehouse:databases",
             "Databases",
             "databases",
             "Databases, schemas, tables, views, and stages",
@@ -110,7 +112,23 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
             "show databases limit 100",
         ),
         (
-            "snowflake-warehouses",
+            "warehouse:tables",
+            "Tables",
+            "tables",
+            "Base tables in the active database and schema",
+            "warehouse:tables",
+            "show tables",
+        ),
+        (
+            "warehouse:views",
+            "Views",
+            "views",
+            "Logical views in the active database and schema",
+            "warehouse:views",
+            "show views",
+        ),
+        (
+            "warehouse:warehouses",
             "Warehouses",
             "warehouses",
             "Compute warehouses and utilization context",
@@ -118,15 +136,15 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
             "show warehouses",
         ),
         (
-            "snowflake-history",
-            "Query History",
+            "warehouse:jobs",
+            "Tasks & Query History",
             "history",
             "Query profile, duration, bytes, and credit signals",
             "snowflake:history",
             "select * from table(information_schema.query_history()) limit 100",
         ),
         (
-            "snowflake-security",
+            "warehouse:security",
             "Security",
             "security",
             "Roles, grants, masking policies, and access posture",
@@ -134,7 +152,7 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
             "show grants to role current_role()",
         ),
         (
-            "snowflake-diagnostics",
+            "warehouse:diagnostics",
             "Diagnostics",
             "diagnostics",
             "Query failures, warehouse pressure, storage growth, and cost signals",
@@ -205,7 +223,7 @@ async fn database_scope_nodes(
     scope: &str,
     limit: Option<u32>,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
-    let database_scope = scope.trim_start_matches("snowflake:database:");
+    let database_scope = database_scope_body(scope).unwrap_or_default();
     let mut parts = database_scope.split(':');
     let database = parts.next().unwrap_or_default();
     let child_scope = parts.next();
@@ -237,7 +255,8 @@ async fn schema_scope_nodes(
     scope: &str,
     limit: Option<u32>,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
-    let mut parts = scope.trim_start_matches("snowflake:schema:").split(':');
+    let schema_scope = schema_scope_body(scope).unwrap_or_default();
+    let mut parts = schema_scope.split(':');
     let database = parts
         .next()
         .map(str::to_string)
@@ -322,65 +341,97 @@ async fn schema_scope_nodes(
     Ok(Vec::new())
 }
 
-fn warehouse_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    vec![ExplorerNode {
-        id: "snowflake-warehouse-default".into(),
-        family: "warehouse".into(),
-        label: "Warehouses".into(),
-        kind: "warehouse".into(),
-        detail: "Warehouse browser and utilization query templates".into(),
-        scope: None,
-        path: Some(vec![connection.name.clone(), "Warehouses".into()]),
-        query_template: Some("show warehouses".into()),
-        expandable: Some(false),
-    }]
-}
-
-fn history_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    vec![ExplorerNode {
-        id: "snowflake-query-history".into(),
-        family: "warehouse".into(),
-        label: "Query History".into(),
-        kind: "job".into(),
-        detail: "Information schema query history with cost/profile signals".into(),
-        scope: None,
-        path: Some(vec![connection.name.clone(), "Query History".into()]),
-        query_template: Some(
-            "select * from table(information_schema.query_history()) limit 100".into(),
+async fn schema_object_nodes(
+    connection: &ResolvedConnectionProfile,
+    child_scope: &str,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    schema_scope_nodes(
+        connection,
+        &format!(
+            "snowflake:schema:{}:{}:{child_scope}",
+            snowflake_database(connection),
+            snowflake_schema(connection)
         ),
-        expandable: Some(false),
-    }]
+        limit,
+    )
+    .await
 }
 
-fn security_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    vec![ExplorerNode {
-        id: "snowflake-security-overview".into(),
-        family: "warehouse".into(),
-        label: "Access Overview".into(),
-        kind: "security".into(),
-        detail: "Roles, grants, masking policies, and ownership posture".into(),
-        scope: None,
-        path: Some(vec![connection.name.clone(), "Security".into()]),
-        query_template: Some("show grants to role current_role()".into()),
-        expandable: Some(false),
-    }]
+async fn warehouse_nodes(
+    connection: &ResolvedConnectionProfile,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    if has_live_auth(connection) && has_http_endpoint(connection) {
+        let value = execute_metadata_statement(connection, "show warehouses").await?;
+        return Ok(snowflake_warehouse_nodes_from_value(
+            connection, &value, limit,
+        ));
+    }
+
+    Ok(snowflake_warehouse(connection)
+        .map(|warehouse| {
+            vec![ExplorerNode {
+                id: format!("warehouse-compute:{warehouse}"),
+                family: "warehouse".into(),
+                label: warehouse,
+                kind: "warehouse".into(),
+                detail: "Configured Snowflake warehouse".into(),
+                scope: None,
+                path: Some(vec![connection.name.clone(), "Warehouses".into()]),
+                query_template: Some("show warehouses".into()),
+                expandable: Some(false),
+            }]
+        })
+        .unwrap_or_default())
 }
 
-fn diagnostics_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    vec![ExplorerNode {
-        id: "snowflake-diagnostics-overview".into(),
-        family: "warehouse".into(),
-        label: "Warehouse Health".into(),
-        kind: "diagnostics".into(),
-        detail: "Query failures, queueing, scanned bytes, and warehouse utilization".into(),
-        scope: None,
-        path: Some(vec![connection.name.clone(), "Diagnostics".into()]),
-        query_template: Some(
-            "select * from table(information_schema.query_history()) order by start_time desc limit 100"
-                .into(),
-        ),
-        expandable: Some(false),
-    }]
+async fn history_nodes(
+    connection: &ResolvedConnectionProfile,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    if has_live_auth(connection) && has_http_endpoint(connection) {
+        let value = execute_metadata_statement(connection, SNOWFLAKE_QUERY_HISTORY_SQL).await?;
+        return Ok(snowflake_history_nodes_from_value(
+            connection, &value, limit,
+        ));
+    }
+
+    Ok(Vec::new())
+}
+
+async fn security_nodes(
+    connection: &ResolvedConnectionProfile,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    if has_live_auth(connection) && has_http_endpoint(connection) {
+        let value =
+            execute_metadata_statement(connection, "show grants to role current_role()").await?;
+        return Ok(snowflake_security_nodes_from_value(connection, &value));
+    }
+
+    Ok(Vec::new())
+}
+
+async fn diagnostics_nodes(
+    connection: &ResolvedConnectionProfile,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    if has_live_auth(connection) && has_http_endpoint(connection) {
+        let value = execute_metadata_statement(connection, SNOWFLAKE_QUERY_HISTORY_SQL).await?;
+        let jobs = snowflake_history_records(&value);
+        return Ok(vec![ExplorerNode {
+            id: "snowflake-diagnostics-overview".into(),
+            family: "warehouse".into(),
+            label: "Warehouse Health".into(),
+            kind: "diagnostics".into(),
+            detail: format!("{} recent query signal(s)", jobs.len()),
+            scope: None,
+            path: Some(vec![connection.name.clone(), "Diagnostics".into()]),
+            query_template: Some(SNOWFLAKE_QUERY_HISTORY_SQL.into()),
+            expandable: Some(false),
+        }]);
+    }
+
+    Ok(Vec::new())
 }
 
 fn database_child_sections(
@@ -512,6 +563,156 @@ async fn execute_metadata_statement(
     parse_snowflake_json(&response.body)
 }
 
+fn snowflake_base_payload(connection: &ResolvedConnectionProfile, node_id: &str) -> Value {
+    json!({
+        "engine": "snowflake",
+        "nodeId": node_id,
+        "objectView": snowflake_object_view_kind(node_id),
+        "account": snowflake_account(connection),
+        "database": snowflake_database_from_node_id(node_id).unwrap_or_else(|| snowflake_database(connection)),
+        "schema": snowflake_schema_from_node_id(node_id).unwrap_or_else(|| snowflake_schema(connection)),
+        "databases": configured_database_node(connection).map(|node| vec![json!({
+            "name": node.label,
+            "schemas": "-",
+            "tables": "-",
+            "owner": "connection profile"
+        })]).unwrap_or_default(),
+        "schemas": [],
+        "tables": [],
+        "views": [],
+        "materializedViews": [],
+        "stages": [],
+        "warehouses": snowflake_warehouse(connection).map(|warehouse| vec![json!({
+            "name": warehouse,
+            "state": "configured",
+            "size": "-",
+            "credits": "-"
+        })]).unwrap_or_default(),
+        "jobs": [],
+        "security": [],
+        "diagnostics": [{
+            "signal": "Live metadata",
+            "value": if has_live_auth(connection) && has_http_endpoint(connection) { "enabled" } else { "not configured" },
+            "status": if has_live_auth(connection) && has_http_endpoint(connection) { "ready" } else { "setup required" },
+            "guidance": "Add Snowflake SQL API credentials and endpoint to load live object metadata."
+        }]
+    })
+}
+
+async fn enrich_snowflake_inspection(
+    connection: &ResolvedConnectionProfile,
+    node_id: &str,
+    payload: &mut Value,
+) -> Result<(), CommandError> {
+    if let Some((kind, database, schema, object_name)) = snowflake_object_from_node_id(node_id) {
+        payload[snowflake_payload_collection_for_kind(kind)] =
+            json!([snowflake_object_metadata_row(
+                database,
+                schema,
+                object_name,
+                kind
+            )]);
+        let value = execute_metadata_statement(
+            connection,
+            &format!(
+                "describe {kind_sql} {}.{}.{}",
+                quote_identifier(database),
+                quote_identifier(schema),
+                quote_identifier(object_name),
+                kind_sql = snowflake_describe_kind(kind)
+            ),
+        )
+        .await?;
+        payload["columns"] = json!(snowflake_column_records(&value));
+        return Ok(());
+    }
+
+    match snowflake_object_view_kind(node_id) {
+        "databases" => {
+            let value = execute_metadata_statement(connection, "show databases limit 100").await?;
+            payload["databases"] = json!(snowflake_database_records(&value));
+        }
+        "database" => {
+            let database = snowflake_database_from_node_id(node_id)
+                .unwrap_or_else(|| snowflake_database(connection));
+            let value = execute_metadata_statement(
+                connection,
+                &format!("show schemas in database {}", quote_identifier(&database)),
+            )
+            .await?;
+            payload["schemas"] = json!(snowflake_schema_records(&value));
+        }
+        "schema" | "tables" => {
+            let value = execute_metadata_statement(
+                connection,
+                &format!(
+                    "show tables in schema {}.{}",
+                    quote_identifier(&snowflake_database(connection)),
+                    quote_identifier(&snowflake_schema(connection))
+                ),
+            )
+            .await?;
+            payload["tables"] = json!(snowflake_object_records(&value, "table"));
+        }
+        "views" => {
+            let value = execute_metadata_statement(
+                connection,
+                &format!(
+                    "show views in schema {}.{}",
+                    quote_identifier(&snowflake_database(connection)),
+                    quote_identifier(&snowflake_schema(connection))
+                ),
+            )
+            .await?;
+            payload["views"] = json!(snowflake_object_records(&value, "view"));
+        }
+        "materialized-views" => {
+            let value = execute_metadata_statement(
+                connection,
+                &format!(
+                    "show materialized views in schema {}.{}",
+                    quote_identifier(&snowflake_database(connection)),
+                    quote_identifier(&snowflake_schema(connection))
+                ),
+            )
+            .await?;
+            payload["materializedViews"] =
+                json!(snowflake_object_records(&value, "materialized-view"));
+        }
+        "stages" => {
+            let value = execute_metadata_statement(
+                connection,
+                &format!(
+                    "show stages in schema {}.{}",
+                    quote_identifier(&snowflake_database(connection)),
+                    quote_identifier(&snowflake_schema(connection))
+                ),
+            )
+            .await?;
+            payload["stages"] = json!(snowflake_stage_records(&value));
+        }
+        "warehouses" | "warehouse" => {
+            let value = execute_metadata_statement(connection, "show warehouses").await?;
+            payload["warehouses"] = json!(snowflake_warehouse_records(&value));
+        }
+        "jobs" | "job" | "diagnostics" => {
+            let value = execute_metadata_statement(connection, SNOWFLAKE_QUERY_HISTORY_SQL).await?;
+            let jobs = snowflake_history_records(&value);
+            payload["jobs"] = json!(jobs);
+            payload["diagnostics"] = json!(snowflake_diagnostic_records(&value));
+        }
+        "security" => {
+            let value =
+                execute_metadata_statement(connection, "show grants to role current_role()")
+                    .await?;
+            payload["security"] = json!(snowflake_security_records(&value));
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
 fn named_nodes_from_snowflake_rows(
     connection: &ResolvedConnectionProfile,
     value: &Value,
@@ -548,6 +749,274 @@ fn named_nodes_from_snowflake_rows(
             expandable: Some(true),
         })
         .collect()
+}
+
+fn snowflake_warehouse_nodes_from_value(
+    connection: &ResolvedConnectionProfile,
+    value: &Value,
+    limit: Option<u32>,
+) -> Vec<ExplorerNode> {
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+    snowflake_warehouse_records(value)
+        .into_iter()
+        .take(limit)
+        .filter_map(|record| {
+            let name = record.get("name").and_then(Value::as_str)?;
+            Some(ExplorerNode {
+                id: format!("warehouse-compute:{name}"),
+                family: "warehouse".into(),
+                label: name.into(),
+                kind: "warehouse".into(),
+                detail: format!(
+                    "{} | {}",
+                    record.get("size").and_then(Value::as_str).unwrap_or("-"),
+                    record.get("state").and_then(Value::as_str).unwrap_or("-")
+                ),
+                scope: Some(format!("warehouse-compute:{name}")),
+                path: Some(vec![connection.name.clone(), "Warehouses".into()]),
+                query_template: Some("show warehouses".into()),
+                expandable: Some(false),
+            })
+        })
+        .collect()
+}
+
+fn snowflake_history_nodes_from_value(
+    connection: &ResolvedConnectionProfile,
+    value: &Value,
+    limit: Option<u32>,
+) -> Vec<ExplorerNode> {
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+    snowflake_history_records(value)
+        .into_iter()
+        .take(limit)
+        .filter_map(|record| {
+            let query_id = record.get("queryId").and_then(Value::as_str)?;
+            Some(ExplorerNode {
+                id: format!("job:{query_id}"),
+                family: "warehouse".into(),
+                label: query_id.into(),
+                kind: "job".into(),
+                detail: format!(
+                    "{} | {} | {}",
+                    record.get("status").and_then(Value::as_str).unwrap_or("-"),
+                    record.get("duration").and_then(Value::as_str).unwrap_or("-"),
+                    record
+                        .get("bytesScanned")
+                        .and_then(Value::as_str)
+                        .unwrap_or("-")
+                ),
+                scope: Some(format!("job:{query_id}")),
+                path: Some(vec![connection.name.clone(), "Tasks & Query History".into()]),
+                query_template: Some(format!(
+                    "select * from table(information_schema.query_history()) where query_id = '{}' limit 100",
+                    query_id.replace('\'', "''")
+                )),
+                expandable: Some(false),
+            })
+        })
+        .collect()
+}
+
+fn snowflake_security_nodes_from_value(
+    connection: &ResolvedConnectionProfile,
+    value: &Value,
+) -> Vec<ExplorerNode> {
+    let grants = snowflake_security_records(value);
+    if grants.is_empty() {
+        return Vec::new();
+    }
+
+    vec![ExplorerNode {
+        id: "warehouse:security:current-role".into(),
+        family: "warehouse".into(),
+        label: "Current Role Grants".into(),
+        kind: "security".into(),
+        detail: format!("{} grant(s)", grants.len()),
+        scope: None,
+        path: Some(vec![connection.name.clone(), "Security".into()]),
+        query_template: Some("show grants to role current_role()".into()),
+        expandable: Some(false),
+    }]
+}
+
+fn snowflake_database_records(value: &Value) -> Vec<Value> {
+    snowflake_rows(value)
+        .filter_map(|row| {
+            Some(json!({
+                "name": snowflake_row_cell(row, 0)?,
+                "createdOn": snowflake_row_cell(row, 1).unwrap_or("-"),
+                "owner": snowflake_row_cell(row, 5).unwrap_or("-"),
+                "retention": snowflake_row_cell(row, 6).unwrap_or("-")
+            }))
+        })
+        .collect()
+}
+
+fn snowflake_schema_records(value: &Value) -> Vec<Value> {
+    snowflake_rows(value)
+        .filter_map(|row| {
+            Some(json!({
+                "name": snowflake_row_cell(row, 0)?,
+                "owner": snowflake_row_cell(row, 4).unwrap_or("-"),
+                "retention": snowflake_row_cell(row, 5).unwrap_or("-")
+            }))
+        })
+        .collect()
+}
+
+fn snowflake_object_records(value: &Value, kind: &str) -> Vec<Value> {
+    snowflake_rows(value)
+        .filter_map(|row| {
+            Some(json!({
+                "name": snowflake_row_cell(row, 0)?,
+                "schema": snowflake_row_cell(row, 3).unwrap_or("-"),
+                "rows": snowflake_row_cell(row, 5).unwrap_or("-"),
+                "size": human_bytes_from_str(snowflake_row_cell(row, 6).unwrap_or("0")),
+                "freshness": snowflake_row_cell(row, 1).unwrap_or("-"),
+                "type": kind,
+                "clustering": snowflake_row_cell(row, 12).unwrap_or("-"),
+                "partitioning": "-"
+            }))
+        })
+        .collect()
+}
+
+fn snowflake_stage_records(value: &Value) -> Vec<Value> {
+    snowflake_rows(value)
+        .filter_map(|row| {
+            Some(json!({
+                "name": snowflake_row_cell(row, 0)?,
+                "type": snowflake_row_cell(row, 2).unwrap_or("-"),
+                "url": snowflake_row_cell(row, 5).unwrap_or("-"),
+                "fileFormat": snowflake_row_cell(row, 7).unwrap_or("-"),
+                "owner": snowflake_row_cell(row, 4).unwrap_or("-")
+            }))
+        })
+        .collect()
+}
+
+fn snowflake_warehouse_records(value: &Value) -> Vec<Value> {
+    snowflake_rows(value)
+        .filter_map(|row| {
+            Some(json!({
+                "name": snowflake_row_cell(row, 0)?,
+                "state": snowflake_row_cell(row, 1).unwrap_or("-"),
+                "size": snowflake_row_cell(row, 2).unwrap_or("-"),
+                "queued": snowflake_row_cell(row, 13).unwrap_or("0"),
+                "running": snowflake_row_cell(row, 14).unwrap_or("0"),
+                "credits": "-",
+                "load": "-"
+            }))
+        })
+        .collect()
+}
+
+fn snowflake_history_records(value: &Value) -> Vec<Value> {
+    snowflake_rows(value)
+        .filter_map(|row| {
+            let bytes_scanned = snowflake_row_cell(row, 4).unwrap_or("0");
+            Some(json!({
+                "id": snowflake_row_cell(row, 0)?,
+                "queryId": snowflake_row_cell(row, 0)?,
+                "type": snowflake_row_cell(row, 1).unwrap_or("query"),
+                "status": snowflake_row_cell(row, 2).unwrap_or("-"),
+                "duration": format!("{} ms", snowflake_row_cell(row, 3).unwrap_or("0")),
+                "bytesScanned": human_bytes_from_str(bytes_scanned),
+                "warehouse": snowflake_row_cell(row, 5).unwrap_or("-"),
+                "cost": "profile"
+            }))
+        })
+        .collect()
+}
+
+fn snowflake_security_records(value: &Value) -> Vec<Value> {
+    snowflake_rows(value)
+        .filter_map(|row| {
+            Some(json!({
+                "principal": snowflake_row_cell(row, 5).or_else(|| snowflake_row_cell(row, 3))?,
+                "role": snowflake_row_cell(row, 5).unwrap_or("-"),
+                "privilege": snowflake_row_cell(row, 1).unwrap_or("-"),
+                "object": snowflake_row_cell(row, 3).unwrap_or("-"),
+                "effect": "allow"
+            }))
+        })
+        .collect()
+}
+
+fn snowflake_column_records(value: &Value) -> Vec<Value> {
+    snowflake_rows(value)
+        .filter_map(|row| {
+            Some(json!({
+                "name": snowflake_row_cell(row, 0)?,
+                "type": snowflake_row_cell(row, 1).unwrap_or("-"),
+                "mode": snowflake_row_cell(row, 2).unwrap_or("-"),
+                "nullable": snowflake_row_cell(row, 3).unwrap_or("Y") != "N",
+                "description": snowflake_row_cell(row, 9).unwrap_or("-")
+            }))
+        })
+        .collect()
+}
+
+fn snowflake_diagnostic_records(value: &Value) -> Vec<Value> {
+    let jobs = snowflake_history_records(value);
+    let failed = jobs
+        .iter()
+        .filter(|job| {
+            job.get("status")
+                .and_then(Value::as_str)
+                .is_some_and(|status| !status.eq_ignore_ascii_case("success"))
+        })
+        .count();
+
+    vec![
+        json!({
+            "signal": "Recent Queries",
+            "value": jobs.len(),
+            "status": "info",
+            "guidance": "Review recent query history for broad scans and queue pressure."
+        }),
+        json!({
+            "signal": "Failed Jobs",
+            "value": failed,
+            "status": if failed == 0 { "healthy" } else { "watch" },
+            "guidance": "Open query history to inspect failed Snowflake work."
+        }),
+    ]
+}
+
+fn snowflake_object_metadata_row(
+    database: &str,
+    schema: &str,
+    object_name: &str,
+    kind: &str,
+) -> Value {
+    json!({
+        "name": object_name,
+        "schema": schema,
+        "database": database,
+        "rows": "-",
+        "size": "-",
+        "partitioning": "-",
+        "clustering": "-",
+        "freshness": "-",
+        "type": kind
+    })
+}
+
+fn snowflake_payload_collection_for_kind(kind: &str) -> &'static str {
+    match kind {
+        "view" => "views",
+        "materialized-view" => "materializedViews",
+        _ => "tables",
+    }
+}
+
+fn snowflake_describe_kind(kind: &str) -> &'static str {
+    match kind {
+        "view" | "materialized-view" => "view",
+        _ => "table",
+    }
 }
 
 pub(crate) fn snowflake_schema_nodes_from_value(
@@ -611,12 +1080,12 @@ fn snowflake_table_nodes_from_value(
                 .and_then(Value::as_str)
         })
         .map(|table| ExplorerNode {
-            id: format!("snowflake-{kind}:{database}:{schema}:{table}"),
+            id: format!("{kind}:{database}:{schema}:{table}"),
             family: "warehouse".into(),
             label: table.into(),
             kind: kind.into(),
             detail: snowflake_object_detail(kind).into(),
-            scope: None,
+            scope: Some(format!("{kind}:{database}:{schema}:{table}")),
             path: Some(vec![
                 connection.name.clone(),
                 database.into(),
@@ -649,12 +1118,12 @@ fn snowflake_stage_nodes_from_value(
                 .and_then(Value::as_str)
         })
         .map(|stage| ExplorerNode {
-            id: format!("snowflake-stage:{database}:{schema}:{stage}"),
+            id: format!("stage:{database}:{schema}:{stage}"),
             family: "warehouse".into(),
             label: stage.into(),
             kind: "stage".into(),
             detail: "Snowflake internal or external stage".into(),
-            scope: None,
+            scope: Some(format!("stage:{database}:{schema}:{stage}")),
             path: Some(vec![
                 connection.name.clone(),
                 database.into(),
@@ -693,6 +1162,9 @@ fn snowflake_object_from_node_id(node_id: &str) -> Option<(&'static str, &str, &
         ("snowflake-table:", "table"),
         ("snowflake-view:", "view"),
         ("snowflake-materialized-view:", "materialized-view"),
+        ("table:", "table"),
+        ("view:", "view"),
+        ("materialized-view:", "materialized-view"),
     ] {
         if let Some(rest) = node_id.strip_prefix(prefix.0) {
             let mut parts = rest.split(':');
@@ -721,14 +1193,42 @@ fn snowflake_schema_from_node_id(node_id: &str) -> Option<String> {
 }
 
 fn snowflake_object_view_kind(node_id: &str) -> &'static str {
-    if node_id == "snowflake-databases" {
+    if let Some((kind, _, _, _)) = snowflake_object_from_node_id(node_id) {
+        return kind;
+    }
+    if node_id.starts_with("stage:") {
+        return "stage";
+    }
+    if node_id.starts_with("warehouse-compute:") {
+        return "warehouse";
+    }
+    if node_id.starts_with("job:") {
+        return "job";
+    }
+    if node_id == "warehouse:databases" || node_id == "snowflake-databases" {
         return "databases";
     }
-    if node_id == "snowflake-warehouses" || node_id.contains("warehouse") {
-        return "warehouses";
+    if node_id == "warehouse:tables" || node_id.contains("-tables:") {
+        return "tables";
     }
-    if node_id == "snowflake-history" || node_id.contains("history") {
+    if node_id == "warehouse:views" || node_id.contains("-views:") {
+        return "views";
+    }
+    if node_id == "warehouse:materialized-views" || node_id.contains("materialized-views") {
+        return "materialized-views";
+    }
+    if node_id == "warehouse:stages" || node_id.contains("stage") {
+        return "stages";
+    }
+    if node_id == "warehouse:jobs" || node_id == "snowflake-history" || node_id.contains("history")
+    {
         return "jobs";
+    }
+    if node_id == "warehouse:warehouses"
+        || node_id == "snowflake-warehouses"
+        || node_id.contains("warehouse")
+    {
+        return "warehouses";
     }
     if node_id.contains("security") {
         return "security";
@@ -739,13 +1239,12 @@ fn snowflake_object_view_kind(node_id: &str) -> &'static str {
     if node_id.starts_with("snowflake-database:") {
         return "database";
     }
-    if node_id.starts_with("snowflake-schema:") {
+    if node_id.starts_with("database:") {
+        return "database";
+    }
+    if node_id.starts_with("snowflake-schema:") || node_id.starts_with("schema:") {
         return "schema";
     }
-    if let Some((kind, _, _, _)) = snowflake_object_from_node_id(node_id) {
-        return kind;
-    }
-
     "diagnostics"
 }
 
@@ -762,14 +1261,70 @@ fn quote_identifier(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 
+fn is_database_scope(scope: &str) -> bool {
+    database_scope_body(scope).is_some()
+}
+
+fn is_schema_scope(scope: &str) -> bool {
+    schema_scope_body(scope).is_some()
+}
+
+fn database_scope_body(scope: &str) -> Option<&str> {
+    scope
+        .strip_prefix("snowflake:database:")
+        .or_else(|| scope.strip_prefix("database:"))
+}
+
+fn schema_scope_body(scope: &str) -> Option<&str> {
+    scope
+        .strip_prefix("snowflake:schema:")
+        .or_else(|| scope.strip_prefix("schema:"))
+}
+
+fn snowflake_rows(value: &Value) -> impl Iterator<Item = &Vec<Value>> {
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_array)
+}
+
+fn snowflake_row_cell(row: &[Value], index: usize) -> Option<&str> {
+    row.get(index).and_then(Value::as_str)
+}
+
+fn human_bytes_from_str(value: &str) -> String {
+    value
+        .parse::<u64>()
+        .map(human_bytes)
+        .unwrap_or_else(|_| value.into())
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    let bytes = bytes as f64;
+    if bytes >= GB {
+        format!("{:.1} GB", bytes / GB)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes / MB)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes / KB)
+    } else {
+        format!("{bytes:.0} B")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::{
         database_child_sections, database_scope_nodes, root_nodes, schema_child_sections,
-        schema_scope_nodes, snowflake_schema_nodes_from_value, snowflake_table_nodes_from_value,
-        snowflake_table_query,
+        schema_scope_nodes, snowflake_object_view_kind, snowflake_schema_nodes_from_value,
+        snowflake_table_nodes_from_value, snowflake_table_query,
     };
     use crate::domain::models::ResolvedConnectionProfile;
 
@@ -838,8 +1393,10 @@ mod tests {
             labels,
             vec![
                 "Databases",
+                "Tables",
+                "Views",
                 "Warehouses",
-                "Query History",
+                "Tasks & Query History",
                 "Security",
                 "Diagnostics"
             ]
@@ -904,6 +1461,16 @@ mod tests {
         assert!(!nodes.iter().any(|node| node.label == "PUBLIC"));
     }
 
+    #[tokio::test]
+    async fn snowflake_generic_database_scope_is_accepted() {
+        let connection = connection(Some("ANALYTICS"));
+        let nodes = database_scope_nodes(&connection, "database:ANALYTICS", Some(100))
+            .await
+            .unwrap();
+
+        assert!(nodes.iter().any(|node| node.label == "Schemas"));
+    }
+
     #[test]
     fn snowflake_table_node_parser_supports_views() {
         let connection = connection(Some("ANALYTICS"));
@@ -917,7 +1484,24 @@ mod tests {
         );
 
         assert_eq!(nodes.len(), 1);
-        assert_eq!(nodes[0].id, "snowflake-view:ANALYTICS:PUBLIC:ORDER_SUMMARY");
+        assert_eq!(nodes[0].id, "view:ANALYTICS:PUBLIC:ORDER_SUMMARY");
+        assert_eq!(
+            nodes[0].query_template.as_deref(),
+            Some("select * from \"ANALYTICS\".\"PUBLIC\".\"ORDER_SUMMARY\" limit 100")
+        );
         assert_eq!(nodes[0].kind, "view");
+    }
+
+    #[test]
+    fn snowflake_generic_object_ids_map_to_object_views() {
+        assert_eq!(
+            snowflake_object_view_kind("table:ANALYTICS:PUBLIC:ORDERS"),
+            "table"
+        );
+        assert_eq!(snowflake_object_view_kind("warehouse:jobs"), "jobs");
+        assert_eq!(
+            snowflake_object_view_kind("warehouse-compute:ANALYTICS_XS"),
+            "warehouse"
+        );
     }
 }

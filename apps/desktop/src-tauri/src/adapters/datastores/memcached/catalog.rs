@@ -12,6 +12,7 @@ pub(super) fn memcached_manifest() -> AdapterManifest {
             "supports_result_snapshots",
             "supports_metrics_collection",
             "supports_import_export",
+            "supports_admin_operations",
         ],
     )
 }

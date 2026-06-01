@@ -790,7 +790,8 @@ describe('browser explorer runtime', () => {
       'Indexes',
       'File Storage',
       'Storage',
-      'Settings',
+      'Pragmas',
+      'Maintenance',
     ])
 
     expect(createExplorerNodes(connection, 'litedb:collections')).toEqual([
@@ -808,7 +809,18 @@ describe('browser explorer runtime', () => {
       'Documents',
       'Schema Preview',
       'Indexes',
+      'Statistics',
       'Storage',
+    ])
+
+    expect(createExplorerNodes(connection, 'litedb:collection-indexes:products')).toEqual([
+      expect.objectContaining({
+        id: 'litedb:index:products:_id',
+        label: 'products._id',
+        kind: 'index',
+      }),
+      expect.objectContaining({ label: 'products.sku' }),
+      expect.objectContaining({ label: 'products.inventory_available' }),
     ])
 
     const collectionResponse = inspectExplorerNodeLocally(snapshot, {
@@ -824,9 +836,22 @@ describe('browser explorer runtime', () => {
       collection: 'products',
       fields: expect.arrayContaining([expect.objectContaining({ path: 'sku' })]),
       indexes: expect.arrayContaining([expect.objectContaining({ name: 'sku' })]),
+      statistics: expect.arrayContaining([expect.objectContaining({ name: 'Documents' })]),
     })
     expect(collectionResponse.payload).not.toHaveProperty('command')
     expect(collectionResponse.payload).not.toHaveProperty('raw')
+
+    const statisticsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'litedb:collection-statistics:products',
+    })
+
+    expect(statisticsResponse.queryTemplate).toContain('"operation": "Statistics"')
+    expect(statisticsResponse.payload).toMatchObject({
+      objectView: 'statistics',
+      statistics: expect.arrayContaining([expect.objectContaining({ name: 'Average Document Size' })]),
+    })
 
     const fileStorageResponse = inspectExplorerNodeLocally(snapshot, {
       connectionId: connection.id,
@@ -838,6 +863,17 @@ describe('browser explorer runtime', () => {
       objectView: 'file-storage',
       files: expect.arrayContaining([expect.objectContaining({ filename: 'invoice-001.pdf' })]),
       chunks: expect.arrayContaining([expect.objectContaining({ status: 'ok' })]),
+    })
+
+    const maintenanceResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'litedb:maintenance',
+    })
+
+    expect(maintenanceResponse.payload).toMatchObject({
+      objectView: 'maintenance',
+      maintenance: expect.arrayContaining([expect.objectContaining({ name: 'Compact Copy' })]),
     })
   })
 
@@ -882,6 +918,27 @@ describe('browser explorer runtime', () => {
       'Triggers',
       'User Defined Functions',
       'Conflict Feed',
+    ])
+    expect(createExplorerNodes(connection, 'cosmos:stored-procedures:catalog:products')).toEqual([
+      expect.objectContaining({
+        id: 'cosmos:stored-procedure:catalog:products:bulkUpsert',
+        label: 'bulkUpsert',
+        kind: 'stored-procedure',
+      }),
+    ])
+    expect(createExplorerNodes(connection, 'cosmos:triggers:catalog:products')).toEqual([
+      expect.objectContaining({
+        id: 'cosmos:trigger:catalog:products:stampUpdatedAt',
+        label: 'stampUpdatedAt',
+        kind: 'trigger',
+      }),
+    ])
+    expect(createExplorerNodes(connection, 'cosmos:udfs:catalog:products')).toEqual([
+      expect.objectContaining({
+        id: 'cosmos:udf:catalog:products:normalizeSku',
+        label: 'normalizeSku',
+        kind: 'udf',
+      }),
     ])
 
     const containerResponse = inspectExplorerNodeLocally(snapshot, {
@@ -1800,6 +1857,7 @@ describe('browser explorer runtime', () => {
       'Stats',
       'Slabs',
       'Item Classes',
+      'Known Key Lookup',
       'Settings',
       'Connections',
     ])
@@ -1836,6 +1894,21 @@ describe('browser explorer runtime', () => {
       slabs: expect.arrayContaining([expect.objectContaining({ classId: '2' })]),
     })
     expect(JSON.stringify(slabs.payload)).not.toContain('stats slabs')
+
+    const knownKey = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'memcached:known-key',
+    })
+
+    expect(knownKey.queryTemplate).toBe('get <key>')
+    expect(knownKey.payload).toMatchObject({
+      objectView: 'known-key',
+      keyActions: expect.arrayContaining([
+        expect.objectContaining({ action: 'Get', command: 'get <key>' }),
+        expect.objectContaining({ action: 'Delete', risk: 'destructive' }),
+      ]),
+    })
   })
 })
 

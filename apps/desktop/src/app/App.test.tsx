@@ -562,7 +562,14 @@ describe('App', () => {
     await createFirstConnection()
     await openExplorerFromConnection()
 
-    const inspectButton = await screen.findByRole('button', { name: 'Inspect accounts' })
+    const explorer = await screen.findByRole('region', { name: 'Visual database structure' })
+    const accountsButtons = await within(explorer).findAllByRole('button', { name: /accounts/i })
+    const catalogButton = accountsButtons.find((button) =>
+      button.classList.contains('sql-rel-catalog-row'),
+    )
+    expect(catalogButton).toBeDefined()
+    fireEvent.click(catalogButton!)
+    const inspectButton = await within(explorer).findByRole('button', { name: 'Inspect accounts' })
 
     fireEvent.click(inspectButton)
 

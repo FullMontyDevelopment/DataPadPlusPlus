@@ -20,6 +20,9 @@ const DESCRIPTORS: Record<string, LiteDbObjectViewDescriptor> = {
   files: descriptor('files', 'Open Files', 'LiteDB Files', 'Review file metadata, IDs, filenames, sizes, upload dates, and chunk health.', 'No files are loaded', 'File storage may be empty.'),
   chunks: descriptor('chunks', 'Open Chunks', 'LiteDB Chunks', 'Review file chunk distribution and missing-chunk warnings.', 'No chunks are loaded', 'No file chunks were returned.'),
   storage: descriptor('storage', 'Open Storage Health', 'LiteDB Storage', 'Review page allocation, free pages, file size, checkpoint needs, and rebuild guidance.', 'No storage metadata is loaded', 'Refresh storage metadata for this local file.'),
+  statistics: descriptor('statistics', 'Open Statistics', 'LiteDB Statistics', 'Review collection counts, index coverage, average document size, and storage signals.', 'No statistics are loaded', 'Refresh collection statistics.'),
+  pragmas: descriptor('pragmas', 'Open Pragmas', 'LiteDB Pragmas', 'Review LiteDB file pragmas and connection-level runtime options.', 'No pragmas are loaded', 'Refresh database pragmas.'),
+  maintenance: descriptor('maintenance', 'Open Maintenance', 'LiteDB Maintenance', 'Review checkpoint, compact, rebuild, and backup workflows.', 'No maintenance workflows are loaded', 'Refresh maintenance guidance.'),
   settings: descriptor('settings', 'Open Settings', 'LiteDB Settings', 'Review connection mode, encryption state, journal/checkpoint posture, and local file options.', 'No settings are loaded', 'Refresh database settings.'),
   diagnostics: descriptor('diagnostics', 'Open Diagnostics', 'LiteDB Diagnostics', 'Review file health, index coverage, storage pressure, collection counts, and maintenance warnings.', 'No diagnostics are loaded', 'Refresh diagnostics for this LiteDB file.'),
 }

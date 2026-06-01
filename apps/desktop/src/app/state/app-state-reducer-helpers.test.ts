@@ -640,6 +640,96 @@ describe('mergeExplorerCacheEntry', () => {
       'database:orders',
     ])
   })
+
+  it('keeps SQL Server parent branches when a deep scoped refresh returns empty', () => {
+    const sqlRoot: ExplorerResponse = {
+      connectionId: 'conn-sql',
+      environmentId: 'env-dev',
+      summary: 'SQL databases',
+      capabilities: rootResponse.capabilities,
+      nodes: [
+        {
+          id: 'database:datapadplusplus',
+          family: 'sql',
+          label: 'datapadplusplus',
+          kind: 'database',
+          detail: 'ONLINE',
+          scope: 'database:datapadplusplus',
+        },
+      ],
+    }
+    const databaseScope: ExplorerResponse = {
+      ...sqlRoot,
+      scope: 'database:datapadplusplus',
+      nodes: [
+        {
+          id: 'sqlserver:datapadplusplus:tables',
+          family: 'sql',
+          label: 'Tables',
+          kind: 'tables',
+          detail: 'Base tables',
+          scope: 'sqlserver:datapadplusplus:tables',
+        },
+      ],
+    }
+    const tablesScope: ExplorerResponse = {
+      ...sqlRoot,
+      scope: 'sqlserver:datapadplusplus:tables',
+      nodes: [
+        {
+          id: 'table:datapadplusplus:dbo:accounts',
+          family: 'sql',
+          label: 'dbo.accounts',
+          kind: 'table',
+          detail: 'base table',
+          scope: 'table:datapadplusplus:dbo:accounts',
+        },
+        {
+          id: 'columns:datapadplusplus:dbo:accounts',
+          family: 'sql',
+          label: 'Columns',
+          kind: 'columns',
+          detail: 'Column definitions',
+          scope: 'columns:datapadplusplus:dbo:accounts',
+        },
+      ],
+    }
+    const columnsScope: ExplorerResponse = {
+      ...sqlRoot,
+      scope: 'columns:datapadplusplus:dbo:accounts',
+      nodes: [
+        {
+          id: 'column:datapadplusplus:dbo:accounts:id',
+          family: 'sql',
+          label: 'id',
+          kind: 'column',
+          detail: 'int not null',
+        },
+      ],
+    }
+
+    const entry = [
+      sqlRoot,
+      databaseScope,
+      tablesScope,
+      columnsScope,
+    ].reduce<ReturnType<typeof mergeExplorerCacheEntry> | undefined>(
+      (current, response) => mergeExplorerCacheEntry(current, response),
+      undefined,
+    )
+    const refreshed = mergeExplorerCacheEntry(entry, {
+      ...sqlRoot,
+      scope: 'columns:datapadplusplus:dbo:accounts',
+      nodes: [],
+    })
+
+    expect(refreshed.response.nodes.map((node) => node.id)).toEqual([
+      'database:datapadplusplus',
+      'sqlserver:datapadplusplus:tables',
+      'table:datapadplusplus:dbo:accounts',
+      'columns:datapadplusplus:dbo:accounts',
+    ])
+  })
 })
 
 describe('isExplorerRequestLoading', () => {

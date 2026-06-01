@@ -50,6 +50,24 @@ describe('memcachedOperationActions', () => {
       }),
     })
   })
+
+  it('offers known-key actions without pretending keys can be browsed', () => {
+    const actions = memcachedOperationActions(
+      memcachedConnection,
+      tab('known-key', 'Known Key Lookup', 'memcached:known-key'),
+      'known-key',
+      { host: 'localhost', port: 11211 },
+    )
+
+    expect(actions.map((action) => action.label)).toEqual(['Get', 'Set', 'Touch', 'Delete'])
+    expect(actions.find((action) => action.label === 'Delete')).toMatchObject({
+      operationId: 'memcached.key.delete',
+      objectName: '<key>',
+      parameters: expect.objectContaining({
+        key: '<key>',
+      }),
+    })
+  })
 })
 
 function tab(kind: string, label: string, nodeId: string): QueryTabState {

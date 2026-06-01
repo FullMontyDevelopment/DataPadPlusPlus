@@ -126,7 +126,7 @@ impl DatastoreAdapter for CockroachAdapter {
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
         if let Some((summary, query_template, payload)) =
-            inspect_cockroach_node(connection, &request.node_id)
+            inspect_cockroach_node(connection, &request.node_id).await
         {
             return Ok(ExplorerInspectResponse {
                 node_id: request.node_id.clone(),

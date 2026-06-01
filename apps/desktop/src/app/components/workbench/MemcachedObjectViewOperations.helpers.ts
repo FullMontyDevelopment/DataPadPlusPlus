@@ -33,6 +33,27 @@ export function memcachedOperationActions(
     }))
   }
 
+  if (kind === 'known-key') {
+    actions.push(
+      action(connection, 'key.get', 'Get', 'Preview a targeted get for an application-known key.', 'key', scope, {
+        key: '<key>',
+      }),
+      action(connection, 'key.set', 'Set', 'Preview a guarded set for an application-known key.', 'memory', scope, {
+        key: '<key>',
+        value: '<value>',
+        flags: 0,
+        ttlSeconds: 300,
+      }),
+      action(connection, 'key.touch', 'Touch', 'Preview updating the TTL for an application-known key.', 'job', scope, {
+        key: '<key>',
+        ttlSeconds: 300,
+      }),
+      action(connection, 'key.delete', 'Delete', 'Preview deleting an application-known key.', 'delete', scope, {
+        key: '<key>',
+      }),
+    )
+  }
+
   if (['server', 'stats', 'diagnostics'].includes(kind) && supported.has('admin')) {
     actions.push(action(connection, 'stats.reset', 'Reset Stats', 'Preview a guarded stats counter reset.', 'job', scope))
     actions.push(action(connection, 'cache.flush', 'Flush', 'Preview a destructive cache flush operation.', 'delete', scope, {
@@ -100,7 +121,11 @@ function memcachedScope(
   const host = stringValue(payload.host) || connection.host || connection.name
   const port = typeof payload.port === 'number' ? payload.port : connection.port ?? 11211
   const kind = normalizeKind(tab.objectViewState?.kind ?? stringValue(payload.objectView) ?? 'server')
-  const objectName = classId ? `class:${classId}` : kind
+  const objectName = classId
+    ? `class:${classId}`
+    : kind === 'known-key'
+      ? '<key>'
+      : kind
 
   return { classId, host, port, kind, objectName }
 }

@@ -86,6 +86,18 @@ describe('browser operation runtime', () => {
     ]))
   })
 
+  it('exposes Memcached known-key operation manifests without key browsing capabilities', () => {
+    const operations = buildOperationManifestsForConnection(memcachedConnection)
+
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'memcached.key.get', label: 'Get Key', risk: 'read' }),
+      expect.objectContaining({ id: 'memcached.key.set', label: 'Set Key', risk: 'write' }),
+      expect.objectContaining({ id: 'memcached.key.touch', label: 'Touch Key', risk: 'write' }),
+      expect.objectContaining({ id: 'memcached.key.delete', label: 'Delete Key', risk: 'destructive' }),
+    ]))
+    expect(operations.map((operation) => operation.id).join(' ')).not.toContain('key.browser')
+  })
+
   it('generates MongoDB collMod previews for index hide and unhide requests', () => {
     const snapshot = {
       connections: [mongoConnection],
@@ -1667,6 +1679,22 @@ describe('browser operation runtime', () => {
       databaseFile: 'catalog.db',
     })
 
+    const liteDbRebuild = planOperationLocally(liteDbSnapshot, {
+      connectionId: liteDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'litedb.storage.rebuild-indexes',
+      objectName: 'products',
+      parameters: {
+        databaseFile: 'catalog.db',
+        collection: 'products',
+      },
+    })
+    expect(JSON.parse(liteDbRebuild.plan.generatedRequest)).toMatchObject({
+      operation: 'LiteDB.RebuildIndexes',
+      databaseFile: 'catalog.db',
+      collection: 'products',
+    })
+
     const memcachedSnapshot = snapshotWith(memcachedConnection)
     const memcachedDump = planOperationLocally(memcachedSnapshot, {
       connectionId: memcachedConnection.id,
@@ -1690,6 +1718,32 @@ describe('browser operation runtime', () => {
     })
     expect(memcachedFlush.plan.generatedRequest).toContain('flush_all 5')
     expect(memcachedFlush.plan.destructive).toBe(true)
+
+    const memcachedSet = planOperationLocally(memcachedSnapshot, {
+      connectionId: memcachedConnection.id,
+      environmentId: 'env-local',
+      operationId: 'memcached.key.set',
+      objectName: 'session:1',
+      parameters: {
+        key: 'session:1',
+        value: 'cached-user',
+        ttlSeconds: 60,
+      },
+    })
+    expect(memcachedSet.plan.generatedRequest).toContain('set session:1 0 60 11')
+    expect(memcachedSet.plan.generatedRequest).toContain('cached-user')
+
+    const memcachedDelete = planOperationLocally(memcachedSnapshot, {
+      connectionId: memcachedConnection.id,
+      environmentId: 'env-local',
+      operationId: 'memcached.key.delete',
+      objectName: 'session:1',
+      parameters: {
+        key: 'session:1',
+      },
+    })
+    expect(memcachedDelete.plan.generatedRequest).toBe('delete session:1')
+    expect(memcachedDelete.plan.destructive).toBe(true)
   })
 })
 

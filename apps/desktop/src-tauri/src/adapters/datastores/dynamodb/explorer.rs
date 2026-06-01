@@ -10,9 +10,16 @@ pub(super) async fn list_dynamodb_explorer_nodes(
 ) -> Result<ExplorerResponse, CommandError> {
     let nodes = match request.scope.as_deref() {
         Some("dynamodb:tables") => table_nodes(connection, request.limit).await?,
-        Some(scope) if scope.starts_with("dynamodb:table:") => {
+        Some(scope) if scope.starts_with("table:") || scope.starts_with("dynamodb:table:") => {
             table_child_nodes(connection, scope).await?
         }
+        Some(scope) if scope.starts_with("dynamodb:gsi:") => {
+            table_index_nodes(connection, scope.trim_start_matches("dynamodb:gsi:"), true).await?
+        }
+        Some(scope) if scope.starts_with("dynamodb:lsi:") => {
+            table_index_nodes(connection, scope.trim_start_matches("dynamodb:lsi:"), false).await?
+        }
+        Some("dynamodb:security") => security_nodes(connection),
         Some("dynamodb:diagnostics") => diagnostics_nodes(connection),
         Some(_) => Vec::new(),
         None => root_nodes(connection),
@@ -36,27 +43,11 @@ pub(super) async fn inspect_dynamodb_explorer_node(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerInspectRequest,
 ) -> Result<ExplorerInspectResponse, CommandError> {
-    let query_template = request
-        .node_id
-        .strip_prefix("dynamodb-table:")
-        .map(dynamodb_scan_template)
-        .or_else(|| {
-            request
-                .node_id
-                .strip_prefix("dynamodb-index:")
-                .and_then(|rest| rest.split_once(':'))
-                .map(|(table, index)| dynamodb_query_index_template(table, index))
-        })
-        .unwrap_or_else(|| match request.node_id.as_str() {
-            "dynamodb-tables" => json!({ "operation": "ListTables" }).to_string(),
-            "dynamodb-diagnostics" => {
-                json!({ "operation": "ListTables", "Limit": 100 }).to_string()
-            }
-            _ => json!({ "operation": "ListTables" }).to_string(),
-        });
+    let query_template = dynamodb_query_template_for_node(&request.node_id);
     let object_view = dynamodb_object_view_kind(&request.node_id);
     let mut payload = dynamodb_base_payload(&request.node_id, object_view);
     enrich_dynamodb_inspection(connection, &request.node_id, &mut payload).await;
+    filter_dynamodb_payload_for_view(object_view, &mut payload);
 
     Ok(ExplorerInspectResponse {
         node_id: request.node_id.clone(),
@@ -80,6 +71,14 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
             json!({ "operation": "ListTables" }).to_string(),
         ),
         (
+            "dynamodb-security",
+            "Access",
+            "security",
+            "IAM-style permissions and table policy surfaces",
+            "dynamodb:security",
+            json!({ "operation": "AccessReview" }).to_string(),
+        ),
+        (
             "dynamodb-diagnostics",
             "Diagnostics",
             "diagnostics",
@@ -89,8 +88,8 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
         ),
     ]
     .into_iter()
-    .map(|(id, label, kind, detail, scope, query)| ExplorerNode {
-        id: id.into(),
+    .map(|(_id, label, kind, detail, scope, query)| ExplorerNode {
+        id: scope.into(),
         family: "widecolumn".into(),
         label: label.into(),
         kind: kind.into(),
@@ -109,20 +108,27 @@ async fn table_nodes(
 ) -> Result<Vec<ExplorerNode>, CommandError> {
     let value = dynamodb_call(connection, "ListTables", &json!({})).await?;
     let limit = bounded_page_size(limit.or(Some(100))) as usize;
+    let table_prefix = dynamodb_table_prefix(connection);
     Ok(value
         .get("TableNames")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .take(limit)
         .filter_map(Value::as_str)
+        .filter(|name| {
+            table_prefix
+                .as_deref()
+                .map(|prefix| name.starts_with(prefix))
+                .unwrap_or(true)
+        })
+        .take(limit)
         .map(|name| ExplorerNode {
-            id: format!("dynamodb-table:{name}"),
+            id: format!("table:{name}"),
             family: "widecolumn".into(),
             label: name.into(),
             kind: "table".into(),
             detail: "DynamoDB table".into(),
-            scope: Some(format!("dynamodb:table:{name}")),
+            scope: Some(format!("table:{name}")),
             path: Some(vec![connection.name.clone(), "Tables".into()]),
             query_template: Some(dynamodb_scan_template(name)),
             expandable: Some(true),
@@ -134,76 +140,309 @@ async fn table_child_nodes(
     connection: &ResolvedConnectionProfile,
     scope: &str,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
-    let table = scope.trim_start_matches("dynamodb:table:");
+    let table = scope
+        .strip_prefix("table:")
+        .or_else(|| scope.strip_prefix("dynamodb:table:"))
+        .unwrap_or(scope);
     let value = dynamodb_call(connection, "DescribeTable", &json!({ "TableName": table })).await?;
-    let mut nodes = vec![ExplorerNode {
-        id: format!("dynamodb-key-schema:{table}"),
-        family: "widecolumn".into(),
-        label: "Key Schema".into(),
-        kind: "key-schema".into(),
-        detail: "Partition and sort key definition".into(),
-        scope: None,
-        path: Some(vec![connection.name.clone(), table.into()]),
-        query_template: Some(dynamodb_describe_template(table)),
-        expandable: Some(false),
-    }];
-    nodes.extend(index_nodes(
-        connection,
-        table,
-        &value,
-        "GlobalSecondaryIndexes",
-    ));
-    nodes.extend(index_nodes(
-        connection,
-        table,
-        &value,
-        "LocalSecondaryIndexes",
-    ));
+    let table_value = value.get("Table");
+    let gsi_count = table_value
+        .and_then(|table| table.get("GlobalSecondaryIndexes"))
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+    let lsi_count = table_value
+        .and_then(|table| table.get("LocalSecondaryIndexes"))
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+    let stream_enabled = table_value
+        .and_then(|table| table.pointer("/StreamSpecification/StreamEnabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let mut nodes = vec![
+        table_section_node(
+            connection,
+            table,
+            "items",
+            "Items",
+            "items",
+            "Partition-key query and bounded scan",
+            Some(dynamodb_query_template(table)),
+        ),
+        table_section_node(
+            connection,
+            table,
+            "keys",
+            "Keys",
+            "keys",
+            "Partition and sort key schema",
+            Some(dynamodb_describe_template(table)),
+        ),
+    ];
+
+    if gsi_count > 0 {
+        nodes.push(table_branch_node(
+            table_section_node(
+                connection,
+                table,
+                "gsi",
+                "Global Secondary Indexes",
+                "global-secondary-indexes",
+                &format!("{gsi_count} global index(es)"),
+                Some(dynamodb_describe_template(table)),
+            ),
+            format!("dynamodb:gsi:{table}"),
+        ));
+    }
+
+    if lsi_count > 0 {
+        nodes.push(table_branch_node(
+            table_section_node(
+                connection,
+                table,
+                "lsi",
+                "Local Secondary Indexes",
+                "local-secondary-indexes",
+                &format!("{lsi_count} local index(es)"),
+                Some(dynamodb_describe_template(table)),
+            ),
+            format!("dynamodb:lsi:{table}"),
+        ));
+    }
+
+    if stream_enabled {
+        nodes.push(table_section_node(
+            connection,
+            table,
+            "streams",
+            "Streams",
+            "streams",
+            "Stream enabled",
+            Some(dynamodb_describe_template(table)),
+        ));
+    }
+
+    nodes.extend([
+        table_section_node(
+            connection,
+            table,
+            "ttl",
+            "TTL",
+            "ttl",
+            "Time-to-live attribute and status",
+            Some(dynamodb_describe_template(table)),
+        ),
+        table_section_node(
+            connection,
+            table,
+            "capacity",
+            "Capacity",
+            "capacity",
+            "Billing mode, throughput, and throttling posture",
+            Some(dynamodb_describe_template(table)),
+        ),
+        table_section_node(
+            connection,
+            table,
+            "permissions",
+            "Permissions",
+            "permissions",
+            "Visible table and index permissions",
+            Some(dynamodb_describe_template(table)),
+        ),
+    ]);
+
     Ok(nodes)
 }
 
 fn diagnostics_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    vec![ExplorerNode {
-        id: "dynamodb-list-tables-diagnostic".into(),
-        family: "widecolumn".into(),
-        label: "List Tables".into(),
-        kind: "diagnostic".into(),
-        detail: "Baseline connectivity and table count check".into(),
-        scope: None,
-        path: Some(vec![connection.name.clone(), "Diagnostics".into()]),
-        query_template: Some(json!({ "operation": "ListTables", "Limit": 100 }).to_string()),
-        expandable: Some(false),
-    }]
+    vec![
+        static_leaf(
+            connection,
+            "dynamodb:diagnostics:capacity",
+            "Capacity",
+            "capacity",
+            "Read/write usage, throttles, and latency",
+            "Diagnostics",
+        ),
+        static_leaf(
+            connection,
+            "dynamodb:diagnostics:hot-partitions",
+            "Hot Partitions",
+            "hot-partitions",
+            "High-traffic partition key signals",
+            "Diagnostics",
+        ),
+        static_leaf(
+            connection,
+            "dynamodb:diagnostics:alarms",
+            "Alarms",
+            "alarms",
+            "Capacity, latency, and stream alarms",
+            "Diagnostics",
+        ),
+        static_leaf(
+            connection,
+            "dynamodb:diagnostics:backups",
+            "Backups",
+            "backups",
+            "PITR and on-demand backup posture",
+            "Diagnostics",
+        ),
+    ]
 }
 
-fn index_nodes(
+fn security_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    vec![
+        static_leaf(
+            connection,
+            "dynamodb:security:permissions",
+            "Permissions",
+            "permissions",
+            "Visible table, stream, and index privileges",
+            "Access",
+        ),
+        static_leaf(
+            connection,
+            "dynamodb:security:policies",
+            "Table Policies",
+            "security",
+            "Resource policies and disabled action reasons",
+            "Access",
+        ),
+    ]
+}
+
+fn table_section_node(
     connection: &ResolvedConnectionProfile,
     table: &str,
-    value: &Value,
-    index_field: &str,
-) -> Vec<ExplorerNode> {
-    value
-        .pointer(&format!("/Table/{index_field}"))
+    id_prefix: &str,
+    label: &str,
+    kind: &str,
+    detail: &str,
+    query_template: Option<String>,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: format!("{id_prefix}:{table}"),
+        family: "widecolumn".into(),
+        label: label.into(),
+        kind: kind.into(),
+        detail: detail.into(),
+        scope: None,
+        path: Some(vec![connection.name.clone(), table.into()]),
+        query_template,
+        expandable: Some(false),
+    }
+}
+
+fn table_branch_node(mut node: ExplorerNode, scope: String) -> ExplorerNode {
+    node.scope = Some(scope);
+    node.expandable = Some(true);
+    node
+}
+
+async fn table_index_nodes(
+    connection: &ResolvedConnectionProfile,
+    table: &str,
+    global: bool,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let value = dynamodb_call(connection, "DescribeTable", &json!({ "TableName": table })).await?;
+    let field = if global {
+        "GlobalSecondaryIndexes"
+    } else {
+        "LocalSecondaryIndexes"
+    };
+    let id_prefix = if global { "index-gsi" } else { "index-lsi" };
+    let kind = if global {
+        "global-secondary-index"
+    } else {
+        "local-secondary-index"
+    };
+
+    Ok(value
+        .get("Table")
+        .and_then(|table| table.get(field))
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|index| index.get("IndexName").and_then(Value::as_str))
-        .map(|index| ExplorerNode {
-            id: format!("dynamodb-index:{table}:{index}"),
+        .filter_map(|index| {
+            index
+                .get("IndexName")
+                .and_then(Value::as_str)
+                .map(|name| (name, index))
+        })
+        .map(|(name, index)| ExplorerNode {
+            id: format!("{id_prefix}:{table}:{name}"),
             family: "widecolumn".into(),
-            label: index.into(),
-            kind: "index".into(),
-            detail: format!("DynamoDB {index_field}"),
+            label: name.into(),
+            kind: kind.into(),
+            detail: dynamodb_index_node_detail(index),
             scope: None,
             path: Some(vec![
                 connection.name.clone(),
                 table.into(),
-                "Indexes".into(),
+                if global {
+                    "Global Secondary Indexes".into()
+                } else {
+                    "Local Secondary Indexes".into()
+                },
             ]),
-            query_template: Some(dynamodb_query_index_template(table, index)),
+            query_template: Some(dynamodb_query_index_template(table, name)),
             expandable: Some(false),
         })
-        .collect()
+        .collect())
+}
+
+fn dynamodb_index_node_detail(index: &Value) -> String {
+    let projection = index
+        .pointer("/Projection/ProjectionType")
+        .and_then(Value::as_str)
+        .unwrap_or("-");
+    let status = index
+        .get("IndexStatus")
+        .and_then(Value::as_str)
+        .unwrap_or("-");
+    let capacity = dynamodb_capacity_label(index);
+    let capacity = if capacity == "R - / W -" {
+        String::new()
+    } else {
+        capacity
+    };
+
+    let detail = [status.to_string(), projection.to_string(), capacity]
+        .into_iter()
+        .filter(|value| !value.is_empty() && value != "-")
+        .collect::<Vec<_>>()
+        .join(" / ");
+
+    if detail.is_empty() {
+        "DynamoDB index".into()
+    } else {
+        detail
+    }
+}
+
+fn static_leaf(
+    connection: &ResolvedConnectionProfile,
+    id: &str,
+    label: &str,
+    kind: &str,
+    detail: &str,
+    parent: &str,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: id.into(),
+        family: "widecolumn".into(),
+        label: label.into(),
+        kind: kind.into(),
+        detail: detail.into(),
+        scope: None,
+        path: Some(vec![connection.name.clone(), parent.into()]),
+        query_template: Some(json!({ "operation": "ListTables", "Limit": 100 }).to_string()),
+        expandable: Some(false),
+    }
 }
 
 fn dynamodb_scan_template(table: &str) -> String {
@@ -215,12 +454,76 @@ fn dynamodb_scan_template(table: &str) -> String {
     .to_string()
 }
 
+fn dynamodb_query_template(table: &str) -> String {
+    json!({
+        "operation": "Query",
+        "tableName": table,
+        "keyConditionExpression": "#pk = :pk",
+        "expressionAttributeNames": { "#pk": "partitionKey" },
+        "expressionAttributeValues": { ":pk": { "S": "value" } },
+        "limit": 100
+    })
+    .to_string()
+}
+
 fn dynamodb_describe_template(table: &str) -> String {
     json!({
         "operation": "DescribeTable",
         "tableName": table
     })
     .to_string()
+}
+
+fn dynamodb_query_template_for_node(node_id: &str) -> String {
+    if let Some(table) = node_id
+        .strip_prefix("items:")
+        .or_else(|| node_id.strip_prefix("table:"))
+    {
+        return dynamodb_query_template(table);
+    }
+
+    if let Some(table) = node_id
+        .strip_prefix("dynamodb-table:")
+        .or_else(|| node_id.strip_prefix("keys:"))
+        .or_else(|| node_id.strip_prefix("gsi:"))
+        .or_else(|| node_id.strip_prefix("lsi:"))
+        .or_else(|| node_id.strip_prefix("streams:"))
+        .or_else(|| node_id.strip_prefix("ttl:"))
+        .or_else(|| node_id.strip_prefix("capacity:"))
+        .or_else(|| node_id.strip_prefix("permissions:"))
+        .or_else(|| node_id.strip_prefix("dynamodb-key-schema:"))
+    {
+        return dynamodb_describe_template(table);
+    }
+
+    if let Some((table, index)) = node_id
+        .strip_prefix("dynamodb-index:")
+        .or_else(|| node_id.strip_prefix("index:"))
+        .or_else(|| node_id.strip_prefix("index-gsi:"))
+        .or_else(|| node_id.strip_prefix("index-lsi:"))
+        .and_then(|rest| rest.split_once(':'))
+    {
+        return dynamodb_query_index_template(table, index);
+    }
+
+    if let Some(kind) = node_id.strip_prefix("dynamodb:security:") {
+        return json!({ "operation": "AccessReview", "view": kind }).to_string();
+    }
+
+    if let Some(kind) = node_id.strip_prefix("dynamodb:diagnostics:") {
+        return json!({ "operation": "Diagnostics", "view": kind }).to_string();
+    }
+
+    match node_id {
+        "dynamodb-tables" | "dynamodb:tables" => json!({ "operation": "ListTables" }).to_string(),
+        "dynamodb-security" | "dynamodb:security" => {
+            json!({ "operation": "AccessReview" }).to_string()
+        }
+        "dynamodb-diagnostics" | "dynamodb:diagnostics" => {
+            json!({ "operation": "ListTables", "Limit": 100 }).to_string()
+        }
+        _ => json!({ "operation": "ListTables" }).to_string(),
+    }
 }
 
 fn dynamodb_query_index_template(table: &str, index: &str) -> String {
@@ -248,14 +551,33 @@ async fn enrich_dynamodb_inspection(
     } else {
         None
     };
+    let ttl_description = if let Some(table) = table_name.as_deref() {
+        optional_dynamodb_call(
+            connection,
+            "DescribeTimeToLive",
+            &json!({ "TableName": table }),
+        )
+        .await
+    } else {
+        None
+    };
+    let backups = if let Some(table) = table_name.as_deref() {
+        optional_dynamodb_call(connection, "ListBackups", &json!({ "TableName": table })).await
+    } else {
+        optional_dynamodb_call(connection, "ListBackups", &json!({})).await
+    };
     let table = described_table
         .as_ref()
         .and_then(|value| value.get("Table"));
 
+    payload["region"] = json!(dynamodb_region(connection));
     payload["tables"] = if let Some(table) = table {
         json!(vec![dynamodb_table_record_from_description(table)])
     } else {
-        json!(dynamodb_table_records_from_list(tables.as_ref()))
+        json!(dynamodb_table_records_from_list(
+            connection,
+            tables.as_ref()
+        ))
     };
     payload["keys"] = json!(dynamodb_key_records(table));
     payload["globalSecondaryIndexes"] =
@@ -263,7 +585,12 @@ async fn enrich_dynamodb_inspection(
     payload["localSecondaryIndexes"] =
         json!(dynamodb_index_records(table, "LocalSecondaryIndexes"));
     payload["streams"] = json!(dynamodb_stream_records(table));
+    payload["ttl"] = json!(dynamodb_ttl_records(ttl_description.as_ref()));
     payload["capacity"] = json!(dynamodb_capacity_records(table));
+    payload["hotPartitions"] = json!(dynamodb_hot_partition_records(table_name.as_deref()));
+    payload["alarms"] = json!(dynamodb_alarm_records(table_name.as_deref()));
+    payload["backups"] = json!(dynamodb_backup_records(backups.as_ref()));
+    payload["permissions"] = json!(dynamodb_permission_records(table_name.as_deref()));
     payload["diagnostics"] = json!(dynamodb_diagnostic_records(tables.as_ref(), table));
     payload["tableName"] = json!(table_name.unwrap_or_else(|| "-".into()));
     payload["itemCount"] = table
@@ -327,18 +654,94 @@ fn dynamodb_base_payload(node_id: &str, object_view: &str) -> Value {
     })
 }
 
+fn filter_dynamodb_payload_for_view(object_view: &str, payload: &mut Value) {
+    const SECTION_KEYS: &[&str] = &[
+        "tables",
+        "items",
+        "keys",
+        "globalSecondaryIndexes",
+        "localSecondaryIndexes",
+        "streams",
+        "ttl",
+        "capacity",
+        "hotPartitions",
+        "alarms",
+        "backups",
+        "permissions",
+    ];
+
+    let keep: &[&str] = match object_view {
+        "tables" => &["tables"],
+        "items" => &["items", "keys"],
+        "keys" => &["keys"],
+        "global-secondary-indexes" => &["globalSecondaryIndexes"],
+        "local-secondary-indexes" => &["localSecondaryIndexes"],
+        "streams" => &["streams"],
+        "ttl" => &["ttl"],
+        "capacity" => &["capacity", "hotPartitions"],
+        "hot-partitions" => &["hotPartitions"],
+        "alarms" => &["alarms"],
+        "backups" => &["backups"],
+        "security" | "permissions" => &["permissions"],
+        "diagnostics" => &["capacity", "hotPartitions", "alarms", "backups", "streams"],
+        _ => SECTION_KEYS,
+    };
+
+    for key in SECTION_KEYS {
+        if !keep.contains(key) {
+            payload[*key] = json!([]);
+        }
+    }
+}
+
 fn dynamodb_object_view_kind(node_id: &str) -> &'static str {
-    if node_id == "dynamodb-tables" {
+    if node_id == "dynamodb-tables" || node_id == "dynamodb:tables" {
         return "tables";
     }
-    if node_id.starts_with("dynamodb-table:") {
+    if node_id.starts_with("dynamodb-table:") || node_id.starts_with("table:") {
         return "table";
     }
-    if node_id.starts_with("dynamodb-key-schema:") {
+    if node_id.starts_with("items:") {
+        return "items";
+    }
+    if node_id.starts_with("dynamodb-key-schema:") || node_id.starts_with("keys:") {
         return "keys";
     }
-    if node_id.starts_with("dynamodb-index:") {
-        return "indexes";
+    if node_id.starts_with("gsi:") || node_id.starts_with("index-gsi:") {
+        return "global-secondary-indexes";
+    }
+    if node_id.starts_with("lsi:") || node_id.starts_with("index-lsi:") {
+        return "local-secondary-indexes";
+    }
+    if node_id.starts_with("dynamodb-index:") || node_id.starts_with("index:") {
+        return "global-secondary-indexes";
+    }
+    if node_id.starts_with("streams:") {
+        return "streams";
+    }
+    if node_id.starts_with("ttl:") {
+        return "ttl";
+    }
+    if node_id.starts_with("capacity:") || node_id == "dynamodb:diagnostics:capacity" {
+        return "capacity";
+    }
+    if node_id.starts_with("permissions:") || node_id == "dynamodb:security:permissions" {
+        return "permissions";
+    }
+    if node_id == "dynamodb-security" || node_id == "dynamodb:security" {
+        return "security";
+    }
+    if node_id == "dynamodb:security:policies" {
+        return "security";
+    }
+    if node_id == "dynamodb:diagnostics:hot-partitions" {
+        return "hot-partitions";
+    }
+    if node_id == "dynamodb:diagnostics:alarms" {
+        return "alarms";
+    }
+    if node_id == "dynamodb:diagnostics:backups" {
+        return "backups";
     }
     "diagnostics"
 }
@@ -346,22 +749,44 @@ fn dynamodb_object_view_kind(node_id: &str) -> &'static str {
 fn dynamodb_table_from_node_id(node_id: &str) -> Option<String> {
     node_id
         .strip_prefix("dynamodb-table:")
+        .or_else(|| node_id.strip_prefix("table:"))
+        .or_else(|| node_id.strip_prefix("items:"))
         .or_else(|| node_id.strip_prefix("dynamodb-key-schema:"))
+        .or_else(|| node_id.strip_prefix("keys:"))
+        .or_else(|| node_id.strip_prefix("gsi:"))
+        .or_else(|| node_id.strip_prefix("lsi:"))
+        .or_else(|| node_id.strip_prefix("streams:"))
+        .or_else(|| node_id.strip_prefix("ttl:"))
+        .or_else(|| node_id.strip_prefix("capacity:"))
+        .or_else(|| node_id.strip_prefix("permissions:"))
         .map(str::to_string)
         .or_else(|| {
             node_id
                 .strip_prefix("dynamodb-index:")
+                .or_else(|| node_id.strip_prefix("index:"))
+                .or_else(|| node_id.strip_prefix("index-gsi:"))
+                .or_else(|| node_id.strip_prefix("index-lsi:"))
                 .and_then(|rest| rest.split_once(':').map(|(table, _)| table.to_string()))
         })
 }
 
-fn dynamodb_table_records_from_list(value: Option<&Value>) -> Vec<Value> {
+fn dynamodb_table_records_from_list(
+    connection: &ResolvedConnectionProfile,
+    value: Option<&Value>,
+) -> Vec<Value> {
+    let table_prefix = dynamodb_table_prefix(connection);
     value
         .and_then(|value| value.get("TableNames"))
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
+        .filter(|name| {
+            table_prefix
+                .as_deref()
+                .map(|prefix| name.starts_with(prefix))
+                .unwrap_or(true)
+        })
         .map(|name| {
             json!({
                 "name": name,
@@ -472,6 +897,85 @@ fn dynamodb_capacity_records(table: Option<&Value>) -> Vec<Value> {
     })]
 }
 
+fn dynamodb_ttl_records(value: Option<&Value>) -> Vec<Value> {
+    let Some(description) = value.and_then(|value| value.get("TimeToLiveDescription")) else {
+        return Vec::new();
+    };
+
+    vec![json!({
+        "attribute": description.get("AttributeName").and_then(Value::as_str).unwrap_or("-"),
+        "status": description.get("TimeToLiveStatus").and_then(Value::as_str).unwrap_or("-"),
+        "sampleExpiringItems": "-",
+        "oldestExpiry": "-",
+    })]
+}
+
+fn dynamodb_hot_partition_records(table: Option<&str>) -> Vec<Value> {
+    table
+        .map(|table| {
+            vec![json!({
+                "partitionKey": "-",
+                "readPercent": "-",
+                "writePercent": "-",
+                "throttles": "-",
+                "recommendation": format!("Connect CloudWatch Contributor Insights for {table} to identify sustained hot partition keys.")
+            })]
+        })
+        .unwrap_or_default()
+}
+
+fn dynamodb_alarm_records(table: Option<&str>) -> Vec<Value> {
+    table
+        .map(|table| {
+            vec![json!({
+                "name": format!("{table} CloudWatch alarms"),
+                "state": "not connected",
+                "metric": "CloudWatch",
+                "threshold": "-",
+                "updatedAt": "-",
+            })]
+        })
+        .unwrap_or_default()
+}
+
+fn dynamodb_backup_records(value: Option<&Value>) -> Vec<Value> {
+    value
+        .and_then(|value| value.get("BackupSummaries"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|backup| {
+            json!({
+                "name": backup.get("BackupName").and_then(Value::as_str).unwrap_or("-"),
+                "type": backup.get("BackupType").and_then(Value::as_str).unwrap_or("-"),
+                "status": backup.get("BackupStatus").and_then(Value::as_str).unwrap_or("-"),
+                "createdAt": backup.get("BackupCreationDateTime").map(dynamodb_value_to_display).unwrap_or_else(|| "-".into()),
+                "size": backup.get("BackupSizeBytes").map(dynamodb_value_to_display).unwrap_or_else(|| "-".into()),
+            })
+        })
+        .collect()
+}
+
+fn dynamodb_permission_records(table: Option<&str>) -> Vec<Value> {
+    let resource = table.unwrap_or("*");
+    vec![
+        json!({
+            "principal": "current identity",
+            "action": "dynamodb:ListTables, dynamodb:DescribeTable",
+            "resource": resource,
+            "effect": "visible",
+            "condition": "metadata access confirmed by this view"
+        }),
+        json!({
+            "principal": "DataPad++ guardrails",
+            "action": "PutItem, UpdateItem, DeleteItem, CreateTable, DeleteTable",
+            "resource": resource,
+            "effect": "preview or guarded execution",
+            "condition": "environment risk and read-only settings apply"
+        }),
+    ]
+}
+
 fn dynamodb_diagnostic_records(tables: Option<&Value>, table: Option<&Value>) -> Vec<Value> {
     vec![
         json!({
@@ -491,6 +995,26 @@ fn dynamodb_diagnostic_records(tables: Option<&Value>, table: Option<&Value>) ->
             "guidance": "Table-level views collect keys, indexes, streams, and capacity from DescribeTable."
         }),
     ]
+}
+
+fn dynamodb_region(connection: &ResolvedConnectionProfile) -> String {
+    connection
+        .dynamo_db_options
+        .as_ref()
+        .and_then(|options| options.region.as_deref())
+        .or(connection.database.as_deref())
+        .unwrap_or("local")
+        .into()
+}
+
+fn dynamodb_table_prefix(connection: &ResolvedConnectionProfile) -> Option<String> {
+    connection
+        .dynamo_db_options
+        .as_ref()
+        .and_then(|options| options.table_prefix.as_deref())
+        .map(str::trim)
+        .filter(|prefix| !prefix.is_empty())
+        .map(str::to_string)
 }
 
 fn dynamodb_key_names(value: &Value) -> (Option<String>, Option<String>) {
@@ -540,11 +1064,15 @@ fn dynamodb_value_to_display(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        dynamodb_base_payload, dynamodb_index_records, dynamodb_key_records,
-        dynamodb_object_view_kind, dynamodb_table_record_from_description,
-        dynamodb_table_records_from_list,
+        dynamodb_alarm_records, dynamodb_backup_records, dynamodb_base_payload,
+        dynamodb_index_node_detail, dynamodb_index_records, dynamodb_key_records,
+        dynamodb_object_view_kind, dynamodb_permission_records, dynamodb_query_template_for_node,
+        dynamodb_table_record_from_description, dynamodb_table_records_from_list,
+        dynamodb_ttl_records, filter_dynamodb_payload_for_view, root_nodes, table_branch_node,
+        table_section_node,
     };
     use super::{dynamodb_query_index_template, dynamodb_scan_template};
+    use crate::domain::models::{DynamoDbConnectionOptions, ResolvedConnectionProfile};
 
     #[test]
     fn dynamodb_scan_template_targets_table() {
@@ -582,19 +1110,170 @@ mod tests {
         );
         assert_eq!(
             dynamodb_object_view_kind("dynamodb-index:Orders:ByCustomer"),
-            "indexes"
+            "global-secondary-indexes"
+        );
+        assert_eq!(dynamodb_object_view_kind("items:Orders"), "items");
+        assert_eq!(
+            dynamodb_object_view_kind("gsi:Orders"),
+            "global-secondary-indexes"
+        );
+        assert_eq!(
+            dynamodb_object_view_kind("lsi:Orders"),
+            "local-secondary-indexes"
+        );
+        assert_eq!(
+            dynamodb_object_view_kind("dynamodb:security:permissions"),
+            "permissions"
+        );
+        assert_eq!(
+            dynamodb_object_view_kind("dynamodb:diagnostics:backups"),
+            "backups"
         );
     }
 
     #[test]
     fn dynamodb_table_list_records_are_view_rows() {
-        let rows = dynamodb_table_records_from_list(Some(&serde_json::json!({
-            "TableNames": ["Orders"]
-        })));
+        let rows = dynamodb_table_records_from_list(
+            &test_connection(None),
+            Some(&serde_json::json!({
+                "TableNames": ["Orders", "Archive"]
+            })),
+        );
 
-        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["name"], "Orders");
         assert_eq!(rows[0]["status"], "listed");
+    }
+
+    #[test]
+    fn dynamodb_table_list_records_respect_table_prefix() {
+        let rows = dynamodb_table_records_from_list(
+            &test_connection(Some("prod_")),
+            Some(&serde_json::json!({
+                "TableNames": ["prod_orders", "dev_orders"]
+            })),
+        );
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["name"], "prod_orders");
+    }
+
+    #[test]
+    fn dynamodb_root_and_table_sections_match_native_tree() {
+        let connection = test_connection(None);
+        let roots = root_nodes(&connection);
+        let labels = roots
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(labels, vec!["Tables", "Access", "Diagnostics"]);
+        assert_eq!(roots[0].id, "dynamodb:tables");
+        assert_eq!(roots[0].scope.as_deref(), Some("dynamodb:tables"));
+
+        let items = table_section_node(
+            &connection,
+            "Orders",
+            "items",
+            "Items",
+            "items",
+            "Partition-key query",
+            Some(dynamodb_query_template_for_node("items:Orders")),
+        );
+
+        assert_eq!(items.id, "items:Orders");
+        assert_eq!(items.kind, "items");
+        assert!(items.query_template.unwrap().contains("\"Query\""));
+
+        let gsi = table_branch_node(
+            table_section_node(
+                &connection,
+                "Orders",
+                "gsi",
+                "Global Secondary Indexes",
+                "global-secondary-indexes",
+                "1 global index",
+                Some(dynamodb_query_template_for_node("gsi:Orders")),
+            ),
+            "dynamodb:gsi:Orders".into(),
+        );
+        assert_eq!(gsi.scope.as_deref(), Some("dynamodb:gsi:Orders"));
+        assert_eq!(gsi.expandable, Some(true));
+    }
+
+    #[test]
+    fn dynamodb_query_templates_cover_section_nodes() {
+        let items: serde_json::Value =
+            serde_json::from_str(&dynamodb_query_template_for_node("items:Orders")).unwrap();
+        let keys: serde_json::Value =
+            serde_json::from_str(&dynamodb_query_template_for_node("keys:Orders")).unwrap();
+        let security: serde_json::Value = serde_json::from_str(&dynamodb_query_template_for_node(
+            "dynamodb:security:policies",
+        ))
+        .unwrap();
+
+        assert_eq!(items["operation"], "Query");
+        assert_eq!(keys["operation"], "DescribeTable");
+        assert_eq!(security["operation"], "AccessReview");
+    }
+
+    #[test]
+    fn dynamodb_auxiliary_records_are_view_friendly() {
+        let ttl = dynamodb_ttl_records(Some(&serde_json::json!({
+            "TimeToLiveDescription": {
+                "AttributeName": "expiresAt",
+                "TimeToLiveStatus": "ENABLED"
+            }
+        })));
+        let backups = dynamodb_backup_records(Some(&serde_json::json!({
+            "BackupSummaries": [{
+                "BackupName": "Orders-daily",
+                "BackupStatus": "AVAILABLE",
+                "BackupType": "USER",
+                "BackupSizeBytes": 128
+            }]
+        })));
+        let alarms = dynamodb_alarm_records(Some("Orders"));
+        let permissions = dynamodb_permission_records(Some("Orders"));
+
+        assert_eq!(ttl[0]["attribute"], "expiresAt");
+        assert_eq!(backups[0]["name"], "Orders-daily");
+        assert_eq!(alarms[0]["metric"], "CloudWatch");
+        assert_eq!(permissions.len(), 2);
+    }
+
+    #[test]
+    fn dynamodb_index_nodes_use_native_display_details() {
+        let detail = dynamodb_index_node_detail(&serde_json::json!({
+            "IndexStatus": "ACTIVE",
+            "Projection": { "ProjectionType": "ALL" },
+            "ProvisionedThroughput": {
+                "ReadCapacityUnits": 12,
+                "WriteCapacityUnits": 4
+            }
+        }));
+
+        assert_eq!(detail, "ACTIVE / ALL / R 12 / W 4");
+        assert_eq!(
+            dynamodb_index_node_detail(&serde_json::json!({})),
+            "DynamoDB index"
+        );
+    }
+
+    #[test]
+    fn dynamodb_payload_filter_keeps_only_view_sections() {
+        let mut payload = dynamodb_base_payload("items:Orders", "items");
+        payload["tables"] = serde_json::json!([{ "name": "Orders" }]);
+        payload["items"] = serde_json::json!([{ "pk": "1" }]);
+        payload["keys"] = serde_json::json!([{ "attribute": "pk" }]);
+        payload["capacity"] = serde_json::json!([{ "resource": "Orders" }]);
+
+        filter_dynamodb_payload_for_view("items", &mut payload);
+
+        assert_eq!(payload["tables"].as_array().unwrap().len(), 0);
+        assert_eq!(payload["items"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["keys"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["capacity"].as_array().unwrap().len(), 0);
     }
 
     #[test]
@@ -633,5 +1312,35 @@ mod tests {
         assert_eq!(keys[0]["attributeType"], "S");
         assert_eq!(indexes.len(), 1);
         assert_eq!(indexes[0]["name"], "ByCustomer");
+    }
+
+    fn test_connection(prefix: Option<&str>) -> ResolvedConnectionProfile {
+        ResolvedConnectionProfile {
+            id: "dynamo".into(),
+            name: "Dynamo".into(),
+            engine: "dynamodb".into(),
+            family: "widecolumn".into(),
+            host: "localhost".into(),
+            port: Some(8000),
+            database: Some("local".into()),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: Some(DynamoDbConnectionOptions {
+                table_prefix: prefix.map(str::to_string),
+                ..Default::default()
+            }),
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
+            read_only: false,
+        }
     }
 }

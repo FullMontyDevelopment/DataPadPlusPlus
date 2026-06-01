@@ -99,6 +99,7 @@ impl PrometheusEndpoint {
                 "Prometheus requires a host or http:// connection string.",
             ));
         }
+        validate_http_component(host, "Prometheus host")?;
 
         Ok(Self {
             host: host.into(),
@@ -109,6 +110,10 @@ impl PrometheusEndpoint {
                 .and_then(|options| options.path_prefix.as_deref())
                 .or(connection.database.as_deref())
                 .filter(|value| value.starts_with('/'))
+                .map(|value| {
+                    validate_http_component(value, "Prometheus path prefix").map(|_| value)
+                })
+                .transpose()?
                 .unwrap_or("")
                 .trim_end_matches('/')
                 .into(),
@@ -143,13 +148,15 @@ impl PrometheusEndpoint {
                 "Prometheus connection string did not include a host.",
             ));
         }
+        validate_http_component(host, "Prometheus host")?;
 
         Ok(Self {
             host: host.into(),
             port,
-            prefix: normalized_prefix(prefix_override)
-                .or_else(|| normalized_prefix(Some(path)))
-                .unwrap_or_default(),
+            prefix: match normalized_prefix(prefix_override)? {
+                Some(prefix) => prefix,
+                None => normalized_prefix(Some(path))?.unwrap_or_default(),
+            },
         })
     }
 
@@ -166,13 +173,27 @@ impl PrometheusEndpoint {
     }
 }
 
-fn normalized_prefix(value: Option<&str>) -> Option<String> {
-    let trimmed = value?.trim().trim_matches('/');
+fn normalized_prefix(value: Option<&str>) -> Result<Option<String>, CommandError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().trim_matches('/');
     if trimmed.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(format!("/{trimmed}"))
+        validate_http_component(trimmed, "Prometheus path prefix")?;
+        Ok(Some(format!("/{trimmed}")))
     }
+}
+
+fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "prometheus-endpoint-invalid",
+            format!("{label} contains an invalid control character."),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn prometheus_query_path(base_path: &str, query: &str) -> String {
@@ -280,5 +301,40 @@ mod tests {
             percent_encode_query("rate(http_requests_total[5m]) > 1"),
             "rate%28http_requests_total%5B5m%5D%29+%3E+1"
         );
+    }
+
+    #[test]
+    fn prometheus_endpoint_rejects_control_characters() {
+        let mut connection = ResolvedConnectionProfile {
+            id: "conn-prom".into(),
+            name: "Prometheus".into(),
+            engine: "prometheus".into(),
+            family: "timeseries".into(),
+            host: "127.0.0.1\r\nX-Bad: yes".into(),
+            port: None,
+            database: None,
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
+            read_only: true,
+        };
+        let host_error = PrometheusEndpoint::from_connection(&connection).unwrap_err();
+        assert_eq!(host_error.code, "prometheus-endpoint-invalid");
+
+        connection.host = "127.0.0.1".into();
+        connection.database = Some("/metrics\r\nX-Bad: yes".into());
+        let path_error = PrometheusEndpoint::from_connection(&connection).unwrap_err();
+        assert_eq!(path_error.code, "prometheus-endpoint-invalid");
     }
 }

@@ -11,6 +11,7 @@ describe('SqliteObjectViewDescriptors', () => {
     expect(sqliteObjectViewMenuLabel('foreign keys')).toBe('Open Foreign Keys')
     expect(sqliteObjectViewMenuLabel('pragma')).toBe('Open Pragma')
     expect(sqliteObjectViewMenuLabel('maintenance')).toBe('Open Maintenance')
+    expect(sqliteObjectViewMenuLabel('dependencies')).toBe('Open Dependencies')
     expect(sqliteObjectViewMenuLabel('table')).not.toBe('Open View')
   })
 
@@ -19,6 +20,7 @@ describe('SqliteObjectViewDescriptors', () => {
     expect(isSqliteObjectViewKind('generated_columns')).toBe(true)
     expect(isSqliteObjectViewKind('foreign-keys')).toBe(true)
     expect(isSqliteObjectViewKind('maintenance')).toBe(true)
+    expect(isSqliteObjectViewKind('dependencies')).toBe(true)
   })
 
   it('falls back safely for unknown objects', () => {

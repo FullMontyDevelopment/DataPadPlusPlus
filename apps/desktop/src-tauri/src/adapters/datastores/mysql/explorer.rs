@@ -798,7 +798,7 @@ async fn database_payload(pool: &MySqlPool, database: &str) -> Value {
     let triggers = trigger_records(pool, database, None).await;
     let events = event_records(pool, database, None).await;
     let indexes = index_records(pool, database, None, None).await;
-    let permissions = permission_records(pool, database).await;
+    let permissions = permission_records(pool, database, None).await;
     let statistics = table_status_records(pool, database).await;
     json!({
         "tableCount": tables.len(),
@@ -823,6 +823,7 @@ async fn table_payload(pool: &MySqlPool, database: &str, table: &str) -> Value {
     let triggers = trigger_records(pool, database, Some(table)).await;
     let partitions = partition_records(pool, database, table).await;
     let statistics = table_records(pool, database, "BASE TABLE", Some(table)).await;
+    let permissions = permission_records(pool, database, Some(table)).await;
     json!({
         "objectName": table,
         "tableName": table,
@@ -834,6 +835,7 @@ async fn table_payload(pool: &MySqlPool, database: &str, table: &str) -> Value {
         "triggers": triggers,
         "partitions": partitions,
         "statistics": statistics,
+        "permissions": permissions,
     })
 }
 
@@ -851,7 +853,7 @@ async fn view_payload(pool: &MySqlPool, database: &str, view: &str) -> Value {
         "definition": definition,
         "views": views,
         "columns": column_records(pool, database, Some(view)).await,
-        "permissions": permission_records(pool, database).await,
+        "permissions": permission_records(pool, database, None).await,
     })
 }
 
@@ -879,7 +881,7 @@ async fn routine_payload(pool: &MySqlPool, database: &str, name: &str, kind: &st
         "definition": definition,
         "routines": routines,
         "parameters": parameter_records(pool, database, name).await,
-        "permissions": permission_records(pool, database).await,
+        "permissions": permission_records(pool, database, None).await,
     });
     merge_payload(&mut payload, kind_records);
     payload
@@ -917,7 +919,7 @@ async fn security_payload(pool: &MySqlPool, database: &str) -> Value {
         "objectName": "Users / Privileges",
         "users": users,
         "roles": role_records(pool).await,
-        "permissions": permission_records(pool, database).await,
+        "permissions": permission_records(pool, database, None).await,
     })
 }
 
@@ -978,7 +980,7 @@ async fn table_section_counts(pool: &MySqlPool, database: &str, table: &str) -> 
     TableSectionCounts {
         columns: count_query(pool, &format!("select count(*) as count from information_schema.columns where table_schema = '{}' and table_name = '{}'", sql_literal(database), sql_literal(table))).await,
         indexes: count_query(pool, &format!("select count(distinct index_name) as count from information_schema.statistics where table_schema = '{}' and table_name = '{}'", sql_literal(database), sql_literal(table))).await,
-        foreign_keys: count_query(pool, &format!("select count(*) as count from information_schema.key_column_usage where table_schema = '{}' and table_name = '{}' and referenced_table_name is not null", sql_literal(database), sql_literal(table))).await,
+        foreign_keys: count_query(pool, &format!("select count(distinct constraint_name) as count from information_schema.key_column_usage where table_schema = '{}' and table_name = '{}' and referenced_table_name is not null", sql_literal(database), sql_literal(table))).await,
         triggers: count_query(pool, &format!("select count(*) as count from information_schema.triggers where trigger_schema = '{}' and event_object_table = '{}'", sql_literal(database), sql_literal(table))).await,
         partitions: count_query(pool, &format!("select count(*) as count from information_schema.partitions where table_schema = '{}' and table_name = '{}' and partition_name is not null", sql_literal(database), sql_literal(table))).await,
     }
@@ -1114,27 +1116,58 @@ async fn index_records(
 
 async fn foreign_key_records(pool: &MySqlPool, database: &str, table: Option<&str>) -> Vec<Value> {
     let mut query = format!(
-        "select constraint_name as id, table_name as tableName, column_name as columnName,
-                referenced_table_schema as referencedSchema, referenced_table_name as referencedTable,
-                referenced_column_name as referencedColumn
-         from information_schema.key_column_usage
-         where table_schema = '{}' and referenced_table_name is not null",
+        "select kcu.constraint_name as id,
+                kcu.table_name as tableName,
+                group_concat(kcu.column_name order by kcu.ordinal_position separator ', ') as columns,
+                kcu.referenced_table_schema as referencedSchema,
+                kcu.referenced_table_name as referencedTable,
+                group_concat(kcu.referenced_column_name order by kcu.ordinal_position separator ', ') as referencedColumns,
+                coalesce(rc.update_rule, '') as onUpdate,
+                coalesce(rc.delete_rule, '') as onDelete,
+                coalesce(rc.match_option, '') as matchOption
+         from information_schema.key_column_usage kcu
+         left join information_schema.referential_constraints rc
+           on rc.constraint_schema = kcu.constraint_schema
+          and rc.constraint_name = kcu.constraint_name
+         where kcu.table_schema = '{}' and kcu.referenced_table_name is not null",
         sql_literal(database)
     );
     if let Some(table) = table {
-        query.push_str(&format!(" and table_name = '{}'", sql_literal(table)));
+        query.push_str(&format!(" and kcu.table_name = '{}'", sql_literal(table)));
     }
-    query.push_str(" order by table_name, constraint_name, ordinal_position limit 500");
+    query.push_str(
+        " group by kcu.constraint_name, kcu.table_name, kcu.referenced_table_schema, kcu.referenced_table_name, rc.update_rule, rc.delete_rule, rc.match_option
+          order by kcu.table_name, kcu.constraint_name limit 500",
+    );
 
     optional_rows(pool, &query)
         .await
         .into_iter()
         .map(|row| {
+            let table_name = string_cell(&row, "tableName");
+            let columns = string_cell(&row, "columns");
+            let referenced_schema = string_cell(&row, "referencedSchema");
+            let referenced_table = string_cell(&row, "referencedTable");
+            let referenced_columns = string_cell(&row, "referencedColumns");
+            let referenced_name = if referenced_schema == database {
+                referenced_table.clone()
+            } else {
+                format!("{referenced_schema}.{referenced_table}")
+            };
+
             json!({
                 "id": string_cell(&row, "id"),
-                "from": format!("{}.{}", string_cell(&row, "tableName"), string_cell(&row, "columnName")),
-                "table": string_cell(&row, "tableName"),
-                "to": format!("{}.{}.{}", string_cell(&row, "referencedSchema"), string_cell(&row, "referencedTable"), string_cell(&row, "referencedColumn")),
+                "name": string_cell(&row, "id"),
+                "from": relationship_endpoint(&table_name, &columns),
+                "table": table_name,
+                "columns": columns,
+                "to": relationship_endpoint(&referenced_name, &referenced_columns),
+                "referencedSchema": referenced_schema,
+                "referencedTable": referenced_table,
+                "referencedColumns": referenced_columns,
+                "onUpdate": string_cell(&row, "onUpdate"),
+                "onDelete": string_cell(&row, "onDelete"),
+                "match": string_cell(&row, "matchOption"),
             })
         })
         .collect()
@@ -1311,15 +1344,27 @@ async fn table_status_records(pool: &MySqlPool, database: &str) -> Vec<Value> {
         .collect()
 }
 
-async fn permission_records(pool: &MySqlPool, database: &str) -> Vec<Value> {
-    let query = format!(
-        "select grantee as principal, privilege_type as privilege,
-                table_schema as object, is_grantable as state
-         from information_schema.schema_privileges
-         where table_schema = '{}'
-         order by grantee, privilege_type limit 500",
-        sql_literal(database)
-    );
+async fn permission_records(pool: &MySqlPool, database: &str, table: Option<&str>) -> Vec<Value> {
+    let query = if let Some(table) = table {
+        format!(
+            "select grantee as principal, privilege_type as privilege,
+                    concat(table_schema, '.', table_name) as object, is_grantable as state
+             from information_schema.table_privileges
+             where table_schema = '{}' and table_name = '{}'
+             order by grantee, privilege_type limit 500",
+            sql_literal(database),
+            sql_literal(table)
+        )
+    } else {
+        format!(
+            "select grantee as principal, privilege_type as privilege,
+                    table_schema as object, is_grantable as state
+             from information_schema.schema_privileges
+             where table_schema = '{}'
+             order by grantee, privilege_type limit 500",
+            sql_literal(database)
+        )
+    };
     optional_rows(pool, &query)
         .await
         .into_iter()
@@ -1641,7 +1686,7 @@ fn mysql_table_child_query_template(database: &str, table: &str, section: &str) 
             sql_literal(table)
         ),
         "foreign-keys" => format!(
-            "select constraint_name, column_name, referenced_table_name, referenced_column_name\nfrom information_schema.key_column_usage\nwhere table_schema = '{}' and table_name = '{}' and referenced_table_name is not null;",
+            "select kcu.constraint_name, kcu.column_name, kcu.referenced_table_name, kcu.referenced_column_name, rc.update_rule, rc.delete_rule\nfrom information_schema.key_column_usage kcu\nleft join information_schema.referential_constraints rc on rc.constraint_schema = kcu.constraint_schema and rc.constraint_name = kcu.constraint_name\nwhere kcu.table_schema = '{}' and kcu.table_name = '{}' and kcu.referenced_table_name is not null;",
             sql_literal(database),
             sql_literal(table)
         ),
@@ -1688,6 +1733,15 @@ pub(crate) fn mysql_select_template(schema: &str, table: &str) -> String {
 
 fn mysql_quote_identifier(identifier: &str) -> String {
     format!("`{}`", identifier.replace('`', "``"))
+}
+
+fn relationship_endpoint(object: &str, columns: &str) -> String {
+    let columns = columns.trim();
+    if columns.is_empty() {
+        object.to_string()
+    } else {
+        format!("{object}.{columns}")
+    }
 }
 
 fn parse_mysql_node_ref(node_id: &str, connection: &ResolvedConnectionProfile) -> MysqlNodeRef {
@@ -1985,6 +2039,26 @@ mod tests {
             data.query_template.as_deref(),
             Some("select * from `app`.`accounts` limit 100;")
         );
+    }
+
+    #[test]
+    fn mysql_foreign_key_template_includes_referential_actions() {
+        let query = mysql_table_child_query_template("app", "orders", "foreign-keys");
+
+        assert!(query.contains("referential_constraints"));
+        assert!(query.contains("rc.update_rule"));
+        assert!(query.contains("rc.delete_rule"));
+        assert!(query.contains("kcu.table_schema = 'app'"));
+        assert!(query.contains("kcu.table_name = 'orders'"));
+    }
+
+    #[test]
+    fn mysql_relationship_endpoint_handles_composite_columns() {
+        assert_eq!(
+            relationship_endpoint("orders", "account_id, region_id"),
+            "orders.account_id, region_id"
+        );
+        assert_eq!(relationship_endpoint("orders", ""), "orders");
     }
 
     #[test]

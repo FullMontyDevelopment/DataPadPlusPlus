@@ -149,23 +149,10 @@ fn database_folder_nodes(
             "Runtime stats, plans, and regressed queries",
         ),
         section(
-            "agent",
-            "Agent",
-            "sql-server-agent",
-            "Jobs, schedules, alerts, and operators",
-        ),
-        section(
-            "extended-events",
-            "Extended Events",
-            "extended-events",
-            "Database-scoped event sessions",
-        ),
-        section("cdc", "CDC", "cdc", "Change Data Capture metadata"),
-        section(
-            "change-tracking",
-            "Change Tracking",
-            "change-tracking",
-            "Change tracking metadata",
+            "performance",
+            "Performance",
+            "performance",
+            "Sessions, locks, waits, and tuning hints",
         ),
         section(
             "storage",
@@ -225,6 +212,11 @@ async fn list_sqlserver_category(
         "storage.files" => query_named_rows(connection, database, "Files", "SELECT name, type_desc AS detail FROM sys.database_files ORDER BY file_id", "file").await,
         "storage.filegroups" => query_named_rows(connection, database, "Filegroups", "SELECT name, type_desc AS detail FROM sys.filegroups ORDER BY name", "filegroup").await,
         "query-store" => query_store_nodes(connection, database).await,
+        "performance" => Ok(performance_group_nodes(connection, database)),
+        "performance.sessions" => query_named_rows(connection, database, "Sessions", "SELECT CAST(session_id AS nvarchar(20)) AS name, CONCAT(status, ' / ', login_name) AS detail FROM sys.dm_exec_sessions WHERE is_user_process = 1 ORDER BY session_id", "session").await,
+        "performance.locks" => query_named_rows(connection, database, "Locks", "SELECT TOP 100 CAST(request_session_id AS nvarchar(20)) AS name, CONCAT(resource_type, ' / ', request_mode, ' / ', request_status) AS detail FROM sys.dm_tran_locks ORDER BY request_session_id, resource_type", "lock").await,
+        "performance.waits" => query_named_rows(connection, database, "Wait Stats", "SELECT TOP 50 wait_type AS name, CONCAT(CAST(waiting_tasks_count AS nvarchar(20)), ' waits / ', CAST(wait_time_ms AS nvarchar(30)), ' ms') AS detail FROM sys.dm_os_wait_stats WHERE waiting_tasks_count > 0 ORDER BY wait_time_ms DESC", "wait").await,
+        "performance.missing-indexes" => query_named_rows(connection, database, "Missing Indexes", "SELECT TOP 50 CONCAT(DB_NAME(database_id), '.', OBJECT_SCHEMA_NAME(object_id, database_id), '.', OBJECT_NAME(object_id, database_id)) AS name, COALESCE(equality_columns, inequality_columns, included_columns, '') AS detail FROM sys.dm_db_missing_index_details WHERE database_id = DB_ID() ORDER BY name", "missing-index").await,
         "agent" => Ok(agent_group_nodes(connection, database)),
         _ => Ok(vec![warning_node(
             connection,
@@ -553,6 +545,38 @@ fn agent_group_nodes(connection: &ResolvedConnectionProfile, database: &str) -> 
     )
 }
 
+fn performance_group_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+) -> Vec<ExplorerNode> {
+    grouped_nodes(
+        connection,
+        database,
+        "Performance",
+        &[
+            (
+                "performance.sessions",
+                "Sessions",
+                "sessions",
+                "Active sessions and requests",
+            ),
+            ("performance.locks", "Locks", "locks", "Locks and blockers"),
+            (
+                "performance.waits",
+                "Wait Stats",
+                "waits",
+                "Wait categories and pressure",
+            ),
+            (
+                "performance.missing-indexes",
+                "Missing Indexes",
+                "missing-indexes",
+                "Optimizer missing-index hints",
+            ),
+        ],
+    )
+}
+
 fn grouped_nodes(
     connection: &ResolvedConnectionProfile,
     database: &str,
@@ -799,6 +823,30 @@ fn inspect_query_template(connection: &ResolvedConnectionProfile, node_id: &str)
         }
     }
 
+    for prefix in [
+        "columns",
+        "keys",
+        "constraints",
+        "indexes",
+        "triggers",
+        "statistics",
+        "dependencies",
+        "permissions",
+        "data",
+        "scripts",
+    ] {
+        if let Some(scope) = node_id.strip_prefix(&format!("{prefix}:")) {
+            if let Some((database, schema, table)) = parse_three_part_scope(scope) {
+                return format!(
+                    "use {};\nselect top 100 * from {}.{};",
+                    quote_identifier(&database),
+                    quote_identifier(&schema),
+                    quote_identifier(&table)
+                );
+            }
+        }
+    }
+
     if let Some(scope) = node_id.strip_prefix("view:") {
         if let Some((database, schema, view)) = parse_three_part_scope(scope) {
             return format!(
@@ -855,10 +903,14 @@ fn inspect_query_template(connection: &ResolvedConnectionProfile, node_id: &str)
 }
 
 fn object_views_for_node(node_id: &str) -> Vec<&'static str> {
-    if node_id.starts_with("table:") || node_id.matches('.').count() == 1 {
+    if is_sqlserver_table_feature_node(node_id)
+        || node_id.starts_with("table:")
+        || node_id.matches('.').count() == 1
+    {
         return vec![
             "Data",
             "Columns",
+            "Keys",
             "Indexes",
             "Constraints",
             "Triggers",
@@ -892,6 +944,23 @@ fn object_views_for_node(node_id: &str) -> Vec<&'static str> {
     Vec::new()
 }
 
+fn is_sqlserver_table_feature_node(node_id: &str) -> bool {
+    [
+        "columns",
+        "keys",
+        "constraints",
+        "indexes",
+        "triggers",
+        "statistics",
+        "dependencies",
+        "permissions",
+        "data",
+        "scripts",
+    ]
+    .iter()
+    .any(|prefix| node_id.starts_with(&format!("{prefix}:")))
+}
+
 async fn sqlserver_inspect_payload(
     connection: &ResolvedConnectionProfile,
     node_id: &str,
@@ -918,7 +987,7 @@ async fn sqlserver_inspect_payload(
     let details = match target.object_view.as_str() {
         "database" => sqlserver_database_payload(&mut client, &target.database).await,
         "table" | "columns" | "keys" | "constraints" | "indexes" | "triggers" | "statistics"
-        | "permissions" | "data" | "scripts" => {
+        | "dependencies" | "permissions" | "data" | "scripts" => {
             sqlserver_table_payload(
                 &mut client,
                 &target.database,
@@ -1127,6 +1196,7 @@ async fn sqlserver_table_payload(
         },
     )
     .await;
+    let foreign_keys = sqlserver_foreign_key_records(client, database, schema, table).await;
     let triggers = sqlserver_rows(
         client,
         database,
@@ -1177,6 +1247,7 @@ async fn sqlserver_table_payload(
     )
     .await;
     let permissions = sqlserver_object_permissions(client, database, schema, table).await;
+    let dependencies = sqlserver_dependency_records(client, database, schema, table).await;
 
     json!({
         "database": database,
@@ -1186,10 +1257,141 @@ async fn sqlserver_table_payload(
         "columns": columns,
         "indexes": indexes,
         "constraints": constraints,
+        "foreignKeys": foreign_keys,
         "triggers": triggers,
         "statistics": statistics,
+        "dependencies": dependencies,
         "permissions": permissions,
     })
+}
+
+async fn sqlserver_foreign_key_records(
+    client: &mut SqlServerClient,
+    database: &str,
+    schema: &str,
+    table: &str,
+) -> Vec<Value> {
+    sqlserver_rows(
+        client,
+        database,
+        &format!(
+            "SELECT fk.name AS constraint_name,
+                    s.name AS schema_name,
+                    parent.name AS table_name,
+                    rs.name AS referenced_schema,
+                    referenced.name AS referenced_table,
+                    STRING_AGG(parent_column.name, ', ') WITHIN GROUP (ORDER BY fkc.constraint_column_id) AS columns,
+                    STRING_AGG(referenced_column.name, ', ') WITHIN GROUP (ORDER BY fkc.constraint_column_id) AS referenced_columns,
+                    fk.update_referential_action_desc,
+                    fk.delete_referential_action_desc,
+                    fk.is_disabled,
+                    fk.is_not_trusted
+             FROM sys.foreign_keys fk
+             JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+             JOIN sys.tables parent ON parent.object_id = fk.parent_object_id
+             JOIN sys.schemas s ON s.schema_id = parent.schema_id
+             JOIN sys.tables referenced ON referenced.object_id = fk.referenced_object_id
+             JOIN sys.schemas rs ON rs.schema_id = referenced.schema_id
+             JOIN sys.columns parent_column ON parent_column.object_id = parent.object_id AND parent_column.column_id = fkc.parent_column_id
+             JOIN sys.columns referenced_column ON referenced_column.object_id = referenced.object_id AND referenced_column.column_id = fkc.referenced_column_id
+             WHERE s.name = '{}' AND parent.name = '{}'
+             GROUP BY fk.name, s.name, parent.name, rs.name, referenced.name, fk.update_referential_action_desc, fk.delete_referential_action_desc, fk.is_disabled, fk.is_not_trusted
+             ORDER BY fk.name",
+            sql_literal(schema),
+            sql_literal(table)
+        ),
+        |row| {
+            let table_name = row.get::<&str, _>("table_name").unwrap_or(table);
+            let referenced_schema = row.get::<&str, _>("referenced_schema").unwrap_or(schema);
+            let referenced_table = row.get::<&str, _>("referenced_table").unwrap_or_default();
+            let columns = row.get::<&str, _>("columns").unwrap_or_default();
+            let referenced_columns = row
+                .get::<&str, _>("referenced_columns")
+                .unwrap_or_default();
+            let referenced_name = if referenced_schema == schema {
+                referenced_table.to_string()
+            } else {
+                format!("{referenced_schema}.{referenced_table}")
+            };
+            let disabled = row.get::<bool, _>("is_disabled").unwrap_or(false);
+            let not_trusted = row.get::<bool, _>("is_not_trusted").unwrap_or(false);
+
+            json!({
+                "id": row.get::<&str, _>("constraint_name").unwrap_or_default(),
+                "name": row.get::<&str, _>("constraint_name").unwrap_or_default(),
+                "from": relationship_endpoint(table_name, columns),
+                "table": table_name,
+                "columns": columns,
+                "to": relationship_endpoint(&referenced_name, referenced_columns),
+                "referencedSchema": referenced_schema,
+                "referencedTable": referenced_table,
+                "referencedColumns": referenced_columns,
+                "onUpdate": row.get::<&str, _>("update_referential_action_desc").unwrap_or_default(),
+                "onDelete": row.get::<&str, _>("delete_referential_action_desc").unwrap_or_default(),
+                "status": if disabled { "disabled" } else if not_trusted { "not trusted" } else { "trusted" },
+            })
+        },
+    )
+    .await
+}
+
+async fn sqlserver_dependency_records(
+    client: &mut SqlServerClient,
+    database: &str,
+    schema: &str,
+    object_name: &str,
+) -> Vec<Value> {
+    let object_literal = sql_literal(&format!(
+        "{}.{}",
+        quote_identifier(schema),
+        quote_identifier(object_name)
+    ));
+    sqlserver_rows(
+        client,
+        database,
+        &format!(
+            "DECLARE @object_id int = OBJECT_ID(N'{object_literal}');
+             SELECT OBJECT_SCHEMA_NAME(d.referencing_id) AS schema_name,
+                    OBJECT_NAME(d.referencing_id) AS object_name,
+                    referencing.type_desc AS object_type,
+                    COALESCE(d.referenced_schema_name, OBJECT_SCHEMA_NAME(d.referenced_id)) AS referenced_schema,
+                    COALESCE(d.referenced_entity_name, OBJECT_NAME(d.referenced_id)) AS referenced_name,
+                    referenced.type_desc AS referenced_type,
+                    CASE WHEN d.referencing_id = @object_id THEN 'references' ELSE 'referenced by' END AS direction
+             FROM sys.sql_expression_dependencies d
+             LEFT JOIN sys.objects referencing ON referencing.object_id = d.referencing_id
+             LEFT JOIN sys.objects referenced ON referenced.object_id = d.referenced_id
+             WHERE @object_id IS NOT NULL
+               AND (
+                 d.referencing_id = @object_id
+                 OR d.referenced_id = @object_id
+                 OR (d.referenced_schema_name = '{}' AND d.referenced_entity_name = '{}')
+               )
+             ORDER BY direction, object_name, referenced_name",
+            sql_literal(schema),
+            sql_literal(object_name)
+        ),
+        |row| {
+            let direction = row.get::<&str, _>("direction").unwrap_or_default();
+            let object_schema = row.get::<&str, _>("schema_name").unwrap_or(schema);
+            let object_name = row.get::<&str, _>("object_name").unwrap_or_default();
+            let referenced_schema = row.get::<&str, _>("referenced_schema").unwrap_or_default();
+            let referenced_name = row.get::<&str, _>("referenced_name").unwrap_or_default();
+
+            json!({
+                "name": if direction == "references" {
+                    qualified_name(referenced_schema, referenced_name)
+                } else {
+                    qualified_name(object_schema, object_name)
+                },
+                "type": row.get::<&str, _>("object_type").unwrap_or_default(),
+                "referencedName": qualified_name(referenced_schema, referenced_name),
+                "referencedType": row.get::<&str, _>("referenced_type").unwrap_or_default(),
+                "direction": direction,
+            })
+        },
+    )
+    .await
 }
 
 async fn sqlserver_view_payload(
@@ -1521,6 +1723,7 @@ impl SqlServerObjectTarget {
             "indexes",
             "triggers",
             "statistics",
+            "dependencies",
             "permissions",
             "data",
             "scripts",
@@ -1771,6 +1974,25 @@ fn quote_identifier(value: &str) -> String {
     format!("[{}]", value.replace(']', "]]"))
 }
 
+fn relationship_endpoint(object: &str, columns: &str) -> String {
+    let columns = columns.trim();
+    if columns.is_empty() {
+        object.to_string()
+    } else {
+        format!("{object}.{columns}")
+    }
+}
+
+fn qualified_name(schema: &str, object_name: &str) -> String {
+    if schema.is_empty() {
+        object_name.to_string()
+    } else if object_name.is_empty() {
+        schema.to_string()
+    } else {
+        format!("{schema}.{object_name}")
+    }
+}
+
 fn sqlserver_module_definition_template(database: &str, schema: &str, object_name: &str) -> String {
     format!(
         "use {};\nselect sm.definition from sys.sql_modules sm join sys.objects so on so.object_id = sm.object_id join sys.schemas ss on ss.schema_id = so.schema_id where ss.name = N'{}' and so.name = N'{}';",
@@ -1816,6 +2038,20 @@ mod tests {
     }
 
     #[test]
+    fn inspect_sqlserver_explorer_node_uses_table_query_for_table_feature_nodes() {
+        let connection = connection();
+
+        assert_eq!(
+            inspect_query_template(&connection, "keys:datapadplusplus:dbo:orders"),
+            "use [datapadplusplus];\nselect top 100 * from [dbo].[orders];"
+        );
+        assert_eq!(
+            inspect_query_template(&connection, "dependencies:datapadplusplus:dbo:orders"),
+            "use [datapadplusplus];\nselect top 100 * from [dbo].[orders];"
+        );
+    }
+
+    #[test]
     fn inspect_sqlserver_explorer_node_uses_module_definition_for_routines() {
         let connection = connection();
         let procedure_query =
@@ -1840,8 +2076,31 @@ mod tests {
             SqlServerObjectTarget::new("table", "datapadplusplus", "dbo", "orders")
         );
         assert_eq!(
+            SqlServerObjectTarget::parse(&connection, "dependencies:datapadplusplus:dbo:orders"),
+            SqlServerObjectTarget::new("dependencies", "datapadplusplus", "dbo", "orders")
+        );
+        assert_eq!(
             SqlServerObjectTarget::parse(&connection, "sqlserver:datapadplusplus:query-store"),
             SqlServerObjectTarget::new("query-store", "datapadplusplus", "dbo", "")
+        );
+    }
+
+    #[test]
+    fn sqlserver_table_feature_nodes_expose_table_workflow_tabs() {
+        assert_eq!(
+            object_views_for_node("keys:datapadplusplus:dbo:orders"),
+            vec![
+                "Data",
+                "Columns",
+                "Keys",
+                "Indexes",
+                "Constraints",
+                "Triggers",
+                "Statistics",
+                "Dependencies",
+                "Permissions",
+                "DDL",
+            ]
         );
     }
 
@@ -1858,9 +2117,10 @@ mod tests {
         assert!(labels.contains(&"Stored Procedures"));
         assert!(labels.contains(&"Functions"));
         assert!(labels.contains(&"Query Store"));
-        assert!(labels.contains(&"Extended Events"));
-        assert!(labels.contains(&"CDC"));
-        assert!(labels.contains(&"Change Tracking"));
+        assert!(labels.contains(&"Performance"));
+        assert!(!labels.contains(&"Extended Events"));
+        assert!(!labels.contains(&"CDC"));
+        assert!(!labels.contains(&"Change Tracking"));
     }
 
     #[test]

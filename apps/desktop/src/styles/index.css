@@ -3494,6 +3494,91 @@ button:disabled:hover {
   font-size: 12px;
 }
 
+.relational-summary {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.relational-summary-identity,
+.relational-summary-links {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.relational-summary-identity span,
+.relational-summary-identity strong {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relational-summary-identity span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.relational-summary-identity strong {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  color: var(--heading);
+  font-size: 12px;
+}
+
+.relational-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
+  gap: 6px;
+}
+
+.relational-summary-stat {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 6px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.relational-summary-stat span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.relational-summary-stat strong {
+  grid-column: 2;
+  color: var(--heading);
+  font-size: 16px;
+}
+
+.relational-summary-links span {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.relational-summary-links strong {
+  max-width: 160px;
+  overflow: hidden;
+  color: var(--heading);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mongo-pipeline-stage-list {
   display: grid;
   gap: 8px;

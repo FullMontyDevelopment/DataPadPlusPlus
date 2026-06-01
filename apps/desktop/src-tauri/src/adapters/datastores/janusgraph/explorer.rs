@@ -18,7 +18,8 @@ pub(super) async fn list_janusgraph_explorer_nodes(
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
     let nodes = match request.scope.as_deref() {
-        Some("janusgraph:vertex-labels") => {
+        Some("graph:graphs") => graph_nodes(connection),
+        Some("janusgraph:vertex-labels" | "graph:node-labels") => {
             query_value_nodes(
                 connection,
                 request.limit,
@@ -27,10 +28,10 @@ pub(super) async fn list_janusgraph_explorer_nodes(
             )
             .await?
         }
-        Some("janusgraph:edge-labels") => {
+        Some("janusgraph:edge-labels" | "graph:relationship-types") => {
             query_value_nodes(connection, request.limit, EDGE_LABELS_QUERY, "edge-label").await?
         }
-        Some("janusgraph:property-keys") => {
+        Some("janusgraph:property-keys" | "graph:property-keys") => {
             query_value_nodes(
                 connection,
                 request.limit,
@@ -39,9 +40,10 @@ pub(super) async fn list_janusgraph_explorer_nodes(
             )
             .await?
         }
-        Some("janusgraph:indexes") => {
+        Some("janusgraph:indexes" | "graph:indexes") => {
             query_value_nodes(connection, request.limit, GRAPH_INDEXES_QUERY, "index").await?
         }
+        Some("graph:procedures") => management_nodes(connection),
         Some(_) => Vec::new(),
         None => root_nodes(connection),
     };
@@ -67,19 +69,25 @@ pub(super) async fn inspect_janusgraph_explorer_node(
     let query_template = request
         .node_id
         .strip_prefix("janusgraph-vertex-label:")
+        .or_else(|| request.node_id.strip_prefix("node-label:"))
         .map(|label| format!("g.V().hasLabel({}).limit(100)", quote_gremlin_string(label)))
         .or_else(|| {
             request
                 .node_id
                 .strip_prefix("janusgraph-edge-label:")
+                .or_else(|| request.node_id.strip_prefix("relationship:"))
                 .map(|label| format!("g.E().hasLabel({}).limit(100)", quote_gremlin_string(label)))
         })
         .unwrap_or_else(|| match request.node_id.as_str() {
-            "janusgraph-vertex-labels" => VERTEX_LABELS_QUERY.into(),
-            "janusgraph-edge-labels" => EDGE_LABELS_QUERY.into(),
-            "janusgraph-property-keys" => PROPERTY_KEYS_QUERY.into(),
-            "janusgraph-indexes" => GRAPH_INDEXES_QUERY.into(),
-            "janusgraph-diagnostics" => "g.V().limit(1).count()".into(),
+            "graph:graphs" => "g.V().limit(100)".into(),
+            "janusgraph-vertex-labels" | "graph:node-labels" => VERTEX_LABELS_QUERY.into(),
+            "janusgraph-edge-labels" | "graph:relationship-types" => EDGE_LABELS_QUERY.into(),
+            "janusgraph-property-keys" | "graph:property-keys" => PROPERTY_KEYS_QUERY.into(),
+            "janusgraph-indexes" | "graph:indexes" => GRAPH_INDEXES_QUERY.into(),
+            "graph:procedures" => {
+                "mgmt = graph.openManagement(); mgmt.rollback(); 'management'".into()
+            }
+            "janusgraph-diagnostics" | "graph:diagnostics" => "g.V().limit(1).count()".into(),
             _ => "g.V().limit(100)".into(),
         });
     let object_view = janusgraph_object_view_kind(&request.node_id);
@@ -100,43 +108,59 @@ pub(super) async fn inspect_janusgraph_explorer_node(
 fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
     [
         (
-            "janusgraph-vertex-labels",
+            "graph:graphs",
+            "Graphs",
+            "graphs",
+            "Configured JanusGraph graph traversal source",
+            "graph:graphs",
+            "g.V().limit(100)",
+        ),
+        (
+            "graph:node-labels",
             "Vertex Labels",
-            "vertex-labels",
+            "node-labels",
             "JanusGraph vertex label schema",
-            "janusgraph:vertex-labels",
+            "graph:node-labels",
             VERTEX_LABELS_QUERY,
         ),
         (
-            "janusgraph-edge-labels",
+            "graph:relationship-types",
             "Edge Labels",
-            "edge-labels",
+            "relationship-types",
             "JanusGraph edge label schema",
-            "janusgraph:edge-labels",
+            "graph:relationship-types",
             EDGE_LABELS_QUERY,
         ),
         (
-            "janusgraph-property-keys",
+            "graph:property-keys",
             "Property Keys",
             "property-keys",
             "Property key definitions and data types",
-            "janusgraph:property-keys",
+            "graph:property-keys",
             PROPERTY_KEYS_QUERY,
         ),
         (
-            "janusgraph-indexes",
+            "graph:indexes",
             "Indexes",
             "indexes",
             "Graph and mixed index names",
-            "janusgraph:indexes",
+            "graph:indexes",
             GRAPH_INDEXES_QUERY,
         ),
         (
-            "janusgraph-diagnostics",
+            "graph:procedures",
+            "Management",
+            "procedures",
+            "Schema management and traversal workflow entry points",
+            "graph:procedures",
+            "mgmt = graph.openManagement(); mgmt.rollback(); 'management'",
+        ),
+        (
+            "graph:diagnostics",
             "Diagnostics",
             "diagnostics",
             "Gremlin reachability, schema metadata, and traversal guidance",
-            "janusgraph:diagnostics",
+            "graph:diagnostics",
             "g.V().limit(1).count()",
         ),
     ]
@@ -155,6 +179,54 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
     .collect()
 }
 
+fn graph_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    let graph = connection.database.as_deref().unwrap_or("g");
+    vec![ExplorerNode {
+        id: format!("graph:{graph}"),
+        family: "graph".into(),
+        label: graph.into(),
+        kind: "graph".into(),
+        detail: "JanusGraph traversal graph".into(),
+        scope: None,
+        path: Some(vec![connection.name.clone(), "Graphs".into()]),
+        query_template: Some("g.V().limit(100)".into()),
+        expandable: Some(false),
+    }]
+}
+
+fn management_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    [
+        (
+            "procedure:schema-management",
+            "Schema Management",
+            "Review and preview JanusGraph schema changes",
+        ),
+        (
+            "procedure:index-management",
+            "Index Management",
+            "Review graph and mixed index workflows",
+        ),
+        (
+            "procedure:traversal-profile",
+            "Traversal Profile",
+            "Profile bounded Gremlin traversals",
+        ),
+    ]
+    .into_iter()
+    .map(|(id, label, detail)| ExplorerNode {
+        id: id.into(),
+        family: "graph".into(),
+        label: label.into(),
+        kind: "procedures".into(),
+        detail: detail.into(),
+        scope: None,
+        path: Some(vec![connection.name.clone(), "Management".into()]),
+        query_template: Some("g.V().limit(100).profile()".into()),
+        expandable: Some(false),
+    })
+    .collect()
+}
+
 async fn query_value_nodes(
     connection: &ResolvedConnectionProfile,
     limit: Option<u32>,
@@ -168,11 +240,23 @@ async fn query_value_nodes(
         .take(limit)
         .map(|label| {
             let id_kind = kind.replace('-', "_");
+            let node_id = match kind {
+                "vertex-label" => format!("node-label:{label}"),
+                "edge-label" => format!("relationship:{label}"),
+                "property-key" => format!("property-key:{label}"),
+                "index" => format!("index:{label}"),
+                _ => format!("{kind}:{label}"),
+            };
             ExplorerNode {
-                id: format!("janusgraph-{kind}:{label}"),
+                id: node_id,
                 family: "graph".into(),
                 label: label.clone(),
-                kind: kind.into(),
+                kind: match kind {
+                    "vertex-label" => "node-label",
+                    "edge-label" => "relationship",
+                    _ => kind,
+                }
+                .into(),
                 detail: format!("JanusGraph {kind}"),
                 scope: None,
                 path: Some(vec![connection.name.clone(), id_kind]),
@@ -223,20 +307,30 @@ async fn enrich_janusgraph_inspection(
     let indexes = optional_janusgraph_query(connection, GRAPH_INDEXES_QUERY).await;
     let ping = optional_janusgraph_query(connection, "g.V().limit(1).count()").await;
 
-    let vertex_filter = node_id.strip_prefix("janusgraph-vertex-label:");
-    let edge_filter = node_id.strip_prefix("janusgraph-edge-label:");
-    let property_filter = node_id.strip_prefix("janusgraph-property-key:");
-    let index_filter = node_id.strip_prefix("janusgraph-index:");
+    let vertex_filter = node_id
+        .strip_prefix("janusgraph-vertex-label:")
+        .or_else(|| node_id.strip_prefix("node-label:"));
+    let edge_filter = node_id
+        .strip_prefix("janusgraph-edge-label:")
+        .or_else(|| node_id.strip_prefix("relationship:"));
+    let property_filter = node_id
+        .strip_prefix("janusgraph-property-key:")
+        .or_else(|| node_id.strip_prefix("property-key:"));
+    let index_filter = node_id
+        .strip_prefix("janusgraph-index:")
+        .or_else(|| node_id.strip_prefix("index:"));
     let node_labels = janusgraph_label_records(vertex_labels.as_ref(), vertex_filter);
     let relationship_types = janusgraph_relationship_records(edge_labels.as_ref(), edge_filter);
     let property_key_rows =
         janusgraph_property_key_records(property_keys.as_ref(), property_filter);
     let index_rows = janusgraph_index_records(indexes.as_ref(), index_filter);
 
+    payload["graphs"] = json!(janusgraph_graph_records(connection));
     payload["nodeLabels"] = json!(node_labels);
     payload["relationshipTypes"] = json!(relationship_types);
     payload["propertyKeys"] = json!(property_key_rows);
     payload["indexes"] = json!(index_rows);
+    payload["procedures"] = json!(janusgraph_management_records());
     payload["diagnostics"] = json!(janusgraph_diagnostic_records(
         ping.is_some(),
         vertex_labels.is_some(),
@@ -277,6 +371,7 @@ fn janusgraph_base_payload(
         "relationshipTypeCount": 0,
         "indexCount": 0,
         "constraintCount": 0,
+        "graphs": [],
         "nodeLabels": [],
         "relationshipTypes": [],
         "propertyKeys": [],
@@ -294,35 +389,56 @@ fn janusgraph_base_payload(
 }
 
 fn janusgraph_object_view_kind(node_id: &str) -> &'static str {
-    if node_id == "janusgraph-vertex-labels" {
+    if node_id == "graph:graphs" {
+        return "graphs";
+    }
+    if node_id == "janusgraph-vertex-labels" || node_id == "graph:node-labels" {
         return "node-labels";
     }
-    if node_id.starts_with("janusgraph-vertex-label:") {
+    if node_id.starts_with("janusgraph-vertex-label:") || node_id.starts_with("node-label:") {
         return "node-label";
     }
-    if node_id == "janusgraph-edge-labels" {
+    if node_id == "janusgraph-edge-labels" || node_id == "graph:relationship-types" {
         return "relationship-types";
     }
-    if node_id.starts_with("janusgraph-edge-label:") {
+    if node_id.starts_with("janusgraph-edge-label:") || node_id.starts_with("relationship:") {
         return "relationship";
     }
-    if node_id == "janusgraph-property-keys" {
+    if node_id == "janusgraph-property-keys" || node_id == "graph:property-keys" {
         return "property-keys";
     }
-    if node_id.starts_with("janusgraph-property-key:") {
+    if node_id.starts_with("janusgraph-property-key:") || node_id.starts_with("property-key:") {
         return "property-key";
     }
-    if node_id == "janusgraph-indexes" {
+    if node_id == "janusgraph-indexes" || node_id == "graph:indexes" {
         return "indexes";
     }
-    if node_id.starts_with("janusgraph-index:") {
+    if node_id.starts_with("janusgraph-index:") || node_id.starts_with("index:") {
         return "index";
     }
-    if node_id == "janusgraph-diagnostics" {
+    if node_id == "graph:procedures" || node_id.starts_with("procedure:") {
+        return "procedures";
+    }
+    if node_id == "janusgraph-diagnostics" || node_id == "graph:diagnostics" {
         return "diagnostics";
+    }
+    if node_id.starts_with("graph:") {
+        return "graph";
     }
 
     "graphs"
+}
+
+fn janusgraph_graph_records(connection: &ResolvedConnectionProfile) -> Vec<Value> {
+    let graph = connection.database.as_deref().unwrap_or("g");
+    vec![json!({
+        "name": graph,
+        "database": graph,
+        "nodes": "-",
+        "relationships": "-",
+        "labels": "-",
+        "relationshipTypes": "-"
+    })]
 }
 
 fn janusgraph_label_records(value: Option<&Value>, filter: Option<&str>) -> Vec<Value> {
@@ -390,6 +506,25 @@ fn janusgraph_index_records(value: Option<&Value>, filter: Option<&str>) -> Vec<
         .collect()
 }
 
+fn janusgraph_management_records() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "Schema Management",
+            "mode": "preview",
+            "signature": "graph.openManagement()",
+            "description": "Preview vertex labels, edge labels, property keys, and schema changes",
+            "requiresAdmin": "yes"
+        }),
+        json!({
+            "name": "Traversal Profile",
+            "mode": "read",
+            "signature": "profile()",
+            "description": "Profile bounded Gremlin traversals before widening scans",
+            "requiresAdmin": "no"
+        }),
+    ]
+}
+
 fn janusgraph_diagnostic_records(
     reachable: bool,
     schema_available: bool,
@@ -451,10 +586,12 @@ mod tests {
         assert_eq!(
             labels,
             vec![
+                "Graphs",
                 "Vertex Labels",
                 "Edge Labels",
                 "Property Keys",
                 "Indexes",
+                "Management",
                 "Diagnostics"
             ]
         );
@@ -475,6 +612,23 @@ mod tests {
 
     #[test]
     fn janusgraph_node_ids_map_to_graph_object_views() {
+        assert_eq!(janusgraph_object_view_kind("graph:graphs"), "graphs");
+        assert_eq!(
+            janusgraph_object_view_kind("graph:node-labels"),
+            "node-labels"
+        );
+        assert_eq!(
+            janusgraph_object_view_kind("node-label:person"),
+            "node-label"
+        );
+        assert_eq!(
+            janusgraph_object_view_kind("relationship:knows"),
+            "relationship"
+        );
+        assert_eq!(
+            janusgraph_object_view_kind("graph:procedures"),
+            "procedures"
+        );
         assert_eq!(
             janusgraph_object_view_kind("janusgraph-vertex-labels"),
             "node-labels"

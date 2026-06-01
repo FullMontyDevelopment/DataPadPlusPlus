@@ -5,6 +5,8 @@ mod connection;
 mod diagnostics;
 mod explorer;
 mod query;
+mod query_request;
+mod query_results;
 
 use catalog::*;
 use connection::test_janusgraph_connection;

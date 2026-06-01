@@ -30,6 +30,9 @@ describe('RelationalObjectViewWorkspace', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Data' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'SQL object summary' })).toHaveTextContent('SQL Server')
+    expect(screen.getByRole('region', { name: 'SQL object summary' })).toHaveTextContent('datapadplusplus')
+    expect(screen.getByLabelText('Object relationships')).toHaveTextContent('FK_Accounts_Parent')
     expect(screen.getByRole('button', { name: 'Columns' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Indexes' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Triggers' })).not.toBeInTheDocument()
@@ -140,7 +143,8 @@ const tableTab: QueryTabState = {
     path: ['datapadplusplus', 'dbo', 'Tables', 'Accounts'],
     queryTemplate: 'select * from [dbo].[Accounts]',
     warnings: [],
-    payload: {
+      payload: {
+      database: 'datapadplusplus',
       schema: 'dbo',
       tableName: 'Accounts',
       columns: [
@@ -149,6 +153,9 @@ const tableTab: QueryTabState = {
       ],
       indexes: [
         { name: 'PK_Accounts', type: 'clustered', columns: 'id', unique: true },
+      ],
+      foreignKeys: [
+        { name: 'FK_Accounts_Parent', from: 'Accounts.parent_id', to: 'Accounts.id' },
       ],
     },
   },

@@ -1,4 +1,4 @@
-export type MemcachedWorkflowIconName = 'server' | 'stats' | 'slabs' | 'items' | 'settings' | 'connections' | 'diagnostics'
+export type MemcachedWorkflowIconName = 'server' | 'stats' | 'slabs' | 'items' | 'settings' | 'connections' | 'diagnostics' | 'known-key'
 
 export type MemcachedWorkflow = {
   label: string
@@ -29,6 +29,13 @@ export function memcachedWorkflows(kind: string, availableSections?: ReadonlySet
     workflows.push(
       { label: 'Limits', title: 'Review max bytes, max connections, protocols, and LRU flags.', icon: 'settings', targetSection: 'settings' },
       { label: 'Safety', title: 'Use operation previews for any future setting changes.', icon: 'diagnostics', targetSection: 'diagnostics' },
+    )
+  }
+
+  if (kind === 'known-key') {
+    workflows.push(
+      { label: 'Read', title: 'Plan a targeted get or gets command for an application-known key.', icon: 'known-key', targetSection: 'key-actions' },
+      { label: 'Write', title: 'Preview guarded set, touch, counter, and delete operations.', icon: 'diagnostics', targetSection: 'key-actions' },
     )
   }
 

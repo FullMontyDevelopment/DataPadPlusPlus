@@ -47,14 +47,26 @@ pub(super) async fn execute_cosmosdb_query(
     );
     let response =
         execute_read_operation(connection, &operation, &request_value, row_limit).await?;
-    let (columns, rows, documents) = normalize_cosmosdb_response(&operation, &response, row_limit);
+    let normalized = normalize_cosmosdb_response_bounded(&operation, &response, row_limit);
+    let columns = normalized.columns;
+    let rows = normalized.rows;
+    let documents = normalized.documents;
+    let truncated = normalized.truncated;
     let row_count = rows.len() as u32;
-    let payloads = vec![
+    let mut payloads = vec![
         payload_document(documents),
         payload_table(columns, rows),
-        payload_json(response.clone()),
-        payload_raw(query_text.into()),
+        payload_json(bounded_cosmosdb_response(
+            &operation,
+            response.clone(),
+            row_limit,
+            truncated,
+        )),
     ];
+    if let Some(profile) = cosmosdb_profile_payload(&operation, &response) {
+        payloads.push(profile);
+    }
+    payloads.push(payload_raw(query_text.into()));
     let (default_renderer, renderer_modes_owned) = renderer_modes_for_payloads(&payloads);
     let renderer_modes = renderer_modes_owned
         .iter()
@@ -63,14 +75,18 @@ pub(super) async fn execute_cosmosdb_query(
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: format!("Cosmos DB {operation} returned {row_count} row(s)."),
+        summary: if truncated {
+            format!("Cosmos DB {operation} loaded the first {row_count} item(s).")
+        } else {
+            format!("Cosmos DB {operation} returned {row_count} row(s).")
+        },
         default_renderer: &default_renderer,
         renderer_modes,
         payloads,
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
-        truncated: false,
+        truncated,
         explain_payload: None,
     }))
 }
@@ -117,7 +133,11 @@ async fn execute_read_operation(
                 .get("query")
                 .and_then(Value::as_str)
                 .unwrap_or("SELECT * FROM c");
-            let body = cosmosdb_query_body(query, request.get("parameters"), row_limit);
+            let body = cosmosdb_query_body(
+                query,
+                request.get("parameters"),
+                row_limit.saturating_add(1),
+            );
             let response = cosmosdb_post_query(
                 connection,
                 &format!("/dbs/{database}/colls/{container}/docs"),
@@ -177,11 +197,18 @@ pub(crate) fn cosmosdb_query_body(
     .unwrap_or_default()
 }
 
-pub(crate) fn normalize_cosmosdb_response(
+pub(crate) struct CosmosDbNormalizedResponse {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub documents: Value,
+    pub truncated: bool,
+}
+
+pub(crate) fn normalize_cosmosdb_response_bounded(
     operation: &str,
     response: &Value,
     row_limit: u32,
-) -> (Vec<String>, Vec<Vec<String>>, Value) {
+) -> CosmosDbNormalizedResponse {
     let documents = match operation {
         "ListDatabases" => response.get("Databases"),
         "ListContainers" => response.get("DocumentCollections"),
@@ -191,8 +218,100 @@ pub(crate) fn normalize_cosmosdb_response(
     .cloned()
     .unwrap_or_else(|| json!([response.clone()]));
     let items = documents.as_array().cloned().unwrap_or_default();
-    let (columns, rows) = document_rows(&items, row_limit);
-    (columns, rows, documents)
+    let truncated = items.len() > row_limit as usize || cosmosdb_continuation(response).is_some();
+    let bounded_items = items
+        .iter()
+        .take(row_limit as usize)
+        .cloned()
+        .collect::<Vec<Value>>();
+    let (columns, rows) = document_rows(&bounded_items, row_limit);
+
+    CosmosDbNormalizedResponse {
+        columns,
+        rows,
+        documents: Value::Array(bounded_items),
+        truncated,
+    }
+}
+
+fn bounded_cosmosdb_response(
+    operation: &str,
+    mut response: Value,
+    row_limit: u32,
+    truncated: bool,
+) -> Value {
+    let continuation = cosmosdb_continuation(&response)
+        .map(str::to_string)
+        .unwrap_or_default();
+    if let Some(object) = response.as_object_mut() {
+        let array_key = match operation {
+            "ListDatabases" => Some("Databases"),
+            "ListContainers" => Some("DocumentCollections"),
+            "QueryDocuments" => Some("Documents"),
+            _ => None,
+        };
+        if let Some(key) = array_key {
+            if let Some(items) = object.get(key).and_then(Value::as_array).cloned() {
+                object.insert(
+                    key.into(),
+                    Value::Array(items.into_iter().take(row_limit as usize).collect()),
+                );
+            }
+        }
+        if truncated {
+            object.insert(
+                "datapad".into(),
+                json!({
+                    "truncated": true,
+                    "continuation": if continuation.is_empty() { Value::Null } else { Value::String(continuation) },
+                }),
+            );
+        }
+    }
+    response
+}
+
+fn cosmosdb_profile_payload(operation: &str, response: &Value) -> Option<Value> {
+    let request_charge = cosmosdb_request_charge(response);
+    let item_count = response
+        .get("_count")
+        .or_else(|| response.get("count"))
+        .and_then(Value::as_u64)
+        .map(Value::from)
+        .unwrap_or(Value::Null);
+    let continuation = cosmosdb_continuation(response)
+        .map(Value::from)
+        .unwrap_or(Value::Null);
+    let has_signal = request_charge.is_some() || !item_count.is_null() || !continuation.is_null();
+
+    has_signal.then(|| {
+        payload_profile(
+            "Cosmos DB RU and continuation signals.",
+            json!({
+                "operation": operation,
+                "requestCharge": request_charge,
+                "count": item_count,
+                "continuation": continuation,
+            }),
+        )
+    })
+}
+
+fn cosmosdb_request_charge(response: &Value) -> Option<f64> {
+    response
+        .get("_requestCharge")
+        .or_else(|| response.get("requestCharge"))
+        .or_else(|| response.get("x-ms-request-charge"))
+        .and_then(|value| value.as_f64().or_else(|| value.as_str()?.parse().ok()))
+}
+
+fn cosmosdb_continuation(response: &Value) -> Option<&str> {
+    response
+        .get("_continuation")
+        .or_else(|| response.get("continuation"))
+        .or_else(|| response.get("x-ms-continuation"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn document_rows(items: &[Value], row_limit: u32) -> (Vec<String>, Vec<Vec<String>>) {
@@ -275,7 +394,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        cosmosdb_operation, cosmosdb_query_body, normalize_cosmosdb_response, parse_request,
+        bounded_cosmosdb_response, cosmosdb_operation, cosmosdb_profile_payload,
+        cosmosdb_query_body, normalize_cosmosdb_response_bounded, parse_request,
     };
 
     #[test]
@@ -312,10 +432,47 @@ mod tests {
                 { "id": "1", "name": "Ada" }
             ]
         });
-        let (columns, rows, documents) = normalize_cosmosdb_response("QueryDocuments", &value, 100);
+        let result = normalize_cosmosdb_response_bounded("QueryDocuments", &value, 100);
 
-        assert_eq!(columns, vec!["id", "name"]);
-        assert_eq!(rows, vec![vec!["1", "Ada"]]);
-        assert_eq!(documents.as_array().unwrap().len(), 1);
+        assert_eq!(result.columns, vec!["id", "name"]);
+        assert_eq!(result.rows, vec![vec!["1", "Ada"]]);
+        assert_eq!(result.documents.as_array().unwrap().len(), 1);
+        assert!(!result.truncated);
+    }
+
+    #[test]
+    fn cosmosdb_documents_normalize_with_truncation_and_continuation() {
+        let value = json!({
+            "Documents": [
+                { "id": "1", "name": "Ada" },
+                { "id": "2", "name": "Grace" },
+                { "id": "3", "name": "Katherine" }
+            ],
+            "_continuation": "next-page",
+            "_requestCharge": 5.25,
+            "_count": 3
+        });
+
+        let result = normalize_cosmosdb_response_bounded("QueryDocuments", &value, 2);
+        let bounded =
+            bounded_cosmosdb_response("QueryDocuments", value.clone(), 2, result.truncated);
+        let profile = cosmosdb_profile_payload("QueryDocuments", &value).unwrap();
+
+        assert!(result.truncated);
+        assert_eq!(result.rows.len(), 2);
+        assert_eq!(result.documents.as_array().unwrap().len(), 2);
+        assert_eq!(bounded["Documents"].as_array().unwrap().len(), 2);
+        assert_eq!(bounded["datapad"]["continuation"], "next-page");
+        assert_eq!(profile["renderer"], "profile");
+        assert_eq!(profile["stages"]["requestCharge"], 5.25);
+        assert_eq!(profile["stages"]["count"], 3);
+    }
+
+    #[test]
+    fn cosmosdb_query_body_uses_requested_fetch_size() {
+        let body = cosmosdb_query_body("SELECT * FROM c", None, 101);
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(value["maxItemCount"], 101);
     }
 }

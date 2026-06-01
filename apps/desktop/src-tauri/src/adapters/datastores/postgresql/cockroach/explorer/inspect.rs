@@ -1,122 +1,22 @@
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
+use sqlx::postgres::PgPoolOptions;
 
 use super::super::super::*;
+use super::live::cockroach_live_payload;
 
-pub(crate) fn inspect_cockroach_node(
+pub(crate) async fn inspect_cockroach_node(
     connection: &ResolvedConnectionProfile,
     node_id: &str,
 ) -> Option<(String, String, Value)> {
-    let surface = match node_id {
-        "cockroach-jobs" | "cockroach-jobs-running" | "cockroach-jobs-history" => {
-            cockroach_surface(
-                "CockroachDB jobs view ready.",
-                "show jobs;",
-                "jobs",
-                "Job visibility can depend on VIEWJOB/admin privileges.",
-                json!({
-                    "jobs": [],
-                    "workflow": [
-                        {"name": "Running jobs", "detail": "Track schema changes, imports, backups, restores, and changefeeds."},
-                        {"name": "Job history", "detail": "Review completed or failed jobs and retry candidates."}
-                    ]
-                }),
-            )
-        }
-        "cockroach-roles" | "cockroach-show-roles" | "cockroach-show-grants" => {
-            cockroach_surface(
-                "CockroachDB security view ready.",
-                "show roles; show grants;",
-                "security",
-                "Grant visibility depends on the connected SQL user.",
-                json!({
-                    "roles": [],
-                    "grants": [],
-                    "permissions": []
-                }),
-            )
-        }
-        "cockroach-default-privileges" => cockroach_surface(
-            "CockroachDB default privileges view ready.",
-            "show default privileges;",
-            "grants",
-            "Default privilege visibility depends on the connected SQL user.",
-            json!({
-                "grants": [],
-                "permissions": []
-            }),
-        ),
-        "cockroach-regions" | "cockroach-show-regions" | "cockroach-localities" => {
-            cockroach_surface(
-                "CockroachDB region and locality view ready.",
-                "show regions; show localities;",
-                "regions",
-                "Multi-region metadata varies by cluster configuration.",
-                json!({
-                    "regions": [],
-                    "nodes": []
-                }),
-            )
-        }
-        "cockroach-ranges" | "cockroach-table-ranges" | "cockroach-range-hotspots" => {
-            cockroach_surface(
-                "CockroachDB range view ready.",
-                "select * from crdb_internal.ranges_no_leases limit 100;",
-                "ranges",
-                "Range diagnostics depend on crdb_internal visibility and may require elevated privileges.",
-                json!({
-                    "ranges": [],
-                    "contention": []
-                }),
-            )
-        }
-        "cockroach-sessions" | "cockroach-show-sessions" | "cockroach-cancel-session-plan" => {
-            cockroach_surface(
-                "CockroachDB sessions view ready.",
-                "show sessions;",
-                "sessions",
-                "Cancellation actions are generated as guarded operation plans.",
-                json!({
-                    "sessions": [],
-                    "transactions": []
-                }),
-            )
-        }
-        "cockroach-contention" | "cockroach-cluster-locks" | "cockroach-statement-contention" => {
-            cockroach_surface(
-                "CockroachDB contention view ready.",
-                "select * from crdb_internal.cluster_locks limit 100;",
-                "contention",
-                "Use production-supported crdb_internal objects only when the cluster allows it.",
-                json!({
-                    "contention": [],
-                    "locks": [],
-                    "statements": []
-                }),
-            )
-        }
-        "cockroach-cluster-status" | "cockroach-cluster-version" | "cockroach-node-status" => {
-            cockroach_surface(
-                "CockroachDB cluster status view ready.",
-                "show cluster setting version;",
-                "cluster",
-                "Node status visibility depends on cluster settings and permissions.",
-                json!({
-                    "nodes": [],
-                    "clusterSettings": [],
-                    "regions": []
-                }),
-            )
-        }
-        _ => return None,
-    };
-
+    let surface = cockroach_surface_for_node(node_id)?;
     let summary = surface.summary;
     let query_template = surface.query_template.clone();
+    let payload = surface.payload_with_identity(connection, node_id).await;
 
     Some((
         format!("{summary} ({})", connection.name),
         query_template,
-        surface.payload_with_identity(node_id),
+        payload,
     ))
 }
 
@@ -129,13 +29,38 @@ struct CockroachInspectionSurface {
 }
 
 impl CockroachInspectionSurface {
-    fn payload_with_identity(self, node_id: &str) -> Value {
-        let mut payload = self.payload;
+    async fn payload_with_identity(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        node_id: &str,
+    ) -> Value {
+        let mut payload = self.payload.clone();
+        let live_payload = match PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&postgres_dsn(connection))
+            .await
+        {
+            Ok(pool) => {
+                let live = cockroach_live_payload(self.kind, &pool).await;
+                pool.close().await;
+                live
+            }
+            Err(error) => Err(format!(
+                "Live CockroachDB metadata is unavailable: {}",
+                compact_error(&error.to_string())
+            )),
+        };
+
+        match live_payload {
+            Ok(live) => merge_object_payload(&mut payload, live),
+            Err(warning) => append_warning(&mut payload, warning),
+        }
+
         if let Some(object) = payload.as_object_mut() {
             object.insert("engine".into(), json!("cockroachdb"));
             object.insert("nodeId".into(), json!(node_id));
             object.insert("kind".into(), json!(self.kind));
-            object.insert("warning".into(), json!(self.warning));
+            object.insert("permissionHint".into(), json!(self.warning));
             object.insert(
                 "supportedWorkflows".into(),
                 json!([
@@ -166,62 +91,259 @@ fn cockroach_surface(
     }
 }
 
+fn cockroach_surface_for_node(node_id: &str) -> Option<CockroachInspectionSurface> {
+    let normalized = node_id.trim().to_lowercase().replace('_', "-");
+
+    match normalized.as_str() {
+        "cockroach-jobs" | "cockroach:jobs" | "cockroach-jobs-running"
+        | "cockroach-jobs-history" => Some(cockroach_surface(
+            "CockroachDB jobs view ready.",
+            "show jobs;",
+            "jobs",
+            "Job visibility can depend on VIEWJOB/admin privileges.",
+            json!({
+                "jobs": [],
+                "workflow": [
+                    {"name": "Running jobs", "detail": "Track schema changes, imports, backups, restores, and changefeeds."},
+                    {"name": "Job history", "detail": "Review completed or failed jobs and retry candidates."}
+                ]
+            }),
+        )),
+        "cockroach-roles" | "cockroach:roles" | "cockroach:security" | "cockroach-show-roles"
+        | "cockroach-show-grants" => Some(cockroach_surface(
+            "CockroachDB security view ready.",
+            "show roles; show grants;",
+            "security",
+            "Grant visibility depends on the connected SQL user.",
+            json!({
+                "roles": [],
+                "grants": [],
+                "permissions": []
+            }),
+        )),
+        "cockroach-default-privileges" | "cockroach:grants" => Some(cockroach_surface(
+            "CockroachDB default privileges view ready.",
+            "show default privileges;",
+            "grants",
+            "Default privilege visibility depends on the connected SQL user.",
+            json!({
+                "grants": [],
+                "permissions": []
+            }),
+        )),
+        "cockroach-regions" | "cockroach:regions" | "cockroach-show-regions"
+        | "cockroach-localities" => Some(cockroach_surface(
+            "CockroachDB region and locality view ready.",
+            "show regions; show localities;",
+            "regions",
+            "Multi-region metadata varies by cluster configuration.",
+            json!({
+                "regions": [],
+                "nodes": []
+            }),
+        )),
+        "cockroach-ranges" | "cockroach:ranges" | "cockroach-table-ranges"
+        | "cockroach-range-hotspots" => Some(cockroach_surface(
+            "CockroachDB range view ready.",
+            "select * from crdb_internal.ranges_no_leases limit 100;",
+            "ranges",
+            "Range diagnostics depend on crdb_internal visibility and may require elevated privileges.",
+            json!({
+                "ranges": [],
+                "contention": []
+            }),
+        )),
+        "cockroach-sessions" | "cockroach:sessions" | "cockroach-show-sessions"
+        | "cockroach-cancel-session-plan" => Some(cockroach_surface(
+            "CockroachDB sessions view ready.",
+            "show sessions;",
+            "sessions",
+            "Cancellation actions are generated as guarded operation plans.",
+            json!({
+                "sessions": [],
+                "transactions": []
+            }),
+        )),
+        "cockroach-contention" | "cockroach:contention" | "cockroach-cluster-locks"
+        | "cockroach-statement-contention" => Some(cockroach_surface(
+            "CockroachDB contention view ready.",
+            "select * from crdb_internal.cluster_locks limit 100;",
+            "contention",
+            "Use production-supported crdb_internal objects only when the cluster allows it.",
+            json!({
+                "contention": [],
+                "locks": [],
+                "statements": []
+            }),
+        )),
+        "cockroach:locks" => Some(cockroach_surface(
+            "CockroachDB locks view ready.",
+            "select * from crdb_internal.cluster_locks limit 100;",
+            "locks",
+            "Lock visibility depends on crdb_internal permissions.",
+            json!({ "locks": [] }),
+        )),
+        "cockroach:statements" => Some(cockroach_surface(
+            "CockroachDB statement stats view ready.",
+            "select * from crdb_internal.node_statement_statistics limit 100;",
+            "statements",
+            "Statement statistics visibility depends on cluster settings and privileges.",
+            json!({ "statements": [] }),
+        )),
+        "cockroach:transactions" => Some(cockroach_surface(
+            "CockroachDB transactions view ready.",
+            "select * from crdb_internal.cluster_transactions limit 100;",
+            "transactions",
+            "Transaction visibility depends on crdb_internal permissions.",
+            json!({ "transactions": [] }),
+        )),
+        "cockroach:statistics" => Some(cockroach_surface(
+            "CockroachDB statistics view ready.",
+            "select * from crdb_internal.table_spans limit 100;",
+            "statistics",
+            "Statistics visibility depends on catalog and crdb_internal permissions.",
+            json!({ "statistics": [] }),
+        )),
+        "cockroach-cluster-status" | "cockroach:cluster-status" | "cockroach:cluster"
+        | "cockroach-cluster-version" | "cockroach-node-status" => Some(cockroach_surface(
+            "CockroachDB cluster status view ready.",
+            "show cluster setting version;",
+            "cluster",
+            "Node status visibility depends on cluster settings and permissions.",
+            json!({
+                "nodes": [],
+                "clusterSettings": [],
+                "regions": []
+            }),
+        )),
+        "cockroach:cluster-settings" => Some(cockroach_surface(
+            "CockroachDB cluster settings view ready.",
+            "show cluster settings;",
+            "cluster-settings",
+            "Cluster setting visibility depends on permissions.",
+            json!({ "clusterSettings": [] }),
+        )),
+        "cockroach:zone-configurations" | "cockroach-zone-configurations" => {
+            Some(cockroach_surface(
+                "CockroachDB zone configuration view ready.",
+                "show zone configurations;",
+                "zone-configurations",
+                "Zone configuration visibility depends on privileges and CockroachDB version.",
+                json!({ "zoneConfigurations": [] }),
+            ))
+        }
+        "cockroach:certificates" | "cockroach-certificates" => Some(cockroach_surface(
+            "CockroachDB certificate view ready.",
+            "select * from crdb_internal.cluster_certificates limit 100;",
+            "certificates",
+            "Certificate metadata may be restricted by the connected role.",
+            json!({ "certificates": [] }),
+        )),
+        _ => None,
+    }
+}
+
+fn merge_object_payload(target: &mut Value, source: Value) {
+    if let (Some(target), Some(source)) = (target.as_object_mut(), source.as_object()) {
+        for (key, value) in source {
+            if key == "warnings" {
+                append_warnings(target, value);
+            } else {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+    }
+}
+
+fn append_warning(payload: &mut Value, warning: String) {
+    if let Some(object) = payload.as_object_mut() {
+        let mut warnings = object
+            .get("warnings")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        warnings.push(json!(warning));
+        object.insert("warnings".into(), Value::Array(warnings));
+    }
+}
+
+fn append_warnings(object: &mut Map<String, Value>, value: &Value) {
+    let mut warnings = object
+        .get("warnings")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if let Some(items) = value.as_array() {
+        warnings.extend(
+            items
+                .iter()
+                .filter(|item| !item.as_str().unwrap_or_default().is_empty())
+                .cloned(),
+        );
+    }
+
+    object.insert("warnings".into(), Value::Array(warnings));
+}
+
+fn compact_error(error: &str) -> String {
+    error.lines().next().unwrap_or(error).trim().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn connection() -> ResolvedConnectionProfile {
-        ResolvedConnectionProfile {
-            id: "conn".into(),
-            name: "Cockroach QA".into(),
-            engine: "cockroachdb".into(),
-            family: "sql".into(),
-            host: "localhost".into(),
-            port: Some(26257),
-            database: Some("defaultdb".into()),
-            username: Some("root".into()),
-            password: None,
-            connection_string: None,
-            redis_options: None,
-            sqlite_options: None,
-            sqlserver_options: None,
-            oracle_options: None,
-            dynamo_db_options: None,
-            cassandra_options: None,
-            cosmos_db_options: None,
-            search_options: None,
-            time_series_options: None,
-            graph_options: None,
-            warehouse_options: None,
-            read_only: false,
-        }
-    }
-
     #[test]
-    fn cockroach_range_inspection_does_not_reference_fake_sample_table() {
-        let (_, query_template, payload) =
-            inspect_cockroach_node(&connection(), "cockroach-ranges").expect("range inspection");
+    fn cockroach_range_surface_does_not_reference_fake_sample_table() {
+        let surface = cockroach_surface_for_node("cockroach-ranges").expect("range surface");
 
-        assert!(!query_template.contains("sample_table"));
-        assert!(query_template.contains("crdb_internal"));
-        assert!(payload.get("ranges").and_then(Value::as_array).is_some());
-        assert!(payload.get("category").is_none());
-    }
-
-    #[test]
-    fn cockroach_security_inspection_is_view_friendly() {
-        let (_, _, payload) =
-            inspect_cockroach_node(&connection(), "cockroach-roles").expect("security inspection");
-
-        assert_eq!(
-            payload.get("kind").and_then(Value::as_str),
-            Some("security")
-        );
-        assert!(payload.get("roles").and_then(Value::as_array).is_some());
-        assert!(payload.get("grants").and_then(Value::as_array).is_some());
-        assert!(payload
-            .get("supportedWorkflows")
+        assert!(!surface.query_template.contains("sample_table"));
+        assert!(surface.query_template.contains("crdb_internal"));
+        assert!(surface
+            .payload
+            .get("ranges")
             .and_then(Value::as_array)
             .is_some());
+        assert!(surface.payload.get("category").is_none());
+    }
+
+    #[test]
+    fn cockroach_security_surface_is_view_friendly() {
+        let surface = cockroach_surface_for_node("cockroach-roles").expect("security surface");
+
+        assert_eq!(surface.kind, "security");
+        assert!(surface
+            .payload
+            .get("roles")
+            .and_then(Value::as_array)
+            .is_some());
+        assert!(surface
+            .payload
+            .get("grants")
+            .and_then(Value::as_array)
+            .is_some());
+    }
+
+    #[test]
+    fn cockroach_manifest_scope_nodes_are_recognized() {
+        assert_eq!(
+            cockroach_surface_for_node("cockroach:statements")
+                .expect("statements")
+                .kind,
+            "statements"
+        );
+        assert_eq!(
+            cockroach_surface_for_node("cockroach:zone-configurations")
+                .expect("zones")
+                .kind,
+            "zone-configurations"
+        );
+        assert_eq!(
+            cockroach_surface_for_node("cockroach:certificates")
+                .expect("certificates")
+                .kind,
+            "certificates"
+        );
     }
 }

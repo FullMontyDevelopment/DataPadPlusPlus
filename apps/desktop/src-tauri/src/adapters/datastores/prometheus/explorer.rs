@@ -11,8 +11,11 @@ pub(super) async fn list_prometheus_explorer_nodes(
     let nodes = match request.scope.as_deref() {
         Some("prometheus:targets") => target_nodes(connection).await?,
         Some("prometheus:rules") => rule_nodes(connection).await?,
+        Some("prometheus:alerts") => alert_nodes(connection).await?,
         Some("prometheus:labels") => label_nodes(connection, request.limit).await?,
-        Some("prometheus:metadata") => metadata_nodes(connection, request.limit).await?,
+        Some("prometheus:metadata" | "prometheus:metrics") => {
+            metadata_nodes(connection, request.limit).await?
+        }
         Some(_) => Vec::new(),
         None => root_nodes(connection),
     };
@@ -36,16 +39,18 @@ pub(super) async fn inspect_prometheus_explorer_node(
     request: &ExplorerInspectRequest,
 ) -> Result<ExplorerInspectResponse, CommandError> {
     let query_template = match request.node_id.as_str() {
-        "prometheus-targets" => "up",
-        "prometheus-rules" => "ALERTS",
-        "prometheus-labels" => "{__name__!=\"\"}",
-        "prometheus-metadata" => "{__name__!=\"\"}",
+        "prometheus-targets" | "prometheus:targets" => "up",
+        "prometheus-rules" | "prometheus:rules" | "prometheus:alerts" => "ALERTS",
+        "prometheus-labels" | "prometheus:labels" => "{__name__!=\"\"}",
+        "prometheus-metadata" | "prometheus:metrics" => "{__name__!=\"\"}",
         node if node.starts_with("prometheus-label:") => {
             node.trim_start_matches("prometheus-label:")
         }
+        node if node.starts_with("label:") => node.trim_start_matches("label:"),
         node if node.starts_with("prometheus-metric:") => {
             node.trim_start_matches("prometheus-metric:")
         }
+        node if node.starts_with("metric:") => node.trim_start_matches("metric:"),
         _ => "up",
     };
     let object_view = prometheus_object_view_kind(&request.node_id);
@@ -66,50 +71,92 @@ pub(super) async fn inspect_prometheus_explorer_node(
 fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
     [
         (
-            "prometheus-targets",
-            "Targets",
-            "targets",
-            "Scrape targets, health, labels, and last scrape diagnostics",
-            "prometheus:targets",
-            "up",
+            "prometheus:metrics",
+            "Metrics",
+            "metrics",
+            "Metric families, types, help text, and cardinality signals",
+            "prometheus:metrics",
+            "{__name__!=\"\"}",
+            true,
         ),
         (
-            "prometheus-rules",
-            "Rules",
-            "rules",
-            "Alerting and recording rule groups",
-            "prometheus:rules",
-            "ALERTS",
-        ),
-        (
-            "prometheus-labels",
+            "prometheus:labels",
             "Labels",
             "labels",
             "Queryable label names for PromQL builders",
             "prometheus:labels",
             "{__name__!=\"\"}",
+            true,
         ),
         (
-            "prometheus-metadata",
-            "Metadata",
-            "metadata",
-            "Metric metadata, types, and help text",
-            "prometheus:metadata",
+            "prometheus:targets",
+            "Targets",
+            "targets",
+            "Scrape targets, health, labels, and last scrape diagnostics",
+            "prometheus:targets",
+            "up",
+            true,
+        ),
+        (
+            "prometheus:rules",
+            "Rules",
+            "rules",
+            "Alerting and recording rule groups",
+            "prometheus:rules",
+            "ALERTS",
+            true,
+        ),
+        (
+            "prometheus:alerts",
+            "Alerts",
+            "alerts",
+            "Firing and pending alert states",
+            "prometheus:alerts",
+            "ALERTS",
+            true,
+        ),
+        (
+            "prometheus:service-discovery",
+            "Service Discovery",
+            "service-discovery",
+            "Discovered, active, and dropped scrape targets",
+            "prometheus:service-discovery",
+            "up",
+            false,
+        ),
+        (
+            "prometheus:tsdb",
+            "TSDB / Storage",
+            "tsdb",
+            "Head series, chunks, blocks, WAL, and retention",
+            "prometheus:tsdb",
             "{__name__!=\"\"}",
+            false,
+        ),
+        (
+            "prometheus:diagnostics",
+            "Diagnostics",
+            "diagnostics",
+            "Runtime status, query risk, and metadata warnings",
+            "prometheus:diagnostics",
+            "up",
+            false,
         ),
     ]
     .into_iter()
-    .map(|(id, label, kind, detail, scope, query)| ExplorerNode {
-        id: id.into(),
-        family: "timeseries".into(),
-        label: label.into(),
-        kind: kind.into(),
-        detail: detail.into(),
-        scope: Some(scope.into()),
-        path: Some(vec![connection.name.clone(), "Prometheus".into()]),
-        query_template: Some(query.into()),
-        expandable: Some(true),
-    })
+    .map(
+        |(id, label, kind, detail, scope, query, expandable)| ExplorerNode {
+            id: id.into(),
+            family: "timeseries".into(),
+            label: label.into(),
+            kind: kind.into(),
+            detail: detail.into(),
+            scope: Some(scope.into()),
+            path: Some(vec![connection.name.clone(), "Prometheus".into()]),
+            query_template: Some(query.into()),
+            expandable: Some(expandable),
+        },
+    )
     .collect()
 }
 
@@ -140,6 +187,44 @@ async fn target_nodes(
                 scope: None,
                 path: Some(vec![connection.name.clone(), "Targets".into()]),
                 query_template: Some("up".into()),
+                expandable: Some(false),
+            }
+        })
+        .collect())
+}
+
+async fn alert_nodes(
+    connection: &ResolvedConnectionProfile,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let value = prometheus_json(connection, "/api/v1/rules").await?;
+    Ok(prometheus_alerts_from_rules_value(&value)
+        .into_iter()
+        .map(|alert| {
+            let name = alert
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("alert")
+                .to_string();
+            let state = alert
+                .get("state")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
+            let severity = alert
+                .get("severity")
+                .and_then(Value::as_str)
+                .unwrap_or("-")
+                .to_string();
+
+            ExplorerNode {
+                id: format!("alert:{name}"),
+                family: "timeseries".into(),
+                label: name,
+                kind: "alert".into(),
+                detail: format!("{state} | {severity}"),
+                scope: None,
+                path: Some(vec![connection.name.clone(), "Alerts".into()]),
+                query_template: Some("ALERTS".into()),
                 expandable: Some(false),
             }
         })
@@ -258,6 +343,15 @@ async fn enrich_prometheus_inspection(
                 .count());
             payload["targets"] = json!(targets);
         }
+        "service-discovery" => {
+            let Some(value) = optional_prometheus_json(connection, "/api/v1/targets").await else {
+                mark_prometheus_metadata_unavailable(payload, "service discovery");
+                return Ok(());
+            };
+            let targets = prometheus_targets_from_value(&value);
+            payload["targets"] = json!(targets);
+            payload["serviceDiscovery"] = json!(prometheus_service_discovery_from_targets(&value));
+        }
         "rules" | "rule-group" | "rule" | "alerts" | "alert" => {
             let Some(value) = optional_prometheus_json(connection, "/api/v1/rules").await else {
                 mark_prometheus_metadata_unavailable(payload, "rules");
@@ -282,6 +376,11 @@ async fn enrich_prometheus_inspection(
                     label,
                     "Refresh label values with a scoped PromQL query."
                 ));
+            } else if let Some(label) = node_id.strip_prefix("label:") {
+                payload["labelValues"] = json!(prometheus_label_value_placeholders(
+                    label,
+                    "Refresh label values with a scoped PromQL query."
+                ));
             }
         }
         "metric" | "metrics" | "series" => {
@@ -289,7 +388,9 @@ async fn enrich_prometheus_inspection(
                 mark_prometheus_metadata_unavailable(payload, "metadata");
                 return Ok(());
             };
-            let metric_filter = node_id.strip_prefix("prometheus-metric:");
+            let metric_filter = node_id
+                .strip_prefix("prometheus-metric:")
+                .or_else(|| node_id.strip_prefix("metric:"));
             let metrics = prometheus_metrics_from_metadata(&value, metric_filter);
             payload["metricCount"] = json!(metrics.len());
             payload["metrics"] = json!(metrics);
@@ -301,6 +402,15 @@ async fn enrich_prometheus_inspection(
                     "sampleRate": "-",
                     "cardinality": "unknown"
                 }]);
+            }
+        }
+        "tsdb" | "storage" => {
+            let tsdb = optional_prometheus_json(connection, "/api/v1/status/tsdb").await;
+            payload["tsdb"] = json!(prometheus_tsdb_rows(tsdb.as_ref()));
+            payload["storage"] = json!(prometheus_storage_rows(tsdb.as_ref()));
+            if tsdb.is_none() {
+                payload["warnings"] =
+                    json!(["Prometheus TSDB status is unavailable from this endpoint."]);
             }
         }
         _ => {
@@ -362,30 +472,46 @@ fn prometheus_base_payload(node_id: &str, object_view: &str) -> Value {
 }
 
 fn prometheus_object_view_kind(node_id: &str) -> &'static str {
-    if node_id == "prometheus-targets" || node_id.starts_with("prometheus-target:") {
-        return if node_id.starts_with("prometheus-target:") {
+    if node_id == "prometheus-targets"
+        || node_id == "prometheus:targets"
+        || node_id.starts_with("prometheus-target:")
+        || node_id.starts_with("target:")
+    {
+        return if node_id.starts_with("prometheus-target:") || node_id.starts_with("target:") {
             "target"
         } else {
             "targets"
         };
     }
-    if node_id == "prometheus-rules" {
+    if node_id == "prometheus-rules" || node_id == "prometheus:rules" {
         return "rules";
     }
-    if node_id.starts_with("prometheus-rule-group:") {
+    if node_id.starts_with("prometheus-rule-group:") || node_id.starts_with("rule-group:") {
         return "rule-group";
     }
-    if node_id == "prometheus-labels" {
+    if node_id == "prometheus:alerts" {
+        return "alerts";
+    }
+    if node_id.starts_with("alert:") {
+        return "alert";
+    }
+    if node_id == "prometheus:service-discovery" {
+        return "service-discovery";
+    }
+    if node_id == "prometheus-labels" || node_id == "prometheus:labels" {
         return "labels";
     }
-    if node_id.starts_with("prometheus-label:") {
+    if node_id.starts_with("prometheus-label:") || node_id.starts_with("label:") {
         return "label";
     }
-    if node_id == "prometheus-metadata" {
+    if node_id == "prometheus-metadata" || node_id == "prometheus:metrics" {
         return "metrics";
     }
-    if node_id.starts_with("prometheus-metric:") {
+    if node_id.starts_with("prometheus-metric:") || node_id.starts_with("metric:") {
         return "metric";
+    }
+    if node_id == "prometheus:tsdb" || node_id == "prometheus:storage" {
+        return "tsdb";
     }
 
     "diagnostics"
@@ -528,6 +654,102 @@ fn prometheus_metrics_from_metadata(value: &Value, metric_filter: Option<&str>) 
         .collect()
 }
 
+fn prometheus_service_discovery_from_targets(value: &Value) -> Vec<Value> {
+    let mut rows = std::collections::BTreeMap::<String, (usize, usize, usize, String)>::new();
+    for target in value
+        .pointer("/data/activeTargets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let labels = target.get("labels").and_then(Value::as_object);
+        let job = labels
+            .and_then(|labels| labels.get("job"))
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let health = target
+            .get("health")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let last_scrape = target
+            .get("lastScrape")
+            .and_then(Value::as_str)
+            .unwrap_or("-")
+            .to_string();
+        let entry = rows.entry(job).or_insert((0, 0, 0, "-".into()));
+        entry.0 += 1;
+        if health == "up" {
+            entry.1 += 1;
+        } else {
+            entry.2 += 1;
+        }
+        entry.3 = last_scrape;
+    }
+
+    rows.into_iter()
+        .map(|(job, (discovered, active, dropped, last_sync))| {
+            json!({
+                "job": job,
+                "discovered": discovered,
+                "active": active,
+                "dropped": dropped,
+                "lastSync": last_sync,
+            })
+        })
+        .collect()
+}
+
+fn prometheus_tsdb_rows(value: Option<&Value>) -> Vec<Value> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let head = value.pointer("/data/headStats");
+    [
+        ("Head Series", "numSeries", "series"),
+        ("Label Pairs", "numLabelPairs", "pairs"),
+        ("Chunks", "chunkCount", "chunks"),
+        ("Samples Appended", "numSamplesAppended", "samples"),
+    ]
+    .into_iter()
+    .filter_map(|(name, key, unit)| {
+        let value = head
+            .and_then(|head| head.get(key))
+            .map(prometheus_value_to_string)?;
+        Some(json!({
+            "name": name,
+            "value": value,
+            "unit": unit,
+            "status": "ready",
+        }))
+    })
+    .collect()
+}
+
+fn prometheus_storage_rows(value: Option<&Value>) -> Vec<Value> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let head = value.pointer("/data/headStats");
+    let samples = head
+        .and_then(|head| head.get("numSamplesAppended"))
+        .map(prometheus_value_to_string)
+        .unwrap_or_else(|| "-".into());
+    let series = head
+        .and_then(|head| head.get("numSeries"))
+        .map(prometheus_value_to_string)
+        .unwrap_or_else(|| "-".into());
+
+    vec![json!({
+        "block": "Head",
+        "mint": "-",
+        "maxt": "-",
+        "samples": samples,
+        "series": series,
+        "size": "-",
+    })]
+}
+
 fn prometheus_diagnostics_rows(buildinfo: Option<&Value>) -> Vec<Value> {
     vec![
         json!({
@@ -575,7 +797,8 @@ mod tests {
     use super::{
         inspect_prometheus_explorer_node, prometheus_base_payload,
         prometheus_metrics_from_metadata, prometheus_object_view_kind, prometheus_rules_from_value,
-        prometheus_targets_from_value,
+        prometheus_service_discovery_from_targets, prometheus_storage_rows,
+        prometheus_targets_from_value, prometheus_tsdb_rows, root_nodes,
     };
     use crate::domain::models::{ExplorerInspectRequest, ResolvedConnectionProfile};
 
@@ -626,19 +849,53 @@ mod tests {
 
     #[test]
     fn prometheus_node_ids_map_to_object_views() {
+        assert_eq!(prometheus_object_view_kind("prometheus:metrics"), "metrics");
         assert_eq!(prometheus_object_view_kind("prometheus-targets"), "targets");
+        assert_eq!(prometheus_object_view_kind("prometheus:targets"), "targets");
         assert_eq!(
             prometheus_object_view_kind("prometheus-target:http://node:9100"),
             "target"
         );
+        assert_eq!(prometheus_object_view_kind("target:node:9100"), "target");
         assert_eq!(
             prometheus_object_view_kind("prometheus-rule-group:rules:api"),
             "rule-group"
         );
+        assert_eq!(prometheus_object_view_kind("prometheus:alerts"), "alerts");
+        assert_eq!(
+            prometheus_object_view_kind("prometheus:service-discovery"),
+            "service-discovery"
+        );
+        assert_eq!(prometheus_object_view_kind("prometheus:tsdb"), "tsdb");
         assert_eq!(
             prometheus_object_view_kind("prometheus-metric:http_requests_total"),
             "metric"
         );
+    }
+
+    #[test]
+    fn prometheus_root_matches_native_tree_manifest() {
+        let nodes = root_nodes(&connection());
+        let labels = nodes
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            labels,
+            vec![
+                "Metrics",
+                "Labels",
+                "Targets",
+                "Rules",
+                "Alerts",
+                "Service Discovery",
+                "TSDB / Storage",
+                "Diagnostics",
+            ]
+        );
+        assert_eq!(nodes[0].id, "prometheus:metrics");
+        assert_eq!(nodes[4].scope.as_deref(), Some("prometheus:alerts"));
     }
 
     #[test]
@@ -668,6 +925,45 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["job"], "node");
         assert_eq!(rows[0]["health"], "up");
+    }
+
+    #[test]
+    fn prometheus_service_discovery_groups_targets_by_job() {
+        let rows = prometheus_service_discovery_from_targets(&json!({
+            "data": {
+                "activeTargets": [
+                    { "health": "up", "lastScrape": "now", "labels": { "job": "api" } },
+                    { "health": "down", "lastScrape": "now", "labels": { "job": "api" } }
+                ]
+            }
+        }));
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["job"], "api");
+        assert_eq!(rows[0]["discovered"], 2);
+        assert_eq!(rows[0]["active"], 1);
+        assert_eq!(rows[0]["dropped"], 1);
+    }
+
+    #[test]
+    fn prometheus_tsdb_status_normalizes_head_stats() {
+        let value = json!({
+            "data": {
+                "headStats": {
+                    "numSeries": 42,
+                    "numLabelPairs": 7,
+                    "chunkCount": 12,
+                    "numSamplesAppended": 1000
+                }
+            }
+        });
+        let rows = prometheus_tsdb_rows(Some(&value));
+        let storage = prometheus_storage_rows(Some(&value));
+
+        assert_eq!(rows[0]["name"], "Head Series");
+        assert_eq!(rows[0]["value"], "42");
+        assert_eq!(storage[0]["block"], "Head");
+        assert_eq!(storage[0]["series"], "42");
     }
 
     #[test]

@@ -1605,6 +1605,48 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText('stats slabs')).not.toBeInTheDocument()
   })
 
+  it('renders Memcached known-key lookup as targeted cache actions', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={memcachedConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: memcachedConnection.id,
+          family: 'keyvalue',
+          title: 'Known Key Lookup',
+          objectViewState: {
+            connectionId: memcachedConnection.id,
+            environmentId: environment.id,
+            nodeId: 'memcached:known-key',
+            label: 'Known Key Lookup',
+            kind: 'known-key',
+            path: ['Server'],
+            warnings: [],
+            payload: {
+              objectView: 'known-key',
+              keyActions: [
+                { action: 'Get', command: 'get <key>', mode: 'read', risk: 'read', status: 'available' },
+                { action: 'Delete', command: 'delete <key>', mode: 'write', risk: 'destructive', status: 'guarded' },
+              ],
+              warnings: [
+                'Memcached does not expose safe key enumeration; use application key knowledge or targeted get/set flows.',
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('Memcached Known Key').length).toBeGreaterThan(0)
+    expect(screen.getByText('Known Key Actions')).toBeInTheDocument()
+    expect(screen.getByText('get <key>')).toBeInTheDocument()
+    expect(screen.getByText('delete <key>')).toBeInTheDocument()
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
+
   it('keeps Oracle PL/SQL source behind an explicit reveal', () => {
     render(
       <ObjectViewWorkspace
@@ -2062,6 +2104,57 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText('64 KB')).toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
     expect(screen.queryByText(/"operation"/)).not.toBeInTheDocument()
+  })
+
+  it('renders LiteDB pragmas and maintenance as native local-file workflows', () => {
+    render(
+      <ObjectViewWorkspace
+        connection={liteDbConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          connectionId: liteDbConnection.id,
+          family: 'document',
+          language: 'json',
+          title: 'Maintenance',
+          objectViewState: {
+            connectionId: liteDbConnection.id,
+            environmentId: environment.id,
+            nodeId: 'litedb:maintenance',
+            label: 'Maintenance',
+            kind: 'maintenance',
+            path: ['catalog.db'],
+            warnings: [],
+            payload: {
+              engine: 'litedb',
+              objectView: 'maintenance',
+              fileSize: '18.4 MB',
+              maintenance: [
+                { name: 'Checkpoint', effect: 'Flush pending pages', risk: 'low', status: 'available' },
+                { name: 'Compact Copy', effect: 'Write a compacted database copy', risk: 'medium', status: 'guarded' },
+              ],
+              pragmas: [
+                { name: 'USER_VERSION', value: '3', source: 'database file', status: 'ready' },
+              ],
+              storage: [
+                { name: 'Free pages', value: 18, status: 'watch', guidance: 'Compact after large deletes.' },
+              ],
+              diagnostics: [
+                { signal: 'File Available', value: true, status: 'healthy', guidance: 'The file is accessible.' },
+              ],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('LiteDB Maintenance').length).toBeGreaterThan(0)
+    expect(screen.getByText('Compact Copy')).toBeInTheDocument()
+    expect(screen.getByText('Free pages')).toBeInTheDocument()
+    expect(screen.queryByText(/db\.GetCollection/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
   })
 
   it('renders Cosmos DB container metadata as a native Azure document workspace', () => {

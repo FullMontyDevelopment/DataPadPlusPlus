@@ -723,6 +723,55 @@ pub(crate) fn operation_manifests_for_manifest(
         ));
     }
 
+    if manifest.engine == "memcached" && manifest_has(manifest, "supports_admin_operations") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "key.get",
+                "Get Key",
+                "key",
+                "read",
+                &["supports_result_snapshots"],
+                &["keyvalue", "raw"],
+                "Preview a targeted Memcached get for an application-known key.",
+                false,
+            ),
+            operation_manifest(
+                manifest,
+                "key.set",
+                "Set Key",
+                "key",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview setting an application-known Memcached key with flags and TTL.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "key.touch",
+                "Touch Key",
+                "key",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview updating TTL for an application-known Memcached key.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "key.delete",
+                "Delete Key",
+                "key",
+                "destructive",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview deleting an application-known Memcached key.",
+                true,
+            ),
+        ]);
+    }
+
     if manifest_has(manifest, "supports_metrics_collection") {
         operations.push(operation_manifest(
             manifest,
@@ -820,6 +869,43 @@ mod tests {
             operations
                 .iter()
                 .find(|operation| operation.id == "mongodb.user.drop")
+                .map(|operation| operation.risk.as_str()),
+            Some("destructive")
+        );
+    }
+
+    #[test]
+    fn memcached_operation_manifest_exposes_known_key_previews() {
+        let manifest = AdapterManifest {
+            id: "adapter-memcached".into(),
+            engine: "memcached".into(),
+            family: "keyvalue".into(),
+            label: "Memcached".into(),
+            maturity: "stable".into(),
+            capabilities: vec![
+                "supports_result_snapshots".into(),
+                "supports_admin_operations".into(),
+                "supports_metrics_collection".into(),
+            ],
+            default_language: "text".into(),
+            local_database: None,
+            tree: None,
+        };
+
+        let operations = operation_manifests_for_manifest(&manifest);
+        let operation_ids = operations
+            .iter()
+            .map(|operation| operation.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(operation_ids.contains(&"memcached.key.get"));
+        assert!(operation_ids.contains(&"memcached.key.set"));
+        assert!(operation_ids.contains(&"memcached.key.touch"));
+        assert!(operation_ids.contains(&"memcached.key.delete"));
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "memcached.key.delete")
                 .map(|operation| operation.risk.as_str()),
             Some("destructive")
         );

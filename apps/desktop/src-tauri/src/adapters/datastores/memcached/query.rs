@@ -1,9 +1,10 @@
-use std::{collections::BTreeMap, time::Instant};
+use std::time::Instant;
 
 use serde_json::json;
 
 use super::super::super::*;
-use super::protocol::{memcached_request, memcached_stats_payload};
+use super::protocol::memcached_request;
+use super::query_results::{memcached_get_result, memcached_stats_result};
 use super::MemcachedAdapter;
 
 pub(super) async fn execute_memcached_query(
@@ -28,19 +29,7 @@ pub(super) async fn execute_memcached_query(
         .first()
         .map(|value| value.to_ascii_lowercase())
         .unwrap_or_default();
-    if matches!(
-        command.as_str(),
-        "set"
-            | "add"
-            | "replace"
-            | "append"
-            | "prepend"
-            | "cas"
-            | "delete"
-            | "incr"
-            | "decr"
-            | "flush_all"
-    ) {
+    if is_live_write_command(&command) {
         return Err(CommandError::new(
             "memcached-write-preview-only",
             "Memcached write and destructive commands are planned as guarded operations in this milestone; live execution is read/diagnostic only.",
@@ -50,13 +39,7 @@ pub(super) async fn execute_memcached_query(
     let request_text = format!("{line}\r\nquit\r\n");
     let raw = memcached_request(connection, &request_text).await?;
     let (payloads, summary) = match command.as_str() {
-        "stats" => {
-            let (payloads, entries) = memcached_stats_payload(&raw);
-            (
-                payloads,
-                format!("Memcached stats returned {} metric(s).", entries.len()),
-            )
-        }
+        "stats" => memcached_stats_result(parts.get(1).copied(), &raw),
         "version" => (
             vec![
                 payload_raw(raw.trim().to_string()),
@@ -66,25 +49,7 @@ pub(super) async fn execute_memcached_query(
             ],
             "Memcached version loaded successfully.".into(),
         ),
-        "get" | "gets" if parts.len() > 1 => {
-            let key = parts[1];
-            let mut entries = BTreeMap::new();
-            let value = raw
-                .lines()
-                .skip_while(|line| !line.starts_with("VALUE "))
-                .nth(1)
-                .unwrap_or_default()
-                .to_string();
-            entries.insert(key.into(), value.clone());
-            (
-                vec![
-                    payload_keyvalue(entries, None, None),
-                    payload_json(json!({ "key": key, "value": value })),
-                    payload_raw(raw.trim().to_string()),
-                ],
-                format!("Memcached key {key} loaded successfully."),
-            )
-        }
+        "get" | "gets" if parts.len() > 1 => memcached_get_result(&raw, &parts[1..]),
         _ => {
             notices.push(QueryExecutionNotice {
                 code: "memcached-read-surface".into(),
@@ -115,4 +80,20 @@ pub(super) async fn execute_memcached_query(
         truncated: false,
         explain_payload: None,
     }))
+}
+
+fn is_live_write_command(command: &str) -> bool {
+    matches!(
+        command,
+        "set"
+            | "add"
+            | "replace"
+            | "append"
+            | "prepend"
+            | "cas"
+            | "delete"
+            | "incr"
+            | "decr"
+            | "flush_all"
+    )
 }

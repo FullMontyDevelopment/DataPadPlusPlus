@@ -77,7 +77,7 @@ const CATEGORY_DETAILS: Record<string, string> = {
   'Full-Text Search': 'Full-text catalogs and indexes',
   'Main Database': 'SQLite main database file',
   'Attached Databases': 'SQLite attached database files',
-  Pragmas: 'SQLite PRAGMA configuration and checks',
+  Pragmas: 'Database runtime settings and checks',
   Schema: 'SQLite schema definitions',
   'Virtual Tables': 'SQLite extension-backed virtual tables',
   'FTS Tables': 'SQLite full-text search virtual tables',
@@ -1209,6 +1209,20 @@ function liteDbPlacement(
       : [database]
   }
 
+  if (node.id.startsWith('litedb:collection-statistics:') || kind === 'statistics') {
+    return [database, 'Collections', liteDbCollectionFromNode(node, normalizedPath)]
+  }
+
+  if (node.id === 'litedb:pragmas' || kind === 'pragmas') {
+    return [database]
+  }
+
+  if (node.id === 'litedb:maintenance' || kind === 'maintenance' || kind === 'backup') {
+    return node.id === 'litedb:maintenance'
+      ? [database]
+      : [database, 'Maintenance']
+  }
+
   if (node.id === 'litedb:settings' || kind === 'settings') {
     return [database]
   }
@@ -1355,6 +1369,7 @@ function memcachedPlacement(node: ExplorerNode): string[] | undefined {
     node.id === 'memcached:stats' ||
     node.id === 'memcached:slabs' ||
     node.id === 'memcached:items' ||
+    node.id === 'memcached:known-key' ||
     node.id === 'memcached:settings' ||
     node.id === 'memcached:connections'
   ) {
@@ -2300,9 +2315,21 @@ function liteDbActions(node: ConnectionTreeNode, kind: string): ConnectionTreeAc
     ]
   }
 
-  if (kind === 'storage' || kind === 'diagnostics') {
+  if (kind === 'pragmas') {
     return [
-      templateAction('shrink-preview', 'Preview Shrink...', liteDbOperationTemplate('shrinkDatabase', {
+      templateAction('update-pragma', 'Update Pragma...', liteDbOperationTemplate('updatePragma', {
+        name: 'USER_VERSION',
+        value: 1,
+      })),
+    ]
+  }
+
+  if (['storage', 'maintenance', 'diagnostics'].includes(kind)) {
+    return [
+      templateAction('checkpoint-preview', 'Checkpoint...', liteDbOperationTemplate('checkpoint', {
+        mode: 'preview',
+      })),
+      templateAction('compact-preview', 'Compact Copy...', liteDbOperationTemplate('compactDatabase', {
         mode: 'preview',
       })),
       templateAction('rebuild-preview', 'Preview Rebuild...', liteDbOperationTemplate('rebuildIndexes', {

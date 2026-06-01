@@ -167,6 +167,7 @@ function memcachedTree(): DatastoreTreeNodeManifest[] {
         node('stats', 'Stats', 'stats', 'Operational counters, hit rate, item count, and memory use'),
         node('slabs', 'Slabs', 'slabs', 'Slab classes, chunk sizes, pages, and allocation pressure'),
         node('items', 'Item Classes', 'items', 'Item-class counts, ages, evictions, and reclaim signals'),
+        node('known-key', 'Known Key Lookup', 'known-key', 'Targeted get/gets/write previews for application-known cache keys'),
         node('settings', 'Settings', 'settings', 'Cache limits, protocol flags, and LRU behavior'),
         node('connections', 'Connections', 'connections', 'Client connection pressure and rejected clients'),
       ],
@@ -182,8 +183,8 @@ function liteDbTree(): DatastoreTreeNodeManifest[] {
         node('collections', 'Collections', 'collections', 'Document collections'),
         node('indexes', 'Indexes', 'indexes', 'Collection index definitions'),
         node('file-storage', 'File Storage', 'file-storage', 'LiteDB file storage metadata'),
-        node('storage', 'Storage', 'storage', 'Page allocation and maintenance health'),
-        node('settings', 'Settings', 'settings', 'Local file connection options'),
+        node('pragmas', 'Pragmas', 'pragmas', 'LiteDB file options and runtime settings'),
+        node('maintenance', 'Maintenance', 'maintenance', 'Checkpoint, compact, rebuild, and backup workflows'),
       ],
     }),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'File health, index coverage, and storage warnings'),
@@ -249,16 +250,25 @@ function sqlServerTree(): DatastoreTreeNodeManifest[] {
         node('endpoints', 'Endpoints', 'endpoints', 'Database mirroring, service broker, and TDS endpoints'),
       ],
     }),
-    node('replication', 'Replication', 'replication', 'Replication publications and subscriptions'),
+    node('replication', 'Replication', 'replication', 'Replication publications and subscriptions', {
+      optionalWhenLiveMetadata: true,
+    }),
     node('always-on', 'Always On High Availability', 'always-on-high-availability', 'Availability groups and replicas', {
       children: [
         node('availability-groups', 'Availability Groups', 'availability-groups', 'Always On availability groups and replicas'),
       ],
+      optionalWhenLiveMetadata: true,
     }),
     node('management', 'Management', 'management', 'Maintenance, policies, and data collection'),
-    node('sql-agent', 'SQL Server Agent', 'sql-server-agent', 'Jobs, alerts, and operators'),
-    node('extended-events', 'Extended Events', 'extended-events', 'Extended Events sessions and traces'),
-    node('xevent-profiler', 'XEvent Profiler', 'xevent-profiler', 'Quick Extended Events profiling sessions'),
+    node('sql-agent', 'SQL Server Agent', 'sql-server-agent', 'Jobs, alerts, and operators', {
+      optionalWhenLiveMetadata: true,
+    }),
+    node('extended-events', 'Extended Events', 'extended-events', 'Extended Events sessions and traces', {
+      optionalWhenLiveMetadata: true,
+    }),
+    node('xevent-profiler', 'XEvent Profiler', 'xevent-profiler', 'Quick Extended Events profiling sessions', {
+      optionalWhenLiveMetadata: true,
+    }),
     node('ssis-catalogs', 'Integration Services Catalogs', 'integration-services-catalogs', 'SSIS catalogs', {
       optionalWhenLiveMetadata: true,
     }),
@@ -273,17 +283,10 @@ function sqlServerTree(): DatastoreTreeNodeManifest[] {
 
 function sqlServerDatabaseChildren(): DatastoreTreeNodeManifest[] {
   return [
-    node('database-diagrams', 'Database Diagrams', 'database-diagrams', 'Database relationship diagrams'),
-    node('tables', 'Tables', 'tables', 'Base tables and table-like relations', {
-      children: [
-        node('system-tables', 'System Tables', 'system-tables', 'Engine-maintained tables'),
-        node('filetables', 'FileTables', 'filetables', 'File-backed SQL Server tables'),
-        node('external-tables', 'External Tables', 'external-tables', 'External data tables'),
-        node('graph-tables', 'Graph Tables', 'graph-tables', 'SQL graph node and edge tables'),
-        node('node-tables', 'Node Tables', 'node-tables', 'SQL graph node tables'),
-        node('edge-tables', 'Edge Tables', 'edge-tables', 'SQL graph edge tables'),
-      ],
+    node('database-diagrams', 'Database Diagrams', 'database-diagrams', 'Database relationship diagrams', {
+      optionalWhenLiveMetadata: true,
     }),
+    node('tables', 'Tables', 'tables', 'Base tables and table-like relations'),
     node('views', 'Views', 'views', 'Stored query projections'),
     node('stored-procedures', 'Stored Procedures', 'stored-procedures', 'T-SQL and CLR procedures'),
     node('functions', 'Functions', 'functions', 'Scalar, table-valued, and CLR functions', {
@@ -297,10 +300,18 @@ function sqlServerDatabaseChildren(): DatastoreTreeNodeManifest[] {
     node('synonyms', 'Synonyms', 'synonyms', 'Object aliases'),
     node('sequences', 'Sequences', 'sequences', 'Sequence generators'),
     node('types', 'Types', 'types', 'User-defined and table types'),
-    node('xml-schemas', 'XML Schemas', 'xml-schemas', 'XML schema collections'),
-    node('assemblies', 'Assemblies', 'assemblies', 'CLR assemblies'),
-    node('full-text-search', 'Full-Text Search', 'full-text-search', 'Full-text catalogs and indexes'),
-    node('service-broker', 'Service Broker', 'service-broker', 'Messaging, queues, services, and routes'),
+    node('xml-schemas', 'XML Schemas', 'xml-schemas', 'XML schema collections', {
+      optionalWhenLiveMetadata: true,
+    }),
+    node('assemblies', 'Assemblies', 'assemblies', 'CLR assemblies', {
+      optionalWhenLiveMetadata: true,
+    }),
+    node('full-text-search', 'Full-Text Search', 'full-text-search', 'Full-text catalogs and indexes', {
+      optionalWhenLiveMetadata: true,
+    }),
+    node('service-broker', 'Service Broker', 'service-broker', 'Messaging, queues, services, and routes', {
+      optionalWhenLiveMetadata: true,
+    }),
     node('security', 'Security', 'security', 'Database security metadata', {
       children: [
         node('users', 'Users', 'users', 'Database users'),
@@ -322,7 +333,9 @@ function sqlServerDatabaseChildren(): DatastoreTreeNodeManifest[] {
         node('missing-indexes', 'Missing Indexes', 'missing-indexes', 'Optimizer missing-index hints'),
       ],
     }),
-    node('extended-events', 'Extended Events', 'extended-events', 'Database-scoped Extended Events sessions'),
+    node('extended-events', 'Extended Events', 'extended-events', 'Database-scoped Extended Events sessions', {
+      optionalWhenLiveMetadata: true,
+    }),
     node('agent', 'Agent', 'sql-server-agent', 'Jobs, schedules, alerts, operators, and proxies', {
       children: [
         node('jobs', 'Jobs', 'jobs', 'Agent jobs'),
@@ -331,11 +344,20 @@ function sqlServerDatabaseChildren(): DatastoreTreeNodeManifest[] {
         node('operators', 'Operators', 'operators', 'Agent operators'),
         node('proxies', 'Proxies', 'proxies', 'Agent proxies'),
       ],
+      optionalWhenLiveMetadata: true,
     }),
-    node('replication', 'Replication', 'replication', 'Publications, subscriptions, and replication metadata'),
-    node('cdc', 'CDC', 'cdc', 'Change Data Capture objects'),
-    node('change-tracking', 'Change Tracking', 'change-tracking', 'Change tracking tables and settings'),
-    node('external-resources', 'External Resources', 'external-resources', 'External data sources, file formats, and tables'),
+    node('replication', 'Replication', 'replication', 'Publications, subscriptions, and replication metadata', {
+      optionalWhenLiveMetadata: true,
+    }),
+    node('cdc', 'CDC', 'cdc', 'Change Data Capture objects', {
+      optionalWhenLiveMetadata: true,
+    }),
+    node('change-tracking', 'Change Tracking', 'change-tracking', 'Change tracking tables and settings', {
+      optionalWhenLiveMetadata: true,
+    }),
+    node('external-resources', 'External Resources', 'external-resources', 'External data sources, file formats, and tables', {
+      optionalWhenLiveMetadata: true,
+    }),
     node('storage', 'Storage', 'storage', 'Files, filegroups, and partitions', {
       children: [
         node('filegroups', 'Filegroups', 'filegroups', 'Database filegroups'),
@@ -348,7 +370,7 @@ function sqlServerDatabaseChildren(): DatastoreTreeNodeManifest[] {
 }
 
 function postgresFamilyTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[] {
-  const userChildren = [
+  const schemaChildren = [
     node('tables', 'Tables', 'tables', 'Base tables'),
     node('views', 'Views', 'views', 'Views'),
     node('materialized-views', 'Materialized Views', 'materialized-views', 'Persisted query projections'),
@@ -364,12 +386,25 @@ function postgresFamilyTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[
   ]
 
   if (engine === 'timescaledb') {
-    userChildren.splice(1, 0, node('hypertables', 'Hypertables', 'hypertables', 'Timescale hypertables'))
+    schemaChildren.splice(
+      1,
+      0,
+      node('hypertables', 'Hypertables', 'hypertables', 'Timescale hypertables'),
+      node('continuous-aggregates', 'Continuous Aggregates', 'continuous-aggregates', 'Materialized time-bucket views'),
+      node('chunks', 'Chunks', 'chunks', 'Hypertable chunk partitions'),
+      node('compression', 'Compression', 'compression', 'Compression policies and settings'),
+      node('retention', 'Retention', 'retention', 'Retention/drop-chunk policies'),
+      node('jobs', 'Jobs', 'jobs', 'Background job health'),
+    )
   }
 
   return [
     node('user-schemas', 'User Schemas', 'user-schemas', 'User-created schemas', {
-      children: userChildren,
+      children: [
+        node('selected-schema', 'public', 'schema', 'Default user schema', {
+          children: schemaChildren,
+        }),
+      ],
     }),
     node('system-schemas', 'System Schemas', 'system-schemas', 'pg_catalog, information_schema, and extension internals'),
     node('security', 'Security', 'security', 'Roles and permissions'),
@@ -393,7 +428,11 @@ function cockroachTree(): DatastoreTreeNodeManifest[] {
         node('selected-database', '{{database:defaultdb}}', 'database', 'Selected CockroachDB database', {
           children: [
             node('user-schemas', 'User Schemas', 'user-schemas', 'User-created object namespaces', {
-              children: cockroachSchemaChildren(),
+              children: [
+                node('selected-schema', 'public', 'schema', 'Default user schema', {
+                  children: cockroachSchemaChildren(),
+                }),
+              ],
             }),
             node('system-schemas', 'System Schemas', 'system-schemas', 'crdb_internal, pg_catalog, information_schema, and system metadata'),
           ],

@@ -123,22 +123,28 @@ impl JanusGraphEndpoint {
                 "JanusGraph requires a host or http:// connection string.",
             ));
         }
+        validate_http_component(host, "JanusGraph host")?;
+        let prefix = connection
+            .graph_options
+            .as_ref()
+            .and_then(|options| options.path_prefix.as_deref())
+            .map(|value| normalized_prefix(Some(value)))
+            .transpose()?
+            .flatten()
+            .unwrap_or_default();
+        let traversal_source = traversal_source(
+            connection
+                .graph_options
+                .as_ref()
+                .and_then(graph_traversal_override)
+                .or(connection.database.as_deref()),
+        )?;
 
         Ok(Self {
             host: host.into(),
             port: connection.port.unwrap_or(8182),
-            prefix: connection
-                .graph_options
-                .as_ref()
-                .and_then(|options| normalized_prefix(options.path_prefix.as_deref()))
-                .unwrap_or_default(),
-            traversal_source: traversal_source(
-                connection
-                    .graph_options
-                    .as_ref()
-                    .and_then(graph_traversal_override)
-                    .or(connection.database.as_deref()),
-            ),
+            prefix,
+            traversal_source,
         })
     }
 
@@ -171,22 +177,20 @@ impl JanusGraphEndpoint {
                 "JanusGraph connection string did not include a host.",
             ));
         }
+        validate_http_component(host, "JanusGraph host")?;
 
-        let prefix = normalized_prefix(prefix_override)
-            .or_else(|| {
-                if path == "gremlin" {
-                    None
-                } else {
-                    normalized_prefix(Some(path))
-                }
-            })
-            .unwrap_or_default();
+        let prefix = match normalized_prefix(prefix_override)? {
+            Some(prefix) => prefix,
+            None if path == "gremlin" => String::new(),
+            None => normalized_prefix(Some(path))?.unwrap_or_default(),
+        };
+        let traversal_source = traversal_source(traversal_override)?;
 
         Ok(Self {
             host: host.into(),
             port,
             prefix,
-            traversal_source: traversal_source(traversal_override),
+            traversal_source,
         })
     }
 
@@ -242,11 +246,13 @@ fn ensure_janusgraph_success(value: &Value) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn traversal_source(value: Option<&str>) -> String {
-    value
+fn traversal_source(value: Option<&str>) -> Result<String, CommandError> {
+    let source = value
         .filter(|source| !source.trim().is_empty() && !source.starts_with('/'))
         .map(str::to_string)
-        .unwrap_or_else(|| "g".into())
+        .unwrap_or_else(|| "g".into());
+    validate_traversal_source(&source)?;
+    Ok(source)
 }
 
 fn graph_traversal_override(
@@ -259,13 +265,52 @@ fn graph_traversal_override(
         .filter(|value| !value.trim().is_empty())
 }
 
-fn normalized_prefix(value: Option<&str>) -> Option<String> {
-    let trimmed = value?.trim().trim_matches('/');
+fn normalized_prefix(value: Option<&str>) -> Result<Option<String>, CommandError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().trim_matches('/');
     if trimmed.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(format!("/{trimmed}"))
+        validate_path_prefix(trimmed, "JanusGraph path prefix")?;
+        Ok(Some(format!("/{trimmed}")))
     }
+}
+
+fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "janusgraph-endpoint-invalid",
+            format!("{label} contains an invalid control character."),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_path_prefix(value: &str, label: &str) -> Result<(), CommandError> {
+    validate_http_component(value, label)?;
+    if value.contains('?') || value.contains('#') {
+        return Err(CommandError::new(
+            "janusgraph-endpoint-invalid",
+            format!("{label} contains an invalid query or fragment separator."),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_traversal_source(value: &str) -> Result<(), CommandError> {
+    validate_http_component(value, "JanusGraph traversal source")?;
+    if value
+        .chars()
+        .any(|character| character.is_whitespace() || matches!(character, '/' | '?' | '#'))
+    {
+        return Err(CommandError::new(
+            "janusgraph-endpoint-invalid",
+            "JanusGraph traversal source contains an invalid separator.",
+        ));
+    }
+    Ok(())
 }
 
 fn janusgraph_auth_header(connection: &ResolvedConnectionProfile) -> String {
@@ -374,5 +419,26 @@ mod tests {
         assert_eq!(endpoint.port, 18182);
         assert_eq!(endpoint.path("/gremlin"), "/janus/gremlin");
         assert_eq!(value["aliases"]["g"], "analyticsTraversal");
+    }
+
+    #[test]
+    fn janusgraph_endpoint_rejects_invalid_http_parts() {
+        let host_error =
+            JanusGraphEndpoint::from_url("http://local\r\nhost:18182/janus", Some("g"))
+                .unwrap_err();
+        assert_eq!(host_error.code, "janusgraph-endpoint-invalid");
+
+        let prefix_error = JanusGraphEndpoint::from_url_with_prefix(
+            "http://localhost:18182/janus?x=1",
+            Some("g"),
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(prefix_error.code, "janusgraph-endpoint-invalid");
+
+        let source_error =
+            JanusGraphEndpoint::from_url("http://localhost:18182/janus", Some("bad/source"))
+                .unwrap_err();
+        assert_eq!(source_error.code, "janusgraph-endpoint-invalid");
     }
 }

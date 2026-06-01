@@ -4,12 +4,7 @@ import { branch, leaf, type ConnectionTreeNode } from './SideBar.connection-tree
 const SQL_SERVER_SERVER_LEVEL_GROUPS = [
   'Security',
   'Server Objects',
-  'Replication',
-  'Always On High Availability',
   'Management',
-  'SQL Server Agent',
-  'Extended Events',
-  'XEvent Profiler',
 ]
 
 export function sqlConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
@@ -120,19 +115,12 @@ function sqlServerConnectionTree(connection: ConnectionProfile): ConnectionTreeN
       branch('system-databases', 'System Databases', 'system-databases', 'Engine-maintained databases', []),
       branch('database-snapshots', 'Database Snapshots', 'database-snapshots', 'Point-in-time database snapshots', []),
       branch(`database-${database}`, database, 'database', 'user database', [
-        branch('database-diagrams', 'Database Diagrams', 'database-diagrams', 'Database relationship diagrams', []),
-        branch('tables', 'Tables', 'tables', 'Base tables and table-like relations', [
-          branch('system-tables', 'System Tables', 'system-tables', 'Engine-maintained tables', []),
-          branch('filetables', 'FileTables', 'filetables', 'SQL Server file-backed tables', []),
-          branch('external-tables', 'External Tables', 'external-tables', 'Externally stored relational tables', []),
-          branch('graph-tables', 'Graph Tables', 'graph-tables', 'SQL graph node and edge tables', []),
-        ]),
+        branch('tables', 'Tables', 'tables', 'Base tables and table-like relations', []),
         branch('views', 'Views', 'views', 'Saved select projections', []),
-        branch('external-resources', 'External Resources', 'external-resources', 'External data access metadata', []),
         branch('synonyms', 'Synonyms', 'synonyms', 'Object aliases', []),
         sqlServerProgrammabilityBranch(),
-        branch('service-broker', 'Service Broker', 'service-broker', 'Messaging and queue objects', []),
         branch('storage', 'Storage', 'storage', 'Files, filegroups, and partitions', []),
+        branch('performance', 'Performance', 'performance', 'Sessions, locks, waits, and tuning hints', []),
         branch('security', 'Security', 'security', 'Database users, roles, and schemas', [
           branch('users', 'Users', 'users', 'Database users', []),
           branch('roles', 'Roles', 'roles', 'Database roles', []),

@@ -177,6 +177,7 @@ function isInsightKind(kind: string) {
     'slab',
     'items',
     'item-class',
+    'known-key',
     'settings',
     'connections',
     'diagnostics',

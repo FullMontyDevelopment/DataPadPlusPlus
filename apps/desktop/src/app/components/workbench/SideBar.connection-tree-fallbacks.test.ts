@@ -31,7 +31,9 @@ describe('fallbackConnectionTree', () => {
       database: 'datapadplusplus',
     }))
 
-    expect(findNode(tree, 'Extended Events')).toBeTruthy()
+    expect(findNode(tree, 'Extended Events')).toBeUndefined()
+    expect(findNode(tree, 'SQL Server Agent')).toBeUndefined()
+    expect(findNode(tree, 'XEvent Profiler')).toBeUndefined()
     expect(findNode(tree, 'Integration Services Catalogs')).toBeUndefined()
     expect(findNode(tree, 'Analysis Services')).toBeUndefined()
     expect(findNode(tree, 'Reporting Services')).toBeUndefined()
@@ -92,6 +94,25 @@ describe('fallbackConnectionTree', () => {
     expect(findNode(tree, 'Databases')).toBeTruthy()
     expect(findNode(tree, 'Keys')).toBeTruthy()
     expect(findNode(tree, 'Search Indexes')).toBeUndefined()
+  })
+
+  it('renders LiteDB fallback folders as local-file pragmas and maintenance surfaces', () => {
+    const tree = fallbackConnectionTree(connection({
+      engine: 'litedb',
+      family: 'document',
+      icon: 'litedb',
+      database: 'catalog.db',
+    }))
+
+    expect(labels(tree)).toEqual(['catalog.db', 'Diagnostics'])
+    expect(labels(findNode(tree, 'catalog.db')?.children ?? [])).toEqual([
+      'Collections',
+      'Indexes',
+      'File Storage',
+      'Pragmas',
+      'Maintenance',
+    ])
+    expect(findNode(tree, 'Settings')).toBeUndefined()
   })
 
   it('renders DynamoDB fallback access and diagnostic areas', () => {

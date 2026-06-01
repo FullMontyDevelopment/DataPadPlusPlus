@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde_json::{json, Value};
 use sqlx::Row;
 
@@ -110,6 +112,28 @@ pub(super) async fn inspect_sqlite_explorer_node(
             format!("SQLite view view ready for {schema}.{view}."),
             Some(sqlite_select_template(&schema, &view)),
             view_inspection_payload(&pool, &schema, &view).await?,
+        )
+    } else if node_id.starts_with("table-section:") {
+        let (schema, table, section) = parse_table_section_scope(node_id)?;
+        let payload = with_object_view(
+            table_inspection_payload(&pool, schema, table).await?,
+            sqlite_table_section_object_view(section),
+        );
+        (
+            format!("SQLite {section} view ready for {schema}.{table}."),
+            sqlite_table_section_query_template(schema, table, section),
+            payload,
+        )
+    } else if node_id.starts_with("view-section:") {
+        let (schema, view, section) = parse_table_section_scope(node_id)?;
+        let payload = with_object_view(
+            view_inspection_payload(&pool, schema, view).await?,
+            sqlite_view_section_object_view(section),
+        );
+        (
+            format!("SQLite {section} view ready for {schema}.{view}."),
+            sqlite_view_section_query_template(schema, view, section),
+            payload,
         )
     } else if let Some(scope) = node_id.strip_prefix("index:") {
         let (schema, index) = parse_object_scope_parts(scope);
@@ -1248,19 +1272,58 @@ async fn foreign_key_records(
     let rows = sqlx::query(&pragma_query(schema, "foreign_key_list", Some(table)))
         .fetch_all(pool)
         .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| {
+    let mut groups = BTreeMap::<i64, SqliteForeignKeyGroup>::new();
+
+    for row in rows {
+        let id = row.try_get::<i64, _>("id").unwrap_or_default();
+        let group = groups.entry(id).or_insert_with(|| SqliteForeignKeyGroup {
+            id,
+            referenced_table: row.try_get::<String, _>("table").unwrap_or_default(),
+            on_update: row.try_get::<String, _>("on_update").unwrap_or_default(),
+            on_delete: row.try_get::<String, _>("on_delete").unwrap_or_default(),
+            match_option: row.try_get::<String, _>("match").unwrap_or_default(),
+            source_columns: Vec::new(),
+            referenced_columns: Vec::new(),
+        });
+        group
+            .source_columns
+            .push(row.try_get::<String, _>("from").unwrap_or_default());
+        group
+            .referenced_columns
+            .push(row.try_get::<String, _>("to").unwrap_or_default());
+    }
+
+    Ok(groups
+        .into_values()
+        .map(|group| {
+            let source_columns = group.source_columns.join(", ");
+            let referenced_columns = group.referenced_columns.join(", ");
             json!({
-                "id": row.try_get::<i64, _>("id").unwrap_or_default(),
-                "from": row.try_get::<String, _>("from").unwrap_or_default(),
-                "table": row.try_get::<String, _>("table").unwrap_or_default(),
-                "to": row.try_get::<String, _>("to").unwrap_or_default(),
-                "onUpdate": row.try_get::<String, _>("on_update").unwrap_or_default(),
-                "onDelete": row.try_get::<String, _>("on_delete").unwrap_or_default(),
+                "id": group.id,
+                "name": format!("fk_{table}_{source_columns}"),
+                "from": relationship_endpoint(table, &source_columns),
+                "sourceTable": table,
+                "columns": source_columns,
+                "table": group.referenced_table,
+                "referencedTable": group.referenced_table,
+                "referencedColumns": referenced_columns,
+                "to": relationship_endpoint(&group.referenced_table, &referenced_columns),
+                "onUpdate": group.on_update,
+                "onDelete": group.on_delete,
+                "match": group.match_option,
             })
         })
         .collect())
+}
+
+struct SqliteForeignKeyGroup {
+    id: i64,
+    referenced_table: String,
+    on_update: String,
+    on_delete: String,
+    match_option: String,
+    source_columns: Vec<String>,
+    referenced_columns: Vec<String>,
 }
 
 async fn constraint_records(
@@ -1301,15 +1364,15 @@ async fn constraint_records(
                     "name": format!(
                         "fk_{}_{}",
                         table,
-                        row.get("from").and_then(Value::as_str).unwrap_or("column")
+                        row.get("columns").and_then(Value::as_str).unwrap_or("column")
                     ),
                     "type": "foreign key",
-                    "columns": row.get("from").cloned().unwrap_or(Value::Null),
+                    "columns": row.get("columns").cloned().unwrap_or(Value::Null),
                     "status": "active",
                     "definition": format!(
                         "references {}({})",
-                        row.get("table").and_then(Value::as_str).unwrap_or(""),
-                        row.get("to").and_then(Value::as_str).unwrap_or("")
+                        row.get("referencedTable").and_then(Value::as_str).unwrap_or(""),
+                        row.get("referencedColumns").and_then(Value::as_str).unwrap_or("")
                     ),
                 })
             }),
@@ -1563,6 +1626,85 @@ fn sqlite_quote_identifier(identifier: &str) -> String {
     format!("[{}]", identifier.replace(']', "]]"))
 }
 
+fn relationship_endpoint(object: &str, columns: &str) -> String {
+    let columns = columns.trim();
+    if columns.is_empty() {
+        object.to_string()
+    } else {
+        format!("{object}.{columns}")
+    }
+}
+
+fn with_object_view(mut payload: Value, object_view: &str) -> Value {
+    if let Some(record) = payload.as_object_mut() {
+        record.insert("objectView".into(), Value::String(object_view.into()));
+    }
+    payload
+}
+
+fn sqlite_table_section_object_view(section: &str) -> &str {
+    match section {
+        "data" => "data",
+        "ddl" => "ddl",
+        "foreign-keys" => "foreign-keys",
+        "columns" | "constraints" | "indexes" | "triggers" | "statistics" => section,
+        _ => "table",
+    }
+}
+
+fn sqlite_view_section_object_view(section: &str) -> &str {
+    match section {
+        "data" => "data",
+        "definition" | "ddl" => "ddl",
+        "dependencies" => "dependencies",
+        _ => "view",
+    }
+}
+
+fn sqlite_table_section_query_template(schema: &str, table: &str, section: &str) -> Option<String> {
+    match section {
+        "data" => Some(sqlite_select_template(schema, table)),
+        "columns" => Some(pragma_query(schema, "table_xinfo", Some(table))),
+        "indexes" => Some(pragma_query(schema, "index_list", Some(table))),
+        "foreign-keys" => Some(pragma_query(schema, "foreign_key_list", Some(table))),
+        "constraints" => Some(format!(
+            "{};\n{};",
+            pragma_query(schema, "table_xinfo", Some(table)),
+            pragma_query(schema, "foreign_key_list", Some(table))
+        )),
+        "statistics" => Some(format!(
+            "select count(*) as row_count from {}.{};\n{};\n{};",
+            sqlite_quote_identifier(schema),
+            sqlite_quote_identifier(table),
+            pragma_query(schema, "page_count", None),
+            pragma_query(schema, "freelist_count", None),
+        )),
+        "ddl" => Some(format!(
+            "select coalesce(sql, '') as sql from {}.sqlite_master where type = 'table' and name = '{}';",
+            sqlite_quote_identifier(schema),
+            sql_literal(table)
+        )),
+        _ => None,
+    }
+}
+
+fn sqlite_view_section_query_template(schema: &str, view: &str, section: &str) -> Option<String> {
+    match section {
+        "data" => Some(sqlite_select_template(schema, view)),
+        "definition" | "ddl" => Some(format!(
+            "select coalesce(sql, '') as sql from {}.sqlite_master where type = 'view' and name = '{}';",
+            sqlite_quote_identifier(schema),
+            sql_literal(view)
+        )),
+        "dependencies" => Some(format!(
+            "select name, type, tbl_name from {}.sqlite_master where sql like '%{}%' order by type, name;",
+            sqlite_quote_identifier(schema),
+            sql_literal(view)
+        )),
+        _ => None,
+    }
+}
+
 fn pragma_query(schema: &str, pragma: &str, argument: Option<&str>) -> String {
     match argument {
         Some(argument) => format!(
@@ -1775,6 +1917,116 @@ mod tests {
                 .iter()
                 .any(|index| index["name"] == "accounts_name_idx")));
 
+            let _ = std::fs::remove_file(&path);
+        });
+    }
+
+    #[test]
+    fn inspect_sqlite_table_section_returns_native_section_view() {
+        tauri::async_runtime::block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "datapadplusplus-sqlite-section-inspect-{}.sqlite",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_file(&path);
+            let setup_pool = sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(
+                    sqlx::sqlite::SqliteConnectOptions::new()
+                        .filename(&path)
+                        .create_if_missing(true),
+                )
+                .await
+                .expect("create sqlite fixture");
+            sqlx::query("create table accounts (id integer primary key, name text not null)")
+                .execute(&setup_pool)
+                .await
+                .expect("create accounts table");
+            setup_pool.close().await;
+
+            let response = inspect_sqlite_explorer_node(
+                &test_connection(path.to_string_lossy().as_ref()),
+                &ExplorerInspectRequest {
+                    connection_id: "conn".into(),
+                    environment_id: "env".into(),
+                    node_id: "table-section:main:accounts:columns".into(),
+                },
+            )
+            .await
+            .expect("inspect sqlite table section");
+
+            assert_eq!(
+                response.query_template.as_deref(),
+                Some("pragma [main].table_xinfo('accounts')")
+            );
+            let payload = response.payload.expect("payload");
+            assert_eq!(payload["objectView"], "columns");
+            assert_eq!(payload["objectName"], "accounts");
+            assert!(payload["columns"]
+                .as_array()
+                .is_some_and(|columns| columns.iter().any(|column| column["name"] == "name")));
+
+            let _ = std::fs::remove_file(&path);
+        });
+    }
+
+    #[test]
+    fn sqlite_foreign_key_records_group_composite_keys() {
+        tauri::async_runtime::block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "datapadplusplus-sqlite-composite-fk-{}.sqlite",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_file(&path);
+            let pool = sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(
+                    sqlx::sqlite::SqliteConnectOptions::new()
+                        .filename(&path)
+                        .create_if_missing(true),
+                )
+                .await
+                .expect("create sqlite fixture");
+            sqlx::query(
+                "create table accounts (
+                    id integer not null,
+                    region text not null,
+                    primary key (id, region)
+                )",
+            )
+            .execute(&pool)
+            .await
+            .expect("create accounts table");
+            sqlx::query(
+                "create table orders (
+                    id integer primary key,
+                    account_id integer,
+                    region text,
+                    foreign key (account_id, region)
+                      references accounts(id, region)
+                      on update cascade
+                      on delete set null
+                )",
+            )
+            .execute(&pool)
+            .await
+            .expect("create orders table");
+
+            let payload = table_inspection_payload(&pool, "main", "orders")
+                .await
+                .expect("table payload");
+            let foreign_keys = payload["foreignKeys"].as_array().expect("foreign keys");
+
+            assert_eq!(foreign_keys.len(), 1);
+            assert_eq!(foreign_keys[0]["from"], "orders.account_id, region");
+            assert_eq!(foreign_keys[0]["columns"], "account_id, region");
+            assert_eq!(foreign_keys[0]["table"], "accounts");
+            assert_eq!(foreign_keys[0]["to"], "accounts.id, region");
+            assert_eq!(foreign_keys[0]["referencedColumns"], "id, region");
+            assert_eq!(foreign_keys[0]["onUpdate"], "CASCADE");
+            assert_eq!(foreign_keys[0]["onDelete"], "SET NULL");
+
+            pool.close().await;
             let _ = std::fs::remove_file(&path);
         });
     }

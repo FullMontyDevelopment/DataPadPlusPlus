@@ -6,6 +6,7 @@ mod diagnostics;
 mod explorer;
 mod protocol;
 mod query;
+mod query_results;
 
 use catalog::*;
 use connection::*;

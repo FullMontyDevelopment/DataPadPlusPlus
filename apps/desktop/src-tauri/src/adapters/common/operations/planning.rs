@@ -517,6 +517,17 @@ fn litedb_operation_request(
         .unwrap_or_else(|_| "{}".into());
     }
 
+    if operation_id.ends_with("storage.rebuild-indexes") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "operation": "LiteDB.RebuildIndexes",
+            "databaseFile": database_file,
+            "collection": collection,
+            "preflight": ["checkpoint", "verify-file-lock", "list-indexes"],
+            "validation": ["compare-index-counts", "sample-indexed-queries"]
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
     if operation_id.ends_with("index.create") {
         return format!(
             "db.GetCollection(\"{}\").EnsureIndex(\"{}\", \"{}\", {unique});",
@@ -579,6 +590,14 @@ fn memcached_operation_request(
     parameters: Option<&BTreeMap<String, Value>>,
 ) -> String {
     let class_id = string_parameter(parameters, "classId");
+    let key = string_parameter(parameters, "key")
+        .filter(|value| memcached_key_is_single_token(value))
+        .unwrap_or_else(|| object_name.into());
+    let key = if memcached_key_is_single_token(&key) {
+        key
+    } else {
+        "<key>".into()
+    };
 
     if operation_id.ends_with("diagnostics.metrics") {
         return "stats\nstats settings\nstats slabs\nstats items\nstats conns".into();
@@ -614,7 +633,45 @@ fn memcached_operation_request(
         );
     }
 
+    if operation_id.ends_with("key.get") {
+        return format!("get {key}");
+    }
+
+    if operation_id.ends_with("key.gets") {
+        return format!("gets {key}");
+    }
+
+    if operation_id.ends_with("key.set") {
+        let value = string_parameter(parameters, "value").unwrap_or_else(|| "<value>".into());
+        let flags = numeric_parameter(parameters, "flags").unwrap_or(0);
+        let ttl_seconds = numeric_parameter(parameters, "ttlSeconds").unwrap_or(300);
+        return format!("set {key} {flags} {ttl_seconds} {}\n{value}", value.len());
+    }
+
+    if operation_id.ends_with("key.delete") {
+        return format!("delete {key}");
+    }
+
+    if operation_id.ends_with("key.touch") {
+        let ttl_seconds = numeric_parameter(parameters, "ttlSeconds").unwrap_or(300);
+        return format!("touch {key} {ttl_seconds}");
+    }
+
+    if operation_id.ends_with("key.increment") {
+        let delta = numeric_parameter(parameters, "delta").unwrap_or(1);
+        return format!("incr {key} {delta}");
+    }
+
     format!("stats\n# {operation_id}\n# scope: {object_name}")
+}
+
+fn memcached_key_is_single_token(key: &str) -> bool {
+    let trimmed = key.trim();
+    !trimmed.is_empty()
+        && trimmed.len() <= 250
+        && trimmed
+            .chars()
+            .all(|character| !character.is_control() && !character.is_whitespace())
 }
 
 fn search_operation_request(operation_id: &str, object_name: &str, parameter_json: &str) -> String {
@@ -2607,6 +2664,7 @@ pub(crate) fn default_operation_plan(
     let destructive = operation_id.contains(".drop")
         || operation_id.contains("backup-restore")
         || operation_id.contains(".backup.restore")
+        || operation_id.contains(".key.delete")
         || operation_id.contains(".repair")
         || operation_id.contains(".flush");
     let admin_write = operation_id.contains(".create")
@@ -2619,6 +2677,9 @@ pub(crate) fn default_operation_plan(
         || operation_id.contains(".pipeline.simulate")
         || operation_id.contains(".user.")
         || operation_id.contains(".role.")
+        || operation_id.contains(".key.set")
+        || operation_id.contains(".key.touch")
+        || operation_id.contains(".key.increment")
         || operation_id.contains(".extension.")
         || operation_id.contains(".file.import")
         || operation_id.contains(".collection.import")
@@ -3632,6 +3693,18 @@ mod tests {
         assert_eq!(litedb_compact_value["operation"], "LiteDB.Compact");
         assert_eq!(litedb_compact_value["databaseFile"], "catalog.db");
 
+        let litedb_rebuild_request = generated_operation_request(
+            &connection,
+            &litedb_manifest,
+            "litedb.storage.rebuild-indexes",
+            "products",
+            Some(&litedb_parameters),
+        );
+        let litedb_rebuild_value =
+            serde_json::from_str::<serde_json::Value>(&litedb_rebuild_request).unwrap();
+        assert_eq!(litedb_rebuild_value["operation"], "LiteDB.RebuildIndexes");
+        assert_eq!(litedb_rebuild_value["collection"], "products");
+
         let memcached_request = generated_operation_request(
             &connection,
             &memcached_manifest,
@@ -3649,6 +3722,29 @@ mod tests {
             Some(&BTreeMap::from([("delaySeconds".into(), json!(5))])),
         );
         assert!(memcached_flush_request.contains("flush_all 5"));
+
+        let memcached_set_request = generated_operation_request(
+            &connection,
+            &memcached_manifest,
+            "memcached.key.set",
+            "session:1",
+            Some(&BTreeMap::from([
+                ("key".into(), json!("session:1")),
+                ("value".into(), json!("cached-user")),
+                ("ttlSeconds".into(), json!(60)),
+            ])),
+        );
+        assert!(memcached_set_request.contains("set session:1 0 60 11"));
+        assert!(memcached_set_request.contains("cached-user"));
+
+        let memcached_delete_request = generated_operation_request(
+            &connection,
+            &memcached_manifest,
+            "memcached.key.delete",
+            "session:1",
+            Some(&BTreeMap::from([("key".into(), json!("session:1"))])),
+        );
+        assert_eq!(memcached_delete_request, "delete session:1");
     }
 
     fn connection() -> ResolvedConnectionProfile {

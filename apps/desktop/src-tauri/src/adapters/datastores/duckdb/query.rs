@@ -32,39 +32,39 @@ pub(super) async fn execute_duckdb_query(
     );
     let sql = duckdb_statement_for_mode(statement, execute_mode(request));
     let db = open_duckdb_connection(connection)?;
-    let payloads = match query_table(&db, &sql, row_limit) {
-        Ok((columns, rows)) => {
+    let (payloads, truncated) = match query_table_with_truncation(&db, &sql, row_limit) {
+        Ok(QueryTableResult {
+            columns,
+            rows,
+            truncated,
+        }) => {
             let mut payloads = vec![
-                payload_table(columns, rows.clone()),
+                payload_table(columns.clone(), rows.clone()),
                 payload_json(json!({
                     "engine": "duckdb",
                     "rowCount": rows.len(),
                     "rowLimit": row_limit,
+                    "truncated": truncated,
                 })),
                 payload_raw(sql.clone()),
             ];
             if matches!(execute_mode(request), "explain" | "profile") {
                 payloads.insert(
                     0,
-                    payload_plan(
-                        "text",
-                        json!(rows),
-                        if execute_mode(request) == "profile" {
-                            "DuckDB EXPLAIN ANALYZE profile returned."
-                        } else {
-                            "DuckDB EXPLAIN plan returned."
-                        },
-                    ),
+                    duckdb_plan_payload(execute_mode(request), &sql, &columns, &rows),
                 );
             }
-            payloads
+            (payloads, truncated)
         }
         Err(error) if is_non_query_error(&error.message) => {
             db.execute_batch(&sql).map_err(duckdb_error)?;
-            vec![
-                payload_json(json!({ "engine": "duckdb", "statementExecuted": true })),
-                payload_raw(sql.clone()),
-            ]
+            (
+                vec![
+                    payload_json(json!({ "engine": "duckdb", "statementExecuted": true })),
+                    payload_raw(sql.clone()),
+                ],
+                false,
+            )
         }
         Err(error) => return Err(error),
     };
@@ -91,9 +91,15 @@ pub(super) async fn execute_duckdb_query(
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
-        truncated: false,
+        truncated,
         explain_payload: None,
     }))
+}
+
+struct QueryTableResult {
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+    truncated: bool,
 }
 
 pub(crate) fn query_table(
@@ -101,6 +107,15 @@ pub(crate) fn query_table(
     sql: &str,
     row_limit: u32,
 ) -> Result<(Vec<String>, Vec<Vec<String>>), CommandError> {
+    let result = query_table_with_truncation(db, sql, row_limit)?;
+    Ok((result.columns, result.rows))
+}
+
+fn query_table_with_truncation(
+    db: &duckdb::Connection,
+    sql: &str,
+    row_limit: u32,
+) -> Result<QueryTableResult, CommandError> {
     let mut stmt = db.prepare(sql).map_err(duckdb_error)?;
     let mut rows = stmt.query([]).map_err(duckdb_error)?;
     let columns = rows
@@ -113,8 +128,12 @@ pub(crate) fn query_table(
         .unwrap_or_default();
     let mut output = Vec::new();
     while let Some(row) = rows.next().map_err(duckdb_error)? {
-        if output.len() >= row_limit as usize {
-            break;
+        if output.len() == row_limit as usize {
+            return Ok(QueryTableResult {
+                columns,
+                rows: output,
+                truncated: true,
+            });
         }
         let mut cells = Vec::with_capacity(column_count);
         for index in 0..column_count {
@@ -123,7 +142,55 @@ pub(crate) fn query_table(
         }
         output.push(cells);
     }
-    Ok((columns, output))
+    Ok(QueryTableResult {
+        columns,
+        rows: output,
+        truncated: false,
+    })
+}
+
+fn duckdb_plan_payload(
+    mode: &str,
+    statement: &str,
+    columns: &[String],
+    rows: &[Vec<String>],
+) -> serde_json::Value {
+    payload_plan(
+        if mode == "profile" { "profile" } else { "text" },
+        json!({
+            "statement": statement,
+            "columns": columns,
+            "rows": rows,
+            "plan": duckdb_plan_lines(columns, rows),
+        }),
+        if mode == "profile" {
+            "DuckDB EXPLAIN ANALYZE profile returned."
+        } else {
+            "DuckDB EXPLAIN plan returned."
+        },
+    )
+}
+
+fn duckdb_plan_lines(columns: &[String], rows: &[Vec<String>]) -> Vec<String> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+
+    let plan_column = columns
+        .iter()
+        .position(|column| {
+            matches!(
+                column.to_ascii_lowercase().as_str(),
+                "explain_value" | "physical_plan" | "analyzed_plan" | "plan"
+            ) || column.to_ascii_lowercase().contains("plan")
+        })
+        .unwrap_or_else(|| columns.len().saturating_sub(1));
+
+    rows.iter()
+        .filter_map(|row| row.get(plan_column))
+        .flat_map(|value| value.lines().map(str::to_string).collect::<Vec<_>>())
+        .filter(|line| !line.trim().is_empty())
+        .collect()
 }
 
 pub(crate) fn duckdb_statement_for_mode(statement: &str, mode: &str) -> String {
@@ -179,7 +246,10 @@ fn is_non_query_error(message: &str) -> bool {
 mod tests {
     use duckdb::Connection;
 
-    use super::{duckdb_statement_for_mode, is_mutating_sql, query_table};
+    use super::{
+        duckdb_plan_lines, duckdb_plan_payload, duckdb_statement_for_mode, is_mutating_sql,
+        query_table, query_table_with_truncation,
+    };
 
     #[test]
     fn duckdb_modes_generate_explain_statements() {
@@ -211,5 +281,43 @@ mod tests {
 
         assert_eq!(columns, vec!["i", "name"]);
         assert_eq!(rows, vec![vec!["1", "Ada"]]);
+    }
+
+    #[test]
+    fn duckdb_query_table_reports_truncation_without_extra_row() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("create table t(i integer); insert into t values (1), (2), (3);")
+            .unwrap();
+        let result = query_table_with_truncation(&db, "select i from t order by i", 2).unwrap();
+
+        assert!(result.truncated);
+        assert_eq!(result.rows, vec![vec!["1"], vec!["2"]]);
+    }
+
+    #[test]
+    fn duckdb_plan_payload_preserves_columns_rows_and_lines() {
+        let columns = vec!["explain_key".into(), "explain_value".into()];
+        let rows = vec![vec![
+            "physical_plan".into(),
+            "SEQ_SCAN\nFILTER status = 'active'".into(),
+        ]];
+        let payload = duckdb_plan_payload("explain", "EXPLAIN select * from t", &columns, &rows);
+
+        assert_eq!(payload["renderer"], "plan");
+        assert_eq!(payload["value"]["columns"], serde_json::json!(columns));
+        assert_eq!(
+            payload["value"]["plan"],
+            serde_json::json!(["SEQ_SCAN", "FILTER status = 'active'"])
+        );
+    }
+
+    #[test]
+    fn duckdb_plan_lines_falls_back_to_last_column() {
+        let lines = duckdb_plan_lines(
+            &["operator".into(), "detail".into()],
+            &[vec!["scan".into(), "READ_PARQUET\nPROJECT".into()]],
+        );
+
+        assert_eq!(lines, vec!["READ_PARQUET", "PROJECT"]);
     }
 }

@@ -18,7 +18,8 @@ fn tree_roots(engine: &str, family: &str) -> Vec<DatastoreTreeNodeManifest> {
         "duckdb" => embedded_sql_tree(engine),
         "mysql" | "mariadb" => mysql_tree(),
         "oracle" => oracle_tree(),
-        "postgresql" | "cockroachdb" | "timescaledb" => postgres_family_tree(engine),
+        "cockroachdb" => cockroach_tree(),
+        "postgresql" | "timescaledb" => postgres_family_tree(engine),
         "elasticsearch" | "opensearch" => search_tree(),
         "dynamodb" => dynamodb_tree(),
         "cassandra" => cassandra_tree(),
@@ -232,6 +233,12 @@ fn memcached_tree() -> Vec<DatastoreTreeNodeManifest> {
                     "Item-class counts, ages, evictions, and reclaim signals",
                 ),
                 node(
+                    "known-key",
+                    "Known Key Lookup",
+                    "known-key",
+                    "Targeted get/gets/write previews for application-known cache keys",
+                ),
+                node(
                     "settings",
                     "Settings",
                     "settings",
@@ -313,7 +320,7 @@ fn sqlserver_tree() -> Vec<DatastoreTreeNodeManifest> {
             ],
             NodeOptions::default(),
         ),
-        node(
+        node_optional(
             "replication",
             "Replication",
             "replication",
@@ -330,7 +337,7 @@ fn sqlserver_tree() -> Vec<DatastoreTreeNodeManifest> {
                 "availability-groups",
                 "Always On availability groups and replicas",
             )],
-            NodeOptions::default(),
+            NodeOptions::optional_when_live_metadata(),
         ),
         node(
             "management",
@@ -338,19 +345,19 @@ fn sqlserver_tree() -> Vec<DatastoreTreeNodeManifest> {
             "management",
             "Maintenance, policies, and data collection",
         ),
-        node(
+        node_optional(
             "sql-agent",
             "SQL Server Agent",
             "sql-server-agent",
             "Jobs, alerts, and operators",
         ),
-        node(
+        node_optional(
             "extended-events",
             "Extended Events",
             "extended-events",
             "Extended Events sessions and traces",
         ),
-        node(
+        node_optional(
             "xevent-profiler",
             "XEvent Profiler",
             "xevent-profiler",
@@ -379,19 +386,17 @@ fn sqlserver_tree() -> Vec<DatastoreTreeNodeManifest> {
 
 fn sqlserver_database_children() -> Vec<DatastoreTreeNodeManifest> {
     vec![
-        node(
+        node_optional(
             "database-diagrams",
             "Database Diagrams",
             "database-diagrams",
             "Database relationship diagrams",
         ),
-        node_with(
+        node(
             "tables",
             "Tables",
             "tables",
             "Base tables and table-like relations",
-            sqlserver_table_groups(),
-            NodeOptions::default(),
         ),
         node("views", "Views", "views", "Stored query projections"),
         node(
@@ -411,20 +416,20 @@ fn sqlserver_database_children() -> Vec<DatastoreTreeNodeManifest> {
         node("synonyms", "Synonyms", "synonyms", "Object aliases"),
         node("sequences", "Sequences", "sequences", "Sequence generators"),
         node("types", "Types", "types", "User-defined and table types"),
-        node(
+        node_optional(
             "xml-schemas",
             "XML Schemas",
             "xml-schemas",
             "XML schema collections",
         ),
-        node("assemblies", "Assemblies", "assemblies", "CLR assemblies"),
-        node(
+        node_optional("assemblies", "Assemblies", "assemblies", "CLR assemblies"),
+        node_optional(
             "full-text-search",
             "Full-Text Search",
             "full-text-search",
             "Full-text catalogs and indexes",
         ),
-        node(
+        node_optional(
             "service-broker",
             "Service Broker",
             "service-broker",
@@ -452,7 +457,7 @@ fn sqlserver_database_children() -> Vec<DatastoreTreeNodeManifest> {
             sqlserver_performance_children(),
             NodeOptions::default(),
         ),
-        node(
+        node_optional(
             "extended-events",
             "Extended Events",
             "extended-events",
@@ -464,22 +469,22 @@ fn sqlserver_database_children() -> Vec<DatastoreTreeNodeManifest> {
             "sql-server-agent",
             "Jobs, schedules, alerts, operators, and proxies",
             sqlserver_agent_children(),
-            NodeOptions::default(),
+            NodeOptions::optional_when_live_metadata(),
         ),
-        node(
+        node_optional(
             "replication",
             "Replication",
             "replication",
             "Publications, subscriptions, and replication metadata",
         ),
-        node("cdc", "CDC", "cdc", "Change Data Capture objects"),
-        node(
+        node_optional("cdc", "CDC", "cdc", "Change Data Capture objects"),
+        node_optional(
             "change-tracking",
             "Change Tracking",
             "change-tracking",
             "Change tracking tables and settings",
         ),
-        node(
+        node_optional(
             "external-resources",
             "External Resources",
             "external-resources",
@@ -492,47 +497,6 @@ fn sqlserver_database_children() -> Vec<DatastoreTreeNodeManifest> {
             "Files, filegroups, and partitions",
             sqlserver_storage_children(),
             NodeOptions::default(),
-        ),
-    ]
-}
-
-fn sqlserver_table_groups() -> Vec<DatastoreTreeNodeManifest> {
-    vec![
-        node(
-            "system-tables",
-            "System Tables",
-            "system-tables",
-            "Engine-maintained tables",
-        ),
-        node(
-            "filetables",
-            "FileTables",
-            "filetables",
-            "File-backed SQL Server tables",
-        ),
-        node(
-            "external-tables",
-            "External Tables",
-            "external-tables",
-            "External data tables",
-        ),
-        node(
-            "graph-tables",
-            "Graph Tables",
-            "graph-tables",
-            "SQL graph node and edge tables",
-        ),
-        node(
-            "node-tables",
-            "Node Tables",
-            "node-tables",
-            "SQL graph node tables",
-        ),
-        node(
-            "edge-tables",
-            "Edge Tables",
-            "edge-tables",
-            "SQL graph edge tables",
         ),
     ]
 }
@@ -668,7 +632,7 @@ fn sqlserver_performance_children() -> Vec<DatastoreTreeNodeManifest> {
 }
 
 fn postgres_family_tree(engine: &str) -> Vec<DatastoreTreeNodeManifest> {
-    let mut user_children = vec![
+    let mut schema_children = vec![
         node("tables", "Tables", "tables", "Base tables"),
         node("views", "Views", "views", "Views"),
         node(
@@ -677,8 +641,21 @@ fn postgres_family_tree(engine: &str) -> Vec<DatastoreTreeNodeManifest> {
             "materialized-views",
             "Persisted query projections",
         ),
-        sql_programmability_node(engine != "cockroachdb"),
         node("indexes", "Indexes", "indexes", "Indexes and access paths"),
+        node("functions", "Functions", "functions", "Stored functions"),
+        node(
+            "procedures",
+            "Procedures",
+            "procedures",
+            "Stored procedures",
+        ),
+        node("sequences", "Sequences", "sequences", "Sequence generators"),
+        node(
+            "types",
+            "Types",
+            "types",
+            "Enum, composite, domain, and range types",
+        ),
         node(
             "extensions",
             "Extensions",
@@ -694,7 +671,7 @@ fn postgres_family_tree(engine: &str) -> Vec<DatastoreTreeNodeManifest> {
     ];
 
     if engine == "timescaledb" {
-        user_children.insert(
+        schema_children.insert(
             1,
             node(
                 "hypertables",
@@ -711,7 +688,14 @@ fn postgres_family_tree(engine: &str) -> Vec<DatastoreTreeNodeManifest> {
             "User Schemas",
             "user-schemas",
             "User-created schemas",
-            user_children,
+            vec![node_with(
+                "selected-schema",
+                "public",
+                "schema",
+                "Default user schema",
+                schema_children,
+                NodeOptions::default(),
+            )],
             NodeOptions::default(),
         ),
         node(
@@ -768,6 +752,191 @@ fn postgres_diagnostics_children() -> Vec<DatastoreTreeNodeManifest> {
     ]
 }
 
+fn cockroach_tree() -> Vec<DatastoreTreeNodeManifest> {
+    vec![
+        node_with(
+            "databases",
+            "Databases",
+            "databases",
+            "CockroachDB database namespaces",
+            vec![node_with(
+                "selected-database",
+                "{{database:defaultdb}}",
+                "database",
+                "Selected CockroachDB database",
+                vec![
+                    node_with(
+                        "user-schemas",
+                        "User Schemas",
+                        "user-schemas",
+                        "User-created object namespaces",
+                        vec![node_with(
+                            "selected-schema",
+                            "public",
+                            "schema",
+                            "Default user schema",
+                            cockroach_schema_children(),
+                            NodeOptions::default(),
+                        )],
+                        NodeOptions::default(),
+                    ),
+                    node(
+                        "system-schemas",
+                        "System Schemas",
+                        "system-schemas",
+                        "crdb_internal, pg_catalog, information_schema, and system metadata",
+                    ),
+                ],
+                NodeOptions::default_database("defaultdb"),
+            )],
+            NodeOptions::default(),
+        ),
+        node_with(
+            "cluster",
+            "Cluster",
+            "cluster",
+            "Nodes, ranges, regions, jobs, and cluster configuration",
+            vec![
+                node(
+                    "nodes",
+                    "Nodes",
+                    "nodes",
+                    "Node liveness, locality, capacity, and range counts",
+                ),
+                node(
+                    "ranges",
+                    "Ranges",
+                    "ranges",
+                    "Range distribution, replicas, and leaseholders",
+                ),
+                node(
+                    "regions",
+                    "Regions / Localities",
+                    "regions",
+                    "Regional placement and locality tiers",
+                ),
+                node(
+                    "jobs",
+                    "Jobs",
+                    "jobs",
+                    "Schema changes, backups, imports, restores, and changefeeds",
+                ),
+                node(
+                    "cluster-settings",
+                    "Cluster Settings",
+                    "cluster-settings",
+                    "Runtime cluster settings and safety knobs",
+                ),
+            ],
+            NodeOptions::default(),
+        ),
+        node_with(
+            "security",
+            "Security",
+            "security",
+            "Roles, grants, default privileges, and certificates",
+            vec![
+                node(
+                    "roles",
+                    "Roles",
+                    "roles",
+                    "Users, roles, memberships, and options",
+                ),
+                node(
+                    "grants",
+                    "Grants",
+                    "grants",
+                    "Database, schema, table, sequence, and type privileges",
+                ),
+                node(
+                    "certificates",
+                    "Certificates",
+                    "certificates",
+                    "Client and node certificate metadata where available",
+                ),
+            ],
+            NodeOptions::default(),
+        ),
+        node_with(
+            "diagnostics",
+            "Diagnostics",
+            "diagnostics",
+            "Sessions, statement stats, transactions, contention, and range health",
+            vec![
+                node(
+                    "sessions",
+                    "Sessions",
+                    "sessions",
+                    "Active SQL sessions and client metadata",
+                ),
+                node(
+                    "statements",
+                    "Statement Stats",
+                    "statements",
+                    "Statement fingerprints, latency, rows, and retries",
+                ),
+                node(
+                    "transactions",
+                    "Transactions",
+                    "transactions",
+                    "Transaction state, retry pressure, and contention hints",
+                ),
+                node(
+                    "contention",
+                    "Contention",
+                    "contention",
+                    "Waiting keys and blocking transaction metadata",
+                ),
+                node(
+                    "locks",
+                    "Locks",
+                    "locks",
+                    "Visible locks and waiters where available",
+                ),
+                node(
+                    "statistics",
+                    "Statistics",
+                    "statistics",
+                    "Table, range, and database statistics",
+                ),
+            ],
+            NodeOptions::default(),
+        ),
+    ]
+}
+
+fn cockroach_schema_children() -> Vec<DatastoreTreeNodeManifest> {
+    vec![
+        node("tables", "Tables", "tables", "Base and regional tables"),
+        node("views", "Views", "views", "Stored query projections"),
+        node(
+            "indexes",
+            "Indexes",
+            "indexes",
+            "Primary, secondary, partial, inverted, and vector indexes",
+        ),
+        node(
+            "sequences",
+            "Sequences",
+            "sequences",
+            "Generated numeric sequences",
+        ),
+        node("types", "Types", "types", "Enum and user-defined types"),
+        node(
+            "functions",
+            "Functions",
+            "functions",
+            "User-defined SQL functions",
+        ),
+        node(
+            "zone-configurations",
+            "Zone Configurations",
+            "zone-configurations",
+            "Replication, constraints, lease preferences, and GC settings",
+        ),
+    ]
+}
+
 fn mysql_tree() -> Vec<DatastoreTreeNodeManifest> {
     vec![
         node_with(
@@ -781,15 +950,33 @@ fn mysql_tree() -> Vec<DatastoreTreeNodeManifest> {
                 "database",
                 "Selected database",
                 vec![
-                    node("tables", "Tables", "tables", "Base tables"),
-                    node("views", "Views", "views", "Views"),
-                    sql_programmability_node(true),
-                    node("indexes", "Indexes", "indexes", "Indexes and foreign keys"),
                     node(
-                        "security",
-                        "Security",
-                        "security",
-                        "Users, host grants, and roles",
+                        "tables",
+                        "Tables",
+                        "tables",
+                        "Base tables and storage engines",
+                    ),
+                    node("views", "Views", "views", "Stored SELECT definitions"),
+                    node(
+                        "procedures",
+                        "Stored Procedures",
+                        "procedures",
+                        "Stored procedure routines",
+                    ),
+                    node("functions", "Functions", "functions", "Stored functions"),
+                    node("events", "Events", "events", "Scheduled event jobs"),
+                    node(
+                        "triggers",
+                        "Triggers",
+                        "triggers",
+                        "Database and table triggers",
+                    ),
+                    node("indexes", "Indexes", "indexes", "Schema-level index list"),
+                    node(
+                        "storage",
+                        "Storage",
+                        "storage",
+                        "Storage engines, table sizes, and fragmentation",
                     ),
                 ],
                 NodeOptions::default_database("default"),
@@ -801,6 +988,33 @@ fn mysql_tree() -> Vec<DatastoreTreeNodeManifest> {
             "System Schemas",
             "system-schemas",
             "information_schema, performance_schema, mysql, and sys",
+        ),
+        node_with(
+            "security",
+            "Users / Privileges",
+            "security",
+            "Users, roles, grants, authentication plugins, and privilege scope",
+            vec![
+                node(
+                    "users",
+                    "Users",
+                    "users",
+                    "User accounts and authentication plugins",
+                ),
+                node(
+                    "roles",
+                    "Roles",
+                    "roles",
+                    "Role assignments where supported",
+                ),
+                node(
+                    "permissions",
+                    "Grants",
+                    "permissions",
+                    "Visible grants and privilege scopes",
+                ),
+            ],
+            NodeOptions::default(),
         ),
         node_with(
             "diagnostics",
@@ -1200,43 +1414,6 @@ fn sqlite_database_children() -> Vec<DatastoreTreeNodeManifest> {
         ),
         node("schema", "Schema", "schema", "sqlite_schema definitions"),
     ]
-}
-
-fn sql_programmability_node(include_stored_procedures: bool) -> DatastoreTreeNodeManifest {
-    let mut children = Vec::new();
-    if include_stored_procedures {
-        children.push(node(
-            "stored-procedures",
-            "Stored Procedures",
-            "stored-procedures",
-            "Callable stored routines",
-        ));
-    }
-    children.extend([
-        node(
-            "functions",
-            "Functions",
-            "functions",
-            "Scalar and table-valued functions",
-        ),
-        node("triggers", "Triggers", "triggers", "Triggers"),
-        node(
-            "sequences",
-            "Sequences",
-            "sequences",
-            "Generated numeric sequences",
-        ),
-        node("types", "Types", "types", "User-defined types"),
-        node("synonyms", "Synonyms", "synonyms", "Object aliases"),
-    ]);
-    node_with(
-        "programmability",
-        "Programmability",
-        "programmability",
-        "Procedures, functions, triggers, and types",
-        children,
-        NodeOptions::default(),
-    )
 }
 
 fn search_tree() -> Vec<DatastoreTreeNodeManifest> {
@@ -1859,16 +2036,16 @@ fn litedb_tree() -> Vec<DatastoreTreeNodeManifest> {
                     "LiteDB file storage metadata",
                 ),
                 node(
-                    "storage",
-                    "Storage",
-                    "storage",
-                    "Page allocation and maintenance health",
+                    "pragmas",
+                    "Pragmas",
+                    "pragmas",
+                    "LiteDB file options and runtime settings",
                 ),
                 node(
-                    "settings",
-                    "Settings",
-                    "settings",
-                    "Local file connection options",
+                    "maintenance",
+                    "Maintenance",
+                    "maintenance",
+                    "Checkpoint, compact, rebuild, and backup workflows",
                 ),
             ],
             NodeOptions::default(),
@@ -2163,12 +2340,6 @@ mod tests {
             .iter()
             .find(|node| node.id == "server-objects")
             .expect("server objects root");
-        let always_on = tree
-            .roots
-            .iter()
-            .find(|node| node.id == "always-on")
-            .expect("always on root");
-
         assert!(root_labels.contains(&"SQL Server Agent"));
         assert!(root_labels.contains(&"Extended Events"));
         assert!(root_labels.contains(&"XEvent Profiler"));
@@ -2187,10 +2358,6 @@ mod tests {
             .children
             .iter()
             .any(|node| node.label == "Linked Servers"));
-        assert!(always_on
-            .children
-            .iter()
-            .any(|node| node.label == "Availability Groups"));
         assert!(selected_database
             .children
             .iter()
@@ -2203,10 +2370,14 @@ mod tests {
             .children
             .iter()
             .any(|node| node.label == "Stored Procedures"));
-        assert!(selected_database
-            .children
-            .iter()
-            .any(|node| node.label == "Service Broker"));
+        assert!(
+            selected_database
+                .children
+                .iter()
+                .find(|node| node.label == "Service Broker")
+                .expect("service broker")
+                .optional_when_live_metadata
+        );
     }
 
     #[test]
@@ -2238,6 +2409,116 @@ mod tests {
                 .expect("attached databases root")
                 .optional_when_live_metadata
         );
+    }
+
+    #[test]
+    fn postgres_family_tree_uses_native_schema_folders() {
+        let tree = datastore_tree_manifest("postgresql", "sql");
+        let user_schemas = tree
+            .roots
+            .iter()
+            .find(|node| node.label == "User Schemas")
+            .expect("user schemas");
+        let public_schema = user_schemas
+            .children
+            .iter()
+            .find(|node| node.label == "public")
+            .expect("public schema");
+        let labels = public_schema
+            .children
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(public_schema.kind, "schema");
+        assert!(labels.contains(&"Tables"));
+        assert!(labels.contains(&"Functions"));
+        assert!(labels.contains(&"Procedures"));
+        assert!(!labels.contains(&"Programmability"));
+    }
+
+    #[test]
+    fn cockroach_tree_describes_cluster_and_schema_native_sections() {
+        let tree = datastore_tree_manifest("cockroachdb", "sql");
+        let databases = tree
+            .roots
+            .iter()
+            .find(|node| node.label == "Databases")
+            .expect("databases");
+        let selected_database = databases
+            .children
+            .iter()
+            .find(|node| node.id == "selected-database")
+            .expect("selected database");
+        let user_schemas = selected_database
+            .children
+            .iter()
+            .find(|node| node.label == "User Schemas")
+            .expect("user schemas");
+        let public_schema = user_schemas
+            .children
+            .iter()
+            .find(|node| node.label == "public")
+            .expect("public schema");
+        let cluster = tree
+            .roots
+            .iter()
+            .find(|node| node.label == "Cluster")
+            .expect("cluster");
+        let cluster_labels = cluster
+            .children
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+        let schema_labels = public_schema
+            .children
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(schema_labels.contains(&"Tables"));
+        assert!(schema_labels.contains(&"Zone Configurations"));
+        assert!(cluster_labels.contains(&"Jobs"));
+        assert!(cluster_labels.contains(&"Ranges"));
+        assert!(cluster_labels.contains(&"Regions / Localities"));
+    }
+
+    #[test]
+    fn mysql_tree_uses_workbench_style_database_sections() {
+        let tree = datastore_tree_manifest("mysql", "sql");
+        let databases = tree
+            .roots
+            .iter()
+            .find(|node| node.label == "Databases")
+            .expect("databases");
+        let selected_database = databases
+            .children
+            .iter()
+            .find(|node| node.id == "selected-database")
+            .expect("selected database");
+        let labels = selected_database
+            .children
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            labels,
+            vec![
+                "Tables",
+                "Views",
+                "Stored Procedures",
+                "Functions",
+                "Events",
+                "Triggers",
+                "Indexes",
+                "Storage",
+            ]
+        );
+        assert!(tree
+            .roots
+            .iter()
+            .any(|node| node.label == "Users / Privileges"));
     }
 
     #[test]

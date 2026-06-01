@@ -43,7 +43,7 @@ impl DatastoreAdapter for SnowflakeAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_snowflake_explorer_node(connection, request))
+        inspect_snowflake_explorer_node(connection, request).await
     }
 
     async fn execute(

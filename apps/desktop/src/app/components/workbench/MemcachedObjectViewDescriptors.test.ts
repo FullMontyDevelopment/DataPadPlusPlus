@@ -16,6 +16,7 @@ describe('MemcachedObjectViewDescriptors', () => {
         'slab',
         'items',
         'item-class',
+        'known-key',
         'settings',
         'connections',
         'diagnostics',
@@ -27,13 +28,14 @@ describe('MemcachedObjectViewDescriptors', () => {
     expect(memcachedObjectViewMenuLabel('stats')).toBe('Open Stats')
     expect(memcachedObjectViewMenuLabel('ITEMS')).toBe('Review Item Classes')
     expect(memcachedObjectViewMenuLabel('slab')).toBe('Open Slab Class')
+    expect(memcachedObjectViewMenuLabel('known-key')).toBe('Open Key Lookup')
     expect(memcachedObjectViewMenuLabel('stats')).not.toBe('Open View')
   })
 
   it('identifies implemented kinds and falls back safely for unknown nodes', () => {
     expect(isMemcachedObjectViewKind('settings')).toBe(true)
     expect(isMemcachedObjectViewKind('item class')).toBe(true)
-    expect(isMemcachedObjectViewKind('key')).toBe(false)
+    expect(isMemcachedObjectViewKind('known key')).toBe(true)
     expect(getMemcachedObjectViewDescriptor('unknown')).toMatchObject({
       menuLabel: 'Inspect Memcached Object',
       title: 'Memcached Object',

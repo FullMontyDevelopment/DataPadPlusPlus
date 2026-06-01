@@ -1,7 +1,11 @@
 use serde_json::{json, Value};
 
 use super::super::super::*;
-use super::connection::{influxdb_database, influxdb_get, influxdb_query_path};
+use super::connection::{influxdb_database, influxdb_get};
+use super::query_request::{influxdb_query_request, InfluxDbQueryRequest};
+use super::query_results::{
+    normalize_influxdb_query_result, validate_influxdb_response, NormalizedInfluxDbResult,
+};
 use super::InfluxDbAdapter;
 
 pub(super) async fn execute_influxdb_query(
@@ -25,15 +29,29 @@ pub(super) async fn execute_influxdb_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let database = influxdb_database(connection);
-    let response = influxdb_get(connection, &influxdb_query_path(&database, query_text)).await?;
+    let query_request = influxdb_query_request(query_text, &database)?;
+    let response = influxdb_get(connection, &query_request.path).await?;
     let value = parse_influxdb_json(&response.body)?;
-    let (columns, rows, series) = normalize_influxdb_query_result(&value, row_limit);
-    let row_count = rows.len() as u32;
+    validate_influxdb_response(&value)?;
+    let normalized = normalize_influxdb_query_result(&value, row_limit);
+    let mut notices = notices;
+    if normalized.truncated {
+        notices.push(QueryExecutionNotice {
+            code: "influxdb-result-truncated".into(),
+            level: "warning".into(),
+            message: format!(
+                "InfluxDB returned more than {row_limit} row(s); displayed results were bounded before rendering."
+            ),
+        });
+    }
+    let row_count = normalized.rows.len() as u32;
+    let profile = influxdb_profile_payload(&query_request, &normalized, row_limit);
     let payloads = vec![
-        payload_table(columns, rows),
-        payload_series(series),
+        payload_table(normalized.columns, normalized.rows),
+        payload_series(normalized.series),
+        profile,
         payload_json(value),
-        payload_raw(query_text.into()),
+        payload_raw(query_request.query),
     ];
     let (default_renderer, renderer_modes_owned) = renderer_modes_for_payloads(&payloads);
     let renderer_modes = renderer_modes_owned
@@ -43,14 +61,17 @@ pub(super) async fn execute_influxdb_query(
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: format!("InfluxDB query returned {row_count} sample row(s)."),
+        summary: format!(
+            "InfluxDB {} query returned {row_count} displayed row(s).",
+            query_request.kind
+        ),
         default_renderer: &default_renderer,
         renderer_modes,
         payloads,
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
-        truncated: false,
+        truncated: normalized.truncated,
         explain_payload: None,
     }))
 }
@@ -64,130 +85,36 @@ pub(crate) fn parse_influxdb_json(body: &str) -> Result<Value, CommandError> {
     })
 }
 
-pub(crate) fn normalize_influxdb_query_result(
-    value: &Value,
+fn influxdb_profile_payload(
+    query_request: &InfluxDbQueryRequest,
+    normalized: &NormalizedInfluxDbResult,
     row_limit: u32,
-) -> (Vec<String>, Vec<Vec<String>>, Value) {
-    let mut sample_columns = Vec::<String>::new();
-    let mut rows = Vec::<Vec<String>>::new();
-    let mut normalized_series = Vec::<Value>::new();
-
-    for series in value
-        .get("results")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .flat_map(|result| {
-            result
-                .get("series")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-        })
-    {
-        let name = series
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or("series")
-            .to_string();
-        let tags = series.get("tags").cloned().unwrap_or_else(|| json!({}));
-        let columns = series
-            .get("columns")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        for column in &columns {
-            if !sample_columns.contains(column) {
-                sample_columns.push(column.clone());
+) -> Value {
+    payload_profile(
+        "InfluxDB query profile",
+        json!([
+            {
+                "stage": "request",
+                "kind": query_request.kind,
+                "database": query_request.database,
+                "rowLimit": row_limit
+            },
+            {
+                "stage": "result",
+                "statements": normalized.statement_count,
+                "rows": normalized.total_rows,
+                "displayedRows": normalized.rows.len(),
+                "truncated": normalized.truncated
+            },
+            {
+                "stage": "risk",
+                "cardinality": if normalized.truncated { "bounded" } else { "within-limit" },
+                "recommendation": if normalized.truncated {
+                    "Add time predicates, tag filters, or LIMIT before charting very large series."
+                } else {
+                    "Result is within the selected display bound."
+                }
             }
-        }
-
-        let values = series
-            .get("values")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        for value_row in &values {
-            if rows.len() >= row_limit as usize {
-                break;
-            }
-            let values = value_row.as_array().cloned().unwrap_or_default();
-            let mut row = vec![name.clone(), tags.to_string()];
-            for column in &sample_columns {
-                let value = columns
-                    .iter()
-                    .position(|item| item == column)
-                    .and_then(|index| values.get(index))
-                    .map(influxdb_value_to_string)
-                    .unwrap_or_default();
-                row.push(value);
-            }
-            rows.push(row);
-        }
-
-        normalized_series.push(json!({
-            "name": name,
-            "tags": tags,
-            "columns": columns,
-            "values": values,
-        }));
-    }
-
-    let mut table_columns = vec!["measurement".into(), "tags".into()];
-    table_columns.extend(sample_columns);
-    (table_columns, rows, Value::Array(normalized_series))
-}
-
-fn influxdb_value_to_string(value: &Value) -> String {
-    value
-        .as_str()
-        .map(str::to_string)
-        .unwrap_or_else(|| value.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::normalize_influxdb_query_result;
-
-    #[test]
-    fn influxdb_result_normalizes_series_to_table_rows() {
-        let value = json!({
-            "results": [{
-                "series": [{
-                    "name": "cpu",
-                    "tags": { "host": "app-1" },
-                    "columns": ["time", "usage_user"],
-                    "values": [["2026-04-25T10:00:00Z", 42.5]]
-                }]
-            }]
-        });
-        let (columns, rows, series) = normalize_influxdb_query_result(&value, 100);
-
-        assert_eq!(columns, vec!["measurement", "tags", "time", "usage_user"]);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0][0], "cpu");
-        assert_eq!(rows[0][3], "42.5");
-        assert_eq!(series.as_array().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn influxdb_result_respects_row_limit() {
-        let value = json!({
-            "results": [{
-                "series": [{
-                    "name": "cpu",
-                    "columns": ["time", "value"],
-                    "values": [[1, 2], [3, 4]]
-                }]
-            }]
-        });
-        let (_columns, rows, _series) = normalize_influxdb_query_result(&value, 1);
-
-        assert_eq!(rows.len(), 1);
-    }
+        ]),
+    )
 }

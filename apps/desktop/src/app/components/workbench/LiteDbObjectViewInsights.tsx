@@ -214,6 +214,9 @@ function isInsightKind(kind: string) {
     'files',
     'chunks',
     'storage',
+    'statistics',
+    'pragmas',
+    'maintenance',
     'settings',
     'diagnostics',
   ].includes(kind)

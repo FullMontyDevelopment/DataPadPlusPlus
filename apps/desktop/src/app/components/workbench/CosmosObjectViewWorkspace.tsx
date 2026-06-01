@@ -311,7 +311,7 @@ function cosmosSections(
     sections.push({ key: 'consistency', title: 'Consistency', icon: 'throughput', columns: ['setting', 'value', 'guidance'], rows: consistency, emptyText: descriptor.emptyDescription })
   }
 
-  if (['container', 'stored-procedures', 'triggers', 'udfs'].includes(kind)) {
+  if (['container', 'stored-procedures', 'stored-procedure', 'triggers', 'trigger', 'udfs', 'udf'].includes(kind)) {
     sections.push({ key: 'scripts', title: 'Server-Side Scripts', icon: 'document', columns: ['type', 'name', 'operation', 'status'], rows: scripts, emptyText: descriptor.emptyDescription })
   }
 
@@ -319,7 +319,7 @@ function cosmosSections(
     sections.push({ key: 'security', title: 'Security', icon: 'security', columns: ['name', 'kind', 'scope', 'status'], rows: security, emptyText: descriptor.emptyDescription })
   }
 
-  if (['account', 'database', 'container', 'diagnostics', 'change-feed', 'conflicts'].includes(kind)) {
+  if (['account', 'database', 'container', 'diagnostics', 'change-feed', 'conflicts', 'conflict'].includes(kind)) {
     sections.push({ key: 'diagnostics', title: 'Diagnostics', icon: 'diagnostics', columns: ['signal', 'value', 'status', 'guidance'], rows: diagnostics, emptyText: descriptor.emptyDescription })
   }
 

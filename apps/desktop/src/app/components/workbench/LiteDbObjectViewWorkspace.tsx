@@ -275,7 +275,10 @@ function liteDbSections(
   const files = rowsFromRecords(payload.files, ['id', 'filename', 'length', 'uploadDate', 'chunks'])
   const chunks = rowsFromRecords(payload.chunks, ['fileId', 'chunk', 'size', 'status'])
   const storage = rowsFromRecords(payload.storage, ['name', 'value', 'status', 'guidance'])
+  const statistics = rowsFromRecords(payload.statistics, ['name', 'value', 'scope'])
+  const pragmas = rowsFromRecords(payload.pragmas, ['name', 'value', 'source', 'status'])
   const settings = rowsFromRecords(payload.settings, ['name', 'value', 'scope'])
+  const maintenance = rowsFromRecords(payload.maintenance, ['name', 'effect', 'risk', 'status'])
   const diagnostics = rowsFromRecords(payload.diagnostics, ['signal', 'value', 'status', 'guidance'])
 
   if (['database', 'collections'].includes(kind)) {
@@ -298,15 +301,27 @@ function liteDbSections(
     sections.push({ key: 'chunks', title: 'Chunks', icon: 'file', columns: ['fileId', 'chunk', 'size', 'status'], rows: chunks, emptyText: descriptor.emptyDescription })
   }
 
-  if (['database', 'storage'].includes(kind)) {
+  if (['database', 'collection', 'statistics'].includes(kind)) {
+    sections.push({ key: 'statistics', title: 'Statistics', icon: 'diagnostics', columns: ['name', 'value', 'scope'], rows: statistics, emptyText: descriptor.emptyDescription })
+  }
+
+  if (['database', 'storage', 'maintenance'].includes(kind)) {
     sections.push({ key: 'storage', title: 'Storage Health', icon: 'storage', columns: ['name', 'value', 'status', 'guidance'], rows: storage, emptyText: descriptor.emptyDescription })
   }
 
-  if (['database', 'settings'].includes(kind)) {
+  if (['database', 'pragmas'].includes(kind)) {
+    sections.push({ key: 'pragmas', title: 'Pragmas', icon: 'storage', columns: ['name', 'value', 'source', 'status'], rows: pragmas, emptyText: descriptor.emptyDescription })
+  }
+
+  if (['database', 'settings', 'pragmas'].includes(kind)) {
     sections.push({ key: 'settings', title: 'Settings', icon: 'storage', columns: ['name', 'value', 'scope'], rows: settings, emptyText: descriptor.emptyDescription })
   }
 
-  if (['database', 'diagnostics'].includes(kind)) {
+  if (['database', 'maintenance'].includes(kind)) {
+    sections.push({ key: 'maintenance', title: 'Maintenance', icon: 'storage', columns: ['name', 'effect', 'risk', 'status'], rows: maintenance, emptyText: descriptor.emptyDescription })
+  }
+
+  if (['database', 'diagnostics', 'maintenance'].includes(kind)) {
     sections.push({ key: 'diagnostics', title: 'Diagnostics', icon: 'diagnostics', columns: ['signal', 'value', 'status', 'guidance'], rows: diagnostics, emptyText: descriptor.emptyDescription })
   }
 

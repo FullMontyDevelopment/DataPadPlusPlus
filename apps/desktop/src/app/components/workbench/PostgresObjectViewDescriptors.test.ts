@@ -12,6 +12,7 @@ describe('PostgresObjectViewDescriptors', () => {
     expect(postgresObjectViewMenuLabel('sessions')).toBe('Review Sessions')
     expect(postgresObjectViewMenuLabel('waits')).toBe('Review Wait Events')
     expect(postgresObjectViewMenuLabel('index-health')).toBe('Review Index Health')
+    expect(postgresObjectViewMenuLabel('foreign-keys')).toBe('Open Foreign Keys')
     expect(postgresObjectViewMenuLabel('table')).not.toBe('Open View')
   })
 
@@ -20,6 +21,7 @@ describe('PostgresObjectViewDescriptors', () => {
     expect(isPostgresObjectViewKind('stored-procedure')).toBe(false)
     expect(isPostgresObjectViewKind('statement stats')).toBe(true)
     expect(isPostgresObjectViewKind('security')).toBe(true)
+    expect(isPostgresObjectViewKind('foreign_keys')).toBe(true)
   })
 
   it('falls back safely for unknown objects', () => {

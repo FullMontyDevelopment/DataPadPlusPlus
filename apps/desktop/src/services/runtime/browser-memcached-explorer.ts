@@ -15,6 +15,7 @@ export function createMemcachedExplorerNodes(connection: ConnectionProfile, scop
       memcachedNode(connection, 'memcached:stats', 'Stats', 'stats', 'Operational counters and hit rate', 'memcached:stats'),
       memcachedNode(connection, 'memcached:slabs', 'Slabs', 'slabs', 'Slab classes and chunk allocation', 'memcached:slabs', true),
       memcachedNode(connection, 'memcached:items', 'Item Classes', 'items', 'Item counts, age, evictions, and reclaim signals', 'memcached:items', true),
+      memcachedNode(connection, 'memcached:known-key', 'Known Key Lookup', 'known-key', 'Targeted get/gets/write previews for application-known cache keys', 'memcached:known-key'),
       memcachedNode(connection, 'memcached:settings', 'Settings', 'settings', 'Cache limits and runtime flags', 'memcached:settings'),
       memcachedNode(connection, 'memcached:connections', 'Connections', 'connections', 'Client connection pressure', 'memcached:connections'),
     ]
@@ -62,6 +63,10 @@ export function memcachedInspectQueryTemplate(nodeId: string) {
     return 'stats settings'
   }
 
+  if (nodeId.includes(':known-key')) {
+    return 'get <key>'
+  }
+
   if (nodeId.includes(':connections')) {
     return 'stats conns'
   }
@@ -82,6 +87,7 @@ export function memcachedInspectPayload(connection: ConnectionProfile, nodeId: s
       settings: memcachedSettings(),
       connections: memcachedConnections(),
       diagnostics: memcachedDiagnostics(),
+      keyActions: memcachedKnownKeyActions(),
       warnings: memcachedWarnings(),
     }
   }
@@ -127,6 +133,15 @@ export function memcachedInspectPayload(connection: ConnectionProfile, nodeId: s
     }
   }
 
+  if (nodeId === 'memcached:known-key') {
+    return {
+      ...base,
+      objectView: 'known-key',
+      keyActions: memcachedKnownKeyActions(),
+      warnings: memcachedWarnings(),
+    }
+  }
+
   if (nodeId === 'memcached:connections') {
     return {
       ...base,
@@ -141,9 +156,20 @@ export function memcachedInspectPayload(connection: ConnectionProfile, nodeId: s
     ...base,
     objectView: 'diagnostics',
     stats: memcachedStats(),
-    diagnostics: memcachedDiagnostics(),
-    warnings: memcachedWarnings(),
+      diagnostics: memcachedDiagnostics(),
+      warnings: memcachedWarnings(),
   }
+}
+
+function memcachedKnownKeyActions() {
+  return [
+    { action: 'Get', command: 'get <key>', mode: 'read', risk: 'read', status: 'available' },
+    { action: 'Get CAS', command: 'gets <key>', mode: 'read', risk: 'read', status: 'available' },
+    { action: 'Set', command: 'set <key> <flags> <ttl> <bytes>', mode: 'write', risk: 'write', status: 'preview' },
+    { action: 'Delete', command: 'delete <key>', mode: 'write', risk: 'destructive', status: 'guarded' },
+    { action: 'Touch', command: 'touch <key> <ttl>', mode: 'write', risk: 'write', status: 'preview' },
+    { action: 'Counter', command: 'incr/decr <key> <delta>', mode: 'write', risk: 'write', status: 'preview' },
+  ]
 }
 
 function memcachedNode(

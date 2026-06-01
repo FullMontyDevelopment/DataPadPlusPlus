@@ -17,8 +17,14 @@ pub(super) async fn list_litedb_explorer_nodes(
             collection_child_nodes(connection, scope)
         }
         Some("litedb:indexes") => Vec::new(),
-        Some(scope) if scope.starts_with("litedb:collection-indexes:") => Vec::new(),
+        Some(scope) if scope.starts_with("litedb:collection-indexes:") => {
+            let collection = scope.trim_start_matches("litedb:collection-indexes:");
+            collection_index_nodes(connection, collection)
+        }
         Some("litedb:file-storage") => file_storage_child_nodes(connection),
+        Some("litedb:storage") => Vec::new(),
+        Some("litedb:pragmas") => Vec::new(),
+        Some("litedb:maintenance") => maintenance_child_nodes(connection),
         Some("litedb:diagnostics") => diagnostics_child_nodes(connection),
         Some(_) => Vec::new(),
         None => root_nodes(connection),
@@ -117,21 +123,76 @@ fn database_child_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerN
             "litedb:storage",
             "Storage",
             "storage",
-            "Pages, free space, and maintenance health",
+            "Page allocation, file size, and free-space posture",
             Some("litedb:storage"),
+            false,
+            Some(json!({ "operation": "Statistics" }).to_string()),
+            vec![litedb_file_name(connection)],
+        ),
+        litedb_node(
+            "litedb:pragmas",
+            "Pragmas",
+            "pragmas",
+            "LiteDB file options and runtime settings",
+            Some("litedb:pragmas"),
             false,
             Some(json!({ "operation": "ListCollections" }).to_string()),
             vec![litedb_file_name(connection)],
         ),
         litedb_node(
-            "litedb:settings",
-            "Settings",
-            "settings",
-            "Connection and local file options",
-            Some("litedb:settings"),
-            false,
-            Some(json!({ "operation": "ListCollections" }).to_string()),
+            "litedb:maintenance",
+            "Maintenance",
+            "maintenance",
+            "Checkpoint, compact, rebuild, and backup workflows",
+            Some("litedb:maintenance"),
+            true,
+            Some(json!({ "operation": "Diagnostics" }).to_string()),
             vec![litedb_file_name(connection)],
+        ),
+    ]
+}
+
+fn maintenance_child_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    vec![
+        litedb_node(
+            "litedb:checkpoint",
+            "Checkpoint",
+            "maintenance",
+            "Flush pending pages without changing collection data",
+            Some("litedb:checkpoint"),
+            false,
+            None,
+            vec![litedb_file_name(connection), "Maintenance".into()],
+        ),
+        litedb_node(
+            "litedb:compact",
+            "Compact Copy",
+            "maintenance",
+            "Create a compacted copy after backup validation",
+            Some("litedb:compact"),
+            false,
+            None,
+            vec![litedb_file_name(connection), "Maintenance".into()],
+        ),
+        litedb_node(
+            "litedb:rebuild-indexes",
+            "Rebuild Indexes",
+            "maintenance",
+            "Rebuild collection indexes through guarded maintenance",
+            Some("litedb:rebuild-indexes"),
+            false,
+            None,
+            vec![litedb_file_name(connection), "Maintenance".into()],
+        ),
+        litedb_node(
+            "litedb:backup",
+            "Backup",
+            "backup",
+            "Create a safe local database copy",
+            Some("litedb:backup"),
+            false,
+            None,
+            vec![litedb_file_name(connection), "Maintenance".into()],
         ),
     ]
 }
@@ -176,16 +237,51 @@ fn collection_child_nodes(
             vec![litedb_file_name(connection), collection.into()],
         ),
         litedb_node(
-            &format!("litedb:collection-storage:{collection}"),
-            "Storage",
-            "storage",
-            "Collection storage footprint",
-            Some(&format!("litedb:collection-storage:{collection}")),
+            &format!("litedb:collection-statistics:{collection}"),
+            "Statistics",
+            "statistics",
+            "Collection counts, index coverage, and storage signals",
+            Some(&format!("litedb:collection-statistics:{collection}")),
             false,
             None,
             vec![litedb_file_name(connection), collection.into()],
         ),
+        litedb_node(
+            &format!("litedb:collection-storage:{collection}"),
+            "Storage",
+            "storage",
+            "Collection page allocation and free-space posture",
+            Some(&format!("litedb:collection-storage:{collection}")),
+            false,
+            Some(json!({ "operation": "Statistics", "collection": collection }).to_string()),
+            vec![litedb_file_name(connection), collection.into()],
+        ),
     ]
+}
+
+fn collection_index_nodes(
+    connection: &ResolvedConnectionProfile,
+    collection: &str,
+) -> Vec<ExplorerNode> {
+    if collection.trim().is_empty() {
+        return Vec::new();
+    }
+
+    vec![litedb_node(
+        &format!("litedb:index:{collection}:_id"),
+        "_id",
+        "index",
+        "$._id | unique",
+        Some(&format!("litedb:index:{collection}:_id")),
+        false,
+        Some(json!({ "operation": "ListIndexes", "collection": collection }).to_string()),
+        vec![
+            litedb_file_name(connection),
+            "Collections".into(),
+            collection.into(),
+            "Indexes".into(),
+        ],
+    )]
 }
 
 fn file_storage_child_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
@@ -240,7 +336,7 @@ fn litedb_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &s
     }
 
     warnings.push(
-        "Live collection enumeration requires the LiteDB sidecar; no placeholder collections are shown."
+        "Live collection metadata is limited until the LiteDB metadata bridge is available."
             .to_string(),
     );
 
@@ -285,9 +381,28 @@ fn litedb_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &s
         json!({ "name": "Password", "value": if connection.password.is_some() { "stored secret" } else { "not configured" }, "scope": "secret store" }),
         json!({ "name": "Read Only", "value": connection.read_only, "scope": "safety" }),
     ];
+    let pragmas = vec![
+        json!({ "name": "USER_VERSION", "value": "-", "source": "database file", "status": "metadata bridge required" }),
+        json!({ "name": "TIMEOUT", "value": "-", "source": "database file", "status": "metadata bridge required" }),
+        json!({ "name": "UTC_DATE", "value": "-", "source": "database file", "status": "metadata bridge required" }),
+        json!({ "name": "COLLATION", "value": "-", "source": "database file", "status": "metadata bridge required" }),
+        json!({ "name": "Read Only", "value": connection.read_only, "source": "connection", "status": if connection.read_only { "enabled" } else { "writable" } }),
+    ];
     let storage = vec![
         json!({ "name": "File Size", "value": file_size, "status": if file_exists { "healthy" } else { "watch" }, "guidance": "Local file size is read directly from the filesystem." }),
         json!({ "name": "Collection Metadata", "value": if collections.is_empty() { "sidecar required" } else { "scoped collection" }, "status": "watch", "guidance": "Collection counts and page allocation need the LiteDB sidecar metadata endpoint." }),
+    ];
+    let maintenance = vec![
+        json!({ "name": "Checkpoint", "effect": "Flush pending pages", "risk": "low", "status": "preview" }),
+        json!({ "name": "Compact Copy", "effect": "Write a compacted database copy", "risk": "medium", "status": "guarded" }),
+        json!({ "name": "Rebuild Indexes", "effect": "Rebuild collection index structures", "risk": "medium", "status": "guarded" }),
+        json!({ "name": "Backup", "effect": "Copy database file after checkpoint", "risk": "low", "status": "preview" }),
+    ];
+    let statistics = vec![
+        json!({ "name": "Documents", "value": if collection.is_some() { "-" } else { "metadata bridge required" }, "scope": "collection" }),
+        json!({ "name": "Indexes", "value": indexes.len(), "scope": "collection" }),
+        json!({ "name": "Average Document Size", "value": "-", "scope": "collection" }),
+        json!({ "name": "Storage Pages", "value": "-", "scope": "collection" }),
     ];
     let diagnostics = vec![
         json!({ "signal": "File Available", "value": file_exists, "status": if file_exists { "healthy" } else { "watch" }, "guidance": "Queries need the configured local file to exist and be accessible." }),
@@ -310,7 +425,10 @@ fn litedb_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &s
         "files": [],
         "chunks": [],
         "storage": storage,
+        "statistics": statistics,
+        "pragmas": pragmas,
         "settings": settings,
+        "maintenance": maintenance,
         "diagnostics": diagnostics,
         "warnings": warnings,
     })
@@ -327,11 +445,36 @@ fn litedb_query_template(node_id: &str) -> String {
             return json!({ "operation": "ListIndexes", "collection": collection }).to_string();
         }
 
+        if node_id.starts_with("litedb:collection-statistics:") {
+            return json!({ "operation": "Statistics", "collection": collection }).to_string();
+        }
+
+        if node_id.starts_with("litedb:collection-storage:") {
+            return json!({ "operation": "Statistics", "collection": collection }).to_string();
+        }
+
         return find_template(&collection);
     }
 
     if node_id == "litedb:indexes" {
         return json!({ "operation": "ListIndexes" }).to_string();
+    }
+
+    if node_id == "litedb:pragmas" {
+        return json!({ "operation": "Pragmas" }).to_string();
+    }
+
+    if node_id == "litedb:storage" {
+        return json!({ "operation": "Statistics" }).to_string();
+    }
+
+    if node_id == "litedb:maintenance"
+        || node_id == "litedb:checkpoint"
+        || node_id == "litedb:compact"
+        || node_id == "litedb:rebuild-indexes"
+        || node_id == "litedb:backup"
+    {
+        return json!({ "operation": "Maintenance" }).to_string();
     }
 
     json!({ "operation": "ListCollections" }).to_string()
@@ -381,6 +524,20 @@ fn litedb_object_view(node_id: &str) -> &'static str {
     if node_id == "litedb:storage" || node_id.starts_with("litedb:collection-storage:") {
         return "storage";
     }
+    if node_id.starts_with("litedb:collection-statistics:") {
+        return "statistics";
+    }
+    if node_id == "litedb:pragmas" {
+        return "pragmas";
+    }
+    if node_id == "litedb:maintenance"
+        || node_id == "litedb:checkpoint"
+        || node_id == "litedb:compact"
+        || node_id == "litedb:rebuild-indexes"
+        || node_id == "litedb:backup"
+    {
+        return "maintenance";
+    }
     if node_id == "litedb:settings" {
         return "settings";
     }
@@ -394,6 +551,7 @@ fn collection_from_node_id(node_id: &str) -> Option<String> {
         "litedb:schema:",
         "litedb:collection-indexes:",
         "litedb:collection-storage:",
+        "litedb:collection-statistics:",
     ]
     .into_iter()
     .find_map(|prefix| node_id.strip_prefix(prefix))
@@ -456,8 +614,9 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        collection_child_nodes, collection_from_node_id, database_child_nodes, find_template,
-        inspect_litedb_explorer_node, list_litedb_explorer_nodes, litedb_object_view, root_nodes,
+        collection_child_nodes, collection_from_node_id, collection_index_nodes,
+        database_child_nodes, find_template, inspect_litedb_explorer_node,
+        list_litedb_explorer_nodes, litedb_object_view, root_nodes,
     };
     use crate::domain::models::{
         ExplorerInspectRequest, ExplorerRequest, ResolvedConnectionProfile,
@@ -508,7 +667,8 @@ mod tests {
                 "Indexes",
                 "File Storage",
                 "Storage",
-                "Settings"
+                "Pragmas",
+                "Maintenance"
             ]
         );
     }
@@ -523,10 +683,50 @@ mod tests {
 
         assert_eq!(
             labels,
-            vec!["Documents", "Schema Preview", "Indexes", "Storage"]
+            vec![
+                "Documents",
+                "Schema Preview",
+                "Indexes",
+                "Statistics",
+                "Storage"
+            ]
         );
         let expected = find_template("orders");
         assert_eq!(nodes[0].query_template.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn litedb_collection_index_scope_exposes_default_id_index() {
+        let nodes = collection_index_nodes(&connection(), "orders");
+
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].id, "litedb:index:orders:_id");
+        assert_eq!(nodes[0].label, "_id");
+        assert_eq!(nodes[0].kind, "index");
+        assert_eq!(
+            nodes[0].path.as_ref().unwrap(),
+            &vec![
+                "catalog.db".to_string(),
+                "Collections".to_string(),
+                "orders".to_string(),
+                "Indexes".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn litedb_maintenance_scope_exposes_guarded_local_file_workflows() {
+        let nodes = super::maintenance_child_nodes(&connection());
+        let labels = nodes
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            labels,
+            vec!["Checkpoint", "Compact Copy", "Rebuild Indexes", "Backup"]
+        );
+        assert!(nodes.iter().all(|node| node.expandable == Some(false)));
     }
 
     #[test]
@@ -544,6 +744,8 @@ mod tests {
         assert_eq!(payload["objectView"], "database");
         assert_eq!(payload["engine"], "litedb");
         assert!(payload.get("bridge").is_none());
+        assert!(payload["pragmas"].as_array().unwrap().len() >= 3);
+        assert!(payload["maintenance"].as_array().unwrap().len() >= 3);
         assert!(payload["diagnostics"].as_array().unwrap().len() >= 2);
     }
 
@@ -564,11 +766,37 @@ mod tests {
     }
 
     #[test]
+    fn litedb_statistics_template_targets_collection_statistics() {
+        let response = inspect_litedb_explorer_node(
+            &connection(),
+            &ExplorerInspectRequest {
+                connection_id: "conn-litedb".into(),
+                environment_id: "env-local".into(),
+                node_id: "litedb:collection-statistics:orders".into(),
+            },
+        );
+        let query: Value = serde_json::from_str(&response.query_template.unwrap()).unwrap();
+
+        assert_eq!(query["operation"], "Statistics");
+        assert_eq!(query["collection"], "orders");
+    }
+
+    #[test]
     fn litedb_node_ids_map_to_object_views() {
         assert_eq!(litedb_object_view("litedb:database"), "database");
         assert_eq!(litedb_object_view("litedb:collection:orders"), "collection");
         assert_eq!(litedb_object_view("litedb:schema:orders"), "schema");
         assert_eq!(litedb_object_view("litedb:file-storage"), "file-storage");
+        assert_eq!(
+            litedb_object_view("litedb:collection-storage:orders"),
+            "storage"
+        );
+        assert_eq!(litedb_object_view("litedb:pragmas"), "pragmas");
+        assert_eq!(litedb_object_view("litedb:maintenance"), "maintenance");
+        assert_eq!(
+            litedb_object_view("litedb:collection-statistics:orders"),
+            "statistics"
+        );
         assert_eq!(litedb_object_view("litedb:unknown"), "diagnostics");
         assert_eq!(
             collection_from_node_id("litedb:collection-indexes:orders").as_deref(),

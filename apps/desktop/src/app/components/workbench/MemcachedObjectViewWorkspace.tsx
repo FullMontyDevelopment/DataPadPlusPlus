@@ -8,6 +8,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import {
   ObjectJobIcon,
+  ObjectKeyIcon,
   ObjectMemoryIcon,
   ObjectMetricIcon,
   ObjectServerIcon,
@@ -172,7 +173,9 @@ function MemcachedSectionIcon({ icon }: { icon: MemcachedSectionIconName }) {
   const Icon =
     icon === 'server'
       ? ObjectServerIcon
-      : icon === 'slabs' || icon === 'settings'
+      : icon === 'known-key'
+        ? ObjectKeyIcon
+        : icon === 'slabs' || icon === 'settings'
         ? ObjectMemoryIcon
         : icon === 'connections'
           ? ObjectJobIcon
@@ -232,6 +235,7 @@ function memcachedSections(
   const settings = rowsFromRecords(payload.settings, ['name', 'value', 'impact'])
   const connections = rowsFromRecords(payload.connections, ['name', 'value', 'unit', 'status'])
   const diagnostics = rowsFromRecords(payload.diagnostics, ['signal', 'value', 'status', 'guidance'])
+  const keyActions = rowsFromRecords(payload.keyActions, ['action', 'command', 'mode', 'risk', 'status'])
 
   if (kind === 'server' || kind === 'stats') {
     sections.push({ key: 'stats', title: 'Stats', icon: 'stats', columns: ['metric', 'value', 'unit', 'section'], rows: stats, emptyText: descriptor.emptyDescription })
@@ -247,6 +251,10 @@ function memcachedSections(
 
   if (kind === 'server' || kind === 'settings') {
     sections.push({ key: 'settings', title: 'Settings', icon: 'settings', columns: ['name', 'value', 'impact'], rows: settings, emptyText: descriptor.emptyDescription })
+  }
+
+  if (kind === 'server' || kind === 'known-key') {
+    sections.push({ key: 'key-actions', title: 'Known Key Actions', icon: 'known-key', columns: ['action', 'command', 'mode', 'risk', 'status'], rows: keyActions, emptyText: descriptor.emptyDescription })
   }
 
   if (kind === 'server' || kind === 'connections') {

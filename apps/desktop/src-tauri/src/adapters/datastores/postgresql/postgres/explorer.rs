@@ -649,6 +649,17 @@ fn table_child_nodes(
         ),
         postgres_node(
             connection,
+            &format!("foreign-keys:{schema}:{table}"),
+            "Foreign Keys",
+            "foreign-keys",
+            "Referenced tables, columns, and update/delete actions",
+            None,
+            path.clone(),
+            false,
+            None,
+        ),
+        postgres_node(
+            connection,
             &format!("triggers:{schema}:{table}"),
             "Triggers",
             "triggers",
@@ -767,8 +778,10 @@ async fn postgres_inspect_payload(
     let target = PostgresObjectTarget::parse(connection, node_id);
     let base = base_payload(connection, node_id, &target, Vec::new());
     let details = match target.object_view.as_str() {
-        "table" | "columns" | "indexes" | "constraints" | "triggers" | "statistics"
-        | "permissions" | "ddl" => table_payload(pool, &target.schema, &target.object_name).await,
+        "table" | "columns" | "indexes" | "constraints" | "foreign-keys" | "triggers"
+        | "statistics" | "permissions" | "ddl" => {
+            table_payload(pool, &target.schema, &target.object_name).await
+        }
         "view" => view_payload(pool, &target.schema, &target.object_name, false).await,
         "materialized-view" => view_payload(pool, &target.schema, &target.object_name, true).await,
         "schema" | "tables" | "views" | "materialized-views" | "functions" | "procedures"
@@ -846,6 +859,7 @@ async fn table_payload(pool: &PgPool, schema: &str, table: &str) -> Value {
         "columns": column_rows(pool, schema, table).await,
         "indexes": index_rows(pool, schema, Some(table), None).await,
         "constraints": constraint_rows(pool, schema, table).await,
+        "foreignKeys": foreign_key_rows(pool, schema, table).await,
         "triggers": trigger_rows(pool, schema, table).await,
         "statistics": statistics,
         "permissions": permission_rows(pool, schema, Some(table)).await,
@@ -1145,6 +1159,85 @@ async fn constraint_rows(pool: &PgPool, schema: &str, table: &str) -> Vec<Value>
             "type": row.get::<String, _>("type"),
             "columns": "",
             "status": if row.get::<bool, _>("convalidated") { "validated" } else { "not validated" },
+            "definition": row.get::<String, _>("definition"),
+        })
+    })
+    .collect()
+}
+
+async fn foreign_key_rows(pool: &PgPool, schema: &str, table: &str) -> Vec<Value> {
+    sqlx::query(
+        "select c.conname,
+                rn.nspname as referenced_schema,
+                rt.relname as referenced_table,
+                pg_get_constraintdef(c.oid) as definition,
+                case c.confupdtype
+                    when 'a' then 'NO ACTION'
+                    when 'r' then 'RESTRICT'
+                    when 'c' then 'CASCADE'
+                    when 'n' then 'SET NULL'
+                    when 'd' then 'SET DEFAULT'
+                    else c.confupdtype::text
+                end as on_update,
+                case c.confdeltype
+                    when 'a' then 'NO ACTION'
+                    when 'r' then 'RESTRICT'
+                    when 'c' then 'CASCADE'
+                    when 'n' then 'SET NULL'
+                    when 'd' then 'SET DEFAULT'
+                    else c.confdeltype::text
+                end as on_delete,
+                source_columns.columns as columns,
+                referenced_columns.columns as referenced_columns
+         from pg_constraint c
+         join pg_class t on t.oid = c.conrelid
+         join pg_namespace n on n.oid = t.relnamespace
+         join pg_class rt on rt.oid = c.confrelid
+         join pg_namespace rn on rn.oid = rt.relnamespace
+         left join lateral (
+             select string_agg(a.attname, ', ' order by k.ordinality) as columns
+             from unnest(c.conkey) with ordinality as k(attnum, ordinality)
+             join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
+         ) source_columns on true
+         left join lateral (
+             select string_agg(a.attname, ', ' order by k.ordinality) as columns
+             from unnest(c.confkey) with ordinality as k(attnum, ordinality)
+             join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum
+         ) referenced_columns on true
+         where n.nspname = $1 and t.relname = $2 and c.contype = 'f'
+         order by c.conname",
+    )
+    .bind(schema)
+    .bind(table)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|row| {
+        let referenced_schema = row.get::<String, _>("referenced_schema");
+        let referenced_table = row.get::<String, _>("referenced_table");
+        let columns = row.try_get::<String, _>("columns").unwrap_or_default();
+        let referenced_columns = row
+            .try_get::<String, _>("referenced_columns")
+            .unwrap_or_default();
+        let referenced_name = if referenced_schema == schema {
+            referenced_table.clone()
+        } else {
+            format!("{referenced_schema}.{referenced_table}")
+        };
+
+        json!({
+            "id": row.get::<String, _>("conname"),
+            "name": row.get::<String, _>("conname"),
+            "from": relationship_endpoint(table, &columns),
+            "table": table,
+            "columns": columns,
+            "to": relationship_endpoint(&referenced_name, &referenced_columns),
+            "referencedSchema": referenced_schema,
+            "referencedTable": referenced_table,
+            "referencedColumns": referenced_columns,
+            "onUpdate": row.get::<String, _>("on_update"),
+            "onDelete": row.get::<String, _>("on_delete"),
             "definition": row.get::<String, _>("definition"),
         })
     })
@@ -1578,6 +1671,7 @@ impl PostgresObjectTarget {
             "columns",
             "indexes",
             "constraints",
+            "foreign-keys",
             "triggers",
             "statistics",
             "permissions",
@@ -1652,7 +1746,10 @@ fn postgres_inspect_query_template(
     let target = PostgresObjectTarget::parse(connection, node_id);
 
     match target.object_view.as_str() {
-        "table" | "view" | "materialized-view" if !target.object_name.is_empty() => {
+        "table" | "columns" | "indexes" | "constraints" | "foreign-keys" | "triggers"
+        | "statistics" | "permissions" | "ddl" | "view" | "materialized-view"
+            if !target.object_name.is_empty() =>
+        {
             select_template(&target.schema, &target.object_name)
         }
         "function" | "procedure" if !target.object_name.is_empty() => {
@@ -1822,6 +1919,15 @@ fn select_template(schema: &str, table: &str) -> String {
     )
 }
 
+fn relationship_endpoint(object: &str, columns: &str) -> String {
+    let columns = columns.trim();
+    if columns.is_empty() {
+        object.to_string()
+    } else {
+        format!("{object}.{columns}")
+    }
+}
+
 fn quote_pg_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }
@@ -1874,6 +1980,14 @@ mod tests {
     }
 
     #[test]
+    fn inspect_postgres_explorer_node_uses_table_query_for_table_feature_nodes() {
+        let connection = connection();
+        let query = postgres_inspect_query_template(&connection, "foreign-keys:app:orders");
+
+        assert_eq!(query, "select * from \"app\".\"orders\" limit 100;");
+    }
+
+    #[test]
     fn inspect_postgres_explorer_node_uses_function_definition_for_routines() {
         let connection = connection();
         let function_query =
@@ -1902,8 +2016,29 @@ mod tests {
             PostgresObjectTarget::new("columns", "app".into(), "orders".into())
         );
         assert_eq!(
+            PostgresObjectTarget::parse(&connection, "foreign-keys:app:orders"),
+            PostgresObjectTarget::new("foreign-keys", "app".into(), "orders".into())
+        );
+        assert_eq!(
             PostgresObjectTarget::parse(&connection, "postgres:diagnostics:locks"),
             PostgresObjectTarget::new("locks", "public".into(), String::new())
+        );
+    }
+
+    #[test]
+    fn postgres_table_child_nodes_include_native_foreign_keys() {
+        let connection = connection();
+        let nodes = table_child_nodes(&connection, "public", "orders");
+        let foreign_keys = nodes
+            .iter()
+            .find(|node| node.id == "foreign-keys:public:orders")
+            .expect("foreign key child node");
+
+        assert_eq!(foreign_keys.kind, "foreign-keys");
+        assert_eq!(foreign_keys.label, "Foreign Keys");
+        assert_eq!(
+            foreign_keys.path.as_ref().unwrap().last().unwrap(),
+            "orders"
         );
     }
 

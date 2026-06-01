@@ -102,6 +102,15 @@ fn server_child_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNod
             Some("stats items"),
         ),
         (
+            "memcached:known-key",
+            "Known Key Lookup",
+            "known-key",
+            "Targeted get/gets/write previews for application-known cache keys",
+            Some("memcached:known-key"),
+            false,
+            Some("get <key>"),
+        ),
+        (
             "memcached:settings",
             "Settings",
             "settings",
@@ -255,6 +264,7 @@ async fn memcached_inspection_payload(
         "settings": setting_records(&settings),
         "connections": connection_records(&stats),
         "diagnostics": diagnostic_records(&stats),
+        "keyActions": known_key_actions(),
         "warnings": warnings,
     });
 
@@ -309,12 +319,22 @@ fn filter_memcached_payload_for_node(payload: &mut Value, node_id: &str) {
             payload["slabs"] = json!([]);
             payload["items"] = json!([]);
             payload["connections"] = json!([]);
+            payload["keyActions"] = json!([]);
         }
         "memcached:connections" => {
             payload["stats"] = json!([]);
             payload["slabs"] = json!([]);
             payload["items"] = json!([]);
             payload["settings"] = json!([]);
+            payload["keyActions"] = json!([]);
+        }
+        "memcached:known-key" => {
+            payload["stats"] = json!([]);
+            payload["slabs"] = json!([]);
+            payload["items"] = json!([]);
+            payload["settings"] = json!([]);
+            payload["connections"] = json!([]);
+            payload["diagnostics"] = json!([]);
         }
         "memcached:diagnostics" => {
             payload["stats"] = json!([]);
@@ -322,6 +342,7 @@ fn filter_memcached_payload_for_node(payload: &mut Value, node_id: &str) {
             payload["items"] = json!([]);
             payload["settings"] = json!([]);
             payload["connections"] = json!([]);
+            payload["keyActions"] = json!([]);
         }
         _ => {}
     }
@@ -494,7 +515,57 @@ fn diagnostic_records(entries: &BTreeMap<String, String>) -> Vec<Value> {
     ]
 }
 
+fn known_key_actions() -> Vec<Value> {
+    vec![
+        json!({
+            "action": "Get",
+            "command": "get <key>",
+            "mode": "read",
+            "risk": "read",
+            "status": "available",
+        }),
+        json!({
+            "action": "Get CAS",
+            "command": "gets <key>",
+            "mode": "read",
+            "risk": "read",
+            "status": "available",
+        }),
+        json!({
+            "action": "Set",
+            "command": "set <key> <flags> <ttl> <bytes>",
+            "mode": "write",
+            "risk": "write",
+            "status": "preview",
+        }),
+        json!({
+            "action": "Delete",
+            "command": "delete <key>",
+            "mode": "write",
+            "risk": "destructive",
+            "status": "guarded",
+        }),
+        json!({
+            "action": "Touch",
+            "command": "touch <key> <ttl>",
+            "mode": "write",
+            "risk": "write",
+            "status": "preview",
+        }),
+        json!({
+            "action": "Counter",
+            "command": "incr/decr <key> <delta>",
+            "mode": "write",
+            "risk": "write",
+            "status": "preview",
+        }),
+    ]
+}
+
 fn memcached_query_template(node_id: &str) -> &'static str {
+    if node_id.contains(":known-key") {
+        return "get <key>";
+    }
     if node_id.contains(":slab") {
         return "stats slabs";
     }
@@ -531,6 +602,9 @@ fn memcached_object_view(node_id: &str) -> &'static str {
     }
     if node_id == "memcached:connections" {
         return "connections";
+    }
+    if node_id == "memcached:known-key" {
+        return "known-key";
     }
     "diagnostics"
 }
@@ -632,8 +706,8 @@ fn string_field(row: &Value, key: &str, fallback: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        diagnostic_records, item_records, memcached_object_view, root_memcached_nodes,
-        server_child_nodes, slab_records, stats_entries,
+        diagnostic_records, item_records, known_key_actions, memcached_object_view,
+        root_memcached_nodes, server_child_nodes, slab_records, stats_entries,
     };
     use crate::domain::models::ResolvedConnectionProfile;
 
@@ -662,11 +736,20 @@ mod tests {
 
         assert_eq!(
             labels,
-            vec!["Stats", "Slabs", "Item Classes", "Settings", "Connections"]
+            vec![
+                "Stats",
+                "Slabs",
+                "Item Classes",
+                "Known Key Lookup",
+                "Settings",
+                "Connections"
+            ]
         );
         assert!(nodes
             .iter()
             .any(|node| node.id == "memcached:slabs" && node.expandable == Some(true)));
+        assert!(nodes.iter().any(|node| node.id == "memcached:known-key"
+            && node.query_template.as_deref() == Some("get <key>")));
     }
 
     #[test]
@@ -691,7 +774,21 @@ mod tests {
             memcached_object_view("memcached:item-class:1"),
             "item-class"
         );
+        assert_eq!(memcached_object_view("memcached:known-key"), "known-key");
         assert_eq!(memcached_object_view("memcached:unknown"), "diagnostics");
+    }
+
+    #[test]
+    fn memcached_known_key_actions_are_explicit_and_guarded() {
+        let actions = known_key_actions();
+
+        assert!(actions.iter().any(|action| action["action"] == "Get"));
+        assert!(actions
+            .iter()
+            .any(|action| { action["action"] == "Delete" && action["risk"] == "destructive" }));
+        assert!(actions
+            .iter()
+            .any(|action| { action["action"] == "Set" && action["status"] == "preview" }));
     }
 
     fn query_records_for_test() -> &'static str {

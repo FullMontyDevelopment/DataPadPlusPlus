@@ -126,6 +126,15 @@ impl Neo4jEndpoint {
                 "Neo4j requires a host or http:// connection string.",
             ));
         }
+        validate_http_component(host, "Neo4j host")?;
+        let database = connection_database(
+            connection
+                .graph_options
+                .as_ref()
+                .and_then(|options| options.database_name.as_deref())
+                .or(connection.database.as_deref()),
+        );
+        validate_path_segment(&database, "Neo4j database")?;
 
         Ok(Self {
             host: host.into(),
@@ -133,15 +142,12 @@ impl Neo4jEndpoint {
             prefix: connection
                 .graph_options
                 .as_ref()
-                .and_then(|options| normalized_prefix(options.path_prefix.as_deref()))
+                .and_then(|options| options.path_prefix.as_deref())
+                .map(|value| normalized_prefix(Some(value)))
+                .transpose()?
+                .flatten()
                 .unwrap_or_default(),
-            database: connection_database(
-                connection
-                    .graph_options
-                    .as_ref()
-                    .and_then(|options| options.database_name.as_deref())
-                    .or(connection.database.as_deref()),
-            ),
+            database,
         })
     }
 
@@ -174,6 +180,7 @@ impl Neo4jEndpoint {
                 "Neo4j connection string did not include a host.",
             ));
         }
+        validate_http_component(host, "Neo4j host")?;
 
         let database = database_override
             .filter(|value| !value.trim().is_empty())
@@ -185,15 +192,12 @@ impl Neo4jEndpoint {
                     .map(str::to_string)
             })
             .unwrap_or_else(|| "neo4j".into());
-        let prefix = normalized_prefix(prefix_override)
-            .or_else(|| {
-                if path.starts_with("db/") {
-                    None
-                } else {
-                    normalized_prefix(Some(path))
-                }
-            })
-            .unwrap_or_default();
+        validate_path_segment(&database, "Neo4j database")?;
+        let prefix = match normalized_prefix(prefix_override)? {
+            Some(prefix) => prefix,
+            None if path.starts_with("db/") => String::new(),
+            None => normalized_prefix(Some(path))?.unwrap_or_default(),
+        };
 
         Ok(Self {
             host: host.into(),
@@ -270,13 +274,38 @@ fn connection_database(value: Option<&str>) -> String {
         .unwrap_or_else(|| "neo4j".into())
 }
 
-fn normalized_prefix(value: Option<&str>) -> Option<String> {
-    let trimmed = value?.trim().trim_matches('/');
+fn normalized_prefix(value: Option<&str>) -> Result<Option<String>, CommandError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().trim_matches('/');
     if trimmed.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(format!("/{trimmed}"))
+        validate_http_component(trimmed, "Neo4j path prefix")?;
+        Ok(Some(format!("/{trimmed}")))
     }
+}
+
+fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "neo4j-endpoint-invalid",
+            format!("{label} contains an invalid control character."),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_path_segment(value: &str, label: &str) -> Result<(), CommandError> {
+    validate_http_component(value, label)?;
+    if value.contains('/') || value.contains('?') || value.contains('#') {
+        return Err(CommandError::new(
+            "neo4j-endpoint-invalid",
+            format!("{label} contains an invalid path separator."),
+        ));
+    }
+    Ok(())
 }
 
 fn neo4j_auth_header(connection: &ResolvedConnectionProfile) -> String {
@@ -399,5 +428,40 @@ mod tests {
         );
         assert_eq!(value["statements"][0]["resultDataContents"][0], "row");
         assert_eq!(value["statements"][0]["resultDataContents"][1], "graph");
+    }
+
+    #[test]
+    fn neo4j_endpoint_rejects_control_characters_and_path_in_database() {
+        let mut connection = ResolvedConnectionProfile {
+            id: "conn-neo4j".into(),
+            name: "Neo4j".into(),
+            engine: "neo4j".into(),
+            family: "graph".into(),
+            host: "127.0.0.1\r\nX-Bad: yes".into(),
+            port: None,
+            database: Some("neo4j".into()),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
+            read_only: true,
+        };
+        let host_error = Neo4jEndpoint::from_connection(&connection).unwrap_err();
+        assert_eq!(host_error.code, "neo4j-endpoint-invalid");
+
+        connection.host = "127.0.0.1".into();
+        connection.database = Some("neo4j/tx".into());
+        let database_error = Neo4jEndpoint::from_connection(&connection).unwrap_err();
+        assert_eq!(database_error.code, "neo4j-endpoint-invalid");
     }
 }

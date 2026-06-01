@@ -33,6 +33,7 @@ import {
 } from './ObjectViewPrimitives'
 import { RelationalSourcePreview } from './RelationalSourcePreview'
 import { relationalSourceText } from './RelationalSourcePreview.helpers'
+import { RelationalObjectViewSummary } from './RelationalObjectViewSummary'
 import { RelationalOperationStrip } from './RelationalObjectViewOperations'
 import { CockroachObjectViewInsights } from './CockroachObjectViewInsights'
 import { DuckDbObjectViewInsights } from './DuckDbObjectViewInsights'
@@ -109,6 +110,11 @@ export function RelationalObjectViewWorkspace({
       <WarningList warnings={objectViewWarnings(tab, payload)} />
 
       <div className="object-view-body" ref={bodyRef}>
+        <RelationalObjectViewSummary
+          connection={connection}
+          kind={kind}
+          payload={payload}
+        />
         <RelationalWorkflowStrip
           connection={connection}
           kind={kind}

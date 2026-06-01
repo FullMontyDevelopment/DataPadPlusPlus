@@ -91,8 +91,8 @@ function liteDbConnectionTree(connection: ConnectionProfile): ConnectionTreeNode
         branch('litedb-files', 'Files', 'files', 'File metadata and chunk counts', []),
         branch('litedb-chunks', 'Chunks', 'chunks', 'File chunk distribution and health', []),
       ]),
-      branch('litedb-storage', 'Storage', 'storage', 'Pages, free space, and maintenance health', []),
-      branch('litedb-settings', 'Settings', 'settings', 'Local file connection options', []),
+      branch('litedb-pragmas', 'Pragmas', 'pragmas', 'LiteDB file options and runtime settings', []),
+      branch('litedb-maintenance', 'Maintenance', 'maintenance', 'Checkpoint, compact, rebuild, and backup workflows', []),
     ]),
     branch('litedb-diagnostics', 'Diagnostics', 'diagnostics', 'File health, index coverage, and storage warnings', []),
   ]
@@ -125,6 +125,7 @@ function keyValueConnectionTree(connection: ConnectionProfile): ConnectionTreeNo
         branch('stats', 'Stats', 'stats', 'Operational counters, hit rate, item count, and memory use', []),
         branch('slabs', 'Slabs', 'slabs', 'Slab classes, chunk sizes, and allocation pressure', []),
         branch('items', 'Item Classes', 'items', 'Item-class counts, ages, evictions, and reclaim signals', []),
+        branch('known-key', 'Known Key Lookup', 'known-key', 'Targeted get/gets/write previews for application-known cache keys', []),
         branch('settings', 'Settings', 'settings', 'Cache limits, protocol flags, and LRU behavior', []),
         branch('connections', 'Connections', 'connections', 'Client connection pressure and rejected clients', []),
       ]),

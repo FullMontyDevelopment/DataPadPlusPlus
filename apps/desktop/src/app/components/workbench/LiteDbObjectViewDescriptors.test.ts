@@ -21,6 +21,9 @@ describe('LiteDbObjectViewDescriptors', () => {
         'files',
         'chunks',
         'storage',
+        'statistics',
+        'pragmas',
+        'maintenance',
         'settings',
         'diagnostics',
       ]),
@@ -31,6 +34,8 @@ describe('LiteDbObjectViewDescriptors', () => {
     expect(liteDbObjectViewMenuLabel('collection')).toBe('Open Collection')
     expect(liteDbObjectViewMenuLabel('file storage')).toBe('Browse File Storage')
     expect(liteDbObjectViewMenuLabel('indexes')).toBe('Manage Indexes')
+    expect(liteDbObjectViewMenuLabel('pragmas')).toBe('Open Pragmas')
+    expect(liteDbObjectViewMenuLabel('maintenance')).toBe('Open Maintenance')
     expect(liteDbObjectViewMenuLabel('collection')).not.toBe('Open View')
   })
 

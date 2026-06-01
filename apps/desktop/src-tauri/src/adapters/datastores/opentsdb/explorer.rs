@@ -17,6 +17,8 @@ pub(super) async fn list_opentsdb_explorer_nodes(
         }
         Some("opentsdb:aggregators") => aggregator_nodes(),
         Some("opentsdb:downsampling") => downsampling_nodes(),
+        Some("opentsdb:uid-metadata") => uid_metadata_nodes(connection, request.limit).await?,
+        Some("opentsdb:trees") => tree_nodes(connection).await?,
         Some("opentsdb:stats") => stats_nodes(connection).await?,
         Some(_) => Vec::new(),
         None => root_nodes(),
@@ -97,6 +99,26 @@ fn root_nodes() -> Vec<ExplorerNode> {
             vec![],
         ),
         opentsdb_node(
+            "opentsdb:uid-metadata",
+            "UID Metadata",
+            "uid-metadata",
+            "Metric, tag key, and tag value UID metadata",
+            Some("opentsdb:uid-metadata"),
+            true,
+            None,
+            vec![],
+        ),
+        opentsdb_node(
+            "opentsdb:trees",
+            "Trees",
+            "trees",
+            "OpenTSDB tree definitions and hierarchy health",
+            Some("opentsdb:trees"),
+            true,
+            None,
+            vec![],
+        ),
+        opentsdb_node(
             "opentsdb:stats",
             "Stats",
             "stats",
@@ -117,6 +139,78 @@ fn root_nodes() -> Vec<ExplorerNode> {
             vec![],
         ),
     ]
+}
+
+async fn uid_metadata_nodes(
+    connection: &ResolvedConnectionProfile,
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let limit = bounded_page_size(limit.or(Some(100))) as usize;
+    let mut values = Vec::new();
+    values.extend(
+        suggested_values(connection, "metrics", limit as u32)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|name| ("metric".to_string(), name)),
+    );
+    values.extend(
+        suggested_values(connection, "tagk", limit as u32)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|name| ("tagk".to_string(), name)),
+    );
+
+    Ok(values
+        .into_iter()
+        .take(limit)
+        .map(|(kind, name)| {
+            opentsdb_node(
+                &format!("uid:{kind}:{name}"),
+                &name,
+                "uid",
+                &format!("OpenTSDB {kind} metadata"),
+                Some(&format!("uid:{kind}:{name}")),
+                false,
+                if kind == "metric" {
+                    Some(default_query_template(&name))
+                } else {
+                    None
+                },
+                vec!["UID Metadata".into()],
+            )
+        })
+        .collect())
+}
+
+async fn tree_nodes(
+    connection: &ResolvedConnectionProfile,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    Ok(live_trees(connection)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .take(100)
+        .filter_map(|tree| {
+            let name = tree.get("name").and_then(Value::as_str)?.to_string();
+            let enabled = tree
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .map(|enabled| if enabled { "enabled" } else { "disabled" })
+                .unwrap_or("unknown");
+            Some(opentsdb_node(
+                &format!("tree:{name}"),
+                &name,
+                "tree",
+                enabled,
+                Some(&format!("tree:{name}")),
+                false,
+                None,
+                vec!["Trees".into()],
+            ))
+        })
+        .collect())
 }
 
 fn metric_child_nodes(scope: &str) -> Vec<ExplorerNode> {
@@ -291,6 +385,8 @@ async fn opentsdb_inspection_payload(
     let stats = optional_stats(connection, &mut warnings).await;
     let aggregators = aggregators();
     let downsampling = downsampling();
+    let uid_metadata = uid_metadata_records(&metrics, &tags, &tag_values);
+    let trees = optional_trees(connection, &mut warnings).await;
     let diagnostics = diagnostics(&metrics, &tags, &stats);
 
     let mut payload = json!({
@@ -299,7 +395,7 @@ async fn opentsdb_inspection_payload(
         "objectView": opentsdb_object_view(node_id),
         "metricCount": metrics.len(),
         "tagKeyCount": tags.len(),
-        "uidCount": "-",
+        "uidCount": uid_metadata.len(),
         "writesPerSecond": stat_value(&stats, "write"),
         "queriesPerSecond": stat_value(&stats, "query"),
         "storage": "OpenTSDB backend",
@@ -308,6 +404,8 @@ async fn opentsdb_inspection_payload(
         "tagValues": tag_values,
         "aggregators": aggregators,
         "downsampling": downsampling,
+        "uidMetadata": uid_metadata,
+        "trees": trees,
         "stats": stats,
         "diagnostics": diagnostics,
         "warnings": warnings,
@@ -375,6 +473,19 @@ async fn optional_stats(
     }
 }
 
+async fn optional_trees(
+    connection: &ResolvedConnectionProfile,
+    warnings: &mut Vec<String>,
+) -> Vec<Value> {
+    match live_trees(connection).await {
+        Ok(trees) => trees,
+        Err(error) => {
+            warnings.push(format!("tree metadata is unavailable: {}", error.message));
+            Vec::new()
+        }
+    }
+}
+
 async fn suggested_values(
     connection: &ResolvedConnectionProfile,
     kind: &str,
@@ -406,6 +517,17 @@ async fn live_stats(connection: &ResolvedConnectionProfile) -> Result<Vec<Value>
     Ok(normalize_stats(&values))
 }
 
+async fn live_trees(connection: &ResolvedConnectionProfile) -> Result<Vec<Value>, CommandError> {
+    let response = opentsdb_get(connection, "/api/tree").await?;
+    let values: Value = serde_json::from_str(&response.body).map_err(|error| {
+        CommandError::new(
+            "opentsdb-json-invalid",
+            format!("OpenTSDB returned invalid tree JSON: {error}"),
+        )
+    })?;
+    Ok(normalize_trees(&values))
+}
+
 fn normalize_stats(values: &Value) -> Vec<Value> {
     values
         .as_array()
@@ -425,6 +547,74 @@ fn normalize_stats(values: &Value) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+fn normalize_trees(values: &Value) -> Vec<Value> {
+    let trees = values
+        .as_array()
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect::<Vec<_>>();
+
+    trees
+        .into_iter()
+        .map(|tree| {
+            let name = tree
+                .get("name")
+                .or_else(|| tree.get("displayName"))
+                .and_then(Value::as_str)
+                .unwrap_or("tree");
+            json!({
+                "name": name,
+                "enabled": tree.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+                "rules": tree.get("rules").and_then(Value::as_array).map(|rules| rules.len()).unwrap_or(0),
+                "collisions": tree.get("collisions").cloned().unwrap_or_else(|| json!("-")),
+                "description": tree.get("description").and_then(Value::as_str).unwrap_or("-"),
+            })
+        })
+        .collect()
+}
+
+fn uid_metadata_records(metrics: &[Value], tags: &[Value], tag_values: &[Value]) -> Vec<Value> {
+    let mut rows = Vec::new();
+    rows.extend(metrics.iter().map(|metric| {
+        let name = metric.get("name").and_then(Value::as_str).unwrap_or("-");
+        json!({
+            "kind": "metric",
+            "name": name,
+            "uid": metric.get("uid").and_then(Value::as_str).unwrap_or("-"),
+            "displayName": name,
+            "description": "Suggested metric metadata",
+            "notes": "UID details require OpenTSDB UID metadata permissions.",
+        })
+    }));
+    rows.extend(tags.iter().map(|tag| {
+        let name = tag.get("name").and_then(Value::as_str).unwrap_or("-");
+        json!({
+            "kind": "tagk",
+            "name": name,
+            "uid": "-",
+            "displayName": name,
+            "description": "Suggested tag key metadata",
+            "notes": "UID details require OpenTSDB UID metadata permissions.",
+        })
+    }));
+    rows.extend(tag_values.iter().take(20).map(|tag_value| {
+        let value = tag_value
+            .get("value")
+            .and_then(Value::as_str)
+            .unwrap_or("-");
+        json!({
+            "kind": "tagv",
+            "name": value,
+            "uid": "-",
+            "displayName": value,
+            "description": "Suggested tag value metadata",
+            "notes": "UID details require OpenTSDB UID metadata permissions.",
+        })
+    }));
+    rows
 }
 
 fn filter_opentsdb_payload_for_node(payload: &mut Value, node_id: &str) {
@@ -466,6 +656,8 @@ fn filter_opentsdb_payload_for_node(payload: &mut Value, node_id: &str) {
         payload["tags"] = json!([]);
         payload["tagValues"] = json!([]);
         payload["downsampling"] = json!([]);
+        payload["uidMetadata"] = json!([]);
+        payload["trees"] = json!([]);
         return;
     }
 
@@ -479,6 +671,54 @@ fn filter_opentsdb_payload_for_node(payload: &mut Value, node_id: &str) {
         payload["metrics"] = json!([]);
         payload["tags"] = json!([]);
         payload["tagValues"] = json!([]);
+        payload["uidMetadata"] = json!([]);
+        payload["trees"] = json!([]);
+        return;
+    }
+
+    if let Some(rest) = node_id.strip_prefix("uid:") {
+        let parts = rest.split(':').collect::<Vec<_>>();
+        if let (Some(kind), Some(name)) = (parts.first().copied(), parts.get(1).copied()) {
+            let filtered = payload
+                .get("uidMetadata")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|row| {
+                    row.get("kind").and_then(Value::as_str) == Some(kind)
+                        && row.get("name").and_then(Value::as_str) == Some(name)
+                })
+                .collect::<Vec<_>>();
+            payload["uidMetadata"] = json!(filtered);
+        }
+        payload["objectView"] = json!("uid");
+        return;
+    }
+
+    if node_id == "opentsdb:uid-metadata" || node_id.starts_with("metric-uid:") {
+        payload["aggregators"] = json!([]);
+        payload["downsampling"] = json!([]);
+        payload["trees"] = json!([]);
+        if let Some(metric) = node_id.strip_prefix("metric-uid:") {
+            filter_payload_array(payload, "uidMetadata", "name", metric);
+        }
+        return;
+    }
+
+    if let Some(name) = node_id.strip_prefix("tree:") {
+        filter_payload_array(payload, "trees", "name", name);
+        payload["objectView"] = json!("tree");
+        return;
+    }
+
+    if node_id == "opentsdb:trees" {
+        payload["metrics"] = json!([]);
+        payload["tags"] = json!([]);
+        payload["tagValues"] = json!([]);
+        payload["aggregators"] = json!([]);
+        payload["downsampling"] = json!([]);
+        payload["uidMetadata"] = json!([]);
         return;
     }
 
@@ -488,6 +728,8 @@ fn filter_opentsdb_payload_for_node(payload: &mut Value, node_id: &str) {
         payload["tagValues"] = json!([]);
         payload["aggregators"] = json!([]);
         payload["downsampling"] = json!([]);
+        payload["uidMetadata"] = json!([]);
+        payload["trees"] = json!([]);
     }
 }
 
@@ -618,6 +860,18 @@ fn opentsdb_object_view(node_id: &str) -> &'static str {
     if node_id.starts_with("downsampler:") {
         return "downsampler";
     }
+    if node_id == "opentsdb:uid-metadata" || node_id.starts_with("metric-uid:") {
+        return "uid-metadata";
+    }
+    if node_id.starts_with("uid:") {
+        return "uid";
+    }
+    if node_id == "opentsdb:trees" {
+        return "trees";
+    }
+    if node_id.starts_with("tree:") {
+        return "tree";
+    }
     if node_id == "opentsdb:stats" || node_id.starts_with("metric-stats:") {
         return "stats";
     }
@@ -666,7 +920,8 @@ mod tests {
 
     use super::{
         aggregator_nodes, default_query_template, diagnostics, downsampling_nodes, normalize_stats,
-        opentsdb_object_view, parse_string_array, root_nodes,
+        normalize_trees, opentsdb_object_view, parse_string_array, root_nodes,
+        uid_metadata_records,
     };
 
     #[test]
@@ -691,6 +946,8 @@ mod tests {
                 "Tags",
                 "Aggregators",
                 "Downsampling",
+                "UID Metadata",
+                "Trees",
                 "Stats",
                 "Diagnostics"
             ]
@@ -733,6 +990,13 @@ mod tests {
         assert_eq!(opentsdb_object_view("tag:host"), "tag");
         assert_eq!(opentsdb_object_view("aggregator:avg"), "aggregator");
         assert_eq!(opentsdb_object_view("downsampler:1m-avg"), "downsampler");
+        assert_eq!(
+            opentsdb_object_view("opentsdb:uid-metadata"),
+            "uid-metadata"
+        );
+        assert_eq!(opentsdb_object_view("uid:metric:sys.cpu.user"), "uid");
+        assert_eq!(opentsdb_object_view("opentsdb:trees"), "trees");
+        assert_eq!(opentsdb_object_view("tree:service-map"), "tree");
         assert_eq!(opentsdb_object_view("opentsdb:diagnostics"), "diagnostics");
     }
 
@@ -746,5 +1010,38 @@ mod tests {
 
         assert_eq!(diagnostics[0]["signal"], "Metric Metadata");
         assert_eq!(diagnostics[2]["status"], "watch");
+    }
+
+    #[test]
+    fn opentsdb_uid_metadata_is_derived_without_raw_api_payloads() {
+        let rows = uid_metadata_records(
+            &[json!({ "name": "sys.cpu.user", "uid": "000001" })],
+            &[json!({ "name": "host" })],
+            &[json!({ "value": "app-1" })],
+        );
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0]["kind"], "metric");
+        assert_eq!(rows[0]["uid"], "000001");
+        assert_eq!(rows[1]["kind"], "tagk");
+        assert_eq!(rows[2]["kind"], "tagv");
+    }
+
+    #[test]
+    fn opentsdb_trees_are_normalized_for_native_view() {
+        let trees = normalize_trees(&json!([
+            {
+                "name": "service-map",
+                "enabled": true,
+                "rules": [{ "field": "host" }],
+                "collisions": 0,
+                "description": "Service hierarchy"
+            }
+        ]));
+
+        assert_eq!(trees.len(), 1);
+        assert_eq!(trees[0]["name"], "service-map");
+        assert_eq!(trees[0]["rules"], 1);
+        assert_eq!(trees[0]["description"], "Service hierarchy");
     }
 }

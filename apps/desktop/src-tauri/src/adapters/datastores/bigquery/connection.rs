@@ -75,12 +75,7 @@ async fn bigquery_request(
     let endpoint = BigQueryEndpoint::from_connection(connection)?;
     let path = endpoint.path(path);
     let body = body.unwrap_or("");
-    let auth_header = connection
-        .password
-        .as_deref()
-        .filter(|token| !token.trim().is_empty())
-        .map(|token| format!("Authorization: Bearer {token}\r\n"))
-        .unwrap_or_default();
+    let auth_header = bigquery_auth_header(connection)?;
     let content_headers = if method == "POST" {
         format!(
             "Content-Type: application/json\r\nContent-Length: {}\r\n",
@@ -119,6 +114,25 @@ async fn bigquery_request(
                 .unwrap_or("BigQuery REST request failed."),
         ))
     }
+}
+
+fn bigquery_auth_header(connection: &ResolvedConnectionProfile) -> Result<String, CommandError> {
+    let Some(token) = connection
+        .password
+        .as_deref()
+        .filter(|token| !token.trim().is_empty())
+    else {
+        return Ok(String::new());
+    };
+
+    if token.contains('\r') || token.contains('\n') {
+        return Err(CommandError::new(
+            "bigquery-invalid-token",
+            "BigQuery access token contains invalid header characters.",
+        ));
+    }
+
+    Ok(format!("Authorization: Bearer {token}\r\n"))
 }
 
 impl BigQueryEndpoint {
@@ -283,33 +297,12 @@ pub(super) fn parse_bigquery_json(body: &str) -> Result<Value, CommandError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        bigquery_dataset_id, bigquery_location, bigquery_project_id, bigquery_query_body,
-        BigQueryEndpoint,
+        bigquery_auth_header, bigquery_dataset_id, bigquery_location, bigquery_project_id,
+        bigquery_query_body, BigQueryEndpoint,
     };
 
-    #[test]
-    fn bigquery_endpoint_parses_prefixed_http_url() {
-        let endpoint = BigQueryEndpoint::from_url("http://localhost:19050/bq").unwrap();
-        assert_eq!(endpoint.host, "localhost");
-        assert_eq!(endpoint.port, 19050);
-        assert_eq!(
-            endpoint.path("/bigquery/v2/projects/p/datasets"),
-            "/bq/bigquery/v2/projects/p/datasets"
-        );
-    }
-
-    #[test]
-    fn bigquery_query_body_uses_google_sql_and_dry_run() {
-        let body = bigquery_query_body("select 1", 25, true);
-        assert_eq!(body["query"], "select 1");
-        assert_eq!(body["useLegacySql"], false);
-        assert_eq!(body["dryRun"], true);
-        assert_eq!(body["maxResults"], 25);
-    }
-
-    #[test]
-    fn bigquery_endpoint_and_scope_prefer_warehouse_options() {
-        let connection = crate::domain::models::ResolvedConnectionProfile {
+    fn connection() -> crate::domain::models::ResolvedConnectionProfile {
+        crate::domain::models::ResolvedConnectionProfile {
             id: "conn-bigquery".into(),
             name: "BigQuery".into(),
             engine: "bigquery".into(),
@@ -339,7 +332,32 @@ mod tests {
                 ..crate::domain::models::WarehouseConnectionOptions::default()
             }),
             read_only: true,
-        };
+        }
+    }
+
+    #[test]
+    fn bigquery_endpoint_parses_prefixed_http_url() {
+        let endpoint = BigQueryEndpoint::from_url("http://localhost:19050/bq").unwrap();
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 19050);
+        assert_eq!(
+            endpoint.path("/bigquery/v2/projects/p/datasets"),
+            "/bq/bigquery/v2/projects/p/datasets"
+        );
+    }
+
+    #[test]
+    fn bigquery_query_body_uses_google_sql_and_dry_run() {
+        let body = bigquery_query_body("select 1", 25, true);
+        assert_eq!(body["query"], "select 1");
+        assert_eq!(body["useLegacySql"], false);
+        assert_eq!(body["dryRun"], true);
+        assert_eq!(body["maxResults"], 25);
+    }
+
+    #[test]
+    fn bigquery_endpoint_and_scope_prefer_warehouse_options() {
+        let connection = connection();
 
         let endpoint = BigQueryEndpoint::from_connection(&connection).unwrap();
 
@@ -352,5 +370,15 @@ mod tests {
         assert_eq!(bigquery_project_id(&connection), "project-qa");
         assert_eq!(bigquery_dataset_id(&connection), "mart");
         assert_eq!(bigquery_location(&connection), "EU");
+    }
+
+    #[test]
+    fn bigquery_auth_header_rejects_newline_in_token() {
+        let mut connection = connection();
+        connection.password = Some("token\r\nX-Bad: injected".into());
+
+        let error = bigquery_auth_header(&connection).unwrap_err();
+
+        assert_eq!(error.code, "bigquery-invalid-token");
     }
 }

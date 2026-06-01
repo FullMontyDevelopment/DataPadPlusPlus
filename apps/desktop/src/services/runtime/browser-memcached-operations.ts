@@ -3,6 +3,7 @@ import type { OperationPlanRequest } from '@datapadplusplus/shared-types'
 export function memcachedOperationRequest(request: OperationPlanRequest) {
   const parameters = request.parameters ?? {}
   const classId = stringParameter(parameters, 'classId')
+  const key = memcachedKeyParameter(parameters, 'key') ?? memcachedKeyFromObjectName(request.objectName)
 
   if (request.operationId.endsWith('diagnostics.metrics')) {
     return [
@@ -43,6 +44,33 @@ export function memcachedOperationRequest(request: OperationPlanRequest) {
     ].join('\n')
   }
 
+  if (request.operationId.endsWith('key.get')) {
+    return `get ${key}`
+  }
+
+  if (request.operationId.endsWith('key.gets')) {
+    return `gets ${key}`
+  }
+
+  if (request.operationId.endsWith('key.set')) {
+    const value = stringParameter(parameters, 'value') ?? '<value>'
+    const flags = numberParameter(parameters, 'flags') ?? 0
+    const ttlSeconds = numberParameter(parameters, 'ttlSeconds') ?? 300
+    return [`set ${key} ${flags} ${ttlSeconds} ${byteLength(value)}`, value].join('\n')
+  }
+
+  if (request.operationId.endsWith('key.delete')) {
+    return `delete ${key}`
+  }
+
+  if (request.operationId.endsWith('key.touch')) {
+    return `touch ${key} ${numberParameter(parameters, 'ttlSeconds') ?? 300}`
+  }
+
+  if (request.operationId.endsWith('key.increment')) {
+    return `incr ${key} ${numberParameter(parameters, 'delta') ?? 1}`
+  }
+
   return `stats\n# ${request.operationId}`
 }
 
@@ -63,4 +91,21 @@ function numberParameter(parameters: Record<string, unknown>, key: string) {
   }
 
   return undefined
+}
+
+function memcachedKeyParameter(parameters: Record<string, unknown>, key: string) {
+  return memcachedKeyFromObjectName(stringParameter(parameters, key))
+}
+
+function memcachedKeyFromObjectName(value: unknown) {
+  if (typeof value !== 'string') {
+    return '<key>'
+  }
+
+  const key = value.trim()
+  return key && key.length <= 250 && !/[\s\p{Cc}]/u.test(key) ? key : '<key>'
+}
+
+function byteLength(value: string) {
+  return new TextEncoder().encode(value).length
 }

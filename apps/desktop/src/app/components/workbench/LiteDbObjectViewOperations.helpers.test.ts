@@ -34,12 +34,18 @@ describe('liteDbOperationActions', () => {
       { database: 'catalog.db' },
     )
 
-    expect(actions.map((action) => action.label)).toEqual(['Health', 'Checkpoint', 'Compact', 'Export', 'Backup'])
+    expect(actions.map((action) => action.label)).toEqual(['Health', 'Checkpoint', 'Compact', 'Rebuild', 'Export', 'Backup'])
     expect(actions.find((action) => action.label === 'Compact')).toMatchObject({
       operationId: 'litedb.storage.compact',
       parameters: expect.objectContaining({
         databaseFile: 'catalog.db',
         outputFile: '<selected-folder>/compacted.db',
+      }),
+    })
+    expect(actions.find((action) => action.label === 'Rebuild')).toMatchObject({
+      operationId: 'litedb.storage.rebuild-indexes',
+      parameters: expect.objectContaining({
+        databaseFile: 'catalog.db',
       }),
     })
   })

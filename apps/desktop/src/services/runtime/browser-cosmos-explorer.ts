@@ -63,11 +63,36 @@ export function createCosmosExplorerNodes(connection: ConnectionProfile, scope?:
       cosmosNode(connection, `cosmos:indexing-policy:${database}:${container}`, 'Indexing Policy', 'indexing-policy', 'Included, excluded, composite, and spatial paths', `cosmos:indexing-policy:${database}:${container}`),
       cosmosNode(connection, `cosmos:throughput:${database}:${container}`, 'Throughput', 'throughput', 'Manual or autoscale RU/s and throttles', `cosmos:throughput:${database}:${container}`),
       cosmosNode(connection, `cosmos:change-feed:${database}:${container}`, 'Change Feed', 'change-feed', 'Change feed processor readiness', `cosmos:change-feed:${database}:${container}`),
-      cosmosNode(connection, `cosmos:stored-procedures:${database}:${container}`, 'Stored Procedures', 'stored-procedures', 'Server-side JavaScript stored procedures', `cosmos:stored-procedures:${database}:${container}`),
-      cosmosNode(connection, `cosmos:triggers:${database}:${container}`, 'Triggers', 'triggers', 'Pre and post triggers', `cosmos:triggers:${database}:${container}`),
-      cosmosNode(connection, `cosmos:udfs:${database}:${container}`, 'User Defined Functions', 'udfs', 'Server-side JavaScript UDFs', `cosmos:udfs:${database}:${container}`),
-      cosmosNode(connection, `cosmos:conflicts:${database}:${container}`, 'Conflict Feed', 'conflicts', 'Multi-region conflict metadata', `cosmos:conflicts:${database}:${container}`),
+      cosmosNode(connection, `cosmos:stored-procedures:${database}:${container}`, 'Stored Procedures', 'stored-procedures', 'Server-side JavaScript stored procedures', `cosmos:stored-procedures:${database}:${container}`, true),
+      cosmosNode(connection, `cosmos:triggers:${database}:${container}`, 'Triggers', 'triggers', 'Pre and post triggers', `cosmos:triggers:${database}:${container}`, true),
+      cosmosNode(connection, `cosmos:udfs:${database}:${container}`, 'User Defined Functions', 'udfs', 'Server-side JavaScript UDFs', `cosmos:udfs:${database}:${container}`, true),
+      cosmosNode(connection, `cosmos:conflicts:${database}:${container}`, 'Conflict Feed', 'conflicts', 'Multi-region conflict metadata', `cosmos:conflicts:${database}:${container}`, true),
     ]
+  }
+
+  if (scope.startsWith('cosmos:stored-procedures:')) {
+    const { database, container } = cosmosScopeParts(connection, scope)
+    return cosmosScripts(container)
+      .filter((script) => script.type === 'stored procedure')
+      .map((script) => cosmosNode(connection, `cosmos:stored-procedure:${database}:${container}:${script.name}`, script.name, 'stored-procedure', script.operation, `cosmos:stored-procedure:${database}:${container}:${script.name}`))
+  }
+
+  if (scope.startsWith('cosmos:triggers:')) {
+    const { database, container } = cosmosScopeParts(connection, scope)
+    return cosmosScripts(container)
+      .filter((script) => script.type === 'trigger')
+      .map((script) => cosmosNode(connection, `cosmos:trigger:${database}:${container}:${script.name}`, script.name, 'trigger', script.operation, `cosmos:trigger:${database}:${container}:${script.name}`))
+  }
+
+  if (scope.startsWith('cosmos:udfs:')) {
+    const { database, container } = cosmosScopeParts(connection, scope)
+    return cosmosScripts(container)
+      .filter((script) => script.type === 'udf')
+      .map((script) => cosmosNode(connection, `cosmos:udf:${database}:${container}:${script.name}`, script.name, 'udf', script.operation, `cosmos:udf:${database}:${container}:${script.name}`))
+  }
+
+  if (scope.startsWith('cosmos:conflicts:')) {
+    return []
   }
 
   return []
@@ -156,13 +181,26 @@ export function cosmosInspectPayload(connection: ConnectionProfile, nodeId: stri
     return cosmosContainerPayload(connection, database, container, nodeId.includes(':conflicts:') ? 'conflicts' : 'change-feed')
   }
 
-  if (nodeId.includes(':stored-procedures:') || nodeId.includes(':triggers:') || nodeId.includes(':udfs:')) {
+  if (
+    nodeId.includes(':stored-procedures:') ||
+    nodeId.includes(':stored-procedure:') ||
+    nodeId.includes(':triggers:') ||
+    nodeId.includes(':trigger:') ||
+    nodeId.includes(':udfs:') ||
+    nodeId.includes(':udf:')
+  ) {
     const { database, container } = cosmosScopeParts(connection, nodeId)
-    const objectView = nodeId.includes(':triggers:')
-      ? 'triggers'
-      : nodeId.includes(':udfs:')
-        ? 'udfs'
-        : 'stored-procedures'
+    const objectView = nodeId.includes(':trigger:')
+      ? 'trigger'
+      : nodeId.includes(':triggers:')
+        ? 'triggers'
+        : nodeId.includes(':udf:')
+          ? 'udf'
+          : nodeId.includes(':udfs:')
+            ? 'udfs'
+            : nodeId.includes(':stored-procedure:')
+              ? 'stored-procedure'
+              : 'stored-procedures'
     return cosmosContainerPayload(connection, database, container, objectView)
   }
 
@@ -361,6 +399,30 @@ function cosmosWarnings() {
 
 function cosmosScopeParts(connection: ConnectionProfile, scope: string) {
   const parts = scope.split(':')
+  const kind = parts.at(1) ?? ''
+  if (
+    [
+      'container',
+      'items',
+      'partition-key',
+      'indexing-policy',
+      'throughput',
+      'change-feed',
+      'stored-procedures',
+      'stored-procedure',
+      'triggers',
+      'trigger',
+      'udfs',
+      'udf',
+      'conflicts',
+      'conflict',
+    ].includes(kind)
+  ) {
+    return {
+      database: parts.at(2) ?? cosmosDefaultDatabase(connection),
+      container: parts.at(3) ?? 'products',
+    }
+  }
   return {
     database: parts.at(-2) ?? cosmosDefaultDatabase(connection),
     container: parts.at(-1) ?? 'products',

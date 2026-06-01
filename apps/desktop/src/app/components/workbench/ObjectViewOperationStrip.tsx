@@ -12,6 +12,7 @@ import {
   ObjectDocumentIcon,
   ObjectIndexIcon,
   ObjectJobIcon,
+  ObjectKeyIcon,
   ObjectMemoryIcon,
   ObjectMetricIcon,
   ObjectSecurityIcon,
@@ -29,6 +30,7 @@ export type ObjectViewOperationIconName =
   | 'file'
   | 'index'
   | 'job'
+  | 'key'
   | 'memory'
   | 'metrics'
   | 'security'
@@ -131,15 +133,17 @@ function ObjectViewOperationIcon({ icon }: { icon: ObjectViewOperationIconName }
               ? ObjectIndexIcon
               : icon === 'job'
                 ? ObjectJobIcon
-                : icon === 'memory'
-                  ? ObjectMemoryIcon
-                  : icon === 'security'
-                    ? ObjectSecurityIcon
-                    : icon === 'storage' || icon === 'file'
-                      ? ObjectStageIcon
-                      : icon === 'delete'
-                        ? TrashIcon
-                        : ObjectMetricIcon
+                : icon === 'key'
+                  ? ObjectKeyIcon
+                  : icon === 'memory'
+                    ? ObjectMemoryIcon
+                    : icon === 'security'
+                      ? ObjectSecurityIcon
+                      : icon === 'storage' || icon === 'file'
+                        ? ObjectStageIcon
+                        : icon === 'delete'
+                          ? TrashIcon
+                          : ObjectMetricIcon
 
   return <Icon className="panel-inline-icon" />
 }

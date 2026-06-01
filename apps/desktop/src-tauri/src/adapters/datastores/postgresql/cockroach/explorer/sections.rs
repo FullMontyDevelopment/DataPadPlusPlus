@@ -24,14 +24,14 @@ pub(crate) fn cockroach_section_nodes(
         "cockroach:roles" => vec![
             (
                 "cockroach-show-roles",
-                "SHOW ROLES",
+                "Roles",
                 "roles",
                 "Role membership and role options",
                 "show roles;",
             ),
             (
                 "cockroach-show-grants",
-                "SHOW GRANTS",
+                "Grants",
                 "grants",
                 "Object grants visible to this user",
                 "show grants;",
@@ -47,7 +47,7 @@ pub(crate) fn cockroach_section_nodes(
         "cockroach:regions" => vec![
             (
                 "cockroach-show-regions",
-                "SHOW REGIONS",
+                "Regions",
                 "regions",
                 "Database and cluster region metadata",
                 "show regions;",
@@ -79,7 +79,7 @@ pub(crate) fn cockroach_section_nodes(
         "cockroach:sessions" => vec![
             (
                 "cockroach-show-sessions",
-                "SHOW SESSIONS",
+                "Sessions",
                 "sessions",
                 "Active SQL sessions",
                 "show sessions;",
@@ -108,6 +108,34 @@ pub(crate) fn cockroach_section_nodes(
                 "show statements;",
             ),
         ],
+        "cockroach:locks" => vec![(
+            "cockroach-cluster-locks",
+            "Cluster locks",
+            "locks",
+            "Visible lock holders and waiters",
+            "select * from crdb_internal.cluster_locks limit 100;",
+        )],
+        "cockroach:statements" => vec![(
+            "cockroach-statement-contention",
+            "Statement stats",
+            "statements",
+            "Statement fingerprints, latency, retries, and rows",
+            "select * from crdb_internal.node_statement_statistics limit 100;",
+        )],
+        "cockroach:transactions" => vec![(
+            "cockroach-transactions",
+            "Transactions",
+            "transactions",
+            "Cluster transaction state and contention risk",
+            "select * from crdb_internal.cluster_transactions limit 100;",
+        )],
+        "cockroach:statistics" => vec![(
+            "cockroach-statistics",
+            "Statistics",
+            "statistics",
+            "Table spans, ranges, and statement-health signals",
+            "select * from crdb_internal.table_spans limit 100;",
+        )],
         "cockroach:cluster-status" => vec![
             (
                 "cockroach-cluster-version",
@@ -124,6 +152,27 @@ pub(crate) fn cockroach_section_nodes(
                 "select * from crdb_internal.gossip_nodes limit 100;",
             ),
         ],
+        "cockroach:cluster-settings" => vec![(
+            "cockroach-cluster-version",
+            "Cluster settings",
+            "cluster-settings",
+            "Runtime SQL and KV cluster settings",
+            "show cluster settings;",
+        )],
+        "cockroach:zone-configurations" => vec![(
+            "cockroach-zone-configurations",
+            "Zone configurations",
+            "zone-configurations",
+            "Replication, lease, constraint, and GC settings",
+            "show zone configurations;",
+        )],
+        "cockroach:certificates" => vec![(
+            "cockroach-certificates",
+            "Certificates",
+            "certificates",
+            "Certificate metadata where permissions allow",
+            "select * from crdb_internal.cluster_certificates limit 100;",
+        )],
         _ => Vec::new(),
     };
 

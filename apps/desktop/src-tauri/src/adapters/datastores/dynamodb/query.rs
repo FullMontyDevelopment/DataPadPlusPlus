@@ -42,21 +42,32 @@ pub(super) async fn execute_dynamodb_query(
             .row_limit
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
-    let body = normalize_request_body(request_value, row_limit);
+    let body = normalize_request_body(&operation, request_value, row_limit);
     let response = dynamodb_call(connection, &operation, &body).await?;
-    let (columns, rows) = normalize_dynamodb_response(&operation, &response, row_limit);
+    let normalized = normalize_dynamodb_response_bounded(&operation, &response, row_limit);
+    let columns = normalized.columns;
+    let rows = normalized.rows;
+    let truncated = normalized.truncated;
     let row_count = rows.len() as u32;
-    let payloads = vec![
+    let mut payloads = vec![
         payload_table(columns, rows),
-        payload_json(response.clone()),
-        payload_raw(
-            serde_json::to_string_pretty(&json!({
-                "operation": operation,
-                "body": body,
-            }))
-            .unwrap_or_else(|_| query_text.into()),
-        ),
+        payload_json(bounded_dynamodb_response(
+            &operation,
+            response.clone(),
+            row_limit,
+            truncated,
+        )),
     ];
+    if let Some(profile) = dynamodb_profile_payload(&operation, &response) {
+        payloads.push(profile);
+    }
+    payloads.push(payload_raw(
+        serde_json::to_string_pretty(&json!({
+            "operation": operation,
+            "body": body,
+        }))
+        .unwrap_or_else(|_| query_text.into()),
+    ));
     let (default_renderer, renderer_modes_owned) = renderer_modes_for_payloads(&payloads);
     let renderer_modes = renderer_modes_owned
         .iter()
@@ -65,14 +76,18 @@ pub(super) async fn execute_dynamodb_query(
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: format!("DynamoDB {operation} returned {row_count} row(s)."),
+        summary: if truncated {
+            format!("DynamoDB {operation} loaded the first {row_count} item(s).")
+        } else {
+            format!("DynamoDB {operation} returned {row_count} row(s).")
+        },
         default_renderer: &default_renderer,
         renderer_modes,
         payloads,
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
-        truncated: false,
+        truncated,
         explain_payload: None,
     }))
 }
@@ -99,39 +114,74 @@ pub(crate) fn dynamodb_operation(value: &mut Value) -> Result<String, CommandErr
     Ok(normalize_operation_name(&operation))
 }
 
-pub(crate) fn normalize_request_body(value: Value, row_limit: u32) -> Value {
+pub(crate) fn normalize_request_body(operation: &str, value: Value, row_limit: u32) -> Value {
     let object = value.as_object().cloned().unwrap_or_default();
     let mut normalized = Map::new();
     for (key, value) in object {
         normalized.insert(normalize_request_key(&key), value);
     }
-    if !normalized.contains_key("Limit") {
-        normalized.insert("Limit".into(), json!(row_limit));
+    if operation_supports_limit(operation) {
+        let fetch_limit = row_limit.saturating_add(1);
+        let requested_limit = normalized.get("Limit").and_then(Value::as_u64);
+        if requested_limit.is_none_or(|limit| limit > u64::from(fetch_limit)) {
+            normalized.insert("Limit".into(), json!(fetch_limit));
+        }
+    }
+    if operation_supports_consumed_capacity(operation)
+        && !normalized.contains_key("ReturnConsumedCapacity")
+    {
+        normalized.insert("ReturnConsumedCapacity".into(), json!("TOTAL"));
     }
     Value::Object(normalized)
 }
 
-pub(crate) fn normalize_dynamodb_response(
+pub(crate) struct DynamoDbNormalizedResponse {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub truncated: bool,
+}
+
+pub(crate) fn normalize_dynamodb_response_bounded(
     operation: &str,
     response: &Value,
     row_limit: u32,
-) -> (Vec<String>, Vec<Vec<String>>) {
+) -> DynamoDbNormalizedResponse {
     match operation {
         "ListTables" => {
-            let rows = response
+            let table_names = response
                 .get("TableNames")
                 .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
+                .cloned()
+                .unwrap_or_default();
+            let truncated = table_names.len() > row_limit as usize
+                || response.get("LastEvaluatedTableName").is_some();
+            let rows = table_names
+                .iter()
                 .take(row_limit as usize)
                 .map(|name| vec![attribute_or_json_to_string(name)])
                 .collect();
-            (vec!["tableName".into()], rows)
+            DynamoDbNormalizedResponse {
+                columns: vec!["tableName".into()],
+                rows,
+                truncated,
+            }
         }
-        "DescribeTable" => describe_table_rows(response),
+        "DescribeTable" => {
+            let (columns, rows) = describe_table_rows(response);
+            DynamoDbNormalizedResponse {
+                columns,
+                rows,
+                truncated: false,
+            }
+        }
         "GetItem" => {
             let item = response.get("Item").cloned().unwrap_or_else(|| json!({}));
-            item_rows(&[item], row_limit)
+            let (columns, rows) = item_rows(&[item], row_limit);
+            DynamoDbNormalizedResponse {
+                columns,
+                rows,
+                truncated: false,
+            }
         }
         "Query" | "Scan" => {
             let items = response
@@ -139,10 +189,108 @@ pub(crate) fn normalize_dynamodb_response(
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
-            item_rows(&items, row_limit)
+            let truncated =
+                items.len() > row_limit as usize || response.get("LastEvaluatedKey").is_some();
+            let (columns, rows) = item_rows(&items, row_limit);
+            DynamoDbNormalizedResponse {
+                columns,
+                rows,
+                truncated,
+            }
         }
-        _ => (vec!["value".into()], vec![vec![response.to_string()]]),
+        _ => DynamoDbNormalizedResponse {
+            columns: vec!["value".into()],
+            rows: vec![vec![response.to_string()]],
+            truncated: false,
+        },
     }
+}
+
+fn bounded_dynamodb_response(
+    operation: &str,
+    mut response: Value,
+    row_limit: u32,
+    truncated: bool,
+) -> Value {
+    let last_evaluated_key = response
+        .get("LastEvaluatedKey")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let last_evaluated_table_name = response
+        .get("LastEvaluatedTableName")
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    if let Some(object) = response.as_object_mut() {
+        match operation {
+            "ListTables" => {
+                if let Some(names) = object.get("TableNames").and_then(Value::as_array).cloned() {
+                    object.insert(
+                        "TableNames".into(),
+                        Value::Array(names.into_iter().take(row_limit as usize).collect()),
+                    );
+                }
+            }
+            "Query" | "Scan" => {
+                if let Some(items) = object.get("Items").and_then(Value::as_array).cloned() {
+                    object.insert(
+                        "Items".into(),
+                        Value::Array(items.into_iter().take(row_limit as usize).collect()),
+                    );
+                }
+            }
+            _ => {}
+        }
+
+        if truncated {
+            object.insert(
+                "datapad".into(),
+                json!({
+                    "truncated": true,
+                    "lastEvaluatedKey": last_evaluated_key,
+                    "lastEvaluatedTableName": last_evaluated_table_name,
+                }),
+            );
+        }
+    }
+    response
+}
+
+fn dynamodb_profile_payload(operation: &str, response: &Value) -> Option<Value> {
+    let consumed_capacity = response
+        .get("ConsumedCapacity")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let count = response.get("Count").cloned().unwrap_or(Value::Null);
+    let scanned_count = response.get("ScannedCount").cloned().unwrap_or(Value::Null);
+    let last_evaluated_key = response
+        .get("LastEvaluatedKey")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let last_evaluated_table_name = response
+        .get("LastEvaluatedTableName")
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    let has_signal = !consumed_capacity.is_null()
+        || !count.is_null()
+        || !scanned_count.is_null()
+        || !last_evaluated_key.is_null()
+        || !last_evaluated_table_name.is_null();
+
+    has_signal.then(|| {
+        payload_profile(
+            "DynamoDB capacity and pagination signals.",
+            json!({
+                "operation": operation,
+                "consumedCapacity": consumed_capacity,
+                "count": count,
+                "scannedCount": scanned_count,
+                "lastEvaluatedKey": last_evaluated_key,
+                "lastEvaluatedTableName": last_evaluated_table_name,
+            }),
+        )
+    })
 }
 
 fn item_rows(items: &[Value], row_limit: u32) -> (Vec<String>, Vec<Vec<String>>) {
@@ -254,9 +402,18 @@ fn normalize_request_key(key: &str) -> String {
         "projectionExpression" => "ProjectionExpression",
         "exclusiveStartKey" => "ExclusiveStartKey",
         "consistentRead" => "ConsistentRead",
+        "returnConsumedCapacity" => "ReturnConsumedCapacity",
         _ => key,
     }
     .into()
+}
+
+fn operation_supports_limit(operation: &str) -> bool {
+    matches!(operation, "ListTables" | "Query" | "Scan")
+}
+
+fn operation_supports_consumed_capacity(operation: &str) -> bool {
+    matches!(operation, "GetItem" | "Query" | "Scan")
 }
 
 #[cfg(test)]
@@ -264,8 +421,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        attribute_or_json_to_string, dynamodb_operation, normalize_dynamodb_response,
-        normalize_request_body,
+        attribute_or_json_to_string, bounded_dynamodb_response, dynamodb_operation,
+        dynamodb_profile_payload, normalize_dynamodb_response_bounded, normalize_request_body,
     };
 
     #[test]
@@ -277,11 +434,31 @@ mod tests {
     #[test]
     fn dynamodb_request_body_normalizes_common_keys_and_limit() {
         let value = json!({ "tableName": "Orders", "keyConditionExpression": "pk = :pk" });
-        let body = normalize_request_body(value, 25);
+        let body = normalize_request_body("Query", value, 25);
 
         assert_eq!(body["TableName"], "Orders");
         assert_eq!(body["KeyConditionExpression"], "pk = :pk");
-        assert_eq!(body["Limit"], 25);
+        assert_eq!(body["Limit"], 26);
+        assert_eq!(body["ReturnConsumedCapacity"], "TOTAL");
+    }
+
+    #[test]
+    fn dynamodb_request_body_does_not_add_limit_to_single_item_or_metadata_calls() {
+        let get_item = normalize_request_body("GetItem", json!({ "tableName": "Orders" }), 25);
+        let describe =
+            normalize_request_body("DescribeTable", json!({ "tableName": "Orders" }), 25);
+
+        assert!(get_item.get("Limit").is_none());
+        assert_eq!(get_item["ReturnConsumedCapacity"], "TOTAL");
+        assert!(describe.get("Limit").is_none());
+        assert!(describe.get("ReturnConsumedCapacity").is_none());
+    }
+
+    #[test]
+    fn dynamodb_request_body_clamps_oversized_limits() {
+        let body = normalize_request_body("Scan", json!({ "Limit": 10_000 }), 100);
+
+        assert_eq!(body["Limit"], 101);
     }
 
     #[test]
@@ -301,9 +478,35 @@ mod tests {
                 { "pk": { "S": "order#1" }, "total": { "N": "10" } }
             ]
         });
-        let (columns, rows) = normalize_dynamodb_response("Scan", &value, 100);
+        let result = normalize_dynamodb_response_bounded("Scan", &value, 100);
 
-        assert_eq!(columns, vec!["pk", "total"]);
-        assert_eq!(rows, vec![vec!["order#1", "10"]]);
+        assert_eq!(result.columns, vec!["pk", "total"]);
+        assert_eq!(result.rows, vec![vec!["order#1", "10"]]);
+        assert!(!result.truncated);
+    }
+
+    #[test]
+    fn dynamodb_scan_response_reports_pagination_and_truncates_rows() {
+        let value = json!({
+            "Items": [
+                { "pk": { "S": "order#1" } },
+                { "pk": { "S": "order#2" } },
+                { "pk": { "S": "order#3" } }
+            ],
+            "LastEvaluatedKey": { "pk": { "S": "order#3" } },
+            "Count": 3,
+            "ScannedCount": 30
+        });
+
+        let result = normalize_dynamodb_response_bounded("Scan", &value, 2);
+        let bounded = bounded_dynamodb_response("Scan", value.clone(), 2, result.truncated);
+        let profile = dynamodb_profile_payload("Scan", &value).unwrap();
+
+        assert!(result.truncated);
+        assert_eq!(result.rows.len(), 2);
+        assert_eq!(bounded["Items"].as_array().unwrap().len(), 2);
+        assert_eq!(bounded["datapad"]["truncated"], true);
+        assert_eq!(profile["renderer"], "profile");
+        assert_eq!(profile["stages"]["scannedCount"], 30);
     }
 }

@@ -8,6 +8,22 @@ pub(super) async fn list_cosmosdb_explorer_nodes(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
+    let api = cosmosdb_api(connection);
+    if api != "nosql" {
+        return Ok(ExplorerResponse {
+            connection_id: request.connection_id.clone(),
+            environment_id: request.environment_id.clone(),
+            scope: request.scope.clone(),
+            summary: format!(
+                "Loaded Cosmos DB {} API explorer nodes for {}.",
+                cosmosdb_api_label(&api),
+                connection.name
+            ),
+            capabilities: cosmosdb_execution_capabilities(),
+            nodes: cosmosdb_api_nodes(connection, request.scope.as_deref(), &api),
+        });
+    }
+
     let nodes = match request.scope.as_deref() {
         Some("cosmos:account") => account_child_nodes(connection),
         Some("cosmos:databases") | Some("cosmosdb:databases") => {
@@ -30,6 +46,40 @@ pub(super) async fn list_cosmosdb_explorer_nodes(
         Some(scope) if scope.starts_with("cosmos:container:") => {
             let (database, container) = cosmosdb_scope_parts(connection, scope);
             container_child_nodes(connection, &database, &container)
+        }
+        Some(scope) if scope.starts_with("cosmos:stored-procedures:") => {
+            let (database, container) = cosmosdb_scope_parts(connection, scope);
+            script_child_nodes(
+                connection,
+                &database,
+                &container,
+                CosmosScriptBranch::stored_procedures(),
+            )
+            .await
+        }
+        Some(scope) if scope.starts_with("cosmos:triggers:") => {
+            let (database, container) = cosmosdb_scope_parts(connection, scope);
+            script_child_nodes(
+                connection,
+                &database,
+                &container,
+                CosmosScriptBranch::triggers(),
+            )
+            .await
+        }
+        Some(scope) if scope.starts_with("cosmos:udfs:") => {
+            let (database, container) = cosmosdb_scope_parts(connection, scope);
+            script_child_nodes(
+                connection,
+                &database,
+                &container,
+                CosmosScriptBranch::udfs(),
+            )
+            .await
+        }
+        Some(scope) if scope.starts_with("cosmos:conflicts:") => {
+            let (database, container) = cosmosdb_scope_parts(connection, scope);
+            conflict_child_nodes(connection, &database, &container).await
         }
         Some(_) => Vec::new(),
         None => root_nodes(connection),
@@ -181,6 +231,241 @@ fn database_nodes_from_value(
                 true,
                 Some(json!({ "operation": "ListContainers", "database": database }).to_string()),
                 vec![account.clone(), "Databases".into()],
+            )
+        })
+        .collect()
+}
+
+fn cosmosdb_api_nodes(
+    connection: &ResolvedConnectionProfile,
+    scope: Option<&str>,
+    api: &str,
+) -> Vec<ExplorerNode> {
+    match scope {
+        Some("cosmos:account") | None => cosmosdb_api_root_nodes(connection, api),
+        Some("cosmos:databases") | Some("cosmosdb:databases") => {
+            cosmosdb_api_database_nodes(connection, api)
+        }
+        Some(scope) if scope.starts_with("cosmos:database:") => cosmosdb_api_database_child_nodes(
+            connection,
+            scope.trim_start_matches("cosmos:database:"),
+            api,
+        ),
+        Some(scope) if scope.starts_with("cosmosdb:database:") => {
+            cosmosdb_api_database_child_nodes(
+                connection,
+                scope.trim_start_matches("cosmosdb:database:"),
+                api,
+            )
+        }
+        Some(scope) if scope.starts_with("cosmos:containers:") => {
+            let database = scope.trim_start_matches("cosmos:containers:");
+            cosmosdb_api_object_nodes(connection, database, api)
+        }
+        Some(scope) if scope.starts_with("cosmos:container:") => {
+            let (database, container) = cosmosdb_scope_parts(connection, scope);
+            cosmosdb_api_object_child_nodes(connection, &database, &container, api)
+        }
+        Some(_) => Vec::new(),
+    }
+}
+
+fn cosmosdb_api_root_nodes(connection: &ResolvedConnectionProfile, api: &str) -> Vec<ExplorerNode> {
+    let account = cosmosdb_account_name(connection);
+    let label = cosmosdb_api_label(api);
+    let object_label = cosmosdb_api_object_collection_label(api);
+    vec![
+        cosmos_node(
+            "cosmos:account",
+            &account,
+            "account",
+            &format!("Cosmos DB {label} API account overview"),
+            Some("cosmos:account"),
+            true,
+            None,
+            vec![account.clone()],
+        ),
+        cosmos_node(
+            "cosmos:databases",
+            cosmosdb_api_database_root_label(api),
+            "databases",
+            &format!("{label} API databases and {object_label}"),
+            Some("cosmos:databases"),
+            true,
+            Some(json!({ "operation": "InspectApiDatabases", "api": api }).to_string()),
+            vec![account.clone()],
+        ),
+        cosmos_node(
+            "cosmos:regions",
+            "Regions",
+            "regions",
+            "Read and write regions",
+            Some("cosmos:regions"),
+            false,
+            None,
+            vec![account.clone()],
+        ),
+        cosmos_node(
+            "cosmos:security",
+            "Security",
+            "security",
+            "Identity, keys, networking, and RBAC posture",
+            Some("cosmos:security"),
+            false,
+            None,
+            vec![account.clone()],
+        ),
+        cosmos_node(
+            "cosmos:diagnostics",
+            "Diagnostics",
+            "diagnostics",
+            "RU, latency, regional health, and capability signals",
+            Some("cosmos:diagnostics"),
+            false,
+            None,
+            vec![account],
+        ),
+    ]
+}
+
+fn cosmosdb_api_database_nodes(
+    connection: &ResolvedConnectionProfile,
+    api: &str,
+) -> Vec<ExplorerNode> {
+    let database = cosmosdb_default_database(connection);
+    let account = cosmosdb_account_name(connection);
+    vec![cosmos_node(
+        &format!("cosmos:database:{database}"),
+        &database,
+        "database",
+        &format!("Configured {} API database", cosmosdb_api_label(api)),
+        Some(&format!("cosmos:database:{database}")),
+        true,
+        Some(
+            json!({ "operation": "InspectApiDatabase", "api": api, "database": database })
+                .to_string(),
+        ),
+        vec![account, cosmosdb_api_database_root_label(api).into()],
+    )]
+}
+
+fn cosmosdb_api_database_child_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    api: &str,
+) -> Vec<ExplorerNode> {
+    let account = cosmosdb_account_name(connection);
+    let path = vec![
+        account,
+        cosmosdb_api_database_root_label(api).into(),
+        database.into(),
+    ];
+    vec![
+        cosmos_node(
+            &format!("cosmos:containers:{database}"),
+            cosmosdb_api_object_collection_label(api),
+            cosmosdb_api_object_collection_kind(api),
+            cosmosdb_api_object_collection_detail(api),
+            Some(&format!("cosmos:containers:{database}")),
+            true,
+            Some(
+                json!({ "operation": "InspectApiObjects", "api": api, "database": database })
+                    .to_string(),
+            ),
+            path.clone(),
+        ),
+        cosmos_node(
+            &format!("cosmos:throughput:{database}"),
+            "Throughput",
+            "throughput",
+            "Database or account-level RU/s where visible",
+            Some(&format!("cosmos:throughput:{database}")),
+            false,
+            None,
+            path.clone(),
+        ),
+        cosmos_node(
+            &format!("cosmos:security:{database}"),
+            "Security",
+            "security",
+            "Database-level RBAC and access posture",
+            Some(&format!("cosmos:security:{database}")),
+            false,
+            None,
+            path,
+        ),
+    ]
+}
+
+fn cosmosdb_api_object_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    api: &str,
+) -> Vec<ExplorerNode> {
+    let configured = connection
+        .cosmos_db_options
+        .as_ref()
+        .and_then(|options| options.container_prefix.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let Some(object_name) = configured else {
+        return Vec::new();
+    };
+    let account = cosmosdb_account_name(connection);
+    let path = vec![
+        account,
+        cosmosdb_api_database_root_label(api).into(),
+        database.into(),
+        cosmosdb_api_object_collection_label(api).into(),
+    ];
+    vec![cosmos_node(
+        &format!("cosmos:container:{database}:{object_name}"),
+        object_name,
+        cosmosdb_api_object_kind(api),
+        cosmosdb_api_object_detail(api),
+        Some(&format!("cosmos:container:{database}:{object_name}")),
+        true,
+        Some(json!({ "operation": "InspectApiObject", "api": api, "database": database, "object": object_name }).to_string()),
+        path,
+    )]
+}
+
+fn cosmosdb_api_object_child_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    object_name: &str,
+    api: &str,
+) -> Vec<ExplorerNode> {
+    let account = cosmosdb_account_name(connection);
+    let path = vec![
+        account,
+        cosmosdb_api_database_root_label(api).into(),
+        database.into(),
+        cosmosdb_api_object_collection_label(api).into(),
+        object_name.into(),
+    ];
+
+    cosmosdb_api_object_child_specs(api)
+        .into_iter()
+        .map(|(suffix, label, kind, detail)| {
+            cosmos_node(
+                &format!("cosmos:{suffix}:{database}:{object_name}"),
+                label,
+                kind,
+                detail,
+                Some(&format!("cosmos:{suffix}:{database}:{object_name}")),
+                false,
+                Some(
+                    json!({
+                        "operation": "InspectApiObject",
+                        "api": api,
+                        "database": database,
+                        "object": object_name,
+                        "section": suffix
+                    })
+                    .to_string(),
+                ),
+                path.clone(),
             )
         })
         .collect()
@@ -358,7 +643,7 @@ fn container_child_nodes(
             "stored-procedures",
             "Server-side JavaScript stored procedures",
             Some(format!("cosmos:stored-procedures:{database}:{container}")),
-            false,
+            true,
             None,
         ),
         (
@@ -367,7 +652,7 @@ fn container_child_nodes(
             "triggers",
             "Pre and post triggers",
             Some(format!("cosmos:triggers:{database}:{container}")),
-            false,
+            true,
             None,
         ),
         (
@@ -376,7 +661,7 @@ fn container_child_nodes(
             "udfs",
             "Server-side JavaScript UDFs",
             Some(format!("cosmos:udfs:{database}:{container}")),
-            false,
+            true,
             None,
         ),
         (
@@ -385,7 +670,7 @@ fn container_child_nodes(
             "conflicts",
             "Multi-region conflict metadata",
             Some(format!("cosmos:conflicts:{database}:{container}")),
-            false,
+            true,
             None,
         ),
     ]
@@ -403,6 +688,88 @@ fn container_child_nodes(
         )
     })
     .collect()
+}
+
+async fn script_child_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    container: &str,
+    branch: CosmosScriptBranch,
+) -> Vec<ExplorerNode> {
+    named_script_values(
+        connection,
+        &format!("/dbs/{database}/colls/{container}/{}", branch.path_segment),
+        branch.array_key,
+    )
+    .await
+    .into_iter()
+    .filter_map(|item| {
+        let name = item.get("id").and_then(Value::as_str)?.to_string();
+        Some(cosmos_node(
+            &format!(
+                "cosmos:{}:{database}:{container}:{name}",
+                branch.node_prefix
+            ),
+            &name,
+            branch.node_kind,
+            branch.detail,
+            Some(&format!(
+                "cosmos:{}:{database}:{container}:{name}",
+                branch.node_prefix
+            )),
+            false,
+            None,
+            cosmos_container_branch_path(connection, database, container, branch.label),
+        ))
+    })
+    .collect()
+}
+
+async fn conflict_child_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    container: &str,
+) -> Vec<ExplorerNode> {
+    optional_cosmosdb_json(
+        connection,
+        &format!("/dbs/{database}/colls/{container}/conflicts"),
+    )
+    .await
+    .and_then(|value| value.get("Conflicts").and_then(Value::as_array).cloned())
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|item| {
+        let id = item.get("id").and_then(Value::as_str)?.to_string();
+        Some(cosmos_node(
+            &format!("cosmos:conflict:{database}:{container}:{id}"),
+            &id,
+            "conflict",
+            item.get("operationType")
+                .and_then(Value::as_str)
+                .unwrap_or("conflict"),
+            Some(&format!("cosmos:conflict:{database}:{container}:{id}")),
+            false,
+            None,
+            cosmos_container_branch_path(connection, database, container, "Conflict Feed"),
+        ))
+    })
+    .collect()
+}
+
+fn cosmos_container_branch_path(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    container: &str,
+    branch: &str,
+) -> Vec<String> {
+    vec![
+        cosmosdb_account_name(connection),
+        "Databases".into(),
+        database.into(),
+        "Containers".into(),
+        container.into(),
+        branch.into(),
+    ]
 }
 
 // Mirrors the ExplorerNode shape so Cosmos scopes stay readable at call sites.
@@ -458,6 +825,18 @@ fn cosmosdb_inspect_query_template(
 async fn cosmosdb_inspect_payload(connection: &ResolvedConnectionProfile, node_id: &str) -> Value {
     let object_view = cosmosdb_object_view(node_id);
     let (database, container) = cosmosdb_scope_parts(connection, node_id);
+    let api = cosmosdb_api(connection);
+    if api != "nosql" {
+        return cosmosdb_api_inspect_payload(
+            connection,
+            node_id,
+            &api,
+            object_view,
+            &database,
+            &container,
+        )
+        .await;
+    }
     let mut payload = json!({
         "engine": "cosmosdb",
         "accountName": cosmosdb_account_name(connection),
@@ -478,7 +857,8 @@ async fn cosmosdb_inspect_payload(connection: &ResolvedConnectionProfile, node_i
             merge_cosmosdb_payload(&mut payload, database_payload(connection, &database).await);
         }
         "container" | "items" | "partition-key" | "indexing-policy" | "throughput"
-        | "change-feed" | "stored-procedures" | "triggers" | "udfs" | "conflicts" => {
+        | "change-feed" | "stored-procedures" | "stored-procedure" | "triggers" | "trigger"
+        | "udfs" | "udf" | "conflicts" | "conflict" => {
             merge_cosmosdb_payload(
                 &mut payload,
                 container_payload(connection, &database, &container, object_view).await,
@@ -491,6 +871,62 @@ async fn cosmosdb_inspect_payload(connection: &ResolvedConnectionProfile, node_i
             merge_cosmosdb_payload(&mut payload, diagnostics_payload(connection).await);
         }
         _ => {}
+    }
+
+    payload
+}
+
+async fn cosmosdb_api_inspect_payload(
+    connection: &ResolvedConnectionProfile,
+    node_id: &str,
+    api: &str,
+    object_view: &str,
+    database: &str,
+    container: &str,
+) -> Value {
+    let api_label = cosmosdb_api_label(api);
+    let mut payload = json!({
+        "engine": "cosmosdb",
+        "accountName": cosmosdb_account_name(connection),
+        "api": api_label,
+        "objectView": object_view,
+        "database": database,
+        "container": container,
+        "databaseCount": if database.is_empty() { 0 } else { 1 },
+        "containerCount": if container.is_empty() { 0 } else { 1 },
+        "databases": cosmosdb_api_database_records(connection, api),
+        "containers": cosmosdb_api_object_records(connection, database, api),
+        "regions": cosmosdb_region_rows(connection),
+        "consistency": cosmosdb_consistency_rows(connection),
+        "throughput": cosmosdb_api_throughput_rows(database, container),
+        "security": cosmosdb_api_security_rows(connection, database, container),
+        "diagnostics": cosmosdb_api_diagnostic_rows(api, node_id),
+        "warnings": [
+            format!("This connection is configured for the Cosmos DB {api_label} API. DataPad++ hides SQL/NoSQL-only container scripts and uses API-specific native adapters for live object browsing."),
+            format!("For live {api_label} object enumeration, use the matching native datastore adapter when available.")
+        ]
+    });
+
+    if node_id.starts_with("cosmos:containers:") && container.is_empty() {
+        payload["containers"] = json!([]);
+    }
+    if matches!(object_view, "regions") {
+        clear_cosmos_payload_sections(
+            &mut payload,
+            &["databases", "containers", "throughput", "security"],
+        );
+    } else if matches!(object_view, "security") {
+        clear_cosmos_payload_sections(
+            &mut payload,
+            &["databases", "containers", "throughput", "diagnostics"],
+        );
+    } else if matches!(object_view, "diagnostics" | "throughput") {
+        clear_cosmos_payload_sections(&mut payload, &["databases", "containers", "security"]);
+    } else if matches!(
+        object_view,
+        "container" | "items" | "partition-key" | "indexing-policy"
+    ) {
+        clear_cosmos_payload_sections(&mut payload, &["databases"]);
     }
 
     payload
@@ -578,6 +1014,160 @@ fn security_payload() -> Value {
             "Cosmos DB SQL API security metadata is usually managed through Azure RBAC, keys, private endpoints, or account settings and may not be visible through this connection."
         ]
     })
+}
+
+fn cosmosdb_api_database_records(connection: &ResolvedConnectionProfile, api: &str) -> Vec<Value> {
+    let database = cosmosdb_default_database(connection);
+    if database.trim().is_empty() {
+        return Vec::new();
+    }
+
+    vec![json!({
+        "name": database,
+        "containers": cosmosdb_api_object_collection_label(api),
+        "throughput": "account or database RU/s",
+        "storage": "inspect with matching API"
+    })]
+}
+
+fn cosmosdb_api_object_records(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    api: &str,
+) -> Vec<Value> {
+    let Some(object_name) = connection
+        .cosmos_db_options
+        .as_ref()
+        .and_then(|options| options.container_prefix.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Vec::new();
+    };
+
+    vec![json!({
+        "name": object_name,
+        "partitionKey": cosmosdb_api_partition_hint(api),
+        "throughput": if database.is_empty() { "account RU/s" } else { "database RU/s" },
+        "items": "inspect with matching API",
+        "ttl": "-"
+    })]
+}
+
+fn cosmosdb_region_rows(connection: &ResolvedConnectionProfile) -> Vec<Value> {
+    let options = connection.cosmos_db_options.as_ref();
+    let write_region = options
+        .and_then(|options| options.write_region.as_deref())
+        .unwrap_or("-");
+    let preferred = options
+        .map(|options| options.preferred_regions.as_slice())
+        .unwrap_or_default();
+
+    let mut rows = Vec::new();
+    if write_region != "-" {
+        rows.push(json!({
+            "name": write_region,
+            "role": "write",
+            "priority": 0,
+            "status": "configured"
+        }));
+    }
+
+    rows.extend(preferred.iter().enumerate().map(|(index, region)| {
+        json!({
+            "name": region,
+            "role": if region == write_region { "write" } else { "preferred read" },
+            "priority": index + 1,
+            "status": "configured"
+        })
+    }));
+
+    rows
+}
+
+fn cosmosdb_consistency_rows(connection: &ResolvedConnectionProfile) -> Vec<Value> {
+    let options = connection.cosmos_db_options.as_ref();
+    vec![
+        json!({
+            "setting": "Default consistency",
+            "value": options.and_then(|options| options.consistency_level.as_deref()).unwrap_or("session"),
+            "guidance": "Applied by this connection unless overridden by request options."
+        }),
+        json!({
+            "setting": "Cross partition queries",
+            "value": options.and_then(|options| options.enable_cross_partition_queries).unwrap_or(true),
+            "guidance": "Disable only for strictly partition-key-scoped work."
+        }),
+        json!({
+            "setting": "Request charge",
+            "value": options.and_then(|options| options.return_request_charge).unwrap_or(true),
+            "guidance": "Keep enabled to understand RU cost."
+        }),
+    ]
+}
+
+fn cosmosdb_api_throughput_rows(database: &str, object_name: &str) -> Vec<Value> {
+    let scope = [database, object_name]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(".");
+    vec![json!({
+        "scope": if scope.is_empty() { "account" } else { scope.as_str() },
+        "mode": "configured in Cosmos DB",
+        "ruPerSecond": "-",
+        "throttles": "-"
+    })]
+}
+
+fn cosmosdb_api_security_rows(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    object_name: &str,
+) -> Vec<Value> {
+    let options = connection.cosmos_db_options.as_ref();
+    let scope = [database, object_name]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("/");
+    vec![
+        json!({
+            "name": options.and_then(|options| options.auth_mode.as_deref()).unwrap_or("configured auth"),
+            "kind": "authentication",
+            "scope": if scope.is_empty() { "account" } else { &scope },
+            "status": "secret values stay in the secure store"
+        }),
+        json!({
+            "name": options.and_then(|options| options.gateway_mode.as_deref()).unwrap_or("gateway"),
+            "kind": "connectivity",
+            "scope": "account",
+            "status": if options.and_then(|options| options.use_tls).unwrap_or(true) { "TLS" } else { "TLS disabled" }
+        }),
+    ]
+}
+
+fn cosmosdb_api_diagnostic_rows(api: &str, node_id: &str) -> Vec<Value> {
+    vec![
+        json!({
+            "signal": "Configured API",
+            "value": cosmosdb_api_label(api),
+            "status": "native routing",
+            "guidance": "NoSQL-only metadata endpoints are hidden for this connection."
+        }),
+        json!({
+            "signal": "Selected scope",
+            "value": node_id,
+            "status": "ready",
+            "guidance": "Use the matching datastore adapter for live object enumeration and native query tooling."
+        }),
+    ]
+}
+
+fn clear_cosmos_payload_sections(payload: &mut Value, keys: &[&str]) {
+    for key in keys {
+        payload[*key] = json!([]);
+    }
 }
 
 async fn optional_cosmosdb_json(
@@ -797,10 +1387,8 @@ async fn named_script_records(
     array_key: &str,
     script_type: &str,
 ) -> Vec<Value> {
-    optional_cosmosdb_json(connection, path)
+    named_script_values(connection, path, array_key)
         .await
-        .and_then(|value| value.get(array_key).and_then(Value::as_array).cloned())
-        .unwrap_or_default()
         .into_iter()
         .filter_map(|item| {
             let name = item.get("id").and_then(Value::as_str)?.to_string();
@@ -815,6 +1403,17 @@ async fn named_script_records(
             })
         })
         .collect()
+}
+
+async fn named_script_values(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    array_key: &str,
+) -> Vec<Value> {
+    optional_cosmosdb_json(connection, path)
+        .await
+        .and_then(|value| value.get(array_key).and_then(Value::as_array).cloned())
+        .unwrap_or_default()
 }
 
 async fn conflict_records(
@@ -906,6 +1505,51 @@ fn value_to_string(value: &Value) -> String {
     }
 }
 
+#[derive(Clone, Copy)]
+struct CosmosScriptBranch {
+    path_segment: &'static str,
+    array_key: &'static str,
+    node_prefix: &'static str,
+    node_kind: &'static str,
+    label: &'static str,
+    detail: &'static str,
+}
+
+impl CosmosScriptBranch {
+    fn stored_procedures() -> Self {
+        Self {
+            path_segment: "sprocs",
+            array_key: "StoredProcedures",
+            node_prefix: "stored-procedure",
+            node_kind: "stored-procedure",
+            label: "Stored Procedures",
+            detail: "Stored procedure",
+        }
+    }
+
+    fn triggers() -> Self {
+        Self {
+            path_segment: "triggers",
+            array_key: "Triggers",
+            node_prefix: "trigger",
+            node_kind: "trigger",
+            label: "Triggers",
+            detail: "Trigger",
+        }
+    }
+
+    fn udfs() -> Self {
+        Self {
+            path_segment: "udfs",
+            array_key: "UserDefinedFunctions",
+            node_prefix: "udf",
+            node_kind: "udf",
+            label: "User Defined Functions",
+            detail: "User-defined function",
+        }
+    }
+}
+
 fn cosmosdb_object_view(node_id: &str) -> &'static str {
     if node_id == "cosmos:account" {
         return "account";
@@ -940,14 +1584,26 @@ fn cosmosdb_object_view(node_id: &str) -> &'static str {
     if node_id.starts_with("cosmos:stored-procedures:") {
         return "stored-procedures";
     }
+    if node_id.starts_with("cosmos:stored-procedure:") {
+        return "stored-procedure";
+    }
     if node_id.starts_with("cosmos:triggers:") {
         return "triggers";
+    }
+    if node_id.starts_with("cosmos:trigger:") {
+        return "trigger";
     }
     if node_id.starts_with("cosmos:udfs:") {
         return "udfs";
     }
+    if node_id.starts_with("cosmos:udf:") {
+        return "udf";
+    }
     if node_id.starts_with("cosmos:conflicts:") {
         return "conflicts";
+    }
+    if node_id.starts_with("cosmos:conflict:") {
+        return "conflict";
     }
     if node_id == "cosmos:regions" {
         return "regions";
@@ -1011,7 +1667,8 @@ fn cosmosdb_scope_parts(connection: &ResolvedConnectionProfile, scope: &str) -> 
                 .unwrap_or_default(),
         ),
         "container" | "items" | "partition-key" | "indexing-policy" | "change-feed"
-        | "stored-procedures" | "triggers" | "udfs" | "conflicts" => (
+        | "stored-procedures" | "stored-procedure" | "triggers" | "trigger" | "udfs" | "udf"
+        | "conflicts" | "conflict" => (
             parts
                 .get(2)
                 .filter(|value| !value.trim().is_empty())
@@ -1028,16 +1685,220 @@ fn cosmosdb_scope_parts(connection: &ResolvedConnectionProfile, scope: &str) -> 
     }
 }
 
+fn cosmosdb_api(connection: &ResolvedConnectionProfile) -> String {
+    connection
+        .cosmos_db_options
+        .as_ref()
+        .and_then(|options| options.api.as_deref())
+        .map(|api| api.trim().to_ascii_lowercase())
+        .filter(|api| !api.is_empty())
+        .unwrap_or_else(|| "nosql".into())
+}
+
+fn cosmosdb_api_label(api: &str) -> &'static str {
+    match api {
+        "mongodb" => "MongoDB",
+        "cassandra" => "Cassandra",
+        "gremlin" => "Gremlin",
+        "table" => "Table",
+        _ => "NoSQL",
+    }
+}
+
+fn cosmosdb_api_database_root_label(api: &str) -> &'static str {
+    match api {
+        "cassandra" => "Keyspaces",
+        _ => "Databases",
+    }
+}
+
+fn cosmosdb_api_object_collection_label(api: &str) -> &'static str {
+    match api {
+        "mongodb" => "Collections",
+        "cassandra" => "Tables",
+        "gremlin" => "Graphs",
+        "table" => "Tables",
+        _ => "Containers",
+    }
+}
+
+fn cosmosdb_api_object_collection_kind(api: &str) -> &'static str {
+    match api {
+        "mongodb" => "collections",
+        "cassandra" => "tables",
+        "gremlin" => "graphs",
+        "table" => "tables",
+        _ => "containers",
+    }
+}
+
+fn cosmosdb_api_object_kind(api: &str) -> &'static str {
+    match api {
+        "mongodb" => "collection",
+        "cassandra" => "table",
+        "gremlin" => "graph",
+        "table" => "table",
+        _ => "container",
+    }
+}
+
+fn cosmosdb_api_object_collection_detail(api: &str) -> &'static str {
+    match api {
+        "mongodb" => "Mongo collections, indexes, and shard keys",
+        "cassandra" => "Cassandra API tables and partition keys",
+        "gremlin" => "Gremlin graphs, vertices, edges, and indexes",
+        "table" => "Table API tables and entity partitions",
+        _ => "Container inventory and partitioning",
+    }
+}
+
+fn cosmosdb_api_object_detail(api: &str) -> &'static str {
+    match api {
+        "mongodb" => "MongoDB API collection",
+        "cassandra" => "Cassandra API table",
+        "gremlin" => "Gremlin graph",
+        "table" => "Table API table",
+        _ => "Cosmos DB container",
+    }
+}
+
+fn cosmosdb_api_partition_hint(api: &str) -> &'static str {
+    match api {
+        "mongodb" => "shard key",
+        "cassandra" => "partition key",
+        "gremlin" => "partition key",
+        "table" => "PartitionKey",
+        _ => "/id",
+    }
+}
+
+fn cosmosdb_api_object_child_specs(
+    api: &str,
+) -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
+    match api {
+        "mongodb" => vec![
+            (
+                "items",
+                "Documents",
+                "items",
+                "Open a bounded document query through the MongoDB API",
+            ),
+            (
+                "partition-key",
+                "Shard Key",
+                "partition-key",
+                "Shard key and distribution posture",
+            ),
+            (
+                "indexing-policy",
+                "Indexes",
+                "indexing-policy",
+                "MongoDB API index metadata",
+            ),
+            (
+                "throughput",
+                "Throughput",
+                "throughput",
+                "RU/s and throttling posture",
+            ),
+        ],
+        "cassandra" => vec![
+            (
+                "items",
+                "Rows",
+                "items",
+                "Open a partition-key-first row query through the Cassandra API",
+            ),
+            (
+                "partition-key",
+                "Partition Key",
+                "partition-key",
+                "Partition and clustering key posture",
+            ),
+            (
+                "indexing-policy",
+                "Indexes",
+                "indexing-policy",
+                "Secondary index metadata",
+            ),
+            (
+                "throughput",
+                "Throughput",
+                "throughput",
+                "RU/s and throttling posture",
+            ),
+        ],
+        "gremlin" => vec![
+            (
+                "items",
+                "Traversal",
+                "items",
+                "Open a graph traversal through the Gremlin API",
+            ),
+            (
+                "partition-key",
+                "Partition Key",
+                "partition-key",
+                "Graph partitioning posture",
+            ),
+            (
+                "indexing-policy",
+                "Indexes",
+                "indexing-policy",
+                "Graph index metadata",
+            ),
+            (
+                "throughput",
+                "Throughput",
+                "throughput",
+                "RU/s and throttling posture",
+            ),
+        ],
+        "table" => vec![
+            (
+                "items",
+                "Entities",
+                "items",
+                "Open a bounded entity query through the Table API",
+            ),
+            (
+                "partition-key",
+                "Partition Key",
+                "partition-key",
+                "PartitionKey and RowKey posture",
+            ),
+            (
+                "indexing-policy",
+                "Indexes",
+                "indexing-policy",
+                "Table API indexing posture",
+            ),
+            (
+                "throughput",
+                "Throughput",
+                "throughput",
+                "RU/s and throttling posture",
+            ),
+        ],
+        _ => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::{
         container_child_nodes, container_nodes_from_value, container_record,
+        cosmosdb_api_database_child_nodes, cosmosdb_api_nodes, cosmosdb_object_view,
         database_nodes_from_value, indexing_policy_records, inspect_cosmosdb_explorer_node,
-        offer_records_from_value, partition_key_records, query_documents_template, root_nodes,
+        list_cosmosdb_explorer_nodes, offer_records_from_value, partition_key_records,
+        query_documents_template, root_nodes,
     };
-    use crate::domain::models::{ExplorerInspectRequest, ResolvedConnectionProfile};
+    use crate::domain::models::{
+        CosmosDbConnectionOptions, ExplorerInspectRequest, ExplorerRequest,
+        ResolvedConnectionProfile,
+    };
 
     #[test]
     fn cosmosdb_query_template_targets_database_and_container() {
@@ -1111,6 +1972,40 @@ mod tests {
         assert!(labels.contains(&"Indexing Policy"));
         assert!(labels.contains(&"Stored Procedures"));
         assert!(labels.contains(&"Conflict Feed"));
+        assert_eq!(
+            nodes
+                .iter()
+                .find(|node| node.label == "Stored Procedures")
+                .and_then(|node| node.expandable),
+            Some(true)
+        );
+        assert_eq!(
+            nodes
+                .iter()
+                .find(|node| node.label == "Conflict Feed")
+                .and_then(|node| node.expandable),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn cosmosdb_singular_script_nodes_map_to_specific_object_views() {
+        assert_eq!(
+            cosmosdb_object_view("cosmos:stored-procedure:catalog:products:bulkUpsert"),
+            "stored-procedure"
+        );
+        assert_eq!(
+            cosmosdb_object_view("cosmos:trigger:catalog:products:stamp"),
+            "trigger"
+        );
+        assert_eq!(
+            cosmosdb_object_view("cosmos:udf:catalog:products:slug"),
+            "udf"
+        );
+        assert_eq!(
+            cosmosdb_object_view("cosmos:conflict:catalog:products:conflict-1"),
+            "conflict"
+        );
     }
 
     #[tokio::test]
@@ -1133,6 +2028,93 @@ mod tests {
         assert_eq!(payload["container"], "");
         assert!(payload.get("raw").is_none());
         assert!(payload["security"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    async fn cosmosdb_non_nosql_api_does_not_call_sql_api_for_databases() {
+        let connection = connection_with_api("mongodb");
+        let response = list_cosmosdb_explorer_nodes(
+            &connection,
+            &ExplorerRequest {
+                connection_id: connection.id.clone(),
+                environment_id: "env-local".into(),
+                scope: Some("cosmos:databases".into()),
+                limit: None,
+            },
+        )
+        .await
+        .expect("explorer response");
+
+        assert_eq!(response.nodes.len(), 1);
+        assert_eq!(response.nodes[0].label, "catalog");
+        assert_eq!(response.nodes[0].kind, "database");
+    }
+
+    #[test]
+    fn cosmosdb_non_nosql_tree_uses_api_native_labels() {
+        let mongo = connection_with_api("mongodb");
+        let cassandra = connection_with_api("cassandra");
+        let gremlin = connection_with_api("gremlin");
+
+        let mongo_labels = cosmosdb_api_database_child_nodes(&mongo, "catalog", "mongodb")
+            .into_iter()
+            .map(|node| node.label)
+            .collect::<Vec<_>>();
+        let cassandra_labels =
+            cosmosdb_api_database_child_nodes(&cassandra, "catalog", "cassandra")
+                .into_iter()
+                .map(|node| node.label)
+                .collect::<Vec<_>>();
+        let gremlin_labels = cosmosdb_api_database_child_nodes(&gremlin, "catalog", "gremlin")
+            .into_iter()
+            .map(|node| node.label)
+            .collect::<Vec<_>>();
+
+        assert!(mongo_labels.contains(&"Collections".into()));
+        assert!(cassandra_labels.contains(&"Tables".into()));
+        assert!(gremlin_labels.contains(&"Graphs".into()));
+        assert!(!mongo_labels.contains(&"Containers".into()));
+    }
+
+    #[test]
+    fn cosmosdb_non_nosql_object_tree_uses_configured_object_only() {
+        let connection = connection_with_api("table");
+        let empty = cosmosdb_api_nodes(&connection, Some("cosmos:containers:catalog"), "table");
+        let configured = cosmosdb_api_nodes(
+            &connection_with_api_and_object("table", "Orders"),
+            Some("cosmos:containers:catalog"),
+            "table",
+        );
+
+        assert!(empty.is_empty());
+        assert_eq!(configured.len(), 1);
+        assert_eq!(configured[0].label, "Orders");
+        assert_eq!(configured[0].kind, "table");
+    }
+
+    #[tokio::test]
+    async fn cosmosdb_non_nosql_inspection_is_api_specific_and_no_raw_dump() {
+        let connection = connection_with_api_and_object("gremlin", "fraudGraph");
+        let response = inspect_cosmosdb_explorer_node(
+            &connection,
+            &ExplorerInspectRequest {
+                connection_id: connection.id.clone(),
+                environment_id: "env-local".into(),
+                node_id: "cosmos:container:catalog:fraudGraph".into(),
+            },
+        )
+        .await
+        .expect("inspection response");
+        let payload = response.payload.expect("payload");
+
+        assert_eq!(payload["api"], "Gremlin");
+        assert_eq!(payload["objectView"], "container");
+        assert_eq!(payload["containers"][0]["name"], "fraudGraph");
+        assert!(payload.get("raw").is_none());
+        assert!(payload["warnings"][0]
+            .as_str()
+            .unwrap()
+            .contains("Gremlin API"));
     }
 
     #[test]
@@ -1207,5 +2189,23 @@ mod tests {
             warehouse_options: None,
             read_only: true,
         }
+    }
+
+    fn connection_with_api(api: &str) -> ResolvedConnectionProfile {
+        connection_with_api_and_object(api, "")
+    }
+
+    fn connection_with_api_and_object(api: &str, object_name: &str) -> ResolvedConnectionProfile {
+        let mut connection = connection();
+        connection.cosmos_db_options = Some(CosmosDbConnectionOptions {
+            api: Some(api.into()),
+            database_name: Some("catalog".into()),
+            container_prefix: (!object_name.is_empty()).then(|| object_name.into()),
+            consistency_level: Some("session".into()),
+            preferred_regions: vec!["West Europe".into()],
+            write_region: Some("West Europe".into()),
+            ..CosmosDbConnectionOptions::default()
+        });
+        connection
     }
 }

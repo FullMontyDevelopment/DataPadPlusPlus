@@ -18,20 +18,17 @@ pub(super) async fn clickhouse_query(
     query: &str,
 ) -> Result<String, CommandError> {
     let endpoint = ClickHouseEndpoint::from_connection(connection)?;
-    let path = endpoint.path(&format!("/?database={}", endpoint.database));
-    let auth_header = match (&connection.username, &connection.password) {
-        (Some(username), Some(password)) => Some(format!(
-            "X-ClickHouse-User: {username}\r\nX-ClickHouse-Key: {password}\r\n"
-        )),
-        (Some(username), None) => Some(format!("X-ClickHouse-User: {username}\r\n")),
-        _ => None,
-    };
+    let path = endpoint.path(&format!(
+        "/?database={}",
+        encode_query_component(&endpoint.database)
+    ));
+    let auth_header = clickhouse_auth_header(connection)?;
     let body = query.as_bytes();
     let request = format!(
         "POST {path} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: text/plain; charset=utf-8\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
         endpoint.host,
         endpoint.port,
-        auth_header.unwrap_or_default(),
+        auth_header,
         body.len(),
         query
     );
@@ -50,6 +47,49 @@ pub(super) async fn clickhouse_query(
             body.lines().next().unwrap_or("ClickHouse request failed."),
         ))
     }
+}
+
+fn clickhouse_auth_header(connection: &ResolvedConnectionProfile) -> Result<String, CommandError> {
+    let username = connection
+        .username
+        .as_deref()
+        .map(valid_header_value)
+        .transpose()?;
+    let password = connection
+        .password
+        .as_deref()
+        .map(valid_header_value)
+        .transpose()?;
+
+    Ok(match (username, password) {
+        (Some(username), Some(password)) => {
+            format!("X-ClickHouse-User: {username}\r\nX-ClickHouse-Key: {password}\r\n")
+        }
+        (Some(username), None) => format!("X-ClickHouse-User: {username}\r\n"),
+        _ => String::new(),
+    })
+}
+
+fn valid_header_value(value: &str) -> Result<&str, CommandError> {
+    if value.contains('\r') || value.contains('\n') {
+        return Err(CommandError::new(
+            "clickhouse-invalid-header",
+            "ClickHouse credentials contain invalid header characters.",
+        ));
+    }
+    Ok(value)
+}
+
+fn encode_query_component(value: &str) -> String {
+    value.bytes().fold(String::new(), |mut output, byte| {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                output.push(byte as char)
+            }
+            _ => output.push_str(&format!("%{byte:02X}")),
+        }
+        output
+    })
 }
 
 pub(super) async fn test_clickhouse_connection(
@@ -175,11 +215,10 @@ fn normalized_prefix(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::ClickHouseEndpoint;
+    use super::{clickhouse_auth_header, encode_query_component, ClickHouseEndpoint};
 
-    #[test]
-    fn clickhouse_endpoint_prefers_warehouse_options() {
-        let connection = crate::domain::models::ResolvedConnectionProfile {
+    fn clickhouse_connection() -> crate::domain::models::ResolvedConnectionProfile {
+        crate::domain::models::ResolvedConnectionProfile {
             id: "conn-clickhouse".into(),
             name: "ClickHouse".into(),
             engine: "clickhouse".into(),
@@ -207,7 +246,12 @@ mod tests {
                 ..crate::domain::models::WarehouseConnectionOptions::default()
             }),
             read_only: true,
-        };
+        }
+    }
+
+    #[test]
+    fn clickhouse_endpoint_prefers_warehouse_options() {
+        let connection = clickhouse_connection();
 
         let endpoint = ClickHouseEndpoint::from_connection(&connection).unwrap();
 
@@ -218,5 +262,23 @@ mod tests {
             endpoint.path("/?database=analytics"),
             "/clickhouse/?database=analytics"
         );
+    }
+
+    #[test]
+    fn clickhouse_database_query_value_is_url_encoded() {
+        assert_eq!(
+            encode_query_component("analytics qa/2026"),
+            "analytics%20qa%2F2026"
+        );
+    }
+
+    #[test]
+    fn clickhouse_auth_header_rejects_newline_in_credentials() {
+        let mut connection = clickhouse_connection();
+        connection.username = Some("user\r\nX-Bad: injected".into());
+
+        let error = clickhouse_auth_header(&connection).unwrap_err();
+
+        assert_eq!(error.code, "clickhouse-invalid-header");
     }
 }

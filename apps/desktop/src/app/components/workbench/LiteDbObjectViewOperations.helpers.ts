@@ -14,8 +14,8 @@ export function liteDbOperationActions(
   const scope = liteDbScope(connection, tab, payload)
   const actions: ObjectViewOperationAction[] = []
 
-  const collectionLike = ['collection', 'documents', 'schema', 'indexes', 'index'].includes(kind)
-  const storageLike = ['database', 'storage', 'settings', 'diagnostics', 'file-storage', 'files', 'chunks'].includes(kind)
+  const collectionLike = ['collection', 'documents', 'schema', 'statistics', 'indexes', 'index'].includes(kind)
+  const storageLike = ['database', 'storage', 'pragmas', 'maintenance', 'settings', 'diagnostics', 'file-storage', 'files', 'chunks'].includes(kind)
   const indexLike = ['collection', 'indexes', 'index'].includes(kind)
 
   if (storageLike && supported.has('metrics')) {
@@ -27,6 +27,7 @@ export function liteDbOperationActions(
     actions.push(action(connection, 'storage.compact', 'Compact', 'Preview a guarded local file compaction workflow.', 'storage', scope, {
       outputFile: '<selected-folder>/compacted.db',
     }))
+    actions.push(action(connection, 'storage.rebuild-indexes', 'Rebuild', 'Preview a guarded index rebuild workflow.', 'index', scope))
   }
 
   if (indexLike && supported.has('index')) {
@@ -113,7 +114,7 @@ function liteDbScope(
 ): LiteDbOperationScope {
   const nodeId = tab.objectViewState?.nodeId ?? ''
   const parts = nodeId.split(':')
-  const collectionFromNode = parts[1] === 'collection' || parts[1] === 'documents' || parts[1] === 'schema'
+  const collectionFromNode = parts[1] === 'collection' || parts[1] === 'documents' || parts[1] === 'schema' || parts[1] === 'collection-statistics'
     ? parts.at(-1)
     : parts[1] === 'index'
       ? parts.at(-2)

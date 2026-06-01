@@ -11,6 +11,7 @@ describe('CockroachObjectViewDescriptors', () => {
     expect(cockroachObjectViewMenuLabel('ranges')).toBe('Review Ranges')
     expect(cockroachObjectViewMenuLabel('contention')).toBe('Review Contention')
     expect(cockroachObjectViewMenuLabel('cluster-settings')).toBe('Review Cluster Settings')
+    expect(cockroachObjectViewMenuLabel('certificates')).toBe('Review Certificates')
     expect(cockroachObjectViewMenuLabel('table')).not.toBe('Open View')
   })
 

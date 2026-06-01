@@ -15,8 +15,9 @@ export function createLiteDbExplorerNodes(connection: ConnectionProfile, scope?:
       liteDbNode(connection, 'litedb:collections', 'Collections', 'collections', 'Document collections', 'litedb:collections', true),
       liteDbNode(connection, 'litedb:indexes', 'Indexes', 'indexes', 'Collection index definitions', 'litedb:indexes', true),
       liteDbNode(connection, 'litedb:file-storage', 'File Storage', 'file-storage', 'Stored files and chunks', 'litedb:file-storage', true),
-      liteDbNode(connection, 'litedb:storage', 'Storage', 'storage', 'Pages, free space, and maintenance health', 'litedb:storage'),
-      liteDbNode(connection, 'litedb:settings', 'Settings', 'settings', 'Connection and local file options', 'litedb:settings'),
+      liteDbNode(connection, 'litedb:storage', 'Storage', 'storage', 'Page allocation, file size, and free-space posture', 'litedb:storage'),
+      liteDbNode(connection, 'litedb:pragmas', 'Pragmas', 'pragmas', 'LiteDB file options and runtime settings', 'litedb:pragmas'),
+      liteDbNode(connection, 'litedb:maintenance', 'Maintenance', 'maintenance', 'Checkpoint, compact, rebuild, and backup workflows', 'litedb:maintenance', true),
     ]
   }
 
@@ -41,7 +42,8 @@ export function createLiteDbExplorerNodes(connection: ConnectionProfile, scope?:
       liteDbNode(connection, `litedb:documents:${collection}`, 'Documents', 'documents', 'Open a bounded document query', `litedb:documents:${collection}`, false, liteDbCollectionQuery(collection)),
       liteDbNode(connection, `litedb:schema:${collection}`, 'Schema Preview', 'schema', 'Inferred field paths and types', `litedb:schema:${collection}`),
       liteDbNode(connection, `litedb:collection-indexes:${collection}`, 'Indexes', 'indexes', 'Collection index definitions', `litedb:collection-indexes:${collection}`, true),
-      liteDbNode(connection, `litedb:collection-storage:${collection}`, 'Storage', 'storage', 'Collection storage footprint', `litedb:collection-storage:${collection}`),
+      liteDbNode(connection, `litedb:collection-statistics:${collection}`, 'Statistics', 'statistics', 'Collection counts, index coverage, and storage signals', `litedb:collection-statistics:${collection}`),
+      liteDbNode(connection, `litedb:collection-storage:${collection}`, 'Storage', 'storage', 'Collection page allocation and free-space posture', `litedb:collection-storage:${collection}`),
     ]
   }
 
@@ -70,6 +72,15 @@ export function createLiteDbExplorerNodes(connection: ConnectionProfile, scope?:
     ]
   }
 
+  if (scope === 'litedb:maintenance') {
+    return [
+      liteDbNode(connection, 'litedb:checkpoint', 'Checkpoint', 'maintenance', 'Flush pending pages without changing collection data', 'litedb:checkpoint'),
+      liteDbNode(connection, 'litedb:compact', 'Compact Copy', 'maintenance', 'Create a compacted copy after backup validation', 'litedb:compact'),
+      liteDbNode(connection, 'litedb:rebuild-indexes', 'Rebuild Indexes', 'maintenance', 'Rebuild collection indexes through guarded maintenance', 'litedb:rebuild-indexes'),
+      liteDbNode(connection, 'litedb:backup', 'Backup', 'backup', 'Create a safe local database copy', 'litedb:backup'),
+    ]
+  }
+
   return []
 }
 
@@ -77,6 +88,24 @@ export function liteDbInspectQueryTemplate(nodeId: string) {
   if (nodeId.startsWith('litedb:collection:') || nodeId.startsWith('litedb:documents:')) {
     const collection = nodeId.split(':').at(-1) ?? 'products'
     return liteDbCollectionQuery(collection)
+  }
+
+  if (nodeId.startsWith('litedb:schema:')) {
+    const collection = nodeId.split(':').at(-1) ?? 'products'
+    return JSON.stringify({ operation: 'Schema', collection, limit: 100 }, null, 2)
+  }
+
+  if (nodeId.startsWith('litedb:collection-statistics:')) {
+    const collection = nodeId.split(':').at(-1) ?? 'products'
+    return JSON.stringify({ operation: 'Statistics', collection }, null, 2)
+  }
+
+  if (nodeId === 'litedb:pragmas') {
+    return JSON.stringify({ operation: 'Pragmas' }, null, 2)
+  }
+
+  if (nodeId === 'litedb:maintenance' || ['litedb:checkpoint', 'litedb:compact', 'litedb:rebuild-indexes', 'litedb:backup'].includes(nodeId)) {
+    return JSON.stringify({ operation: 'Maintenance' }, null, 2)
   }
 
   return JSON.stringify({ operation: 'inspect', target: nodeId }, null, 2)
@@ -93,6 +122,8 @@ export function liteDbInspectPayload(connection: ConnectionProfile, nodeId: stri
       indexes: liteDbIndexes(),
       files: liteDbFiles(),
       storage: liteDbStorage(),
+      pragmas: liteDbPragmas(connection),
+      maintenance: liteDbMaintenance(),
       settings: liteDbSettings(connection),
       diagnostics: liteDbDiagnostics(),
       warnings: liteDbWarnings(),
@@ -150,6 +181,22 @@ export function liteDbInspectPayload(connection: ConnectionProfile, nodeId: stri
     return { ...base, objectView: 'storage', storage: liteDbStorage(), diagnostics: liteDbDiagnostics(), warnings: liteDbWarnings() }
   }
 
+  if (nodeId === 'litedb:pragmas') {
+    return { ...base, objectView: 'pragmas', pragmas: liteDbPragmas(connection), settings: liteDbSettings(connection), warnings: liteDbWarnings() }
+  }
+
+  if (nodeId === 'litedb:maintenance' || ['litedb:checkpoint', 'litedb:compact', 'litedb:rebuild-indexes', 'litedb:backup'].includes(nodeId)) {
+    return { ...base, objectView: 'maintenance', maintenance: liteDbMaintenance(), storage: liteDbStorage(), diagnostics: liteDbDiagnostics(), warnings: liteDbWarnings() }
+  }
+
+  if (nodeId.startsWith('litedb:collection-statistics:')) {
+    const collection = nodeId.split(':').at(-1) ?? 'products'
+    return {
+      ...liteDbCollectionPayload(connection, collection, 'statistics'),
+      statistics: liteDbCollectionStatistics(collection),
+    }
+  }
+
   if (nodeId === 'litedb:settings') {
     return { ...base, objectView: 'settings', settings: liteDbSettings(connection), warnings: liteDbWarnings() }
   }
@@ -165,6 +212,7 @@ function liteDbCollectionPayload(connection: ConnectionProfile, collection: stri
     collections: liteDbCollections().filter((row) => row.name === collection),
     fields: liteDbFields(collection),
     indexes: liteDbIndexes().filter((row) => row.collection === collection),
+    statistics: liteDbCollectionStatistics(collection),
     storage: liteDbStorage().filter((row) => row.name === 'Data pages' || row.name === 'Free pages'),
     diagnostics: liteDbDiagnostics().filter((row) => row.signal.includes('Index') || row.signal.includes('Collection')),
   }
@@ -270,6 +318,36 @@ function liteDbStorage() {
     { name: 'Index pages', value: 42, status: 'healthy', guidance: 'Index footprint is moderate.' },
     { name: 'Free pages', value: 18, status: 'watch', guidance: 'Consider shrink/rebuild preview after large deletes.' },
     { name: 'Journal', value: 'enabled', status: 'healthy', guidance: 'Local durability guard is enabled.' },
+  ]
+}
+
+function liteDbPragmas(connection: ConnectionProfile) {
+  return [
+    { name: 'USER_VERSION', value: '3', source: 'database file', status: 'ready' },
+    { name: 'TIMEOUT', value: '60s', source: 'database file', status: 'ready' },
+    { name: 'UTC_DATE', value: 'enabled', source: 'database file', status: 'ready' },
+    { name: 'COLLATION', value: 'OrdinalIgnoreCase', source: 'database file', status: 'ready' },
+    { name: 'Read Only', value: Boolean(connection.readOnly), source: 'connection', status: connection.readOnly ? 'enabled' : 'writable' },
+  ]
+}
+
+function liteDbMaintenance() {
+  return [
+    { name: 'Checkpoint', effect: 'Flush pending pages', risk: 'low', status: 'available' },
+    { name: 'Compact Copy', effect: 'Write a compacted database copy', risk: 'medium', status: 'guarded' },
+    { name: 'Rebuild Indexes', effect: 'Rebuild collection index structures', risk: 'medium', status: 'guarded' },
+    { name: 'Backup', effect: 'Copy database file after checkpoint', risk: 'low', status: 'available' },
+  ]
+}
+
+function liteDbCollectionStatistics(collection: string) {
+  const row = liteDbCollections().find((candidate) => candidate.name === collection)
+
+  return [
+    { name: 'Documents', value: row?.documentCount ?? 0, scope: collection },
+    { name: 'Indexes', value: row?.indexes ?? 0, scope: collection },
+    { name: 'Average Document Size', value: row?.avgDocumentSize ?? '-', scope: collection },
+    { name: 'Storage Pages', value: collection === 'products' ? 312 : 24, scope: collection },
   ]
 }
 

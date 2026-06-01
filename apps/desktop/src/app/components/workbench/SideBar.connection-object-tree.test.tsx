@@ -57,29 +57,28 @@ describe('ConnectionObjectTree', () => {
     expandTreeItem('Databases')
     expandTreeItem('datapadplusplus')
 
-    expect(screen.getByText('Database Diagrams')).toBeInTheDocument()
     expect(screen.getByText('Tables')).toBeInTheDocument()
     expect(screen.getByText('Stored Procedures')).toBeInTheDocument()
     expect(screen.getByText('Functions')).toBeInTheDocument()
     expect(screen.getByText('Query Store')).toBeInTheDocument()
     expect(screen.getByText('Performance')).toBeInTheDocument()
-    expect(screen.getAllByText('Extended Events').length).toBeGreaterThan(0)
-    expect(screen.getByText('CDC')).toBeInTheDocument()
-    expect(screen.getByText('Change Tracking')).toBeInTheDocument()
-    expect(screen.getByText('Service Broker')).toBeInTheDocument()
-    expect(screen.getByText('SQL Server Agent')).toBeInTheDocument()
+    expect(screen.queryByText('Database Diagrams')).not.toBeInTheDocument()
+    expect(screen.queryByText('Extended Events')).not.toBeInTheDocument()
+    expect(screen.queryByText('CDC')).not.toBeInTheDocument()
+    expect(screen.queryByText('Change Tracking')).not.toBeInTheDocument()
+    expect(screen.queryByText('Service Broker')).not.toBeInTheDocument()
+    expect(screen.queryByText('SQL Server Agent')).not.toBeInTheDocument()
 
     expect(screen.queryByText('Linked Servers')).not.toBeInTheDocument()
     expandTreeItem('Server Objects')
     expect(screen.getByText('Linked Servers')).toBeInTheDocument()
     expect(screen.getByText('Endpoints')).toBeInTheDocument()
 
+    expect(screen.queryByText('Always On High Availability')).not.toBeInTheDocument()
     expect(screen.queryByText('Availability Groups')).not.toBeInTheDocument()
-    expandTreeItem('Always On High Availability')
-    expect(screen.getByText('Availability Groups')).toBeInTheDocument()
   })
 
-  it('loads SQL Server tables when an already-expanded structural folder receives a live scope', async () => {
+  it('loads SQL Server tables directly from structural adapter scopes', async () => {
     const onLoadExplorerScope = vi.fn()
     const connection = sqlServerConnection()
     const { rerender } = render(
@@ -94,7 +93,14 @@ describe('ConnectionObjectTree', () => {
     expandTreeItem('Databases')
     expandTreeItem('datapadplusplus')
     expandTreeItem('Tables')
-    onLoadExplorerScope.mockClear()
+
+    await waitFor(() => {
+      expect(onLoadExplorerScope).toHaveBeenCalledWith(
+        'conn-sqlserver',
+        'sqlserver:datapadplusplus:tables',
+      )
+    })
+    const loadCallsAfterExpand = onLoadExplorerScope.mock.calls.length
 
     rerender(
       <ConnectionObjectTree
@@ -130,13 +136,7 @@ describe('ConnectionObjectTree', () => {
 
     expect(treeItemForLabel('datapadplusplus')).toHaveAttribute('aria-expanded', 'true')
     expect(treeItemForLabel('Tables')).toHaveAttribute('aria-expanded', 'true')
-
-    await waitFor(() => {
-      expect(onLoadExplorerScope).toHaveBeenCalledWith(
-        'conn-sqlserver',
-        'sqlserver:datapadplusplus:tables',
-      )
-    })
+    expect(onLoadExplorerScope).toHaveBeenCalledTimes(loadCallsAfterExpand)
   })
 
   it('does not nest live SQL Server category folders inside duplicate category folders', () => {
@@ -431,8 +431,8 @@ describe('ConnectionObjectTree', () => {
     expect(screen.getByText('Collections')).toBeInTheDocument()
     expect(screen.getByText('Indexes')).toBeInTheDocument()
     expect(screen.getByText('File Storage')).toBeInTheDocument()
-    expect(screen.getByText('Storage')).toBeInTheDocument()
-    expect(screen.getByText('Settings')).toBeInTheDocument()
+    expect(screen.getByText('Pragmas')).toBeInTheDocument()
+    expect(screen.getByText('Maintenance')).toBeInTheDocument()
     expect(screen.getByText('Diagnostics')).toBeInTheDocument()
     expect(screen.queryByText('Users')).not.toBeInTheDocument()
     expect(screen.queryByText('Roles')).not.toBeInTheDocument()
@@ -670,6 +670,7 @@ describe('ConnectionObjectTree', () => {
     expandTreeItem('Databases')
     expandTreeItem('defaultdb')
     expandTreeItem('User Schemas')
+    expandTreeItem('public')
 
     expect(screen.getByText('Tables')).toBeInTheDocument()
     expect(screen.getByText('Views')).toBeInTheDocument()
@@ -1177,6 +1178,7 @@ describe('ConnectionObjectTree', () => {
     expect(screen.getByText('Stats')).toBeInTheDocument()
     expect(screen.getByText('Slabs')).toBeInTheDocument()
     expect(screen.getByText('Item Classes')).toBeInTheDocument()
+    expect(screen.getByText('Known Key Lookup')).toBeInTheDocument()
     expect(screen.getByText('Settings')).toBeInTheDocument()
     expect(screen.getByText('Connections')).toBeInTheDocument()
     expect(screen.queryByText('session:*')).not.toBeInTheDocument()

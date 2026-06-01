@@ -92,6 +92,10 @@ describe('sidebar connection tree helpers', () => {
     expect(findNodeByLabel(tree, 'Databases')).toMatchObject({ label: 'Databases' })
     expect(findNodeByLabel(tree, 'defaultdb')).toMatchObject({ label: 'defaultdb' })
     expect(findNodeByLabel(tree, 'User Schemas')).toMatchObject({ label: 'User Schemas' })
+    expect(findNodeByLabel(tree, 'public')).toMatchObject({
+      kind: 'schema',
+      scope: 'schema:public',
+    })
     expect(findNodeByLabel(tree, 'Zone Configurations')).toMatchObject({ label: 'Zone Configurations' })
     expect(findNodeByLabel(tree, 'Cluster')).toMatchObject({ label: 'Cluster' })
     expect(findNodeByLabel(tree, 'Ranges')).toMatchObject({ label: 'Ranges' })
@@ -105,8 +109,10 @@ describe('sidebar connection tree helpers', () => {
     const connection = snapshot.connections.find((item) => item.id === 'conn-analytics')!
     const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
     const userSchemas = findNodeByLabel(tree, 'User Schemas')
+    const publicSchema = findNodeByLabel(tree, 'public')
 
-    expect(userSchemas?.children?.map((node) => node.label)).toEqual([
+    expect(userSchemas?.children?.map((node) => node.label)).toEqual(['public'])
+    expect(publicSchema?.children?.map((node) => node.label)).toEqual([
       'Tables',
       'Views',
       'Materialized Views',
@@ -118,7 +124,77 @@ describe('sidebar connection tree helpers', () => {
       'Extensions',
       'Security',
     ])
+    expect(publicSchema).toMatchObject({
+      kind: 'schema',
+      scope: 'schema:public',
+    })
     expect(findNodeByLabel(tree, 'Programmability')).toBeUndefined()
+  })
+
+  it('assigns adapter scopes to PostgreSQL and CockroachDB manifest folders', () => {
+    const snapshot = createSeedSnapshot()
+    const postgres = snapshot.connections.find((item) => item.id === 'conn-analytics')!
+    const postgresTree = buildConnectionObjectTree(postgres, adapterManifestFor(postgres))
+    const cockroach = cockroachConnection()
+    const cockroachTree = buildConnectionObjectTree(cockroach, adapterManifestFor(cockroach))
+
+    expect(findNode(postgresTree, 'postgres:public:tables')).toMatchObject({
+      label: 'Tables',
+      scope: 'postgres:public:tables',
+    })
+    expect(findNode(postgresTree, 'postgres:public:functions')).toMatchObject({
+      label: 'Functions',
+      scope: 'postgres:public:functions',
+    })
+    expect(findNode(cockroachTree, 'postgres:public:tables')).toMatchObject({
+      label: 'Tables',
+      scope: 'postgres:public:tables',
+    })
+    expect(findNode(cockroachTree, 'cockroach:jobs')).toMatchObject({
+      label: 'Jobs',
+      scope: 'cockroach:jobs',
+    })
+    expect(findNode(cockroachTree, 'cockroach:contention')).toMatchObject({
+      label: 'Contention',
+      scope: 'cockroach:contention',
+    })
+  })
+
+  it('assigns TimescaleDB-native scopes to hypertable and policy folders', () => {
+    const connection = timescaleConnection()
+    const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
+    const publicSchema = findNodeByLabel(tree, 'public')
+
+    expect(publicSchema?.children?.map((node) => node.label)).toEqual([
+      'Tables',
+      'Hypertables',
+      'Continuous Aggregates',
+      'Chunks',
+      'Compression',
+      'Retention',
+      'Jobs',
+      'Views',
+      'Materialized Views',
+      'Indexes',
+      'Functions',
+      'Procedures',
+      'Sequences',
+      'Types',
+      'Extensions',
+      'Security',
+    ])
+    expect(findNode(tree, 'timescale:public:hypertables')).toMatchObject({
+      label: 'Hypertables',
+      scope: 'timescale:public:hypertables',
+    })
+    expect(findNode(tree, 'timescale:public:continuous-aggregates')).toMatchObject({
+      label: 'Continuous Aggregates',
+      scope: 'timescale:public:continuous-aggregates',
+    })
+    expect(findNode(tree, 'timescale:public:jobs')).toMatchObject({
+      label: 'Jobs',
+      scope: 'timescale:public:jobs',
+    })
   })
 
   it('builds MySQL structural folders in a native workbench shape', () => {
@@ -463,10 +539,10 @@ describe('sidebar connection tree helpers', () => {
     expect(databases).toMatchObject({ label: 'Databases' })
     expect(database).toMatchObject({ label: 'orders', kind: 'database' })
     expect(tables).toMatchObject({ label: 'Tables', kind: 'tables' })
-    expect(findNode(tree, 'system-tables')).toMatchObject({ label: 'System Tables' })
-    expect(findNode(tree, 'filetables')).toMatchObject({ label: 'FileTables' })
-    expect(findNode(tree, 'external-tables')).toMatchObject({ label: 'External Tables' })
-    expect(findNode(tree, 'graph-tables')).toMatchObject({ label: 'Graph Tables' })
+    expect(findNode(tree, 'system-tables')).toBeUndefined()
+    expect(findNode(tree, 'filetables')).toBeUndefined()
+    expect(findNode(tree, 'external-tables')).toBeUndefined()
+    expect(findNode(tree, 'graph-tables')).toBeUndefined()
     expect(storedProcedures).toMatchObject({
       label: 'Stored Procedures',
       kind: 'stored-procedures',
@@ -480,18 +556,39 @@ describe('sidebar connection tree helpers', () => {
       ]),
     )
     const serverObjects = findNode(tree, 'server-objects')
-    const alwaysOn = findNode(tree, 'always-on-high-availability')
     expect(serverObjects).toMatchObject({ label: 'Server Objects' })
     expect(serverObjects?.children?.map((node) => node.label)).toEqual([
       'Linked Servers',
       'Endpoints',
     ])
-    expect(alwaysOn).toMatchObject({ label: 'Always On High Availability' })
-    expect(alwaysOn?.children?.map((node) => node.label)).toEqual([
-      'Availability Groups',
-    ])
+    expect(findNode(tree, 'always-on-high-availability')).toBeUndefined()
     expect(tree.some((node) => node.label === 'Linked Servers')).toBe(false)
     expect(tree.some((node) => node.label === 'Availability Groups')).toBe(false)
+  })
+
+  it('assigns adapter scopes to SQL Server manifest folders so branches load directly', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-orders')!
+    const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
+
+    expect(findNode(tree, 'database:orders')).toMatchObject({
+      label: 'orders',
+      scope: 'database:orders',
+    })
+    expect(findNode(tree, 'sqlserver:orders:tables')).toMatchObject({
+      label: 'Tables',
+      scope: 'sqlserver:orders:tables',
+    })
+    expect(findNode(tree, 'sqlserver:orders:security.users')).toMatchObject({
+      label: 'Users',
+      scope: 'sqlserver:orders:security.users',
+    })
+    expect(findNode(tree, 'sqlserver:orders:performance')).toMatchObject({
+      label: 'Performance',
+      scope: 'sqlserver:orders:performance',
+    })
+    expect(findNode(tree, 'system-tables')).toBeUndefined()
+    expect(findNodeByLabel(tree, 'Agent')).toBeUndefined()
   })
 
   it('organizes live SQL Server metadata into SSMS-style database folders', () => {
@@ -673,6 +770,28 @@ function cockroachConnection(): ConnectionProfile {
     icon: 'cockroachdb',
     group: 'Connections',
     auth: { username: 'root' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function timescaleConnection(): ConnectionProfile {
+  return {
+    id: 'conn-timescale',
+    name: 'TimescaleDB',
+    engine: 'timescaledb',
+    family: 'sql',
+    host: 'localhost',
+    port: 5432,
+    database: 'metrics',
+    connectionMode: 'native',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'timescaledb',
+    group: 'Connections',
+    auth: { username: 'postgres' },
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }

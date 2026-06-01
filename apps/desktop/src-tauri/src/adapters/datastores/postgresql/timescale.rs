@@ -5,12 +5,14 @@ mod catalog;
 mod connection;
 mod diagnostics;
 mod explorer;
+mod explorer_live;
 mod operations;
 
 use catalog::*;
 use connection::*;
 use diagnostics::*;
 use explorer::*;
+use explorer_live::*;
 use operations::*;
 
 pub(crate) struct TimescaleAdapter;
@@ -83,6 +85,17 @@ impl DatastoreAdapter for TimescaleAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
+        if let Some((summary, query_template, payload)) =
+            timescale_inspection_payload(connection, &request.node_id).await
+        {
+            return Ok(ExplorerInspectResponse {
+                node_id: request.node_id.clone(),
+                summary,
+                query_template: Some(query_template),
+                payload: Some(payload),
+            });
+        }
+
         PostgresAdapter
             .inspect_explorer_node(connection, request)
             .await

@@ -9,6 +9,12 @@ pub(super) async fn list_neptune_explorer_nodes(
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
     let nodes = match request.scope.as_deref() {
+        Some("graph:graphs") => graph_nodes(connection),
+        Some("graph:node-labels") => node_label_template_nodes(connection),
+        Some("graph:relationship-types") => relationship_template_nodes(connection),
+        Some("graph:procedures") => query_language_nodes(connection),
+        Some("graph:security") => security_nodes(connection),
+        Some("graph:diagnostics") => diagnostics_template_nodes(connection),
         Some("neptune:gremlin") => gremlin_template_nodes(connection),
         Some("neptune:opencypher") => opencypher_template_nodes(connection),
         Some("neptune:sparql") => sparql_template_nodes(connection),
@@ -53,6 +59,21 @@ pub(super) async fn inspect_neptune_explorer_node(
 
 fn neptune_query_template(node_id: &str) -> &'static str {
     match node_id {
+        "graph:graphs" | "graph:neptune" => "g.V().limit(100)",
+        "graph:node-labels" => "g.V().label().dedup().limit(100)",
+        "graph:relationship-types" => "g.E().label().dedup().limit(100)",
+        "graph:procedures" => "GET /loader",
+        "graph:security" => "IAM database authentication / SigV4",
+        "graph:diagnostics" => "GET /status",
+        "node-label:gremlin-labels" => "g.V().label().dedup().limit(100)",
+        "node-label:opencypher-labels" => "MATCH (n) RETURN DISTINCT labels(n) LIMIT 100",
+        "node-label:sparql-classes" => "SELECT DISTINCT ?class WHERE { ?s a ?class } LIMIT 100",
+        "relationship:gremlin-edges" => "g.E().label().dedup().limit(100)",
+        "relationship:opencypher-relationships" => {
+            "MATCH p=()-[r]->() RETURN DISTINCT type(r) LIMIT 100"
+        }
+        "relationship:sparql-predicates" => "SELECT DISTINCT ?p WHERE { ?s ?p ?o } LIMIT 100",
+        "security:iam-auth" => "IAM database authentication / SigV4",
         "neptune-gremlin" | "neptune-gremlin-vertices" => "g.V().limit(100)",
         "neptune-gremlin-edges" => "g.E().limit(100)",
         "neptune-gremlin-labels" => "g.V().label().dedup().limit(100)",
@@ -69,35 +90,51 @@ fn neptune_query_template(node_id: &str) -> &'static str {
 fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
     [
         (
-            "neptune-gremlin",
-            "Gremlin",
-            "gremlin",
-            "Property graph traversal templates",
-            "neptune:gremlin",
+            "graph:graphs",
+            "Cluster Graph",
+            "graphs",
+            "Neptune property graph and RDF query surfaces",
+            "graph:graphs",
             "g.V().limit(100)",
         ),
         (
-            "neptune-opencypher",
-            "openCypher",
-            "opencypher",
-            "openCypher pattern query templates",
-            "neptune:opencypher",
-            "MATCH (n) RETURN n LIMIT 100",
+            "graph:node-labels",
+            "Node Labels",
+            "node-labels",
+            "Label and class discovery query templates",
+            "graph:node-labels",
+            "g.V().label().dedup().limit(100)",
         ),
         (
-            "neptune-sparql",
-            "SPARQL",
-            "sparql",
-            "RDF graph query templates",
-            "neptune:sparql",
-            "SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 100",
+            "graph:relationship-types",
+            "Relationship Types",
+            "relationship-types",
+            "Edge label and RDF predicate discovery templates",
+            "graph:relationship-types",
+            "g.E().label().dedup().limit(100)",
         ),
         (
-            "neptune-status",
+            "graph:procedures",
+            "Query Languages",
+            "procedures",
+            "Gremlin, openCypher, SPARQL, loader, explain, and profile entry points",
+            "graph:procedures",
+            "g.V().limit(100)",
+        ),
+        (
+            "graph:security",
+            "IAM / Security",
+            "security",
+            "IAM authentication, SigV4, and access guidance",
+            "graph:security",
+            "IAM database authentication / SigV4",
+        ),
+        (
+            "graph:diagnostics",
             "Diagnostics",
             "diagnostics",
             "Cluster status, engine details, and query diagnostics",
-            "neptune:diagnostics",
+            "graph:diagnostics",
             "GET /status",
         ),
     ]
@@ -114,6 +151,94 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
         expandable: Some(true),
     })
     .collect()
+}
+
+fn graph_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    vec![ExplorerNode {
+        id: "graph:neptune".into(),
+        family: "graph".into(),
+        label: connection.database.as_deref().unwrap_or("Neptune").into(),
+        kind: "graph".into(),
+        detail: "Amazon Neptune cluster graph".into(),
+        scope: None,
+        path: Some(vec![connection.name.clone(), "Cluster Graph".into()]),
+        query_template: Some("g.V().limit(100)".into()),
+        expandable: Some(false),
+    }]
+}
+
+fn node_label_template_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    template_nodes(
+        connection,
+        "Node Labels",
+        [
+            (
+                "node-label:gremlin-labels",
+                "Gremlin Labels",
+                "g.V().label().dedup().limit(100)",
+            ),
+            (
+                "node-label:opencypher-labels",
+                "openCypher Labels",
+                "MATCH (n) RETURN DISTINCT labels(n) LIMIT 100",
+            ),
+            (
+                "node-label:sparql-classes",
+                "SPARQL Classes",
+                "SELECT DISTINCT ?class WHERE { ?s a ?class } LIMIT 100",
+            ),
+        ],
+    )
+}
+
+fn relationship_template_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    template_nodes(
+        connection,
+        "Relationship Types",
+        [
+            (
+                "relationship:gremlin-edges",
+                "Gremlin Edge Labels",
+                "g.E().label().dedup().limit(100)",
+            ),
+            (
+                "relationship:opencypher-relationships",
+                "openCypher Relationships",
+                "MATCH p=()-[r]->() RETURN DISTINCT type(r) LIMIT 100",
+            ),
+            (
+                "relationship:sparql-predicates",
+                "SPARQL Predicates",
+                "SELECT DISTINCT ?p WHERE { ?s ?p ?o } LIMIT 100",
+            ),
+        ],
+    )
+}
+
+fn query_language_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    [
+        gremlin_template_nodes(connection),
+        opencypher_template_nodes(connection),
+        sparql_template_nodes(connection),
+        diagnostics_template_nodes(connection),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+fn security_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    vec![ExplorerNode {
+        id: "security:iam-auth".into(),
+        family: "graph".into(),
+        label: "IAM Authentication".into(),
+        kind: "security".into(),
+        detail: "SigV4 and IAM database authentication configuration".into(),
+        scope: None,
+        path: Some(vec![connection.name.clone(), "IAM / Security".into()]),
+        query_template: Some("IAM database authentication / SigV4".into()),
+        expandable: Some(false),
+    }]
 }
 
 fn gremlin_template_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
@@ -211,7 +336,14 @@ fn template_nodes<const N: usize>(
             id: id.into(),
             family: "graph".into(),
             label: label.into(),
-            kind: "query-template".into(),
+            kind: if id.starts_with("node-label:") {
+                "node-label"
+            } else if id.starts_with("relationship:") {
+                "relationship"
+            } else {
+                "procedures"
+            }
+            .into(),
             detail: format!("Amazon Neptune {group} query template"),
             scope: None,
             path: Some(vec![connection.name.clone(), group.into()]),
@@ -261,6 +393,13 @@ async fn enrich_neptune_inspection(connection: &ResolvedConnectionProfile, paylo
             "requiresAdmin": "no"
         },
         {
+            "name": "Loader",
+            "mode": "admin",
+            "signature": "GET /loader",
+            "description": "Review bulk loader jobs and import status",
+            "requiresAdmin": "yes"
+        },
+        {
             "name": "SPARQL",
             "mode": "read",
             "signature": "SELECT WHERE",
@@ -268,6 +407,13 @@ async fn enrich_neptune_inspection(connection: &ResolvedConnectionProfile, paylo
             "requiresAdmin": "no"
         }
     ]);
+    payload["security"] = json!([{
+        "principal": "IAM",
+        "role": "SigV4",
+        "privilege": "connection",
+        "scope": "cluster",
+        "effect": "configured outside Neptune"
+    }]);
     payload["diagnostics"] = json!(neptune_diagnostic_records(status.as_ref()));
     if status.is_none() {
         payload["warnings"] = json!([
@@ -317,6 +463,15 @@ fn neptune_base_payload(
 
 fn neptune_object_view_kind(node_id: &str) -> &'static str {
     match node_id {
+        "graph:graphs" => "graphs",
+        "graph:neptune" => "graph",
+        "graph:node-labels" => "node-labels",
+        "graph:relationship-types" => "relationship-types",
+        "graph:procedures" => "procedures",
+        "graph:security" | "security:iam-auth" => "security",
+        "graph:diagnostics" => "diagnostics",
+        id if id.starts_with("node-label:") => "node-label",
+        id if id.starts_with("relationship:") => "relationship",
         "neptune-gremlin" | "neptune-opencypher" | "neptune-sparql" => "graph",
         "neptune-gremlin-vertices" | "neptune-opencypher-nodes" | "neptune-sparql-classes" => {
             "node-labels"
@@ -367,7 +522,7 @@ fn neptune_value_to_display(value: &Value) -> String {
 mod tests {
     use super::{
         neptune_base_payload, neptune_diagnostic_records, neptune_object_view_kind,
-        neptune_query_template,
+        neptune_query_template, root_nodes,
     };
     use crate::domain::models::ResolvedConnectionProfile;
 
@@ -390,7 +545,45 @@ mod tests {
     }
 
     #[test]
+    fn neptune_root_uses_graph_contract_sections() {
+        let nodes = root_nodes(&connection());
+        assert_eq!(
+            nodes
+                .iter()
+                .map(|node| node.label.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "Cluster Graph",
+                "Node Labels",
+                "Relationship Types",
+                "Query Languages",
+                "IAM / Security",
+                "Diagnostics"
+            ]
+        );
+        assert!(nodes
+            .iter()
+            .all(|node| !node.detail.to_ascii_lowercase().contains("sample")));
+    }
+
+    #[test]
     fn neptune_node_ids_map_to_graph_object_views() {
+        assert_eq!(neptune_object_view_kind("graph:graphs"), "graphs");
+        assert_eq!(neptune_object_view_kind("graph:node-labels"), "node-labels");
+        assert_eq!(
+            neptune_object_view_kind("graph:relationship-types"),
+            "relationship-types"
+        );
+        assert_eq!(neptune_object_view_kind("graph:procedures"), "procedures");
+        assert_eq!(neptune_object_view_kind("graph:security"), "security");
+        assert_eq!(
+            neptune_object_view_kind("node-label:gremlin-labels"),
+            "node-label"
+        );
+        assert_eq!(
+            neptune_object_view_kind("relationship:gremlin-edges"),
+            "relationship"
+        );
         assert_eq!(neptune_object_view_kind("neptune-gremlin"), "graph");
         assert_eq!(
             neptune_object_view_kind("neptune-opencypher-nodes"),

@@ -31,20 +31,23 @@ export function liteDbWorkflows(
     workflows.push(
       { label: 'Collections', title: 'Review collection counts, indexes, and inferred fields.', icon: 'collection', targetSection: 'collections' },
       { label: 'File Storage', title: 'Review LiteDB file storage metadata and chunk health.', icon: 'file', targetSection: 'files' },
-      { label: 'Maintenance', title: 'Review checkpoint, shrink, and rebuild guidance before running maintenance.', icon: 'storage', targetSection: 'storage' },
+      { label: 'Pragmas', title: 'Review LiteDB file pragmas and local runtime options.', icon: 'storage', targetSection: 'pragmas' },
+      { label: 'Maintenance', title: 'Review checkpoint, compact, rebuild, and backup workflows.', icon: 'storage', targetSection: 'maintenance' },
     )
   }
 
-  if (['collection', 'schema', 'indexes', 'index'].includes(kind)) {
+  if (['collection', 'schema', 'indexes', 'index', 'statistics'].includes(kind)) {
     workflows.push(
       { label: 'Schema', title: 'Review sampled field paths and mixed-type warnings.', icon: 'document', targetSection: 'fields' },
       { label: 'Indexes', title: 'Review index expressions, uniqueness, and coverage.', icon: 'index', targetSection: 'indexes' },
+      { label: 'Statistics', title: 'Review collection counts and storage signals.', icon: 'diagnostics', targetSection: 'statistics' },
     )
   }
 
-  if (['storage', 'settings', 'diagnostics', 'file-storage', 'files', 'chunks'].includes(kind)) {
+  if (['storage', 'settings', 'pragmas', 'maintenance', 'diagnostics', 'file-storage', 'files', 'chunks'].includes(kind)) {
     workflows.push(
       { label: 'Storage', title: 'Review page allocation, free pages, and file footprint.', icon: 'storage', targetSection: 'storage' },
+      { label: 'Maintenance', title: 'Review checkpoint, compact, rebuild, and backup workflows.', icon: 'storage', targetSection: 'maintenance' },
       { label: 'Health', title: 'Review maintenance warnings and local-file health.', icon: 'diagnostics', targetSection: 'diagnostics' },
     )
   }

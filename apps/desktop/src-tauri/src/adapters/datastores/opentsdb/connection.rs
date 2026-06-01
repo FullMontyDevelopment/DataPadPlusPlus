@@ -123,6 +123,7 @@ impl OpenTsdbEndpoint {
                 "OpenTSDB requires a host or http:// connection string.",
             ));
         }
+        validate_http_component(host, "OpenTSDB host")?;
 
         Ok(Self {
             host: host.into(),
@@ -133,6 +134,8 @@ impl OpenTsdbEndpoint {
                 .and_then(|options| options.path_prefix.as_deref())
                 .or(connection.database.as_deref())
                 .filter(|value| value.starts_with('/'))
+                .map(|value| validate_http_component(value, "OpenTSDB path prefix").map(|_| value))
+                .transpose()?
                 .unwrap_or("")
                 .trim_end_matches('/')
                 .into(),
@@ -160,13 +163,21 @@ impl OpenTsdbEndpoint {
             .rsplit_once(':')
             .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
             .unwrap_or((authority, 4242));
+        if host.trim().is_empty() {
+            return Err(CommandError::new(
+                "opentsdb-endpoint-missing",
+                "OpenTSDB connection string did not include a host.",
+            ));
+        }
+        validate_http_component(host, "OpenTSDB host")?;
 
         Ok(Self {
             host: host.into(),
             port,
-            prefix: normalized_prefix(prefix_override)
-                .or_else(|| normalized_prefix(Some(path)))
-                .unwrap_or_default(),
+            prefix: match normalized_prefix(prefix_override)? {
+                Some(prefix) => prefix,
+                None => normalized_prefix(Some(path))?.unwrap_or_default(),
+            },
         })
     }
 
@@ -183,13 +194,27 @@ impl OpenTsdbEndpoint {
     }
 }
 
-fn normalized_prefix(value: Option<&str>) -> Option<String> {
-    let trimmed = value?.trim().trim_matches('/');
+fn normalized_prefix(value: Option<&str>) -> Result<Option<String>, CommandError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().trim_matches('/');
     if trimmed.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(format!("/{trimmed}"))
+        validate_http_component(trimmed, "OpenTSDB path prefix")?;
+        Ok(Some(format!("/{trimmed}")))
     }
+}
+
+fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "opentsdb-endpoint-invalid",
+            format!("{label} contains an invalid control character."),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn opentsdb_suggest_path(kind: &str, limit: u32) -> String {
@@ -252,5 +277,40 @@ mod tests {
         assert_eq!(endpoint.host, "localhost");
         assert_eq!(endpoint.port, 14242);
         assert_eq!(endpoint.path("/api/version"), "/tsdb/api/version");
+    }
+
+    #[test]
+    fn opentsdb_endpoint_rejects_control_characters() {
+        let mut connection = crate::domain::models::ResolvedConnectionProfile {
+            id: "conn-opentsdb".into(),
+            name: "OpenTSDB".into(),
+            engine: "opentsdb".into(),
+            family: "timeseries".into(),
+            host: "127.0.0.1\r\nX-Bad: yes".into(),
+            port: None,
+            database: None,
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            sqlite_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
+            read_only: true,
+        };
+        let host_error = OpenTsdbEndpoint::from_connection(&connection).unwrap_err();
+        assert_eq!(host_error.code, "opentsdb-endpoint-invalid");
+
+        connection.host = "127.0.0.1".into();
+        connection.database = Some("/tsdb\r\nX-Bad: yes".into());
+        let path_error = OpenTsdbEndpoint::from_connection(&connection).unwrap_err();
+        assert_eq!(path_error.code, "opentsdb-endpoint-invalid");
     }
 }

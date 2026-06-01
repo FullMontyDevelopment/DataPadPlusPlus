@@ -21,9 +21,13 @@ describe('CosmosObjectViewDescriptors', () => {
         'throughput',
         'change-feed',
         'stored-procedures',
+        'stored-procedure',
         'triggers',
+        'trigger',
         'udfs',
+        'udf',
         'conflicts',
+        'conflict',
         'regions',
         'consistency',
         'security',
@@ -36,6 +40,7 @@ describe('CosmosObjectViewDescriptors', () => {
     expect(cosmosObjectViewMenuLabel('container')).toBe('Open Container')
     expect(cosmosObjectViewMenuLabel('indexing policy')).toBe('Review Indexing Policy')
     expect(cosmosObjectViewMenuLabel('stored-procedures')).toBe('Manage Stored Procedures')
+    expect(cosmosObjectViewMenuLabel('stored procedure')).toBe('Open Stored Procedure')
     expect(cosmosObjectViewMenuLabel('container')).not.toBe('Open View')
   })
 

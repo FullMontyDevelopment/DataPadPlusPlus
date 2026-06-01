@@ -946,13 +946,11 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     ],
     defaultPort: 11211,
     managementModel: 'Ephemeral cache nodes with simple keys, values, TTL, counters, slabs, item stats, and optional SASL.',
-    queryModel: 'Command/action forms for get, set, delete, incr, decr, stats, and prefix sampling.',
+    queryModel: 'Command/action forms for get, gets, set, delete, touch, incr, decr, stats, and known-key lookup.',
     presentationModel: 'Key-value output, raw stats, slab dashboards, hit-rate charts, and eviction panels.',
     securityModel: 'Network ACLs, SASL where available, read-only profiles, and guarded mutation commands.',
     resultRenderers: [...keyValueRenderers],
     capabilities: [
-      'supports_key_browser',
-      'supports_ttl_management',
       'supports_result_snapshots',
       'supports_metrics_collection',
       'supports_import_export',
@@ -961,8 +959,8 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     baselineFeatures: [
       'Server stats',
       'Get/set/delete/incr/decr',
-      'Prefix sampling',
-      'TTL-aware value editor',
+      'Known-key lookup',
+      'TTL touch previews',
     ],
     advancedFeatures: [
       'Slab dashboards',

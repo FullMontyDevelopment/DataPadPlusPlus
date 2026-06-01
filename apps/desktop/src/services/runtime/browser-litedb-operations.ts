@@ -35,6 +35,16 @@ export function liteDbOperationRequest(request: OperationPlanRequest) {
     }, null, 2)
   }
 
+  if (request.operationId.endsWith('storage.rebuild-indexes')) {
+    return JSON.stringify({
+      operation: 'LiteDB.RebuildIndexes',
+      databaseFile,
+      collection,
+      preflight: ['checkpoint', 'verify-file-lock', 'list-indexes'],
+      validation: ['compare-index-counts', 'sample-indexed-queries'],
+    }, null, 2)
+  }
+
   if (request.operationId.endsWith('index.create')) {
     return `db.GetCollection("${escapeQuoted(collection)}").EnsureIndex("${escapeQuoted(indexName)}", "${escapeQuoted(field)}", ${Boolean(parameters.unique)});`
   }

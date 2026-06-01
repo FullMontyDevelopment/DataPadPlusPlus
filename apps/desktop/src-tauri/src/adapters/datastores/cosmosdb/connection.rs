@@ -76,7 +76,7 @@ async fn cosmosdb_request(
     let endpoint = CosmosDbEndpoint::from_connection(connection)?;
     let path = endpoint.path(path);
     let body = body.unwrap_or("");
-    let auth_header = cosmosdb_auth_header(connection);
+    let auth_header = cosmosdb_auth_header(connection)?;
     let mut headers = format!(
         "{method} {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\nx-ms-version: 2018-12-31\r\n{}",
         endpoint.host, endpoint.port, auth_header
@@ -252,18 +252,28 @@ pub(super) fn cosmosdb_default_database(connection: &ResolvedConnectionProfile) 
         .to_string()
 }
 
-fn cosmosdb_auth_header(connection: &ResolvedConnectionProfile) -> String {
-    connection
+fn cosmosdb_auth_header(connection: &ResolvedConnectionProfile) -> Result<String, CommandError> {
+    let Some(value) = connection
         .password
         .as_deref()
         .filter(|value| !value.trim().is_empty())
-        .map(|value| format!("Authorization: {value}\r\n"))
-        .unwrap_or_default()
+    else {
+        return Ok(String::new());
+    };
+
+    if value.contains('\r') || value.contains('\n') {
+        return Err(CommandError::new(
+            "cosmosdb-invalid-auth-header",
+            "Cosmos DB authorization value contains invalid header characters.",
+        ));
+    }
+
+    Ok(format!("Authorization: {value}\r\n"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{cosmosdb_default_database, CosmosDbEndpoint};
+    use super::{cosmosdb_auth_header, cosmosdb_default_database, CosmosDbEndpoint};
     use crate::domain::models::{CosmosDbConnectionOptions, ResolvedConnectionProfile};
 
     #[test]
@@ -288,6 +298,16 @@ mod tests {
         assert_eq!(endpoint.port, 18081);
         assert_eq!(endpoint.path("/dbs"), "/cosmos/dbs");
         assert_eq!(cosmosdb_default_database(&connection), "catalog");
+    }
+
+    #[test]
+    fn cosmosdb_auth_header_rejects_newline_in_authorization_value() {
+        let mut connection = connection(None);
+        connection.password = Some("type=master\r\nX-Bad: injected".into());
+
+        let error = cosmosdb_auth_header(&connection).unwrap_err();
+
+        assert_eq!(error.code, "cosmosdb-invalid-auth-header");
     }
 
     fn connection(

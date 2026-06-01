@@ -1,10 +1,10 @@
-use serde_json::{json, Value};
+use serde_json::json;
 
 use super::super::super::*;
 use super::connection::{neo4j_run_cypher, neo4j_statement_body};
+use super::query_request::{neo4j_query_request, Neo4jQueryRequest};
+use super::query_results::{normalize_neo4j_result, NormalizedNeo4jResult};
 use super::Neo4jAdapter;
-
-type NormalizedNeo4jResult = (Vec<String>, Vec<Vec<String>>, Option<(Value, Value)>);
 
 pub(super) async fn execute_neo4j_query(
     adapter: &Neo4jAdapter,
@@ -20,30 +20,38 @@ pub(super) async fn execute_neo4j_query(
             "No Cypher query was provided.",
         ));
     }
-
     let row_limit = bounded_page_size(
         request
             .row_limit
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
-    let statement = match execute_mode(request) {
-        "explain" => format!("EXPLAIN {query_text}"),
-        "profile" => format!("PROFILE {query_text}"),
-        _ => query_text.into(),
-    };
-    let value = neo4j_run_cypher(connection, &statement).await?;
-    let (columns, rows, graph) = normalize_neo4j_result(&value, row_limit);
-    let row_count = rows.len() as u32;
+    let query_request = neo4j_query_request(query_text, execute_mode(request))?;
+    let value = neo4j_run_cypher(connection, &query_request.statement).await?;
+    let normalized = normalize_neo4j_result(&value, row_limit);
+    let mut notices = notices;
+    if normalized.truncated {
+        notices.push(QueryExecutionNotice {
+            code: "neo4j-result-truncated".into(),
+            level: "warning".into(),
+            message: format!(
+                "Neo4j returned more than {row_limit} row(s) or graph item bounds; displayed results were bounded before rendering."
+            ),
+        });
+    }
+    let row_count = normalized.rows.len() as u32;
+    let graph = normalized.graph.clone();
+    let profile = neo4j_profile_payload(&query_request, &normalized, row_limit);
     let mut payloads = Vec::new();
     if let Some((nodes, edges)) = graph {
         payloads.push(payload_graph(nodes, edges));
     }
     payloads.extend([
-        payload_table(columns, rows),
+        payload_table(normalized.columns, normalized.rows),
+        profile,
         payload_json(value.clone()),
-        payload_raw(neo4j_statement_body(&statement)),
+        payload_raw(neo4j_statement_body(&query_request.statement)),
     ]);
-    let explain_payload = if matches!(execute_mode(request), "explain" | "profile") {
+    let explain_payload = if matches!(query_request.mode, "explain" | "profile") {
         Some(value.clone())
     } else {
         None
@@ -56,130 +64,55 @@ pub(super) async fn execute_neo4j_query(
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: format!("Neo4j Cypher returned {row_count} row(s)."),
+        summary: format!(
+            "Neo4j {} Cypher returned {row_count} displayed row(s).",
+            query_request.mode
+        ),
         default_renderer: &default_renderer,
         renderer_modes,
         payloads,
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
-        truncated: false,
+        truncated: normalized.truncated,
         explain_payload,
     }))
 }
 
-pub(crate) fn normalize_neo4j_result(value: &Value, row_limit: u32) -> NormalizedNeo4jResult {
-    let result = value
-        .get("results")
-        .and_then(Value::as_array)
-        .and_then(|results| results.first());
-    let columns = result
-        .and_then(|result| result.get("columns"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    let mut rows = Vec::new();
-    let mut nodes = Vec::new();
-    let mut edges = Vec::new();
-
-    for item in result
-        .and_then(|result| result.get("data"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        if rows.len() < row_limit as usize {
-            let row = item
-                .get("row")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .map(neo4j_value_to_string)
-                .collect::<Vec<_>>();
-            rows.push(row);
-        }
-
-        if let Some(graph) = item.get("graph") {
-            nodes.extend(
-                graph
-                    .get("nodes")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .cloned(),
-            );
-            edges.extend(
-                graph
-                    .get("relationships")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .cloned(),
-            );
-        }
-    }
-
-    let graph = if nodes.is_empty() && edges.is_empty() {
-        None
-    } else {
-        Some((json!(nodes), json!(edges)))
-    };
-
-    (columns, rows, graph)
-}
-
-fn neo4j_value_to_string(value: &Value) -> String {
-    value
-        .as_str()
-        .map(str::to_string)
-        .unwrap_or_else(|| value.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::normalize_neo4j_result;
-
-    #[test]
-    fn neo4j_result_normalizes_table_and_graph_payloads() {
-        let value = json!({
-            "results": [{
-                "columns": ["n"],
-                "data": [{
-                    "row": [{ "name": "Ada" }],
-                    "graph": {
-                        "nodes": [{ "id": "1", "labels": ["Person"] }],
-                        "relationships": []
-                    }
-                }]
-            }],
-            "errors": []
-        });
-
-        let (columns, rows, graph) = normalize_neo4j_result(&value, 25);
-        let (nodes, edges) = graph.expect("graph payload");
-
-        assert_eq!(columns, vec!["n"]);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(nodes.as_array().unwrap().len(), 1);
-        assert_eq!(edges.as_array().unwrap().len(), 0);
-    }
-
-    #[test]
-    fn neo4j_result_respects_row_limit() {
-        let value = json!({
-            "results": [{
-                "columns": ["n"],
-                "data": [{ "row": [1] }, { "row": [2] }]
-            }],
-            "errors": []
-        });
-
-        let (_columns, rows, _graph) = normalize_neo4j_result(&value, 1);
-        assert_eq!(rows.len(), 1);
-    }
+fn neo4j_profile_payload(
+    query_request: &Neo4jQueryRequest,
+    normalized: &NormalizedNeo4jResult,
+    row_limit: u32,
+) -> Value {
+    payload_profile(
+        "Neo4j Cypher profile",
+        json!([
+            {
+                "stage": "request",
+                "mode": query_request.mode,
+                "rowLimit": row_limit
+            },
+            {
+                "stage": "result",
+                "rows": normalized.total_rows,
+                "displayedRows": normalized.rows.len(),
+                "nodes": normalized.node_count,
+                "relationships": normalized.relationship_count,
+                "truncated": normalized.truncated
+            },
+            {
+                "stage": "stats",
+                "stats": normalized.stats
+            },
+            {
+                "stage": "risk",
+                "cardinality": if normalized.truncated { "bounded" } else { "within-limit" },
+                "recommendation": if normalized.truncated {
+                    "Add LIMIT, label filters, relationship type filters, or narrower graph patterns before rendering large graphs."
+                } else {
+                    "Result is within the selected display bound."
+                }
+            }
+        ]),
+    )
 }

@@ -34,7 +34,8 @@ pub(super) async fn execute_snowflake_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let explain_only = matches!(execute_mode(request), "explain" | "profile" | "cost");
-    let body = snowflake_statement_body(query_text, row_limit, connection, explain_only);
+    let fetch_limit = row_limit.saturating_add(1);
+    let body = snowflake_statement_body(query_text, fetch_limit, connection, explain_only);
     let (response, live) = if has_live_auth(connection) && has_http_endpoint(connection) {
         let body_text = serde_json::to_string(&body).unwrap_or_default();
         let response = snowflake_post_json(connection, "/api/v2/statements", &body_text).await?;
@@ -51,7 +52,10 @@ pub(super) async fn execute_snowflake_query(
         )
     };
 
-    let (columns, rows) = normalize_snowflake_response(&response, row_limit);
+    let normalized = normalize_snowflake_response_bounded(&response, row_limit);
+    let columns = normalized.columns;
+    let rows = normalized.rows;
+    let truncated = normalized.truncated;
     let row_count = rows.len() as u32;
     let cost_estimate = snowflake_cost_estimate_payload(&response, &body, live);
     let profile_payload = snowflake_profile_payload(&response, live);
@@ -90,22 +94,32 @@ pub(super) async fn execute_snowflake_query(
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: format!("Snowflake SQL API normalized {row_count} row(s)."),
+        summary: if truncated {
+            format!("Snowflake SQL API loaded the first {row_count} row(s).")
+        } else {
+            format!("Snowflake SQL API normalized {row_count} row(s).")
+        },
         default_renderer: &default_renderer,
         renderer_modes,
         payloads,
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
-        truncated: false,
+        truncated,
         explain_payload: Some(cost_estimate),
     }))
 }
 
-pub(crate) fn normalize_snowflake_response(
+pub(crate) struct SnowflakeNormalizedResult {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub truncated: bool,
+}
+
+pub(crate) fn normalize_snowflake_response_bounded(
     response: &Value,
     row_limit: u32,
-) -> (Vec<String>, Vec<Vec<String>>) {
+) -> SnowflakeNormalizedResult {
     let columns = response
         .pointer("/resultSetMetaData/rowType")
         .and_then(Value::as_array)
@@ -119,11 +133,14 @@ pub(crate) fn normalize_snowflake_response(
     } else {
         columns
     };
-    let rows = response
+    let source_rows = response
         .get("data")
         .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+        .cloned()
+        .unwrap_or_default();
+    let truncated = source_rows.len() > row_limit as usize;
+    let rows = source_rows
+        .iter()
         .take(row_limit as usize)
         .map(|row| {
             row.as_array()
@@ -135,17 +152,22 @@ pub(crate) fn normalize_snowflake_response(
         .collect::<Vec<_>>();
 
     if rows.is_empty() {
-        (
+        SnowflakeNormalizedResult {
             columns,
-            vec![vec![response
+            rows: vec![vec![response
                 .get("message")
                 .and_then(Value::as_str)
                 .or_else(|| response.get("code").and_then(Value::as_str))
                 .unwrap_or("requestBuilt")
                 .into()]],
-        )
+            truncated: false,
+        }
     } else {
-        (columns, rows)
+        SnowflakeNormalizedResult {
+            columns,
+            rows,
+            truncated,
+        }
     }
 }
 
@@ -215,8 +237,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        normalize_snowflake_response, preview_snowflake_response, snowflake_cost_estimate_payload,
-        snowflake_profile_payload,
+        normalize_snowflake_response_bounded, preview_snowflake_response,
+        snowflake_cost_estimate_payload, snowflake_profile_payload,
     };
 
     #[test]
@@ -227,19 +249,33 @@ mod tests {
             },
             "data": [["Ada", "42"]]
         });
-        let (columns, rows) = normalize_snowflake_response(&value, 100);
+        let result = normalize_snowflake_response_bounded(&value, 100);
 
-        assert_eq!(columns, vec!["NAME", "AGE"]);
-        assert_eq!(rows, vec![vec!["Ada", "42"]]);
+        assert_eq!(result.columns, vec!["NAME", "AGE"]);
+        assert_eq!(result.rows, vec![vec!["Ada", "42"]]);
+    }
+
+    #[test]
+    fn snowflake_response_reports_truncation_without_rendering_extra_row() {
+        let value = json!({
+            "resultSetMetaData": {
+                "rowType": [{ "name": "ID" }]
+            },
+            "data": [["1"], ["2"], ["3"]]
+        });
+        let result = normalize_snowflake_response_bounded(&value, 2);
+
+        assert!(result.truncated);
+        assert_eq!(result.rows, vec![vec!["1"], vec!["2"]]);
     }
 
     #[test]
     fn snowflake_preview_response_has_table_shape() {
         let value = preview_snowflake_response("account", "select 1", 25);
-        let (columns, rows) = normalize_snowflake_response(&value, 25);
+        let result = normalize_snowflake_response_bounded(&value, 25);
 
-        assert_eq!(columns, vec!["account", "status", "row_limit"]);
-        assert_eq!(rows[0][1], "dry-run-request-built");
+        assert_eq!(result.columns, vec!["account", "status", "row_limit"]);
+        assert_eq!(result.rows[0][1], "dry-run-request-built");
     }
 
     #[test]
