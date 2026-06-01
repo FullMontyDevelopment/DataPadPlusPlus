@@ -5647,6 +5647,15 @@ button:disabled:hover {
   background: var(--panel-bg);
 }
 
+.query-builder-filter-group.is-drag-over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel-bg));
+}
+
+.query-builder-filter-group.is-disabled {
+  opacity: 0.58;
+}
+
 .query-builder-filter-group-header {
   min-height: 26px;
   display: flex;

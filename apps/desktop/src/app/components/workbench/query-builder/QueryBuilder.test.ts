@@ -308,6 +308,99 @@ describe('Mongo query builder', () => {
       ],
     })
   })
+
+  it('keeps ungrouped Mongo filters standalone when explicit groups exist', () => {
+    const query = JSON.parse(
+      buildMongoFindQueryText({
+        kind: 'mongo-find',
+        collection: 'orders',
+        filterGroups: [{ id: 'group-region', label: 'Region', logic: 'or' }],
+        filters: [
+          {
+            id: 'filter-status',
+            field: 'status',
+            operator: 'eq',
+            value: 'open',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-us',
+            field: 'region',
+            groupId: 'group-region',
+            operator: 'eq',
+            value: 'us-east-1',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-eu',
+            field: 'region',
+            groupId: 'group-region',
+            operator: 'eq',
+            value: 'eu-west-1',
+            valueType: 'string',
+          },
+        ],
+        projectionMode: 'all',
+        projectionFields: [],
+        sort: [],
+      }),
+    )
+
+    expect(query.filter).toEqual({
+      $and: [
+        { status: 'open' },
+        { $or: [{ region: 'us-east-1' }, { region: 'eu-west-1' }] },
+      ],
+    })
+  })
+
+  it('ignores disabled Mongo filter groups while preserving active filters', () => {
+    const query = JSON.parse(
+      buildMongoFindQueryText({
+        kind: 'mongo-find',
+        collection: 'orders',
+        filterGroups: [
+          { id: 'group-region', enabled: false, label: 'Region', logic: 'or' },
+          { id: 'group-total', enabled: true, label: 'Total', logic: 'and' },
+        ],
+        filters: [
+          {
+            id: 'filter-status',
+            field: 'status',
+            operator: 'eq',
+            value: 'open',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-region',
+            field: 'region',
+            groupId: 'group-region',
+            operator: 'eq',
+            value: 'us-east-1',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-total',
+            field: 'total',
+            groupId: 'group-total',
+            operator: 'gte',
+            value: '100',
+            valueType: 'number',
+          },
+        ],
+        projectionMode: 'all',
+        projectionFields: [],
+        sort: [],
+      }),
+    )
+
+    expect(query.filter).toEqual({
+      $and: [
+        { status: 'open' },
+        { total: { $gte: 100 } },
+      ],
+    })
+  })
 })
 
 describe('Mongo aggregation builder', () => {

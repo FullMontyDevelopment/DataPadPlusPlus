@@ -5,6 +5,7 @@ export const DEFAULT_FILTER_GROUP_ID = 'filter-group-default'
 export function defaultFilterGroup(): MongoFindFilterGroup {
   return {
     id: DEFAULT_FILTER_GROUP_ID,
+    enabled: true,
     label: 'Group 1',
     logic: 'and',
   }

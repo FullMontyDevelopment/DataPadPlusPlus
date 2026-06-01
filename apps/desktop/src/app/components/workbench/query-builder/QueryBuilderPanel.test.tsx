@@ -104,6 +104,76 @@ describe('QueryBuilderPanel', () => {
     expect(onBuilderStateChange).toHaveBeenCalledOnce()
   })
 
+  it('clears the only Mongo filter group back to an empty filter section', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(<BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }))
+    const group = filterGroup('Group 1')
+    fireEvent.click(within(group).getByRole('button', { name: 'Add Filter' }))
+
+    expect(within(group).getByLabelText('Filter field')).toBeInTheDocument()
+
+    fireEvent.click(within(group).getByRole('button', { name: 'Clear Group 1' }))
+
+    expect(screen.queryByLabelText('Filter group logic Group 1')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Filter field')).not.toBeInTheDocument()
+    expect(screen.getByText('No filters.')).toBeInTheDocument()
+  })
+
+  it('keeps existing ungrouped filters outside a newly added Mongo group', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(<BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />)
+
+    dropField(section('Filters'), 'status')
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }))
+
+    const group = filterGroup('Group 1')
+    expect(screen.getByLabelText('Filter field')).toHaveValue('status')
+    expect(within(group).queryByLabelText('Filter field')).not.toBeInTheDocument()
+    expect(within(group).getByText('No filters in this group.')).toBeInTheDocument()
+  })
+
+  it('allows Mongo filter groups to be disabled and enabled', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(<BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }))
+    const group = filterGroup('Group 1')
+    const toggle = within(group).getByLabelText('Apply group Group 1')
+
+    expect(toggle).toBeChecked()
+    fireEvent.click(toggle)
+
+    expect(toggle).not.toBeChecked()
+    expect(group).toHaveClass('is-disabled')
+
+    fireEvent.click(toggle)
+
+    expect(toggle).toBeChecked()
+    expect(group).not.toHaveClass('is-disabled')
+  })
+
+  it('drops Mongo result fields into the filter group under the pointer', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(<BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }))
+
+    const firstGroup = filterGroup('Group 1')
+    const secondGroup = filterGroup('Group 2')
+    dropField(secondGroup, 'category')
+
+    expect(within(firstGroup).queryByLabelText('Filter field')).not.toBeInTheDocument()
+    expect(within(secondGroup).getByLabelText('Filter field')).toHaveValue('category')
+    expect(onBuilderStateChange).toHaveBeenCalledTimes(3)
+  })
+
   it('treats the whole Mongo builder panel as a valid field drop target', () => {
     const onBuilderStateChange = vi.fn()
 
@@ -726,6 +796,10 @@ function sqlTab(): QueryTabState {
 
 function section(title: string) {
   return screen.getByRole('heading', { name: title }).closest('section') as HTMLElement
+}
+
+function filterGroup(label: string) {
+  return screen.getByLabelText(`Filter group ${label}`) as HTMLElement
 }
 
 function dropField(target: HTMLElement, field: string) {

@@ -30,12 +30,14 @@ const VALUE_TYPES: Array<{ value: MongoBuilderValueType; label: string }> = [
 ]
 
 export function MongoFilterBuilderSection({
+  activeFilterGroupId,
   dragActive,
   draft,
   filterGroups,
   updateDraft,
-}: MongoFindSectionProps) {
+}: MongoFindSectionProps & { activeFilterGroupId?: string }) {
   const hasExplicitGroups = filterGroups.length > 0
+  const standaloneRows = draft.filters.filter((row) => !row.groupId)
 
   return (
     <BuilderSection
@@ -50,21 +52,14 @@ export function MongoFilterBuilderSection({
           filterGroups,
           filters: [
             ...draft.filters,
-            mongoFilterRowFromDroppedField(
-              hasExplicitGroups ? filterGroups[0]?.id : undefined,
-              field,
-              payload,
-            ),
+            mongoFilterRowFromDroppedField(undefined, field, payload),
           ],
         })
       }
       onSecondaryAdd={() =>
         updateDraft({
           filterGroups,
-          filters: [
-            ...draft.filters,
-            mongoFilterRow(hasExplicitGroups ? filterGroups[0]?.id : undefined),
-          ],
+          filters: [...draft.filters, mongoFilterRow(undefined)],
         })
       }
       onAdd={() =>
@@ -75,6 +70,7 @@ export function MongoFilterBuilderSection({
               ? defaultFilterGroup()
               : {
                   id: rowId('filter-group'),
+                  enabled: true,
                   label: `Group ${filterGroups.length + 1}`,
                   logic: 'and',
                 },
@@ -82,12 +78,14 @@ export function MongoFilterBuilderSection({
         })
       }
     >
-      {draft.filters.length === 0 ? <p className="query-builder-empty">No filters.</p> : null}
-      {!hasExplicitGroups && draft.filters.length > 0 ? (
+      {draft.filters.length === 0 && !hasExplicitGroups ? (
+        <p className="query-builder-empty">No filters.</p>
+      ) : null}
+      {standaloneRows.length > 0 ? (
         <FilterRows
           draft={draft}
           filterGroups={filterGroups}
-          rows={draft.filters}
+          rows={standaloneRows}
           updateDraft={updateDraft}
         />
       ) : null}
@@ -97,6 +95,7 @@ export function MongoFilterBuilderSection({
           filterGroups={filterGroups}
           group={group}
           key={group.id}
+          dragActive={activeFilterGroupId === group.id}
           updateDraft={updateDraft}
         />
       ))}
@@ -106,15 +105,37 @@ export function MongoFilterBuilderSection({
 
 function FilterGroup({
   draft,
+  dragActive,
   filterGroups,
   group,
   updateDraft,
-}: MongoFindSectionProps & { group: MongoFindFilterGroup }) {
-  const rows = draft.filters.filter((row) => (row.groupId ?? filterGroups[0]?.id) === group.id)
+}: MongoFindSectionProps & { dragActive?: boolean; group: MongoFindFilterGroup }) {
+  const rows = draft.filters.filter((row) => row.groupId === group.id)
 
   return (
-    <div className="query-builder-filter-group">
+    <div
+      aria-label={`Filter group ${group.label}`}
+      className={`query-builder-filter-group${dragActive ? ' is-drag-over' : ''}${
+        group.enabled === false ? ' is-disabled' : ''
+      }`}
+      data-query-builder-drop-zone={`filters:${group.id}`}
+    >
       <div className="query-builder-filter-group-header">
+        <label className="query-builder-toggle">
+          <input
+            aria-label={`Apply group ${group.label}`}
+            title={group.enabled === false ? `Enable ${group.label}` : `Disable ${group.label}`}
+            type="checkbox"
+            checked={group.enabled ?? true}
+            onChange={(event) =>
+              updateDraft({
+                filterGroups: filterGroups.map((item) =>
+                  item.id === group.id ? { ...item, enabled: event.target.checked } : item,
+                ),
+              })
+            }
+          />
+        </label>
         <strong>{group.label}</strong>
         <label>
           <span>Match</span>
@@ -147,24 +168,20 @@ function FilterGroup({
         >
           Add Filter
         </button>
-        {filterGroups.length > 1 ? (
-          <button
-            type="button"
-            className="query-builder-remove query-builder-remove--icon"
-            aria-label={`Remove ${group.label}`}
-            title={`Remove ${group.label}`}
-            onClick={() =>
-              updateDraft({
-                filterGroups: filterGroups.filter((item) => item.id !== group.id),
-                filters: draft.filters.filter(
-                  (row) => (row.groupId ?? filterGroups[0]?.id) !== group.id,
-                ),
-              })
-            }
-          >
-            <TrashIcon className="toolbar-icon" />
-          </button>
-        ) : null}
+        <button
+          type="button"
+          className="query-builder-remove query-builder-remove--icon"
+          aria-label={filterGroups.length === 1 ? `Clear ${group.label}` : `Remove ${group.label}`}
+          title={filterGroups.length === 1 ? `Clear ${group.label}` : `Remove ${group.label}`}
+          onClick={() =>
+            updateDraft({
+              filterGroups: filterGroups.filter((item) => item.id !== group.id),
+              filters: draft.filters.filter((row) => row.groupId !== group.id),
+            })
+          }
+        >
+          <TrashIcon className="toolbar-icon" />
+        </button>
       </div>
       {rows.length === 0 ? <p className="query-builder-empty">No filters in this group.</p> : null}
       <FilterRows

@@ -6,7 +6,6 @@ import type {
   MongoFindFilterRow,
   QueryBuilderState,
 } from '@datapadplusplus/shared-types'
-import { normalizeFilterGroups } from './mongo-find-defaults'
 export { defaultFilterGroup, normalizeFilterGroups } from './mongo-find-defaults'
 export { parseMongoFindQueryText } from './mongo-find-parser'
 
@@ -85,27 +84,39 @@ export function buildMongoFindQueryText(state: MongoFindBuilderState): string {
 }
 
 export function buildMongoFilter(state: Pick<MongoFindBuilderState, 'filters' | 'filterGroups'>): Record<string, unknown> {
-  const groups = normalizeFilterGroups(state.filterGroups)
+  const groups = state.filterGroups ?? []
+  const standaloneExpression = combineFilterExpressions(
+    state.filters
+      .filter((row) => (row.enabled ?? true) && !row.groupId)
+      .map(buildMongoFilterExpression)
+      .filter((expression) => Object.keys(expression).length > 0),
+    'and',
+  )
   const groupExpressions = groups
+    .filter((group) => group.enabled ?? true)
     .map((group) => {
       const rowExpressions = state.filters
-        .filter((row) => (row.enabled ?? true) && (row.groupId ?? groups[0]?.id) === group.id)
+        .filter((row) => (row.enabled ?? true) && row.groupId === group.id)
         .map(buildMongoFilterExpression)
         .filter((expression) => Object.keys(expression).length > 0)
 
       return combineFilterExpressions(rowExpressions, group.logic)
     })
     .filter((expression) => Object.keys(expression).length > 0)
+  const expressions = [
+    ...(Object.keys(standaloneExpression).length > 0 ? [standaloneExpression] : []),
+    ...groupExpressions,
+  ]
 
-  if (groupExpressions.length === 0) {
+  if (expressions.length === 0) {
     return {}
   }
 
-  if (groupExpressions.length === 1) {
-    return groupExpressions[0] ?? {}
+  if (expressions.length === 1) {
+    return expressions[0] ?? {}
   }
 
-  return { $and: groupExpressions }
+  return { $and: expressions }
 }
 
 function buildMongoFilterExpression(row: MongoFindFilterRow): Record<string, unknown> {

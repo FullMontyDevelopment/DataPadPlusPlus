@@ -179,6 +179,7 @@ export interface MongoFindFilterRow {
 
 export interface MongoFindFilterGroup {
   id: string
+  enabled?: boolean
   label: string
   logic: 'and' | 'or'
 }

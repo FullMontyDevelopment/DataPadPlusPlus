@@ -206,12 +206,12 @@ function MongoFindBuilder({
     }
   }, [draft, onBuilderStateChange, tab.id])
 
-  const addDroppedFilter = useCallback((payload: FieldDragPayload) => {
+  const addDroppedFilter = useCallback((payload: FieldDragPayload, groupId?: string) => {
     updateDraft({
       filterGroups,
       filters: [
         ...draft.filters,
-        mongoFilterRowFromDroppedField(filterGroups[0]?.id, payload.fieldPath, payload),
+        mongoFilterRowFromDroppedField(groupId, payload.fieldPath, payload),
       ],
     })
   }, [draft.filters, filterGroups, updateDraft])
@@ -232,12 +232,14 @@ function MongoFindBuilder({
   }, [draft.sort, filterGroups, updateDraft])
 
   const addDroppedPayload = useCallback((payload: FieldDragPayload, dropZone: string | undefined) => {
+    const filterGroupId = filterGroupIdFromDropZone(dropZone)
+
     if (dropZone === 'projection') {
       addDroppedProjection(payload.fieldPath)
     } else if (dropZone === 'sort') {
       addDroppedSort(payload.fieldPath)
     } else {
-      addDroppedFilter(payload)
+      addDroppedFilter(payload, filterGroupId)
     }
   }, [addDroppedFilter, addDroppedProjection, addDroppedSort])
 
@@ -296,6 +298,7 @@ function MongoFindBuilder({
   const handleBuilderDragOver = (event: DragEvent<HTMLElement>) => {
     if (acceptFieldDrag(event)) {
       setBuilderDragActive((current) => current || true)
+      setActiveDropZone(queryBuilderDropZoneFromEvent(event) ?? 'filters')
     }
   }
 
@@ -370,6 +373,7 @@ function MongoFindBuilder({
       </div>
 
       <MongoFilterBuilderSection
+        activeFilterGroupId={filterGroupIdFromDropZone(activeDropZone)}
         draft={draft}
         dragActive={activeDropZone === 'filters'}
         filterGroups={filterGroups}
@@ -404,6 +408,10 @@ function queryBuilderDropZoneFromEvent(event: DragEvent<HTMLElement>) {
 
   const dropZone = target.closest<HTMLElement>('[data-query-builder-drop-zone]')
   return dropZone?.dataset.queryBuilderDropZone
+}
+
+function filterGroupIdFromDropZone(dropZone: string | undefined) {
+  return dropZone?.startsWith('filters:') ? dropZone.slice('filters:'.length) : undefined
 }
 
 function queryBuilderDropZoneFromPoint(clientX: number, clientY: number) {
