@@ -11,6 +11,7 @@ Preferred approach:
 - redact secret values in logs, previews, and exports by default
 - require explicit opt-in for any export that includes secrets
 - keep connection tests and diagnostics from echoing raw passwords, tokens, private keys, or connection strings
+- clear secret drafts after save, test, import, export, and close flows where possible
 
 ## Environment safeguards
 
@@ -68,7 +69,17 @@ The native layer should support:
 - app-level locking after inactivity
 - optional master password or biometric unlock when feasible
 - encrypted exports for portable artifacts
+- SHA-256 integrity verification inside encrypted workspace bundles
+- opt-in encrypted auto-backups with passphrases stored only through the secret store
 - clear separation between UI code and privileged native commands
+
+## Workspace bundles and backups
+
+Workspace bundles are encrypted `.datapadpp-workspace` files. Normal exports include workspace structure, connection metadata, Library items, environments, and non-secret variable metadata. Secret values are excluded unless the user explicitly chooses to include passwords/secrets.
+
+When secrets are included, they must be resolved from `SecretRef`s and stored only inside the encrypted secret envelope. New bundles include encrypted integrity metadata so import can reject corrupted or tampered bundles before applying workspace state or restoring secrets.
+
+Auto-backups are opt-in, encrypted, and rotated. The auto-backup passphrase must be stored as a secret reference, not as workspace plaintext.
 
 ## Compatibility fallbacks
 

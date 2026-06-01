@@ -12,6 +12,7 @@ Cover:
 - capability-driven UI selection
 - connection configuration validation
 - result renderer selection
+- result export serializers and save-dialog command routing
 - Library migration and save-target transformations
 - query-builder generation and raw synchronization
 - safe edit planning helpers
@@ -31,6 +32,8 @@ Cover:
 - explorer and scoped query creation flows
 - bottom-panel tab validation, including Results, Messages, Query History, and Details
 - result paging and virtualization guardrails
+- per-tab concurrent execution, stale completion handling, and visible render timing
+- workspace bundle export/import integrity, optional secret inclusion, and auto-backup rotation
 - permission inspection and disabled-action rendering
 - dependency-free adapter contract behavior
 
@@ -106,5 +109,6 @@ Feature work should add tests near the product slice being changed:
 - result tests for table rendering, document trees, paging, type badges, double-click editing, copy/export, runtime footer, and history tabs
 - adapter contract tests for manifests, experience manifests, explorers, operations, permissions, diagnostics, and payload normalization
 - guardrail tests for read-only mode, production safe mode, missing primary keys, scan/cost warnings, and destructive preview-only behavior
+- datastore-specific query guard tests for native read surfaces and preview-only admin commands, such as CockroachDB `SHOW JOBS` versus `BACKUP` or `EXPLAIN ANALYZE`
 
 Do not push all new coverage into `App.test.tsx` by default. Use focused component or module tests when behavior belongs to a specific slice.

@@ -45,7 +45,7 @@ When folders in the Library have environments, child folders and files inherit t
 
 ## Exploring Datastores
 
-The Connections panel and Explorer tabs let you browse a datastore before querying it. The tree changes based on the datastore type.
+The Library connection tree and Explorer tabs let you browse a datastore before querying it. The tree changes based on the datastore type.
 
 For SQL databases, DataPad++ can show objects such as:
 
@@ -125,6 +125,8 @@ Current query experiences include:
 
 When a builder is available, the toolbar shows the modes that make sense for that datastore. MongoDB, for example, offers Query Builder, Raw, and Scripting. Redis offers Key Browser and Console. SQL tabs open as editors by default, and scoped table or view actions can open a SELECT builder when useful.
 
+SQL-family Explorer tabs can also open a visual table and relationship workspace for understanding schemas, columns, and joins before writing SQL.
+
 ## MongoDB Experience
 
 MongoDB gets a document-first workflow.
@@ -179,6 +181,7 @@ You can:
 - open scoped queries from tables and views
 - run raw SQL
 - use a SELECT builder for simple table queries
+- open a visual table and relationship explorer with schema filtering, focused graph layout, declared foreign keys, optional inferred links, and table inspectors
 - inspect result tables with a grid-like interface
 - copy selected cells or rows with keyboard shortcuts
 - view schema and diagnostics where supported
@@ -191,6 +194,8 @@ PostgreSQL workspaces include compact storage, index-health, security, and activ
 SQL Server and Azure SQL workspaces include compact storage, index, workload, security, and Agent posture panels. Guarded previews cover `UPDATE STATISTICS`, index rebuild/reorganize/disable/enable workflows, and Query Store workload review.
 
 CockroachDB workspaces include compact table, cluster, locality, job, contention, and security posture panels for distributed SQL signals. Guarded previews cover jobs, ranges, regions, sessions, contention, roles/grants, zone configuration, backup, restore, and import workflows.
+
+CockroachDB live SQL execution is read-oriented. Native inspection commands such as `SHOW JOBS`, `SHOW RANGES`, and `SHOW CLUSTER SETTING` are allowed, while Cockroach-specific administrative work such as `BACKUP`, `RESTORE`, `IMPORT`, `EXPORT`, range movement, job control, and `EXPLAIN ANALYZE` use guarded preview flows.
 
 MySQL and MariaDB expose Workbench-style storage, index, security, session, status, slow-query, InnoDB, and replication surfaces where metadata is available. Maintenance actions such as check, analyze, optimize, repair, and scheduled event enable/disable are shown as guarded previews rather than raw command dumps.
 
@@ -272,6 +277,8 @@ DataPad++ can help you:
 
 The Results panel is one of the main parts of the app. It is designed for repeated database work, not just showing a blob of JSON.
 
+The export action opens an interactive dialog instead of silently preparing a hidden download. DataPad++ offers formats that fit the current payload, such as CSV for tables, JSON/NDJSON for documents, TXT for raw values, and JSON for graph or key-value payloads.
+
 ### Table Results
 
 Table results support:
@@ -297,6 +304,7 @@ Document results combine a table and a tree:
 - fields can be dragged into query builders
 - editing starts only on double-click or explicit context-menu actions
 - document-family results can page through large responses
+- efficiency mode can fetch only top-level document fields and hydrate nested nodes on expand when no explicit projection is present
 
 ### Key-Value Results
 
@@ -312,14 +320,30 @@ The Library replaces a simple saved-query list with a richer workspace for reusa
 
 You can save:
 
+- connections
 - queries
 - scripts
+- tests
 - snippets
 - notes
 - bookmarks
 - snapshots
 
-The Library supports folders, nested folders, drag-and-drop moves, rename/delete actions, recents, and environment inheritance. Saving a query can target either the Library or a local file.
+The Library supports folders, nested folders, drag-and-drop moves, rename/delete actions, recents, environments, and environment inheritance. Saving a query can target either the Library or a local file, and new saved queries default beside the active connection when possible.
+
+## Settings, Workspace Bundles, And Backups
+
+Settings open as a closeable workbench tab, not a drawer. The left menu groups Appearance, Workspace, Backups, Security, Shortcuts, and Health so each page stays focused.
+
+Workspace export and import are file-first:
+
+- export writes an encrypted `.datapadpp-workspace` file through the system save dialog
+- import reads a selected workspace file through the system file picker and requires the passphrase
+- optional password/secret inclusion is explicit and remains inside the encrypted bundle
+- new bundles include encrypted SHA-256 integrity metadata and are verified before import
+- auto-backups are opt-in, encrypted, passphrase-protected, and rotate to keep a maximum of 20 snapshots
+
+See [Settings, Workspace Bundles, And Backups](settings-and-workspace.md) for the full workflow.
 
 ## Safe Editing
 

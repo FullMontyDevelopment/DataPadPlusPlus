@@ -40,6 +40,7 @@ DataPad++ is built to make that easier:
 - guarded previews for destructive or admin work
 - environments, variables, and secret-safe workflows
 - a Library for saved queries, scripts, tests, notes, and connection folders
+- file-based encrypted workspace exports, optional secret-inclusive bundles, and opt-in auto-backups
 
 The goal is not to flatten every datastore into a generic table viewer. The goal is to make each datastore feel like it has its own purpose-built IDE inside the same app.
 
@@ -94,6 +95,7 @@ Different datastores want different tools. DataPad++ adapts the query window to 
 - Redis and Valkey open in a native key browser, with a Redis console available when you want commands.
 - Document results can feed fields back into query builders by drag and drop.
 - Scoped object actions can open a query already aimed at a collection, table, keyspace, index, or view.
+- SQL-family connections can open a visual table-and-relationship explorer with focused graph loading, declared relationships, optional inferred links, and guarded schema-operation previews.
 
 Where visual builders exist, they update the actual query immediately. You can learn from the generated query, adjust it, save it, or switch back to the visual mode later.
 
@@ -141,6 +143,8 @@ It is growing into a full datastore workbench with:
 - metrics dashboards where the datastore exposes useful counters
 - explain plan rendering, including a purpose-built MongoDB explain UI
 - test-suite workspaces for datastore-specific setup, execute, assert, and teardown flows
+- interactive result export through Save As dialogs with datastore-appropriate formats such as CSV, JSON, NDJSON, and text
+- per-tab concurrent execution so long-running queries do not block other tabs
 
 Many admin operations are intentionally preview-first. If an action can drop, overwrite, lock, scan heavily, or affect production data, DataPad++ should make that obvious before anything runs.
 
@@ -183,6 +187,9 @@ DataPad++ is designed around a simple rule: make dangerous work visible, and kee
 - Saved Library items open once, so you do not accidentally edit two copies of the same thing.
 - Environment variables are suggested while typing `{{` in supported editors.
 - Query tabs show datastore icons, running state, error state, and unsaved state separately.
+- Settings open as a normal closeable tab, with Appearance, Workspace, Backups, Security, Shortcuts, and Health sections.
+- Workspace bundles are encrypted files with integrity verification; optional password inclusion stays encrypted and explicit.
+- SQL relationship diagrams show table cards, columns, relationship ends, and focused inspectors without rendering an entire enterprise schema at once.
 
 ## Pre-Release Expectations
 
@@ -272,6 +279,7 @@ See [Docker Fixtures](tests/fixtures/README.md) for connection details and comma
 - [Feature Guide](docs/features.md)
 - [Development Guide](docs/contributing/development.md)
 - [Testing Strategy](docs/testing/strategy.md)
+- [Settings, Workspace Bundles, And Backups](docs/settings-and-workspace.md)
 - [Architecture Overview](docs/architecture/overview.md)
 - [Datastore Adapter Roadmap](docs/architecture/datastore-adapter-roadmap.md)
 - [Datastore Readiness And Completion Plan](docs/architecture/datastore-readiness.md)

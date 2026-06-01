@@ -15,14 +15,16 @@ The repository now includes the DataPad++ rename, the current desktop workbench,
 Current live or partially live product surfaces include:
 
 - explicit connection creation and save behavior
-- connection context menus for New Query, Explore, Edit Connection, duplicate, and delete-style workflows
+- unified Library connection context menus for New Query, Explore, Metrics, Edit Connection, duplicate, folder placement, environment, and delete-style workflows
 - explorer and object-tree surfaces that vary by datastore family
 - query builders for MongoDB find/aggregation, SQL SELECT, DynamoDB key condition, Cassandra partition-key CQL, and search Query DSL
 - datastore-specific query modes such as MongoDB Query Builder/Raw/Scripting, Redis Key Browser/Console, and raw SQL defaults for SQL engines
-- rich table and document result renderers, document-only paging, non-document virtualization, result runtime footer, query history, messages, and details
+- rich table and document result renderers, document-only paging, document efficiency mode, non-document virtualization, result export dialogs, result runtime footer, query history, messages, and details
 - drag-and-drop document fields into filters, projection, and sort builder sections
+- SQL visual table-and-relationship exploration with focused graph layout and guarded relationship/schema actions
 - safe edit planning/execution for supported natural data edits
 - guarded operation plans for admin/destructive/costly actions
+- Settings as a closeable workbench tab with file-based workspace import/export, encrypted bundle integrity, optional secret inclusion, opt-in auto-backups, and curated themes
 - datastore completeness tracking in `packages/shared-types/src/datastore-completeness.ts`
 - a current production-readiness reference in [Datastore Readiness And Completion Plan](datastore-readiness.md)
 - Docker fixture profiles with deterministic seed data
@@ -224,7 +226,7 @@ Goals:
 | Datastore | Family | Query / API | Maturity Target | Feature Stories |
 | --- | --- | --- | --- | --- |
 | PostgreSQL | `sql` | SQL | `mvp` | Connect, schema/table/view/function browser, row/table querying, compact storage/index/security/activity panels, DDL plans, index plans, `EXPLAIN`, guarded `EXPLAIN ANALYZE`, locks/sessions, `pg_stat*`, vacuum/analyze/reindex helpers. |
-| CockroachDB | `sql` | SQL / PostgreSQL wire | `mvp` | PostgreSQL-compatible connection, databases/schemas/tables/indexes/constraints, compact table/cluster/locality/job/contention/security panels, ranges, regions/localities, jobs, sessions, contention, roles/grants, cluster/node status, `SHOW JOBS`, `SHOW ROLES`, guarded `EXPLAIN ANALYZE (DISTSQL)`, backup/restore/import, and zone-config previews. |
+| CockroachDB | `sql` | SQL / PostgreSQL wire | `mvp` | PostgreSQL-compatible connection, databases/schemas/tables/indexes/constraints, compact table/cluster/locality/job/contention/security panels, ranges, regions/localities, jobs, sessions, contention, roles/grants, cluster/node status, read-safe `SHOW JOBS`, `SHOW RANGES`, `SHOW CLUSTER SETTING`, guarded `EXPLAIN ANALYZE (DISTSQL)`, backup/restore/import/export, job-control, range-movement, and zone-config previews. |
 | SQL Server / Azure SQL | `sql` | T-SQL | `mvp` | Schema/table/view/procedure/index browser, DDL plans, T-SQL editor, compact storage/index/workload/security/Agent panels, estimated/actual plans, Query Store workload previews, DMV dashboards, role/permission inspection, and guarded statistics/index maintenance previews. |
 | MySQL | `sql` | SQL | `mvp` | Workbench-style table/column/index/FK/routine browser, storage/index/security/diagnostics panels, DESCRIBE/SHOW helpers, SQL editor, EXPLAIN/ANALYZE, user@host grants, and guarded check/analyze/optimize/repair/event previews. |
 | MariaDB | `sql` | SQL | `mvp` | MySQL-compatible surfaces plus MariaDB roles, MariaDB EXPLAIN/ANALYZE output, engine/status panels, grants, routines, and guarded table/event maintenance previews. |

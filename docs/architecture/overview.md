@@ -10,11 +10,12 @@ For the current end-user surface, start with the [Feature Guide](../features.md)
 
 The React desktop shell owns:
 
-- activity-bar navigation, sidebars, drawers, bottom panels, and editor layout
+- the unified Library sidebar, closeable workbench tabs, settings workspace, bottom/right results panels, and editor layout
 - connection and environment forms, including explicit draft/save workflows
 - connection trees, explorer panels, object context menus, and datastore icons
 - query tabs, query toolbar controls, raw editors, and visual query builders
 - result renderers for table, document, JSON, key-value, search, graph, raw, schema, plans, profiles, metrics, and history
+- interactive result-export dialogs and payload serializers
 - user-facing guardrail states such as read-only badges, disabled reasons, and operation previews
 
 The shell should remain capability-aware through adapter and experience manifests. Engine-specific labels are fine at the edge of the UI, but behavior should not be scattered across arbitrary engine-name checks.
@@ -28,8 +29,10 @@ The application layer coordinates:
 - explicit query-tab creation, scoped query creation, and closed-tab recovery
 - environment variable resolution and sensitive-value redaction
 - query execution requests, result paging, result history, and query history
+- per-tab execution state, stale-result protection, visible render timing, and concurrent tab execution
 - safe edit planning/execution and guarded operation previews
 - explorer loading, diagnostics loading, permission inspection, and unavailable-action reasons
+- workspace bundle file export/import, encrypted integrity verification, and auto-backup preferences
 
 Opening a query tab is intentionally a pure editor action. Selecting a connection should not create a tab or open the connection drawer; connection editing is explicit.
 
@@ -84,7 +87,8 @@ The Tauri native host and infrastructure modules provide:
 5. The application layer resolves variables, evaluates read-only/safe-mode guardrails, and dispatches to the Rust runtime.
 6. The adapter executes the read request or returns a guarded plan.
 7. Results are normalized into renderer payloads and routed to the results workbench.
-8. Users can inspect, copy, export, page document results, drag document fields into builders, view history/details/messages, or plan safe edits.
+8. The active tab stays busy until the first visible result render completes.
+9. Users can inspect, copy, export through a Save As dialog, page document results, drag document fields into builders, view history/details/messages, or plan safe edits.
 
 ## Current Boundaries
 
