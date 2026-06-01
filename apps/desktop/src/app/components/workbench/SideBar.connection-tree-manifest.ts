@@ -3,6 +3,14 @@ import type {
   DatastoreTreeNodeManifest,
 } from '@datapadplusplus/shared-types'
 import { redisKeyBrowserQueryTemplate } from './SideBar.datastore-tree-registry'
+import { normalizeKind } from './SideBar.connection-tree-manifest-common'
+import {
+  isRedisLikeConnection,
+  redisDatabaseIndexFromPath,
+  redisManifestNodeId,
+  redisManifestNodeScope,
+} from './SideBar.connection-tree-manifest-redis'
+import { searchManifestNodeId } from './SideBar.connection-tree-manifest-search'
 import {
   sqlManifestNodeId,
   sqlManifestNodeScope,
@@ -112,155 +120,6 @@ export function manifestTreeNodeQueryConfig(
     builderKind: 'redis-key-browser' as const,
     queryTemplate: redisKeyBrowserQueryTemplate('*', 100, databaseIndex),
   }
-}
-
-function isRedisLikeConnection(connection: ConnectionProfile) {
-  return connection.engine === 'redis' || connection.engine === 'valkey'
-}
-
-function redisManifestNodeId(
-  connection: ConnectionProfile,
-  kind: string,
-  label: string,
-  parentPath: string[],
-) {
-  const normalizedKind = normalizeKind(kind)
-  const typeKind = redisBrowserTypeKind(normalizedKind)
-
-  if (normalizedKind === 'databases') return 'redis:databases'
-  if (normalizedKind === 'database') {
-    return `redis:db:${redisDatabaseIndexFromPath(connection, label, parentPath)}`
-  }
-  if (typeKind) {
-    return `redis:db:${redisDatabaseIndexFromPath(connection, label, parentPath)}:${typeKind}`
-  }
-  if (normalizedKind === 'cluster') return 'redis:cluster'
-  if (normalizedKind === 'sentinel') return 'redis:sentinel'
-  if (normalizedKind === 'lua-scripts') return 'redis:lua-scripts'
-  if (normalizedKind === 'functions') return 'redis:functions'
-  if (normalizedKind === 'security') return 'redis:acl'
-  if (normalizedKind === 'diagnostics') return 'redis:diagnostics'
-
-  return `redis:${normalizedKind || normalizeKind(label) || 'object'}`
-}
-
-function redisManifestNodeScope(
-  connection: ConnectionProfile,
-  kind: string,
-  label: string,
-  parentPath: string[],
-) {
-  const normalizedKind = normalizeKind(kind)
-  const typeKind = redisBrowserTypeKind(normalizedKind)
-
-  if (normalizedKind === 'databases') return 'databases'
-  if (normalizedKind === 'database') {
-    return `db:${redisDatabaseIndexFromPath(connection, label, parentPath)}`
-  }
-  if (typeKind) {
-    return `db:${redisDatabaseIndexFromPath(connection, label, parentPath)}:type:${typeKind}`
-  }
-  if (normalizedKind === 'cluster') return 'cluster'
-  if (normalizedKind === 'sentinel') return 'sentinel'
-  if (normalizedKind === 'lua-scripts') return 'lua-scripts'
-  if (normalizedKind === 'functions') return 'functions'
-  if (normalizedKind === 'security') return 'acl'
-  if (normalizedKind === 'diagnostics') return 'diagnostics'
-
-  return undefined
-}
-
-function redisBrowserTypeKind(kind: string) {
-  switch (kind) {
-    case 'keys':
-      return 'keys'
-    case 'strings':
-      return 'string'
-    case 'hashes':
-      return 'hash'
-    case 'lists':
-      return 'list'
-    case 'sets':
-      return 'set'
-    case 'sorted-sets':
-      return 'zset'
-    case 'streams':
-      return 'stream'
-    case 'json':
-      return 'json'
-    case 'time-series':
-      return 'timeseries'
-    case 'bloom':
-    case 'bloom-filters':
-      return 'bloom'
-    case 'search-indexes':
-      return 'search-index'
-    case 'vector-indexes':
-      return 'vectorset'
-    case 'pubsub':
-      return 'pubsub'
-    default:
-      return undefined
-  }
-}
-
-function redisDatabaseIndexFromPath(
-  connection: ConnectionProfile,
-  label: string,
-  parentPath: string[],
-) {
-  const candidate = [...parentPath, label]
-    .map((part) => /^DB\s+(\d+)$/i.exec(part.trim())?.[1])
-    .find(Boolean)
-
-  if (candidate) return Math.max(0, Number.parseInt(candidate, 10))
-
-  if (Number.isFinite(connection.redisOptions?.databaseIndex)) {
-    return Math.max(0, Math.trunc(connection.redisOptions?.databaseIndex ?? 0))
-  }
-
-  const parsedConnectionDatabase = Number.parseInt(connection.database ?? '', 10)
-  return Number.isFinite(parsedConnectionDatabase)
-    ? Math.max(0, parsedConnectionDatabase)
-    : 0
-}
-
-function searchManifestNodeId(kind: string, label: string, parentPath: string[]) {
-  const normalizedKind = normalizeKind(kind)
-  const normalizedLabel = normalizeKind(label)
-  const underCluster = parentPath.includes('Cluster')
-  const underTemplates = parentPath.includes('Templates')
-  const underSecurity = parentPath.includes('Security')
-  const underDiagnostics = parentPath.includes('Diagnostics')
-
-  if (normalizedKind === 'cluster') return 'search:cluster'
-  if (underCluster) {
-    return normalizedKind === 'shards'
-      ? 'search:cluster:allocation'
-      : `search:cluster:${normalizedKind || normalizedLabel}`
-  }
-  if (normalizedKind === 'indices') return 'search:indices'
-  if (normalizedKind === 'data-streams') return 'search:data-streams'
-  if (normalizedKind === 'aliases') return 'search:aliases'
-  if (normalizedKind === 'templates') return 'search:templates'
-  if (underTemplates) {
-    return normalizedLabel.includes('component')
-      ? 'search:templates:component'
-      : 'search:templates:index'
-  }
-  if (normalizedKind === 'pipelines') return 'search:pipelines'
-  if (normalizedKind === 'security') return 'search:security'
-  if (underSecurity && ['users', 'roles', 'api-keys'].includes(normalizedKind)) {
-    return `search:security:${normalizedKind}`
-  }
-  if (normalizedKind === 'diagnostics') return 'search:diagnostics'
-  if (underDiagnostics) {
-    return normalizedKind === 'lifecycle-policies'
-      ? 'search:diagnostics:lifecycle'
-      : `search:diagnostics:${normalizedKind || normalizedLabel}`
-  }
-
-  return `search:${normalizedKind || normalizedLabel || 'object'}`
 }
 
 function dynamoManifestNodeId(kind: string, label: string, parentPath: string[]) {
@@ -491,8 +350,4 @@ function isCosmosCategory(label: string) {
     'Security',
     'Diagnostics',
   ].includes(label)
-}
-
-function normalizeKind(value: string) {
-  return value.trim().toLowerCase().replace(/[_\s]+/g, '-')
 }

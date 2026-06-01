@@ -313,7 +313,7 @@ export function BottomPanel({
               )
             }
           >
-            <ChevronUpPseudo />
+            <ChevronRightIcon className="panel-inline-icon panel-inline-icon--up" />
           </button>
           <button
             type="button"
@@ -433,8 +433,4 @@ function getMaxPanelWidth(panelElement?: HTMLElement | null) {
     MIN_RESULTS_SIDE_WIDTH,
     Math.min(MAX_RESULTS_SIDE_WIDTH, availableWidth - MIN_EDITOR_WIDTH_WITH_RIGHT_RESULTS),
   )
-}
-
-function ChevronUpPseudo() {
-  return <ChevronRightIcon className="panel-inline-icon panel-inline-icon--up" />
 }

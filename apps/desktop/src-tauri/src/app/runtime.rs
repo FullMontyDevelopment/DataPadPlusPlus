@@ -18,6 +18,7 @@ mod profile_options_timeseries;
 mod profile_options_warehouse;
 mod profiles;
 mod query_tabs;
+mod query_tabs_scoped;
 mod response_redaction;
 mod response_redaction_keys;
 mod saved_work;

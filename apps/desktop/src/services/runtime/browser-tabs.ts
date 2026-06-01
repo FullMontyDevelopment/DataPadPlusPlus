@@ -54,7 +54,7 @@ export function createExplorerTabInSnapshot(
 
   const tab: QueryTabState = {
     id: createId('tab'),
-    title: uniqueExplorerTabTitle(next, connection),
+    title: uniqueExactTabTitle(next, `Explorer - ${connection.name}`),
     tabKind: 'explorer',
     connectionId: connection.id,
     environmentId: effectiveConnectionEnvironmentId(next, connection),
@@ -108,7 +108,7 @@ export function createMetricsTabInSnapshot(
 
   const tab: QueryTabState = {
     id: createId('tab'),
-    title: uniqueMetricsTabTitle(next, connection),
+    title: uniqueExactTabTitle(next, `Metrics - ${connection.name}`),
     tabKind: 'metrics',
     connectionId: connection.id,
     environmentId: resolvedEnvironmentId,
@@ -164,7 +164,7 @@ export function createEnvironmentTabInSnapshot(
     next.connections[0]
   const tab: QueryTabState = {
     id: createId('environment-tab'),
-    title: uniqueEnvironmentTabTitle(next, environment.label),
+    title: uniqueExactTabTitle(next, `Environment - ${environment.label || 'Untitled'}`),
     tabKind: 'environment',
     connectionId: connection?.id ?? '',
     environmentId: environment.id,
@@ -217,7 +217,7 @@ export function createObjectViewTabInSnapshot(
 
   const tab: QueryTabState = {
     id: createId('object-view-tab'),
-    title: uniqueObjectViewTabTitle(next, connection, request),
+    title: uniqueObjectViewTabTitle(next, request, connection.name),
     tabKind: 'object-view',
     connectionId: connection.id,
     environmentId,
@@ -243,8 +243,6 @@ export function createObjectViewTabInSnapshot(
 
   return upsertTab(next, tab)
 }
-
-
 
 export function createScopedQueryTabInSnapshot(
   snapshot: WorkspaceSnapshot,
@@ -481,87 +479,29 @@ function cassandraPartitionKeyFromTarget(target: ScopedQueryTarget) {
   return match?.[1] ?? (target.label.includes('product') ? 'sku' : 'customer_id')
 }
 
-function uniqueExplorerTabTitle(snapshot: WorkspaceSnapshot, connection: ConnectionProfile) {
-  const candidate = `Explorer - ${connection.name}`
-  const titles = new Set(snapshot.tabs.map((tab) => tab.title))
-
-  if (!titles.has(candidate)) {
-    return candidate
-  }
-
-  let index = 2
-  let title = `${candidate} ${index}`
-
-  while (titles.has(title)) {
-    index += 1
-    title = `${candidate} ${index}`
-  }
-
-  return title
-}
-
-function uniqueMetricsTabTitle(snapshot: WorkspaceSnapshot, connection: ConnectionProfile) {
-  const candidate = `Metrics - ${connection.name}`
-  const titles = new Set(snapshot.tabs.map((tab) => tab.title))
-
-  if (!titles.has(candidate)) {
-    return candidate
-  }
-
-  let index = 2
-  let title = `${candidate} ${index}`
-
-  while (titles.has(title)) {
-    index += 1
-    title = `${candidate} ${index}`
-  }
-
-  return title
-}
-
-function uniqueEnvironmentTabTitle(snapshot: WorkspaceSnapshot, environmentLabel: string) {
-  const candidate = `Environment - ${environmentLabel || 'Untitled'}`
-  const titles = new Set(snapshot.tabs.map((tab) => tab.title))
-
-  if (!titles.has(candidate)) {
-    return candidate
-  }
-
-  let index = 2
-  let title = `${candidate} ${index}`
-
-  while (titles.has(title)) {
-    index += 1
-    title = `${candidate} ${index}`
-  }
-
-  return title
-}
-
 function uniqueObjectViewTabTitle(
   snapshot: WorkspaceSnapshot,
-  connection: ConnectionProfile,
   request: CreateObjectViewTabRequest,
+  connectionName: string,
 ) {
   const parent = request.path?.at(-1)
   const candidate =
     parent && parent !== request.label
       ? `${parent} - ${request.label}`
-      : request.label || `View - ${connection.name}`
-  const titles = new Set(snapshot.tabs.map((tab) => tab.title))
+      : request.label || `View - ${connectionName}`
+  return uniqueExactTabTitle(snapshot, candidate)
+}
 
-  if (!titles.has(candidate)) {
-    return candidate
-  }
+function uniqueExactTabTitle(snapshot: WorkspaceSnapshot, candidate: string) {
+  const titles = new Set(snapshot.tabs.map((tab) => tab.title))
+  if (!titles.has(candidate)) return candidate
 
   let index = 2
   let title = `${candidate} ${index}`
-
   while (titles.has(title)) {
     index += 1
     title = `${candidate} ${index}`
   }
-
   return title
 }
 
@@ -588,8 +528,6 @@ function scopedTargetObjectLabel(target: ScopedQueryTarget, connection: Connecti
   return normalizeScopedTargetLabel(scopedObject ?? target.label)
 }
 
-
-
 export function normalizeScopedTargetLabel(label: string) {
   const trimmed = label.trim()
 
@@ -604,8 +542,6 @@ export function normalizeScopedTargetLabel(label: string) {
     .join('')
     .slice(0, 80)
 }
-
-
 
 export function uniqueScopedQueryTitle(
   snapshot: WorkspaceSnapshot,
@@ -647,8 +583,6 @@ function scopedQueryTitleCandidate(
   }
   return hasBuilder ? `${label}.find.${extension}` : `${label}.${extension}`
 }
-
-
 
 export function mongoFindQueryText(collection: string, limit: number, database?: string) {
   const trimmedDatabase = database?.trim()
@@ -734,8 +668,6 @@ function redisDatabaseIndexFromTarget(target: ScopedQueryTarget) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : undefined
 }
 
-
-
 export function upsertTab(snapshot: WorkspaceSnapshot, tab: QueryTabState): WorkspaceSnapshot {
   const next = cloneSnapshot(snapshot)
   const index = next.tabs.findIndex((item) => item.id === tab.id)
@@ -756,8 +688,6 @@ export function upsertTab(snapshot: WorkspaceSnapshot, tab: QueryTabState): Work
   return next
 }
 
-
-
 export function archiveClosedTab(
   snapshot: WorkspaceSnapshot,
   tab: QueryTabState,
@@ -773,8 +703,6 @@ export function archiveClosedTab(
     ...(snapshot.closedTabs ?? []).filter((item) => item.id !== tab.id),
   ].slice(0, MAX_CLOSED_TABS)
 }
-
-
 
 export function defaultQueryTabTitle(
   snapshot: WorkspaceSnapshot,
@@ -793,8 +721,6 @@ export function defaultQueryTabTitle(
   return title
 }
 
-
-
 export function tabTitleParts(connection: ConnectionProfile) {
   if (connection.engine === 'dynamodb' || connection.family === 'search') {
     return { prefix: 'Query', extension: 'json' }
@@ -810,8 +736,6 @@ export function tabTitleParts(connection: ConnectionProfile) {
 
   return { prefix: 'Query', extension: 'sql' }
 }
-
-
 
 export function renameQueryTab(
   snapshot: WorkspaceSnapshot,
@@ -833,8 +757,6 @@ export function renameQueryTab(
   next.updatedAt = new Date().toISOString()
   return next
 }
-
-
 
 export function closeQueryTab(snapshot: WorkspaceSnapshot, tabId: string): WorkspaceSnapshot {
   const next = cloneSnapshot(snapshot)
@@ -874,8 +796,6 @@ export function closeQueryTab(snapshot: WorkspaceSnapshot, tabId: string): Works
   return next
 }
 
-
-
 export function reorderQueryTabsInSnapshot(
   snapshot: WorkspaceSnapshot,
   request: QueryTabReorderRequest,
@@ -897,8 +817,6 @@ export function reorderQueryTabsInSnapshot(
   next.updatedAt = new Date().toISOString()
   return next
 }
-
-
 
 export function reopenClosedQueryTab(
   snapshot: WorkspaceSnapshot,
