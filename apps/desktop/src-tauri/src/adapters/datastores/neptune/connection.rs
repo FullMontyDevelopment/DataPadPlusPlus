@@ -155,19 +155,21 @@ impl NeptuneEndpoint {
                 "Amazon Neptune requires a host or http:// connection string.",
             ));
         }
-
-        Ok(Self {
-            host: host.into(),
-            port: connection.port.unwrap_or(8182),
-            prefix: connection
+        validate_http_component(host, "Amazon Neptune host")?;
+        let prefix = normalized_prefix(
+            connection
                 .graph_options
                 .as_ref()
                 .and_then(|options| options.path_prefix.as_deref())
                 .or(connection.database.as_deref())
-                .filter(|value| value.starts_with('/'))
-                .unwrap_or("")
-                .trim_end_matches('/')
-                .into(),
+                .filter(|value| value.starts_with('/')),
+        )?
+        .unwrap_or_default();
+
+        Ok(Self {
+            host: host.into(),
+            port: connection.port.unwrap_or(8182),
+            prefix,
         })
     }
 
@@ -199,13 +201,16 @@ impl NeptuneEndpoint {
                 "Amazon Neptune connection string did not include a host.",
             ));
         }
+        validate_http_component(host, "Amazon Neptune host")?;
+        let prefix = match normalized_prefix(prefix_override)? {
+            Some(prefix) => prefix,
+            None => normalized_prefix(Some(path))?.unwrap_or_default(),
+        };
 
         Ok(Self {
             host: host.into(),
             port,
-            prefix: normalized_prefix(prefix_override)
-                .or_else(|| normalized_prefix(Some(path)))
-                .unwrap_or_default(),
+            prefix,
         })
     }
 
@@ -222,13 +227,38 @@ impl NeptuneEndpoint {
     }
 }
 
-fn normalized_prefix(value: Option<&str>) -> Option<String> {
-    let trimmed = value?.trim().trim_matches('/');
+fn normalized_prefix(value: Option<&str>) -> Result<Option<String>, CommandError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().trim_matches('/');
     if trimmed.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(format!("/{trimmed}"))
+        validate_path_prefix(trimmed, "Amazon Neptune path prefix")?;
+        Ok(Some(format!("/{trimmed}")))
     }
+}
+
+fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "neptune-endpoint-invalid",
+            format!("{label} contains an invalid control character."),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_path_prefix(value: &str, label: &str) -> Result<(), CommandError> {
+    validate_http_component(value, label)?;
+    if value.contains('?') || value.contains('#') {
+        return Err(CommandError::new(
+            "neptune-endpoint-invalid",
+            format!("{label} contains an invalid query or fragment separator."),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn neptune_gremlin_body(gremlin: &str) -> String {
@@ -325,5 +355,21 @@ mod tests {
         assert_eq!(endpoint.host, "localhost");
         assert_eq!(endpoint.port, 18182);
         assert_eq!(endpoint.path("/status"), "/neptune/status");
+    }
+
+    #[test]
+    fn neptune_endpoint_rejects_invalid_http_parts() {
+        let host_error = NeptuneEndpoint::from_url("http://local\nhost:18182/neptune").unwrap_err();
+        assert_eq!(host_error.code, "neptune-endpoint-invalid");
+
+        let prefix_error =
+            NeptuneEndpoint::from_url_with_prefix("http://localhost:18182/neptune?x=1", None)
+                .unwrap_err();
+        assert_eq!(prefix_error.code, "neptune-endpoint-invalid");
+
+        let override_error =
+            NeptuneEndpoint::from_url_with_prefix("http://localhost:18182/neptune", Some("bad#x"))
+                .unwrap_err();
+        assert_eq!(override_error.code, "neptune-endpoint-invalid");
     }
 }
