@@ -19,6 +19,7 @@ mod profile_options_warehouse;
 mod profiles;
 mod query_tabs;
 mod response_redaction;
+mod response_redaction_keys;
 mod saved_work;
 mod settings_tabs;
 mod sql_hints;

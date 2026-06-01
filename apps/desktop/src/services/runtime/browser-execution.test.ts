@@ -45,6 +45,35 @@ describe('browser execution runtime', () => {
     expect(executed.tabs.find((item) => item.id === tab.id)?.dirty).toBe(false)
   })
 
+  it('rejects stale execution ids instead of falling back to the first tab or connection', () => {
+    const snapshot = createSeedSnapshot()
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-sql-ops')
+
+    if (!tab) {
+      throw new Error('Expected seed query tab.')
+    }
+
+    expect(() =>
+      applyExecutionRequestLocally(snapshot, {
+        tabId: 'missing-tab',
+        connectionId: tab.connectionId,
+        environmentId: tab.environmentId,
+        language: tab.language,
+        queryText: tab.queryText,
+      }),
+    ).toThrow('Unable to resolve the active execution context.')
+
+    expect(() =>
+      applyExecutionRequestLocally(snapshot, {
+        tabId: tab.id,
+        connectionId: 'missing-connection',
+        environmentId: tab.environmentId,
+        language: tab.language,
+        queryText: tab.queryText,
+      }),
+    ).toThrow('Unable to resolve the active execution context.')
+  })
+
   it('returns deterministic MongoDB explain plan payloads in browser preview', () => {
     const snapshot = createSeedSnapshot()
     const tab = snapshot.tabs.find((item) => item.id === 'tab-mongo-catalog')

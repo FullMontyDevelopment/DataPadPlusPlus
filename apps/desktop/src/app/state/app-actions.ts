@@ -1,5 +1,8 @@
 import { useMemo } from 'react'
-import { findConnection, findEnvironment } from './app-state-selectors'
+import {
+  activeConnectionForSnapshot,
+  activeEnvironmentForSnapshot,
+} from './app-state-selectors'
 import type { Actions, AppActionContext, AppContextValue } from './app-state-types'
 import { useConnectionActions } from './app-actions-connections'
 import { useQueryTabActions } from './app-actions-tabs'
@@ -20,11 +23,11 @@ export function useAppActions(context: AppActionContext): AppActionBindings {
   const snapshot = context.state.payload?.snapshot
   const activeConnection =
     snapshot && snapshot.connections.length > 0
-      ? findConnection(snapshot, snapshot.ui.activeConnectionId)
+      ? activeConnectionForSnapshot(snapshot)
       : undefined
   const activeEnvironment =
     snapshot && snapshot.environments.length > 0
-      ? findEnvironment(snapshot, snapshot.ui.activeEnvironmentId)
+      ? activeEnvironmentForSnapshot(snapshot)
       : undefined
 
   const actions = useMemo<Actions>(

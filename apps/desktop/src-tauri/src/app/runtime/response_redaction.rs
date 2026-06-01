@@ -11,6 +11,8 @@ use crate::domain::{
     },
 };
 
+use super::response_redaction_keys::is_secret_like_payload_key;
+
 const SECRET_REPLACEMENT: &str = "********";
 
 pub(super) fn redact_execution_result_for_environment(
@@ -377,30 +379,4 @@ fn redact_runtime_string(value: &str, secret_values: &[String]) -> String {
         }
     }
     redacted
-}
-
-fn is_secret_like_payload_key(value: &str) -> bool {
-    let normalized = value
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .collect::<String>()
-        .to_lowercase();
-
-    matches!(
-        normalized.as_str(),
-        "password"
-            | "pwd"
-            | "pass"
-            | "token"
-            | "secret"
-            | "secretkey"
-            | "apikey"
-            | "authkey"
-            | "authtoken"
-            | "accesstoken"
-    ) || normalized.contains("password")
-        || normalized.contains("secret")
-        || normalized.contains("token")
-        || normalized.contains("apikey")
-        || normalized.contains("authkey")
 }

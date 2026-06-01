@@ -45,6 +45,7 @@ function sanitizeBrowserSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot
     return {
       ...connection,
       connectionString: undefined,
+      connectionMode: 'native',
     }
   })
   return sanitized
@@ -129,10 +130,7 @@ export function findConnection(
   snapshot: WorkspaceSnapshot,
   connectionId: string,
 ): ConnectionProfile | undefined {
-  return (
-    snapshot.connections.find((item) => item.id === connectionId) ??
-    snapshot.connections[0]
-  )
+  return snapshot.connections.find((item) => item.id === connectionId)
 }
 
 
@@ -141,10 +139,7 @@ export function findEnvironment(
   snapshot: WorkspaceSnapshot,
   environmentId: string,
 ): EnvironmentProfile | undefined {
-  return (
-    snapshot.environments.find((item) => item.id === environmentId) ??
-    snapshot.environments[0]
-  )
+  return snapshot.environments.find((item) => item.id === environmentId)
 }
 
 
@@ -153,7 +148,7 @@ export function findTab(
   snapshot: WorkspaceSnapshot,
   tabId: string,
 ): QueryTabState | undefined {
-  return snapshot.tabs.find((item) => item.id === tabId) ?? snapshot.tabs[0]
+  return snapshot.tabs.find((item) => item.id === tabId)
 }
 
 

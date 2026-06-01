@@ -1,4 +1,19 @@
 import type { ConnectionProfile, ExplorerNode } from '@datapadplusplus/shared-types'
+import {
+  cosmosAccountName,
+  cosmosConsistency,
+  cosmosContainers,
+  cosmosDatabases,
+  cosmosDefaultDatabase,
+  cosmosDiagnostics,
+  cosmosIndexingPolicy,
+  cosmosPartitionKeys,
+  cosmosRegions,
+  cosmosScripts,
+  cosmosSecurity,
+  cosmosThroughput,
+  cosmosWarnings,
+} from './browser-cosmos-explorer-samples'
 
 type JsonRecord = Record<string, unknown>
 
@@ -287,114 +302,6 @@ function cosmosBasePayload(connection: ConnectionProfile) {
     totalThroughput: '6,000 RU/s',
     writeRegion: 'West Europe',
   }
-}
-
-function cosmosAccountName(connection: ConnectionProfile) {
-  return connection.host?.split('.').at(0) || connection.name || 'cosmos-account'
-}
-
-function cosmosDefaultDatabase(connection: ConnectionProfile) {
-  return connection.database?.trim() || 'catalog'
-}
-
-function cosmosDatabases(connection: ConnectionProfile) {
-  const selected = cosmosDefaultDatabase(connection)
-  return [
-    { name: selected, containers: 3, throughput: 'shared 4,000 RU/s', storage: '8.1 GB' },
-    { name: 'audit', containers: 1, throughput: 'serverless', storage: '620 MB' },
-  ]
-}
-
-function cosmosContainers(database: string) {
-  if (database === 'audit') {
-    return [
-      { name: 'events', partitionKey: '/tenantId', throughput: 'serverless', items: 1200000, ttl: 'off' },
-    ]
-  }
-
-  return [
-    { name: 'products', partitionKey: '/tenantId', throughput: 'autoscale 4,000 RU/s', items: 100000, ttl: 'off' },
-    { name: 'orders', partitionKey: '/accountId', throughput: 'shared database', items: 42000, ttl: '30 days' },
-    { name: 'inventory', partitionKey: '/sku', throughput: 'manual 1,000 RU/s', items: 18000, ttl: 'off' },
-  ]
-}
-
-function cosmosPartitionKeys(container: string) {
-  return [
-    {
-      path: container === 'orders' ? '/accountId' : container === 'inventory' ? '/sku' : '/tenantId',
-      kind: 'Hash',
-      hotPartitionRisk: container === 'inventory' ? 'watch' : 'low',
-      guidance: container === 'inventory' ? 'Review high-cardinality SKU distribution.' : 'Partition key is suitable for tenant-scoped queries.',
-    },
-  ]
-}
-
-function cosmosIndexingPolicy(container: string) {
-  return [
-    { path: '/*', mode: 'consistent', kind: 'included', precision: -1 },
-    { path: '/"_etag"/?', mode: 'consistent', kind: 'excluded', precision: '-' },
-    { path: container === 'products' ? '/sku/?' : '/createdAt/?', mode: 'composite', kind: 'range', precision: -1 },
-  ]
-}
-
-function cosmosThroughput(database: string, container?: string) {
-  return [
-    {
-      scope: container ? `${database}.${container}` : database,
-      mode: container === 'products' ? 'autoscale' : container ? 'manual' : 'shared',
-      ruPerSecond: container === 'products' ? '4,000 max' : container ? 1000 : 4000,
-      throttles: container === 'inventory' ? 12 : 0,
-    },
-  ]
-}
-
-function cosmosRegions() {
-  return [
-    { name: 'West Europe', role: 'write', priority: 0, status: 'online' },
-    { name: 'North Europe', role: 'read', priority: 1, status: 'online' },
-  ]
-}
-
-function cosmosConsistency() {
-  return [
-    { setting: 'Default consistency', value: 'Session', guidance: 'Good default for user-facing apps.' },
-    { setting: 'Bounded staleness', value: 'not configured', guidance: 'Only applies when selected as default consistency.' },
-    { setting: 'Multiple write regions', value: 'disabled', guidance: 'Conflict feed remains quiet unless multi-write is enabled.' },
-  ]
-}
-
-function cosmosScripts(container: string) {
-  return [
-    { type: 'stored procedure', name: 'bulkUpsert', operation: `/${container}`, status: 'preview management only' },
-    { type: 'trigger', name: 'stampUpdatedAt', operation: 'pre create', status: 'enabled' },
-    { type: 'udf', name: 'normalizeSku', operation: 'query helper', status: 'enabled' },
-  ]
-}
-
-function cosmosSecurity(database?: string, container?: string) {
-  const scope = [database, container].filter(Boolean).join('/') || 'account'
-  return [
-    { name: 'ReadOnlyApp', kind: 'role assignment', scope, status: 'read metadata and items' },
-    { name: 'Primary key auth', kind: 'key', scope: 'account', status: 'avoid exporting key material' },
-    { name: 'Public network', kind: 'network', scope: 'account', status: 'restricted by firewall rules' },
-  ]
-}
-
-function cosmosDiagnostics(database?: string, container?: string) {
-  const scope = [database, container].filter(Boolean).join('.') || 'account'
-  return [
-    { signal: 'RU Consumption', value: scope === 'account' ? '38%' : '52%', status: 'healthy', guidance: 'Current workload fits configured RU/s.' },
-    { signal: 'Throttled Requests', value: container === 'inventory' ? 12 : 0, status: container === 'inventory' ? 'watch' : 'healthy', guidance: container === 'inventory' ? 'Consider partition or RU review.' : 'No throttling in preview sample.' },
-    { signal: 'Index Utilization', value: '94%', status: 'healthy', guidance: 'Most sample queries use indexed paths.' },
-    { signal: 'Change Feed Lag', value: '0 seconds', status: 'healthy', guidance: 'No processor lag detected in preview sample.' },
-  ]
-}
-
-function cosmosWarnings() {
-  return [
-    'Cosmos DB throughput and indexing changes affect cost and latency; management actions stay guarded preview-first.',
-  ]
 }
 
 function cosmosScopeParts(connection: ConnectionProfile, scope: string) {

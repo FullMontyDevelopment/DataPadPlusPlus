@@ -157,7 +157,7 @@ export const clientAdapters = {
         bufferedRows: Object.keys(value.entries).length,
         hasMore: false,
       },
-    }, resolveEnvironment(snapshot.environments, request.environmentId))!
+    }, resolveEnvironment(snapshot.environments, request.environmentId))
     const nextTab = {
       ...tab,
       status: 'success' as const,

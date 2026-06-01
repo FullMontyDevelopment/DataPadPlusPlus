@@ -22,9 +22,21 @@ export function redactForEnvironment<T>(value: T, environment: ResolvedEnvironme
 }
 
 export function redactExecutionResultForEnvironment(
+  result: ExecutionResultEnvelope,
+  environment: ResolvedEnvironment,
+): ExecutionResultEnvelope
+export function redactExecutionResultForEnvironment(
+  result: undefined,
+  environment: ResolvedEnvironment,
+): undefined
+export function redactExecutionResultForEnvironment(
   result: ExecutionResultEnvelope | undefined,
   environment: ResolvedEnvironment,
-) {
+): ExecutionResultEnvelope | undefined
+export function redactExecutionResultForEnvironment(
+  result: ExecutionResultEnvelope | undefined,
+  environment: ResolvedEnvironment,
+): ExecutionResultEnvelope | undefined {
   return result ? redactForEnvironment(result, environment) : undefined
 }
 

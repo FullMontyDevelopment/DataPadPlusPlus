@@ -102,7 +102,7 @@ export function buildMongoFilter(state: Pick<MongoFindBuilderState, 'filters' | 
   }
 
   if (groupExpressions.length === 1) {
-    return groupExpressions[0]!
+    return groupExpressions[0] ?? {}
   }
 
   return { $and: groupExpressions }

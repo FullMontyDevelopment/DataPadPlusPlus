@@ -159,7 +159,28 @@ function searchClusterPayload(connection: ConnectionProfile) {
 }
 
 function searchIndexPayload(connection: ConnectionProfile, indexName: string) {
-  const index = searchIndices(connection).find((candidate) => candidate.name === indexName) ?? searchIndices(connection)[0]!
+  const indices = searchIndices(connection)
+  const index = indices.find((candidate) => candidate.name === indexName) ?? indices[0]
+  if (!index) {
+    return {
+      engine: connection.engine,
+      clusterName: searchClusterName(connection),
+      objectView: 'index',
+      index: indexName,
+      objectName: indexName,
+      indices: [],
+      fields: [],
+      aliases: [],
+      shards: [],
+      segments: [],
+      settings: [],
+      lifecyclePolicies: [],
+      statistics: [],
+      warnings: [
+        'No search index metadata is available. Refresh the Indices node or select another index.',
+      ],
+    }
+  }
   return {
     engine: connection.engine,
     clusterName: searchClusterName(connection),
@@ -194,7 +215,24 @@ function searchIndexPayload(connection: ConnectionProfile, indexName: string) {
 }
 
 function searchDataStreamPayload(connection: ConnectionProfile, streamName: string) {
-  const stream = searchDataStreams().find((candidate) => candidate.name === streamName) ?? searchDataStreams()[0]!
+  const streams = searchDataStreams()
+  const stream = streams.find((candidate) => candidate.name === streamName) ?? streams[0]
+  if (!stream) {
+    return {
+      engine: connection.engine,
+      clusterName: searchClusterName(connection),
+      objectView: 'data-stream',
+      objectName: streamName,
+      dataStreams: [],
+      indices: [],
+      shards: [],
+      lifecyclePolicies: [],
+      statistics: [],
+      warnings: [
+        'No data stream metadata is available. Refresh the Data Streams node or select another stream.',
+      ],
+    }
+  }
   const backingIndices = stream.backingIndices.split(', ')
   return {
     engine: connection.engine,

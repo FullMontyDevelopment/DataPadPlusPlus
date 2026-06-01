@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { createBlankSnapshot } from '../../app/data/workspace-factory'
-import { loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
+import {
+  findConnection,
+  findEnvironment,
+  findTab,
+  loadBrowserSnapshot,
+  saveBrowserSnapshot,
+} from './browser-store'
 
 describe('browser workspace storage', () => {
   it('does not persist plaintext secrets embedded in connection strings', () => {
@@ -49,6 +55,9 @@ describe('browser workspace storage', () => {
 
     const stored = window.localStorage.getItem('datapadplusplus.workspace.v2') ?? ''
     expect(stored).not.toContain('plain-secret')
+    const storedSnapshot = JSON.parse(stored) as typeof snapshot
+    expect(storedSnapshot.connections.find((connection) => connection.id === 'conn-secret')?.connectionMode)
+      .toBe('native')
 
     const loaded = loadBrowserSnapshot()
     expect(loaded.connections.find((connection) => connection.id === 'conn-secret')?.connectionString)
@@ -152,5 +161,13 @@ describe('browser workspace storage', () => {
         }),
       ]),
     )
+  })
+
+  it('does not silently fall back when ids are stale', () => {
+    const snapshot = createBlankSnapshot()
+
+    expect(findConnection(snapshot, 'missing-connection')).toBeUndefined()
+    expect(findEnvironment(snapshot, 'missing-environment')).toBeUndefined()
+    expect(findTab(snapshot, 'missing-tab')).toBeUndefined()
   })
 })

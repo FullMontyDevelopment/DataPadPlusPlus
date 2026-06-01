@@ -542,6 +542,40 @@ describe('ResultPayloadView', () => {
     expect(screen.getByRole('button', { name: 'paused' })).toBeInTheDocument()
   })
 
+  it('handles rejected Mongo document field edits without applying a local success state', async () => {
+    const executeDataEdit = vi.fn(async () => {
+      throw new Error('super-secret datastore failure')
+    })
+
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "database": "catalog", "collection": "products", "filter": {}, "limit": 20 }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-1', status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
+    const valueInput = screen.getByLabelText('Edit value status')
+    fireEvent.change(valueInput, { target: { value: 'paused' } })
+    fireEvent.blur(valueInput)
+
+    await waitFor(() => {
+      expect(screen.getByText('Document edit failed.')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: 'active' })).toBeInTheDocument()
+    expect(screen.queryByText('super-secret datastore failure')).not.toBeInTheDocument()
+  })
+
   it('uses a confirm dialog instead of typed confirmation for guarded Mongo field edits', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm')
     const executeDataEdit = vi.fn(async (
@@ -2414,6 +2448,39 @@ describe('ResultPayloadView', () => {
     expect(screen.getByText('2.5')).toBeInTheDocument()
   })
 
+  it('closes stale search hit menus when a refreshed payload removes the hit', async () => {
+    const { rerender } = render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'searchHits',
+          hits: [
+            {
+              id: 'product-1',
+              score: 1.25,
+              source: { sku: 'SKU-1' },
+            },
+          ],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'product-1' }))
+    expect(screen.getByRole('menuitem', { name: 'Copy Document ID' })).toBeInTheDocument()
+
+    rerender(
+      <ResultPayloadView
+        payload={{
+          renderer: 'searchHits',
+          hits: [],
+        }}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole('menuitem', { name: 'Copy Document ID' })).not.toBeInTheDocument()
+    })
+  })
+
   it('updates search hit source documents through guarded search edit requests', async () => {
     const executeDataEdit = vi.fn(async (
       request: DataEditExecutionRequest,
@@ -2493,6 +2560,48 @@ describe('ResultPayloadView', () => {
       })
     })
     expect(screen.getByText(/fulfilled/)).toBeInTheDocument()
+  })
+
+  it('handles rejected search document updates without leaking raw errors', async () => {
+    const executeDataEdit = vi.fn(async () => {
+      throw new Error('super-secret search failure')
+    })
+
+    render(
+      <ResultPayloadView
+        connection={searchConnection()}
+        editContext={{
+          connectionId: 'conn-search',
+          environmentId: 'env-dev',
+          queryText: '{ "index": "orders", "body": { "query": { "match_all": {} } } }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'searchHits',
+          total: 1,
+          hits: [
+            {
+              id: '101',
+              score: 1.25,
+              source: { status: 'processing', total: 42 },
+            },
+          ],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: '101' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Update Document' }))
+    fireEvent.change(screen.getByLabelText('Search document source JSON'), {
+      target: { value: '{ "status": "fulfilled", "total": 42 }' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Search document update failed.')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('super-secret search failure')).not.toBeInTheDocument()
+    expect(screen.getByText(/processing/)).toBeInTheDocument()
   })
 
   it('indexes new search documents from search hits results', async () => {

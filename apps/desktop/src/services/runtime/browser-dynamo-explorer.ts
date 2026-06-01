@@ -1,4 +1,5 @@
 import type { ConnectionProfile, ExplorerNode } from '@datapadplusplus/shared-types'
+import { emptyDynamoTablePayload } from './browser-dynamo-payload-helpers'
 
 export function createDynamoExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
   if (!scope) {
@@ -165,7 +166,11 @@ function dynamoNode(
 }
 
 function dynamoTablePayload(connection: ConnectionProfile, tableName: string, objectView: string) {
-  const table = dynamoTables().find((candidate) => candidate.name === tableName) ?? dynamoTables()[0]!
+  const tables = dynamoTables()
+  const table = tables.find((candidate) => candidate.name === tableName) ?? tables[0]
+  if (!table) {
+    return emptyDynamoTablePayload(dynamoRegion(connection), tableName, objectView)
+  }
   const payload = {
     engine: 'dynamodb',
     region: dynamoRegion(connection),

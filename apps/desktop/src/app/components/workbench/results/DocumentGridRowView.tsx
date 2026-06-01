@@ -1,13 +1,8 @@
 import { useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
-import {
-  coerceValue,
-  documentValueTypeLabel,
-  editableValue,
-  parseEditedValue,
-  type DocumentGridRow,
-  type DocumentValueType,
-} from './document-grid-model'
+import { isBsonDateValue, isBsonNumberValue, isBsonObjectIdValue } from './document-bson-values'
+import { documentValueTypeLabel, type DocumentGridRow, type DocumentValueType } from './document-grid-model'
+import { coerceValue, editableValue, parseEditedValue } from './document-value-editing'
 import {
   beginFieldPointerDrag,
   cancelFieldPointerDrag,
@@ -301,29 +296,6 @@ function documentDragValueType(value: unknown, fallbackType: DocumentValueType) 
   }
 
   return typeof value as DocumentValueType
-}
-
-function isBsonDateValue(value: unknown) {
-  return isRecord(value) && (
-    typeof value.$date === 'string' ||
-    (isRecord(value.$date) && typeof value.$date.$numberLong === 'string')
-  )
-}
-
-function isBsonObjectIdValue(value: unknown) {
-  return isRecord(value) && typeof value.$oid === 'string'
-}
-
-function isBsonNumberValue(value: unknown) {
-  return isRecord(value) && (
-    typeof value.$numberLong === 'string' ||
-    typeof value.$numberInt === 'string' ||
-    typeof value.$numberDouble === 'string'
-  )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function FieldNameEditor({

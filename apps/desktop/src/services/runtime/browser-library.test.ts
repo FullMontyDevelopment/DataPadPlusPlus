@@ -126,6 +126,24 @@ describe('browser Library runtime', () => {
     expect(next.tabs[0]?.environmentId).toBe('environment-2')
   })
 
+  it('does not open an explicit library query against the wrong connection when its connection is missing', () => {
+    const snapshot = workspaceSnapshot()
+    snapshot.tabs = []
+    snapshot.connections = [
+      {
+        ...snapshot.connections[0]!,
+        id: 'connection-other',
+        name: 'Other datastore',
+      },
+    ]
+    snapshot.ui.activeConnectionId = 'connection-other'
+
+    const next = openLibraryItem(snapshot, 'library-query-1')
+
+    expect(next.tabs).toHaveLength(0)
+    expect(next.ui.activeConnectionId).toBe('connection-other')
+  })
+
   it('saves and reopens query builder filters with Library queries', () => {
     const snapshot = workspaceSnapshot()
     const builderState = {

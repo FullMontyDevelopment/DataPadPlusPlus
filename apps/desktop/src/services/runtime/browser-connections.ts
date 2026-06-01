@@ -14,8 +14,7 @@ export function setActiveConnection(
   connectionId: string,
 ): WorkspaceSnapshot {
   const next = cloneSnapshot(snapshot)
-  const connection =
-    next.connections.find((item) => item.id === connectionId) ?? next.connections[0]
+  const connection = next.connections.find((item) => item.id === connectionId)
 
   if (!connection) {
     return next
@@ -31,8 +30,6 @@ export function setActiveConnection(
   return next
 }
 
-
-
 export function upsertConnection(
   snapshot: WorkspaceSnapshot,
   profile: ConnectionProfile,
@@ -40,7 +37,7 @@ export function upsertConnection(
   const next = cloneSnapshot(snapshot)
   const safeProfile =
     profile.connectionString && connectionStringContainsPlainSecret(profile.connectionString)
-      ? { ...profile, connectionString: undefined }
+      ? { ...profile, connectionString: undefined, connectionMode: 'native' as const }
       : profile
   const index = next.connections.findIndex((item) => item.id === safeProfile.id)
 
@@ -55,13 +52,16 @@ export function upsertConnection(
   return next
 }
 
-
-
 export function deleteConnection(
   snapshot: WorkspaceSnapshot,
   connectionId: string,
 ): WorkspaceSnapshot {
   const next = cloneSnapshot(snapshot)
+  const deleted = next.connections.some((connection) => connection.id === connectionId)
+
+  if (!deleted) {
+    return next
+  }
 
   next.connections = next.connections.filter((connection) => connection.id !== connectionId)
   next.tabs = next.tabs.filter((tab) => tab.connectionId !== connectionId)
@@ -90,8 +90,6 @@ export function deleteConnection(
   next.updatedAt = new Date().toISOString()
   return next
 }
-
-
 
 export function upsertEnvironment(
   snapshot: WorkspaceSnapshot,

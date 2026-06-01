@@ -33,14 +33,12 @@ import { editablePermissions } from './document-edit-permissions'
 import {
   buildRows,
   collectExpandableRowIds,
-  coerceValue,
-  deleteValueAtPath,
   isDocumentLazyNode,
-  renameFieldAtPath,
-  setValueAtPath,
   type DocumentGridRow,
   type DocumentValueType,
 } from './document-grid-model'
+import { deleteValueAtPath, renameFieldAtPath, setValueAtPath } from './document-path-edits'
+import { coerceValue } from './document-value-editing'
 import { searchDocumentRows } from './document-grid-search'
 import { documentCountText } from './document-results-summary'
 import { copyText } from './payload-export'
@@ -251,44 +249,48 @@ export function DocumentResultsView({
     successMessage: string,
   ) => {
     void (async () => {
-      if (onExecuteDataEdit && editContext && connection) {
-        const request = buildDocumentEditRequest(
-          connection,
-          editContext,
-          draftDocuments,
-          row,
-          editKind,
-          changes,
-        )
+      try {
+        if (onExecuteDataEdit && editContext && connection) {
+          const request = buildDocumentEditRequest(
+            connection,
+            editContext,
+            draftDocuments,
+            row,
+            editKind,
+            changes,
+          )
 
-        if (!request) {
-          setCopyMessage('Edit kept locally; collection scope or document id is unavailable.')
-          updateDraftDocuments(updater)
-          return
+          if (!request) {
+            setCopyMessage('Edit kept locally; collection scope or document id is unavailable.')
+            updateDraftDocuments(updater)
+            return
+          }
+
+          const response = await executeDataEditWithConfirmation(
+            onExecuteDataEdit,
+            request,
+            {
+              actionLabel: successMessage,
+              confirm: confirmDataEdit,
+              confirmationTitle: 'Apply this document edit?',
+            },
+          )
+          const failureMessage = dataEditStatusMessage(
+            response,
+            'Datastore did not confirm the edit.',
+          )
+
+          if (!response?.executed) {
+            setCopyMessage(failureMessage)
+            return
+          }
         }
 
-        const response = await executeDataEditWithConfirmation(
-          onExecuteDataEdit,
-          request,
-          {
-            actionLabel: successMessage,
-            confirm: confirmDataEdit,
-            confirmationTitle: 'Apply this document edit?',
-          },
-        )
-        const failureMessage = dataEditStatusMessage(
-          response,
-          'Datastore did not confirm the edit.',
-        )
-
-        if (!response?.executed) {
-          setCopyMessage(failureMessage)
-          return
-        }
+        updateDraftDocuments(updater)
+        setCopyMessage(successMessage)
+      } catch {
+        setCopyMessage('Document edit failed.')
       }
-
-      updateDraftDocuments(updater)
-      setCopyMessage(successMessage)
     })()
   }
 

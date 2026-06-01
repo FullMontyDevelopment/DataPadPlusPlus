@@ -18,7 +18,10 @@ import {
   SearchDocumentEditorPanel,
   SearchDocumentIndexPanel,
 } from './SearchHitsEditPanels'
+import { SearchHitsHeader } from './SearchHitsHeader'
 import { SearchHitsRows } from './SearchHitsRows'
+import { usePayloadBackedSearchHits } from './SearchHitsState'
+import { parseSearchHitSourceJson } from './search-hit-json'
 import {
   buildSearchDocumentEditRequest,
   buildSearchDocumentIndexRequest,
@@ -27,7 +30,6 @@ import {
   searchHitIndex,
   searchHitSource,
   searchIndexFromQueryText,
-  type SearchHit,
 } from './search-hit-edit-requests'
 
 type SearchHitsPayload = Extract<ResultPayload, { renderer: 'searchHits' }>
@@ -71,7 +73,7 @@ export function SearchHitsResultsView({
   payload,
   onExecuteDataEdit,
 }: SearchHitsResultsViewProps) {
-  const [hits, setHits] = useState<SearchHit[]>(payload.hits)
+  const { hits, updateHits } = usePayloadBackedSearchHits(payload.hits)
   const [expandedHits, setExpandedHits] = useState<Set<number>>(new Set())
   const [contextMenu, setContextMenu] = useState<ContextMenuState>()
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteState>()
@@ -83,6 +85,7 @@ export function SearchHitsResultsView({
   const defaultIndex =
     searchHitIndex(hits[0], editContext) ??
     searchIndexFromQueryText(editContext?.queryText)
+  const contextMenuHit = contextMenu ? hits[contextMenu.hitIndex] : undefined
 
   useEffect(() => {
     if (!contextMenu) {
@@ -105,7 +108,14 @@ export function SearchHitsResultsView({
       return
     }
 
-    const source = parseSourceJson(pendingUpdate.sourceText)
+    const hit = hits[pendingUpdate.hitIndex]
+    if (!hit) {
+      setPendingUpdate(undefined)
+      setStatusMessage('Search document is no longer loaded.')
+      return
+    }
+
+    const source = parseSearchHitSourceJson(pendingUpdate.sourceText)
     if (!source) {
       setPendingUpdate((current) =>
         current ? { ...current, error: 'Source JSON must be an object.' } : current,
@@ -117,7 +127,7 @@ export function SearchHitsResultsView({
       connection,
       editContext,
       editKind: 'update-document',
-      hit: hits[pendingUpdate.hitIndex]!,
+      hit,
       source,
     })
     const hitIndex = pendingUpdate.hitIndex
@@ -128,13 +138,19 @@ export function SearchHitsResultsView({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: 'Update this search document.',
-      confirm: confirmDataEdit,
-      confirmationTitle: 'Apply this document update?',
-    })
+    let response: DataEditExecutionResponse | undefined
+    try {
+      response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+        actionLabel: 'Update this search document.',
+        confirm: confirmDataEdit,
+        confirmationTitle: 'Apply this document update?',
+      })
+    } catch {
+      setStatusMessage('Search document update failed.')
+      return
+    }
     if (response?.executed) {
-      setHits((current) =>
+      updateHits((current) =>
         current.map((hit, index) =>
           index === hitIndex ? { ...hit, source, _source: source } : hit,
         ),
@@ -150,7 +166,7 @@ export function SearchHitsResultsView({
       return
     }
 
-    const source = parseSourceJson(pendingIndex.sourceText)
+    const source = parseSearchHitSourceJson(pendingIndex.sourceText)
     if (!source) {
       setPendingIndex((current) =>
         current ? { ...current, error: 'Source JSON must be an object.' } : current,
@@ -174,13 +190,19 @@ export function SearchHitsResultsView({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: `Index document ${documentId}.`,
-      confirm: confirmDataEdit,
-      confirmationTitle: 'Index this document?',
-    })
+    let response: DataEditExecutionResponse | undefined
+    try {
+      response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+        actionLabel: `Index document ${documentId}.`,
+        confirm: confirmDataEdit,
+        confirmationTitle: 'Index this document?',
+      })
+    } catch {
+      setStatusMessage('Search document index failed.')
+      return
+    }
     if (response?.executed) {
-      setHits((current) => [
+      updateHits((current) => [
         { id: documentId, _id: documentId, _index: index, source, _source: source },
         ...current,
       ])
@@ -195,11 +217,18 @@ export function SearchHitsResultsView({
       return
     }
 
+    const hit = hits[pendingDelete.hitIndex]
+    if (!hit) {
+      setPendingDelete(undefined)
+      setStatusMessage('Search document is no longer loaded.')
+      return
+    }
+
     const request = buildSearchDocumentEditRequest({
       connection,
       editContext,
       editKind: 'delete-document',
-      hit: hits[pendingDelete.hitIndex]!,
+      hit,
     })
     const hitIndex = pendingDelete.hitIndex
     setPendingDelete(undefined)
@@ -209,17 +238,23 @@ export function SearchHitsResultsView({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(
-      onExecuteDataEdit,
-      request,
-      {
-        actionLabel: 'Delete this search document.',
-        confirm: confirmDataEdit,
-        confirmationTitle: 'Delete this document?',
-      },
-    )
+    let response: DataEditExecutionResponse | undefined
+    try {
+      response = await executeDataEditWithConfirmation(
+        onExecuteDataEdit,
+        request,
+        {
+          actionLabel: 'Delete this search document.',
+          confirm: confirmDataEdit,
+          confirmationTitle: 'Delete this document?',
+        },
+      )
+    } catch {
+      setStatusMessage('Search document deletion failed.')
+      return
+    }
     if (response?.executed) {
-      setHits((current) => current.filter((_, index) => index !== hitIndex))
+      updateHits((current) => current.filter((_, index) => index !== hitIndex))
       setStatusMessage('Deleted search document.')
     } else {
       setStatusMessage(dataEditStatusMessage(response, 'Unable to delete search document.'))
@@ -228,12 +263,7 @@ export function SearchHitsResultsView({
 
   return (
     <div className="search-hits-results" role="region" aria-label="Search hits results">
-      <div className="search-hits-header" role="row">
-        <span>Index</span>
-        <span>ID</span>
-        <span>Score</span>
-        <span>Source</span>
-      </div>
+      <SearchHitsHeader />
       {canEdit ? (
         <div className="search-hit-actions">
           <button
@@ -335,18 +365,18 @@ export function SearchHitsResultsView({
       ) : null}
       {confirmationDialog}
       {statusMessage ? <div className="data-grid-status">{statusMessage}</div> : null}
-      {contextMenu ? (
+      {contextMenu && contextMenuHit ? (
         <SearchHitsContextMenu
           canEdit={canEdit}
-          documentId={searchHitId(hits[contextMenu.hitIndex]!) ?? ''}
-          sourceText={JSON.stringify(searchHitSource(hits[contextMenu.hitIndex]!))}
+          documentId={searchHitId(contextMenuHit) ?? ''}
+          sourceText={JSON.stringify(searchHitSource(contextMenuHit))}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(undefined)}
           onUpdate={() =>
             setPendingUpdate({
               hitIndex: contextMenu.hitIndex,
-              sourceText: JSON.stringify(searchHitSource(hits[contextMenu.hitIndex]!), null, 2),
+              sourceText: JSON.stringify(searchHitSource(contextMenuHit), null, 2),
             })
           }
           onDelete={() => {
@@ -361,15 +391,4 @@ export function SearchHitsResultsView({
       ) : null}
     </div>
   )
-}
-
-function parseSourceJson(value: string) {
-  try {
-    const parsed = JSON.parse(value) as unknown
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : undefined
-  } catch {
-    return undefined
-  }
 }

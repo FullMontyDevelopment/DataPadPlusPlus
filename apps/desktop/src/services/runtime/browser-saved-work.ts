@@ -78,10 +78,10 @@ export function openSavedWork(
     return next
   }
 
-  const connection =
-    next.connections.find((candidate) => candidate.id === item.connectionId) ??
-    next.connections.find((candidate) => candidate.id === next.ui.activeConnectionId) ??
-    next.connections[0]
+  const connection = item.connectionId
+    ? next.connections.find((candidate) => candidate.id === item.connectionId)
+    : next.connections.find((candidate) => candidate.id === next.ui.activeConnectionId) ??
+      next.connections[0]
 
   if (!connection) {
     return next

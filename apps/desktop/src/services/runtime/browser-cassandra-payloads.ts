@@ -73,7 +73,30 @@ function cassandraTablePayload(
   tableName: string,
   objectView: string,
 ) {
-  const table = cassandraTables().find((candidate) => candidate.name === tableName) ?? cassandraTables()[0]!
+  const tables = cassandraTables()
+  const table = tables.find((candidate) => candidate.name === tableName) ?? tables[0]
+  if (!table) {
+    return {
+      engine: 'cassandra',
+      keyspace,
+      objectView,
+      tableName,
+      tables: [],
+      columns: [],
+      primaryKey: [],
+      indexes: [],
+      options: [],
+      permissions: [],
+      diagnostics: [],
+      warningRows: [
+        {
+          warning: 'No table metadata is available.',
+          scope: tableName || keyspace,
+          guidance: 'Refresh the keyspace metadata or select another table.',
+        },
+      ],
+    }
+  }
   const base = {
     engine: 'cassandra',
     keyspace,
