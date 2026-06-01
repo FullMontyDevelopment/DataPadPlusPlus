@@ -5,12 +5,14 @@ mod connection;
 mod diagnostics;
 mod explorer;
 mod operations;
+mod query_request;
 
 use catalog::*;
 use connection::*;
 use diagnostics::*;
 use explorer::*;
 use operations::*;
+use query_request::*;
 
 pub(crate) struct CockroachAdapter;
 
@@ -147,17 +149,18 @@ impl DatastoreAdapter for CockroachAdapter {
         request: &ExecutionRequest,
         notices: Vec<QueryExecutionNotice>,
     ) -> Result<ExecutionResultEnvelope, CommandError> {
+        let query_request =
+            cockroach_query_request(selected_query(request), execute_mode(request))?;
         let mut notices = notices;
-        if selected_query(request)
-            .to_lowercase()
-            .contains("explain analyze")
-        {
-            notices.push(QueryExecutionNotice {
-                code: "cockroach-explain-analyze-executes".into(),
-                level: "warning".into(),
-                message: "CockroachDB EXPLAIN ANALYZE executes the query; production profiles should require confirmation.".into(),
-            });
-        }
+        notices.push(QueryExecutionNotice {
+            code: "cockroach-query-safety".into(),
+            level: "info".into(),
+            message: format!(
+                "CockroachDB {} query approved for live execution; backups, restores, imports, range movement, and job control use guarded operation previews. Query length: {} character(s).",
+                query_request.mode,
+                query_request.statement.len()
+            ),
+        });
 
         PostgresAdapter.execute(connection, request, notices).await
     }

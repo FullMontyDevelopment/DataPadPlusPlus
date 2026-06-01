@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use super::super::super::*;
 use super::catalog::duckdb_execution_capabilities;
 use super::connection::{duckdb_error, duckdb_quote_identifier, open_duckdb_connection};
-use super::query::query_table;
+use super::query_results::query_table;
 
 pub(super) async fn list_duckdb_explorer_nodes(
     connection: &ResolvedConnectionProfile,

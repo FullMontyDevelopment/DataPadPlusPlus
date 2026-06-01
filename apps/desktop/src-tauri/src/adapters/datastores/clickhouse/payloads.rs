@@ -5,6 +5,7 @@ use super::super::super::*;
 pub(super) struct ClickHousePayloadResult {
     pub payloads: Vec<Value>,
     pub row_count: u32,
+    pub total_rows: u32,
     pub truncated: bool,
 }
 
@@ -21,6 +22,7 @@ pub(super) fn clickhouse_json_payloads_bounded(
     let row_limit = row_limit.map(|value| value as usize);
     let mut payloads = Vec::new();
     let mut row_count = 0_u32;
+    let mut total_rows = 0_u32;
     let mut truncated = false;
 
     if let Some(value) = parsed {
@@ -39,6 +41,12 @@ pub(super) fn clickhouse_json_payloads_bounded(
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
+        total_rows = value
+            .get("rows")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(items.len() as u32)
+            .max(items.len() as u32);
         let displayed_items = bounded_items(&items, row_limit);
         row_count = displayed_items.len() as u32;
         truncated = row_limit.is_some_and(|limit| items.len() > limit);
@@ -78,6 +86,7 @@ pub(super) fn clickhouse_json_payloads_bounded(
             .collect::<Vec<&str>>();
         let displayed = bounded_lines(&lines, row_limit);
         row_count = displayed.len() as u32;
+        total_rows = lines.len() as u32;
         truncated = row_limit.is_some_and(|limit| lines.len() > limit);
         payloads.push(payload_raw(displayed.join("\n")));
     }
@@ -85,6 +94,7 @@ pub(super) fn clickhouse_json_payloads_bounded(
     ClickHousePayloadResult {
         payloads,
         row_count,
+        total_rows,
         truncated,
     }
 }
@@ -154,6 +164,7 @@ mod tests {
 
         assert!(result.truncated);
         assert_eq!(result.row_count, 2);
+        assert_eq!(result.total_rows, 3);
         assert_eq!(result.payloads[0]["rows"].as_array().unwrap().len(), 2);
         assert_eq!(
             result.payloads[1]["value"]["data"]
@@ -171,6 +182,7 @@ mod tests {
 
         assert!(result.truncated);
         assert_eq!(result.row_count, 2);
+        assert_eq!(result.total_rows, 3);
         assert_eq!(result.payloads[0]["text"], "a\nb");
     }
 }

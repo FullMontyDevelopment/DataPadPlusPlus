@@ -2,6 +2,8 @@ use super::*;
 
 mod explorer;
 mod query;
+mod query_request;
+mod query_results;
 
 pub(crate) struct PostgresAdapter;
 

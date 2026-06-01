@@ -2,7 +2,7 @@ use serde_json::json;
 
 use super::super::super::*;
 use super::connection::{duckdb_error, open_duckdb_connection};
-use super::query::query_table;
+use super::query_results::query_table;
 
 pub(super) async fn collect_duckdb_diagnostics(
     connection: &ResolvedConnectionProfile,

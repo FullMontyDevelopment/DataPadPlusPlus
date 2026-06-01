@@ -141,6 +141,7 @@ impl ClickHouseEndpoint {
                 "ClickHouse requires a host, endpoint URL, or connection string.",
             ));
         }
+        validate_host_component(host, "ClickHouse host")?;
 
         Ok(Self {
             host: host.into(),
@@ -155,13 +156,10 @@ impl ClickHouseEndpoint {
         database_override: Option<&str>,
         prefix_override: Option<&str>,
     ) -> Result<Self, CommandError> {
-        let without_scheme = url
-            .strip_prefix("http://")
-            .or_else(|| url.strip_prefix("https://"))
-            .ok_or_else(|| {
+        let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
                 CommandError::new(
                     "clickhouse-unsupported-url",
-                    "ClickHouse adapter expects an http:// or https:// endpoint URL.",
+                    "ClickHouse adapter expects an http:// endpoint URL; use a local secure proxy for TLS endpoints in this adapter phase.",
                 )
             })?;
         let (authority, path) = without_scheme
@@ -171,10 +169,17 @@ impl ClickHouseEndpoint {
             .rsplit_once(':')
             .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
             .unwrap_or((authority, 8123));
-        let prefix = prefix_override
-            .and_then(normalized_prefix)
-            .or_else(|| normalized_prefix(path))
-            .unwrap_or_default();
+        if host.trim().is_empty() {
+            return Err(CommandError::new(
+                "clickhouse-endpoint-missing",
+                "ClickHouse connection string did not include a host.",
+            ));
+        }
+        validate_host_component(host, "ClickHouse host")?;
+        let prefix = match normalized_prefix(prefix_override)? {
+            Some(prefix) => prefix,
+            None => normalized_prefix(Some(path))?.unwrap_or_default(),
+        };
 
         Ok(Self {
             host: host.into(),
@@ -204,13 +209,49 @@ fn database_name(value: Option<&str>) -> String {
         .to_string()
 }
 
-fn normalized_prefix(value: &str) -> Option<String> {
+fn normalized_prefix(value: Option<&str>) -> Result<Option<String>, CommandError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
     let trimmed = value.trim().trim_matches('/');
     if trimmed.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(format!("/{trimmed}"))
+        validate_path_prefix(trimmed, "ClickHouse path prefix")?;
+        Ok(Some(format!("/{trimmed}")))
     }
+}
+
+fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "clickhouse-endpoint-invalid",
+            format!("{label} contains an invalid control character."),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_host_component(value: &str, label: &str) -> Result<(), CommandError> {
+    validate_http_component(value, label)?;
+    if value.contains('/') || value.contains('?') || value.contains('#') {
+        return Err(CommandError::new(
+            "clickhouse-endpoint-invalid",
+            format!("{label} contains an invalid path, query, or fragment separator."),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_path_prefix(value: &str, label: &str) -> Result<(), CommandError> {
+    validate_http_component(value, label)?;
+    if value.contains('?') || value.contains('#') {
+        return Err(CommandError::new(
+            "clickhouse-endpoint-invalid",
+            format!("{label} contains an invalid query or fragment separator."),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -280,5 +321,31 @@ mod tests {
         let error = clickhouse_auth_header(&connection).unwrap_err();
 
         assert_eq!(error.code, "clickhouse-invalid-header");
+    }
+
+    #[test]
+    fn clickhouse_endpoint_rejects_invalid_http_parts() {
+        let https_error =
+            ClickHouseEndpoint::from_url("https://localhost:8443", None, None).unwrap_err();
+        assert_eq!(https_error.code, "clickhouse-unsupported-url");
+
+        let host_error =
+            ClickHouseEndpoint::from_url("http://local\r\nhost:8123/clickhouse", None, None)
+                .unwrap_err();
+        assert_eq!(host_error.code, "clickhouse-endpoint-invalid");
+
+        let authority_error =
+            ClickHouseEndpoint::from_url("http://localhost:8123?x=1", None, None).unwrap_err();
+        assert_eq!(authority_error.code, "clickhouse-endpoint-invalid");
+
+        let prefix_error =
+            ClickHouseEndpoint::from_url("http://localhost:8123/clickhouse?x=1", None, None)
+                .unwrap_err();
+        assert_eq!(prefix_error.code, "clickhouse-endpoint-invalid");
+
+        let override_error =
+            ClickHouseEndpoint::from_url("http://localhost:8123/clickhouse", None, Some("bad#x"))
+                .unwrap_err();
+        assert_eq!(override_error.code, "clickhouse-endpoint-invalid");
     }
 }

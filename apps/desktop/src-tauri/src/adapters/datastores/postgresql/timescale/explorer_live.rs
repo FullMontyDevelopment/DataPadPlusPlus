@@ -293,8 +293,18 @@ async fn hypertable_nodes(
         "select * from timescaledb_information.hypertables order by hypertable_schema, hypertable_name",
         limit,
     )
-    .await
-    .unwrap_or_default();
+    .await;
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(error) => {
+            return vec![metadata_warning_node(
+                connection,
+                "Hypertable metadata unavailable",
+                "hypertables",
+                error,
+            )]
+        }
+    };
 
     normalize_hypertables(rows, schema_filter, None)
         .into_iter()
@@ -335,8 +345,18 @@ async fn continuous_aggregate_nodes(
         "select * from timescaledb_information.continuous_aggregates order by view_schema, view_name",
         limit,
     )
-    .await
-    .unwrap_or_default();
+    .await;
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(error) => {
+            return vec![metadata_warning_node(
+                connection,
+                "Continuous aggregate metadata unavailable",
+                "continuous-aggregates",
+                error,
+            )]
+        }
+    };
 
     normalize_continuous_aggregates(rows, schema_filter, None)
         .into_iter()
@@ -373,8 +393,18 @@ async fn chunk_nodes(
         "select * from timescaledb_information.chunks order by hypertable_schema, hypertable_name, chunk_name",
         limit,
     )
-    .await
-    .unwrap_or_default();
+    .await;
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(error) => {
+            return vec![metadata_warning_node(
+                connection,
+                "Chunk metadata unavailable",
+                "chunks",
+                error,
+            )]
+        }
+    };
 
     normalize_chunks(rows, schema_filter, None)
         .into_iter()
@@ -417,8 +447,18 @@ async fn policy_nodes(
         "select * from timescaledb_information.jobs order by hypertable_schema, hypertable_name",
         limit,
     )
-    .await
-    .unwrap_or_default();
+    .await;
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(error) => {
+            return vec![metadata_warning_node(
+                connection,
+                "Policy metadata unavailable",
+                kind,
+                error,
+            )]
+        }
+    };
 
     normalize_jobs(rows, schema_filter, None)
         .into_iter()
@@ -449,6 +489,25 @@ async fn policy_nodes(
             }
         })
         .collect()
+}
+
+fn metadata_warning_node(
+    connection: &ResolvedConnectionProfile,
+    label: &str,
+    kind: &str,
+    message: String,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: format!("timescale-warning:{kind}"),
+        family: "timeseries".into(),
+        label: label.into(),
+        kind: "warning".into(),
+        detail: message,
+        scope: None,
+        path: Some(vec![connection.name.clone(), "TimescaleDB".into()]),
+        query_template: None,
+        expandable: Some(false),
+    }
 }
 
 async fn optional_records(

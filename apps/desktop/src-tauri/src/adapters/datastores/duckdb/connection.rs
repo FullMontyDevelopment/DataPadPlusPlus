@@ -21,7 +21,7 @@ pub(super) async fn test_duckdb_connection(
         message: format!("DuckDB connection test succeeded for {}.", connection.name),
         warnings: vec![format!("Detected DuckDB version: {version}")],
         resolved_host: connection.host.clone(),
-        resolved_database: Some(duckdb_database_path(connection)),
+        resolved_database: Some(validated_duckdb_database_path(connection)?),
         duration_ms: Some(duration_ms(started)),
     })
 }
@@ -29,7 +29,7 @@ pub(super) async fn test_duckdb_connection(
 pub(super) fn open_duckdb_connection(
     connection: &ResolvedConnectionProfile,
 ) -> Result<Connection, CommandError> {
-    let path = duckdb_database_path(connection);
+    let path = validated_duckdb_database_path(connection)?;
     if path == ":memory:" || path.eq_ignore_ascii_case("memory") {
         Connection::open_in_memory().map_err(duckdb_error)
     } else {
@@ -57,6 +57,40 @@ pub(super) fn duckdb_database_path(connection: &ResolvedConnectionProfile) -> St
         })
         .unwrap_or(":memory:")
         .to_string()
+}
+
+fn validated_duckdb_database_path(
+    connection: &ResolvedConnectionProfile,
+) -> Result<String, CommandError> {
+    let path = duckdb_database_path(connection);
+    validate_duckdb_database_path(&path)?;
+    Ok(path)
+}
+
+fn validate_duckdb_database_path(path: &str) -> Result<(), CommandError> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(CommandError::new(
+            "duckdb-path-missing",
+            "DuckDB requires a database file path or :memory:.",
+        ));
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "duckdb-path-invalid",
+            "DuckDB database path contains an invalid control character.",
+        ));
+    }
+    if trimmed.contains("://")
+        && !trimmed.starts_with("duckdb://")
+        && !trimmed.starts_with("file://")
+    {
+        return Err(CommandError::new(
+            "duckdb-path-unsupported",
+            "DuckDB database paths must be local files, duckdb:// paths, file:// paths, or :memory:.",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -146,7 +180,10 @@ pub(crate) fn duckdb_quote_identifier(identifier: &str) -> String {
 mod tests {
     use duckdb::types::{TimeUnit, ValueRef};
 
-    use super::{duckdb_database_path, duckdb_quote_identifier, duckdb_value_to_string};
+    use super::{
+        duckdb_database_path, duckdb_quote_identifier, duckdb_value_to_string,
+        validate_duckdb_database_path,
+    };
     use crate::domain::models::ResolvedConnectionProfile;
 
     #[test]
@@ -218,6 +255,18 @@ mod tests {
             super::duckdb_extensions(&connection),
             vec!["httpfs", "parquet"]
         );
+    }
+
+    #[test]
+    fn duckdb_database_path_validation_blocks_remote_and_control_paths() {
+        let remote = validate_duckdb_database_path("s3://bucket/analytics.duckdb").unwrap_err();
+        assert_eq!(remote.code, "duckdb-path-unsupported");
+
+        let control = validate_duckdb_database_path("C:/data/bad\r\npath.duckdb").unwrap_err();
+        assert_eq!(control.code, "duckdb-path-invalid");
+
+        validate_duckdb_database_path(":memory:").unwrap();
+        validate_duckdb_database_path("C:/data/analytics.duckdb").unwrap();
     }
 
     #[test]

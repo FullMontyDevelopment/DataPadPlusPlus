@@ -158,6 +158,7 @@ impl BigQueryEndpoint {
                 "BigQuery requires a project id, host, or http:// connection string.",
             ));
         }
+        validate_host_component(host, "BigQuery host")?;
 
         Ok(Self {
             host: host.into(),
@@ -187,14 +188,22 @@ impl BigQueryEndpoint {
             .rsplit_once(':')
             .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
             .unwrap_or((authority, 80));
+        if host.trim().is_empty() {
+            return Err(CommandError::new(
+                "bigquery-endpoint-missing",
+                "BigQuery connection string did not include a host.",
+            ));
+        }
+        validate_host_component(host, "BigQuery host")?;
+        let prefix = match normalized_prefix(prefix_override)? {
+            Some(prefix) => prefix,
+            None => normalized_prefix(Some(path))?.unwrap_or_default(),
+        };
 
         Ok(Self {
             host: host.into(),
             port,
-            prefix: prefix_override
-                .and_then(normalized_prefix)
-                .or_else(|| normalized_prefix(path))
-                .unwrap_or_default(),
+            prefix,
         })
     }
 
@@ -211,13 +220,49 @@ impl BigQueryEndpoint {
     }
 }
 
-fn normalized_prefix(value: &str) -> Option<String> {
+fn normalized_prefix(value: Option<&str>) -> Result<Option<String>, CommandError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
     let trimmed = value.trim().trim_matches('/');
     if trimmed.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(format!("/{trimmed}"))
+        validate_path_prefix(trimmed, "BigQuery path prefix")?;
+        Ok(Some(format!("/{trimmed}")))
     }
+}
+
+fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "bigquery-endpoint-invalid",
+            format!("{label} contains an invalid control character."),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_host_component(value: &str, label: &str) -> Result<(), CommandError> {
+    validate_http_component(value, label)?;
+    if value.contains('/') || value.contains('?') || value.contains('#') {
+        return Err(CommandError::new(
+            "bigquery-endpoint-invalid",
+            format!("{label} contains an invalid path, query, or fragment separator."),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_path_prefix(value: &str, label: &str) -> Result<(), CommandError> {
+    validate_http_component(value, label)?;
+    if value.contains('?') || value.contains('#') {
+        return Err(CommandError::new(
+            "bigquery-endpoint-invalid",
+            format!("{label} contains an invalid query or fragment separator."),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn has_live_auth(connection: &ResolvedConnectionProfile) -> bool {
@@ -380,5 +425,24 @@ mod tests {
         let error = bigquery_auth_header(&connection).unwrap_err();
 
         assert_eq!(error.code, "bigquery-invalid-token");
+    }
+
+    #[test]
+    fn bigquery_endpoint_rejects_invalid_http_parts() {
+        let host_error = BigQueryEndpoint::from_url("http://local\r\nhost:19050/bq").unwrap_err();
+        assert_eq!(host_error.code, "bigquery-endpoint-invalid");
+
+        let authority_error = BigQueryEndpoint::from_url("http://localhost:19050?x=1").unwrap_err();
+        assert_eq!(authority_error.code, "bigquery-endpoint-invalid");
+
+        let prefix_error =
+            BigQueryEndpoint::from_url_with_prefix("http://localhost:19050/bq?x=1", None)
+                .unwrap_err();
+        assert_eq!(prefix_error.code, "bigquery-endpoint-invalid");
+
+        let override_error =
+            BigQueryEndpoint::from_url_with_prefix("http://localhost:19050/bq", Some("bad#x"))
+                .unwrap_err();
+        assert_eq!(override_error.code, "bigquery-endpoint-invalid");
     }
 }

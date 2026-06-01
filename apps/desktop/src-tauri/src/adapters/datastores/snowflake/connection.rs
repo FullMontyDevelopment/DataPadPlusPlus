@@ -139,6 +139,7 @@ impl SnowflakeEndpoint {
                 "Snowflake requires an account host or http:// connection string.",
             ));
         }
+        validate_http_component(host, "Snowflake host")?;
 
         Ok(Self {
             host: host.into(),
@@ -168,14 +169,22 @@ impl SnowflakeEndpoint {
             .rsplit_once(':')
             .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
             .unwrap_or((authority, 80));
+        if host.trim().is_empty() {
+            return Err(CommandError::new(
+                "snowflake-endpoint-missing",
+                "Snowflake connection string did not include a host.",
+            ));
+        }
+        validate_http_component(host, "Snowflake host")?;
+        let prefix = match normalized_prefix(prefix_override)? {
+            Some(prefix) => prefix,
+            None => normalized_prefix(Some(path))?.unwrap_or_default(),
+        };
 
         Ok(Self {
             host: host.into(),
             port,
-            prefix: prefix_override
-                .and_then(normalized_prefix)
-                .or_else(|| normalized_prefix(path))
-                .unwrap_or_default(),
+            prefix,
         })
     }
 
@@ -192,13 +201,38 @@ impl SnowflakeEndpoint {
     }
 }
 
-fn normalized_prefix(value: &str) -> Option<String> {
+fn normalized_prefix(value: Option<&str>) -> Result<Option<String>, CommandError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
     let trimmed = value.trim().trim_matches('/');
     if trimmed.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(format!("/{trimmed}"))
+        validate_path_prefix(trimmed, "Snowflake path prefix")?;
+        Ok(Some(format!("/{trimmed}")))
     }
+}
+
+fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "snowflake-endpoint-invalid",
+            format!("{label} contains an invalid control character."),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_path_prefix(value: &str, label: &str) -> Result<(), CommandError> {
+    validate_http_component(value, label)?;
+    if value.contains('?') || value.contains('#') {
+        return Err(CommandError::new(
+            "snowflake-endpoint-invalid",
+            format!("{label} contains an invalid query or fragment separator."),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn has_live_auth(connection: &ResolvedConnectionProfile) -> bool {
@@ -416,5 +450,22 @@ mod tests {
         let error = snowflake_auth_header(&connection).unwrap_err();
 
         assert_eq!(error.code, "snowflake-invalid-token");
+    }
+
+    #[test]
+    fn snowflake_endpoint_rejects_invalid_http_parts() {
+        let host_error =
+            SnowflakeEndpoint::from_url("http://local\r\nhost:19060/snow").unwrap_err();
+        assert_eq!(host_error.code, "snowflake-endpoint-invalid");
+
+        let prefix_error =
+            SnowflakeEndpoint::from_url_with_prefix("http://localhost:19060/snow?x=1", None)
+                .unwrap_err();
+        assert_eq!(prefix_error.code, "snowflake-endpoint-invalid");
+
+        let override_error =
+            SnowflakeEndpoint::from_url_with_prefix("http://localhost:19060/snow", Some("bad#x"))
+                .unwrap_err();
+        assert_eq!(override_error.code, "snowflake-endpoint-invalid");
     }
 }

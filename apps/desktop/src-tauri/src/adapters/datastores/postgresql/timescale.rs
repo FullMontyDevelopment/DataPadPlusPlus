@@ -7,6 +7,7 @@ mod diagnostics;
 mod explorer;
 mod explorer_live;
 mod operations;
+mod query_request;
 
 use catalog::*;
 use connection::*;
@@ -14,6 +15,7 @@ use diagnostics::*;
 use explorer::*;
 use explorer_live::*;
 use operations::*;
+use query_request::*;
 
 pub(crate) struct TimescaleAdapter;
 
@@ -107,6 +109,18 @@ impl DatastoreAdapter for TimescaleAdapter {
         request: &ExecutionRequest,
         notices: Vec<QueryExecutionNotice>,
     ) -> Result<ExecutionResultEnvelope, CommandError> {
+        let query_request =
+            timescale_query_request(selected_query(request), execute_mode(request))?;
+        let mut notices = notices;
+        notices.push(QueryExecutionNotice {
+            code: "timescale-query-safety".into(),
+            level: "info".into(),
+            message: format!(
+                "TimescaleDB {} query approved for live execution; policy and retention changes use guarded operation previews. Query length: {} character(s).",
+                query_request.mode,
+                query_request.statement.len()
+            ),
+        });
         PostgresAdapter.execute(connection, request, notices).await
     }
 
