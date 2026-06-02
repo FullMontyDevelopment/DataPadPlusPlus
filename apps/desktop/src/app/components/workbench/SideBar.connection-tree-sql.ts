@@ -16,6 +16,10 @@ export function sqlConnectionTree(connection: ConnectionProfile): ConnectionTree
     return sqliteConnectionTree()
   }
 
+  if ((connection.engine === 'mysql' || connection.engine === 'mariadb') && !connection.database?.trim()) {
+    return mysqlConnectionTreeWithoutSelectedDatabase(connection)
+  }
+
   const schema = defaultSqlSchema(connection)
   const supportsStoredRoutines = !['sqlite', 'duckdb'].includes(connection.engine)
   const userSchema = branch(`schema-${schema}`, schema, 'schema', connection.database ?? 'default schema', [
@@ -86,7 +90,7 @@ export function defaultSqlSchema(connection: ConnectionProfile) {
   }
 
   if (connection.engine === 'mysql' || connection.engine === 'mariadb') {
-    return connection.database || 'default'
+    return connection.database?.trim() || ''
   }
 
   if (connection.engine === 'sqlserver') {
@@ -108,32 +112,46 @@ export function isSqlTableLikeKind(kind: string) {
 }
 
 function sqlServerConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
-  const database = connection.database?.trim() || 'master'
+  const database = connection.database?.trim()
+  const selectedDatabaseBranches = database
+    ? [
+        branch(`database-${database}`, database, 'database', 'user database', [
+          branch('tables', 'Tables', 'tables', 'Base tables and table-like relations', []),
+          branch('views', 'Views', 'views', 'Saved select projections', []),
+          branch('synonyms', 'Synonyms', 'synonyms', 'Object aliases', []),
+          sqlServerProgrammabilityBranch(),
+          branch('storage', 'Storage', 'storage', 'Files, filegroups, and partitions', []),
+          branch('performance', 'Performance', 'performance', 'Sessions, locks, waits, and tuning hints', []),
+          branch('security', 'Security', 'security', 'Database users, roles, and schemas', [
+            branch('users', 'Users', 'users', 'Database users', []),
+            branch('roles', 'Roles', 'roles', 'Database roles', []),
+            branch('schemas', 'Schemas', 'schemas', 'Database object namespaces', [
+              leaf('schema-dbo', 'dbo', 'schema', 'default user schema', {
+                path: [connection.name, 'Databases', database, 'Security', 'Schemas'],
+                scope: 'schema:dbo',
+              }),
+            ]),
+          ]),
+        ]),
+      ]
+    : []
 
   return [
     branch('databases', 'Databases', 'databases', 'SQL Server database catalogs', [
       branch('system-databases', 'System Databases', 'system-databases', 'Engine-maintained databases', []),
       branch('database-snapshots', 'Database Snapshots', 'database-snapshots', 'Point-in-time database snapshots', []),
-      branch(`database-${database}`, database, 'database', 'user database', [
-        branch('tables', 'Tables', 'tables', 'Base tables and table-like relations', []),
-        branch('views', 'Views', 'views', 'Saved select projections', []),
-        branch('synonyms', 'Synonyms', 'synonyms', 'Object aliases', []),
-        sqlServerProgrammabilityBranch(),
-        branch('storage', 'Storage', 'storage', 'Files, filegroups, and partitions', []),
-        branch('performance', 'Performance', 'performance', 'Sessions, locks, waits, and tuning hints', []),
-        branch('security', 'Security', 'security', 'Database users, roles, and schemas', [
-          branch('users', 'Users', 'users', 'Database users', []),
-          branch('roles', 'Roles', 'roles', 'Database roles', []),
-          branch('schemas', 'Schemas', 'schemas', 'Database object namespaces', [
-            leaf('schema-dbo', 'dbo', 'schema', 'default user schema', {
-              path: [connection.name, 'Databases', database, 'Security', 'Schemas'],
-              scope: 'schema:dbo',
-            }),
-          ]),
-        ]),
-      ]),
+      ...selectedDatabaseBranches,
     ]),
     ...SQL_SERVER_SERVER_LEVEL_GROUPS.map((label) => sqlServerServerLevelBranch(label)),
+  ]
+}
+
+function mysqlConnectionTreeWithoutSelectedDatabase(connection: ConnectionProfile): ConnectionTreeNode[] {
+  return [
+    branch('databases', 'Databases', 'databases', `${connection.engine} schemas`, []),
+    branch('system-schemas', 'System Schemas', 'system-schemas', 'information_schema, performance_schema, mysql, and sys', []),
+    branch('security', 'Users / Privileges', 'security', 'Users, roles, grants, authentication plugins, and privilege scope', []),
+    branch('diagnostics', 'Diagnostics', 'diagnostics', 'Status, performance schema, and slow query metadata', []),
   ]
 }
 

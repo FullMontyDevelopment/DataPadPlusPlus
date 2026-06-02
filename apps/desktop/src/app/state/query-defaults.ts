@@ -104,36 +104,36 @@ export function editorLabelForConnection(connection: ConnectionProfile) {
 export function defaultQueryTextForConnection(connection: ConnectionProfile) {
   switch (connection.engine) {
     case 'mongodb':
-      return '{\n  "collection": "products",\n  "filter": {},\n  "limit": 20\n}'
+      return '{\n  "collection": "",\n  "filter": {},\n  "limit": 20\n}'
     case 'dynamodb':
-      return '{\n  "operation": "Query",\n  "tableName": "Orders",\n  "keyConditionExpression": "#pk = :pk",\n  "expressionAttributeNames": { "#pk": "pk" },\n  "expressionAttributeValues": { ":pk": { "S": "CUSTOMER#123" } },\n  "limit": 25\n}'
+      return '{\n  "operation": "Scan",\n  "tableName": "",\n  "limit": 25\n}'
     case 'cosmosdb':
       return 'select top 50 * from c'
     case 'litedb':
-      return '{\n  "collection": "products",\n  "filter": {},\n  "limit": 20\n}'
+      return '{\n  "collection": "",\n  "filter": {},\n  "limit": 20\n}'
     case 'redis':
     case 'valkey':
-      return 'SCAN 0 MATCH session:* COUNT 25'
+      return 'SCAN 0 MATCH * COUNT 25'
     case 'memcached':
       return 'stats'
     case 'cassandra':
-      return 'select * from keyspace.table limit 25;'
+      return ''
     case 'neo4j':
       return 'MATCH (n) RETURN n LIMIT 25'
     case 'neptune':
     case 'janusgraph':
       return 'g.V().limit(25)'
     case 'arango':
-      return 'FOR doc IN collection LIMIT 25 RETURN doc'
+      return ''
     case 'influxdb':
-      return 'SELECT * FROM measurement LIMIT 25'
+      return ''
     case 'prometheus':
       return 'up'
     case 'opentsdb':
-      return '{\n  "start": "1h-ago",\n  "queries": [\n    { "metric": "sys.cpu.user", "aggregator": "avg" }\n  ]\n}'
+      return '{\n  "start": "1h-ago",\n  "queries": []\n}'
     case 'elasticsearch':
     case 'opensearch':
-      return '{\n  "index": "products",\n  "body": {\n    "query": { "match_all": {} },\n    "size": 20\n  }\n}'
+      return '{\n  "index": "",\n  "body": {\n    "query": { "match_all": {} },\n    "size": 20\n  }\n}'
     case 'bigquery':
     case 'snowflake':
     case 'clickhouse':
@@ -169,7 +169,7 @@ export function defaultQueryViewModeForConnection(connection: ConnectionProfile)
 
 export function defaultScriptTextForConnection(connection: ConnectionProfile) {
   if (connection.engine === 'mongodb') {
-    return 'db.products.find({}).limit(20)'
+    return ''
   }
 
   return undefined

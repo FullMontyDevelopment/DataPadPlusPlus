@@ -10,21 +10,21 @@ use crate::domain::models::{
 pub(super) fn default_query_text(connection: &ConnectionProfile) -> String {
     match connection.engine.as_str() {
         "mongodb" | "litedb" => {
-            "{\n  \"collection\": \"products\",\n  \"filter\": {},\n  \"limit\": 20\n}".into()
+            "{\n  \"collection\": \"\",\n  \"filter\": {},\n  \"limit\": 20\n}".into()
         }
-        "dynamodb" => "{\n  \"operation\": \"Query\",\n  \"tableName\": \"Orders\",\n  \"keyConditionExpression\": \"#pk = :pk\",\n  \"expressionAttributeNames\": { \"#pk\": \"pk\" },\n  \"expressionAttributeValues\": { \":pk\": { \"S\": \"CUSTOMER#123\" } },\n  \"limit\": 25\n}".into(),
+        "dynamodb" => "{\n  \"operation\": \"Scan\",\n  \"tableName\": \"\",\n  \"limit\": 25\n}".into(),
         "cosmosdb" => "select top 50 * from c".into(),
-        "redis" | "valkey" => "SCAN 0 MATCH session:* COUNT 25".into(),
+        "redis" | "valkey" => "SCAN 0 MATCH * COUNT 25".into(),
         "memcached" => "stats".into(),
-        "cassandra" => "select * from keyspace.table limit 25;".into(),
+        "cassandra" => String::new(),
         "neo4j" => "MATCH (n) RETURN n LIMIT 25".into(),
         "neptune" | "janusgraph" => "g.V().limit(25)".into(),
-        "arango" => "FOR doc IN collection LIMIT 25 RETURN doc".into(),
-        "influxdb" => "SELECT * FROM measurement LIMIT 25".into(),
+        "arango" => String::new(),
+        "influxdb" => String::new(),
         "prometheus" => "up".into(),
-        "opentsdb" => "{\n  \"start\": \"1h-ago\",\n  \"queries\": [\n    { \"metric\": \"sys.cpu.user\", \"aggregator\": \"avg\" }\n  ]\n}".into(),
+        "opentsdb" => "{\n  \"start\": \"1h-ago\",\n  \"queries\": []\n}".into(),
         "elasticsearch" | "opensearch" => {
-            "{\n  \"index\": \"products\",\n  \"body\": {\n    \"query\": { \"match_all\": {} },\n    \"size\": 20\n  }\n}".into()
+            "{\n  \"index\": \"\",\n  \"body\": {\n    \"query\": { \"match_all\": {} },\n    \"size\": 20\n  }\n}".into()
         }
         _ => "select 1;".into(),
     }
@@ -85,7 +85,7 @@ pub(super) fn default_query_view_mode(connection: &ConnectionProfile) -> String 
 
 pub(super) fn default_script_text(connection: &ConnectionProfile) -> Option<String> {
     if connection.engine == "mongodb" {
-        Some("db.products.find({}).limit(20)".into())
+        Some(String::new())
     } else {
         None
     }

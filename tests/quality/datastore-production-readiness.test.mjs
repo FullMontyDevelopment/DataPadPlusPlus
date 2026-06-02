@@ -7,13 +7,20 @@ const repoRoot = path.resolve(import.meta.dirname, '..', '..')
 
 const files = {
   connection: 'packages/shared-types/src/connection.ts',
+  completeness: 'packages/shared-types/src/datastore-completeness.ts',
   roadmap: 'packages/shared-types/src/datastore-roadmap.ts',
   treeManifest: 'packages/shared-types/src/datastore-tree-manifests.ts',
+  rustTreeManifest: 'apps/desktop/src-tauri/src/adapters/common/tree_manifest.rs',
   rustRegistry: 'apps/desktop/src-tauri/src/adapters/registry.rs',
   objectViewRouter: 'apps/desktop/src/app/components/workbench/ObjectViewWorkspace.tsx',
   browserExplorer: 'apps/desktop/src/services/runtime/browser-explorer.ts',
   treeRegistry: 'apps/desktop/src/app/components/workbench/SideBar.datastore-tree-registry.ts',
   fallbackTree: 'apps/desktop/src/app/components/workbench/SideBar.connection-tree.ts',
+  queryDefaults: 'apps/desktop/src/app/state/query-defaults.ts',
+  workspaceHelpers: 'apps/desktop/src/app/workspace-helpers.ts',
+  browserTabs: 'apps/desktop/src/services/runtime/browser-tabs.ts',
+  browserTests: 'apps/desktop/src/services/runtime/browser-tests.ts',
+  testSuiteWorkspace: 'apps/desktop/src/app/components/workbench/TestSuiteWorkspace.tsx',
 }
 
 const descriptorOwners = new Map([
@@ -107,6 +114,26 @@ function objectViewEngines(source) {
   return new Set([...source.matchAll(/connection\.engine === '([^']+)'/g)].map((entry) => entry[1]))
 }
 
+function extractProfileBlock(source, profileName) {
+  const marker = `const ${profileName} = profile({`
+  const markerIndex = source.indexOf(marker)
+  assert.notEqual(markerIndex, -1, `Could not find ${profileName}`)
+  const start = markerIndex + `const ${profileName} = profile(`.length
+  let depth = 0
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '{') {
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return source.slice(start, index + 1)
+      }
+    }
+  }
+  throw new Error(`Could not parse ${profileName}`)
+}
+
 test('every declared datastore has production-readiness wiring', async () => {
   const [
     connectionSource,
@@ -177,6 +204,40 @@ test('every declared datastore has production-readiness wiring', async () => {
   assert.deepEqual(failures, [])
 })
 
+test('datastore completeness profiles keep every native gap explicit', async () => {
+  const completenessSource = await read(files.completeness)
+  const criteria = extractConstStringArray(completenessSource, 'DATASTORE_COMPLETENESS_CRITERIA')
+  const profiles = [
+    'MONGO_PROFILE',
+    'REDIS_PROFILE',
+    'RELATIONAL_CORE_PROFILE',
+    'SEARCH_PROFILE',
+    'WIDE_COLUMN_PROFILE',
+    'BETA_PROFILE',
+  ]
+  const failures = []
+
+  for (const profileName of profiles) {
+    const block = extractProfileBlock(completenessSource, profileName)
+
+    for (const criterion of criteria) {
+      const criterionPattern = new RegExp(`(?:'${criterion}'|${criterion}):\\s*(strong|partial|preview)\\(`)
+      if (!criterionPattern.test(block)) {
+        failures.push(`${profileName}: missing criterion ${criterion}`)
+      }
+    }
+
+    const statusCalls = [...block.matchAll(/(strong|partial|preview)\(\s*'[^']*'\s*,\s*\[([\s\S]*?)\]\s*\)/g)]
+    for (const [, status, nextBlock] of statusCalls) {
+      if (status !== 'strong' && !/'[^']+'/.test(nextBlock)) {
+        failures.push(`${profileName}: ${status} criterion is missing explicit next work`)
+      }
+    }
+  }
+
+  assert.deepEqual(failures, [])
+})
+
 test('datastore trees do not reintroduce fake sample leaves', async () => {
   const sources = await Promise.all([
     files.treeManifest,
@@ -198,6 +259,101 @@ test('datastore trees do not reintroduce fake sample leaves', async () => {
       if (label.test(source)) {
         failures.push(`${file}: contains forbidden tree label ${label}`)
       }
+    }
+  }
+
+  assert.deepEqual(failures, [])
+})
+
+test('production query starters do not invent fixture datastore objects', async () => {
+  const productionSources = await Promise.all([
+    files.treeManifest,
+    files.rustTreeManifest,
+    files.queryDefaults,
+    files.workspaceHelpers,
+    files.browserTabs,
+    files.browserTests,
+    files.testSuiteWorkspace,
+    files.treeRegistry,
+    files.fallbackTree,
+  ].map(async (file) => [file, await read(file)]))
+  const forbiddenDefaults = [
+    /\{\{database:catalog\}\}/,
+    /\{\{database:master\}\}/,
+    /\{\{database:defaultdb\}\}/,
+    /\{\{database:default\}\}/,
+    /\{\{database:ORCLPDB1\}\}/,
+    /defaultDatabase:\s*['"]catalog['"]/,
+    /defaultDatabase:\s*['"]master['"]/,
+    /defaultDatabase:\s*['"]defaultdb['"]/,
+    /defaultDatabase:\s*['"]default['"]/,
+    /defaultDatabase:\s*['"]ORCLPDB1['"]/,
+    /NodeOptions::default_database\("catalog"\)/,
+    /NodeOptions::default_database\("master"\)/,
+    /NodeOptions::default_database\("defaultdb"\)/,
+    /NodeOptions::default_database\("default"\)/,
+    /NodeOptions::default_database\("ORCLPDB1"\)/,
+    /"collection":\s*"products"/,
+    /collection:\s*['"]products['"]/,
+    /"tableName":\s*"products"/,
+    /tableName:\s*['"]products['"]/,
+    /"index":\s*"products/,
+    /index:\s*['"]products/,
+    /\|\|\s*['"]catalog['"]/,
+    /\?\?\s*['"]catalog['"]/,
+    /\|\|\s*['"]products['"]/,
+    /\?\?\s*['"]products['"]/,
+    /connection\.database\s*\|\|\s*['"]admin['"]/,
+    /connection\.database\s*\|\|\s*['"]master['"]/,
+    /connection\.database\s*\|\|\s*['"]defaultdb['"]/,
+  ]
+  const failures = []
+
+  for (const [file, source] of productionSources) {
+    for (const pattern of forbiddenDefaults) {
+      if (pattern.test(source)) {
+        failures.push(`${file}: contains production fixture/default object pattern ${pattern}`)
+      }
+    }
+  }
+
+  assert.deepEqual(failures, [])
+})
+
+test('database placeholders require explicit resolution rules', async () => {
+  const source = await read(files.treeManifest)
+  const lines = source.split(/\r?\n/)
+  const failures = []
+
+  for (const [index, line] of lines.entries()) {
+    if (!line.includes('{{database')) {
+      continue
+    }
+
+    const block = lines.slice(index, index + 24).join('\n')
+    const hasInlineDefault = /\{\{database:[^}]+}}/.test(line)
+    const hasExplicitDefault = /defaultDatabase:\s*['"][^'"]+['"]/.test(block)
+    const requiresDatabase = /requiresDatabase:\s*true/.test(block)
+
+    if (!hasInlineDefault && !hasExplicitDefault && !requiresDatabase) {
+      const label = line.match(/['"]([^'"]*\{\{database[^'"]*)['"]/)?.[1] ?? '{{database}}'
+      failures.push(`${label} on line ${index + 1}: missing requiresDatabase or explicit database default`)
+    }
+  }
+
+  assert.deepEqual(failures, [])
+})
+
+test('datastore object-view menu labels are workflow-specific', async () => {
+  const descriptorDir = absolutePath('apps/desktop/src/app/components/workbench')
+  const fileNames = await readdir(descriptorDir)
+  const descriptorFiles = fileNames.filter((file) => file.endsWith('ObjectViewDescriptors.ts'))
+  const failures = []
+
+  for (const fileName of descriptorFiles) {
+    const source = await read(`apps/desktop/src/app/components/workbench/${fileName}`)
+    if (/descriptor\([^,\n]+,\s*['"]Open View['"]/.test(source) || /menuLabel:\s*['"]Open View['"]/.test(source)) {
+      failures.push(`${fileName}: uses generic Open View menu label`)
     }
   }
 

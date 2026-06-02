@@ -3,7 +3,6 @@ import type {
   DataEditPlanRequest,
   AdapterDiagnosticsRequest,
   CreateObjectViewTabRequest,
-  DocumentNodeChildrenRequest,
   ExplorerInspectRequest,
   ExecutionRequest,
   ExplorerRequest,
@@ -49,6 +48,7 @@ import {
 } from './request-validation-core'
 export * from './request-validation-library'
 export * from './request-validation-workspace'
+export * from './request-validation-documents'
 
 export function validateExplorerRequest(request: ExplorerRequest): ExplorerRequest {
   validateRequiredId(request.connectionId, 'Connection id')
@@ -345,38 +345,6 @@ function validateQueryLanguage(language: ExecutionRequest['language']) {
     throw new Error(`Unsupported query language: ${normalized}.`)
   }
   return normalized as ExecutionRequest['language']
-}
-
-export function validateDocumentNodeChildrenRequest(
-  request: DocumentNodeChildrenRequest,
-): DocumentNodeChildrenRequest {
-  validateRequiredId(request.tabId, 'Tab id')
-  validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
-  validateRequiredText(request.collection, 'Collection name', MAX_OBJECT_NAME_LENGTH)
-  validateOptionalText(request.database, 'Database name', MAX_OBJECT_NAME_LENGTH)
-  validateDocumentPath(request.path)
-  validateQueryText(request.queryText ?? '{}', 'Query text')
-  assertJsonSize(request.documentId, 'Document id')
-  return request
-}
-
-function validateDocumentPath(path: Array<string | number>) {
-  if (!Array.isArray(path) || path.length === 0) {
-    throw new Error('Document field path must be a non-empty array.')
-  }
-  if (path.length > 64) {
-    throw new Error('Document field path can contain at most 64 segments.')
-  }
-  for (const segment of path) {
-    if (typeof segment === 'number') {
-      if (!Number.isInteger(segment) || segment < 0) {
-        throw new Error('Document field path array indexes must be non-negative integers.')
-      }
-    } else {
-      validateRequiredText(segment, 'Document field path segment', 256)
-    }
-  }
 }
 
 export function validateCancelExecutionRequest(request: { executionId: string; tabId?: string }) {

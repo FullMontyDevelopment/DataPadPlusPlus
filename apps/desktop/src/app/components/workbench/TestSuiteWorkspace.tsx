@@ -345,7 +345,7 @@ function emptyStep(
     enabled: true,
     language: connection?.engine === 'mongodb' ? 'mongodb' : 'sql',
     queryText: connection?.engine === 'mongodb'
-      ? '{\n  "collection": "products",\n  "filter": {},\n  "limit": 1\n}'
+      ? '{\n  "collection": "",\n  "filter": {},\n  "limit": 1\n}'
       : 'select 1;',
   }
 }

@@ -7,6 +7,49 @@ import {
 } from './browser-operations'
 
 describe('browser operation runtime', () => {
+  it('keeps risky and plan-only operation manifests explicit', () => {
+    const connections = [
+      mongoConnection,
+      redisConnection,
+      sqlServerConnection,
+      postgresConnection,
+      searchConnection,
+      dynamoConnection,
+      cassandraConnection,
+      prometheusConnection,
+      influxConnection,
+      openTsdbConnection,
+      neo4jConnection,
+      neptuneConnection,
+      snowflakeConnection,
+      bigQueryConnection,
+      clickHouseConnection,
+      cosmosConnection,
+      liteDbConnection,
+      memcachedConnection,
+    ]
+
+    for (const connection of connections) {
+      const operations = buildOperationManifestsForConnection(connection)
+
+      for (const operation of operations) {
+        if (['write', 'destructive', 'costly'].includes(operation.risk)) {
+          expect(
+            operation.requiresConfirmation,
+            `${operation.id} must require confirmation`,
+          ).toBe(true)
+        }
+
+        if (operation.executionSupport !== 'live') {
+          expect(
+            operation.disabledReason?.trim(),
+            `${operation.id} must explain why it is not live`,
+          ).toBeTruthy()
+        }
+      }
+    }
+  })
+
   it('exposes guarded index visibility operations for MongoDB-capable profiles', () => {
     const operations = buildOperationManifestsForConnection(mongoConnection)
 

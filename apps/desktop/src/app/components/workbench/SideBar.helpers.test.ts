@@ -104,6 +104,42 @@ describe('sidebar connection tree helpers', () => {
     expect(findNodeByLabel(tree, 'Contention')).toMatchObject({ label: 'Contention' })
   })
 
+  it('does not invent selected SQL database names when the profile has none', () => {
+    const connections = [
+      {
+        connection: {
+          ...cockroachConnection(),
+          id: 'conn-sqlserver-empty',
+          name: 'SQL Server',
+          engine: 'sqlserver' as const,
+          icon: 'sqlserver',
+          port: 1433,
+          database: undefined,
+          auth: {},
+        },
+        forbiddenLabel: 'master',
+      },
+      {
+        connection: { ...cockroachConnection(), database: undefined },
+        forbiddenLabel: 'defaultdb',
+      },
+      {
+        connection: { ...mysqlConnection(), database: undefined },
+        forbiddenLabel: 'datapadplusplus',
+      },
+      {
+        connection: { ...oracleConnection(), database: undefined, oracleOptions: undefined },
+        forbiddenLabel: 'ORCLPDB1',
+      },
+    ]
+
+    for (const { connection, forbiddenLabel } of connections) {
+      const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
+
+      expect(findNodeByLabel(tree, forbiddenLabel)).toBeUndefined()
+    }
+  })
+
   it('builds PostgreSQL structural folders without a generic programmability bucket', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-analytics')!

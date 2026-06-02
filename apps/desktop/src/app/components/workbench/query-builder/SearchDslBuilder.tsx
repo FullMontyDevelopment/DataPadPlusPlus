@@ -32,7 +32,7 @@ export function SearchDslBuilder({
   onBuilderStateChange,
 }: SearchDslBuilderProps) {
   const draft = builderState
-  const resolvedIndexOptions = uniqueValues([draft.index, ...indexOptions, 'products'])
+  const resolvedIndexOptions = uniqueValues([draft.index, ...indexOptions])
   const updateDraft = (patch: Partial<SearchDslBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
     onBuilderStateChange?.(tab.id, {
@@ -51,6 +51,7 @@ export function SearchDslBuilder({
             value={draft.index}
             onChange={(event) => updateDraft({ index: event.target.value })}
           >
+            {resolvedIndexOptions.length === 0 ? <option value="">Select index</option> : null}
             {resolvedIndexOptions.map((index) => (
               <option key={index} value={index}>{index}</option>
             ))}

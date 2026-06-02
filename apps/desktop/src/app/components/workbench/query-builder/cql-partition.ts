@@ -17,8 +17,8 @@ const OPERATORS: Record<CqlConditionOperator, string> = {
 }
 
 export function createDefaultCqlPartitionBuilderState(
-  table = 'events_by_customer',
-  keyspace = 'app',
+  table = '',
+  keyspace = '',
   limit = 20,
 ): CqlPartitionBuilderState {
   const state: CqlPartitionBuilderState = {
@@ -26,7 +26,7 @@ export function createDefaultCqlPartitionBuilderState(
     keyspace,
     table,
     projectionFields: [],
-    partitionKeys: [newCqlCondition('customer_id')],
+    partitionKeys: [newCqlCondition()],
     clusteringKeys: [],
     filters: [],
     allowFiltering: false,
@@ -111,7 +111,7 @@ export function parseCqlPartitionQueryText(
   }
 
   if (state.partitionKeys.length === 0) {
-    state.partitionKeys = [newCqlCondition('customer_id')]
+    state.partitionKeys = [newCqlCondition()]
   }
 
   return {

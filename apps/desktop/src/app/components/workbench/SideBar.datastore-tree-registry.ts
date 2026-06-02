@@ -1093,7 +1093,7 @@ function cosmosDatabaseFromNode(
   const databasesIndex = normalizedPath.indexOf('Databases')
 
   if (databasesIndex >= 0 && normalizedPath[databasesIndex + 1]) {
-    return normalizedPath[databasesIndex + 1] ?? 'catalog'
+    return normalizedPath[databasesIndex + 1] ?? ''
   }
 
   const parts = node.id.split(':')
@@ -1124,7 +1124,7 @@ function cosmosDatabaseFromNode(
     return database
   }
 
-  return connection.database?.trim() || 'catalog'
+  return connection.database?.trim() || ''
 }
 
 function cosmosContainerFromNode(node: ExplorerNode, normalizedPath: string[]) {
@@ -1145,10 +1145,10 @@ function cosmosDatabaseFromPlacementPath(connection: ConnectionProfile, path: st
   const databasesIndex = path.indexOf('Databases')
 
   if (databasesIndex >= 0 && path[databasesIndex + 1]) {
-    return path[databasesIndex + 1] ?? 'catalog'
+    return path[databasesIndex + 1] ?? ''
   }
 
-  return connection.database?.trim() || 'catalog'
+  return connection.database?.trim() || ''
 }
 
 function liteDbPlacement(
@@ -1803,7 +1803,7 @@ function sqlServerDatabaseName(connection: ConnectionProfile, normalizedPath: st
     return pathDatabase
   }
 
-  return connection.database?.trim() || 'master'
+  return connection.database?.trim() || ''
 }
 
 function cockroachDatabaseName(connection: ConnectionProfile, normalizedPath: string[]) {
@@ -1817,7 +1817,7 @@ function cockroachDatabaseName(connection: ConnectionProfile, normalizedPath: st
     return pathDatabase
   }
 
-  return connection.database?.trim() || 'defaultdb'
+  return connection.database?.trim() || ''
 }
 
 function sqlServerTableCategoryForKind(
@@ -2246,7 +2246,7 @@ function cosmosTreeTarget(connection: ConnectionProfile, node: ConnectionTreeNod
       databaseFromScope ||
       (databaseIndex >= 0 ? path[databaseIndex + 1] : undefined) ||
       connection.database?.trim() ||
-      'catalog',
+      '',
     container:
       containerFromScope ||
       (containerIndex >= 0 ? path[containerIndex + 1] : undefined),
@@ -2909,7 +2909,7 @@ function documentDatabaseFromPlacementPath(connection: ConnectionProfile, path: 
 }
 
 function defaultDocumentDatabase(connection: ConnectionProfile) {
-  return connection.database || (connection.engine === 'litedb' ? 'local file' : 'default')
+  return connection.database?.trim() || (connection.engine === 'litedb' ? 'local file' : '')
 }
 
 function collectionFromDocumentNode(

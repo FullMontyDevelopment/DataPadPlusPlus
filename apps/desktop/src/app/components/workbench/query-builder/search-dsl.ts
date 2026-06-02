@@ -8,7 +8,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 
 export function createDefaultSearchDslBuilderState(
-  index = 'products',
+  index = '',
   size = 20,
 ): SearchDslBuilderState {
   const state: SearchDslBuilderState = {
@@ -69,7 +69,7 @@ export function buildSearchDslQueryText(state: SearchDslBuilderState) {
 
   return JSON.stringify(
     {
-      index: state.index.trim() || '_all',
+      index: state.index.trim(),
       body,
     },
     null,
@@ -86,7 +86,7 @@ export function parseSearchDslQueryText(
     const query = objectField(body, 'query')
     const state: SearchDslBuilderState = {
       kind: 'search-dsl',
-      index: stringField(parsed, 'index') ?? '_all',
+      index: stringField(parsed, 'index') ?? '',
       ...parseMainQuery(query),
       filters: parseFilters(query),
       sourceFields: parseSourceFields(body),

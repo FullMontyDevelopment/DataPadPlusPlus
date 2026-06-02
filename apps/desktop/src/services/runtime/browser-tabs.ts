@@ -470,13 +470,13 @@ function cassandraKeyspaceFromTarget(
       segment !== target.label,
   )
 
-  return scopedKeyspace || pathKeyspace || connection.database || 'app'
+  return scopedKeyspace || pathKeyspace || connection.database || ''
 }
 
 function cassandraPartitionKeyFromTarget(target: ScopedQueryTarget) {
   const queryText = target.queryTemplate ?? ''
   const match = /\bwhere\s+"?([A-Za-z_][\w]*)"?\s*=/i.exec(queryText)
-  return match?.[1] ?? (target.label.includes('product') ? 'sku' : 'customer_id')
+  return match?.[1] ?? ''
 }
 
 function uniqueObjectViewTabTitle(

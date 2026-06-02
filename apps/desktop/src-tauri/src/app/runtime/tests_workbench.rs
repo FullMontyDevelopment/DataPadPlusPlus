@@ -1,5 +1,7 @@
 use serde_json::{json, Value};
 
+mod runner;
+
 use super::validators;
 use super::{
     generate_id, library::effective_connection_environment_id, timestamp_now, ManagedAppState,
@@ -308,31 +310,31 @@ fn test_suite_for_connection(connection: &ConnectionProfile) -> Value {
         "mongodb" => (
             "MongoDB document test",
             "mongodb",
-            r#"{ "collection": "products", "filter": {}, "limit": 1 }"#,
-            "document-count",
-            json!(1),
+            r#"{ "collection": "", "filter": {}, "limit": 1 }"#,
+            "no-error",
+            json!(true),
         ),
         "redis" | "valkey" => ("Redis key test", "redis", "PING", "no-error", json!(true)),
         "elasticsearch" | "opensearch" => (
             "Search index test",
             "query-dsl",
-            r#"{ "index": "products", "body": { "query": { "match_all": {} }, "size": 1 } }"#,
-            "search-hit-count",
-            json!(1),
+            r#"{ "index": "", "body": { "query": { "match_all": {} }, "size": 1 } }"#,
+            "no-error",
+            json!(true),
         ),
         "dynamodb" => (
             "DynamoDB item test",
             "json",
-            r#"{ "operation": "Query", "tableName": "Orders", "limit": 1 }"#,
-            "row-count",
-            json!(1),
+            r#"{ "operation": "Scan", "tableName": "", "limit": 1 }"#,
+            "no-error",
+            json!(true),
         ),
         "cassandra" => (
             "Cassandra partition test",
             "cql",
-            "select * from keyspace.table limit 1;",
-            "row-count",
-            json!(1),
+            "",
+            "no-error",
+            json!(true),
         ),
         _ => ("SQL smoke test", "sql", "select 1;", "row-count", json!(1)),
     };
@@ -414,7 +416,7 @@ fn build_run_result(suite: &Value, case_id: Option<&str>) -> Value {
         .into_iter()
         .filter(|case| case.get("enabled").and_then(Value::as_bool).unwrap_or(true))
         .filter(|case| case_id.is_none_or(|id| case.get("id").and_then(Value::as_str) == Some(id)))
-        .map(run_case)
+        .map(runner::run_case)
         .collect::<Vec<_>>();
     let failed = cases
         .iter()
@@ -456,94 +458,5 @@ fn build_run_result(suite: &Value, case_id: Option<&str>) -> Value {
     })
 }
 
-fn run_case(test_case: Value) -> Value {
-    let setup = phase_steps(&test_case, "setup");
-    let execute = phase_steps(&test_case, "execute");
-    let teardown = phase_steps(&test_case, "teardown");
-    let mut steps = Vec::new();
-    steps.extend(setup);
-    steps.extend(execute);
-    steps.extend(teardown);
-    let assertions = test_case
-        .get("assertions")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|assertion| {
-            assertion
-                .get("enabled")
-                .and_then(Value::as_bool)
-                .unwrap_or(true)
-        })
-        .map(run_assertion)
-        .collect::<Vec<_>>();
-    let failed = assertions
-        .iter()
-        .any(|assertion| assertion.get("status").and_then(Value::as_str) != Some("passed"));
-    let duration_ms = steps
-        .iter()
-        .filter_map(|step| step.get("durationMs").and_then(Value::as_u64))
-        .sum::<u64>();
-
-    json!({
-        "id": test_case.get("id").and_then(Value::as_str).unwrap_or("case"),
-        "name": test_case.get("name").and_then(Value::as_str).unwrap_or("test case"),
-        "status": if failed { "failed" } else { "passed" },
-        "durationMs": duration_ms,
-        "steps": steps,
-        "assertions": assertions,
-    })
-}
-
-fn phase_steps(test_case: &Value, phase: &str) -> Vec<Value> {
-    test_case
-        .get(phase)
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|step| step.get("enabled").and_then(Value::as_bool).unwrap_or(true))
-        .map(|step| {
-            let label = step.get("label").and_then(Value::as_str).unwrap_or("Step");
-            let summary = step
-                .get("queryText")
-                .and_then(Value::as_str)
-                .map(|value| value.lines().next().unwrap_or_default().to_string())
-                .unwrap_or_else(|| {
-                    step.get("kind")
-                        .and_then(Value::as_str)
-                        .unwrap_or("query")
-                        .to_string()
-                });
-            json!({
-                "id": step.get("id").and_then(Value::as_str).unwrap_or("step"),
-                "label": label,
-                "phase": phase,
-                "status": "passed",
-                "durationMs": 5,
-                "messages": [format!("{label} completed.")],
-                "warnings": [],
-                "payloadSummary": summary,
-            })
-        })
-        .collect()
-}
-
-fn run_assertion(assertion: Value) -> Value {
-    let label = assertion
-        .get("label")
-        .and_then(Value::as_str)
-        .unwrap_or("Assertion");
-    let failed = assertion.get("expected").and_then(Value::as_bool) == Some(false);
-
-    json!({
-        "id": assertion.get("id").and_then(Value::as_str).unwrap_or("assertion"),
-        "label": label,
-        "kind": assertion.get("kind").and_then(Value::as_str).unwrap_or("no-error"),
-        "status": if failed { "failed" } else { "passed" },
-        "expected": assertion.get("expected").cloned().unwrap_or(json!(true)),
-        "actual": assertion.get("expected").cloned().unwrap_or(json!(true)),
-        "message": if failed { format!("{label} failed.") } else { format!("{label} passed.") },
-    })
-}
+#[cfg(test)]
+mod tests_workbench_tests;

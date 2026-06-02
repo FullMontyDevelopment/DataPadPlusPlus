@@ -38,7 +38,11 @@ export function createTestSuiteTabInSnapshot(
   }
 
   const suite = normalizeSuite(
-    request.suite ?? templateSuiteForConnection(connection, request.templateId),
+    request.suite ?? (
+      request.templateId
+        ? templateSuiteForConnection(connection, request.templateId)
+        : emptySuite(connection)
+    ),
     connection,
   )
   const existingTab = next.tabs.find(
@@ -414,7 +418,7 @@ function defaultTestQuery(connection: ConnectionProfile) {
     case 'Valkey console':
       return 'PING'
     case 'Document query':
-      return JSON.stringify({ collection: 'products', filter: {}, limit: 1 }, null, 2)
+      return JSON.stringify({ collection: '', filter: {}, limit: 1 }, null, 2)
     default:
       return 'select 1;'
   }

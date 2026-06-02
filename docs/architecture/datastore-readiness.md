@@ -1,6 +1,6 @@
 # Datastore Readiness And Completion Plan
 
-Last reviewed: 2026-06-01
+Last reviewed: 2026-06-02
 
 This document is the current product inventory for DataPad++ datastore support. It is meant to answer one question clearly: what still has to be finished before each datastore feels like a native, production-ready IDE inside DataPad++?
 
@@ -37,6 +37,15 @@ PostgreSQL now adds compact storage, index-health, security, and activity postur
 SQLite now adds compact local-file posture panels, PRAGMA/integrity cards, schema/index/trigger summaries, and guarded check/analyze/optimize/vacuum/reindex previews in browser and Rust paths.
 
 The current strongest areas are MongoDB, Redis/Valkey, SQL Server, PostgreSQL, SQLite, and the shared result workbench. The weakest areas are live depth and native management flows for cloud, graph, warehouse, and some secondary engines.
+
+Strictly, no datastore is fully native-complete yet. MongoDB and Redis/Valkey are the reference patterns, core SQL is usable and deepening, and secondary/cloud engines still need more live adapter behavior before they should lose beta/foundation framing.
+
+The quality gate now enforces several production-native guardrails:
+
+- every completeness profile must cover all native-completion criteria and explicitly name remaining work for non-strong areas
+- production query starters and structural tree manifests must not invent fixture/default objects such as `products`, `catalog`, or synthetic table names
+- object-view menu labels must be workflow-specific instead of generic `Open View`
+- tree manifests must continue avoiding fake/sample leaves and hidden preview-only clutter
 
 ## Readiness Matrix
 

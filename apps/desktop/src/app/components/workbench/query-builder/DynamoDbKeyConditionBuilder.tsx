@@ -46,7 +46,7 @@ export function DynamoDbKeyConditionBuilder({
   onBuilderStateChange,
 }: DynamoDbKeyConditionBuilderProps) {
   const draft = builderState
-  const resolvedTableOptions = uniqueValues([draft.table, ...tableOptions, 'Orders'])
+  const resolvedTableOptions = uniqueValues([draft.table, ...tableOptions])
   const updateDraft = (patch: Partial<DynamoDbKeyConditionBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
     const next = {

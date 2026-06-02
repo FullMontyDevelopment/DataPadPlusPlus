@@ -98,9 +98,9 @@ export function resolveManifestTreeLabel(
     manifestNode.defaultDatabase ||
     databaseMatch[1]?.trim()
 
-  if (!database && manifestNode.requiresDatabase) return undefined
+  if (!database) return undefined
 
-  return manifestNode.label.replace(databasePlaceholder, database || 'default')
+  return manifestNode.label.replace(databasePlaceholder, database)
 }
 
 export function manifestTreeNodeQueryConfig(
@@ -305,7 +305,7 @@ function cosmosManifestNodeId(
   const database =
     parentPath.find((segment) => !isCosmosCategory(segment)) ||
     connection.database?.trim() ||
-    'catalog'
+    ''
 
   if (normalizedKind === 'account') return 'cosmos:account'
   if (normalizedKind === 'databases') return 'cosmos:databases'

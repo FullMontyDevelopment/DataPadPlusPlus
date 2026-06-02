@@ -912,6 +912,56 @@ mod tests {
     }
 
     #[test]
+    fn operation_manifests_keep_risky_and_plan_only_states_explicit() {
+        for maturity in ["stable", "beta"] {
+            let manifest = AdapterManifest {
+                id: format!("adapter-{maturity}"),
+                engine: format!("engine-{maturity}"),
+                family: "sql".into(),
+                label: format!("Engine {maturity}"),
+                maturity: maturity.into(),
+                capabilities: vec![
+                    "supports_schema_browser".into(),
+                    "supports_result_snapshots".into(),
+                    "supports_explain_plan".into(),
+                    "supports_plan_visualization".into(),
+                    "supports_query_profile".into(),
+                    "supports_admin_operations".into(),
+                    "supports_index_management".into(),
+                    "supports_permission_inspection".into(),
+                    "supports_import_export".into(),
+                    "supports_backup_restore".into(),
+                    "supports_metrics_collection".into(),
+                ],
+                default_language: "sql".into(),
+                local_database: None,
+                tree: None,
+            };
+
+            for operation in operation_manifests_for_manifest(&manifest) {
+                if matches!(operation.risk.as_str(), "write" | "destructive" | "costly") {
+                    assert!(
+                        operation.requires_confirmation,
+                        "{} must require confirmation",
+                        operation.id
+                    );
+                }
+
+                if operation.execution_support != "live" {
+                    assert!(
+                        operation
+                            .disabled_reason
+                            .as_deref()
+                            .is_some_and(|reason| !reason.trim().is_empty()),
+                        "{} must explain why it is not live",
+                        operation.id
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn duckdb_operation_manifest_exposes_local_analytics_previews() {
         let manifest = AdapterManifest {
             id: "adapter-duckdb".into(),

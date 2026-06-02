@@ -68,7 +68,13 @@ function documentConnectionTree(connection: ConnectionProfile): ConnectionTreeNo
     return cosmosConnectionTree(connection)
   }
 
-  const database = connection.database || 'admin'
+  const database = connection.database?.trim()
+
+  if (!database) {
+    return [
+      branch('databases', 'Databases', 'databases', 'Document database namespaces', []),
+    ]
+  }
 
   return [
     branch('databases', 'Databases', 'databases', 'Document database namespaces', [
@@ -99,17 +105,20 @@ function liteDbConnectionTree(connection: ConnectionProfile): ConnectionTreeNode
 }
 
 function cosmosConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
-  const database = connection.database?.trim() || 'catalog'
-
-  return [
-    branch('cosmos-account', 'Account', 'account', 'Cosmos DB account topology and API surface', [
-      branch('cosmos-databases', 'Databases', 'databases', 'Cosmos DB databases', [
+  const database = connection.database?.trim()
+  const databaseChildren = database
+    ? [
         branch(`cosmos-database-${database}`, database, 'database', 'Selected Cosmos DB database', [
           branch('cosmos-containers', 'Containers', 'containers', 'Containers and partitioned item stores', []),
           branch('cosmos-throughput', 'Throughput', 'throughput', 'Shared database throughput where configured', []),
           branch('cosmos-security', 'Security', 'security', 'Database access posture', []),
         ]),
-      ]),
+      ]
+    : []
+
+  return [
+    branch('cosmos-account', 'Account', 'account', 'Cosmos DB account topology and API surface', [
+      branch('cosmos-databases', 'Databases', 'databases', 'Cosmos DB databases', databaseChildren),
       branch('cosmos-regions', 'Regions', 'regions', 'Read and write region topology', []),
       branch('cosmos-consistency', 'Consistency', 'consistency', 'Default consistency and session behavior', []),
       branch('cosmos-security-root', 'Security', 'security', 'RBAC, keys, networking, and access posture', []),

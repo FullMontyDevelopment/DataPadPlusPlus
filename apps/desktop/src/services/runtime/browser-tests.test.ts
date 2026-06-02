@@ -12,7 +12,7 @@ describe('browser test-suite runtime', () => {
     const snapshot = createSeedSnapshot()
     const opened = createTestSuiteTabInSnapshot(snapshot, {
       connectionId: 'conn-catalog',
-      templateId: 'mongodb-test-template',
+      templateId: 'mongodb-smoke-suite',
     })
     const testTab = opened.tabs.find((tab) => tab.tabKind === 'test-suite')
 
@@ -31,7 +31,7 @@ describe('browser test-suite runtime', () => {
 
     const reopened = createTestSuiteTabInSnapshot(opened, {
       connectionId: 'conn-catalog',
-      templateId: 'mongodb-test-template',
+      templateId: 'mongodb-smoke-suite',
     })
 
     expect(reopened.tabs.filter((tab) => tab.tabKind === 'test-suite')).toHaveLength(1)
@@ -55,6 +55,17 @@ describe('browser test-suite runtime', () => {
     expect(updatedTab?.queryText).toBe('{ invalid json')
     expect(updatedTab?.testSuite).toEqual(tab?.testSuite)
     expect(updatedTab?.error?.code).toBe('test-suite-json-invalid')
+  })
+
+  it('does not invent a document collection name for custom test suites', () => {
+    const opened = createTestSuiteTabInSnapshot(createSeedSnapshot(), {
+      connectionId: 'conn-catalog',
+    })
+    const tab = opened.tabs.find((item) => item.tabKind === 'test-suite')
+    const executeText = tab?.testSuite?.cases[0]?.execute[0]?.queryText
+
+    expect(executeText).toContain('"collection": ""')
+    expect(executeText).not.toContain('"collection": "products"')
   })
 
   it('runs setup, execute, assertions, and teardown into a test result', () => {

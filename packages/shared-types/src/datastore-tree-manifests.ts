@@ -197,9 +197,9 @@ function cosmosTree(): DatastoreTreeNodeManifest[] {
       children: [
         node('databases', 'Databases', 'databases', 'Cosmos DB databases', {
           children: [
-            node('selected-database', '{{database:catalog}}', 'database', 'Selected Cosmos DB database', {
+            node('selected-database', '{{database}}', 'database', 'Selected Cosmos DB database', {
               children: cosmosDatabaseChildren(),
-              defaultDatabase: 'catalog',
+              requiresDatabase: true,
             }),
           ],
         }),
@@ -238,8 +238,9 @@ function sqlServerTree(): DatastoreTreeNodeManifest[] {
       children: [
         node('system-databases', 'System Databases', 'system-databases', 'Engine-maintained databases'),
         node('database-snapshots', 'Database Snapshots', 'database-snapshots', 'Point-in-time snapshots'),
-        node('selected-database', '{{database:master}}', 'database', 'Selected database', {
+        node('selected-database', '{{database}}', 'database', 'Selected database', {
           children: sqlServerDatabaseChildren(),
+          requiresDatabase: true,
         }),
       ],
     }),
@@ -425,7 +426,7 @@ function cockroachTree(): DatastoreTreeNodeManifest[] {
   return [
     node('databases', 'Databases', 'databases', 'CockroachDB database namespaces', {
       children: [
-        node('selected-database', '{{database:defaultdb}}', 'database', 'Selected CockroachDB database', {
+        node('selected-database', '{{database}}', 'database', 'Selected CockroachDB database', {
           children: [
             node('user-schemas', 'User Schemas', 'user-schemas', 'User-created object namespaces', {
               children: [
@@ -436,7 +437,7 @@ function cockroachTree(): DatastoreTreeNodeManifest[] {
             }),
             node('system-schemas', 'System Schemas', 'system-schemas', 'crdb_internal, pg_catalog, information_schema, and system metadata'),
           ],
-          defaultDatabase: 'defaultdb',
+          requiresDatabase: true,
         }),
       ],
     }),
@@ -485,7 +486,7 @@ function mysqlTree(): DatastoreTreeNodeManifest[] {
   return [
     node('databases', 'Databases', 'databases', 'MySQL/MariaDB schemas', {
       children: [
-        node('selected-database', '{{database:default}}', 'database', 'Selected database', {
+        node('selected-database', '{{database}}', 'database', 'Selected database', {
           children: [
             node('tables', 'Tables', 'tables', 'Base tables and storage engines'),
             node('views', 'Views', 'views', 'Stored SELECT definitions'),
@@ -496,6 +497,7 @@ function mysqlTree(): DatastoreTreeNodeManifest[] {
             node('indexes', 'Indexes', 'indexes', 'Schema-level index list'),
             node('storage', 'Storage', 'storage', 'Storage engines, table sizes, and fragmentation'),
           ],
+          requiresDatabase: true,
         }),
       ],
     }),
@@ -521,9 +523,9 @@ function mysqlTree(): DatastoreTreeNodeManifest[] {
 
 function oracleTree(): DatastoreTreeNodeManifest[] {
   return [
-    node('selected-container', '{{database:ORCLPDB1}}', 'database', 'Selected Oracle service or PDB', {
+    node('selected-container', '{{database}}', 'database', 'Selected Oracle service or PDB', {
       children: oracleSchemaChildren(),
-      defaultDatabase: 'ORCLPDB1',
+      requiresDatabase: true,
     }),
     node('schemas', 'Schemas', 'schemas', 'Oracle users and object schemas', {
       children: oracleSchemaChildren(),

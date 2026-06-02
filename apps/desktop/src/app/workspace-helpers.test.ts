@@ -17,6 +17,10 @@ import {
   queryBuilderObjectOptions,
   selectPayload,
 } from './workspace-helpers'
+import {
+  defaultQueryTextForConnection,
+  defaultScriptTextForConnection,
+} from './state/helpers'
 
 function createTab(
   queryText: string,
@@ -157,7 +161,7 @@ describe('workspace query helpers', () => {
     expect(capabilities.supportsLiveMetadata).toBe(true)
   })
 
-  it('dedupes Mongo collection options and keeps useful fixture fallbacks', () => {
+  it('dedupes Mongo collection options without inventing collections', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')
 
@@ -167,7 +171,7 @@ describe('workspace query helpers', () => {
       { kind: 'database', label: 'catalog' },
     ])
 
-    expect(options).toEqual(['orders', 'products', 'inventory'])
+    expect(options).toEqual(['orders'])
   })
 
   it('collects SQL table and view options for SQL builders', () => {
@@ -183,7 +187,7 @@ describe('workspace query helpers', () => {
     ).toEqual(['accounts', 'active_accounts'])
   })
 
-  it('collects DynamoDB table options with a useful fixture fallback', () => {
+  it('collects DynamoDB table options without inventing tables', () => {
     expect(
       queryBuilderObjectOptions(dynamoDbConnection(), [
         { kind: 'table', label: 'Orders' },
@@ -192,22 +196,30 @@ describe('workspace query helpers', () => {
     ).toEqual(['Orders'])
   })
 
-  it('collects Cassandra table options with useful fixture fallbacks', () => {
+  it('collects Cassandra table options without inventing tables', () => {
     expect(
       queryBuilderObjectOptions(cassandraConnection(), [
         { kind: 'table', label: 'events_by_customer' },
         { kind: 'index', label: 'events_type_idx' },
       ]),
-    ).toEqual(['events_by_customer', 'orders_by_day'])
+    ).toEqual(['events_by_customer'])
   })
 
-  it('collects search index and data-stream options with fixture fallbacks', () => {
+  it('collects search index and data-stream options without inventing indexes', () => {
     expect(
       queryBuilderObjectOptions(searchConnection(), [
         { kind: 'index', label: 'products' },
         { kind: 'data-stream', label: 'logs-app-default' },
       ]),
-    ).toEqual(['products', 'logs-app-default', 'events-*'])
+    ).toEqual(['products', 'logs-app-default'])
+  })
+
+  it('keeps connection-level starter queries free of fake datastore object names', () => {
+    expect(defaultQueryTextForConnection(mongoConnection())).toContain('"collection": ""')
+    expect(defaultScriptTextForConnection(mongoConnection())).toBe('')
+    expect(defaultQueryTextForConnection(dynamoDbConnection())).toContain('"tableName": ""')
+    expect(defaultQueryTextForConnection(searchConnection())).toContain('"index": ""')
+    expect(defaultQueryTextForConnection(cassandraConnection())).toBe('')
   })
 
   it('selects the requested renderer payload with a safe fallback', () => {
@@ -246,6 +258,26 @@ function dynamoDbConnection(): ConnectionProfile {
     favorite: false,
     readOnly: false,
     icon: 'dynamodb',
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function mongoConnection(): ConnectionProfile {
+  return {
+    id: 'conn-mongo',
+    name: 'MongoDB',
+    engine: 'mongodb',
+    family: 'document',
+    host: '127.0.0.1',
+    port: 27017,
+    database: '',
+    environmentIds: ['env-dev'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'mongodb',
     auth: {},
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',

@@ -63,7 +63,11 @@ pub(super) async fn redis_connection_uri(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        if cfg!(windows) && connection_string.to_ascii_lowercase().starts_with("redis+unix") {
+        if cfg!(windows)
+            && connection_string
+                .to_ascii_lowercase()
+                .starts_with("redis+unix")
+        {
             return Err(CommandError::new(
                 "redis-unix-socket-unavailable",
                 "Redis Unix socket connections are not available on Windows. Use TCP host and port settings instead.",

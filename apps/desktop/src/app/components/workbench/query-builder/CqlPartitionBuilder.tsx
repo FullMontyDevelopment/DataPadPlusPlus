@@ -38,7 +38,7 @@ export function CqlPartitionBuilder({
   onBuilderStateChange,
 }: CqlPartitionBuilderProps) {
   const draft = builderState
-  const tableOptionsList = uniqueValues([draft.table, ...tableOptions, 'events_by_customer'])
+  const tableOptionsList = uniqueValues([draft.table, ...tableOptions])
   const updateDraft = (patch: Partial<CqlPartitionBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
     onBuilderStateChange?.(tab.id, {

@@ -1,4 +1,6 @@
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
+import { normalizeKind } from './SideBar.connection-tree-manifest-common'
+import { mysqlManifestNodeId } from './SideBar.connection-tree-manifest-mysql'
 
 export function sqlManifestNodeId(
   connection: ConnectionProfile,
@@ -225,7 +227,7 @@ function cockroachDatabaseFromManifestPath(
 
   return database && !['User Schemas', 'System Schemas'].includes(database)
     ? database
-    : connection.database?.trim() || 'defaultdb'
+    : connection.database?.trim() || ''
 }
 
 function cockroachManifestClusterScope(kind: string) {
@@ -296,7 +298,7 @@ function sqlServerDatabaseFromManifestPath(
 
   return pathDatabase && !isSqlServerManifestCategory(pathDatabase)
     ? pathDatabase
-    : connection.database?.trim() || 'master'
+    : connection.database?.trim() || ''
 }
 
 function sqlServerManifestCategoryScope(kind: string) {
@@ -347,53 +349,4 @@ function isSqlServerManifestCategory(label: string) {
     'Query Store',
     'Performance',
   ].includes(label)
-}
-
-function mysqlManifestNodeId(
-  connection: ConnectionProfile,
-  kind: string,
-  label: string,
-  parentPath: string[],
-) {
-  const normalizedKind = normalizeKind(kind)
-  const normalizedLabel = normalizeKind(label)
-  const database = connection.database?.trim() || 'datapadplusplus'
-  const underDiagnostics = parentPath.includes('Diagnostics')
-  const underSecurity = parentPath.includes('Security') || parentPath.includes('Users / Privileges')
-  const underSelectedDatabase = parentPath.includes(database) || parentPath.includes('Databases')
-
-  if (normalizedKind === 'databases') return 'mysql:databases'
-  if (normalizedKind === 'database') return `database:${database}`
-  if (normalizedKind === 'system-schemas') return 'mysql:system-schemas'
-  if (normalizedKind === 'diagnostics') return 'mysql:diagnostics'
-  if (underDiagnostics) {
-    return normalizedKind === 'statistics'
-      ? 'mysql:diagnostics:statistics'
-      : `mysql:diagnostics:${normalizedKind || normalizedLabel}`
-  }
-  if (normalizedKind === 'security' && !underSelectedDatabase) return 'mysql:security'
-  if (underSecurity && ['users', 'roles', 'permissions'].includes(normalizedKind)) {
-    return `mysql:security:${normalizedKind}`
-  }
-  if (underSelectedDatabase && [
-    'tables',
-    'views',
-    'procedures',
-    'functions',
-    'events',
-    'triggers',
-    'indexes',
-    'storage',
-    'security',
-  ].includes(normalizedKind)) {
-    return normalizedKind === 'security'
-      ? 'mysql:security'
-      : `mysql:${database}:${normalizedKind}`
-  }
-
-  return `mysql:${[...parentPath, label, normalizedKind].join('/')}`
-}
-
-function normalizeKind(value: string) {
-  return value.trim().toLowerCase().replace(/[_\s]+/g, '-')
 }

@@ -137,7 +137,7 @@ export function builderStateForTab(
     }
 
     return parseCqlPartitionQueryText(tab.queryText)
-      ?? createDefaultCqlPartitionBuilderState('', connection.database ?? 'app', 20)
+      ?? createDefaultCqlPartitionBuilderState('', connection.database ?? '', 20)
   }
 
   if (connection.engine === 'elasticsearch' || connection.engine === 'opensearch') {
@@ -149,7 +149,7 @@ export function builderStateForTab(
       return tab.builderState
     }
 
-    return parseSearchDslQueryText(tab.queryText) ?? createDefaultSearchDslBuilderState('products', 20)
+    return parseSearchDslQueryText(tab.queryText) ?? createDefaultSearchDslBuilderState('', 20)
   }
 
   return undefined
@@ -165,12 +165,9 @@ export function queryBuilderObjectOptions(
     }
 
     if (connection?.engine === 'dynamodb') {
-      return Array.from(new Set([
-        ...explorerItems
-          .filter((node) => node.kind === 'table')
-          .map((node) => node.label),
-        'Orders',
-      ]))
+      return explorerItems
+        .filter((node) => node.kind === 'table')
+        .map((node) => node.label)
     }
 
     if (connection && isSqlBuilderConnection(connection)) {
@@ -180,23 +177,15 @@ export function queryBuilderObjectOptions(
     }
 
     if (connection?.engine === 'cassandra') {
-      return Array.from(new Set([
-        ...explorerItems
-          .filter((node) => node.kind === 'table')
-          .map((node) => node.label),
-        'events_by_customer',
-        'orders_by_day',
-      ]))
+      return explorerItems
+        .filter((node) => node.kind === 'table')
+        .map((node) => node.label)
     }
 
     if (connection?.engine === 'elasticsearch' || connection?.engine === 'opensearch') {
-      return Array.from(new Set([
-        ...explorerItems
-          .filter((node) => ['index', 'data-stream'].includes(node.kind))
-          .map((node) => node.label),
-        'products',
-        'events-*',
-      ]))
+      return explorerItems
+        .filter((node) => ['index', 'data-stream'].includes(node.kind))
+        .map((node) => node.label)
     }
 
     return []
@@ -206,7 +195,7 @@ export function queryBuilderObjectOptions(
     .filter((node) => ['collection', 'view', 'gridfs-collection'].includes(node.kind))
     .map((node) => node.label)
 
-  return Array.from(new Set([...explorerCollections, 'products', 'inventory', 'orders']))
+  return Array.from(new Set(explorerCollections))
 }
 
 export function isSqlBuilderConnection(connection: ConnectionProfile) {

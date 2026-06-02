@@ -724,7 +724,7 @@ describe('CQL partition query builder', () => {
       kind: 'cql-partition',
       keyspace: 'app',
       table: 'orders_by_day',
-      partitionKeys: [{ field: 'customer_id' }],
+      partitionKeys: [{ field: '' }],
       limit: 20,
     })
   })

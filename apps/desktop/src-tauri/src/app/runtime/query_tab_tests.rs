@@ -4,6 +4,7 @@ use super::{
     blank_workspace_snapshot,
     query_tabs::{
         build_environment_tab, build_metrics_tab, build_query_tab, build_scoped_query_tab,
+        default_query_text, default_script_text,
     },
     timestamp_now,
     ui::{focus_query_tab, is_bottom_panel_tab},
@@ -56,6 +57,22 @@ fn metrics_tab_is_unsaved_and_scoped_to_connection_environment() {
             .and_then(serde_json::Value::as_str),
         Some("conn-postgres")
     );
+}
+
+#[test]
+fn connection_level_default_queries_do_not_invent_datastore_objects() {
+    let mongo = test_connection("conn-mongo", "Mongo", "mongodb", "document");
+    assert!(default_query_text(&mongo).contains("\"collection\": \"\""));
+    assert_eq!(default_script_text(&mongo).as_deref(), Some(""));
+
+    let dynamodb = test_connection("conn-dynamo", "DynamoDB", "dynamodb", "widecolumn");
+    assert!(default_query_text(&dynamodb).contains("\"tableName\": \"\""));
+
+    let search = test_connection("conn-search", "Search", "elasticsearch", "search");
+    assert!(default_query_text(&search).contains("\"index\": \"\""));
+
+    let cassandra = test_connection("conn-cassandra", "Cassandra", "cassandra", "widecolumn");
+    assert_eq!(default_query_text(&cassandra), "");
 }
 
 #[test]

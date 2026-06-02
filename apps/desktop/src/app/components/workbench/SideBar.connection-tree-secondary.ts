@@ -2,19 +2,22 @@ import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import { branch, type ConnectionTreeNode } from './SideBar.connection-tree-types'
 
 export function graphConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
-  const database = connection.database || (connection.engine === 'neo4j' ? 'neo4j' : 'graph')
+  const database = connection.database?.trim()
   const rootLabel = connection.engine === 'arango' ? 'Graphs' : 'Databases'
+  const graphRoots = database
+    ? [
+        branch(`graph-${database}`, database, 'graph', `${connection.engine} graph`, [
+          branch('node-labels', 'Node Labels', 'node-labels', 'Vertex/node categories', []),
+          branch('relationship-types', 'Relationship Types', 'relationship-types', 'Edges and relationship types', []),
+          branch('property-keys', 'Property Keys', 'property-keys', 'Graph property definitions', []),
+          branch('indexes', 'Indexes', 'indexes', 'Graph lookup indexes', []),
+          branch('constraints', 'Constraints', 'constraints', 'Graph uniqueness and existence rules', []),
+        ]),
+      ]
+    : []
 
   return [
-    branch('graphs', rootLabel, 'graphs', 'Graph databases or named graphs', [
-      branch(`graph-${database}`, database, 'graph', `${connection.engine} graph`, [
-        branch('node-labels', 'Node Labels', 'node-labels', 'Vertex/node categories', []),
-        branch('relationship-types', 'Relationship Types', 'relationship-types', 'Edges and relationship types', []),
-        branch('property-keys', 'Property Keys', 'property-keys', 'Graph property definitions', []),
-        branch('indexes', 'Indexes', 'indexes', 'Graph lookup indexes', []),
-        branch('constraints', 'Constraints', 'constraints', 'Graph uniqueness and existence rules', []),
-      ]),
-    ]),
+    branch('graphs', rootLabel, 'graphs', 'Graph databases or named graphs', graphRoots),
     branch('procedures', graphProceduresLabel(connection), 'procedures', 'Procedures, services, algorithms, or loader jobs', []),
     branch('security', 'Security', 'security', 'Users, roles, IAM, and graph permissions', []),
     branch('diagnostics', 'Diagnostics', 'diagnostics', 'Query, storage, and schema health', []),
@@ -36,16 +39,20 @@ export function timeseriesConnectionTree(connection: ConnectionProfile): Connect
   }
 
   if (connection.engine === 'influxdb') {
-    const bucket = connection.database || 'telemetry'
+    const bucket = connection.database?.trim()
+    const bucketNodes = bucket
+      ? [
+          branch(`bucket-${bucket}`, bucket, 'bucket', 'InfluxDB bucket', [
+            branch('measurements', 'Measurements', 'measurements', 'Measurement schema', []),
+            branch('tags', 'Tags', 'tags', 'Indexed dimensions', []),
+            branch('fields', 'Fields', 'fields', 'Value fields', []),
+            branch('retention-policies', 'Retention Policies', 'retention-policies', 'Retention and shard groups', []),
+          ]),
+        ]
+      : []
+
     return [
-      branch('buckets', 'Buckets', 'buckets', 'InfluxDB buckets and retention scopes', [
-        branch(`bucket-${bucket}`, bucket, 'bucket', 'InfluxDB bucket', [
-          branch('measurements', 'Measurements', 'measurements', 'Measurement schema', []),
-          branch('tags', 'Tags', 'tags', 'Indexed dimensions', []),
-          branch('fields', 'Fields', 'fields', 'Value fields', []),
-          branch('retention-policies', 'Retention Policies', 'retention-policies', 'Retention and shard groups', []),
-        ]),
-      ]),
+      branch('buckets', 'Buckets', 'buckets', 'InfluxDB buckets and retention scopes', bucketNodes),
       branch('tasks', 'Tasks', 'tasks', 'Scheduled Flux tasks', []),
       branch('security', 'Tokens', 'security', 'Authorizations and bucket scopes', []),
       branch('diagnostics', 'Diagnostics', 'diagnostics', 'Cardinality, storage, and query health', []),
@@ -66,12 +73,7 @@ export function timeseriesConnectionTree(connection: ConnectionProfile): Connect
   }
 
   return [
-    branch('buckets', 'Buckets', 'buckets', 'Time-series storage scopes', [
-      branch('bucket-telemetry', 'telemetry', 'bucket', `${connection.engine} bucket`, [
-        branch('measurements', 'Measurements', 'measurements', 'Series measurement names', []),
-        branch('retention', 'Retention Policies', 'retention-policies', 'Data retention rules', []),
-      ]),
-    ]),
+    branch('buckets', 'Buckets', 'buckets', 'Time-series storage scopes', []),
   ]
 }
 
@@ -125,13 +127,7 @@ export function wideColumnConnectionTree(connection: ConnectionProfile): Connect
   }
 
   return [
-    branch('keyspaces', 'Keyspaces', 'keyspaces', 'Wide-column namespaces', [
-      branch('keyspace-app', 'app', 'keyspace', `${connection.engine} keyspace`, [
-        branch('tables', 'Tables', 'tables', 'Partition-key-first tables', []),
-        branch('materialized-views', 'Materialized Views', 'materialized-views', 'Derived query tables', []),
-        branch('indexes', 'Indexes', 'indexes', 'SAI/secondary indexes', []),
-      ]),
-    ]),
+    branch('keyspaces', 'Keyspaces', 'keyspaces', 'Wide-column namespaces', []),
   ]
 }
 
@@ -168,25 +164,28 @@ export function searchConnectionTree(connection: ConnectionProfile): ConnectionT
 }
 
 export function analyticsConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
-  const dataset = connection.database || (connection.engine === 'bigquery' ? 'analytics' : 'public')
+  const dataset = connection.database?.trim()
   const namespace = warehouseNamespace(connection)
+  const namespaceChildren = dataset
+    ? [
+        branch(
+          `${namespace.singleKind}-${dataset}`,
+          dataset,
+          namespace.singleKind,
+          namespace.singleDetail,
+          [
+            branch('warehouse-tables', 'Tables', 'tables', 'Columnar tables and partitions', []),
+            branch('warehouse-views', 'Views', 'views', 'Saved analytical projections', []),
+            branch('warehouse-materialized-views', 'Materialized Views', 'materialized-views', 'Persisted analytical views', []),
+            branch('warehouse-stages', warehouseStageLabel(connection), 'stages', 'Load and unload locations', []),
+            branch('warehouse-jobs-local', warehouseJobsLabel(connection), 'jobs', 'Recent jobs and scheduled work', []),
+          ],
+        ),
+      ]
+    : []
 
   return [
-    branch(namespace.rootId, namespace.rootLabel, namespace.rootKind, namespace.rootDetail, [
-      branch(
-        `${namespace.singleKind}-${dataset}`,
-        dataset,
-        namespace.singleKind,
-        namespace.singleDetail,
-        [
-          branch('warehouse-tables', 'Tables', 'tables', 'Columnar tables and partitions', []),
-          branch('warehouse-views', 'Views', 'views', 'Saved analytical projections', []),
-          branch('warehouse-materialized-views', 'Materialized Views', 'materialized-views', 'Persisted analytical views', []),
-          branch('warehouse-stages', warehouseStageLabel(connection), 'stages', 'Load and unload locations', []),
-          branch('warehouse-jobs-local', warehouseJobsLabel(connection), 'jobs', 'Recent jobs and scheduled work', []),
-        ],
-      ),
-    ]),
+    branch(namespace.rootId, namespace.rootLabel, namespace.rootKind, namespace.rootDetail, namespaceChildren),
     branch('warehouse-compute', warehouseComputeLabel(connection), 'warehouses', warehouseComputeDetail(connection), []),
     branch('warehouse-jobs', warehouseJobsLabel(connection), 'jobs', 'Query history, jobs, and scheduled work', []),
     branch('warehouse-security', 'Security', 'security', warehouseSecurityDetail(connection), []),

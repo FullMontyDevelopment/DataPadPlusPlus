@@ -115,6 +115,25 @@ describe('fallbackConnectionTree', () => {
     expect(findNode(tree, 'Settings')).toBeUndefined()
   })
 
+  it('does not invent document database names in fallback trees', () => {
+    const genericTree = fallbackConnectionTree(connection({
+      engine: 'dynamodb',
+      family: 'document',
+      icon: 'database',
+      database: undefined,
+    }))
+    const cosmosTree = fallbackConnectionTree(connection({
+      engine: 'cosmosdb',
+      family: 'document',
+      icon: 'cosmosdb',
+      database: undefined,
+    }))
+
+    expect(findNode(genericTree, 'admin')).toBeUndefined()
+    expect(findNode(cosmosTree, 'catalog')).toBeUndefined()
+    expect(findNode(cosmosTree, 'Databases')).toBeTruthy()
+  })
+
   it('renders DynamoDB fallback access and diagnostic areas', () => {
     const tree = fallbackConnectionTree(connection({
       engine: 'dynamodb',
@@ -153,6 +172,40 @@ describe('fallbackConnectionTree', () => {
       'Aggregates',
       'Permissions',
     ])
+  })
+
+  it('does not invent fallback object names when live metadata is unavailable', () => {
+    const graphTree = fallbackConnectionTree(connection({
+      engine: 'neo4j',
+      family: 'graph',
+      icon: 'neo4j',
+      database: undefined,
+    }))
+    const influxTree = fallbackConnectionTree(connection({
+      engine: 'influxdb',
+      family: 'timeseries',
+      icon: 'influxdb',
+      database: undefined,
+    }))
+    const wideColumnTree = fallbackConnectionTree(connection({
+      engine: 'cosmosdb',
+      family: 'widecolumn',
+      icon: 'cosmosdb',
+      database: undefined,
+    }))
+    const warehouseTree = fallbackConnectionTree(connection({
+      engine: 'bigquery',
+      family: 'warehouse',
+      icon: 'bigquery',
+      database: undefined,
+    }))
+
+    expect(findNode(graphTree, 'neo4j')).toBeUndefined()
+    expect(findNode(graphTree, 'graph')).toBeUndefined()
+    expect(findNode(influxTree, 'telemetry')).toBeUndefined()
+    expect(findNode(wideColumnTree, 'app')).toBeUndefined()
+    expect(findNode(warehouseTree, 'analytics')).toBeUndefined()
+    expect(findNode(warehouseTree, 'public')).toBeUndefined()
   })
 
   it('renders search engine fallback trees with native admin surfaces', () => {
