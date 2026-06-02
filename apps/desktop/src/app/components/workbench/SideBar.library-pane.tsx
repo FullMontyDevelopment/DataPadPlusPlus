@@ -14,6 +14,7 @@ import type {
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
 import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
+import type { ConnectionHealth } from '../../state/connection-health'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -29,6 +30,10 @@ import {
   RefreshIcon,
   TrashIcon,
 } from './icons'
+import {
+  ConnectionHealthBadge,
+  ConnectionHealthIssueStrip,
+} from './ConnectionHealthBadge'
 import { TreeFolderIcon, TreeFolderOpenIcon } from './FolderTreeIcons'
 import { ConnectionObjectTree } from './SideBar.connection-object-tree'
 import { LibraryTextInputDialog } from './LibraryTextInputDialog'
@@ -50,6 +55,7 @@ interface LibraryPaneProps {
   explorerStatus?: 'idle' | 'loading' | 'ready'
   getConnectionExplorerItems?(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
   getConnectionExplorerStatus?(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
+  getConnectionHealth?(connectionId: string, environmentId?: string): ConnectionHealth | undefined
   isExplorerScopeLoading?(connectionId: string, scope?: string, environmentId?: string): boolean
   libraryFilter: string
   libraryNodes: LibraryNode[]
@@ -82,7 +88,7 @@ interface LibraryPaneProps {
   onSelectEnvironment?(environmentId: string): void
   onSetNodeEnvironment(nodeId: string, environmentId?: string): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
-  onTestConnection?(connectionId: string): void
+  onTestConnection?(connectionId: string, environmentId?: string): void
 }
 
 interface TreeNode {
@@ -155,6 +161,7 @@ export function LibraryPane({
   explorerStatus = 'idle',
   getConnectionExplorerItems = () => undefined,
   getConnectionExplorerStatus = () => 'idle',
+  getConnectionHealth = () => undefined,
   isExplorerScopeLoading = () => false,
   libraryFilter,
   libraryNodes,
@@ -471,6 +478,7 @@ export function LibraryPane({
                 explorerStatus={explorerStatus}
                 getConnectionExplorerItems={getConnectionExplorerItems}
                 getConnectionExplorerStatus={getConnectionExplorerStatus}
+                getConnectionHealth={getConnectionHealth}
                 isExplorerScopeLoading={isExplorerScopeLoading}
                 libraryNodes={libraryNodes}
                 draggedNodeId={draggedNodeId}
@@ -499,6 +507,7 @@ export function LibraryPane({
                 onPointerDragMove={updatePointerDrag}
                 onRenameNode={requestRenameNode}
                 onSelectConnection={onSelectConnection}
+                onSelectEnvironment={onSelectEnvironment}
                 onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
                 onTestConnection={onTestConnection}
                 shouldSuppressOpenClick={shouldSuppressOpenClick}
@@ -858,7 +867,7 @@ export function LibraryPane({
                 role="menuitem"
                 aria-label={`Test connection ${contextMenuConnection.name}`}
                 onClick={() => {
-                  onTestConnection(contextMenuConnection.id)
+                  onTestConnection(contextMenuConnection.id, contextMenuEnvironmentId)
                   setContextMenu(undefined)
                 }}
               >
@@ -1123,6 +1132,7 @@ function LibraryTreeItem({
   explorerStatus,
   getConnectionExplorerItems,
   getConnectionExplorerStatus,
+  getConnectionHealth,
   isExplorerScopeLoading,
   libraryNodes,
   draggedNodeId,
@@ -1151,6 +1161,7 @@ function LibraryTreeItem({
   onPointerDragMove,
   onRenameNode,
   onSelectConnection,
+  onSelectEnvironment,
   onSidebarSectionExpandedChange,
   onTestConnection,
   shouldSuppressOpenClick,
@@ -1164,6 +1175,7 @@ function LibraryTreeItem({
   explorerStatus: 'idle' | 'loading' | 'ready'
   getConnectionExplorerItems(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
   getConnectionExplorerStatus(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
+  getConnectionHealth(connectionId: string, environmentId?: string): ConnectionHealth | undefined
   isExplorerScopeLoading(connectionId: string, scope?: string, environmentId?: string): boolean
   libraryNodes: LibraryNode[]
   draggedNodeId?: string
@@ -1192,8 +1204,9 @@ function LibraryTreeItem({
   onPointerDragMove(event: ReactPointerEvent<HTMLElement>): void
   onRenameNode(node: LibraryNode): void
   onSelectConnection(connectionId: string): void
+  onSelectEnvironment(environmentId: string): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
-  onTestConnection(connectionId: string): void
+  onTestConnection(connectionId: string, environmentId?: string): void
   shouldSuppressOpenClick(nodeId: string): boolean
 }) {
   const { node, children } = item
@@ -1209,6 +1222,10 @@ function LibraryTreeItem({
   const environmentState = effectiveEnvironmentForNode(node, libraryNodes, environments)
   const environment = environmentState?.environment
   const connectionEnvironmentId = environment?.id ?? activeEnvironmentId
+  const connectionHealth =
+    connection && connectionEnvironmentId
+      ? getConnectionHealth(connection.id, connectionEnvironmentId)
+      : undefined
   const connectionExplorerStatus = connection
     ? getConnectionExplorerStatus(connection.id, connectionEnvironmentId)
     : explorerStatus
@@ -1326,6 +1343,13 @@ function LibraryTreeItem({
               ) : null}
             </span>
           )}
+          {connection ? (
+            <ConnectionHealthBadge
+              health={connectionHealth}
+              environmentLabel={environment?.label}
+              compact
+            />
+          ) : null}
           <span>{node.name}</span>
         </button>
         <span className="library-tree-meta">
@@ -1361,6 +1385,18 @@ function LibraryTreeItem({
         </span>
       </div>
       {connection && expanded ? (
+        <>
+        <ConnectionHealthIssueStrip
+          health={connectionHealth}
+          environmentLabel={environment?.label}
+          onEditConnection={() => onOpenConnectionDrawer(connection.id)}
+          onOpenEnvironment={
+            connectionEnvironmentId
+              ? () => onSelectEnvironment(connectionEnvironmentId)
+              : undefined
+          }
+          onTestAgain={() => onTestConnection(connection.id, connectionEnvironmentId)}
+        />
         <ConnectionObjectTree
           adapterManifest={adapterManifests?.find(
             (manifest) => manifest.engine === connection.engine,
@@ -1382,6 +1418,7 @@ function LibraryTreeItem({
           onOpenObjectView={onOpenObjectView}
           onOpenScopedQuery={onOpenScopedQuery}
         />
+        </>
       ) : null}
       {isFolder && expanded && children.length > 0 ? (
         <div role="group">
@@ -1397,6 +1434,7 @@ function LibraryTreeItem({
               explorerStatus={explorerStatus}
               getConnectionExplorerItems={getConnectionExplorerItems}
               getConnectionExplorerStatus={getConnectionExplorerStatus}
+              getConnectionHealth={getConnectionHealth}
               isExplorerScopeLoading={isExplorerScopeLoading}
               libraryNodes={libraryNodes}
               draggedNodeId={draggedNodeId}
@@ -1425,6 +1463,7 @@ function LibraryTreeItem({
               onPointerDragMove={onPointerDragMove}
               onRenameNode={onRenameNode}
               onSelectConnection={onSelectConnection}
+              onSelectEnvironment={onSelectEnvironment}
               onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
               onTestConnection={onTestConnection}
               shouldSuppressOpenClick={shouldSuppressOpenClick}

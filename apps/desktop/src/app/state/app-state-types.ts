@@ -64,6 +64,10 @@ import type {
   WorkspaceBundleFileImportRequest,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
+import type {
+  ConnectionHealth,
+  ConnectionHealthSource,
+} from './connection-health'
 
 export type LoadStatus = 'booting' | 'ready' | 'error'
 export type RemoteStatus = 'idle' | 'loading' | 'ready'
@@ -106,6 +110,7 @@ export interface StateShape {
   lastExecution?: ExecutionResponse
   lastExecutionRequest?: ExecutionRequest
   connectionTests: Record<string, ConnectionTestResult>
+  connectionHealthByKey: Record<string, ConnectionHealth>
   startupErrorMessage?: string
   workbenchMessages: WorkbenchMessage[]
 }
@@ -116,6 +121,42 @@ export type AppAction =
   | { type: 'DIAGNOSTICS_READY'; diagnostics: DiagnosticsReport }
   | { type: 'EXPORT_READY'; exportBundle: ExportBundle }
   | { type: 'CONNECTION_TEST_READY'; profileId: string; result: ConnectionTestResult }
+  | {
+      type: 'CONNECTION_HEALTH_CHECKING'
+      connectionId: string
+      environmentId: string
+      source: ConnectionHealthSource
+      message?: string
+    }
+  | {
+      type: 'CONNECTION_HEALTH_SETTLED'
+      connectionId: string
+      environmentId: string
+      source: ConnectionHealthSource
+    }
+  | {
+      type: 'CONNECTION_HEALTH_READY'
+      connectionId: string
+      environmentId: string
+      source: ConnectionHealthSource
+      result: ConnectionTestResult
+    }
+  | {
+      type: 'CONNECTION_HEALTH_CONNECTED'
+      connectionId: string
+      environmentId: string
+      source: ConnectionHealthSource
+      message?: string
+      durationMs?: number
+    }
+  | {
+      type: 'CONNECTION_HEALTH_ISSUE'
+      connectionId: string
+      environmentId: string
+      source: ConnectionHealthSource
+      message: string
+      warnings?: string[]
+    }
   | { type: 'EXPLORER_LOADING'; request: ExplorerRequest; requestId: string }
   | { type: 'EXPLORER_READY'; explorer: ExplorerResponse; requestId: string }
   | { type: 'EXPLORER_ERROR'; request: ExplorerRequest; requestId?: string; message: string }

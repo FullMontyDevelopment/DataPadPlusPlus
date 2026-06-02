@@ -7,6 +7,8 @@ import type {
 import { desktopClient } from '../../services/runtime/client'
 import { defaultLibraryFolderForConnection } from '../../services/runtime/library-connection-helpers'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
+import { toUserMessage } from './app-state-selectors'
+import { shouldRecordConnectionIssue } from './connection-health'
 import type { Actions, AppActionContext } from './app-state-types'
 
 type QueryTabActions = Pick<
@@ -45,9 +47,38 @@ type QueryTabActions = Pick<
 
 export function useQueryTabActions({
   state,
+  dispatch,
   applyPayload,
   handleError,
 }: AppActionContext): QueryTabActions {
+  const recordTabIssue = useCallback((
+    tab: QueryTabState | undefined,
+    source: 'metrics' | 'object-view',
+    message: string,
+  ) => {
+    if (!tab) {
+      return
+    }
+    if (!shouldRecordConnectionIssue(message)) {
+      dispatch({
+        type: 'CONNECTION_HEALTH_SETTLED',
+        connectionId: tab.connectionId,
+        environmentId: tab.environmentId,
+        source,
+      })
+      return
+    }
+
+    dispatch({
+      type: 'CONNECTION_HEALTH_ISSUE',
+      connectionId: tab.connectionId,
+      environmentId: tab.environmentId,
+      source,
+      message,
+    })
+  }, [dispatch])
+  const currentTabs = state.payload?.snapshot.tabs
+
   const selectTab = useCallback<Actions['selectTab']>(
     async (tabId) => {
       try {
@@ -83,23 +114,44 @@ export function useQueryTabActions({
 
   const createMetricsTab = useCallback<Actions['createMetricsTab']>(
     async (connectionId, environmentId) => {
+      let refreshTarget: QueryTabState | undefined
       try {
         const payload = await desktopClient.createMetricsTab(connectionId, environmentId)
         const activeMetricsTab = payload.snapshot.tabs.find(
           (tab) => tab.id === payload.snapshot.ui.activeTabId && tab.tabKind === 'metrics',
         )
+        refreshTarget = activeMetricsTab
         applyPayload(payload)
 
         if (!activeMetricsTab) {
           return
         }
 
+        dispatch({
+          type: 'CONNECTION_HEALTH_CHECKING',
+          connectionId: activeMetricsTab.connectionId,
+          environmentId: activeMetricsTab.environmentId,
+          source: 'metrics',
+          message: 'Refreshing metrics',
+        })
         applyPayload(await desktopClient.refreshMetricsTab(activeMetricsTab.id))
+        dispatch({
+          type: 'CONNECTION_HEALTH_CONNECTED',
+          connectionId: activeMetricsTab.connectionId,
+          environmentId: activeMetricsTab.environmentId,
+          source: 'metrics',
+          message: 'Metrics refreshed',
+        })
       } catch (error) {
+        recordTabIssue(
+          refreshTarget,
+          'metrics',
+          toUserMessage(error, 'Unable to refresh metrics.'),
+        )
         handleError(error)
       }
     },
-    [applyPayload, handleError],
+    [applyPayload, dispatch, handleError, recordTabIssue],
   )
 
   const createEnvironmentTab = useCallback<Actions['createEnvironmentTab']>(
@@ -126,17 +178,38 @@ export function useQueryTabActions({
 
   const refreshMetricsTab = useCallback<Actions['refreshMetricsTab']>(
     async (tabId) => {
+      const tab = currentTabs?.find((item) => item.id === tabId)
       try {
+        if (tab) {
+          dispatch({
+            type: 'CONNECTION_HEALTH_CHECKING',
+            connectionId: tab.connectionId,
+            environmentId: tab.environmentId,
+            source: 'metrics',
+            message: 'Refreshing metrics',
+          })
+        }
         applyPayload(await desktopClient.refreshMetricsTab(tabId))
+        if (tab) {
+          dispatch({
+            type: 'CONNECTION_HEALTH_CONNECTED',
+            connectionId: tab.connectionId,
+            environmentId: tab.environmentId,
+            source: 'metrics',
+            message: 'Metrics refreshed',
+          })
+        }
       } catch (error) {
+        recordTabIssue(tab, 'metrics', toUserMessage(error, 'Unable to refresh metrics.'))
         handleError(error)
       }
     },
-    [applyPayload, handleError],
+    [applyPayload, currentTabs, dispatch, handleError, recordTabIssue],
   )
 
   const createObjectViewTab = useCallback<Actions['createObjectViewTab']>(
     async (request) => {
+      let refreshTarget: QueryTabState | undefined
       try {
         const payload = await desktopClient.createObjectViewTab(request)
         const activeObjectViewTab = payload.snapshot.tabs.find(
@@ -144,29 +217,69 @@ export function useQueryTabActions({
             tab.id === payload.snapshot.ui.activeTabId &&
             tab.tabKind === 'object-view',
         )
+        refreshTarget = activeObjectViewTab
         applyPayload(payload)
 
         if (!activeObjectViewTab) {
           return
         }
 
+        dispatch({
+          type: 'CONNECTION_HEALTH_CHECKING',
+          connectionId: activeObjectViewTab.connectionId,
+          environmentId: activeObjectViewTab.environmentId,
+          source: 'object-view',
+          message: 'Refreshing object view',
+        })
         applyPayload(await desktopClient.refreshObjectViewTab(activeObjectViewTab.id))
+        dispatch({
+          type: 'CONNECTION_HEALTH_CONNECTED',
+          connectionId: activeObjectViewTab.connectionId,
+          environmentId: activeObjectViewTab.environmentId,
+          source: 'object-view',
+          message: 'Object view refreshed',
+        })
       } catch (error) {
+        recordTabIssue(
+          refreshTarget,
+          'object-view',
+          toUserMessage(error, 'Unable to refresh object view.'),
+        )
         handleError(error)
       }
     },
-    [applyPayload, handleError],
+    [applyPayload, dispatch, handleError, recordTabIssue],
   )
 
   const refreshObjectViewTab = useCallback<Actions['refreshObjectViewTab']>(
     async (tabId) => {
+      const tab = currentTabs?.find((item) => item.id === tabId)
       try {
+        if (tab) {
+          dispatch({
+            type: 'CONNECTION_HEALTH_CHECKING',
+            connectionId: tab.connectionId,
+            environmentId: tab.environmentId,
+            source: 'object-view',
+            message: 'Refreshing object view',
+          })
+        }
         applyPayload(await desktopClient.refreshObjectViewTab(tabId))
+        if (tab) {
+          dispatch({
+            type: 'CONNECTION_HEALTH_CONNECTED',
+            connectionId: tab.connectionId,
+            environmentId: tab.environmentId,
+            source: 'object-view',
+            message: 'Object view refreshed',
+          })
+        }
       } catch (error) {
+        recordTabIssue(tab, 'object-view', toUserMessage(error, 'Unable to refresh object view.'))
         handleError(error)
       }
     },
-    [applyPayload, handleError],
+    [applyPayload, currentTabs, dispatch, handleError, recordTabIssue],
   )
 
   const createTestSuiteTab = useCallback<Actions['createTestSuiteTab']>(

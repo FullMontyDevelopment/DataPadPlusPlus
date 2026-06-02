@@ -7,6 +7,7 @@ import type {
   LibraryNode,
 } from '@datapadplusplus/shared-types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ConnectionHealth } from '../../state/connection-health'
 import { LibraryPane } from './SideBar.library-pane'
 import { sidebarSectionId } from './SideBar.helpers'
 
@@ -108,6 +109,43 @@ describe('LibraryPane', () => {
     expect(
       screen.getByRole('status', { name: 'Loading metadata for Fixture PostgreSQL' }),
     ).toBeInTheDocument()
+  })
+
+  it('shows connection health issues and uses the row environment for retesting', () => {
+    const onTestConnection = vi.fn()
+    const onSelectEnvironment = vi.fn()
+
+    renderLibraryPane(vi.fn(), {
+      activeEnvironmentId: 'env-dev',
+      connections: [mongoConnection()],
+      environments,
+      getConnectionHealth: () => ({
+        connectionId: 'connection-mongo',
+        environmentId: 'env-prod',
+        status: 'issue',
+        source: 'metadata',
+        message: 'Connection has unresolved environment secret.',
+        lastCheckedAt: '2026-05-14T12:00:00.000Z',
+      }),
+      libraryNodes: [
+        folder('folder-prod', 'Prod', undefined, 'env-prod'),
+        connectionNode('library-connection-mongo', 'MongoDB', 'connection-mongo', 'folder-prod'),
+      ],
+      onSelectEnvironment,
+      onTestConnection,
+      sectionStates: {
+        [sidebarSectionId('library', 'node', 'folder-prod')]: true,
+        [sidebarSectionId('library', 'node', 'library-connection-mongo')]: true,
+      },
+    })
+
+    expect(screen.getAllByRole('status', { name: 'Connection issue' }).length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection again' }))
+    expect(onTestConnection).toHaveBeenCalledWith('connection-mongo', 'env-prod')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open environment' }))
+    expect(onSelectEnvironment).toHaveBeenCalledWith('env-prod')
   })
 
   it('indents live connection metadata under nested connection rows', () => {
@@ -434,6 +472,7 @@ function renderLibraryPane(
     explorerStatus: 'idle' | 'loading' | 'ready'
     getConnectionExplorerItems: (connectionId: string, environmentId?: string) => ExplorerNode[] | undefined
     getConnectionExplorerStatus: (connectionId: string, environmentId?: string) => 'idle' | 'loading' | 'ready'
+    getConnectionHealth: (connectionId: string, environmentId?: string) => ConnectionHealth | undefined
     libraryNodes: LibraryNode[]
     onCreateConnection: () => void
     onCreateFolder: (parentId: string | undefined, name: string) => void
@@ -445,6 +484,7 @@ function renderLibraryPane(
     onSelectEnvironment: (environmentId: string) => void
     onSelectConnection: (connectionId: string) => void
     onSetEnvironment: (nodeId: string, environmentId?: string) => void
+    onTestConnection: (connectionId: string, environmentId?: string) => void
     sectionStates: Record<string, boolean>
   }> = {},
 ) {
@@ -461,6 +501,7 @@ function renderLibraryPane(
         overrides.getConnectionExplorerStatus ??
         (() => overrides.explorerStatus ?? 'idle')
       }
+      getConnectionHealth={overrides.getConnectionHealth ?? (() => undefined)}
       connections={overrides.connections ?? []}
       environments={overrides.environments ?? []}
       explorerStatus={overrides.explorerStatus ?? 'idle'}
@@ -481,6 +522,7 @@ function renderLibraryPane(
       onReopenClosedTab={vi.fn()}
       onSelectConnection={overrides.onSelectConnection ?? vi.fn()}
       onSelectEnvironment={overrides.onSelectEnvironment ?? vi.fn()}
+      onTestConnection={overrides.onTestConnection ?? vi.fn()}
       onSetNodeEnvironment={overrides.onSetEnvironment ?? vi.fn()}
       onSidebarSectionExpandedChange={vi.fn()}
     />,

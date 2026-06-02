@@ -72,6 +72,11 @@ import {
   hasExplorerScope,
   isExplorerRequestLoading,
 } from './state/app-state-reducer-helpers'
+import {
+  connectionHealthKey,
+  connectionHealthToConnectionTest,
+} from './state/connection-health'
+import { ConnectionHealthChip } from './components/workbench/ConnectionHealthBadge'
 import { connectionLibraryNodeId } from '../services/runtime/library-connection-helpers'
 import { createConnectionProfile, createEnvironmentProfile } from './state/app-state-factories'
 import { normalizeQueryWindowMode } from './query-window-mode'
@@ -183,6 +188,7 @@ function DesktopWorkspace() {
     lastExecution,
     lastExecutionRequest,
     connectionTests,
+    connectionHealthByKey,
     startupErrorMessage,
     workbenchMessages,
     actions,
@@ -405,6 +411,22 @@ function DesktopWorkspace() {
     },
     [activeEnvironmentId, explorerLoadingRequests, getConnectionExplorerResponse],
   )
+  const getConnectionHealth = useCallback(
+    (connectionId: string, environmentId?: string) => {
+      const resolvedEnvironmentId = environmentId || activeEnvironmentId
+
+      if (!resolvedEnvironmentId) {
+        return undefined
+      }
+
+      return connectionHealthByKey[connectionHealthKey(connectionId, resolvedEnvironmentId)]
+    },
+    [activeEnvironmentId, connectionHealthByKey],
+  )
+  const activeConnectionHealth =
+    activeConnectionId && activeEnvironmentId
+      ? getConnectionHealth(activeConnectionId, activeEnvironmentId)
+      : undefined
   const isConnectionExplorerScopeLoading = useCallback(
     (connectionId: string, scope?: string, environmentId?: string) =>
       isExplorerRequestLoading(
@@ -1284,7 +1306,19 @@ function DesktopWorkspace() {
     snapshot.ui.rightDrawer === 'connection' && connectionDraft
       ? connectionDraft
       : activeConnection
-  const connectionTest = drawerConnection ? connectionTests[drawerConnection.id] : undefined
+  const drawerConnectionHealth =
+    drawerConnection && activeEnvironment
+      ? getConnectionHealth(drawerConnection.id, activeEnvironment.id)
+      : undefined
+  const connectionTest = drawerConnection
+    ? connectionHealthToConnectionTest(
+        drawerConnectionHealth?.source === 'manual-test'
+          ? drawerConnectionHealth
+          : undefined,
+        drawerConnection.engine,
+      ) ??
+      connectionTests[drawerConnection.id]
+    : undefined
   const activeRenderer =
     activeTab &&
     rendererPreference.tabId === activeTab.id &&
@@ -1956,6 +1990,7 @@ function DesktopWorkspace() {
               explorerItems={explorerItems}
               getConnectionExplorerItems={getConnectionExplorerItems}
               getConnectionExplorerStatus={getConnectionExplorerStatus}
+              getConnectionHealth={getConnectionHealth}
               explorerSummary={activeExplorerResponse?.summary ?? explorerError}
               explorerStatus={activeExplorerStatus}
               isExplorerScopeLoading={isConnectionExplorerScopeLoading}
@@ -1995,10 +2030,14 @@ function DesktopWorkspace() {
               onOpenConnectionExplorer={openConnectionExplorer}
               onOpenConnectionMetrics={openConnectionMetrics}
               onOpenConnectionDrawer={openConnectionDrawerFor}
-              onTestConnection={(connectionId) => {
+              onTestConnection={(connectionId, environmentId) => {
                 const connection = snapshot.connections.find((item) => item.id === connectionId)
                 if (connection) {
-                  void actions.testConnection(connection, activeEnvironment?.id ?? '', undefined)
+                  void actions.testConnection(
+                    connection,
+                    environmentId ?? activeEnvironment?.id ?? '',
+                    undefined,
+                  )
                 }
               }}
               onLoadExplorerScope={loadConnectionExplorerScope}
@@ -2356,6 +2395,10 @@ function DesktopWorkspace() {
                         <span className="editor-surface-context">
                           {activeConnection.name} / {activeEnvironment.label}
                         </span>
+                        <ConnectionHealthChip
+                          health={activeConnectionHealth}
+                          environmentLabel={activeEnvironment.label}
+                        />
                         {activeMongoQueryScope ? (
                           <div className="editor-query-scope" aria-label="MongoDB query scope">
                             <span className="editor-query-scope-item">

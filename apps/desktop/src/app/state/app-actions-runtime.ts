@@ -3,10 +3,12 @@ import type {
   ExecutionRequest,
   ResultPageRequest,
 } from '@datapadplusplus/shared-types'
+import type { ConnectionHealthSource } from './connection-health'
 import { desktopClient } from '../../services/runtime/client'
 import { resultEditQueryText } from '../result-edit-context'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { buildConnectionTestFailure } from './connection-test-results'
+import { shouldRecordConnectionIssue } from './connection-health'
 import { createId } from './helpers'
 import { toUserMessage } from './app-state-selectors'
 import type { Actions, AppActionContext } from './app-state-types'
@@ -53,10 +55,63 @@ export function useRuntimeActions({
   dispatch,
   handleError,
 }: AppActionContext): RuntimeActions {
+  const recordConnected = useCallback(
+    (
+      connectionId: string,
+      environmentId: string,
+      source: ConnectionHealthSource,
+      message?: string,
+      durationMs?: number,
+    ) => {
+      dispatch({
+        type: 'CONNECTION_HEALTH_CONNECTED',
+        connectionId,
+        environmentId,
+        source,
+        message,
+        durationMs,
+      })
+    },
+    [dispatch],
+  )
+  const recordIssue = useCallback(
+    (
+      connectionId: string,
+      environmentId: string,
+      source: ConnectionHealthSource,
+      message: string,
+    ) => {
+      if (!shouldRecordConnectionIssue(message)) {
+        dispatch({
+          type: 'CONNECTION_HEALTH_SETTLED',
+          connectionId,
+          environmentId,
+          source,
+        })
+        return
+      }
+      dispatch({
+        type: 'CONNECTION_HEALTH_ISSUE',
+        connectionId,
+        environmentId,
+        source,
+        message,
+      })
+    },
+    [dispatch],
+  )
+
   const testConnection = useCallback<Actions['testConnection']>(
     async (profile, environmentId, secret) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
+        dispatch({
+          type: 'CONNECTION_HEALTH_CHECKING',
+          connectionId: profile.id,
+          environmentId,
+          source: 'manual-test',
+          message: 'Testing connection',
+        })
         const result = await desktopClient.testConnection({
           profile,
           environmentId,
@@ -67,11 +122,26 @@ export function useRuntimeActions({
           profileId: profile.id,
           result,
         })
+        dispatch({
+          type: 'CONNECTION_HEALTH_READY',
+          connectionId: profile.id,
+          environmentId,
+          source: 'manual-test',
+          result,
+        })
       } catch (error) {
+        const result = buildConnectionTestFailure(profile, error, secret)
         dispatch({
           type: 'CONNECTION_TEST_READY',
           profileId: profile.id,
-          result: buildConnectionTestFailure(profile, error, secret),
+          result,
+        })
+        dispatch({
+          type: 'CONNECTION_HEALTH_READY',
+          connectionId: profile.id,
+          environmentId,
+          source: 'manual-test',
+          result,
         })
       }
     },
@@ -84,18 +154,33 @@ export function useRuntimeActions({
       try {
         ensureWorkspaceUnlocked(state.payload)
         dispatch({ type: 'EXPLORER_LOADING', request, requestId })
+        dispatch({
+          type: 'CONNECTION_HEALTH_CHECKING',
+          connectionId: request.connectionId,
+          environmentId: request.environmentId,
+          source: 'metadata',
+          message: 'Loading metadata',
+        })
         const explorer = await desktopClient.loadExplorer(request)
         dispatch({ type: 'EXPLORER_READY', explorer, requestId })
+        recordConnected(
+          request.connectionId,
+          request.environmentId,
+          'metadata',
+          'Metadata loaded',
+        )
       } catch (error) {
+        const message = toUserMessage(error, 'Unable to load live explorer metadata.')
         dispatch({
           type: 'EXPLORER_ERROR',
           request,
           requestId,
-          message: toUserMessage(error, 'Unable to load live explorer metadata.'),
+          message,
         })
+        recordIssue(request.connectionId, request.environmentId, 'metadata', message)
       }
     },
-    [dispatch, state.payload],
+    [dispatch, recordConnected, recordIssue, state.payload],
   )
 
   const loadStructureMap = useCallback<Actions['loadStructureMap']>(
@@ -103,16 +188,31 @@ export function useRuntimeActions({
       try {
         ensureWorkspaceUnlocked(state.payload)
         dispatch({ type: 'STRUCTURE_LOADING' })
+        dispatch({
+          type: 'CONNECTION_HEALTH_CHECKING',
+          connectionId: request.connectionId,
+          environmentId: request.environmentId,
+          source: 'structure',
+          message: 'Loading structure',
+        })
         const structure = await desktopClient.loadStructureMap(request)
         dispatch({ type: 'STRUCTURE_READY', structure })
+        recordConnected(
+          request.connectionId,
+          request.environmentId,
+          'structure',
+          'Structure loaded',
+        )
       } catch (error) {
+        const message = toUserMessage(error, 'Unable to load visual database structure.')
         dispatch({
           type: 'STRUCTURE_ERROR',
-          message: toUserMessage(error, 'Unable to load visual database structure.'),
+          message,
         })
+        recordIssue(request.connectionId, request.environmentId, 'structure', message)
       }
     },
-    [dispatch, state.payload],
+    [dispatch, recordConnected, recordIssue, state.payload],
   )
 
   const inspectExplorer = useCallback<Actions['inspectExplorer']>(
@@ -148,6 +248,13 @@ export function useRuntimeActions({
             execution: tabExecution(executionId, 'server', 'Refreshing Redis keys'),
           })
         }
+        dispatch({
+          type: 'CONNECTION_HEALTH_CHECKING',
+          connectionId: request.connectionId,
+          environmentId: request.environmentId,
+          source: 'redis-browser',
+          message: 'Refreshing Redis keys',
+        })
         const response = await desktopClient.scanRedisKeys(request)
         if (request.tabId) {
           dispatch({
@@ -156,21 +263,29 @@ export function useRuntimeActions({
             executionId,
           })
         }
+        recordConnected(
+          request.connectionId,
+          request.environmentId,
+          'redis-browser',
+          'Redis keys refreshed',
+        )
         return response
       } catch (error) {
+        const message = toUserMessage(error, 'Unable to refresh Redis keys.')
         if (request.tabId) {
           dispatch({
             type: 'EXECUTION_FAILED',
             tabId: request.tabId,
             executionId,
-            message: toUserMessage(error, 'Unable to refresh Redis keys.'),
+            message,
           })
         }
+        recordIssue(request.connectionId, request.environmentId, 'redis-browser', message)
         handleError(error)
         return undefined
       }
     },
-    [dispatch, handleError, state.payload],
+    [dispatch, handleError, recordConnected, recordIssue, state.payload],
   )
 
   const inspectRedisKey = useCallback<Actions['inspectRedisKey']>(
@@ -182,6 +297,13 @@ export function useRuntimeActions({
           type: 'EXECUTION_LOADING',
           tabId: request.tabId,
           execution: tabExecution(executionId, 'server'),
+        })
+        dispatch({
+          type: 'CONNECTION_HEALTH_CHECKING',
+          connectionId: request.connectionId,
+          environmentId: request.environmentId,
+          source: 'redis-browser',
+          message: 'Inspecting Redis key',
         })
         const execution = await desktopClient.inspectRedisKey({
           ...request,
@@ -218,17 +340,26 @@ export function useRuntimeActions({
         if (waitForDisplay) {
           scheduleResultRenderAckFallback(dispatch, request.tabId, executionId)
         }
+        recordConnected(
+          request.connectionId,
+          request.environmentId,
+          'redis-browser',
+          'Redis key inspected',
+          executionWithId.result?.durationMs,
+        )
       } catch (error) {
+        const message = toUserMessage(error, 'Unable to inspect Redis key.')
         dispatch({
           type: 'EXECUTION_FAILED',
           tabId: request.tabId,
           executionId,
-          message: toUserMessage(error, 'Unable to inspect Redis key.'),
+          message,
         })
+        recordIssue(request.connectionId, request.environmentId, 'redis-browser', message)
         handleError(error)
       }
     },
-    [dispatch, handleError, state.payload, stateRef],
+    [dispatch, handleError, recordConnected, recordIssue, state.payload, stateRef],
   )
 
   const executeQuery = useCallback<Actions['executeQuery']>(
@@ -278,6 +409,13 @@ export function useRuntimeActions({
           tabId,
           execution: tabExecution(executionId, 'server'),
         })
+        dispatch({
+          type: 'CONNECTION_HEALTH_CHECKING',
+          connectionId: executionRequest.connectionId,
+          environmentId: executionRequest.environmentId,
+          source: 'query',
+          message: 'Running query',
+        })
         const execution = await desktopClient.executeQuery(executionRequest)
         const executionWithId = { ...execution, executionId }
         if (executionWithId.result) {
@@ -305,17 +443,29 @@ export function useRuntimeActions({
         if (waitForDisplay) {
           scheduleResultRenderAckFallback(dispatch, tabId, executionId)
         }
+        recordConnected(
+          executionRequest.connectionId,
+          executionRequest.environmentId,
+          'query',
+          'Query completed',
+          executionWithId.result?.durationMs,
+        )
       } catch (error) {
+        const message = toUserMessage(error, 'Query execution failed.')
         dispatch({
           type: 'EXECUTION_FAILED',
           tabId,
           executionId,
-          message: toUserMessage(error, 'Query execution failed.'),
+          message,
         })
+        const latestTab = stateRef.current.payload?.snapshot.tabs.find((item) => item.id === tabId)
+        if (latestTab) {
+          recordIssue(latestTab.connectionId, latestTab.environmentId, 'query', message)
+        }
         handleError(error)
       }
     },
-    [dispatch, handleError, stateRef],
+    [dispatch, handleError, recordConnected, recordIssue, stateRef],
   )
 
   const executeTestSuite = useCallback<Actions['executeTestSuite']>(
@@ -426,30 +576,50 @@ export function useRuntimeActions({
         if (waitForDisplay) {
           scheduleResultRenderAckFallback(dispatch, tabId, executionId)
         }
+        recordConnected(
+          request.connectionId,
+          request.environmentId,
+          'query',
+          'Result page loaded',
+        )
       } catch (error) {
+        const message = toUserMessage(error, 'Unable to load more results.')
         dispatch({
           type: 'EXECUTION_FAILED',
           tabId,
           executionId,
-          message: toUserMessage(error, 'Unable to load more results.'),
+          message,
         })
+        const latestTab = stateRef.current.payload?.snapshot.tabs.find((item) => item.id === tabId)
+        if (latestTab) {
+          recordIssue(latestTab.connectionId, latestTab.environmentId, 'query', message)
+        }
         handleError(error)
       }
     },
-    [dispatch, handleError, stateRef],
+    [dispatch, handleError, recordConnected, recordIssue, stateRef],
   )
 
   const fetchDocumentNodeChildren = useCallback<Actions['fetchDocumentNodeChildren']>(
     async (request) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        return await desktopClient.fetchDocumentNodeChildren(request)
+        const response = await desktopClient.fetchDocumentNodeChildren(request)
+        recordConnected(
+          request.connectionId,
+          request.environmentId,
+          'query',
+          'Document node loaded',
+        )
+        return response
       } catch (error) {
+        const message = toUserMessage(error, 'Unable to load document node.')
+        recordIssue(request.connectionId, request.environmentId, 'query', message)
         handleError(error)
         return undefined
       }
     },
-    [handleError, state.payload],
+    [handleError, recordConnected, recordIssue, state.payload],
   )
 
   const markExecutionDisplayed = useCallback<Actions['markExecutionDisplayed']>(

@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { EnvironmentProfile } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../services/runtime/client'
+import { saveBrowserSnapshot } from '../services/runtime/browser-store'
 import { App } from './App'
+import { createBlankBootstrapPayload } from './data/workspace-factory'
 
 vi.mock('@monaco-editor/react', () => ({
   default: ({
@@ -84,6 +87,23 @@ function getConnectionRow(connectionName: string) {
   }
 
   return row
+}
+
+function testEnvironment(id: string, label: string): EnvironmentProfile {
+  return {
+    id,
+    label,
+    color: '#2dd4bf',
+    risk: 'low',
+    variables: {},
+    sensitiveKeys: [],
+    variableDefinitions: [],
+    requiresConfirmation: false,
+    safeMode: false,
+    exportable: true,
+    createdAt: '2026-06-01T00:00:00.000Z',
+    updatedAt: '2026-06-01T00:00:00.000Z',
+  }
 }
 
 function getObjectTreeItem(root: HTMLElement, label: string) {
@@ -278,6 +298,126 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Add Folder' })).toBeInTheDocument()
     expect(screen.queryByText('Analytics Postgres')).not.toBeInTheDocument()
     expect(screen.queryByText('Ops dashboard')).not.toBeInTheDocument()
+  })
+
+  it('tests saved connections for their environments on startup', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    snapshot.environments = [testEnvironment('env-local', 'Local'), testEnvironment('env-prod', 'Prod')]
+    snapshot.ui.activeEnvironmentId = 'env-local'
+    snapshot.connections = [
+      {
+        id: 'conn-startup',
+        name: 'Startup SQL',
+        engine: 'postgresql',
+        family: 'sql',
+        host: 'localhost',
+        port: 5432,
+        database: 'app',
+        environmentIds: ['env-local', 'env-prod'],
+        tags: [],
+        favorite: false,
+        readOnly: false,
+        icon: 'PG',
+        auth: {},
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-01T00:00:00.000Z',
+      },
+    ]
+    saveBrowserSnapshot(snapshot)
+    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValue({
+      ok: true,
+      engine: 'postgresql',
+      message: 'Connection ready.',
+      warnings: [],
+      resolvedHost: 'localhost',
+      resolvedDatabase: 'app',
+      durationMs: 2,
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(testConnectionSpy).toHaveBeenCalledTimes(2)
+    })
+    expect(testConnectionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: expect.objectContaining({ id: 'conn-startup' }),
+        environmentId: 'env-local',
+      }),
+    )
+    expect(testConnectionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: expect.objectContaining({ id: 'conn-startup' }),
+        environmentId: 'env-prod',
+      }),
+    )
+  })
+
+  it('tests the inherited Library environment on startup', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    snapshot.environments = [testEnvironment('env-local', 'Local'), testEnvironment('env-qa', 'QA')]
+    snapshot.ui.activeEnvironmentId = 'env-local'
+    snapshot.connections = [
+      {
+        id: 'conn-inherited',
+        name: 'Inherited Mongo',
+        engine: 'mongodb',
+        family: 'document',
+        host: 'localhost',
+        port: 27017,
+        database: 'catalog',
+        environmentIds: [],
+        tags: [],
+        favorite: false,
+        readOnly: false,
+        icon: 'MG',
+        auth: {},
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-01T00:00:00.000Z',
+      },
+    ]
+    snapshot.libraryNodes = [
+      {
+        id: 'folder-qa',
+        kind: 'folder',
+        name: 'QA',
+        tags: [],
+        environmentId: 'env-qa',
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-01T00:00:00.000Z',
+      },
+      {
+        id: 'library-connection-inherited',
+        kind: 'connection',
+        parentId: 'folder-qa',
+        name: 'Inherited Mongo',
+        tags: [],
+        connectionId: 'conn-inherited',
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-01T00:00:00.000Z',
+      },
+    ]
+    saveBrowserSnapshot(snapshot)
+    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValue({
+      ok: true,
+      engine: 'mongodb',
+      message: 'Connection ready.',
+      warnings: [],
+      resolvedHost: 'localhost',
+      resolvedDatabase: 'catalog',
+      durationMs: 2,
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(testConnectionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          profile: expect.objectContaining({ id: 'conn-inherited' }),
+          environmentId: 'env-qa',
+        }),
+      )
+    })
   })
 
   it('keeps icon controls accessible and disables tab-only actions until a connection exists', async () => {
@@ -2065,7 +2205,10 @@ describe('App', () => {
     await waitFor(() => {
       expect(screen.getByText('Explorer fixture unavailable')).toBeInTheDocument()
     })
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByRole('status', { name: 'Checking connection' })).not.toBeInTheDocument()
+    })
+    expect(screen.queryByRole('status', { name: 'Connection issue' })).not.toBeInTheDocument()
   })
 })
 

@@ -8,6 +8,8 @@ import type {
   ExplorerNode,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
+import type { ConnectionHealth } from '../../state/connection-health'
+import { ConnectionHealthBadge } from './ConnectionHealthBadge'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -42,6 +44,7 @@ export function ConnectionsPane({
   explorerNodes,
   explorerStatus,
   isExplorerScopeLoading = () => false,
+  getConnectionHealth = () => undefined,
   sectionStates,
   onConnectionFilterChange,
   onConnectionGroupModeChange,
@@ -67,6 +70,7 @@ export function ConnectionsPane({
   explorerNodes?: ExplorerNode[]
   explorerStatus: 'idle' | 'loading' | 'ready'
   isExplorerScopeLoading?(connectionId: string, scope?: string): boolean
+  getConnectionHealth?(connectionId: string, environmentId?: string): ConnectionHealth | undefined
   sectionStates: Record<string, boolean>
   onConnectionFilterChange(value: string): void
   onConnectionGroupModeChange(value: ConnectionGroupMode): void
@@ -195,6 +199,7 @@ export function ConnectionsPane({
                 const environment = environments.find((item) =>
                   connection.environmentIds.includes(item.id),
                 )
+                const connectionHealth = getConnectionHealth(connection.id, environment?.id)
                 const environmentStyle = environmentAccentVariables(environment)
                 const expanded = Boolean(expandedConnections[connection.id])
                 const isLoadingMetadata =
@@ -252,6 +257,11 @@ export function ConnectionsPane({
                         </span>
                       </span>
                       <span className="tree-item-flags">
+                        <ConnectionHealthBadge
+                          health={connectionHealth}
+                          environmentLabel={environment?.label}
+                          compact
+                        />
                         {isLoadingMetadata ? (
                           <span
                             className="connection-metadata-spinner"

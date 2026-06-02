@@ -1846,6 +1846,123 @@ button:disabled:hover {
   height: 12px;
 }
 
+.connection-health-badge {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.connection-health-badge.is-compact {
+  width: 12px;
+  height: 12px;
+  flex-basis: 12px;
+}
+
+.connection-health-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.connection-health-badge.is-connected {
+  color: var(--success);
+}
+
+.connection-health-badge.is-degraded {
+  color: var(--warning);
+}
+
+.connection-health-badge.is-issue {
+  color: var(--danger);
+}
+
+.connection-health-badge.is-unknown {
+  opacity: 0.52;
+}
+
+.connection-health-chip {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+  color: var(--heading);
+  font-size: 11px;
+}
+
+.connection-health-chip.is-issue {
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.connection-health-chip span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-health-strip {
+  min-width: 0;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0 4px 1px 28px;
+  padding: 1px 4px 1px 8px;
+  border-left: 1px solid color-mix(in srgb, var(--danger) 48%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  opacity: 0.95;
+}
+
+.connection-health-strip-main,
+.connection-health-strip-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.connection-health-strip-main span:last-child {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-health-strip-actions button {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.connection-health-strip-actions button:hover,
+.connection-health-strip-actions button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  outline: 0;
+}
+
+.connection-health-action-icon {
+  width: 12px;
+  height: 12px;
+}
+
 .connection-metadata-spinner {
   width: 12px;
   height: 12px;
@@ -2037,7 +2154,7 @@ button:disabled:hover {
   gap: 4px;
 }
 
-.library-tree-label span:last-child {
+.library-tree-label > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

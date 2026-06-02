@@ -10,6 +10,7 @@ import type {
   ScopedQueryTarget,
   UiState,
 } from '@datapadplusplus/shared-types'
+import type { ConnectionHealth } from '../../state/connection-health'
 import { ExplorerPane } from './SideBar.explorer-pane'
 import { LibraryPane } from './SideBar.library-pane'
 
@@ -24,6 +25,7 @@ interface SideBarProps {
   explorerItems: ExplorerNode[]
   getConnectionExplorerItems?(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
   getConnectionExplorerStatus?(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
+  getConnectionHealth?(connectionId: string, environmentId?: string): ConnectionHealth | undefined
   explorerSummary?: string
   explorerStatus: 'idle' | 'loading' | 'ready'
   isExplorerScopeLoading?(connectionId: string, scope?: string, environmentId?: string): boolean
@@ -43,7 +45,7 @@ interface SideBarProps {
   onOpenConnectionExplorer(connectionId: string): void
   onOpenConnectionMetrics(connectionId: string): void
   onOpenConnectionDrawer(connectionId: string): void
-  onTestConnection(connectionId: string): void
+  onTestConnection(connectionId: string, environmentId?: string): void
   onLoadExplorerScope(connectionId: string, scope?: string, environmentId?: string): void
   onOpenObjectView(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
@@ -76,6 +78,7 @@ export function SideBar({
   explorerItems,
   getConnectionExplorerItems,
   getConnectionExplorerStatus,
+  getConnectionHealth,
   explorerSummary,
   explorerStatus,
   isExplorerScopeLoading,
@@ -248,6 +251,7 @@ export function SideBar({
           closedTabs={closedTabs}
           getConnectionExplorerItems={getConnectionExplorerItems}
           getConnectionExplorerStatus={getConnectionExplorerStatus}
+          getConnectionHealth={getConnectionHealth}
           connections={connections}
           environments={environments}
           explorerStatus={explorerStatus}

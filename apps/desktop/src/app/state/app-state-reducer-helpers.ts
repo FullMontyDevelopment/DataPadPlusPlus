@@ -11,9 +11,12 @@ import { createId } from './helpers'
 import type {
   AppAction,
   ExplorerCacheEntry,
+  StateShape,
   WorkbenchMessage,
   WorkbenchMessageSeverity,
 } from './app-state-types'
+import type { ConnectionHealth } from './connection-health'
+import { connectionHealthKey } from './connection-health'
 
 const ROOT_EXPLORER_SCOPE = '__root__'
 
@@ -50,6 +53,19 @@ export function isExplorerRequestLoading(
       })
     ],
   )
+}
+
+export function applyConnectionHealth(
+  state: StateShape,
+  health: ConnectionHealth,
+): StateShape {
+  return {
+    ...state,
+    connectionHealthByKey: {
+      ...state.connectionHealthByKey,
+      [connectionHealthKey(health.connectionId, health.environmentId)]: health,
+    },
+  }
 }
 
 export function hasExplorerScope(

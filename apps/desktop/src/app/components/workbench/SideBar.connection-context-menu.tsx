@@ -5,6 +5,7 @@ import {
   ExplorerIcon,
   MetricsIcon,
   PlayIcon,
+  RefreshIcon,
   RenameIcon,
   TrashIcon,
 } from './icons'
@@ -26,6 +27,7 @@ export function ConnectionContextMenu({
   onOpenConnectionDrawer,
   onOpenConnectionExplorer,
   onOpenConnectionMetrics,
+  onTestConnection,
 }: {
   connection: ConnectionProfile
   adapterManifest?: AdapterManifest
@@ -37,6 +39,7 @@ export function ConnectionContextMenu({
   onOpenConnectionDrawer(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
   onOpenConnectionMetrics(connectionId: string): void
+  onTestConnection?(connectionId: string): void
 }) {
   const runAndClose = (action: () => void) => {
     onClose()
@@ -90,6 +93,18 @@ export function ConnectionContextMenu({
         >
           <MetricsIcon className="connection-context-menu-icon" />
           <span>Metrics</span>
+        </button>
+      ) : null}
+      {onTestConnection ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="connection-context-menu-item"
+          aria-label={`Test connection ${connection.name}`}
+          onClick={() => runAndClose(() => onTestConnection(connection.id))}
+        >
+          <RefreshIcon className="connection-context-menu-icon" />
+          <span>Test Connection</span>
         </button>
       ) : null}
       <button

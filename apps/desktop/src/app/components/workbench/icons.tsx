@@ -17,6 +17,8 @@ import {
   ChartLine,
   ChevronDown,
   ChevronRight,
+  Circle,
+  CircleCheck,
   CircleStop,
   Clock,
   Columns3,
@@ -148,6 +150,8 @@ export const ObjectMemoryIcon = adapt(MemoryStick)
 export const EfficiencyIcon = adapt(DatabaseZap)
 export const ObjectGenericIcon = adapt(Asterisk)
 export const WarningIcon = adapt(AlertTriangle)
+export const ConnectionUnknownIcon = adapt(Circle)
+export const ConnectionConnectedIcon = adapt(CircleCheck)
 export const ArrowLeftIcon = adapt(ArrowLeft)
 export const ArrowRightIcon = adapt(ArrowRight)
 export const MoveFirstIcon = adapt(ArrowUpToLine)

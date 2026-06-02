@@ -41,6 +41,18 @@ describe('ConnectionContextMenu', () => {
 
     expect(screen.queryByRole('menuitem', { name: /Open metrics/i })).not.toBeInTheDocument()
   })
+
+  it('can expose Test Connection when the caller supports it', () => {
+    const onClose = vi.fn()
+    const onTestConnection = vi.fn()
+
+    renderMenu({ onClose, onTestConnection })
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Test connection Metrics DB' }))
+
+    expect(onClose).toHaveBeenCalled()
+    expect(onTestConnection).toHaveBeenCalledWith('conn-metrics')
+  })
 })
 
 function renderMenu(overrides: Partial<Parameters<typeof ConnectionContextMenu>[0]> = {}) {

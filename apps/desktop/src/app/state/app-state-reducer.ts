@@ -3,6 +3,7 @@ import { preserveActiveExecutionsOnPayload } from './app-state-execution-payload
 import {
   applyExecutionToPayload,
   applyResultPageToPayload,
+  applyConnectionHealth,
   createWorkbenchMessage,
   explorerCacheKey,
   explorerRequestKey,
@@ -13,6 +14,13 @@ import {
   mergeExplorerCacheEntry,
   openMessagesPayload,
 } from './app-state-reducer-helpers'
+import {
+  connectionHealthKey,
+  connectionHealthChecking,
+  connectionHealthConnected,
+  connectionHealthFromTestResult,
+  connectionHealthIssue,
+} from './connection-health'
 
 export const initialState: StateShape = {
   status: 'booting',
@@ -23,6 +31,7 @@ export const initialState: StateShape = {
   executionsByTab: {},
   latestExecutionsByTab: {},
   connectionTests: {},
+  connectionHealthByKey: {},
   workbenchMessages: [],
 }
 
@@ -70,6 +79,71 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
           [action.profileId]: action.result,
         },
       }
+    case 'CONNECTION_HEALTH_CHECKING':
+    {
+      const key = connectionHealthKey(action.connectionId, action.environmentId)
+      const previous = state.connectionHealthByKey[key]
+      const checking = connectionHealthChecking(
+        action.connectionId,
+        action.environmentId,
+        action.source,
+        action.message,
+      )
+      checking.previous =
+        previous?.status === 'checking' ? previous.previous : previous
+      return applyConnectionHealth(state, checking)
+    }
+    case 'CONNECTION_HEALTH_SETTLED':
+    {
+      const key = connectionHealthKey(action.connectionId, action.environmentId)
+      const current = state.connectionHealthByKey[key]
+      if (!current || current.status !== 'checking' || current.source !== action.source) {
+        return state
+      }
+
+      const connectionHealthByKey = { ...state.connectionHealthByKey }
+      if (current.previous) {
+        connectionHealthByKey[key] = current.previous
+      } else {
+        delete connectionHealthByKey[key]
+      }
+      return {
+        ...state,
+        connectionHealthByKey,
+      }
+    }
+    case 'CONNECTION_HEALTH_READY':
+      return applyConnectionHealth(
+        state,
+        connectionHealthFromTestResult(
+          action.connectionId,
+          action.environmentId,
+          action.result,
+          action.source,
+        ),
+      )
+    case 'CONNECTION_HEALTH_CONNECTED':
+      return applyConnectionHealth(
+        state,
+        connectionHealthConnected(
+          action.connectionId,
+          action.environmentId,
+          action.source,
+          action.message,
+          action.durationMs,
+        ),
+      )
+    case 'CONNECTION_HEALTH_ISSUE':
+      return applyConnectionHealth(
+        state,
+        connectionHealthIssue(
+          action.connectionId,
+          action.environmentId,
+          action.source,
+          action.message,
+          action.warnings,
+        ),
+      )
     case 'EXPLORER_LOADING':
       return {
         ...state,

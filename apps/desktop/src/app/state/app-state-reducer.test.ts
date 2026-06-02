@@ -3,6 +3,135 @@ import { describe, expect, it } from 'vitest'
 import { createSeedBootstrapPayload } from '../../test/fixtures/seed-workspace'
 import { initialState, reducer } from './app-state-reducer'
 import type { StateShape } from './app-state-types'
+import { connectionHealthKey } from './connection-health'
+
+describe('app-state reducer connection health', () => {
+  it('tracks health independently by connection and environment', () => {
+    let state = reducer(initialState, {
+      type: 'CONNECTION_HEALTH_CHECKING',
+      connectionId: 'connection-mongo',
+      environmentId: 'env-local',
+      source: 'manual-test',
+    })
+
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_READY',
+      connectionId: 'connection-mongo',
+      environmentId: 'env-local',
+      source: 'manual-test',
+      result: {
+        ok: true,
+        engine: 'mongodb',
+        message: 'Connection ready',
+        warnings: [],
+        resolvedHost: 'localhost',
+        resolvedDatabase: 'catalog',
+        durationMs: 12,
+      },
+    })
+
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_READY',
+      connectionId: 'connection-mongo',
+      environmentId: 'env-prod',
+      source: 'manual-test',
+      result: {
+        ok: false,
+        engine: 'mongodb',
+        message: 'Connection refused',
+        warnings: [],
+        resolvedHost: 'prod.example',
+        durationMs: 30,
+      },
+    })
+
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('connection-mongo', 'env-local')]
+        ?.status,
+    ).toBe('connected')
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('connection-mongo', 'env-prod')]
+        ?.status,
+    ).toBe('issue')
+  })
+
+  it('marks successful metadata refreshes as connected without clearing other health', () => {
+    let state = reducer(initialState, {
+      type: 'CONNECTION_HEALTH_ISSUE',
+      connectionId: 'connection-redis',
+      environmentId: 'env-local',
+      source: 'manual-test',
+      message: 'Connection refused',
+    })
+
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_CONNECTED',
+      connectionId: 'connection-mongo',
+      environmentId: 'env-local',
+      source: 'metadata',
+      message: 'Metadata loaded',
+    })
+
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('connection-mongo', 'env-local')]
+        ?.status,
+    ).toBe('connected')
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('connection-redis', 'env-local')]
+        ?.status,
+    ).toBe('issue')
+  })
+
+  it('settles a failed check back to the previous health state', () => {
+    let state = reducer(initialState, {
+      type: 'CONNECTION_HEALTH_CONNECTED',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'query',
+      message: 'Query completed',
+    })
+
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_CHECKING',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'structure',
+      message: 'Loading structure',
+    })
+
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('connection-sql', 'env-local')]
+        ?.status,
+    ).toBe('checking')
+
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_SETTLED',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'structure',
+    })
+
+    const health =
+      state.connectionHealthByKey[connectionHealthKey('connection-sql', 'env-local')]
+    expect(health?.status).toBe('connected')
+    expect(health?.message).toBe('Query completed')
+  })
+
+  it('redacts secret-looking values from health messages', () => {
+    const state = reducer(initialState, {
+      type: 'CONNECTION_HEALTH_ISSUE',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'query',
+      message: 'Connection failed with password=open-sesame',
+    })
+
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('connection-sql', 'env-local')]
+        ?.message,
+    ).toContain('password=********')
+  })
+})
 
 describe('app-state reducer explorer metadata cache', () => {
   it('keeps concurrent connection metadata isolated while scoped refreshes complete', () => {
