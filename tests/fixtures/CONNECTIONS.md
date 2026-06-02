@@ -63,15 +63,17 @@ The fixture runner writes the actual selected ports to `tests/fixtures/.generate
 
 ## Seeded Objects
 
-The deterministic fixture domain is intentionally small and repeatable:
+The deterministic fixture domain is intentionally repeatable but large enough for a real workbench feel:
 
 | Family | Seeded objects |
 | --- | --- |
-| SQL engines | `accounts`, `products`, `orders` or `transactions`, plus indexed performance/event tables where supported. |
-| MongoDB | `catalog.accounts`, `catalog.products`, `catalog.orders`, `catalog.perfDocuments`. |
+| SQL engines | `accounts`, `products`, `orders`, `order_items`, `support_tickets`, summary views, and indexed performance/event tables where supported. |
+| MongoDB | `catalog.accounts`, `catalog.products`, `catalog.orders`, `catalog.perfDocuments`, `catalog.largeDocuments`. |
 | Redis / Valkey | `account:*`, `product:*`, `orders:recent`, `account:1:segments`, `products:inventory`, `stream:orders`, `perf:session:*`. |
-| Memcached | `account:1`, `product:luna-lamp`, `cache:feature-flags`. |
-| Search engines | `products` and `orders` indexes. |
-| Cassandra | `accounts_by_id`, `products_by_sku`, `orders_by_account`. |
-| Time-series / analytics | `order_metrics`, `order_latency`, `analytics.events`. |
-| Graph | Account/order nodes or collections where the fixture engine supports quick local seeding. |
+| Memcached | `account:1`, `product:luna-lamp`, `cache:feature-flags`, `product:fixture:*`. |
+| Search engines | `products` and `orders` indexes with thousands of nested documents. |
+| Cassandra | `accounts_by_id`, `products_by_sku`, `orders_by_account` with partition-friendly row volume. |
+| DynamoDB Local | `accounts`, `products`, `orders`, `order_events` with bulk item data. |
+| Cloud API mocks | BigQuery/Snowflake/Cosmos DB/Neptune endpoints return table lists and 50-100 deterministic rows, documents, or nodes. |
+| Time-series / analytics | `order_metrics`, `system_metrics`, `service_health`, `order_latency`, `analytics.events`, `analytics.order_items`. |
+| Graph | Account/order nodes or collections, plus generated order relationships where the fixture engine supports quick local seeding. |

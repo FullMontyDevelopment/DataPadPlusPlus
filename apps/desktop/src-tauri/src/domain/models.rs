@@ -1694,6 +1694,7 @@ pub struct RedisKeyScanRequest {
     pub cursor: Option<String>,
     pub count: Option<u32>,
     pub page_size: Option<u32>,
+    pub summary_mode: Option<String>,
     pub filters: Option<Value>,
 }
 
@@ -1720,6 +1721,7 @@ pub struct RedisKeyInspectRequest {
     pub tab_id: String,
     pub connection_id: String,
     pub environment_id: String,
+    pub database_index: Option<u32>,
     pub key: String,
     pub sample_size: Option<u32>,
 }

@@ -63,20 +63,30 @@ pub(crate) async fn scan_redis_keys(
         };
 
         scanned_count += page_keys.len() as u32;
-        for key in page_keys {
+        let summaries = key_summaries_for_scan(
+            &mut redis,
+            &page_keys,
+            database_index,
+            request.summary_mode.as_deref() == Some("metadata"),
+            scan_filters_require_memory(request.filters.as_ref()),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            page_keys
+                .iter()
+                .map(|key| RedisKeySummary {
+                    key: key.clone(),
+                    key_type: "unknown".into(),
+                    database_index,
+                    ..Default::default()
+                })
+                .collect()
+        });
+
+        for summary in summaries {
             if keys.len() >= page_size {
                 break;
             }
-
-            let mut summary =
-                key_summary(&mut redis, &key)
-                    .await
-                    .unwrap_or_else(|_| RedisKeySummary {
-                        key: key.clone(),
-                        key_type: "unknown".into(),
-                        ..Default::default()
-                    });
-            summary.database_index = database_index;
 
             if (type_filter == "all" || redis_type_matches(&summary.key_type, &type_filter))
                 && summary_matches_filters(&summary, request.filters.as_ref())
@@ -112,7 +122,10 @@ pub(crate) async fn inspect_redis_key(
 ) -> Result<ExecutionResultEnvelope, CommandError> {
     let started = Instant::now();
     let mut redis = redis_connection(connection).await?;
-    select_redis_database(&mut redis, configured_database_index(connection)).await?;
+    let database_index = request
+        .database_index
+        .or_else(|| configured_database_index(connection));
+    select_redis_database(&mut redis, database_index).await?;
     let key = request.key.trim();
 
     if key.is_empty() || key.contains('*') {
@@ -126,25 +139,33 @@ pub(crate) async fn inspect_redis_key(
         .sample_size
         .unwrap_or(DEFAULT_KEY_SAMPLE_SIZE)
         .clamp(1, MAX_PAGE_SIZE);
-    let summary = key_summary(&mut redis, key).await?;
+    let mut summary = key_summary(&mut redis, key).await?;
+    summary.database_index = database_index;
     let value = key_value_sample(&mut redis, key, &summary.key_type, sample_size).await?;
+    let sample_truncated = summary
+        .length
+        .is_some_and(|length| length > sample_size as u64);
     let entries = entries_for_value(key, &summary.key_type, &value);
     let disabled_actions = disabled_module_actions(&summary.key_type);
+    let key_missing = summary.key_type == "none";
     let payload_keyvalue = json!({
         "renderer": "keyvalue",
         "entries": entries,
         "ttl": summary.ttl_label,
         "memoryUsage": summary.memory_usage_label,
         "key": key,
+        "databaseIndex": database_index,
         "redisType": summary.key_type,
         "ttlSeconds": summary.ttl_seconds,
         "memoryUsageBytes": summary.memory_usage_bytes,
         "encoding": summary.encoding,
         "length": summary.length,
         "value": value,
+        "sampleTruncated": sample_truncated,
         "members": members_for_value(&summary.key_type, &value),
         "metadata": {
             "key": key,
+            "databaseIndex": database_index,
             "type": summary.key_type,
             "ttl": summary.ttl_label,
             "ttlSeconds": summary.ttl_seconds,
@@ -154,6 +175,7 @@ pub(crate) async fn inspect_redis_key(
             "idleSeconds": summary.idle_seconds,
             "referenceCount": summary.reference_count,
             "sampleSize": sample_size,
+            "sampleTruncated": sample_truncated,
         },
         "supports": supports_for_type(&summary.key_type),
         "disabledActions": disabled_actions,
@@ -162,11 +184,13 @@ pub(crate) async fn inspect_redis_key(
         payload_keyvalue,
         payload_json(json!({
             "key": key,
+            "databaseIndex": database_index,
             "type": summary.key_type,
             "ttlSeconds": summary.ttl_seconds,
             "memoryUsageBytes": summary.memory_usage_bytes,
             "encoding": summary.encoding,
             "length": summary.length,
+            "sampleTruncated": sample_truncated,
             "value": value,
         })),
         payload_raw(format!("INSPECT {key}")),
@@ -174,14 +198,42 @@ pub(crate) async fn inspect_redis_key(
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: format!("Redis key `{}` loaded as {}.", key, summary.key_type),
+        summary: if key_missing {
+            format!(
+                "Redis key `{}` was not found{}.",
+                key,
+                database_index
+                    .map(|database_index| format!(" in DB {database_index}"))
+                    .unwrap_or_default()
+            )
+        } else {
+            format!("Redis key `{}` loaded as {}.", key, summary.key_type)
+        },
         default_renderer: "keyvalue",
         renderer_modes: vec!["keyvalue", "json", "raw"],
         payloads,
-        notices: Vec::new(),
+        notices: if key_missing {
+            vec![redis_notice(
+                "redis-key-not-found",
+                format!(
+                    "Redis did not find `{}`{}.",
+                    key,
+                    database_index
+                        .map(|database_index| format!(" in DB {database_index}"))
+                        .unwrap_or_default()
+                ),
+            )]
+        } else if sample_truncated {
+            vec![redis_notice(
+                "redis-value-sampled",
+                format!("Redis value was sampled to the first {sample_size} item(s) or byte(s)."),
+            )]
+        } else {
+            Vec::new()
+        },
         duration_ms: duration_ms(started),
         row_limit: Some(sample_size),
-        truncated: false,
+        truncated: sample_truncated,
         explain_payload: None,
     }))
 }
@@ -204,6 +256,154 @@ async fn scan_page(
         command.arg("TYPE").arg(type_filter);
     }
     Ok(command.query_async(redis).await?)
+}
+
+async fn key_summaries_for_scan(
+    redis: &mut redis::aio::MultiplexedConnection,
+    keys: &[String],
+    database_index: Option<u32>,
+    include_detailed_metadata: bool,
+    include_memory: bool,
+) -> Result<Vec<RedisKeySummary>, CommandError> {
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut type_ttl_pipeline = redis::pipe();
+    for key in keys {
+        type_ttl_pipeline.cmd("TYPE").arg(key);
+        type_ttl_pipeline.cmd("TTL").arg(key);
+    }
+    let values: Vec<RedisValue> = type_ttl_pipeline.query_async(redis).await?;
+    let mut summaries = keys
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            let key_type = values
+                .get(index * 2)
+                .and_then(redis_value_as_string)
+                .map(|value| normalize_redis_type(&value))
+                .unwrap_or_else(|| "unknown".into());
+            let ttl_seconds = values
+                .get(index * 2 + 1)
+                .and_then(redis_value_as_i64)
+                .unwrap_or(-2);
+
+            RedisKeySummary {
+                key: key.clone(),
+                key_type,
+                ttl_seconds: Some(ttl_seconds),
+                ttl_label: Some(ttl_label(ttl_seconds)),
+                database_index,
+                ..Default::default()
+            }
+        })
+        .collect::<Vec<_>>();
+
+    enrich_scan_lengths(redis, &mut summaries).await;
+
+    if include_memory || include_detailed_metadata {
+        enrich_scan_memory(redis, &mut summaries).await;
+    }
+
+    if include_detailed_metadata {
+        enrich_scan_object_metadata(redis, &mut summaries).await;
+    }
+
+    Ok(summaries)
+}
+
+async fn enrich_scan_lengths(
+    redis: &mut redis::aio::MultiplexedConnection,
+    summaries: &mut [RedisKeySummary],
+) {
+    let mut pipeline = redis::pipe();
+    let mut command_indexes = Vec::new();
+    for (index, summary) in summaries.iter().enumerate() {
+        if append_length_command(&mut pipeline, &summary.key, &summary.key_type) {
+            command_indexes.push(index);
+        }
+    }
+
+    if command_indexes.is_empty() {
+        return;
+    }
+
+    let Ok(values) = pipeline.query_async::<Vec<RedisValue>>(redis).await else {
+        return;
+    };
+    for (value, summary_index) in values.iter().zip(command_indexes) {
+        summaries[summary_index].length = redis_value_as_u64(value);
+    }
+}
+
+async fn enrich_scan_memory(
+    redis: &mut redis::aio::MultiplexedConnection,
+    summaries: &mut [RedisKeySummary],
+) {
+    let mut pipeline = redis::pipe();
+    for summary in summaries.iter() {
+        pipeline.cmd("MEMORY").arg("USAGE").arg(&summary.key);
+    }
+
+    let Ok(values) = pipeline.query_async::<Vec<RedisValue>>(redis).await else {
+        return;
+    };
+    for (summary, value) in summaries.iter_mut().zip(values.iter()) {
+        summary.memory_usage_bytes = redis_value_as_u64(value);
+        summary.memory_usage_label = summary.memory_usage_bytes.map(format_bytes);
+    }
+}
+
+async fn enrich_scan_object_metadata(
+    redis: &mut redis::aio::MultiplexedConnection,
+    summaries: &mut [RedisKeySummary],
+) {
+    let mut pipeline = redis::pipe();
+    for summary in summaries.iter() {
+        pipeline.cmd("OBJECT").arg("ENCODING").arg(&summary.key);
+        pipeline.cmd("OBJECT").arg("IDLETIME").arg(&summary.key);
+        pipeline.cmd("OBJECT").arg("REFCOUNT").arg(&summary.key);
+    }
+
+    let Ok(values) = pipeline.query_async::<Vec<RedisValue>>(redis).await else {
+        return;
+    };
+    for (index, summary) in summaries.iter_mut().enumerate() {
+        summary.encoding = values.get(index * 3).and_then(redis_value_as_string);
+        summary.idle_seconds = values.get(index * 3 + 1).and_then(redis_value_as_u64);
+        summary.reference_count = values.get(index * 3 + 2).and_then(redis_value_as_u64);
+    }
+}
+
+fn append_length_command(pipe: &mut redis::Pipeline, key: &str, key_type: &str) -> bool {
+    match key_type {
+        "hash" => {
+            pipe.cmd("HLEN").arg(key);
+            true
+        }
+        "list" => {
+            pipe.cmd("LLEN").arg(key);
+            true
+        }
+        "set" => {
+            pipe.cmd("SCARD").arg(key);
+            true
+        }
+        "zset" => {
+            pipe.cmd("ZCARD").arg(key);
+            true
+        }
+        "stream" => {
+            pipe.cmd("XLEN").arg(key);
+            true
+        }
+        "string" => {
+            pipe.cmd("STRLEN").arg(key);
+            true
+        }
+        _ => false,
+    }
 }
 
 async fn key_summary(
@@ -328,7 +528,13 @@ async fn key_value_sample(
 ) -> Result<JsonValue, CommandError> {
     match key_type {
         "hash" => {
-            let values: Vec<String> = redis::cmd("HGETALL").arg(key).query_async(redis).await?;
+            let (_cursor, values): (u64, Vec<String>) = redis::cmd("HSCAN")
+                .arg(key)
+                .arg(0)
+                .arg("COUNT")
+                .arg(sample_size)
+                .query_async(redis)
+                .await?;
             let mut map = Map::new();
             for chunk in values.chunks(2).take(sample_size as usize) {
                 if let [field, value] = chunk {
@@ -393,7 +599,7 @@ async fn key_value_sample(
             Ok(value
                 .as_deref()
                 .and_then(|raw| serde_json::from_str(raw).ok())
-                .unwrap_or(JsonValue::Null))
+                .unwrap_or_else(|| value.map(JsonValue::String).unwrap_or(JsonValue::Null)))
         }
         "timeseries" => {
             let value: RedisValue = redis::cmd("TS.RANGE")
@@ -407,6 +613,17 @@ async fn key_value_sample(
             Ok(redis_value_to_json(&value))
         }
         "none" => Ok(JsonValue::Null),
+        "string" => {
+            let end = sample_size.saturating_sub(1);
+            let value: Option<String> = redis::cmd("GETRANGE")
+                .arg(key)
+                .arg(0)
+                .arg(end)
+                .query_async(redis)
+                .await
+                .ok();
+            Ok(value.map(JsonValue::String).unwrap_or(JsonValue::Null))
+        }
         _ => {
             let value: Option<String> = redis::cmd("GET").arg(key).query_async(redis).await.ok();
             Ok(value.map(JsonValue::String).unwrap_or(JsonValue::Null))
@@ -694,11 +911,53 @@ fn summary_matches_filters(summary: &RedisKeySummary, filters: Option<&JsonValue
     true
 }
 
+fn scan_filters_require_memory(filters: Option<&JsonValue>) -> bool {
+    filters
+        .and_then(JsonValue::as_object)
+        .is_some_and(|filters| filters.contains_key("minBytes") || filters.contains_key("maxBytes"))
+}
+
 fn ttl_label(ttl_seconds: i64) -> String {
     match ttl_seconds {
         -2 => "Missing".into(),
         -1 => "No limit".into(),
         seconds => format!("{seconds}s"),
+    }
+}
+
+fn redis_value_as_string(value: &RedisValue) -> Option<String> {
+    match value {
+        RedisValue::BulkString(bytes) => Some(String::from_utf8_lossy(bytes).into()),
+        RedisValue::SimpleString(value) | RedisValue::VerbatimString { text: value, .. } => {
+            Some(value.clone())
+        }
+        RedisValue::Okay => Some("OK".into()),
+        RedisValue::Int(value) => Some(value.to_string()),
+        RedisValue::Nil => None,
+        _ => Some(format!("{value:?}")),
+    }
+}
+
+fn redis_value_as_i64(value: &RedisValue) -> Option<i64> {
+    match value {
+        RedisValue::Int(value) => Some(*value),
+        RedisValue::BulkString(bytes) => String::from_utf8_lossy(bytes).parse::<i64>().ok(),
+        RedisValue::SimpleString(value) | RedisValue::VerbatimString { text: value, .. } => {
+            value.parse::<i64>().ok()
+        }
+        _ => None,
+    }
+}
+
+fn redis_value_as_u64(value: &RedisValue) -> Option<u64> {
+    redis_value_as_i64(value).and_then(|value| u64::try_from(value).ok())
+}
+
+fn redis_notice(code: &str, message: String) -> QueryExecutionNotice {
+    QueryExecutionNotice {
+        code: code.into(),
+        level: "info".into(),
+        message,
     }
 }
 

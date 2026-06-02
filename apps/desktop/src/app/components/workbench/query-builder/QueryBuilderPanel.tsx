@@ -59,6 +59,7 @@ interface QueryBuilderPanelProps {
   ): Promise<DataEditExecutionResponse | undefined>
   onInspectRedisKey?(request: RedisKeyInspectRequest): Promise<void>
   onScanRedisKeys?(request: RedisKeyScanRequest): Promise<RedisKeyScanResponse | undefined>
+  redisRefreshSignal?: number
 }
 
 export function QueryBuilderPanel({
@@ -71,6 +72,7 @@ export function QueryBuilderPanel({
   onExecuteDataEdit,
   onInspectRedisKey,
   onScanRedisKeys,
+  redisRefreshSignal = 0,
 }: QueryBuilderPanelProps) {
   const resolvedBuilderState = builderState ?? tab.builderState
 
@@ -159,6 +161,7 @@ export function QueryBuilderPanel({
         onExecuteDataEdit={onExecuteDataEdit}
         onInspectRedisKey={onInspectRedisKey}
         onScanRedisKeys={onScanRedisKeys}
+        refreshSignal={redisRefreshSignal}
       />
     )
   }

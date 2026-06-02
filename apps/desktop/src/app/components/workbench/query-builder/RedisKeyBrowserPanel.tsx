@@ -14,7 +14,6 @@ import {
   ColumnIcon,
   KeyValueIcon,
   PlusIcon,
-  RefreshIcon,
   SearchIcon,
   TableIcon,
 } from '../icons'
@@ -45,6 +44,7 @@ interface RedisKeyBrowserPanelProps {
   ): Promise<DataEditExecutionResponse | undefined>
   onInspectRedisKey?(request: RedisKeyInspectRequest): Promise<void>
   onScanRedisKeys?(request: RedisKeyScanRequest): Promise<RedisKeyScanResponse | undefined>
+  refreshSignal?: number
 }
 
 export function RedisKeyBrowserPanel({
@@ -54,6 +54,7 @@ export function RedisKeyBrowserPanel({
   onExecuteDataEdit,
   onInspectRedisKey,
   onScanRedisKeys,
+  refreshSignal = 0,
 }: RedisKeyBrowserPanelProps) {
   const [keys, setKeys] = useState<RedisKeySummary[]>([])
   const [cursor, setCursor] = useState(builderState.cursor ?? '0')
@@ -113,6 +114,7 @@ export function RedisKeyBrowserPanel({
         cursor: reset ? '0' : cursor,
         count: builderState.scanCount ?? builderState.pageSize ?? 100,
         pageSize: builderState.pageSize ?? 100,
+        summaryMode: 'fast',
         filters: builderState.filters,
       })
 
@@ -163,6 +165,7 @@ export function RedisKeyBrowserPanel({
     databaseIndex,
     delimiter,
     ttlFilter,
+    refreshSignal,
     tab.id,
   ])
 
@@ -172,6 +175,7 @@ export function RedisKeyBrowserPanel({
       tabId: tab.id,
       connectionId: tab.connectionId,
       environmentId: tab.environmentId,
+      databaseIndex,
       key,
       sampleSize: builderState.pageSize ?? 100,
     })
@@ -193,6 +197,7 @@ export function RedisKeyBrowserPanel({
         target: {
           objectKind: 'key',
           path: [],
+          database: String(databaseIndex),
           key: keyName,
         },
         changes: [{ value, valueType: addKeyType }],
@@ -228,6 +233,7 @@ export function RedisKeyBrowserPanel({
       target: {
         objectKind: 'key',
         path: [],
+        database: String(databaseIndex),
         key,
       },
       changes: [],
@@ -358,16 +364,6 @@ export function RedisKeyBrowserPanel({
         </label>
         <button
           type="button"
-          className="toolbar-icon-action"
-          aria-label="Refresh keys"
-          title="Refresh keys"
-          disabled={loading}
-          onClick={() => void scan({ reset: true })}
-        >
-          <RefreshIcon className="toolbar-icon" />
-        </button>
-        <button
-          type="button"
           className="drawer-button"
           onClick={() => setShowAddKey((current) => !current)}
         >
@@ -381,11 +377,10 @@ export function RedisKeyBrowserPanel({
           Results: {keys.length.toLocaleString()}. Scanned {scannedCount.toLocaleString()}
         </span>
         {cursor !== '0' ? (
-          <button type="button" onClick={() => void scan({ reset: false })}>
+          <button type="button" disabled={loading} onClick={() => void scan({ reset: false })}>
             Scan more
           </button>
         ) : null}
-        {loading ? <span>Loading</span> : null}
         <span className="redis-browser-status-spacer" />
         <button
           type="button"

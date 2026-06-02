@@ -226,6 +226,7 @@ function DesktopWorkspace() {
   const [editorResetRevisions, setEditorResetRevisions] = useState<Record<string, number>>({})
   const editorSelectionDraftRef = useRef<Record<string, string>>({})
   const [editorSelectionDrafts, setEditorSelectionDrafts] = useState<Record<string, string>>({})
+  const [redisBrowserRefreshSignals, setRedisBrowserRefreshSignals] = useState<Record<string, number>>({})
   const [pendingTabClose, setPendingTabClose] = useState<
     | {
         tab: QueryTabState
@@ -439,6 +440,10 @@ function DesktopWorkspace() {
   const activeRedisConsoleVisible =
     activeTabUsesRedisConsole &&
     activeQueryWindowMode === 'raw'
+  const activeRedisKeyBrowserVisible =
+    activeTabUsesRedisConsole &&
+    activeQueryWindowMode === 'builder' &&
+    isRedisKeyBrowserState(activeBuilderState)
   const activeTabQueryText =
     activeTab &&
     Object.prototype.hasOwnProperty.call(queryTextDrafts, activeTab.id) &&
@@ -807,6 +812,10 @@ function DesktopWorkspace() {
 
     if (isRedisKeyBrowserState(builderState)) {
       if (activeQueryWindowMode === 'builder') {
+        setRedisBrowserRefreshSignals((current) => ({
+          ...current,
+          [activeTab.id]: (current[activeTab.id] ?? 0) + 1,
+        }))
         return
       }
 
@@ -2298,6 +2307,8 @@ function DesktopWorkspace() {
                       executeLabel={
                         activeSelectedText
                           ? 'Run Selection'
+                          : activeRedisKeyBrowserVisible
+                            ? 'Refresh'
                           : activeTabUsesRedisConsole
                             ? 'Run Command'
                             : undefined
@@ -2305,6 +2316,8 @@ function DesktopWorkspace() {
                       executeAriaLabel={
                         activeSelectedText
                           ? 'Run selected text'
+                          : activeRedisKeyBrowserVisible
+                            ? 'Refresh Redis keys'
                           : activeTabUsesRedisConsole
                             ? 'Run Redis command'
                             : undefined
@@ -2312,13 +2325,19 @@ function DesktopWorkspace() {
                       executeTitle={
                         activeSelectedText
                           ? 'Run only the selected text. Shortcut: Ctrl+Enter.'
+                          : activeRedisKeyBrowserVisible
+                            ? 'Refresh the Redis key browser. Shortcut: Ctrl+Enter.'
                           : activeTabUsesRedisConsole
                           ? activeRedisConsoleVisible
                             ? 'Run the current Redis command. Shortcut: Ctrl+Enter.'
-                            : 'Switch to Redis Console to run a command. Use the browser toolbar to scan keys.'
+                            : 'Switch to Redis Console to run a command.'
                           : undefined
                       }
-                      executeDisabled={activeTabUsesRedisConsole && !activeRedisConsoleVisible}
+                      executeDisabled={
+                        activeTabUsesRedisConsole &&
+                        !activeRedisConsoleVisible &&
+                        !activeRedisKeyBrowserVisible
+                      }
                       onToggleBottomPanel={() =>
                         void actions.updateUiState({
                           bottomPanelVisible: !snapshot.ui.bottomPanelVisible,
@@ -2365,6 +2384,7 @@ function DesktopWorkspace() {
                             onExecuteDataEdit={actions.executeDataEdit}
                             onScanRedisKeys={actions.scanRedisKeys}
                             onInspectRedisKey={actions.inspectRedisKey}
+                            redisRefreshSignal={redisBrowserRefreshSignals[activeTab.id] ?? 0}
                           />
                         ) : null}
                         {activeQueryWindowMode !== 'builder' ? (

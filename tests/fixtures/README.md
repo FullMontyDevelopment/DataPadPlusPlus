@@ -83,7 +83,7 @@ If an existing local fixture container was created before the current credential
 | Cosmos DB mock | 19070 | datapadplusplus | | fixture-token |
 | Neptune mock | 19080 | | | |
 
-Seed data uses a small shared domain: accounts, products, orders/transactions, sessions, events, metrics, and alerts. Scripts are designed to be safe to rerun.
+Seed data uses a shared commerce/operations domain: accounts, products, orders, line items, support tickets, sessions, events, metrics, and alerts. Scripts are designed to be safe to rerun and now load enough volume to exercise paging, virtualization, metadata browsing, export, relationship explorers, and large-value inspectors.
 
 ## Performance Seed Data
 
@@ -91,16 +91,28 @@ The core fixtures also include deterministic high-volume data for paging, virtua
 
 | Engine | Object | Default volume |
 | --- | --- | ---: |
-| PostgreSQL | `observability.perf_events` | 100,000 rows |
-| MySQL | `perf_inventory_events` | 100,000 rows |
-| SQL Server | `dbo.perf_events` | 100,000 rows |
+| PostgreSQL | `orders`, `order_items`, `observability.audit_log`, `observability.perf_events` | 25,000 / 75,000 / 100,000 / 100,000 rows |
+| MySQL | `orders`, `order_items`, `perf_inventory_events` | 25,000 / 75,000 / 100,000 rows |
+| SQL Server | `dbo.orders`, `dbo.order_items`, `dbo.perf_events` | 25,000 / 75,000 / 100,000 rows |
 | SQLite | `perf_events` | 100,000 rows |
-| MongoDB | `catalog.perfDocuments` | 100,000 documents |
-| Redis | `perf:session:*` plus `perf:manifest` | 50,000 keys |
-| MariaDB (`sqlplus`) | `perf_order_events` | 100,000 rows |
-| Valkey (`cache`) | `perf:session:*` plus `perf:manifest` | 50,000 keys |
+| MongoDB | `catalog.perfDocuments`, `catalog.largeDocuments` | 150,000 documents / 12 multi-MB documents |
+| Redis | `perf:session:*` plus `perf:manifest` | 100,000 keys |
+| MariaDB (`sqlplus`) | `orders`, `order_items`, `perf_order_events` | 25,000 / 75,000 / 100,000 rows |
+| CockroachDB (`sqlplus`) | `orders`, `order_items`, `support_tickets` | 25,000 / 75,000 / 5,000 rows |
+| TimescaleDB (`sqlplus`) | `order_metrics`, `system_metrics` | 100,000 / 100,000 rows |
+| ClickHouse (`analytics`) | `analytics.events`, `analytics.order_items` | 250,000 / 75,000 rows |
+| InfluxDB (`analytics`) | `service_health` | 50,000 points |
+| Search engines (`search`) | `products`, `orders` indexes | 5,000 / 10,000 documents |
+| Cassandra (`widecolumn`) | `accounts_by_id`, `products_by_sku`, `orders_by_account` | 500 / 1,000 / 10,000 rows |
+| Oracle (`oracle`) | `orders`, `order_items`, `support_tickets` | 25,000 / 75,000 / 5,000 rows |
+| DynamoDB Local (`cloud-contract`) | `accounts`, `products`, `orders`, `order_events` | 500 / 1,000 / 5,000 / 10,000 items |
+| Cloud API mocks (`cloud-contract`) | BigQuery, Snowflake, Cosmos DB, Neptune responses | 50-100 rows/documents/nodes per query |
+| Neo4j (`graph`) | Account/order graph | 500 accounts / 2,500 orders |
+| ArangoDB (`graph`) | `accounts`, `orders` collections | 500 / 5,000 documents |
+| Memcached (`cache`) | `product:fixture:*` plus domain keys | 500 generated keys |
+| Valkey (`cache`) | `perf:session:*` plus `perf:manifest` | 100,000 keys |
 
-Redis/Valkey key volume can be overridden for local experiments with `DATAPADPLUSPLUS_REDIS_PERF_KEYS`.
+Redis/Valkey and InfluxDB high-volume seeds can be overridden for local experiments with `DATAPADPLUSPLUS_REDIS_PERF_KEYS` and `DATAPADPLUSPLUS_INFLUX_POINTS`.
 
 ## Resource Expectations
 

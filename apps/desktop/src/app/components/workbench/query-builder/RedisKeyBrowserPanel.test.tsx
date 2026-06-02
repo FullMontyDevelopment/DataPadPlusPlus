@@ -6,6 +6,7 @@ import type {
   QueryBuilderState,
   QueryTabState,
   RedisKeyBrowserState,
+  RedisKeyInspectRequest,
   RedisKeyScanRequest,
   RedisKeyScanResponse,
 } from '@datapadplusplus/shared-types'
@@ -38,8 +39,35 @@ describe('RedisKeyBrowserPanel', () => {
     await flushDebouncedScan()
 
     expect(onScanRedisKeys).toHaveBeenCalledTimes(1)
+    expect(onScanRedisKeys).toHaveBeenCalledWith(
+      expect.objectContaining({
+        summaryMode: 'fast',
+      }),
+    )
     expect(onBuilderStateChange).not.toHaveBeenCalled()
     expect(screen.getByText('Scan more')).toBeInTheDocument()
+  })
+
+  it('does not show a local loading word while scan is pending', async () => {
+    vi.useFakeTimers()
+    const onScanRedisKeys = vi.fn(
+      async () => new Promise<RedisKeyScanResponse>(() => {}),
+    )
+
+    render(
+      <RedisHarness
+        onBuilderStateChange={vi.fn()}
+        onScanRedisKeys={onScanRedisKeys}
+      />,
+    )
+
+    await act(async () => {
+      vi.advanceTimersByTime(250)
+      await Promise.resolve()
+    })
+
+    expect(onScanRedisKeys).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Loading')).not.toBeInTheDocument()
   })
 
   it('debounces pattern changes and scans once for the new criteria', async () => {
@@ -111,6 +139,34 @@ describe('RedisKeyBrowserPanel', () => {
       }),
     )
     expect(onBuilderStateChange).not.toHaveBeenCalled()
+  })
+
+  it('passes the selected Redis database to key inspection', async () => {
+    vi.useFakeTimers()
+    const onInspectRedisKey = vi.fn(async () => {})
+
+    render(
+      <RedisHarness
+        onBuilderStateChange={vi.fn()}
+        onInspectRedisKey={onInspectRedisKey}
+        onScanRedisKeys={vi.fn(async () => redisScanResponse())}
+      />,
+    )
+
+    await flushDebouncedScan()
+    fireEvent.change(screen.getByLabelText('Redis database index'), {
+      target: { value: '1' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }))
+    fireEvent.click(screen.getByRole('button', { name: 'perf:1' }))
+    await flushPromises()
+
+    expect(onInspectRedisKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseIndex: 1,
+        key: 'perf:1',
+      }),
+    )
   })
 
   it('sends key deletion straight to the guarded Redis edit flow', async () => {
@@ -207,12 +263,14 @@ describe('RedisKeyBrowserPanel', () => {
 function RedisHarness({
   onBuilderStateChange,
   onExecuteDataEdit,
+  onInspectRedisKey,
   onScanRedisKeys,
 }: {
   onBuilderStateChange(tabId: string, builderState: QueryBuilderState): void
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
+  onInspectRedisKey?(request: RedisKeyInspectRequest): Promise<void>
   onScanRedisKeys(request: RedisKeyScanRequest): Promise<RedisKeyScanResponse | undefined>
 }) {
   const [builderState, setBuilderState] = useState<RedisKeyBrowserState>(
@@ -243,6 +301,7 @@ function RedisHarness({
         onBuilderStateChange(tabId, nextState)
       }}
       onExecuteDataEdit={onExecuteDataEdit}
+      onInspectRedisKey={onInspectRedisKey}
       onScanRedisKeys={onScanRedisKeys}
     />
   )

@@ -83,6 +83,12 @@ pub(in crate::app::runtime) fn validate_redis_key_scan_request(
     )?;
     validate_optional_text(request.type_filter.as_deref(), "Redis type filter", 64)?;
     validate_optional_text(request.cursor.as_deref(), "Redis cursor", 128)?;
+    if let Some(summary_mode) = request.summary_mode.as_deref() {
+        validate_optional_text(Some(summary_mode), "Redis scan summary mode", 32)?;
+        if summary_mode != "fast" && summary_mode != "metadata" {
+            return Err(invalid_request("Redis scan summary mode is invalid."));
+        }
+    }
     clamp_optional_u32(&mut request.database_index, 0, MAX_REDIS_DATABASE);
     clamp_optional_u32(&mut request.count, 1, MAX_REDIS_COUNT);
     clamp_optional_u32(&mut request.page_size, 1, MAX_REDIS_PAGE_SIZE);
@@ -96,6 +102,7 @@ pub(in crate::app::runtime) fn validate_redis_key_inspect_request(
     validate_required_id(&request.connection_id, "Connection id")?;
     validate_required_id(&request.environment_id, "Environment id")?;
     validate_required_text(&request.key, "Redis key", MAX_SCOPE_LENGTH)?;
+    clamp_optional_u32(&mut request.database_index, 0, MAX_REDIS_DATABASE);
     clamp_optional_u32(&mut request.sample_size, 1, MAX_REDIS_SAMPLE_SIZE);
     Ok(())
 }

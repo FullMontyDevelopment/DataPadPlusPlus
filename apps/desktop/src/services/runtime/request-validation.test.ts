@@ -11,6 +11,7 @@ import {
   validateExplorerRequest,
   validateOperationExecutionRequest,
   validateOperationPlanRequest,
+  validateRedisKeyInspectRequest,
   validateRedisKeyScanRequest,
   validateResultPageRequest,
   validateSaveQueryTabToLibraryRequest,
@@ -41,6 +42,19 @@ describe('runtime request validation', () => {
       count: 1000,
       pageSize: 1000,
     })
+    expect(
+      validateRedisKeyInspectRequest({
+        tabId: 'tab-redis',
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        databaseIndex: 999_999,
+        key: 'orders:1',
+        sampleSize: 999_999,
+      }),
+    ).toMatchObject({
+      databaseIndex: 1024,
+      sampleSize: 5000,
+    })
   })
 
   it('rejects invalid IDs, operation IDs, and control characters', () => {
@@ -64,6 +78,13 @@ describe('runtime request validation', () => {
         pattern: 'orders\u0000*',
       }),
     ).toThrow(/control characters/)
+    expect(() =>
+      validateRedisKeyScanRequest({
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        summaryMode: 'everything' as never,
+      }),
+    ).toThrow(/summary mode/)
   })
 
   it('normalizes nullable scoped query target paths before desktop commands', () => {

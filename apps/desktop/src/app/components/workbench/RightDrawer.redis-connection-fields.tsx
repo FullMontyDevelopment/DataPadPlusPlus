@@ -10,6 +10,8 @@ export function RedisAdvancedFields({
   onUpdateConnectionDraft: UpdateConnectionDraft
 }) {
   const options = connectionDraft.redisOptions ?? {}
+  const unixSocketUnavailable =
+    typeof navigator !== 'undefined' && /win/i.test(navigator.platform)
   const redisDatabaseIndex =
     options.databaseIndex ?? (Number(connectionDraft.database ?? 0) || 0)
   const updateOptions = (patch: Partial<RedisConnectionOptions>) =>
@@ -38,7 +40,9 @@ export function RedisAdvancedFields({
           <option value="tls">TLS / rediss</option>
           <option value="sentinel">Sentinel</option>
           <option value="cluster">Cluster seed</option>
-          <option value="unix-socket">Unix socket</option>
+          <option value="unix-socket" disabled={unixSocketUnavailable}>
+            Unix socket{unixSocketUnavailable ? ' (not on Windows)' : ''}
+          </option>
         </select>
       </FormField>
 
@@ -159,12 +163,18 @@ export function RedisAdvancedFields({
         <FormField label="Unix socket">
           <input
             aria-label="Redis Unix socket path"
+            disabled={unixSocketUnavailable}
             value={options.unixSocketPath ?? ''}
             placeholder="/var/run/redis/redis.sock"
             onChange={(event) =>
               updateOptions({ unixSocketPath: event.target.value || undefined })
             }
           />
+          {unixSocketUnavailable ? (
+            <span className="field-hint">
+              Use TCP host and port on Windows.
+            </span>
+          ) : null}
         </FormField>
       ) : null}
 

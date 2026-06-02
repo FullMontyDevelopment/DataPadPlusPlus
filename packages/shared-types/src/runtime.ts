@@ -518,6 +518,7 @@ export interface RedisKeyScanRequest {
   cursor?: string
   count?: number
   pageSize?: number
+  summaryMode?: 'fast' | 'metadata'
   filters?: {
     ttl?: 'all' | 'expiring' | 'persistent'
     minBytes?: number
@@ -543,6 +544,7 @@ export interface RedisKeyInspectRequest {
   tabId: string
   connectionId: string
   environmentId: string
+  databaseIndex?: number
   key: string
   sampleSize?: number
 }

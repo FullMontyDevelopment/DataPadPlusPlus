@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use super::super::super::*;
-use super::connection::redis_connection;
+use super::connection::{configured_database_index, redis_connection, select_redis_database};
 
 pub(crate) async fn execute_redis_data_edit(
     connection: &ResolvedConnectionProfile,
@@ -58,7 +58,14 @@ pub(crate) async fn execute_redis_data_edit(
             request, plan, false, messages, warnings, None,
         ));
     };
+    let database_index = request
+        .target
+        .database
+        .as_deref()
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .or_else(|| configured_database_index(connection));
     let mut redis = redis_connection(connection).await?;
+    select_redis_database(&mut redis, database_index).await?;
     let metadata = match request.edit_kind.as_str() {
         "set-key-value" => {
             let Some(value) = request

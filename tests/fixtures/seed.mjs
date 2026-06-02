@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import net from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -104,6 +104,25 @@ function seedSqlWithStdin(container, command, args, scriptPath) {
   })
 }
 
+function fixtureInitScripts(folder, extensions = ['.sql']) {
+  const initDirectory = join(root, folder, 'init')
+
+  if (!existsSync(initDirectory)) {
+    return []
+  }
+
+  return readdirSync(initDirectory)
+    .filter((entry) => extensions.some((extension) => entry.endsWith(extension)))
+    .sort((left, right) => left.localeCompare(right))
+    .map((entry) => join(initDirectory, entry))
+}
+
+function seedSqlFolderWithStdin(container, command, args, folder, extensions = ['.sql']) {
+  for (const scriptPath of fixtureInitScripts(folder, extensions)) {
+    seedSqlWithStdin(container, command, args, scriptPath)
+  }
+}
+
 function redisProtocolCommand(parts) {
   return `*${parts.length}\r\n${parts
     .map((part) => {
@@ -118,7 +137,7 @@ function seedRedisPerfKeys(container, command = 'redis-cli') {
     return
   }
 
-  const keyCount = Number.parseInt(process.env.DATAPADPLUSPLUS_REDIS_PERF_KEYS ?? '50000', 10)
+  const keyCount = Number.parseInt(process.env.DATAPADPLUSPLUS_REDIS_PERF_KEYS ?? '100000', 10)
   const commands = []
 
   commands.push(redisProtocolCommand(['DEL', 'perf:manifest']))
@@ -341,6 +360,27 @@ function httpRequest({ method = 'GET', port, path, body, headers = {} }) {
   })
 }
 
+function httpRawRequest({ method = 'POST', port, path, body = '', headers = {} }) {
+  return new Promise((resolve, reject) => {
+    const request = globalThis.fetch(`http://127.0.0.1:${port}${path}`, {
+      method,
+      headers,
+      body,
+    })
+
+    request
+      .then(async (response) => {
+        const text = await response.text()
+        if (!response.ok) {
+          reject(new Error(`${method} ${port}${path} failed: ${response.status} ${text}`))
+          return
+        }
+        resolve(text)
+      })
+      .catch(reject)
+  })
+}
+
 function tcpRequest(port, payload) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: '127.0.0.1', port }, () => {
@@ -357,35 +397,37 @@ function tcpRequest(port, payload) {
 }
 
 async function seedCore() {
-  seedSqlWithStdin(
+  seedSqlFolderWithStdin(
     'datapadplusplus-postgres',
     'psql',
     ['-U', 'datapadplusplus', '-d', 'datapadplusplus'],
-    join(root, 'postgres', 'init', '001_seed.sql'),
+    'postgres',
   )
 
-  seedSqlWithStdin(
+  seedSqlFolderWithStdin(
     'datapadplusplus-mysql',
     'mysql',
     ['-udatapadplusplus', '-pdatapadplusplus', 'commerce'],
-    join(root, 'mysql', 'init', '001_seed.sql'),
+    'mysql',
   )
 
   if (containerRunning('datapadplusplus-sqlserver')) {
-    docker([
-      'exec',
-      'datapadplusplus-sqlserver',
-      '/opt/mssql-tools18/bin/sqlcmd',
-      '-S',
-      'localhost',
-      '-U',
-      'sa',
-      '-P',
-      'DataPadPlusPlus_pwd_123',
-      '-C',
-      '-i',
-      '/work/001_seed.sql',
-    ])
+    for (const scriptPath of fixtureInitScripts('sqlserver')) {
+      docker([
+        'exec',
+        'datapadplusplus-sqlserver',
+        '/opt/mssql-tools18/bin/sqlcmd',
+        '-S',
+        'localhost',
+        '-U',
+        'sa',
+        '-P',
+        'DataPadPlusPlus_pwd_123',
+        '-C',
+        '-i',
+        `/work/${scriptPath.split(/[\\/]/).at(-1)}`,
+      ])
+    }
   }
 
   if (containerRunning('datapadplusplus-mongodb')) {
@@ -459,6 +501,19 @@ async function seedCache() {
   }
 
   if (shouldSeed('datapadplusplus-memcached', 'cache')) {
+    const generatedSets = []
+    for (let id = 1; id <= 500; id += 1) {
+      const key = `product:fixture:${String(id).padStart(4, '0')}`
+      const value = JSON.stringify({
+        sku: `sku-${String(id).padStart(4, '0')}`,
+        name: `Fixture Product ${id}`,
+        category: ['lighting', 'furniture', 'storage', 'audio', 'office'][id % 5],
+        inventory_available: (id * 17) % 250,
+        price: Number(((id % 500) / 2.5 + 12).toFixed(2)),
+      })
+      generatedSets.push(`set ${key} 0 3600 ${Buffer.byteLength(value)}`, value)
+    }
+
     await tcpRequest(
       fixturePort('DATAPADPLUSPLUS_MEMCACHED_PORT', 11212),
       [
@@ -468,6 +523,7 @@ async function seedCache() {
         '{"id":1,"name":"Northwind","status":"active","tier":"enterprise"}',
         'set product:luna-lamp 0 3600 77',
         '{"sku":"luna-lamp","name":"Luna Lamp","inventory_available":18,"price":49.99}',
+        ...generatedSets,
         'quit',
         '',
       ].join('\r\n'),
@@ -477,42 +533,44 @@ async function seedCache() {
 
 async function seedSqlPlus() {
   if (shouldSeed('datapadplusplus-mariadb', 'sqlplus')) {
-    seedSqlWithStdin(
+    seedSqlFolderWithStdin(
       'datapadplusplus-mariadb',
       'mariadb',
       ['-udatapadplusplus', '-pdatapadplusplus', 'commerce'],
-      join(root, 'mariadb', 'init', '001_seed.sql'),
+      'mariadb',
     )
   }
 
   if (shouldSeed('datapadplusplus-cockroachdb', 'sqlplus')) {
-    docker([
-      'exec',
-      'datapadplusplus-cockroachdb',
-      '/cockroach/cockroach',
-      'sql',
-      '--insecure',
-      '--file=/docker-entrypoint-initdb.d/001_seed.sql',
-    ])
+    for (const scriptPath of fixtureInitScripts('cockroach')) {
+      docker([
+        'exec',
+        'datapadplusplus-cockroachdb',
+        '/cockroach/cockroach',
+        'sql',
+        '--insecure',
+        `--file=/docker-entrypoint-initdb.d/${scriptPath.split(/[\\/]/).at(-1)}`,
+      ])
+    }
   }
 
   if (shouldSeed('datapadplusplus-timescaledb', 'sqlplus')) {
-    seedSqlWithStdin(
+    seedSqlFolderWithStdin(
       'datapadplusplus-timescaledb',
       'psql',
       ['-U', 'datapadplusplus', '-d', 'metrics'],
-      join(root, 'timescaledb', 'init', '001_seed.sql'),
+      'timescaledb',
     )
   }
 }
 
 async function seedAnalytics() {
   if (shouldSeed('datapadplusplus-clickhouse', 'analytics')) {
-    seedSqlWithStdin(
+    seedSqlFolderWithStdin(
       'datapadplusplus-clickhouse',
       'clickhouse-client',
       ['--user', 'datapadplusplus', '--password', 'datapadplusplus', '--multiquery'],
-      join(root, 'clickhouse', 'init', '001_seed.sql'),
+      'clickhouse',
     )
   }
 
@@ -529,6 +587,54 @@ async function seedAnalytics() {
         path: `/query?db=metrics&q=${encodeURIComponent(query)}`,
       })
     }
+
+    const pointCount = Number.parseInt(process.env.DATAPADPLUSPLUS_INFLUX_POINTS ?? '50000', 10)
+    const batch = []
+    const baseTimestamp = 1767225600000000000n
+    for (let id = 1; id <= pointCount; id += 1) {
+      const region = ['eu-west-1', 'us-east-1', 'ap-southeast-1', 'af-south-1', 'local'][id % 5]
+      const service = ['api', 'worker', 'search', 'billing', 'scheduler'][id % 5]
+      const timestamp = baseTimestamp + BigInt(id) * 60_000_000_000n
+      batch.push(
+        `service_health,region=${region},service=${service},host=fixture-${id % 20} cpu_pct=${((id % 900) / 10 + 5).toFixed(2)},memory_mb=${((id % 8000) / 3 + 256).toFixed(2)},requests=${(id % 5000) + 50}i ${timestamp}`,
+      )
+
+      if (batch.length >= 5000) {
+        await httpRawRequest({
+          port: influxPort,
+          path: '/write?db=metrics',
+          body: batch.join('\n'),
+          headers: { 'content-type': 'text/plain' },
+        })
+        batch.length = 0
+      }
+    }
+
+    if (batch.length > 0) {
+      await httpRawRequest({
+        port: influxPort,
+        path: '/write?db=metrics',
+        body: batch.join('\n'),
+        headers: { 'content-type': 'text/plain' },
+      })
+    }
+  }
+}
+
+async function bulkIndexSearchDocuments(port, index, documents, batchSize = 1000) {
+  for (let offset = 0; offset < documents.length; offset += batchSize) {
+    const lines = []
+    for (const document of documents.slice(offset, offset + batchSize)) {
+      lines.push(JSON.stringify({ index: { _index: index, _id: document.id } }))
+      lines.push(JSON.stringify(document.body))
+    }
+    await httpRawRequest({
+      method: 'POST',
+      port,
+      path: '/_bulk?refresh=true',
+      body: `${lines.join('\n')}\n`,
+      headers: { 'content-type': 'application/x-ndjson' },
+    })
   }
 }
 
@@ -622,6 +728,44 @@ async function seedSearch() {
         updated_at: '2026-01-01T00:02:00Z',
       },
     })
+
+    const generatedProducts = []
+    for (let id = 1; id <= 5000; id += 1) {
+      generatedProducts.push({
+        id: `sku-${String(id).padStart(4, '0')}`,
+        body: {
+          sku: `sku-${String(id).padStart(4, '0')}`,
+          name: `Fixture Product ${id}`,
+          category: ['lighting', 'furniture', 'storage', 'audio', 'office', 'accessories'][id % 6],
+          inventory_available: (id * 17) % 250,
+          price: Number(((id % 500) / 2.5 + 12).toFixed(2)),
+          tags: [`sku-${id % 100}`, id % 2 === 0 ? 'even' : 'odd'],
+          updated_at: new Date(Date.now() - (id % 720) * 60 * 1000).toISOString(),
+        },
+      })
+    }
+    await bulkIndexSearchDocuments(port, 'products', generatedProducts)
+
+    const generatedOrders = []
+    for (let id = 1; id <= 10000; id += 1) {
+      generatedOrders.push({
+        id: String(1000 + id),
+        body: {
+          order_id: String(1000 + id),
+          account: {
+            id: String((id % 500) + 1),
+            name: `Fixture Account ${(id % 500) + 1}`,
+            tier: ['enterprise', 'growth', 'starter', 'scale'][id % 4],
+          },
+          status: ['created', 'processing', 'paid', 'fulfilled', 'returned', 'cancelled', 'on-hold'][id % 7],
+          total_amount: Number(((id % 20000) / 4 + 25).toFixed(2)),
+          item_count: (id % 3) + 1,
+          region: ['eu-west-1', 'us-east-1', 'ap-southeast-1', 'af-south-1', 'local'][id % 5],
+          updated_at: new Date(Date.now() - (id % 259200) * 1000).toISOString(),
+        },
+      })
+    }
+    await bulkIndexSearchDocuments(port, 'orders', generatedOrders)
   }
 }
 
@@ -639,6 +783,10 @@ async function seedGraph() {
           {
             statement:
               "MERGE (a:Account {id:'1', name:'Northwind'}) MERGE (o:Order {id:'101', status:'processing'}) MERGE (a)-[:PLACED]->(o) RETURN a, o",
+          },
+          {
+            statement:
+              "UNWIND range(1, 500) AS id MERGE (a:Account {id: toString(id)}) SET a.name = 'Fixture Account ' + toString(id), a.status = CASE WHEN id % 6 = 0 THEN 'paused' ELSE 'active' END WITH id, a UNWIND range(1, 5) AS orderOffset MERGE (o:Order {id: toString((id * 1000) + orderOffset)}) SET o.status = CASE WHEN orderOffset % 3 = 0 THEN 'fulfilled' ELSE 'processing' END, o.totalAmount = id * orderOffset + 25 MERGE (a)-[:PLACED]->(o)",
           },
         ],
       },
@@ -661,24 +809,73 @@ async function seedGraph() {
           "UPSERT { _key: '1' } INSERT { _key: '1', name: 'Northwind', status: 'active' } UPDATE { status: 'active' } IN accounts",
       },
     })
+    await httpRequest({
+      method: 'POST',
+      port: arangoPort,
+      path: '/_db/datapadplusplus/_api/cursor',
+      headers: auth,
+      body: {
+        query:
+          "FOR id IN 1..500 UPSERT { _key: TO_STRING(id) } INSERT { _key: TO_STRING(id), name: CONCAT('Fixture Account ', id), status: id % 6 == 0 ? 'paused' : 'active', tier: ['enterprise','growth','starter','scale'][id % 4] } UPDATE { status: OLD.status } IN accounts",
+      },
+    })
+    await httpRequest({
+      method: 'POST',
+      port: arangoPort,
+      path: '/_db/datapadplusplus/_api/cursor',
+      headers: auth,
+      body: {
+        query:
+          "FOR id IN 1..5000 UPSERT { _key: TO_STRING(1000 + id) } INSERT { _key: TO_STRING(1000 + id), accountId: TO_STRING((id % 500) + 1), status: ['created','processing','paid','fulfilled','returned','cancelled','on-hold'][id % 7], totalAmount: (id % 20000) / 4 + 25, updatedAt: DATE_ISO8601(DATE_NOW() - (id % 259200) * 1000) } UPDATE { status: OLD.status } IN orders",
+      },
+    })
   }
 }
 
 async function seedWideColumn() {
   if (shouldSeed('datapadplusplus-cassandra', 'widecolumn')) {
-    docker(['exec', 'datapadplusplus-cassandra', 'cqlsh', '-f', '/work/001_seed.cql'])
+    for (const scriptPath of fixtureInitScripts('cassandra', ['.cql'])) {
+      docker([
+        'exec',
+        'datapadplusplus-cassandra',
+        'cqlsh',
+        '-f',
+        `/work/${scriptPath.split(/[\\/]/).at(-1)}`,
+      ])
+    }
+    const statements = ['use datapadplusplus;']
+    for (let id = 4; id <= 500; id += 1) {
+      statements.push(
+        `insert into accounts_by_id (account_id, name, status, tier, updated_at) values (${id}, 'Fixture Account ${id}', '${id % 6 === 0 ? 'paused' : 'active'}', '${['enterprise', 'growth', 'starter', 'scale'][id % 4]}', toTimestamp(now()));`,
+      )
+    }
+    for (let id = 1; id <= 1000; id += 1) {
+      statements.push(
+        `insert into products_by_sku (sku, name, category, inventory_available, price, updated_at) values ('sku-${String(id).padStart(4, '0')}', 'Fixture Product ${id}', '${['lighting', 'furniture', 'storage', 'audio', 'office', 'accessories'][id % 6]}', ${(id * 17) % 250}, ${((id % 500) / 2.5 + 12).toFixed(2)}, toTimestamp(now()));`,
+      )
+    }
+    for (let id = 1; id <= 10000; id += 1) {
+      statements.push(
+        `insert into orders_by_account (account_id, order_id, status, total_amount, updated_at) values (${(id % 500) + 1}, ${1000 + id}, '${['created', 'processing', 'paid', 'fulfilled', 'returned', 'cancelled', 'on-hold'][id % 7]}', ${((id % 20000) / 4 + 25).toFixed(2)}, toTimestamp(now()));`,
+      )
+    }
+    docker(['exec', '-i', 'datapadplusplus-cassandra', 'cqlsh'], {
+      input: `${statements.join('\n')}\n`,
+    })
   }
 }
 
 async function seedOracle() {
   if (shouldSeed('datapadplusplus-oracle', 'oracle')) {
-    docker([
-      'exec',
-      'datapadplusplus-oracle',
-      'bash',
-      '-lc',
-      "sqlplus -s datapadplusplus/datapadplusplus@//localhost:1521/FREEPDB1 @/container-entrypoint-initdb.d/001_seed.sql",
-    ])
+    for (const scriptPath of fixtureInitScripts('oracle')) {
+      docker([
+        'exec',
+        'datapadplusplus-oracle',
+        'bash',
+        '-lc',
+        `sqlplus -s datapadplusplus/datapadplusplus@//localhost:1521/FREEPDB1 @/container-entrypoint-initdb.d/${scriptPath.split(/[\\/]/).at(-1)}`,
+      ])
+    }
   }
 }
 
@@ -691,7 +888,7 @@ async function seedCloudContract() {
   const endpoint = `http://127.0.0.1:${dynamodbPort}`
 
   async function dynamodb(target, body) {
-    return globalThis.fetch(endpoint, {
+    const response = await globalThis.fetch(endpoint, {
       method: 'POST',
       headers: {
         'x-amz-target': `DynamoDB_20120810.${target}`,
@@ -699,19 +896,54 @@ async function seedCloudContract() {
       },
       body: JSON.stringify(body),
     })
+    const text = await response.text()
+
+    if (!response.ok) {
+      throw new Error(`${target} failed: ${response.status} ${text}`)
+    }
+
+    return text ? JSON.parse(text) : {}
   }
 
-  for (const table of [
+  const tables = [
     { name: 'accounts', key: 'account_id' },
     { name: 'products', key: 'sku' },
     { name: 'orders', key: 'order_id' },
-  ]) {
+    { name: 'order_events', key: 'pk', rangeKey: 'sk' },
+  ]
+
+  for (const table of tables) {
     await dynamodb('CreateTable', {
       TableName: table.name,
-      AttributeDefinitions: [{ AttributeName: table.key, AttributeType: 'S' }],
-      KeySchema: [{ AttributeName: table.key, KeyType: 'HASH' }],
+      AttributeDefinitions: [
+        { AttributeName: table.key, AttributeType: 'S' },
+        ...(table.rangeKey ? [{ AttributeName: table.rangeKey, AttributeType: 'S' }] : []),
+      ],
+      KeySchema: [
+        { AttributeName: table.key, KeyType: 'HASH' },
+        ...(table.rangeKey ? [{ AttributeName: table.rangeKey, KeyType: 'RANGE' }] : []),
+      ],
       BillingMode: 'PAY_PER_REQUEST',
-    }).catch(() => undefined)
+    }).catch((error) => {
+      if (!String(error.message).includes('ResourceInUseException')) {
+        throw error
+      }
+    })
+  }
+
+  async function waitForTable(tableName) {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const result = await dynamodb('DescribeTable', { TableName: tableName }).catch(() => undefined)
+      if (result?.Table?.TableStatus === 'ACTIVE') {
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    throw new Error(`DynamoDB fixture table ${tableName} did not become active`)
+  }
+
+  for (const table of tables) {
+    await waitForTable(table.name)
   }
 
   await dynamodb('PutItem', {
@@ -742,6 +974,73 @@ async function seedCloudContract() {
       total_amount: { N: '128.40' },
     },
   })
+
+  async function batchWrite(tableName, items) {
+    for (let offset = 0; offset < items.length; offset += 25) {
+      const result = await dynamodb('BatchWriteItem', {
+        RequestItems: {
+          [tableName]: items.slice(offset, offset + 25).map((Item) => ({
+            PutRequest: { Item },
+          })),
+        },
+      })
+      const unprocessed = result.UnprocessedItems?.[tableName]?.length ?? 0
+      if (unprocessed > 0) {
+        throw new Error(`BatchWriteItem left ${unprocessed} unprocessed item(s) for ${tableName}`)
+      }
+    }
+  }
+
+  await batchWrite(
+    'accounts',
+    Array.from({ length: 500 }, (_, index) => {
+      const id = index + 1
+      return {
+        account_id: { S: String(id) },
+        name: { S: id <= 3 ? ['Northwind', 'Contoso', 'Fabrikam'][id - 1] : `Fixture Account ${id}` },
+        status: { S: id % 6 === 0 ? 'paused' : 'active' },
+        tier: { S: ['enterprise', 'growth', 'starter', 'scale'][id % 4] },
+      }
+    }),
+  )
+  await batchWrite(
+    'products',
+    Array.from({ length: 1000 }, (_, index) => {
+      const id = index + 1
+      return {
+        sku: { S: `sku-${String(id).padStart(4, '0')}` },
+        name: { S: `Fixture Product ${id}` },
+        category: { S: ['lighting', 'furniture', 'storage', 'audio', 'office', 'accessories'][id % 6] },
+        inventory_available: { N: String((id * 17) % 250) },
+        price: { N: ((id % 500) / 2.5 + 12).toFixed(2) },
+      }
+    }),
+  )
+  await batchWrite(
+    'orders',
+    Array.from({ length: 5000 }, (_, index) => {
+      const id = index + 1
+      return {
+        order_id: { S: String(1000 + id) },
+        account_id: { S: String((id % 500) + 1) },
+        status: { S: ['created', 'processing', 'paid', 'fulfilled', 'returned', 'cancelled', 'on-hold'][id % 7] },
+        total_amount: { N: ((id % 20000) / 4 + 25).toFixed(2) },
+      }
+    }),
+  )
+  await batchWrite(
+    'order_events',
+    Array.from({ length: 10000 }, (_, index) => {
+      const id = index + 1
+      return {
+        pk: { S: `ACCOUNT#${String((id % 500) + 1)}` },
+        sk: { S: `ORDER#${String(1000 + id)}#EVENT#${String(id).padStart(6, '0')}` },
+        order_id: { S: String(1000 + id) },
+        status: { S: ['created', 'processing', 'paid', 'fulfilled', 'returned', 'cancelled', 'on-hold'][id % 7] },
+        amount: { N: ((id % 20000) / 4 + 25).toFixed(2) },
+      }
+    }),
+  )
 }
 
 await seedCore()

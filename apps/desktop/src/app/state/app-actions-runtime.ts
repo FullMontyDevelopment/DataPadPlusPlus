@@ -138,15 +138,39 @@ export function useRuntimeActions({
 
   const scanRedisKeys = useCallback<Actions['scanRedisKeys']>(
     async (request) => {
+      const executionId = createId('execution')
       try {
         ensureWorkspaceUnlocked(state.payload)
-        return await desktopClient.scanRedisKeys(request)
+        if (request.tabId) {
+          dispatch({
+            type: 'EXECUTION_LOADING',
+            tabId: request.tabId,
+            execution: tabExecution(executionId, 'server', 'Refreshing Redis keys'),
+          })
+        }
+        const response = await desktopClient.scanRedisKeys(request)
+        if (request.tabId) {
+          dispatch({
+            type: 'EXECUTION_DISPLAYED',
+            tabId: request.tabId,
+            executionId,
+          })
+        }
+        return response
       } catch (error) {
+        if (request.tabId) {
+          dispatch({
+            type: 'EXECUTION_FAILED',
+            tabId: request.tabId,
+            executionId,
+            message: toUserMessage(error, 'Unable to refresh Redis keys.'),
+          })
+        }
         handleError(error)
         return undefined
       }
     },
-    [handleError, state.payload],
+    [dispatch, handleError, state.payload],
   )
 
   const inspectRedisKey = useCallback<Actions['inspectRedisKey']>(

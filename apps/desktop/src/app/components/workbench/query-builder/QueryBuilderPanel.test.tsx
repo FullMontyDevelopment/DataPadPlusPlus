@@ -567,6 +567,7 @@ describe('QueryBuilderPanel', () => {
       tabId: 'tab-redis',
       connectionId: 'conn-redis',
       environmentId: 'env-dev',
+      databaseIndex: 2,
       key: 'product:luna-lamp',
       sampleSize: 100,
     })

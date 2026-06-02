@@ -353,7 +353,15 @@ impl From<redis::RedisError> for CommandError {
     fn from(error: redis::RedisError) -> Self {
         let raw = error.to_string();
         let lower = raw.to_lowercase();
-        let (code, hint) = if lower.contains("noauth")
+        let (code, hint) = if lower.contains("os error 2")
+            || lower.contains("cannot find the file specified")
+            || lower.contains("no such file or directory")
+        {
+            (
+                "redis-unix-socket-missing",
+                "Redis tried to open a local socket/file path that does not exist. On Windows, use TCP host and port settings instead of Unix socket mode.",
+            )
+        } else if lower.contains("noauth")
             || lower.contains("authentication")
             || lower.contains("invalid username-password")
         {

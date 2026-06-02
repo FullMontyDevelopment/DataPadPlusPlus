@@ -107,6 +107,10 @@ export function validateCreateObjectViewTabRequest(
 export function validateRedisKeyScanRequest(request: RedisKeyScanRequest): RedisKeyScanRequest {
   validateRequiredId(request.connectionId, 'Connection id')
   validateRequiredId(request.environmentId, 'Environment id')
+  const summaryMode = validateOptionalText(request.summaryMode, 'Redis scan summary mode', 32)
+  if (summaryMode && summaryMode !== 'fast' && summaryMode !== 'metadata') {
+    throw new Error('Redis scan summary mode is invalid.')
+  }
   return {
     ...request,
     tabId: validateOptionalText(request.tabId, 'Tab id', MAX_ID_LENGTH),
@@ -122,6 +126,7 @@ export function validateRedisKeyScanRequest(request: RedisKeyScanRequest): Redis
     cursor: validateOptionalText(request.cursor, 'Redis cursor', 128),
     count: clampOptionalInteger(request.count, 'Redis scan count', 1, MAX_REDIS_COUNT),
     pageSize: clampOptionalInteger(request.pageSize, 'Redis page size', 1, MAX_REDIS_PAGE_SIZE),
+    summaryMode: summaryMode as RedisKeyScanRequest['summaryMode'],
   }
 }
 
@@ -134,6 +139,12 @@ export function validateRedisKeyInspectRequest(
   validateRequiredText(request.key, 'Redis key', MAX_SCOPE_LENGTH)
   return {
     ...request,
+    databaseIndex: clampOptionalInteger(
+      request.databaseIndex,
+      'Redis database index',
+      0,
+      MAX_REDIS_DATABASE,
+    ),
     sampleSize: clampOptionalInteger(
       request.sampleSize,
       'Redis inspect sample size',
