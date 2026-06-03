@@ -18,13 +18,20 @@ describe('graphOperationActions', () => {
       { label: 'Account', propertyName: 'email' },
     )
 
-    expect(actions.map((action) => action.label)).toEqual(['Profile', 'Metrics', 'Create Index'])
+    expect(actions.map((action) => action.label)).toEqual(['Profile', 'Metrics', 'Create Index', 'Export'])
     expect(actions[0]).toMatchObject({
       operationId: 'neo4j.query.profile',
       objectName: 'Account',
       parameters: expect.objectContaining({
         label: 'Account',
         query: 'MATCH (n:`Account`) RETURN n LIMIT 25',
+      }),
+    })
+    expect(actions.find((action) => action.label === 'Export')).toMatchObject({
+      operationId: 'neo4j.data.import-export',
+      objectName: 'Account',
+      parameters: expect.objectContaining({
+        format: 'graph-json',
       }),
     })
 

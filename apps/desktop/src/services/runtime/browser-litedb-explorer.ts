@@ -37,7 +37,10 @@ export function createLiteDbExplorerNodes(connection: ConnectionProfile, scope?:
   }
 
   if (scope.startsWith('litedb:collection:')) {
-    const collection = scope.split(':').at(-1) ?? 'products'
+    const collection = liteDbCollectionNameFromScope(scope, 'litedb:collection:')
+    if (!collection) {
+      return []
+    }
     return [
       liteDbNode(connection, `litedb:documents:${collection}`, 'Documents', 'documents', 'Open a bounded document query', `litedb:documents:${collection}`, false, liteDbCollectionQuery(collection)),
       liteDbNode(connection, `litedb:schema:${collection}`, 'Schema Preview', 'schema', 'Inferred field paths and types', `litedb:schema:${collection}`),
@@ -86,17 +89,17 @@ export function createLiteDbExplorerNodes(connection: ConnectionProfile, scope?:
 
 export function liteDbInspectQueryTemplate(nodeId: string) {
   if (nodeId.startsWith('litedb:collection:') || nodeId.startsWith('litedb:documents:')) {
-    const collection = nodeId.split(':').at(-1) ?? 'products'
+    const collection = liteDbCollectionNameFromNodeId(nodeId)
     return liteDbCollectionQuery(collection)
   }
 
   if (nodeId.startsWith('litedb:schema:')) {
-    const collection = nodeId.split(':').at(-1) ?? 'products'
+    const collection = liteDbCollectionNameFromScope(nodeId, 'litedb:schema:')
     return JSON.stringify({ operation: 'Schema', collection, limit: 100 }, null, 2)
   }
 
   if (nodeId.startsWith('litedb:collection-statistics:')) {
-    const collection = nodeId.split(':').at(-1) ?? 'products'
+    const collection = liteDbCollectionNameFromScope(nodeId, 'litedb:collection-statistics:')
     return JSON.stringify({ operation: 'Statistics', collection }, null, 2)
   }
 
@@ -135,17 +138,17 @@ export function liteDbInspectPayload(connection: ConnectionProfile, nodeId: stri
   }
 
   if (nodeId.startsWith('litedb:collection:')) {
-    const collection = nodeId.split(':').at(-1) ?? 'products'
+    const collection = liteDbCollectionNameFromScope(nodeId, 'litedb:collection:')
     return liteDbCollectionPayload(connection, collection, 'collection')
   }
 
   if (nodeId.startsWith('litedb:documents:')) {
-    const collection = nodeId.split(':').at(-1) ?? 'products'
+    const collection = liteDbCollectionNameFromScope(nodeId, 'litedb:documents:')
     return liteDbCollectionPayload(connection, collection, 'documents')
   }
 
   if (nodeId.startsWith('litedb:schema:')) {
-    const collection = nodeId.split(':').at(-1) ?? 'products'
+    const collection = liteDbCollectionNameFromScope(nodeId, 'litedb:schema:')
     return liteDbCollectionPayload(connection, collection, 'schema')
   }
 
@@ -190,7 +193,7 @@ export function liteDbInspectPayload(connection: ConnectionProfile, nodeId: stri
   }
 
   if (nodeId.startsWith('litedb:collection-statistics:')) {
-    const collection = nodeId.split(':').at(-1) ?? 'products'
+    const collection = liteDbCollectionNameFromScope(nodeId, 'litedb:collection-statistics:')
     return {
       ...liteDbCollectionPayload(connection, collection, 'statistics'),
       statistics: liteDbCollectionStatistics(collection),
@@ -205,14 +208,15 @@ export function liteDbInspectPayload(connection: ConnectionProfile, nodeId: stri
 }
 
 function liteDbCollectionPayload(connection: ConnectionProfile, collection: string, objectView: string) {
+  const knownCollection = liteDbCollections().some((row) => row.name === collection)
   return {
     ...liteDbBasePayload(connection),
     objectView,
     collection,
     collections: liteDbCollections().filter((row) => row.name === collection),
-    fields: liteDbFields(collection),
+    fields: knownCollection ? liteDbFields(collection) : [],
     indexes: liteDbIndexes().filter((row) => row.collection === collection),
-    statistics: liteDbCollectionStatistics(collection),
+    statistics: knownCollection ? liteDbCollectionStatistics(collection) : [],
     storage: liteDbStorage().filter((row) => row.name === 'Data pages' || row.name === 'Free pages'),
     diagnostics: liteDbDiagnostics().filter((row) => row.signal.includes('Index') || row.signal.includes('Collection')),
   }
@@ -243,6 +247,20 @@ function liteDbNode(
 
 function liteDbCollectionQuery(collection: string) {
   return JSON.stringify({ collection, filter: {}, limit: 20 }, null, 2)
+}
+
+function liteDbCollectionNameFromNodeId(nodeId: string) {
+  if (nodeId.startsWith('litedb:collection:')) {
+    return liteDbCollectionNameFromScope(nodeId, 'litedb:collection:')
+  }
+  if (nodeId.startsWith('litedb:documents:')) {
+    return liteDbCollectionNameFromScope(nodeId, 'litedb:documents:')
+  }
+  return ''
+}
+
+function liteDbCollectionNameFromScope(scope: string, prefix: string) {
+  return scope.startsWith(prefix) ? scope.slice(prefix.length).trim() : ''
 }
 
 function liteDbBasePayload(connection: ConnectionProfile) {

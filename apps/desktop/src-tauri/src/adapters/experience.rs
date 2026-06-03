@@ -393,7 +393,50 @@ fn query_builders(manifest: &AdapterManifest) -> Vec<DatastoreExperienceBuilder>
             "table",
             "split",
         )],
-        "postgresql" | "cockroachdb" | "sqlserver" | "mysql" | "mariadb" | "sqlite" => {
+        "prometheus" => vec![builder(
+            "timeseries-query",
+            "PromQL Range Builder",
+            "query",
+            "split",
+        )],
+        "influxdb" => vec![builder(
+            "timeseries-query",
+            "Flux / InfluxQL Builder",
+            "query",
+            "split",
+        )],
+        "opentsdb" => vec![builder(
+            "timeseries-query",
+            "Metric Query Builder",
+            "query",
+            "split",
+        )],
+        "neo4j" => vec![builder(
+            "graph-query",
+            "Cypher Pattern Builder",
+            "query",
+            "split",
+        )],
+        "arango" => vec![builder(
+            "graph-query",
+            "AQL Graph Builder",
+            "query",
+            "split",
+        )],
+        "janusgraph" => vec![builder(
+            "graph-query",
+            "Gremlin Traversal Builder",
+            "query",
+            "split",
+        )],
+        "neptune" => vec![builder(
+            "graph-query",
+            "Gremlin / openCypher Builder",
+            "query",
+            "split",
+        )],
+        "postgresql" | "cockroachdb" | "sqlserver" | "mysql" | "mariadb" | "sqlite"
+        | "timescaledb" | "duckdb" | "clickhouse" | "snowflake" | "bigquery" => {
             vec![builder("sql-select", "SQL SELECT Builder", "table", "raw")]
         }
         _ => Vec::new(),
@@ -409,7 +452,7 @@ fn editable_scopes(manifest: &AdapterManifest) -> Vec<DatastoreEditableScope> {
             true,
             true,
         )],
-        "postgresql" | "cockroachdb" => vec![editable_scope(
+        "postgresql" | "cockroachdb" | "timescaledb" => vec![editable_scope(
             "table",
             "Table Rows",
             &["insert-row", "update-row", "delete-row"],
@@ -950,5 +993,214 @@ fn diagnostics_tab(
         label: label.into(),
         description: description.into(),
         default_renderer: default_renderer.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::registry::manifests;
+    use super::*;
+
+    fn experience_for_engine(engine: &str) -> DatastoreExperienceManifest {
+        let manifest = manifests()
+            .into_iter()
+            .find(|manifest| manifest.engine == engine)
+            .unwrap_or_else(|| panic!("missing {engine} manifest"));
+
+        experience_manifest_for_manifest(&manifest)
+    }
+
+    #[test]
+    fn reference_engines_advertise_native_live_edit_scopes() {
+        let mongo = experience_for_engine("mongodb");
+        let mongo_scope = mongo
+            .editable_scopes
+            .iter()
+            .find(|scope| scope.scope == "collection")
+            .expect("Mongo collection edit scope");
+
+        assert!(mongo_scope.live_execution);
+        assert!(mongo_scope
+            .edit_kinds
+            .iter()
+            .any(|kind| kind == "insert-document"));
+        assert!(mongo_scope
+            .edit_kinds
+            .iter()
+            .any(|kind| kind == "rename-field"));
+
+        for engine in ["redis", "valkey"] {
+            let experience = experience_for_engine(engine);
+            let key_scope = experience
+                .editable_scopes
+                .iter()
+                .find(|scope| scope.scope == "key")
+                .unwrap_or_else(|| panic!("missing {engine} key edit scope"));
+
+            assert!(
+                key_scope.live_execution,
+                "{engine} key edits should be live-capable"
+            );
+            for edit_kind in ["set-key-value", "set-ttl", "rename-key", "hash-set-field"] {
+                assert!(
+                    key_scope.edit_kinds.iter().any(|kind| kind == edit_kind),
+                    "{engine} missing {edit_kind}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn core_sql_engines_advertise_live_primary_key_row_edit_scopes() {
+        for engine in [
+            "postgresql",
+            "cockroachdb",
+            "sqlserver",
+            "mysql",
+            "mariadb",
+            "sqlite",
+            "timescaledb",
+        ] {
+            let experience = experience_for_engine(engine);
+            let table_scope = experience
+                .editable_scopes
+                .iter()
+                .find(|scope| scope.scope == "table")
+                .unwrap_or_else(|| panic!("missing {engine} table edit scope"));
+
+            assert!(
+                table_scope.live_execution,
+                "{engine} table row edits should be live-capable"
+            );
+            assert!(
+                table_scope.requires_primary_key,
+                "{engine} row updates/deletes should require primary-key identity"
+            );
+            for edit_kind in ["insert-row", "update-row", "delete-row"] {
+                assert!(
+                    table_scope.edit_kinds.iter().any(|kind| kind == edit_kind),
+                    "{engine} missing {edit_kind}"
+                );
+            }
+
+            assert!(
+                experience
+                    .query_builders
+                    .iter()
+                    .any(|builder| builder.kind == "sql-select"),
+                "{engine} should expose the SQL SELECT builder"
+            );
+        }
+
+        let oracle = experience_for_engine("oracle");
+        assert!(
+            oracle.editable_scopes.is_empty(),
+            "Oracle remains contract-plan-only until a live driver path exists"
+        );
+    }
+
+    #[test]
+    fn search_and_dynamodb_advertise_live_edit_scopes_while_cassandra_stays_plan_only() {
+        for engine in ["elasticsearch", "opensearch"] {
+            let experience = experience_for_engine(engine);
+            let index_scope = experience
+                .editable_scopes
+                .iter()
+                .find(|scope| scope.scope == "index")
+                .unwrap_or_else(|| panic!("missing {engine} index edit scope"));
+
+            assert!(
+                index_scope.live_execution,
+                "{engine} explicit-id document edits should be live-capable"
+            );
+            assert!(
+                index_scope.requires_primary_key,
+                "{engine} document edits should require explicit document identity"
+            );
+            for edit_kind in ["index-document", "update-document", "delete-document"] {
+                assert!(
+                    index_scope.edit_kinds.iter().any(|kind| kind == edit_kind),
+                    "{engine} missing {edit_kind}"
+                );
+            }
+        }
+
+        let dynamodb = experience_for_engine("dynamodb");
+        let item_scope = dynamodb
+            .editable_scopes
+            .iter()
+            .find(|scope| scope.scope == "table")
+            .expect("DynamoDB item edit scope");
+
+        assert!(item_scope.live_execution);
+        assert!(item_scope.requires_primary_key);
+        for edit_kind in ["put-item", "update-item", "delete-item"] {
+            assert!(
+                item_scope.edit_kinds.iter().any(|kind| kind == edit_kind),
+                "DynamoDB missing {edit_kind}"
+            );
+        }
+
+        let cassandra = experience_for_engine("cassandra");
+        let row_scope = cassandra
+            .editable_scopes
+            .iter()
+            .find(|scope| scope.scope == "table")
+            .expect("Cassandra row edit scope");
+
+        assert!(
+            !row_scope.live_execution,
+            "Cassandra row edits stay contract-plan-only until a live CQL driver path exists"
+        );
+        assert!(row_scope.requires_primary_key);
+        assert!(row_scope.edit_kinds.iter().any(|kind| kind == "update-row"));
+    }
+
+    #[test]
+    fn analytics_engines_advertise_sql_builders_without_edit_scopes() {
+        for engine in ["duckdb", "clickhouse", "snowflake", "bigquery"] {
+            let experience = experience_for_engine(engine);
+
+            assert!(
+                experience.query_builders.iter().any(|builder| {
+                    builder.kind == "sql-select"
+                        && builder.default_mode == "raw"
+                        && builder.scope == "table"
+                }),
+                "{engine} should expose the SQL SELECT builder"
+            );
+            assert!(
+                experience.editable_scopes.is_empty(),
+                "{engine} should not advertise live row edits in this wave"
+            );
+        }
+    }
+
+    #[test]
+    fn wave_five_engines_advertise_query_builders_without_edit_scopes() {
+        for (engine, kind) in [
+            ("prometheus", "timeseries-query"),
+            ("influxdb", "timeseries-query"),
+            ("opentsdb", "timeseries-query"),
+            ("neo4j", "graph-query"),
+            ("arango", "graph-query"),
+            ("janusgraph", "graph-query"),
+            ("neptune", "graph-query"),
+        ] {
+            let experience = experience_for_engine(engine);
+
+            assert!(
+                experience.query_builders.iter().any(|builder| {
+                    builder.kind == kind
+                        && builder.default_mode == "split"
+                        && builder.scope == "query"
+                }),
+                "{engine} should expose {kind}"
+            );
+            assert!(
+                experience.editable_scopes.is_empty(),
+                "{engine} should keep edit/admin writes preview-first"
+            );
+        }
     }
 }

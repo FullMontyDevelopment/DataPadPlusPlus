@@ -4,12 +4,14 @@ export function createOracleExplorerNodes(
   connection: ConnectionProfile,
   scope?: string,
 ): ExplorerNode[] {
-  const schema = connection.auth.username?.trim().toUpperCase() || 'APP'
-  const service = connection.database || connection.oracleOptions?.serviceName || 'ORCLPDB1'
+  const schema = connection.auth.username?.trim().toUpperCase() || ''
+  const service = connection.database?.trim() || connection.oracleOptions?.serviceName?.trim() || ''
 
   if (!scope) {
     return [
-      oracleNode(`oracle-container:${service}`, service, 'database', 'Selected Oracle service/PDB', `oracle:container:${service}`, ['Oracle'], true),
+      ...(service
+        ? [oracleNode(`oracle-container:${service}`, service, 'database', 'Selected Oracle service/PDB', `oracle:container:${service}`, ['Oracle'], true)]
+        : []),
       oracleNode('oracle-schemas', 'Schemas', 'schemas', 'Users and object schemas', 'oracle:schemas', ['Oracle'], true),
       oracleNode('oracle-security', 'Security', 'security', 'Users, roles, profiles, privileges, and grants', 'oracle:security', ['Oracle'], true),
       oracleNode('oracle-storage', 'Storage', 'storage', 'Tablespaces, data files, segments, and quotas', 'oracle:storage', ['Oracle'], true),
@@ -19,24 +21,26 @@ export function createOracleExplorerNodes(
   }
 
   if (scope === 'oracle:containers') {
-    return [
+    return service ? [
       oracleNode(`oracle-container:${service}`, service, 'database', 'Selected Oracle service/container', `oracle:container:${service}`, ['Oracle', 'Containers'], true),
-    ]
+    ] : []
   }
 
   if (scope.startsWith('oracle:container:')) {
     const container = scope.replace('oracle:container:', '') || service
+    if (!container || !schema) return []
     return oracleSchemaSections(schema, ['Oracle', 'Containers', container])
   }
 
   if (scope === 'oracle:schemas') {
-    return [
+    return schema ? [
       oracleNode(`oracle-schema:${schema}`, schema, 'schema', 'Configured Oracle schema', `oracle:schema:${schema}`, ['Oracle', 'Schemas'], true),
-    ]
+    ] : []
   }
 
   if (scope.startsWith('oracle:schema:')) {
-    return oracleSchemaSections(scope.replace('oracle:schema:', '') || schema, ['Oracle', 'Schemas', schema])
+    const scopedSchema = scope.replace('oracle:schema:', '') || schema
+    return scopedSchema ? oracleSchemaSections(scopedSchema, ['Oracle', 'Schemas', scopedSchema]) : []
   }
 
   if (scope === 'oracle:security') {
@@ -105,8 +109,8 @@ export function oracleInspectQueryTemplate(nodeId: string) {
 }
 
 export function oracleInspectPayload(connection: ConnectionProfile, nodeId: string) {
-  const service = connection.database || connection.oracleOptions?.serviceName || 'ORCLPDB1'
-  const schema = connection.auth.username?.trim().toUpperCase() || 'APP'
+  const service = connection.database?.trim() || connection.oracleOptions?.serviceName?.trim() || ''
+  const schema = connection.auth.username?.trim().toUpperCase() || ''
   const base = {
     engine: 'oracle',
     nodeId,

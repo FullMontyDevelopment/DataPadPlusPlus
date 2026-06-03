@@ -9,12 +9,12 @@ export function browserDataEditWarnings(
   const warnings: string[] = []
   const target = request.target
 
-  if ((connection.family === 'sql' || connection.family === 'embedded-olap') && !target.table) {
+  if (isSqlRowEditConnection(connection) && !target.table) {
     warnings.push('SQL data edits need a target table.')
   }
 
   if (
-    (connection.family === 'sql' || connection.family === 'embedded-olap') &&
+    isSqlRowEditConnection(connection) &&
     ['update-row', 'delete-row'].includes(request.editKind) &&
     isEmptyRecord(target.primaryKey)
   ) {
@@ -52,7 +52,7 @@ export function browserDataEditPermission(
   connection: ConnectionProfile,
   request: DataEditPlanRequest,
 ) {
-  if (connection.family === 'sql' || connection.family === 'embedded-olap') {
+  if (isSqlRowEditConnection(connection)) {
     return `${request.editKind} on table`
   }
 
@@ -356,6 +356,14 @@ function quoteIdentifier(identifier: string, [start, end]: readonly [string, str
 
 function sqlParameter(engine: ConnectionProfile['engine'], index: number) {
   return engine === 'sqlserver' ? `@p${index}` : '?'
+}
+
+function isSqlRowEditConnection(connection: ConnectionProfile) {
+  return (
+    connection.family === 'sql' ||
+    connection.family === 'embedded-olap' ||
+    connection.engine === 'timescaledb'
+  )
 }
 
 function dataEditPath(field?: string, path?: string[]) {

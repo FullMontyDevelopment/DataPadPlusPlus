@@ -98,9 +98,9 @@ export function cosmosDiagnostics(database?: string, container?: string) {
   const scope = [database, container].filter(Boolean).join('.') || 'account'
   return [
     { signal: 'RU Consumption', value: scope === 'account' ? '38%' : '52%', status: 'healthy', guidance: 'Current workload fits configured RU/s.' },
-    { signal: 'Throttled Requests', value: container === 'inventory' ? 12 : 0, status: container === 'inventory' ? 'watch' : 'healthy', guidance: container === 'inventory' ? 'Consider partition or RU review.' : 'No throttling in preview sample.' },
-    { signal: 'Index Utilization', value: '94%', status: 'healthy', guidance: 'Most sample queries use indexed paths.' },
-    { signal: 'Change Feed Lag', value: '0 seconds', status: 'healthy', guidance: 'No processor lag detected in preview sample.' },
+    { signal: 'Throttled Requests', value: container === 'inventory' ? 12 : 0, status: container === 'inventory' ? 'watch' : 'healthy', guidance: container === 'inventory' ? 'Consider partition or RU review.' : 'No throttling was reported for the current scope.' },
+    { signal: 'Index Utilization', value: '94%', status: 'healthy', guidance: 'Recent indexed operations are using available index paths.' },
+    { signal: 'Change Feed Lag', value: '0 seconds', status: 'healthy', guidance: 'No processor lag is reported for the current scope.' },
   ]
 }
 

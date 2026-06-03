@@ -116,7 +116,11 @@ export function createCosmosExplorerNodes(connection: ConnectionProfile, scope?:
 export function cosmosInspectQueryTemplate(nodeId: string) {
   if (nodeId.startsWith('cosmos:container:') || nodeId.startsWith('cosmos:items:')) {
     const [, , database, container] = nodeId.split(':')
-    return cosmosContainerQuery(database || 'catalog', container || 'products')
+    const databaseName = database?.trim()
+    const containerName = container?.trim()
+    return databaseName && containerName
+      ? cosmosContainerQuery(databaseName, containerName)
+      : JSON.stringify({ operation: 'inspect', target: nodeId }, null, 2)
   }
 
   return JSON.stringify({ operation: 'inspect', target: nodeId }, null, 2)
@@ -240,6 +244,23 @@ function cosmosContainerPayload(
   container: string,
   objectView: string,
 ) {
+  if (!container.trim()) {
+    return {
+      ...cosmosBasePayload(connection),
+      objectView,
+      database,
+      container: '',
+      containers: [],
+      partitionKeys: [],
+      indexingPolicy: [],
+      throughput: [],
+      scripts: [],
+      security: [],
+      diagnostics: [],
+      warnings: ['Select a container to inspect this Cosmos DB surface.'],
+    }
+  }
+
   return {
     ...cosmosBasePayload(connection),
     objectView,
@@ -327,11 +348,11 @@ function cosmosScopeParts(connection: ConnectionProfile, scope: string) {
   ) {
     return {
       database: parts.at(2) ?? cosmosDefaultDatabase(connection),
-      container: parts.at(3) ?? 'products',
+      container: parts.at(3)?.trim() ?? '',
     }
   }
   return {
     database: parts.at(-2) ?? cosmosDefaultDatabase(connection),
-    container: parts.at(-1) ?? 'products',
+    container: parts.at(-1)?.trim() ?? '',
   }
 }

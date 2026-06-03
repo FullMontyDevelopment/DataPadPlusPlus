@@ -5,7 +5,7 @@ use super::super::super::*;
 use super::catalog::redis_execution_capabilities;
 use super::connection::{configured_database_index, redis_connection, select_redis_database};
 
-const REDIS_TYPE_FOLDERS: &[(&str, &str, &str)] = &[
+const REDIS_CORE_TYPE_FOLDERS: &[(&str, &str, &str)] = &[
     ("keys", "Keys", "All key types"),
     (
         "string",
@@ -17,6 +17,9 @@ const REDIS_TYPE_FOLDERS: &[(&str, &str, &str)] = &[
     ("set", "Sets", "Set values"),
     ("zset", "Sorted Sets", "Scored set values"),
     ("stream", "Streams", "Append-only stream values"),
+];
+
+const REDIS_MODULE_TYPE_FOLDERS: &[(&str, &str, &str)] = &[
     (
         "json",
         "JSON",
@@ -34,7 +37,6 @@ const REDIS_TYPE_FOLDERS: &[(&str, &str, &str)] = &[
     ),
     ("search-index", "Search Indexes", "RediSearch indexes"),
     ("vectorset", "Vector Indexes", "Vector search structures"),
-    ("pubsub", "Pub/Sub", "Channels, patterns, and subscribers"),
 ];
 
 pub(super) async fn list_redis_explorer_nodes(
@@ -46,7 +48,7 @@ pub(super) async fn list_redis_explorer_nodes(
         None => redis_root_nodes(),
         Some("databases") => redis_database_nodes(connection).await?,
         Some(scope) if scope.starts_with("db:") && !scope.contains(":type:") => {
-            redis_database_child_nodes(scope)?
+            redis_database_child_nodes(connection, scope).await?
         }
         Some(scope) if scope.starts_with("db:") && scope.contains(":type:") => {
             redis_key_nodes(connection, request, scope).await?
@@ -316,16 +318,21 @@ async fn redis_database_nodes(
         .collect())
 }
 
-fn redis_database_child_nodes(scope: &str) -> Result<Vec<ExplorerNode>, CommandError> {
+async fn redis_database_child_nodes(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+) -> Result<Vec<ExplorerNode>, CommandError> {
     let database = scope
         .strip_prefix("db:")
         .and_then(|value| value.parse::<u32>().ok())
         .ok_or_else(|| {
             CommandError::new("redis-scope-invalid", "Redis database scope was invalid.")
         })?;
+    let mut folders = REDIS_CORE_TYPE_FOLDERS.to_vec();
+    folders.extend(redis_module_type_folders(connection).await);
 
-    Ok(REDIS_TYPE_FOLDERS
-        .iter()
+    Ok(folders
+        .into_iter()
         .map(|(kind, label, detail)| {
             node(
                 &format!("redis:db:{database}:{kind}"),
@@ -333,10 +340,81 @@ fn redis_database_child_nodes(scope: &str) -> Result<Vec<ExplorerNode>, CommandE
                 kind,
                 detail,
                 Some(&format!("db:{database}:type:{kind}")),
-                *kind != "pubsub" && *kind != "search-index",
+                kind != "search-index",
             )
         })
         .collect())
+}
+
+async fn redis_module_type_folders(
+    connection: &ResolvedConnectionProfile,
+) -> Vec<(&'static str, &'static str, &'static str)> {
+    let Ok(mut redis) = redis_connection(connection).await else {
+        return Vec::new();
+    };
+    let Ok(value) = redis::cmd("MODULE")
+        .arg("LIST")
+        .query_async::<RedisValue>(&mut redis)
+        .await
+    else {
+        return Vec::new();
+    };
+    let mut module_names = Vec::new();
+    collect_module_strings(&redis_value_to_json(&value), &mut module_names);
+
+    redis_module_type_folders_from_names(&module_names)
+}
+
+fn redis_module_type_folders_from_names(
+    module_names: &[String],
+) -> Vec<(&'static str, &'static str, &'static str)> {
+    let supported_kinds = module_names
+        .iter()
+        .filter_map(|name| redis_module_kind(name))
+        .collect::<std::collections::BTreeSet<_>>();
+
+    REDIS_MODULE_TYPE_FOLDERS
+        .iter()
+        .copied()
+        .filter(|(kind, _, _)| supported_kinds.contains(kind))
+        .collect()
+}
+
+fn redis_module_kind(module_name: &str) -> Option<&'static str> {
+    let name = module_name.to_ascii_lowercase();
+    if name.contains("rejson") || name.contains("redisjson") || name == "json" {
+        return Some("json");
+    }
+    if name.contains("timeseries") || name.contains("tsdb") {
+        return Some("timeseries");
+    }
+    if name == "bf" || name.contains("bloom") || name.contains("redisbloom") {
+        return Some("bloom");
+    }
+    if name.contains("search") || name.contains("redisearch") {
+        return Some("search-index");
+    }
+    if name.contains("vector") || name.contains("vectorset") {
+        return Some("vectorset");
+    }
+    None
+}
+
+fn collect_module_strings(value: &serde_json::Value, module_names: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(value) => module_names.push(value.clone()),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_module_strings(item, module_names);
+            }
+        }
+        serde_json::Value::Object(entries) => {
+            for value in entries.values() {
+                collect_module_strings(value, module_names);
+            }
+        }
+        _ => {}
+    }
 }
 
 async fn redis_key_nodes(
@@ -930,7 +1008,10 @@ fn leaf(id: &str, label: &str, kind: &str, detail: &str) -> ExplorerNode {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_keyspace_databases, redis_scan_match_pattern, redis_type_folders_for_test};
+    use super::{
+        parse_keyspace_databases, redis_core_type_folders_for_test,
+        redis_module_type_folders_for_test, redis_scan_match_pattern,
+    };
 
     #[test]
     fn redis_scan_match_pattern_does_not_double_root_wildcard() {
@@ -953,20 +1034,54 @@ mod tests {
     }
 
     #[test]
-    fn redis_tree_type_folders_cover_core_and_module_sections() {
-        let folders = redis_type_folders_for_test();
+    fn redis_tree_type_folders_default_to_core_sections_only() {
+        let folders = redis_core_type_folders_for_test();
         assert!(folders.contains(&"Strings"));
         assert!(folders.contains(&"Streams"));
-        assert!(folders.contains(&"JSON"));
-        assert!(folders.contains(&"Search Indexes"));
-        assert!(folders.contains(&"Vector Indexes"));
+        assert!(!folders.contains(&"JSON"));
+        assert!(!folders.contains(&"Search Indexes"));
+        assert!(!folders.contains(&"Vector Indexes"));
+    }
+
+    #[test]
+    fn redis_module_type_folders_are_detected_from_module_names() {
+        let folders = redis_module_type_folders_for_test(&[
+            "ReJSON",
+            "RedisTimeSeries",
+            "bf",
+            "search",
+            "vectorset",
+        ]);
+
+        assert_eq!(
+            folders,
+            vec![
+                "JSON",
+                "Time Series",
+                "Bloom Filters",
+                "Search Indexes",
+                "Vector Indexes"
+            ]
+        );
     }
 }
 
 #[cfg(test)]
-fn redis_type_folders_for_test() -> Vec<&'static str> {
-    REDIS_TYPE_FOLDERS
+fn redis_core_type_folders_for_test() -> Vec<&'static str> {
+    REDIS_CORE_TYPE_FOLDERS
         .iter()
         .map(|(_, label, _)| *label)
+        .collect()
+}
+
+#[cfg(test)]
+fn redis_module_type_folders_for_test(module_names: &[&str]) -> Vec<&'static str> {
+    let module_names = module_names
+        .iter()
+        .map(|value| (*value).to_string())
+        .collect::<Vec<_>>();
+    redis_module_type_folders_from_names(&module_names)
+        .into_iter()
+        .map(|(_, label, _)| label)
         .collect()
 }

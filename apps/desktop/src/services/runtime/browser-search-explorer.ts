@@ -38,7 +38,10 @@ export function createSearchExplorerNodes(connection: ConnectionProfile, scope?:
   }
 
   if (scope.startsWith('index:')) {
-    const index = scope.replace('index:', '') || 'products-v1'
+    const index = scope.replace('index:', '').trim()
+    if (!index) {
+      return []
+    }
     return [
       searchNode(connection, `documents:${index}`, 'Documents', 'documents', 'Bounded Query DSL search', undefined, ['Indices', index], false, searchQueryTemplate(index)),
       searchNode(connection, `mapping:${index}`, 'Mappings', 'mappings', 'Fields, analyzers, and doc values', undefined, ['Indices', index]),
@@ -56,7 +59,10 @@ export function createSearchExplorerNodes(connection: ConnectionProfile, scope?:
   }
 
   if (scope.startsWith('data-stream:')) {
-    const stream = scope.replace('data-stream:', '') || 'logs-generic-default'
+    const stream = scope.replace('data-stream:', '').trim()
+    if (!stream) {
+      return []
+    }
     return [
       searchNode(connection, `documents:${stream}`, 'Documents', 'documents', 'Bounded Query DSL search', undefined, ['Data Streams', stream], false, searchQueryTemplate(stream)),
       searchNode(connection, `backing-indices:${stream}`, 'Backing Indices', 'backing-indices', 'Concrete backing indices', undefined, ['Data Streams', stream]),
@@ -119,15 +125,15 @@ export function createSearchExplorerNodes(connection: ConnectionProfile, scope?:
 
 export function searchInspectQueryTemplate(nodeId: string) {
   if (nodeId.startsWith('index:')) {
-    return searchQueryTemplate(nodeId.replace('index:', '') || 'products-v1')
+    return searchQueryTemplate(nodeId.replace('index:', '').trim())
   }
 
   if (nodeId.startsWith('data-stream:')) {
-    return searchQueryTemplate(nodeId.replace('data-stream:', '') || 'logs-generic-default')
+    return searchQueryTemplate(nodeId.replace('data-stream:', '').trim())
   }
 
   if (nodeId.startsWith('documents:')) {
-    return searchQueryTemplate(nodeId.replace('documents:', '') || 'products-v1')
+    return searchQueryTemplate(nodeId.replace('documents:', '').trim())
   }
 
   if (nodeId.startsWith('mapping:')) {

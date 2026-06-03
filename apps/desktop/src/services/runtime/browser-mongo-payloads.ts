@@ -1,11 +1,17 @@
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
-import { parseMongoObjectScope } from './browser-mongo-helpers'
+import {
+  parseMongoDatabaseScope,
+  parseMongoObjectScopeStrict,
+} from './browser-mongo-helpers'
 
 export function mongoInspectPayload(connection: ConnectionProfile, nodeId: string) {
-  const database = connection.database || 'catalog'
+  const database = connection.database?.trim()
 
   if (nodeId.startsWith('database:')) {
-    const databaseName = nodeId.replace('database:', '') || database
+    const databaseName = parseMongoDatabaseScope(nodeId, 'database:', database)
+    if (!databaseName) {
+      return emptyMongoPayload(database, nodeId, 'database')
+    }
     return {
       database: databaseName,
       collections: [
@@ -30,7 +36,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
 
   if (nodeId.startsWith('collection:') || nodeId.startsWith('documents:')) {
     const prefix = nodeId.startsWith('documents:') ? 'documents:' : 'collection:'
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, prefix, database)
+    const scope = parseMongoObjectScopeStrict(nodeId, prefix, database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'collection')
+    }
+    const { databaseName, objectName } = scope
     return {
       database: databaseName,
       collection: objectName,
@@ -56,7 +66,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('view:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'view:', database)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'view:', database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'view')
+    }
+    const { databaseName, objectName } = scope
     return {
       database: databaseName,
       view: objectName,
@@ -66,7 +80,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('schema-preview:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'schema-preview:', database)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'schema-preview:', database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'schema')
+    }
+    const { databaseName, objectName } = scope
     return {
       database: databaseName,
       collection: objectName,
@@ -87,7 +105,10 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('database-statistics:')) {
-    const databaseName = nodeId.replace('database-statistics:', '') || database
+    const databaseName = parseMongoDatabaseScope(nodeId, 'database-statistics:', database)
+    if (!databaseName) {
+      return emptyMongoPayload(database, nodeId, 'database-statistics')
+    }
 
     return {
       database: databaseName,
@@ -100,7 +121,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('collection-statistics:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'collection-statistics:', database)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'collection-statistics:', database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'collection-statistics')
+    }
+    const { databaseName, objectName } = scope
 
     return {
       database: databaseName,
@@ -114,7 +139,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('collection-permissions:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'collection-permissions:', database)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'collection-permissions:', database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'permissions')
+    }
+    const { databaseName, objectName } = scope
 
     return {
       database: databaseName,
@@ -125,7 +154,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('collection-scripts:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'collection-scripts:', database)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'collection-scripts:', database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'scripts')
+    }
+    const { databaseName, objectName } = scope
 
     return {
       database: databaseName,
@@ -138,7 +171,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('indexes:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'indexes:', database)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'indexes:', database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'indexes')
+    }
+    const { databaseName, objectName } = scope
     return {
       database: databaseName,
       collection: objectName,
@@ -150,7 +187,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('create-index:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'create-index:', database)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'create-index:', database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'create-index')
+    }
+    const { databaseName, objectName } = scope
     return {
       database: databaseName,
       collection: objectName,
@@ -162,7 +203,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('insert-document:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'insert-document:', database)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'insert-document:', database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'insert-document')
+    }
+    const { databaseName, objectName } = scope
     return {
       database: databaseName,
       collection: objectName,
@@ -176,7 +221,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('validation-rules:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'validation-rules:', database)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'validation-rules:', database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'validation-rules')
+    }
+    const { databaseName, objectName } = scope
     return {
       database: databaseName,
       collection: objectName,
@@ -190,7 +239,11 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('view-pipeline:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'view-pipeline:', database)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'view-pipeline:', database)
+    if (!scope) {
+      return emptyMongoPayload(database, nodeId, 'pipeline')
+    }
+    const { databaseName, objectName } = scope
     return {
       database: databaseName,
       view: objectName,
@@ -199,21 +252,41 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
   }
 
   if (nodeId.startsWith('users:')) {
+    const databaseName = parseMongoDatabaseScope(nodeId, 'users:', database)
+    if (!databaseName) {
+      return emptyMongoPayload(database, nodeId, 'users')
+    }
     return {
-      database: nodeId.replace('users:', '') || database,
+      database: databaseName,
       users: [{ user: 'fixture_reader', roles: ['read'] }],
     }
   }
 
   if (nodeId.startsWith('roles:')) {
+    const databaseName = parseMongoDatabaseScope(nodeId, 'roles:', database)
+    if (!databaseName) {
+      return emptyMongoPayload(database, nodeId, 'roles')
+    }
     return {
-      database: nodeId.replace('roles:', '') || database,
+      database: databaseName,
       roles: [{ role: 'readWrite', inheritedRoles: [] }],
     }
   }
 
+  return emptyMongoPayload(database, nodeId, 'metadata')
+}
+
+function emptyMongoPayload(database: string | undefined, nodeId: string, objectView: string) {
   return {
-    database,
+    database: database ?? '',
     object: nodeId,
+    objectView,
+    collections: [],
+    views: [],
+    indexes: [],
+    users: [],
+    roles: [],
+    fields: [],
+    warnings: ['Select a MongoDB object or refresh metadata to inspect this view.'],
   }
 }

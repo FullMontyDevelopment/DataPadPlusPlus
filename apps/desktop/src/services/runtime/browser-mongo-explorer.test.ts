@@ -49,6 +49,29 @@ describe('browser Mongo explorer slice', () => {
     }))
   })
 
+  it('does not create fake Mongo object children for incomplete scopes', () => {
+    const connection = mongoConnection(undefined)
+
+    expect(createMongoExplorerNodes(connection, 'databases')).toEqual([])
+    expect(createMongoExplorerNodes(connection, 'collection:')).toEqual([])
+    expect(createMongoExplorerNodes(connection, 'view:')).toEqual([])
+    expect(createMongoExplorerNodes(connection, 'indexes:')).toEqual([])
+  })
+
+  it('uses production view result labels instead of sample result nodes', () => {
+    const nodes = createMongoExplorerNodes(mongoConnection('catalog'), 'view:catalog:active_products')
+
+    expect(nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'view-results:catalog:active_products',
+        label: 'Results Preview',
+        kind: 'view-results',
+      }),
+    ]))
+    expect(nodes.map((node) => node.kind)).not.toContain('sample-results')
+    expect(nodes.map((node) => node.label)).not.toContain('Sample Results')
+  })
+
   it('generates focused Mongo query templates for object views', () => {
     const connection = mongoConnection('catalog')
 
@@ -87,6 +110,21 @@ describe('browser Mongo explorer slice', () => {
       collections: 4,
       indexes: 11,
     })
+  })
+
+  it('returns empty Mongo payloads for malformed object scopes', () => {
+    const payload = mongoInspectPayload(mongoConnection(undefined), 'indexes:')
+
+    expect(payload).toMatchObject({
+      database: '',
+      objectView: 'indexes',
+      indexes: [],
+      warnings: expect.arrayContaining([
+        'Select a MongoDB object or refresh metadata to inspect this view.',
+      ]),
+    })
+    expect(JSON.stringify(payload)).not.toContain('products')
+    expect(mongoInspectQueryTemplate(mongoConnection(undefined), 'indexes:')).not.toContain('products')
   })
 })
 

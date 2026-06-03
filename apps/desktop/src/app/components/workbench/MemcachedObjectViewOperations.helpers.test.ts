@@ -59,7 +59,15 @@ describe('memcachedOperationActions', () => {
       { host: 'localhost', port: 11211 },
     )
 
-    expect(actions.map((action) => action.label)).toEqual(['Get', 'Set', 'Touch', 'Delete'])
+    expect(actions.map((action) => action.label)).toEqual(['Get', 'CAS', 'Set', 'Touch', 'Incr', 'Decr', 'Delete'])
+    expect(actions.find((action) => action.label === 'Decr')).toMatchObject({
+      operationId: 'memcached.key.decrement',
+      objectName: '<key>',
+      parameters: expect.objectContaining({
+        key: '<key>',
+        delta: 1,
+      }),
+    })
     expect(actions.find((action) => action.label === 'Delete')).toMatchObject({
       operationId: 'memcached.key.delete',
       objectName: '<key>',

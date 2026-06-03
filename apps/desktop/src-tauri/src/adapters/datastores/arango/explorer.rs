@@ -954,6 +954,7 @@ mod tests {
             password: None,
             connection_string: None,
             redis_options: None,
+            memcached_options: None,
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,

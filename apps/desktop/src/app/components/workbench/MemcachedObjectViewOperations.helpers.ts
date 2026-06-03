@@ -38,6 +38,9 @@ export function memcachedOperationActions(
       action(connection, 'key.get', 'Get', 'Preview a targeted get for an application-known key.', 'key', scope, {
         key: '<key>',
       }),
+      action(connection, 'key.gets', 'CAS', 'Preview a targeted gets request including the CAS token.', 'key', scope, {
+        key: '<key>',
+      }),
       action(connection, 'key.set', 'Set', 'Preview a guarded set for an application-known key.', 'memory', scope, {
         key: '<key>',
         value: '<value>',
@@ -47,6 +50,14 @@ export function memcachedOperationActions(
       action(connection, 'key.touch', 'Touch', 'Preview updating the TTL for an application-known key.', 'job', scope, {
         key: '<key>',
         ttlSeconds: 300,
+      }),
+      action(connection, 'key.increment', 'Incr', 'Preview incrementing a numeric value.', 'job', scope, {
+        key: '<key>',
+        delta: 1,
+      }),
+      action(connection, 'key.decrement', 'Decr', 'Preview decrementing a numeric value.', 'job', scope, {
+        key: '<key>',
+        delta: 1,
       }),
       action(connection, 'key.delete', 'Delete', 'Preview deleting an application-known key.', 'delete', scope, {
         key: '<key>',
@@ -61,7 +72,7 @@ export function memcachedOperationActions(
     }))
   }
 
-  return dedupe(actions).slice(0, 5)
+  return dedupe(actions).slice(0, 8)
 }
 
 function supportedMemcachedOperations(connection: ConnectionProfile) {

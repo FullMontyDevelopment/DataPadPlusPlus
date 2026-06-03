@@ -17,6 +17,8 @@ describe('browser datastore platform contracts', () => {
     const mongodb = experiences.find((item) => item.engine === 'mongodb')
     const postgres = experiences.find((item) => item.engine === 'postgresql')
     const redis = experiences.find((item) => item.engine === 'redis')
+    const valkey = experiences.find((item) => item.engine === 'valkey')
+    const timescale = experiences.find((item) => item.engine === 'timescaledb')
 
     expect(mongodb?.queryBuilders.map((item) => item.kind)).toEqual(
       expect.arrayContaining(['mongo-find', 'mongo-aggregation']),
@@ -24,6 +26,7 @@ describe('browser datastore platform contracts', () => {
     expect(mongodb?.editableScopes[0]?.editKinds).toContain('rename-field')
     expect(mongodb?.completeness).toMatchObject({
       readiness: 'near-native',
+      completionClaim: 'contract-complete',
       targetPhase: 1,
     })
     expect(
@@ -40,9 +43,18 @@ describe('browser datastore platform contracts', () => {
       'raw',
     )
     expect(postgres?.tree?.roots.map((item) => item.label)).toContain('User Schemas')
+    expect(timescale?.queryBuilders.map((item) => item.kind)).toContain('sql-select')
+    expect(timescale?.editableScopes[0]).toMatchObject({
+      scope: 'table',
+      editKinds: ['insert-row', 'update-row', 'delete-row'],
+      liveExecution: false,
+    })
     expect(redis?.editableScopes[0]?.editKinds).toContain('set-ttl')
     expect(redis?.tree?.roots.map((item) => item.label)).toContain('Databases')
     expect(redis?.tree?.roots.map((item) => item.label)).toContain('ACL / Security')
+    for (const referenceExperience of [mongodb, redis, valkey]) {
+      expect(referenceExperience?.editableScopes.every((scope) => !scope.liveExecution)).toBe(true)
+    }
   })
 
   it('covers every core-popular engine with actions, renderers, diagnostics, and safety rules', () => {
@@ -76,6 +88,81 @@ describe('browser datastore platform contracts', () => {
       expect(experience?.tree?.emptyState, `${engine} tree empty state`).toBe('structural-folders')
       expect(experience?.tree?.roots.length, `${engine} tree roots`).toBeGreaterThan(0)
       expect(experience?.completeness?.criteria.length, `${engine} completeness`).toBeGreaterThan(0)
+    }
+  })
+
+  it('keeps search and wide-column browser edit scopes plan-only while preserving native edit kinds', () => {
+    const experiences = buildDatastoreExperiences()
+    const elasticsearch = experiences.find((item) => item.engine === 'elasticsearch')
+    const opensearch = experiences.find((item) => item.engine === 'opensearch')
+    const dynamodb = experiences.find((item) => item.engine === 'dynamodb')
+    const cassandra = experiences.find((item) => item.engine === 'cassandra')
+
+    for (const searchExperience of [elasticsearch, opensearch]) {
+      expect(searchExperience?.editableScopes[0]).toMatchObject({
+        scope: 'index',
+        editKinds: ['index-document', 'update-document', 'delete-document'],
+        requiresPrimaryKey: true,
+        liveExecution: false,
+      })
+    }
+
+    expect(dynamodb?.editableScopes[0]).toMatchObject({
+      scope: 'table',
+      label: 'Items',
+      editKinds: ['put-item', 'update-item', 'delete-item'],
+      requiresPrimaryKey: true,
+      liveExecution: false,
+    })
+    expect(cassandra?.editableScopes[0]).toMatchObject({
+      scope: 'table',
+      label: 'Rows',
+      editKinds: ['update-row'],
+      requiresPrimaryKey: true,
+      liveExecution: false,
+    })
+  })
+
+  it('exposes analytics SQL builders in browser preview without editable scopes', () => {
+    const experiences = buildDatastoreExperiences()
+
+    for (const engine of ['duckdb', 'clickhouse', 'snowflake', 'bigquery']) {
+      const experience = experiences.find((item) => item.engine === engine)
+
+      expect(experience?.queryBuilders).toContainEqual(
+        expect.objectContaining({
+          kind: 'sql-select',
+          scope: 'table',
+          defaultMode: 'raw',
+        }),
+      )
+      expect(experience?.editableScopes, `${engine} edit scopes`).toEqual([])
+    }
+  })
+
+  it('exposes time-series and graph query builders in browser preview without editable scopes', () => {
+    const experiences = buildDatastoreExperiences()
+    const expected = [
+      ['prometheus', 'timeseries-query'],
+      ['influxdb', 'timeseries-query'],
+      ['opentsdb', 'timeseries-query'],
+      ['neo4j', 'graph-query'],
+      ['arango', 'graph-query'],
+      ['janusgraph', 'graph-query'],
+      ['neptune', 'graph-query'],
+    ] as const
+
+    for (const [engine, kind] of expected) {
+      const experience = experiences.find((item) => item.engine === engine)
+
+      expect(experience?.queryBuilders, `${engine} query builders`).toContainEqual(
+        expect.objectContaining({
+          kind,
+          scope: 'query',
+          defaultMode: 'split',
+        }),
+      )
+      expect(experience?.editableScopes, `${engine} edit scopes`).toEqual([])
     }
   })
 
@@ -207,6 +294,29 @@ describe('browser datastore platform contracts', () => {
     )
   })
 
+  it('plans TimescaleDB row edits with SQL-shaped preview guardrails', () => {
+    const plan = planDataEditLocally(connectionProfile('timescaledb', 'timeseries'), {
+      connectionId: 'conn-timescaledb',
+      environmentId: 'env-dev',
+      editKind: 'update-row',
+      target: {
+        objectKind: 'row',
+        path: ['metrics', 'conditions', '1'],
+        schema: 'metrics',
+        table: 'conditions',
+        primaryKey: { id: 1 },
+      },
+      changes: [{ field: 'temperature', value: 72.5 }],
+    })
+
+    expect(plan.executionSupport).toBe('plan-only')
+    expect(plan.plan.requestLanguage).toBe('sql')
+    expect(plan.plan.requiredPermissions).toContain('update-row on table')
+    expect(plan.plan.generatedRequest).toContain('update "metrics"."conditions"')
+    expect(plan.plan.warnings.join(' ')).toContain('Preview mode')
+    expect(plan.plan.warnings.join(' ')).not.toContain('Wide-column')
+  })
+
   it('warns before unsafe or incomplete edit targets can be executed', () => {
     const sqlPlan = planDataEditLocally(connectionProfile('postgresql', 'sql'), {
       connectionId: 'conn-postgresql',
@@ -297,6 +407,41 @@ describe('browser datastore platform contracts', () => {
     expect(cassandraPlan.plan.generatedRequest).toContain(
       'update commerce.orders set status = ? where account_id = ? and order_id = ?;',
     )
+  })
+
+  it('plans search explicit-id document edits with HTTP-shaped preview guardrails', () => {
+    const updatePlan = planDataEditLocally(connectionProfile('elasticsearch', 'search'), {
+      connectionId: 'conn-elasticsearch',
+      environmentId: 'env-dev',
+      editKind: 'update-document',
+      target: {
+        objectKind: 'document',
+        path: ['orders', '101'],
+        table: 'orders',
+        documentId: '101',
+      },
+      changes: [{ field: 'status', value: 'fulfilled' }],
+    })
+    const deletePlan = planDataEditLocally(connectionProfile('opensearch', 'search'), {
+      connectionId: 'conn-opensearch',
+      environmentId: 'env-dev',
+      editKind: 'delete-document',
+      target: {
+        objectKind: 'document',
+        path: ['orders', '101'],
+        table: 'orders',
+        documentId: '101',
+      },
+      changes: [],
+    })
+
+    expect(updatePlan.executionSupport).toBe('plan-only')
+    expect(updatePlan.plan.requestLanguage).toBe('query-dsl')
+    expect(updatePlan.plan.requiredPermissions).toContain('adapter-specific write permission')
+    expect(updatePlan.plan.generatedRequest).toContain('"method": "POST"')
+    expect(updatePlan.plan.generatedRequest).toContain('/orders/_update/101?refresh=true')
+    expect(deletePlan.plan.destructive).toBe(true)
+    expect(deletePlan.plan.confirmationText).toBe('CONFIRM OPENSEARCH DELETE-DOCUMENT')
   })
 
   it('never executes browser-preview data edits and reports confirmation/read-only blockers', () => {

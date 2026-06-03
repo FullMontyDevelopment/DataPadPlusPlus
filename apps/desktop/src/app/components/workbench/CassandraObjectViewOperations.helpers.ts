@@ -54,11 +54,27 @@ export function cassandraOperationActions(
     actions.push(action(connection, 'diagnostics.metrics', 'Metrics', 'Collect latency, compaction, repair, and node health metrics', 'job', target.objectName, baseParameters))
   }
 
+  if (tableLike && supported.has('importExport')) {
+    actions.push(action(connection, 'data.import-export', 'Export', 'Prepare a contract-backed cqlsh COPY import or export plan', 'table', target.objectName, {
+      ...baseParameters,
+      mode: 'export',
+      format: 'csv',
+    }))
+  }
+
+  if (tableLike && supported.has('backupRestore')) {
+    actions.push(action(connection, 'data.backup-restore', 'Snapshot', 'Prepare a guarded nodetool snapshot or SSTable restore plan', 'job', target.objectName, {
+      ...baseParameters,
+      mode: 'backup',
+      snapshotName: `${target.tableName ?? 'table'}_snapshot`,
+    }))
+  }
+
   if ((normalizedKind === 'table' || normalizedKind === 'materialized-view' || normalizedKind === 'type' || normalizedKind === 'function' || normalizedKind === 'aggregate') && supported.has('admin')) {
     actions.push(action(connection, 'object.drop', 'Drop Object', 'Prepare a guarded CQL object drop plan', 'database', target.objectName, baseParameters))
   }
 
-  return dedupeActions(actions).slice(0, 6)
+  return dedupeActions(actions).slice(0, 8)
 }
 
 export function cassandraOperationTarget(tab: QueryTabState, payload: JsonRecord) {
@@ -93,6 +109,12 @@ function supportedCassandraOperations(connection: ConnectionProfile) {
   }
   if (capabilities.has('supports_metrics_collection')) {
     supported.add('metrics')
+  }
+  if (capabilities.has('supports_import_export')) {
+    supported.add('importExport')
+  }
+  if (capabilities.has('supports_backup_restore')) {
+    supported.add('backupRestore')
   }
   if (capabilities.has('supports_admin_operations')) {
     supported.add('admin')

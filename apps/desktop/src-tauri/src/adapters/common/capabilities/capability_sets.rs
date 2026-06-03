@@ -46,6 +46,25 @@ pub(crate) const CLOUD_DOCUMENT_CAPABILITIES: &[&str] = &[
     "supports_import_export",
 ];
 
+pub(crate) const DYNAMODB_CAPABILITIES: &[&str] = &[
+    "supports_document_view",
+    "supports_key_browser",
+    "supports_schema_browser",
+    "supports_result_snapshots",
+    "supports_visual_query_builder",
+    "supports_admin_operations",
+    "supports_index_management",
+    "supports_permission_inspection",
+    "supports_cloud_iam",
+    "supports_metrics_collection",
+    "supports_cost_estimation",
+    "supports_import_export",
+    "supports_backup_restore",
+    "supports_streaming_results",
+    "supports_structure_visualization",
+];
+
+#[allow(dead_code)]
 pub(crate) const KEYVALUE_CAPABILITIES: &[&str] = &[
     "supports_key_browser",
     "supports_ttl_management",
@@ -71,6 +90,8 @@ pub(crate) const GRAPH_CAPABILITIES: &[&str] = &[
     "supports_plan_visualization",
     "supports_query_profile",
     "supports_metrics_collection",
+    "supports_import_export",
+    "supports_backup_restore",
     "supports_structure_visualization",
 ];
 
@@ -109,6 +130,8 @@ pub(crate) const TIMESERIES_SQL_CAPABILITIES: &[&str] = &[
     "supports_plan_visualization",
     "supports_query_profile",
     "supports_metrics_collection",
+    "supports_import_export",
+    "supports_backup_restore",
     "supports_structure_visualization",
 ];
 
@@ -122,6 +145,8 @@ pub(crate) const WIDECOLUMN_CAPABILITIES: &[&str] = &[
     "supports_permission_inspection",
     "supports_query_profile",
     "supports_metrics_collection",
+    "supports_import_export",
+    "supports_backup_restore",
     "supports_streaming_results",
     "supports_structure_visualization",
 ];

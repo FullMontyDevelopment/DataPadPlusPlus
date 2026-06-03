@@ -36,6 +36,7 @@ fn connection(engine: &str, family: &str) -> ConnectionProfile {
         tags: Vec::new(),
         favorite: false,
         redis_options: None,
+        memcached_options: None,
         sqlite_options: None,
         sqlserver_options: None,
         oracle_options: None,

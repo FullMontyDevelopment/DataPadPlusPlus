@@ -35,6 +35,7 @@ import { validateCassandraConnectionOptions } from './request-validation-cassand
 import { validateCosmosDbConnectionOptions } from './request-validation-cosmosdb'
 import { validateDynamoDbConnectionOptions } from './request-validation-dynamodb'
 import { validateGraphConnectionOptions } from './request-validation-graph'
+import { validateMemcachedConnectionOptions } from './request-validation-memcached'
 import { validateSearchConnectionOptions } from './request-validation-search'
 import { validateTimeSeriesConnectionOptions } from './request-validation-timeseries'
 import { validateWarehouseConnectionOptions } from './request-validation-warehouse'
@@ -96,6 +97,7 @@ export function validateConnectionProfile(profile: ConnectionProfile): Connectio
     icon: icon?.trim() || 'database',
     color: color?.trim() || undefined,
     auth,
+    memcachedOptions: validateMemcachedConnectionOptions(profile.memcachedOptions),
     dynamoDbOptions: validateDynamoDbConnectionOptions(profile.dynamoDbOptions),
     cassandraOptions: validateCassandraConnectionOptions(profile.cassandraOptions),
     cosmosDbOptions: validateCosmosDbConnectionOptions(profile.cosmosDbOptions),

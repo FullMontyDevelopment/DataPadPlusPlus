@@ -6,7 +6,7 @@ import {
 } from './TimeSeriesObjectViewOperations.helpers'
 
 describe('timeSeriesOperationActions', () => {
-  it('offers Prometheus profile and metrics previews for metric objects', () => {
+  it('offers Prometheus profile, metrics, cardinality, and export previews for metric objects', () => {
     const tab = objectViewTab('metric', 'http_requests_total', {
       queryTemplate: 'sum(rate(http_requests_total[5m]))',
     })
@@ -18,7 +18,7 @@ describe('timeSeriesOperationActions', () => {
       { metric: 'http_requests_total' },
     )
 
-    expect(actions.map((action) => action.label)).toEqual(['Profile', 'Metrics', 'Cardinality'])
+    expect(actions.map((action) => action.label)).toEqual(['Profile', 'Metrics', 'Cardinality', 'Export'])
     expect(actions[0]).toMatchObject({
       operationId: 'prometheus.query.profile',
       objectName: 'http_requests_total',
@@ -31,6 +31,13 @@ describe('timeSeriesOperationActions', () => {
       operationId: 'prometheus.cardinality.analyze',
       parameters: expect.objectContaining({
         match: 'sum(rate(http_requests_total[5m]))',
+      }),
+    })
+    expect(actions.find((action) => action.label === 'Export')).toMatchObject({
+      operationId: 'prometheus.data.import-export',
+      parameters: expect.objectContaining({
+        format: 'json',
+        query: 'sum(rate(http_requests_total[5m]))',
       }),
     })
   })

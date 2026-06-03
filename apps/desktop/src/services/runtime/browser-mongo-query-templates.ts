@@ -2,62 +2,71 @@ import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import {
   documentFindTemplate,
   mongoCommandTemplate,
-  parseMongoObjectScope,
+  parseMongoDatabaseScope,
+  parseMongoObjectScopeStrict,
 } from './browser-mongo-helpers'
 
 export function mongoInspectQueryTemplate(connection: ConnectionProfile, nodeId: string) {
-  const database = connection.database || 'catalog'
+  const database = connection.database?.trim()
+  const inspectFallback = () => JSON.stringify({ operation: 'inspect', target: nodeId }, null, 2)
 
   if (nodeId.startsWith('database-statistics:')) {
-    return mongoCommandTemplate(nodeId.replace('database-statistics:', '') || database, { dbStats: 1 })
+    const scopedDatabase = parseMongoDatabaseScope(nodeId, 'database-statistics:', database)
+    return scopedDatabase ? mongoCommandTemplate(scopedDatabase, { dbStats: 1 }) : inspectFallback()
   }
 
   if (nodeId.startsWith('collection-statistics:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'collection-statistics:', database)
-    return mongoCommandTemplate(databaseName, { collStats: objectName })
+    const scope = parseMongoObjectScopeStrict(nodeId, 'collection-statistics:', database)
+    return scope ? mongoCommandTemplate(scope.databaseName, { collStats: scope.objectName }) : inspectFallback()
   }
 
   if (nodeId.startsWith('collection-permissions:')) {
-    const { databaseName } = parseMongoObjectScope(nodeId, 'collection-permissions:', database)
-    return mongoCommandTemplate(databaseName, { usersInfo: 1 })
+    const scope = parseMongoObjectScopeStrict(nodeId, 'collection-permissions:', database)
+    return scope ? mongoCommandTemplate(scope.databaseName, { usersInfo: 1 }) : inspectFallback()
   }
 
   if (nodeId.startsWith('collection-scripts:')) {
-    const { objectName } = parseMongoObjectScope(nodeId, 'collection-scripts:', database)
-    return `db.${objectName}.find({}).limit(20)`
+    const scope = parseMongoObjectScopeStrict(nodeId, 'collection-scripts:', database)
+    return scope ? `db.${scope.objectName}.find({}).limit(20)` : ''
   }
 
   if (nodeId.startsWith('indexes:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'indexes:', database)
-    return mongoCommandTemplate(databaseName, { listIndexes: objectName })
+    const scope = parseMongoObjectScopeStrict(nodeId, 'indexes:', database)
+    return scope ? mongoCommandTemplate(scope.databaseName, { listIndexes: scope.objectName }) : inspectFallback()
   }
 
   if (nodeId.startsWith('create-index:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'create-index:', database)
-    return mongoCommandTemplate(databaseName, { listIndexes: objectName })
+    const scope = parseMongoObjectScopeStrict(nodeId, 'create-index:', database)
+    return scope ? mongoCommandTemplate(scope.databaseName, { listIndexes: scope.objectName }) : inspectFallback()
   }
 
   if (nodeId.startsWith('insert-document:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'insert-document:', database)
-    return documentFindTemplate(databaseName, objectName)
+    const scope = parseMongoObjectScopeStrict(nodeId, 'insert-document:', database)
+    return scope ? documentFindTemplate(scope.databaseName, scope.objectName) : inspectFallback()
   }
 
   if (nodeId.startsWith('validation-rules:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'validation-rules:', database)
-    return mongoCommandTemplate(databaseName, { listCollections: 1, filter: { name: objectName } })
+    const scope = parseMongoObjectScopeStrict(nodeId, 'validation-rules:', database)
+    return scope
+      ? mongoCommandTemplate(scope.databaseName, { listCollections: 1, filter: { name: scope.objectName } })
+      : inspectFallback()
   }
 
   if (nodeId.startsWith('view-pipeline:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, 'view-pipeline:', database)
-    return mongoCommandTemplate(databaseName, { listCollections: 1, filter: { name: objectName } })
+    const scope = parseMongoObjectScopeStrict(nodeId, 'view-pipeline:', database)
+    return scope
+      ? mongoCommandTemplate(scope.databaseName, { listCollections: 1, filter: { name: scope.objectName } })
+      : inspectFallback()
   }
 
   if (nodeId.startsWith('users:')) {
-    return mongoCommandTemplate(nodeId.replace('users:', '') || database, { usersInfo: 1 })
+    const scopedDatabase = parseMongoDatabaseScope(nodeId, 'users:', database)
+    return scopedDatabase ? mongoCommandTemplate(scopedDatabase, { usersInfo: 1 }) : inspectFallback()
   }
 
   if (nodeId.startsWith('roles:')) {
-    return mongoCommandTemplate(nodeId.replace('roles:', '') || database, { rolesInfo: 1 })
+    const scopedDatabase = parseMongoDatabaseScope(nodeId, 'roles:', database)
+    return scopedDatabase ? mongoCommandTemplate(scopedDatabase, { rolesInfo: 1 }) : inspectFallback()
   }
 
   if (nodeId.startsWith('schema-preview:') || nodeId.startsWith('documents:') || nodeId.startsWith('collection:')) {
@@ -66,9 +75,9 @@ export function mongoInspectQueryTemplate(connection: ConnectionProfile, nodeId:
       : nodeId.startsWith('documents:')
         ? 'documents:'
         : 'collection:'
-    const { databaseName, objectName } = parseMongoObjectScope(nodeId, prefix, database)
-    return documentFindTemplate(databaseName, objectName)
+    const scope = parseMongoObjectScopeStrict(nodeId, prefix, database)
+    return scope ? documentFindTemplate(scope.databaseName, scope.objectName) : inspectFallback()
   }
 
-  return mongoCommandTemplate(database, { dbStats: 1 })
+  return database ? mongoCommandTemplate(database, { dbStats: 1 }) : inspectFallback()
 }

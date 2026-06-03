@@ -8,7 +8,7 @@ pub(super) fn dynamodb_manifest() -> AdapterManifest {
         "DynamoDB adapter",
         "beta",
         "json",
-        CLOUD_DOCUMENT_CAPABILITIES,
+        DYNAMODB_CAPABILITIES,
     )
 }
 

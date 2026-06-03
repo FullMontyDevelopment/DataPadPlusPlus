@@ -136,6 +136,8 @@ export type QueryBuilderKind =
   | 'dynamodb-key-condition'
   | 'cql-partition'
   | 'search-dsl'
+  | 'timeseries-query'
+  | 'graph-query'
 
 export interface ScopedQueryTarget {
   kind: string

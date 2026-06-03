@@ -17,7 +17,14 @@ import type {
 import { createBrowserPreviewHealth } from '../../app/data/workspace-factory'
 import { buildDiagnosticsReport, migrateWorkspaceSnapshot } from '../../app/state/helpers'
 import { redactErrorMessage } from '../../app/state/security-redaction'
-import { buildBrowserPayload, cloneSnapshot, loadBrowserSnapshot, saveBrowserSnapshot, updateUiStateLocally } from './browser-store'
+import {
+  buildBrowserPayload,
+  cloneSnapshot,
+  loadBrowserSnapshot,
+  normalizeUiStatePatch,
+  saveBrowserSnapshot,
+  updateUiStateLocally,
+} from './browser-store'
 import {
   browserBackupSummaries,
   decryptBrowserWorkspacePayload,
@@ -323,11 +330,13 @@ export const clientWorkspace = {
   },
 
   async updateUiState(patch: UpdateUiStateRequest): Promise<BootstrapPayload> {
+    const normalizedPatch = normalizeUiStatePatch(patch)
+
     if (isTauriRuntime()) {
-      return invokeDesktop<BootstrapPayload>('set_ui_state', { patch })
+      return invokeDesktop<BootstrapPayload>('set_ui_state', { patch: normalizedPatch })
     }
 
-    const snapshot = updateUiStateLocally(loadBrowserSnapshot(), patch)
+    const snapshot = updateUiStateLocally(loadBrowserSnapshot(), normalizedPatch)
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
   },

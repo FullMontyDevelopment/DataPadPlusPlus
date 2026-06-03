@@ -27,7 +27,10 @@ export function createDynamoExplorerNodes(connection: ConnectionProfile, scope?:
   }
 
   if (scope.startsWith('table:')) {
-    const table = scope.replace('table:', '') || 'Orders'
+    const table = scope.replace('table:', '').trim()
+    if (!table) {
+      return []
+    }
     return [
       dynamoNode(connection, `items:${table}`, 'Items', 'items', 'Partition-key query and bounded scan', undefined, ['Tables', table], false, dynamoQueryTemplate(table)),
       dynamoNode(connection, `keys:${table}`, 'Keys', 'keys', 'Partition and sort key schema', undefined, ['Tables', table]),
@@ -82,39 +85,39 @@ export function dynamoInspectPayload(connection: ConnectionProfile, nodeId: stri
   }
 
   if (nodeId.startsWith('table:')) {
-    return dynamoTablePayload(connection, nodeId.replace('table:', '') || 'Orders', 'table')
+    return dynamoTablePayload(connection, nodeId.replace('table:', '').trim(), 'table')
   }
 
   if (nodeId.startsWith('items:')) {
-    return dynamoTablePayload(connection, nodeId.replace('items:', '') || 'Orders', 'items')
+    return dynamoTablePayload(connection, nodeId.replace('items:', '').trim(), 'items')
   }
 
   if (nodeId.startsWith('keys:')) {
-    return dynamoTablePayload(connection, nodeId.replace('keys:', '') || 'Orders', 'keys')
+    return dynamoTablePayload(connection, nodeId.replace('keys:', '').trim(), 'keys')
   }
 
   if (nodeId.startsWith('gsi:')) {
-    return dynamoTablePayload(connection, nodeId.replace('gsi:', '') || 'Orders', 'global-secondary-indexes')
+    return dynamoTablePayload(connection, nodeId.replace('gsi:', '').trim(), 'global-secondary-indexes')
   }
 
   if (nodeId.startsWith('lsi:')) {
-    return dynamoTablePayload(connection, nodeId.replace('lsi:', '') || 'Orders', 'local-secondary-indexes')
+    return dynamoTablePayload(connection, nodeId.replace('lsi:', '').trim(), 'local-secondary-indexes')
   }
 
   if (nodeId.startsWith('streams:')) {
-    return dynamoTablePayload(connection, nodeId.replace('streams:', '') || 'Orders', 'streams')
+    return dynamoTablePayload(connection, nodeId.replace('streams:', '').trim(), 'streams')
   }
 
   if (nodeId.startsWith('ttl:')) {
-    return dynamoTablePayload(connection, nodeId.replace('ttl:', '') || 'Orders', 'ttl')
+    return dynamoTablePayload(connection, nodeId.replace('ttl:', '').trim(), 'ttl')
   }
 
   if (nodeId.startsWith('capacity:')) {
-    return dynamoTablePayload(connection, nodeId.replace('capacity:', '') || 'Orders', 'capacity')
+    return dynamoTablePayload(connection, nodeId.replace('capacity:', '').trim(), 'capacity')
   }
 
   if (nodeId.startsWith('permissions:')) {
-    return dynamoTablePayload(connection, nodeId.replace('permissions:', '') || 'Orders', 'permissions')
+    return dynamoTablePayload(connection, nodeId.replace('permissions:', '').trim(), 'permissions')
   }
 
   if (nodeId.startsWith('dynamodb:security')) {
@@ -167,7 +170,7 @@ function dynamoNode(
 
 function dynamoTablePayload(connection: ConnectionProfile, tableName: string, objectView: string) {
   const tables = dynamoTables()
-  const table = tables.find((candidate) => candidate.name === tableName) ?? tables[0]
+  const table = tables.find((candidate) => candidate.name === tableName)
   if (!table) {
     return emptyDynamoTablePayload(dynamoRegion(connection), tableName, objectView)
   }

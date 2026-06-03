@@ -132,8 +132,8 @@ export function sqlServerInspectPayload(connection: ConnectionProfile, nodeId: s
 
   return {
     ...base,
-    objects: [
-      { schema, name: objectName || database, type: nodeId.split(':')[0] || 'object', status: 'visible' },
-    ],
+    objects: objectName
+      ? [{ schema, name: objectName, type: nodeId.split(':')[0] || 'object', status: 'visible' }]
+      : [],
   }
 }

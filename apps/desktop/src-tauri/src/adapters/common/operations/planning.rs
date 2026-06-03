@@ -131,6 +131,10 @@ pub(crate) fn generated_operation_request(
             document_operation_request(operation_id, object_name, &parameter_json, parameters)
         }
         "keyvalue" => {
+            if matches!(manifest.engine.as_str(), "redis" | "valkey") {
+                return redis_operation_request(operation_id, object_name, parameters);
+            }
+
             if manifest.engine == "memcached" {
                 return memcached_operation_request(operation_id, object_name, parameters);
             }
@@ -142,7 +146,9 @@ pub(crate) fn generated_operation_request(
             }
         }
         "graph" => graph_operation_request(manifest, operation_id, object_name, parameters),
-        "search" => search_operation_request(operation_id, object_name, &parameter_json),
+        "search" => {
+            search_operation_request(operation_id, object_name, &parameter_json, parameters)
+        }
         "timeseries" => timeseries_operation_request(
             manifest,
             operation_id,
@@ -306,6 +312,194 @@ fn document_operation_request(
         "create" => format!("{{\n  \"createCollection\": \"{object_name}\"\n}}"),
         "drop" => format!("{{\n  \"dropCollection\": \"{object_name}\"\n}}"),
         _ => format!("{{\n  \"operation\": \"{operation_id}\",\n  \"parameters\": {parameter_json}\n}}"),
+    }
+}
+
+fn redis_operation_request(
+    operation_id: &str,
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let key = string_parameter(parameters, "key").unwrap_or_else(|| object_name.into());
+    let key_token = redis_cli_token(&key);
+    let database = string_parameter(parameters, "database")
+        .or_else(|| string_parameter(parameters, "db"))
+        .unwrap_or_else(|| "0".into());
+    let redis_type = string_parameter(parameters, "redisType").unwrap_or_else(|| "string".into());
+
+    if operation_id.ends_with("key.export") {
+        let format = string_parameter(parameters, "format").unwrap_or_else(|| "json".into());
+        return format!(
+            "# Export Redis {redis_type} key {key_token} as {format}\nSELECT {database}\nTYPE {key_token}\nTTL {key_token}\nMEMORY USAGE {key_token}\n{}",
+            redis_export_read_command(&redis_type, &key_token)
+        );
+    }
+
+    if operation_id.ends_with("key.import") {
+        let format = string_parameter(parameters, "format").unwrap_or_else(|| "json".into());
+        let mode =
+            string_parameter(parameters, "mode").unwrap_or_else(|| "create-or-replace".into());
+        let ttl = string_parameter(parameters, "ttl").unwrap_or_else(|| "preserve".into());
+        let validation = string_parameter(parameters, "validation")
+            .unwrap_or_else(|| "validate-before-write".into());
+        return format!(
+            "# Import Redis {redis_type} key {key_token} from {format}\nSELECT {database}\n# mode: {mode}; ttl: {ttl}; validation: {validation}\n{}",
+            redis_import_write_command(&redis_type, &key_token)
+        );
+    }
+
+    if operation_id.ends_with("key.rename") {
+        let new_key = string_parameter(parameters, "newKey")
+            .or_else(|| string_parameter(parameters, "destinationKey"))
+            .unwrap_or_else(|| "<new-key>".into());
+        return format!(
+            "SELECT {database}\nRENAMENX {key_token} {}",
+            redis_cli_token(&new_key)
+        );
+    }
+
+    if operation_id.ends_with("key.copy") {
+        let destination_key = string_parameter(parameters, "destinationKey")
+            .or_else(|| string_parameter(parameters, "newKey"))
+            .unwrap_or_else(|| "<copy-key>".into());
+        let destination_database = string_parameter(parameters, "destinationDatabase")
+            .or_else(|| string_parameter(parameters, "targetDatabase"))
+            .unwrap_or_else(|| database.clone());
+        let replace = string_parameter(parameters, "mode")
+            .map(|value| value.eq_ignore_ascii_case("replace"))
+            .unwrap_or(false);
+        return format!(
+            "SELECT {database}\nCOPY {key_token} {} DB {destination_database}{}",
+            redis_cli_token(&destination_key),
+            if replace { " REPLACE" } else { "" }
+        );
+    }
+
+    if operation_id.ends_with("key.move") {
+        let destination_database = string_parameter(parameters, "destinationDatabase")
+            .or_else(|| string_parameter(parameters, "targetDatabase"))
+            .unwrap_or_else(|| "1".into());
+        return format!("SELECT {database}\nMOVE {key_token} {destination_database}");
+    }
+
+    if operation_id.ends_with("key.expire") {
+        let seconds = numeric_parameter(parameters, "ttlSeconds")
+            .or_else(|| numeric_parameter(parameters, "seconds"))
+            .unwrap_or(3600);
+        return format!("SELECT {database}\nEXPIRE {key_token} {seconds}");
+    }
+
+    if operation_id.ends_with("key.persist") {
+        return format!("SELECT {database}\nPERSIST {key_token}");
+    }
+
+    if operation_id.ends_with("stream.ack") {
+        let group = string_parameter(parameters, "group").unwrap_or_else(|| "<group>".into());
+        let entry_ids = redis_string_list_parameter(parameters, "entryIds", "<entry-id>");
+        return format!(
+            "SELECT {database}\nXACK {key_token} {} {}",
+            redis_cli_token(&group),
+            entry_ids
+                .iter()
+                .map(|entry| redis_cli_token(entry))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    }
+
+    if operation_id.ends_with("stream.delete-entry") {
+        let entry_ids = redis_string_list_parameter(parameters, "entryIds", "<entry-id>");
+        return format!(
+            "SELECT {database}\nXDEL {key_token} {}",
+            entry_ids
+                .iter()
+                .map(|entry| redis_cli_token(entry))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    }
+
+    match operation_id.rsplit('.').next().unwrap_or(operation_id) {
+        "refresh" | "execute" => format!("SCAN 0 MATCH {key_token}* COUNT 100"),
+        "metrics" => "INFO\nSLOWLOG GET 20".into(),
+        _ => format!("# {operation_id}\n# key: {key_token}"),
+    }
+}
+
+fn redis_export_read_command(redis_type: &str, key_token: &str) -> String {
+    match redis_type {
+        "hash" => format!("HGETALL {key_token}"),
+        "list" => format!("LRANGE {key_token} 0 -1"),
+        "set" => format!("SMEMBERS {key_token}"),
+        "zset" => format!("ZRANGE {key_token} 0 -1 WITHSCORES"),
+        "stream" => format!("XRANGE {key_token} - +"),
+        "json" => format!("JSON.GET {key_token} $"),
+        "timeseries" => format!("TS.RANGE {key_token} - +"),
+        _ => format!("GET {key_token}"),
+    }
+}
+
+fn redis_import_write_command(redis_type: &str, key_token: &str) -> String {
+    match redis_type {
+        "hash" => format!("HSET {key_token} <field> <value>"),
+        "list" => format!("RPUSH {key_token} <value>"),
+        "set" => format!("SADD {key_token} <member>"),
+        "zset" => format!("ZADD {key_token} <score> <member>"),
+        "stream" => format!("XADD {key_token} * <field> <value>"),
+        "json" => format!("JSON.SET {key_token} $ <json>"),
+        "timeseries" => format!("TS.ADD {key_token} <timestamp> <value>"),
+        _ => format!("SET {key_token} <value>"),
+    }
+}
+
+fn redis_string_list_parameter(
+    parameters: Option<&BTreeMap<String, Value>>,
+    key: &str,
+    fallback: &str,
+) -> Vec<String> {
+    let Some(value) = parameters.and_then(|values| values.get(key)) else {
+        return vec![fallback.into()];
+    };
+
+    match value {
+        Value::Array(items) => {
+            let values = items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            if values.is_empty() {
+                vec![fallback.into()]
+            } else {
+                values
+            }
+        }
+        Value::String(raw) => {
+            let values = raw
+                .split([',', ' '])
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            if values.is_empty() {
+                vec![fallback.into()]
+            } else {
+                values
+            }
+        }
+        _ => vec![fallback.into()],
+    }
+}
+
+fn redis_cli_token(value: &str) -> String {
+    if value.chars().all(|item| {
+        item.is_ascii_alphanumeric() || matches!(item, ':' | '_' | '-' | '.' | '/' | '{' | '}')
+    }) {
+        value.into()
+    } else {
+        format!("\"{}\"", escape_double_quoted(value))
     }
 }
 
@@ -662,6 +856,11 @@ fn memcached_operation_request(
         return format!("incr {key} {delta}");
     }
 
+    if operation_id.ends_with("key.decrement") {
+        let delta = numeric_parameter(parameters, "delta").unwrap_or(1);
+        return format!("decr {key} {delta}");
+    }
+
     format!("stats\n# {operation_id}\n# scope: {object_name}")
 }
 
@@ -674,15 +873,25 @@ fn memcached_key_is_single_token(key: &str) -> bool {
             .all(|character| !character.is_control() && !character.is_whitespace())
 }
 
-fn search_operation_request(operation_id: &str, object_name: &str, parameter_json: &str) -> String {
+fn search_operation_request(
+    operation_id: &str,
+    object_name: &str,
+    parameter_json: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let object_path = search_path_segment(object_name);
+
     if operation_id.ends_with("query.explain") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/{}/_search", object_name),
+            "path": format!("/{}/_search", object_path),
             "body": {
                 "explain": true,
-                "query": { "match_all": {} },
-                "size": 20
+                "query": parameters
+                    .and_then(|values| values.get("query"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({ "match_all": {} })),
+                "size": numeric_parameter(parameters, "size").unwrap_or(20)
             }
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -691,11 +900,14 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("query.profile") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/{}/_search", object_name),
+            "path": format!("/{}/_search", object_path),
             "body": {
                 "profile": true,
-                "query": { "match_all": {} },
-                "size": 20
+                "query": parameters
+                    .and_then(|values| values.get("query"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({ "match_all": {} })),
+                "size": numeric_parameter(parameters, "size").unwrap_or(20)
             }
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -704,10 +916,16 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("index.create") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "PUT",
-            "path": format!("/{object_name}"),
+            "path": format!("/{object_path}"),
             "body": {
-                "settings": { "number_of_shards": 1, "number_of_replicas": 1 },
-                "mappings": { "properties": {} }
+                "settings": parameters
+                    .and_then(|values| values.get("settings"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({ "number_of_shards": 1, "number_of_replicas": 1 })),
+                "mappings": parameters
+                    .and_then(|values| values.get("mappings"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({ "properties": {} }))
             }
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -716,7 +934,7 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("index.refresh") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/{object_name}/_refresh")
+            "path": format!("/{object_path}/_refresh")
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -724,10 +942,10 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("index.force-merge") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/{object_name}/_forcemerge"),
+            "path": format!("/{object_path}/_forcemerge"),
             "body": {
-                "max_num_segments": 1,
-                "only_expunge_deletes": false
+                "max_num_segments": numeric_parameter(parameters, "maxNumSegments").unwrap_or(1),
+                "only_expunge_deletes": bool_parameter(parameters, "onlyExpungeDeletes").unwrap_or(false)
             }
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -736,11 +954,11 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("index.clear-cache") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/{object_name}/_cache/clear"),
+            "path": format!("/{object_path}/_cache/clear"),
             "body": {
-                "query": true,
-                "request": true,
-                "fielddata": false
+                "query": bool_parameter(parameters, "queryCache").unwrap_or(true),
+                "request": bool_parameter(parameters, "requestCache").unwrap_or(true),
+                "fielddata": bool_parameter(parameters, "fielddataCache").unwrap_or(false)
             }
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -756,9 +974,10 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
                     "query": { "match_all": {} }
                 },
                 "dest": {
-                    "index": format!("{object_name}-reindexed")
+                    "index": string_parameter(parameters, "destinationIndex")
+                        .unwrap_or_else(|| format!("{object_name}-reindexed"))
                 },
-                "conflicts": "proceed"
+                "conflicts": string_parameter(parameters, "conflicts").unwrap_or_else(|| "proceed".into())
             }
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -767,7 +986,7 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("index.close") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/{object_name}/_close")
+            "path": format!("/{object_path}/_close")
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -775,7 +994,7 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("index.open") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/{object_name}/_open")
+            "path": format!("/{object_path}/_open")
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -783,12 +1002,15 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("index.put-mapping") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "PUT",
-            "path": format!("/{object_name}/_mapping"),
-            "body": {
-                "properties": {
-                    "new_field": { "type": "keyword" }
-                }
-            }
+            "path": format!("/{object_path}/_mapping"),
+            "body": parameters
+                .and_then(|values| values.get("mappings"))
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({
+                    "properties": {
+                        "new_field": { "type": "keyword" }
+                    }
+                }))
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -796,12 +1018,15 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("index.update-settings") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "PUT",
-            "path": format!("/{object_name}/_settings"),
-            "body": {
-                "index": {
-                    "refresh_interval": "1s"
-                }
-            }
+            "path": format!("/{object_path}/_settings"),
+            "body": parameters
+                .and_then(|values| values.get("settings"))
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({
+                    "index": {
+                        "refresh_interval": "1s"
+                    }
+                }))
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -809,18 +1034,20 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("index.drop") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "DELETE",
-            "path": format!("/{object_name}")
+            "path": format!("/{object_path}")
         }))
         .unwrap_or_else(|_| "{}".into());
     }
 
     if operation_id.ends_with("alias.put") {
+        let alias =
+            string_parameter(parameters, "alias").unwrap_or_else(|| format!("{object_name}-read"));
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
             "path": "/_aliases",
             "body": {
                 "actions": [
-                    { "add": { "index": object_name, "alias": format!("{object_name}-read") } }
+                    { "add": { "index": object_name, "alias": alias } }
                 ]
             }
         }))
@@ -828,12 +1055,14 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     }
 
     if operation_id.ends_with("alias.delete") {
+        let alias = string_parameter(parameters, "alias").unwrap_or_else(|| object_name.into());
+        let index = string_parameter(parameters, "index").unwrap_or_else(|| "*".into());
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
             "path": "/_aliases",
             "body": {
                 "actions": [
-                    { "remove": { "index": "*", "alias": object_name } }
+                    { "remove": { "index": index, "alias": alias } }
                 ]
             }
         }))
@@ -842,9 +1071,9 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
 
     if operation_id.ends_with("lifecycle.explain") {
         let path = if operation_id.starts_with("opensearch.") {
-            format!("/_plugins/_ism/explain/{object_name}")
+            format!("/_plugins/_ism/explain/{object_path}")
         } else {
-            format!("/{object_name}/_ilm/explain")
+            format!("/{object_path}/_ilm/explain")
         };
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "GET",
@@ -854,39 +1083,57 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     }
 
     if operation_id.ends_with("data-stream.rollover") {
-        return serde_json::to_string_pretty(&serde_json::json!({
-            "method": "POST",
-            "path": format!("/{object_name}/_rollover"),
-            "body": {
-                "conditions": {
+        let conditions = parameters
+            .and_then(|values| values.get("conditions"))
+            .cloned()
+            .unwrap_or_else(|| {
+                serde_json::json!({
                     "max_age": "30d",
                     "max_primary_shard_size": "50gb"
-                }
+                })
+            });
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "POST",
+            "path": format!("/{object_path}/_rollover"),
+            "body": {
+                "conditions": conditions
             }
         }))
         .unwrap_or_else(|_| "{}".into());
     }
 
     if operation_id.ends_with("template.create") {
+        let template_name =
+            string_parameter(parameters, "templateName").unwrap_or_else(|| object_name.into());
+        let template_path = search_template_path(&template_name, parameters);
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "PUT",
-            "path": format!("/_index_template/{object_name}"),
+            "path": template_path,
             "body": {
-                "index_patterns": [format!("{object_name}-*")],
-                "template": {
-                    "settings": { "number_of_shards": 1 },
-                    "mappings": { "properties": {} }
-                },
-                "priority": 100
+                "index_patterns": parameters
+                    .and_then(|values| values.get("indexPatterns"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!([format!("{template_name}-*")])),
+                "template": parameters
+                    .and_then(|values| values.get("template"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({
+                        "settings": { "number_of_shards": 1 },
+                        "mappings": { "properties": {} }
+                    })),
+                "priority": numeric_parameter(parameters, "priority").unwrap_or(100)
             }
         }))
         .unwrap_or_else(|_| "{}".into());
     }
 
     if operation_id.ends_with("template.delete") {
+        let template_name =
+            string_parameter(parameters, "templateName").unwrap_or_else(|| object_name.into());
+        let template_path = search_template_path(&template_name, parameters);
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "DELETE",
-            "path": format!("/_index_template/{object_name}")
+            "path": template_path
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -894,13 +1141,20 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("pipeline.put") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "PUT",
-            "path": format!("/_ingest/pipeline/{object_name}"),
+            "path": format!("/_ingest/pipeline/{object_path}"),
             "body": {
-                "description": "DataPad++ pipeline preview",
-                "processors": [
-                    { "set": { "field": "processed_at", "value": "{{_ingest.timestamp}}" } }
-                ],
-                "on_failure": []
+                "description": string_parameter(parameters, "description")
+                    .unwrap_or_else(|| "DataPad++ pipeline preview".into()),
+                "processors": parameters
+                    .and_then(|values| values.get("processors"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!([
+                        { "set": { "field": "processed_at", "value": "{{_ingest.timestamp}}" } }
+                    ])),
+                "on_failure": parameters
+                    .and_then(|values| values.get("onFailure"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!([]))
             }
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -909,37 +1163,32 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("pipeline.simulate") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/_ingest/pipeline/{object_name}/_simulate"),
+            "path": format!("/_ingest/pipeline/{object_path}/_simulate"),
             "body": {
-                "docs": [
-                    { "_source": { "message": "sample" } }
-                ]
+                "docs": parameters
+                    .and_then(|values| values.get("documents"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!([]))
             }
         }))
         .unwrap_or_else(|_| "{}".into());
     }
 
     if operation_id.ends_with("lifecycle.put") {
+        let policy_name =
+            string_parameter(parameters, "policyName").unwrap_or_else(|| object_name.into());
+        let policy_path = search_path_segment(&policy_name);
         let path = if operation_id.starts_with("opensearch.") {
-            format!("/_plugins/_ism/policies/{object_name}")
+            format!("/_plugins/_ism/policies/{policy_path}")
         } else {
-            format!("/_ilm/policy/{object_name}")
+            format!("/_ilm/policy/{policy_path}")
         };
-        let body = if operation_id.starts_with("opensearch.") {
-            serde_json::json!({
-                "policy": {
-                    "description": "DataPad++ preview policy",
-                    "states": []
-                }
-            })
+        let body = if let Some(policy) = parameters.and_then(|values| values.get("policy")) {
+            policy.clone()
+        } else if operation_id.starts_with("opensearch.") {
+            serde_json::json!({ "policy": { "description": "DataPad++ preview policy", "states": [] } })
         } else {
-            serde_json::json!({
-                "policy": {
-                    "phases": {
-                        "hot": { "actions": {} }
-                    }
-                }
-            })
+            serde_json::json!({ "policy": { "phases": { "hot": { "actions": {} } } } })
         };
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "PUT",
@@ -950,29 +1199,46 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     }
 
     if operation_id.ends_with("task.cancel") {
+        let task_id = string_parameter(parameters, "taskId").unwrap_or_else(|| object_name.into());
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/_tasks/{object_name}/_cancel")
+            "path": format!("/_tasks/{}/_cancel", search_path_segment(&task_id))
         }))
         .unwrap_or_else(|_| "{}".into());
     }
 
     if operation_id.ends_with("snapshot.restore") {
+        let repository =
+            string_parameter(parameters, "repository").unwrap_or_else(|| "<repository>".into());
+        let snapshot =
+            string_parameter(parameters, "snapshot").unwrap_or_else(|| object_name.into());
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/_snapshot/<repository>/{object_name}/_restore"),
+            "path": format!(
+                "/_snapshot/{}/{}/_restore",
+                search_path_segment(&repository),
+                search_path_segment(&snapshot)
+            ),
             "body": {
-                "indices": "*",
-                "include_global_state": false
+                "indices": parameters
+                    .and_then(|values| values.get("indices"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!("*")),
+                "include_global_state": bool_parameter(parameters, "includeGlobalState").unwrap_or(false)
             }
         }))
         .unwrap_or_else(|_| "{}".into());
     }
 
     if operation_id.ends_with("security.inspect") {
+        let path = if operation_id.starts_with("opensearch.") {
+            "/_plugins/_security/api/roles"
+        } else {
+            "/_security/role"
+        };
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "GET",
-            "path": "/_security/role"
+            "path": path
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -980,24 +1246,35 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     if operation_id.ends_with("data.import-export") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
-            "path": format!("/{}/_search", object_name),
+            "path": format!("/{}/_search", object_path),
             "body": {
-                "query": { "match_all": {} },
+                "query": parameters
+                    .and_then(|values| values.get("query"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({ "match_all": {} })),
                 "size": 1000,
                 "sort": ["_doc"],
-                "format": "ndjson"
+                "format": string_parameter(parameters, "format").unwrap_or_else(|| "ndjson".into())
             }
         }))
         .unwrap_or_else(|_| "{}".into());
     }
 
     if operation_id.ends_with("data.backup-restore") {
+        let repository =
+            string_parameter(parameters, "repository").unwrap_or_else(|| "<repository>".into());
+        let snapshot =
+            string_parameter(parameters, "snapshot").unwrap_or_else(|| "<snapshot>".into());
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "PUT",
-            "path": "/_snapshot/<repository>/<snapshot>",
+            "path": format!(
+                "/_snapshot/{}/{}",
+                search_path_segment(&repository),
+                search_path_segment(&snapshot)
+            ),
             "body": {
                 "indices": object_name,
-                "include_global_state": false
+                "include_global_state": bool_parameter(parameters, "includeGlobalState").unwrap_or(false)
             }
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -1006,6 +1283,40 @@ fn search_operation_request(operation_id: &str, object_name: &str, parameter_jso
     format!(
         "{{\n  \"index\": \"{object_name}\",\n  \"body\": {{\n    \"query\": {{ \"match_all\": {{}} }},\n    \"size\": 100\n  }},\n  \"operation\": \"{operation_id}\",\n  \"parameters\": {parameter_json}\n}}"
     )
+}
+
+fn search_template_path(
+    template_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let object_kind = string_parameter(parameters, "objectKind").unwrap_or_default();
+    let template_type = string_parameter(parameters, "templateType").unwrap_or_default();
+    let prefix = if object_kind == "component-template" || template_type == "component" {
+        "/_component_template"
+    } else {
+        "/_index_template"
+    };
+    let suffix = search_path_segment(template_name);
+
+    format!("{prefix}/{suffix}")
+}
+
+fn search_path_segment(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.starts_with('<') && trimmed.ends_with('>') {
+        return trimmed.into();
+    }
+
+    trimmed
+        .bytes()
+        .flat_map(|byte| {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~' | b'*') {
+                vec![byte as char]
+            } else {
+                format!("%{byte:02X}").chars().collect()
+            }
+        })
+        .collect()
 }
 
 fn graph_operation_request(
@@ -1043,6 +1354,10 @@ fn neo4j_operation_request(
         )
     });
 
+    if operation_id.ends_with("query.explain") {
+        return format!("EXPLAIN {}", strip_plan_prefix(&query));
+    }
+
     if operation_id.ends_with("query.profile") {
         return format!("PROFILE {}", strip_plan_prefix(&query));
     }
@@ -1068,6 +1383,18 @@ fn neo4j_operation_request(
         return format!("DROP INDEX {} IF EXISTS;", cypher_identifier(&index_name));
     }
 
+    if operation_id.ends_with("data.import-export") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "operation": "neo4j.export",
+            "mode": string_parameter(parameters, "mode").unwrap_or_else(|| "export".into()),
+            "format": string_parameter(parameters, "format").unwrap_or_else(|| "graph-json".into()),
+            "query": query,
+            "scope": object_name,
+            "validation": "bounded-export"
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
     if operation_id.ends_with("object.drop") {
         let constraint_name =
             string_parameter(parameters, "constraintName").unwrap_or_else(|| object_name.into());
@@ -1090,6 +1417,18 @@ fn arango_graph_operation_request(
     let property = string_parameter(parameters, "propertyName").unwrap_or_else(|| "id".into());
     let index_name = string_parameter(parameters, "indexName")
         .unwrap_or_else(|| format!("{object_name}_{property}_idx"));
+
+    if operation_id.ends_with("query.explain") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "POST",
+            "path": "/_api/explain",
+            "body": {
+                "query": query,
+                "options": { "allPlans": true }
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
 
     if operation_id.ends_with("query.profile") {
         return serde_json::to_string_pretty(&serde_json::json!({
@@ -1168,6 +1507,15 @@ fn neptune_graph_operation_request(
         )
     });
 
+    if operation_id.ends_with("query.explain") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "method": "POST",
+            "path": "/gremlin/explain",
+            "body": { "gremlin": query }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
     if operation_id.ends_with("query.profile") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
@@ -1226,6 +1574,10 @@ fn janusgraph_operation_request(
     let index_name = string_parameter(parameters, "indexName")
         .unwrap_or_else(|| format!("{object_name}_{property}_idx"));
 
+    if operation_id.ends_with("query.explain") {
+        return format!("{query}.explain()");
+    }
+
     if operation_id.ends_with("query.profile") {
         return format!("{query}.profile()");
     }
@@ -1267,6 +1619,18 @@ fn janusgraph_operation_request(
             "mgmt.commit()".into(),
         ]
         .join("\n");
+    }
+
+    if operation_id.ends_with("data.import-export") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "operation": "janusgraph.export",
+            "mode": string_parameter(parameters, "mode").unwrap_or_else(|| "export".into()),
+            "format": string_parameter(parameters, "format").unwrap_or_else(|| "graph-json".into()),
+            "query": query,
+            "scope": object_name,
+            "validation": "bounded-export"
+        }))
+        .unwrap_or_else(|_| "{}".into());
     }
 
     query
@@ -1559,6 +1923,23 @@ fn prometheus_operation_request(
                 "groupBy": ["__name__", "job", "instance"],
                 "checks": ["label-value-count", "series-count", "high-cardinality-labels"]
             }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("data.import-export") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "operation": "prometheus.range-export",
+            "method": "GET",
+            "path": "/api/v1/query_range",
+            "query": {
+                "query": query,
+                "start": parameter("start").and_then(Value::as_str).unwrap_or("now-1h"),
+                "end": parameter("end").and_then(Value::as_str).unwrap_or("now"),
+                "step": parameter("step").and_then(Value::as_str).unwrap_or("30s")
+            },
+            "format": parameter("format").and_then(Value::as_str).unwrap_or("json"),
+            "validation": ["bounded-range", "cardinality-check", "result-snapshot-only"]
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -2054,6 +2435,50 @@ fn cassandra_operation_request(
         );
     }
 
+    if operation_id.ends_with("data.import-export") {
+        let mode = parameter("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("export");
+        let format = parameter("format").and_then(Value::as_str).unwrap_or("csv");
+        let direction = if mode == "import" { "from" } else { "to" };
+        let with_clause = if format.eq_ignore_ascii_case("json") {
+            "with header = true and null = '<null>'"
+        } else {
+            "with header = true"
+        };
+        return format!(
+            "-- Cassandra {mode} plan for {keyspace}.{table_name}.\n-- cqlsh COPY is contract-only here; use live execution only after driver/tooling validation.\ncopy \"{}\".\"{}\" {direction} '<selected-file>.{format}' {with_clause};",
+            escape_double_quoted(keyspace),
+            escape_double_quoted(table_name)
+        );
+    }
+
+    if operation_id.ends_with("data.backup-restore") {
+        let mode = parameter("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("backup");
+        let snapshot_name = parameter("snapshotName")
+            .and_then(Value::as_str)
+            .unwrap_or("datapad_snapshot");
+        if mode == "restore" {
+            return format!(
+                "-- Cassandra restore plan for {keyspace}.{table_name}.\n-- Stop writes, clear target SSTables only after backup verification, then stream validated SSTables.\nsstableloader -d <contact-points> '<snapshot-dir>/{}.{}/{}';",
+                escape_double_quoted(keyspace),
+                escape_double_quoted(table_name),
+                escape_single_quoted(snapshot_name)
+            );
+        }
+
+        return format!(
+            "-- Cassandra backup plan for {keyspace}.{table_name}.\nnodetool snapshot --tag {} --table \"{}\" \"{}\";\n-- Record schema with: describe table \"{}\".\"{}\";",
+            escape_single_quoted(snapshot_name),
+            escape_double_quoted(table_name),
+            escape_double_quoted(keyspace),
+            escape_double_quoted(keyspace),
+            escape_double_quoted(table_name)
+        );
+    }
+
     if operation_id.ends_with("index.create") {
         return format!(
             "create custom index if not exists \"{index_name}\" on \"{keyspace}\".\"{table_name}\" (\"{column_name}\") using 'StorageAttachedIndex';"
@@ -2465,6 +2890,16 @@ fn oracle_operation_request(operation_id: &str, object_name: &str, parameter_jso
         return "-- Review before running.\ndrop index index_name;".into();
     }
 
+    if operation_id.ends_with("data.import-export") || operation_id.contains("import-export") {
+        return format!(
+            "-- Oracle SQLcl/SQL*Plus CSV export plan.\nset markup csv on\nspool <selected-file>.csv\nselect * from {object_name} fetch first 1000 rows only;\nspool off\n-- Data Pump import/export should be reviewed with DIRECTORY grants, schemas, remap rules, and table filters before execution."
+        );
+    }
+
+    if operation_id.ends_with("data.backup-restore") || operation_id.contains("backup-restore") {
+        return "-- Oracle RMAN backup/restore plan.\n-- Review retention policy, archivelog mode, wallet/TDE state, and recovery target before execution.\nrman target /\nbackup database plus archivelog;\n-- restore database preview requires explicit target time/SCN and mount state validation.".into();
+    }
+
     match operation_id.rsplit('.').next().unwrap_or(operation_id) {
         "refresh" => "select owner, object_name, object_type, status from all_objects where rownum <= 500 order by owner, object_type, object_name;".into(),
         "execute" => format!("select * from {object_name} where rownum <= 100;"),
@@ -2499,6 +2934,22 @@ fn numeric_parameter(parameters: Option<&BTreeMap<String, Value>>, key: &str) ->
                         .parse()
                         .ok()
                 })
+            })
+        })
+}
+
+fn bool_parameter(parameters: Option<&BTreeMap<String, Value>>, key: &str) -> Option<bool> {
+    parameters
+        .and_then(|values| values.get(key))
+        .and_then(|value| {
+            value.as_bool().or_else(|| {
+                value
+                    .as_str()
+                    .and_then(|raw| match raw.trim().to_ascii_lowercase().as_str() {
+                        "true" | "yes" | "enabled" | "1" => Some(true),
+                        "false" | "no" | "disabled" | "0" => Some(false),
+                        _ => None,
+                    })
             })
         })
 }
@@ -2665,6 +3116,7 @@ pub(crate) fn default_operation_plan(
         || operation_id.contains("backup-restore")
         || operation_id.contains(".backup.restore")
         || operation_id.contains(".key.delete")
+        || operation_id.contains(".stream.delete")
         || operation_id.contains(".repair")
         || operation_id.contains(".flush");
     let admin_write = operation_id.contains(".create")
@@ -2680,6 +3132,13 @@ pub(crate) fn default_operation_plan(
         || operation_id.contains(".key.set")
         || operation_id.contains(".key.touch")
         || operation_id.contains(".key.increment")
+        || operation_id.contains(".key.import")
+        || operation_id.contains(".key.rename")
+        || operation_id.contains(".key.copy")
+        || operation_id.contains(".key.move")
+        || operation_id.contains(".key.expire")
+        || operation_id.contains(".key.persist")
+        || operation_id.contains(".stream.ack")
         || operation_id.contains(".extension.")
         || operation_id.contains(".file.import")
         || operation_id.contains(".collection.import")
@@ -2712,6 +3171,7 @@ pub(crate) fn default_operation_plan(
     let costly = destructive
         || admin_write
         || operation_id.contains(".collection.export")
+        || operation_id.contains(".key.export")
         || operation_id.contains(".cardinality.")
         || operation_id.contains(".profile")
         || operation_id.contains("metrics");
@@ -2893,6 +3353,7 @@ mod tests {
         let duckdb_manifest = manifest_for("duckdb", "embedded-olap", "sql");
         let mysql_manifest = manifest_for("mysql", "sql", "sql");
         let mariadb_manifest = manifest_for("mariadb", "sql", "sql");
+        let oracle_manifest = manifest_for("oracle", "sql", "sql");
 
         let sqlserver_explain = generated_operation_request(
             &connection,
@@ -3087,6 +3548,27 @@ mod tests {
             mariadb_profile,
             "analyze format=json select * from `shop`.`orders` limit 100;"
         );
+
+        let oracle_export = generated_operation_request(
+            &connection,
+            &oracle_manifest,
+            "oracle.data.import-export",
+            "APP.ACCOUNTS",
+            None,
+        );
+        assert!(oracle_export.contains("set markup csv on"));
+        assert!(oracle_export.contains("select * from APP.ACCOUNTS fetch first 1000 rows only;"));
+        assert!(oracle_export.contains("Data Pump import/export"));
+
+        let oracle_backup = generated_operation_request(
+            &connection,
+            &oracle_manifest,
+            "oracle.data.backup-restore",
+            "APP",
+            None,
+        );
+        assert!(oracle_backup.contains("rman target /"));
+        assert!(oracle_backup.contains("backup database plus archivelog"));
     }
 
     #[test]
@@ -3209,7 +3691,41 @@ mod tests {
         );
         let task_value = serde_json::from_str::<serde_json::Value>(&task_request).unwrap();
         assert_eq!(task_value["method"], "POST");
-        assert_eq!(task_value["path"], "/_tasks/node-a:123/_cancel");
+        assert_eq!(task_value["path"], "/_tasks/node-a%3A123/_cancel");
+
+        let component_template_request = generated_operation_request(
+            &connection,
+            &manifest,
+            "elasticsearch.template.create",
+            "products-component",
+            Some(&BTreeMap::from([(
+                "templateType".into(),
+                json!("component"),
+            )])),
+        );
+        let component_template_value =
+            serde_json::from_str::<serde_json::Value>(&component_template_request).unwrap();
+        assert_eq!(component_template_value["method"], "PUT");
+        assert_eq!(
+            component_template_value["path"],
+            "/_component_template/products-component"
+        );
+
+        let snapshot_request = generated_operation_request(
+            &connection,
+            &manifest,
+            "elasticsearch.snapshot.restore",
+            "snapshot:2026",
+            Some(&BTreeMap::from([(
+                "repository".into(),
+                json!("prod snapshots"),
+            )])),
+        );
+        let snapshot_value = serde_json::from_str::<serde_json::Value>(&snapshot_request).unwrap();
+        assert_eq!(
+            snapshot_value["path"],
+            "/_snapshot/prod%20snapshots/snapshot%3A2026/_restore"
+        );
     }
 
     #[test]
@@ -3296,6 +3812,26 @@ mod tests {
         assert_eq!(backup_value["operation"], "DynamoDB.CreateBackup");
         assert_eq!(backup_value["backupName"], "Orders-manual");
 
+        let restore_request = generated_operation_request(
+            &connection,
+            &dynamo_manifest,
+            "dynamodb.backup.restore",
+            "Orders",
+            Some(&BTreeMap::from([
+                (
+                    "sourceBackupArn".into(),
+                    json!("arn:aws:dynamodb:local:0:backup/orders"),
+                ),
+                ("targetTableName".into(), json!("OrdersRestored")),
+            ])),
+        );
+        let restore_value = serde_json::from_str::<serde_json::Value>(&restore_request).unwrap();
+        assert_eq!(
+            restore_value["operation"],
+            "DynamoDB.RestoreTableFromBackup"
+        );
+        assert_eq!(restore_value["targetTableName"], "OrdersRestored");
+
         let cassandra_trace = generated_operation_request(
             &connection,
             &cassandra_manifest,
@@ -3315,6 +3851,35 @@ mod tests {
         );
         assert!(cassandra_index.contains("create custom index if not exists \"orders_status_sai\""));
         assert!(cassandra_index.contains("using 'StorageAttachedIndex'"));
+
+        let cassandra_export = generated_operation_request(
+            &connection,
+            &cassandra_manifest,
+            "cassandra.data.import-export",
+            "\"app\".\"orders_by_customer\"",
+            Some(&BTreeMap::from([
+                ("keyspace".into(), json!("app")),
+                ("tableName".into(), json!("orders_by_customer")),
+                ("mode".into(), json!("export")),
+                ("format".into(), json!("csv")),
+            ])),
+        );
+        assert!(cassandra_export.contains("cqlsh COPY is contract-only"));
+        assert!(cassandra_export.contains("copy \"app\".\"orders_by_customer\" to"));
+
+        let cassandra_snapshot = generated_operation_request(
+            &connection,
+            &cassandra_manifest,
+            "cassandra.data.backup-restore",
+            "\"app\".\"orders_by_customer\"",
+            Some(&BTreeMap::from([
+                ("keyspace".into(), json!("app")),
+                ("tableName".into(), json!("orders_by_customer")),
+                ("snapshotName".into(), json!("orders_manual")),
+            ])),
+        );
+        assert!(cassandra_snapshot.contains("nodetool snapshot"));
+        assert!(cassandra_snapshot.contains("--table \"orders_by_customer\" \"app\""));
     }
 
     #[test]
@@ -3456,6 +4021,15 @@ mod tests {
         );
         assert!(profile_request.starts_with("PROFILE MATCH (n:`Account`)"));
 
+        let explain_request = generated_operation_request(
+            &connection,
+            &neo4j_manifest,
+            "neo4j.query.explain",
+            "Account",
+            Some(&neo4j_parameters),
+        );
+        assert!(explain_request.starts_with("EXPLAIN MATCH (n:`Account`)"));
+
         let index_request = generated_operation_request(
             &connection,
             &neo4j_manifest,
@@ -3465,6 +4039,18 @@ mod tests {
         );
         assert!(index_request.contains("CREATE INDEX account_email_lookup IF NOT EXISTS"));
         assert!(index_request.contains("FOR (n:Account) ON (n.email)"));
+
+        let neo4j_export_request = generated_operation_request(
+            &connection,
+            &neo4j_manifest,
+            "neo4j.data.import-export",
+            "Account",
+            Some(&neo4j_parameters),
+        );
+        let neo4j_export_value =
+            serde_json::from_str::<serde_json::Value>(&neo4j_export_request).unwrap();
+        assert_eq!(neo4j_export_value["operation"], "neo4j.export");
+        assert_eq!(neo4j_export_value["format"], "graph-json");
 
         let metrics_request = generated_operation_request(
             &connection,
@@ -3476,6 +4062,20 @@ mod tests {
         let metrics_value = serde_json::from_str::<serde_json::Value>(&metrics_request).unwrap();
         assert_eq!(metrics_value["operation"], "CloudWatch.GetMetricData");
         assert_eq!(metrics_value["namespace"], "AWS/Neptune");
+
+        let neptune_explain_request = generated_operation_request(
+            &connection,
+            &neptune_manifest,
+            "neptune.query.explain",
+            "analytics",
+            Some(&BTreeMap::from([(
+                "query".into(),
+                json!("g.V().hasLabel('Account').limit(25)"),
+            )])),
+        );
+        let neptune_explain_value =
+            serde_json::from_str::<serde_json::Value>(&neptune_explain_request).unwrap();
+        assert_eq!(neptune_explain_value["path"], "/gremlin/explain");
     }
 
     #[test]
@@ -3595,6 +4195,8 @@ mod tests {
         let connection = connection();
         let cosmos_manifest = manifest_for("cosmosdb", "document", "json");
         let litedb_manifest = manifest_for("litedb", "document", "json");
+        let redis_manifest = manifest_for("redis", "keyvalue", "redis");
+        let valkey_manifest = manifest_for("valkey", "keyvalue", "redis");
         let memcached_manifest = manifest_for("memcached", "keyvalue", "text");
         let cosmos_parameters = BTreeMap::from([
             ("database".into(), json!("catalog")),
@@ -3608,6 +4210,11 @@ mod tests {
             ("field".into(), json!("sku")),
         ]);
         let memcached_parameters = BTreeMap::from([("classId".into(), json!("2"))]);
+        let redis_parameters = BTreeMap::from([
+            ("database".into(), json!("0")),
+            ("key".into(), json!("session:1")),
+            ("redisType".into(), json!("hash")),
+        ]);
 
         let cosmos_request = generated_operation_request(
             &connection,
@@ -3668,6 +4275,24 @@ mod tests {
             "Session"
         );
 
+        let cosmos_failover_request = generated_operation_request(
+            &connection,
+            &cosmos_manifest,
+            "cosmosdb.regions.failover",
+            "catalog-account",
+            Some(&BTreeMap::from([
+                ("account".into(), json!("catalog-account")),
+                ("writeRegion".into(), json!("West Europe")),
+            ])),
+        );
+        let cosmos_failover_value =
+            serde_json::from_str::<serde_json::Value>(&cosmos_failover_request).unwrap();
+        assert_eq!(
+            cosmos_failover_value["operation"],
+            "CosmosDB.FailoverPriorityChange"
+        );
+        assert_eq!(cosmos_failover_value["writeRegion"], "West Europe");
+
         let litedb_request = generated_operation_request(
             &connection,
             &litedb_manifest,
@@ -3705,6 +4330,88 @@ mod tests {
         assert_eq!(litedb_rebuild_value["operation"], "LiteDB.RebuildIndexes");
         assert_eq!(litedb_rebuild_value["collection"], "products");
 
+        let litedb_backup_request = generated_operation_request(
+            &connection,
+            &litedb_manifest,
+            "litedb.data.backup-restore",
+            "catalog.db",
+            Some(&BTreeMap::from([(
+                "databaseFile".into(),
+                json!("catalog.db"),
+            )])),
+        );
+        let litedb_backup_value =
+            serde_json::from_str::<serde_json::Value>(&litedb_backup_request).unwrap();
+        assert_eq!(litedb_backup_value["operation"], "LiteDB.Backup");
+        assert_eq!(litedb_backup_value["databaseFile"], "catalog.db");
+
+        let redis_export_request = generated_operation_request(
+            &connection,
+            &redis_manifest,
+            "redis.key.export",
+            "session:1",
+            Some(&redis_parameters),
+        );
+        assert!(redis_export_request.contains("TYPE session:1"));
+        assert!(redis_export_request.contains("TTL session:1"));
+        assert!(redis_export_request.contains("HGETALL session:1"));
+
+        let redis_import_plan = default_operation_plan(
+            &connection,
+            &redis_manifest,
+            "redis.key.import",
+            Some("session:1"),
+            Some(&redis_parameters),
+        );
+        assert!(redis_import_plan
+            .generated_request
+            .contains("HSET session:1 <field> <value>"));
+        assert_eq!(
+            redis_import_plan.required_permissions,
+            vec!["write/admin privilege for the target object"]
+        );
+        assert!(redis_import_plan.confirmation_text.is_some());
+
+        let redis_expire_request = generated_operation_request(
+            &connection,
+            &redis_manifest,
+            "redis.key.expire",
+            "session:1",
+            Some(&BTreeMap::from([("ttlSeconds".into(), json!(60))])),
+        );
+        assert_eq!(redis_expire_request, "SELECT 0\nEXPIRE session:1 60");
+
+        let redis_stream_delete_request = generated_operation_request(
+            &connection,
+            &redis_manifest,
+            "redis.stream.delete-entry",
+            "orders",
+            Some(&BTreeMap::from([(
+                "entryIds".into(),
+                json!(["1714670000000-0", "1714670000000-1"]),
+            )])),
+        );
+        assert_eq!(
+            redis_stream_delete_request,
+            "SELECT 0\nXDEL orders 1714670000000-0 1714670000000-1"
+        );
+
+        let valkey_copy_request = generated_operation_request(
+            &connection,
+            &valkey_manifest,
+            "valkey.key.copy",
+            "session:1",
+            Some(&BTreeMap::from([
+                ("destinationKey".into(), json!("session:1:copy")),
+                ("destinationDatabase".into(), json!("2")),
+                ("mode".into(), json!("replace")),
+            ])),
+        );
+        assert_eq!(
+            valkey_copy_request,
+            "SELECT 0\nCOPY session:1 session:1:copy DB 2 REPLACE"
+        );
+
         let memcached_request = generated_operation_request(
             &connection,
             &memcached_manifest,
@@ -3737,6 +4444,18 @@ mod tests {
         assert!(memcached_set_request.contains("set session:1 0 60 11"));
         assert!(memcached_set_request.contains("cached-user"));
 
+        let memcached_decrement_request = generated_operation_request(
+            &connection,
+            &memcached_manifest,
+            "memcached.key.decrement",
+            "counter:1",
+            Some(&BTreeMap::from([
+                ("key".into(), json!("counter:1")),
+                ("delta".into(), json!(2)),
+            ])),
+        );
+        assert_eq!(memcached_decrement_request, "decr counter:1 2");
+
         let memcached_delete_request = generated_operation_request(
             &connection,
             &memcached_manifest,
@@ -3760,6 +4479,7 @@ mod tests {
             password: None,
             connection_string: None,
             redis_options: None,
+            memcached_options: None,
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,

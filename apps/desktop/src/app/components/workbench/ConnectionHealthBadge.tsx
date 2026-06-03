@@ -91,7 +91,7 @@ export function ConnectionHealthIssueStrip({
     >
       <div className="connection-health-strip-main">
         <WarningIcon className="connection-health-action-icon" />
-        <span>{health.message ?? 'Connection issue'}</span>
+        <span>{healthLabel(health)}</span>
       </div>
       <div className="connection-health-strip-actions">
         <button

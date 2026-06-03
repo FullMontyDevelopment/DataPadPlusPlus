@@ -228,9 +228,9 @@ export function cockroachInspectPayload(connection: ConnectionProfile, nodeId: s
 
   return {
     ...base,
-    objects: [
-      { schema, name: objectName || 'accounts', type: nodeId.split(':')[0] || 'object', status: 'visible' },
-    ],
+    objects: objectName
+      ? [{ schema, name: objectName, type: nodeId.split(':')[0] || 'object', status: 'visible' }]
+      : [],
   }
 }
 

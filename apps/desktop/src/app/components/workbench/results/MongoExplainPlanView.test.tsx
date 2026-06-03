@@ -110,6 +110,35 @@ describe('MongoExplainPlanView', () => {
     expect(screen.queryByText('MongoDB Explain')).not.toBeInTheDocument()
   })
 
+  it('renders PostgreSQL explain plan lines with table fallback', () => {
+    render(
+      <ResultPayloadView
+        connection={connection('postgresql')}
+        payload={{
+          renderer: 'plan',
+          format: 'text',
+          value: {
+            statement: 'EXPLAIN select * from accounts',
+            format: 'text',
+            plan: [
+              'Seq Scan on accounts',
+              '  Filter: active',
+            ],
+            columns: ['QUERY PLAN'],
+            rows: [['Seq Scan on accounts\n  Filter: active']],
+          },
+          summary: 'PostgreSQL EXPLAIN plan returned.',
+        }}
+      />,
+    )
+
+    expect(screen.getByText('PostgreSQL Plan')).toBeInTheDocument()
+    expect(screen.getByText('PostgreSQL EXPLAIN plan returned.')).toBeInTheDocument()
+    expect(screen.getAllByText(/Seq Scan on accounts/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Plan Table')).toBeInTheDocument()
+    expect(screen.getByRole('note', { name: 'Execution plan warnings' })).toHaveTextContent('broad scan')
+  })
+
   it('renders DuckDB text-shaped plan rows without object string leaks', () => {
     render(
       <ResultPayloadView

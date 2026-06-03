@@ -19,8 +19,16 @@ export function buildSearchOperationManifests(
       searchOperation(connection, 'index.reindex', 'Reindex', 'index', 'write', ['supports_index_management'], ['diff', 'profile', 'raw'], 'Preview copying documents into a destination index.'),
       searchOperation(connection, 'index.close', 'Close Index', 'index', 'write', ['supports_index_management'], ['diff', 'raw'], 'Preview closing an index.'),
       searchOperation(connection, 'index.open', 'Open Index', 'index', 'write', ['supports_index_management'], ['diff', 'raw'], 'Preview opening a closed index.'),
+      searchOperation(connection, 'index.put-mapping', 'Update Mapping', 'index', 'write', ['supports_index_management'], ['schema', 'diff', 'raw'], 'Preview updating index mapping fields.'),
+      searchOperation(connection, 'index.update-settings', 'Update Settings', 'index', 'write', ['supports_index_management'], ['schema', 'diff', 'raw'], 'Preview updating mutable index settings.'),
+      searchOperation(connection, 'alias.put', 'Add Alias', 'index', 'write', ['supports_index_management'], ['diff', 'raw'], 'Preview adding or updating an index alias.'),
+      searchOperation(connection, 'alias.delete', 'Remove Alias', 'index', 'destructive', ['supports_index_management'], ['diff', 'raw'], 'Preview removing an index alias.'),
+      searchOperation(connection, 'lifecycle.explain', connection.engine === 'opensearch' ? 'Explain ISM' : 'Explain ILM', 'index', 'diagnostic', ['supports_index_management'], ['json', 'metrics', 'raw'], 'Preview index lifecycle or state-management status.'),
+      searchOperation(connection, 'data-stream.rollover', 'Rollover Data Stream', 'index', 'write', ['supports_index_management'], ['diff', 'raw'], 'Preview a guarded data-stream rollover request.'),
+      searchOperation(connection, 'template.create', 'Create Template', 'index', 'write', ['supports_index_management'], ['schema', 'diff', 'raw'], 'Preview creating or replacing an index or component template.'),
       searchOperation(connection, 'template.delete', 'Delete Template', 'index', 'destructive', ['supports_index_management'], ['diff', 'raw'], 'Preview deleting an index or component template.'),
       searchOperation(connection, 'pipeline.put', 'Update Pipeline', 'schema', 'write', ['supports_index_management'], ['schema', 'diff', 'raw'], 'Preview creating or updating an ingest pipeline.'),
+      searchOperation(connection, 'pipeline.simulate', 'Simulate Pipeline', 'schema', 'diagnostic', ['supports_index_management'], ['document', 'json', 'raw'], 'Preview an ingest pipeline simulation request.'),
       searchOperation(connection, 'lifecycle.put', connection.engine === 'opensearch' ? 'Update ISM Policy' : 'Update ILM Policy', 'schema', 'write', ['supports_index_management'], ['schema', 'diff', 'raw'], 'Preview updating index lifecycle or state-management policy.'),
     )
   }

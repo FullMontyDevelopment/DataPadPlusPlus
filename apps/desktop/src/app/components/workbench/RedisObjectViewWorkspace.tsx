@@ -59,7 +59,10 @@ export function RedisObjectViewWorkspace({
   const payload = asRecord(state?.payload)
   const [refreshing, setRefreshing] = useState(false)
   const kind = state?.kind ?? 'object'
-  const descriptor = getRedisObjectViewDescriptor(kind)
+  const descriptor = getRedisObjectViewDescriptor(
+    kind,
+    connection.engine === 'valkey' ? 'valkey' : 'redis',
+  )
   const queryTarget = useMemo(
     () => redisQueryTargetFromObjectView(tab, payload),
     [payload, tab],

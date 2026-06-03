@@ -66,6 +66,7 @@ export function createCassandraExplorerNodes(connection: ConnectionProfile, scop
 
   if (scope.startsWith('table:')) {
     const { keyspace: scopedKeyspace, table } = parseCassandraTableScope(scope, keyspace)
+    if (!table) return []
     return cassandraTableSections(connection, scopedKeyspace, table)
   }
 

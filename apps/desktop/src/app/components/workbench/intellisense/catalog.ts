@@ -17,6 +17,7 @@ const OBJECT_KINDS = new Set([
   'base-table',
   'view',
   'collection',
+  'container',
   'index',
   'data-stream',
   'materialized-view',
@@ -33,9 +34,25 @@ const OBJECT_KINDS = new Set([
   'set',
   'zset',
   'stream',
+  'server',
+  'known-key',
+  'slab',
+  'item-class',
+  'bucket',
+  'metric',
+  'measurement',
+  'tag',
+  'label',
+  'graph',
+  'node-label',
+  'relationship',
+  'property-key',
+  'aggregator',
+  'downsampler',
+  'uid',
 ])
 
-const SCHEMA_KINDS = new Set(['schema', 'database', 'keyspace'])
+const SCHEMA_KINDS = new Set(['schema', 'database', 'keyspace', 'bucket', 'graph'])
 
 export function buildCompletionCatalog(input: CompletionCatalogInput): CompletionCatalog {
   const sources = new Set<string>()

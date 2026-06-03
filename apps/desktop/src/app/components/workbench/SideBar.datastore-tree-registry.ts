@@ -1299,7 +1299,7 @@ function mongoPlacement(
     return [database, 'Collections', collection].filter(Boolean) as string[]
   }
 
-  if (['pipeline', 'sample-results'].includes(kind)) {
+  if (['pipeline', 'view-results', 'sample-results'].includes(kind)) {
     return [database, 'Views', collection].filter(Boolean) as string[]
   }
 
@@ -2415,7 +2415,7 @@ function mongoActions(
     ]
   }
 
-  if (kind === 'documents' || kind === 'sample-results') {
+  if (kind === 'documents' || kind === 'view-results' || kind === 'sample-results') {
     return [
       templateAction('open-documents', 'Open Query', documentFindQueryTemplate(collection, 20, database)),
     ]

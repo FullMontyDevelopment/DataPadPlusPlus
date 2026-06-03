@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -82,6 +82,28 @@ pub struct RedisConnectionOptions {
     pub read_from_replicas: Option<bool>,
     pub cluster_refresh_interval_ms: Option<u64>,
     pub unix_socket_path: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MemcachedConnectionOptions {
+    #[serde(default)]
+    pub servers: Vec<String>,
+    pub protocol: Option<String>,
+    pub auth_mode: Option<String>,
+    pub username: Option<String>,
+    pub sasl_password_secret_ref: Option<SecretRef>,
+    pub namespace_prefix: Option<String>,
+    pub default_ttl_seconds: Option<u64>,
+    pub connect_timeout_ms: Option<u64>,
+    pub request_timeout_ms: Option<u64>,
+    pub tcp_no_delay: Option<bool>,
+    pub keep_alive: Option<bool>,
+    pub enable_compression: Option<bool>,
+    pub lru_crawler_enabled: Option<bool>,
+    pub flush_delay_seconds: Option<u64>,
+    pub read_only_mode: Option<bool>,
+    pub max_value_bytes: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
@@ -457,6 +479,8 @@ pub struct ConnectionProfile {
     #[serde(default)]
     pub redis_options: Option<RedisConnectionOptions>,
     #[serde(default)]
+    pub memcached_options: Option<MemcachedConnectionOptions>,
+    #[serde(default)]
     pub sqlite_options: Option<SqliteConnectionOptions>,
     #[serde(default)]
     pub sqlserver_options: Option<SqlServerConnectionOptions>,
@@ -493,6 +517,7 @@ pub struct ResolvedConnectionProfile {
     pub password: Option<String>,
     pub connection_string: Option<String>,
     pub redis_options: Option<RedisConnectionOptions>,
+    pub memcached_options: Option<MemcachedConnectionOptions>,
     pub sqlite_options: Option<SqliteConnectionOptions>,
     pub sqlserver_options: Option<SqlServerConnectionOptions>,
     pub oracle_options: Option<OracleConnectionOptions>,
@@ -1931,6 +1956,7 @@ pub struct UpdateUiStateRequest {
     pub active_activity: Option<String>,
     pub sidebar_collapsed: Option<bool>,
     pub active_sidebar_pane: Option<String>,
+    #[serde(default, deserialize_with = "optional_u32_from_number")]
     pub sidebar_width: Option<u32>,
     pub explorer_filter: Option<String>,
     pub explorer_view: Option<String>,
@@ -1938,9 +1964,73 @@ pub struct UpdateUiStateRequest {
     pub sidebar_section_states: Option<HashMap<String, bool>>,
     pub bottom_panel_visible: Option<bool>,
     pub active_bottom_panel_tab: Option<String>,
+    #[serde(default, deserialize_with = "optional_u32_from_number")]
     pub bottom_panel_height: Option<u32>,
     pub results_dock: Option<String>,
+    #[serde(default, deserialize_with = "optional_u32_from_number")]
     pub results_side_width: Option<u32>,
     pub right_drawer: Option<String>,
+    #[serde(default, deserialize_with = "optional_u32_from_number")]
     pub right_drawer_width: Option<u32>,
+}
+
+fn optional_u32_from_number<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let Some(value) = Option::<Value>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    let Some(number) = value.as_f64() else {
+        return Err(de::Error::custom(
+            "expected a finite non-negative number for UI size",
+        ));
+    };
+
+    if !number.is_finite() || number < 0.0 || number > u32::MAX as f64 {
+        return Err(de::Error::custom(
+            "expected a finite non-negative number for UI size",
+        ));
+    }
+
+    Ok(Some(number.round() as u32))
+}
+
+#[cfg(test)]
+mod update_ui_state_request_tests {
+    use super::UpdateUiStateRequest;
+
+    #[test]
+    fn accepts_fractional_layout_numbers_from_browser_measurements() {
+        let request: UpdateUiStateRequest = serde_json::from_value(serde_json::json!({
+            "bottomPanelHeight": 806.4000244140625,
+            "sidebarWidth": 279.5,
+            "resultsSideWidth": 420,
+            "rightDrawerWidth": 360.49
+        }))
+        .expect("fractional UI state request should deserialize");
+
+        assert_eq!(request.bottom_panel_height, Some(806));
+        assert_eq!(request.sidebar_width, Some(280));
+        assert_eq!(request.results_side_width, Some(420));
+        assert_eq!(request.right_drawer_width, Some(360));
+    }
+
+    #[test]
+    fn rejects_invalid_layout_numbers() {
+        let result = serde_json::from_value::<UpdateUiStateRequest>(serde_json::json!({
+            "sidebarWidth": -1
+        }));
+        let error = match result {
+            Ok(_) => panic!("negative UI sizes should be rejected"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("finite non-negative number"));
+    }
 }

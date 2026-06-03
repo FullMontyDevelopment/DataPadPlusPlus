@@ -22,6 +22,7 @@ import {
   browserDataEditRequest,
   browserDataEditWarnings,
 } from './browser-data-edit-requests'
+import { browserQueryBuilders } from './browser-query-builders'
 import {
   applyEnvironmentGuardsToDataEditPlan,
   browserEnvironmentHasUnresolvedVariables,
@@ -286,63 +287,15 @@ function browserContextActions(
   ]
 }
 
-function browserQueryBuilders(
-  engine: ConnectionProfile['engine'],
-): DatastoreExperienceManifest['queryBuilders'] {
-  if (engine === 'mongodb') {
-    return [
-      { kind: 'mongo-find', label: 'Find Builder', scope: 'collection', defaultMode: 'visual' },
-      {
-        kind: 'mongo-aggregation',
-        label: 'Aggregation Builder',
-        scope: 'collection',
-        defaultMode: 'visual',
-      },
-    ]
-  }
-
-  if (engine === 'elasticsearch' || engine === 'opensearch') {
-    return [{ kind: 'search-dsl', label: 'Search DSL Builder', scope: 'index', defaultMode: 'split' }]
-  }
-
-  if (engine === 'dynamodb') {
-    return [
-      {
-        kind: 'dynamodb-key-condition',
-        label: 'Key Condition Builder',
-        scope: 'table',
-        defaultMode: 'split',
-      },
-    ]
-  }
-
-  if (engine === 'cassandra') {
-    return [
-      {
-        kind: 'cql-partition',
-        label: 'Partition Key Builder',
-        scope: 'table',
-        defaultMode: 'split',
-      },
-    ]
-  }
-
-  if (engine === 'redis' || engine === 'valkey') {
-    return [{ kind: 'redis-key-browser', label: 'Key Browser', scope: 'key', defaultMode: 'visual' }]
-  }
-
-  if (['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'sqlite'].includes(engine)) {
-    return [{ kind: 'sql-select', label: 'SQL SELECT Builder', scope: 'table', defaultMode: 'raw' }]
-  }
-
-  return []
-}
-
 function browserEditableScopes(
   engine: ConnectionProfile['engine'],
   family: ConnectionProfile['family'],
 ): DatastoreExperienceManifest['editableScopes'] {
-  if (['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'sqlite'].includes(engine)) {
+  if (
+    ['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'sqlite', 'timescaledb'].includes(
+      engine,
+    )
+  ) {
     return [
       {
         scope: 'table',

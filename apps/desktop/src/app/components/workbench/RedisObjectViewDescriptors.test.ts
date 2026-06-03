@@ -24,4 +24,13 @@ describe('RedisObjectViewDescriptors', () => {
     expect(descriptor.menuLabel).toBe('Inspect Redis Metadata')
     expect(descriptor.purpose).toContain('Redis metadata')
   })
+
+  it('adapts shared descriptors for Valkey object views', () => {
+    const descriptor = getRedisObjectViewDescriptor('databases', 'valkey')
+    const fallback = getRedisObjectViewDescriptor('unknown-feature', 'valkey')
+
+    expect(descriptor.title).toBe('Valkey Databases')
+    expect(descriptor.purpose).toContain('Valkey databases')
+    expect(fallback.menuLabel).toBe('Inspect Valkey Metadata')
+  })
 })

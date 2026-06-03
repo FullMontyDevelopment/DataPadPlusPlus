@@ -2,28 +2,30 @@ import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 
 export function parseSqlServerObjectScope(scope: string) {
   const value = scope.replace(/^table:/, '')
-  const [database = 'datapadplusplus', schema = 'dbo', objectName = 'object'] = value.split(':')
+  const [database = '', schema = '', objectName = ''] = value.split(':')
   return { database, schema, objectName }
 }
 
 export function parseSqlServerNodeId(connection: ConnectionProfile, nodeId: string) {
+  const connectionDatabase = connection.database?.trim() || ''
+
   if (nodeId.startsWith('table:') || nodeId.startsWith('view:') || nodeId.startsWith('procedure:') || nodeId.startsWith('function:')) {
-    const [, database = connection.database || 'datapadplusplus', schema = 'dbo', objectName = 'object'] = nodeId.split(':')
+    const [, database = connectionDatabase, schema = 'dbo', objectName = ''] = nodeId.split(':')
     return { database, schema, objectName }
   }
 
   if (nodeId.startsWith('database:')) {
-    return { database: nodeId.replace('database:', '') || connection.database || 'datapadplusplus', schema: 'dbo', objectName: '' }
+    return { database: nodeId.replace('database:', '') || connectionDatabase, schema: 'dbo', objectName: '' }
   }
 
   if (nodeId.startsWith('performance:')) {
-    const [, database = connection.database || 'datapadplusplus'] = nodeId.split(':')
+    const [, database = connectionDatabase] = nodeId.split(':')
     return { database, schema: 'dbo', objectName: '' }
   }
 
   const parts = nodeId.split(':')
   return {
-    database: parts[1] || connection.database || 'datapadplusplus',
+    database: parts[1] || connectionDatabase,
     schema: parts[2] || 'dbo',
     objectName: parts[3] || '',
   }

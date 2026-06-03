@@ -8,10 +8,10 @@ import {
 } from './browser-mongo-helpers'
 
 export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
-  const database = connection.database || 'catalog'
+  const database = connection.database?.trim()
 
   if (!scope) {
-    return connection.database
+    return database
       ? [mongoDatabaseNode(database)]
       : [
           mongoRootSectionNode('databases', 'Databases', 'User MongoDB databases'),
@@ -20,7 +20,7 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope === 'databases') {
-    return [mongoDatabaseNode(database)]
+    return database ? [mongoDatabaseNode(database)] : []
   }
 
   if (scope === 'system-databases') {
@@ -32,7 +32,8 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('database:')) {
-    const databaseName = scope.replace('database:', '') || database
+    const databaseName = scope.replace('database:', '').trim() || database
+    if (!databaseName) return []
 
     return [
       mongoSectionNode(databaseName, 'Collections', 'collections', 'Document collections'),
@@ -52,7 +53,8 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('collections:')) {
-    const databaseName = scope.replace('collections:', '') || database
+    const databaseName = scope.replace('collections:', '').trim() || database
+    if (!databaseName) return []
 
     return [
       mongoCollectionNode(databaseName, 'products'),
@@ -61,7 +63,8 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('views:')) {
-    const databaseName = scope.replace('views:', '') || database
+    const databaseName = scope.replace('views:', '').trim() || database
+    if (!databaseName) return []
 
     return [
       documentExplorerNode({
@@ -82,7 +85,8 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('view:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(scope, 'view:', database)
+    const { databaseName, objectName } = parseMongoObjectScope(scope, 'view:', database ?? '')
+    if (!databaseName || !objectName) return []
 
     return [
       documentExplorerNode({
@@ -95,9 +99,9 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
         queryTemplate: mongoCommandTemplate(databaseName, { listCollections: 1, filter: { name: objectName } }),
       }),
       documentExplorerNode({
-        id: `view-sample:${databaseName}:${objectName}`,
+        id: `view-results:${databaseName}:${objectName}`,
         label: 'Results Preview',
-        kind: 'sample-results',
+        kind: 'view-results',
         detail: 'Open a query against this view',
         scope: `collection:${databaseName}:${objectName}`,
         path: [databaseName, 'Views', objectName],
@@ -107,7 +111,8 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('collection:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(scope, 'collection:', database)
+    const { databaseName, objectName } = parseMongoObjectScope(scope, 'collection:', database ?? '')
+    if (!databaseName || !objectName) return []
 
     return [
       documentExplorerNode({
@@ -184,7 +189,8 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('indexes:')) {
-    const { databaseName, objectName } = parseMongoObjectScope(scope, 'indexes:', database)
+    const { databaseName, objectName } = parseMongoObjectScope(scope, 'indexes:', database ?? '')
+    if (!databaseName || !objectName) return []
 
     return ['_id_', 'sku_1'].map((indexName) =>
       documentExplorerNode({
@@ -199,7 +205,8 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('gridfs:')) {
-    const databaseName = scope.replace('gridfs:', '') || database
+    const databaseName = scope.replace('gridfs:', '').trim() || database
+    if (!databaseName) return []
 
     return [
       mongoSectionNode(databaseName, 'Buckets', 'gridfs-buckets', 'GridFS bucket collections'),
@@ -218,7 +225,8 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('gridfs-buckets:')) {
-    const databaseName = scope.replace('gridfs-buckets:', '') || database
+    const databaseName = scope.replace('gridfs-buckets:', '').trim() || database
+    if (!databaseName) return []
 
     return ['fs'].map((bucket) =>
       documentExplorerNode({
@@ -233,7 +241,8 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('users:')) {
-    const databaseName = scope.replace('users:', '') || database
+    const databaseName = scope.replace('users:', '').trim() || database
+    if (!databaseName) return []
 
     return [
       documentExplorerNode({
@@ -248,7 +257,8 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('roles:')) {
-    const databaseName = scope.replace('roles:', '') || database
+    const databaseName = scope.replace('roles:', '').trim() || database
+    if (!databaseName) return []
 
     return [
       documentExplorerNode({

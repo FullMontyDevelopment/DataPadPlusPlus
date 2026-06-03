@@ -166,7 +166,7 @@ export function searchOperationRequest(connection: ConnectionProfile, request: O
 
   if (request.operationId.endsWith('pipeline.simulate')) {
     return searchRequest('POST', `/_ingest/pipeline/${index}/_simulate`, {
-      docs: parameters.documents ?? [{ _source: { message: 'sample' } }],
+      docs: parameters.documents ?? [],
     })
   }
 

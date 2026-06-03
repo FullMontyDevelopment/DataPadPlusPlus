@@ -13,6 +13,15 @@ export function libraryNodeForConnection(
   )
 }
 
+export function libraryNodesForConnection(
+  nodes: LibraryNode[],
+  connectionId: string,
+): LibraryNode[] {
+  return nodes.filter(
+    (node) => node.kind === 'connection' && node.connectionId === connectionId,
+  )
+}
+
 export function ensureConnectionLibraryNodes(snapshot: WorkspaceSnapshot) {
   const timestamp = new Date().toISOString()
   const existingConnectionIds = new Set(
@@ -88,18 +97,42 @@ export function effectiveConnectionEnvironmentId(
     return preferredEnvironmentId
   }
 
-  const libraryNode = libraryNodeForConnection(snapshot.libraryNodes, connection.id)
-  const inheritedEnvironmentId = libraryNode
-    ? effectiveEnvironmentFromNode(snapshot.libraryNodes, libraryNode.id)
-    : undefined
+  return effectiveConnectionEnvironmentIds(snapshot, connection)[0] ?? 'env-dev'
+}
 
-  return (
-    inheritedEnvironmentId ??
-    connection.environmentIds[0] ??
-    snapshot.ui.activeEnvironmentId ??
-    snapshot.environments[0]?.id ??
-    'env-dev'
-  )
+export function effectiveConnectionEnvironmentIds(
+  snapshot: WorkspaceSnapshot,
+  connection: ConnectionProfile,
+  preferredEnvironmentId?: string,
+) {
+  const environmentIds: string[] = []
+  const addEnvironment = (environmentId: string | undefined) => {
+    if (
+      environmentId &&
+      environmentExists(snapshot, environmentId) &&
+      !environmentIds.includes(environmentId)
+    ) {
+      environmentIds.push(environmentId)
+    }
+  }
+
+  if (preferredEnvironmentId) {
+    addEnvironment(preferredEnvironmentId)
+    return environmentIds
+  }
+
+  for (const libraryNode of libraryNodesForConnection(snapshot.libraryNodes, connection.id)) {
+    addEnvironment(effectiveEnvironmentFromNode(snapshot.libraryNodes, libraryNode.id))
+  }
+
+  for (const environmentId of connection.environmentIds) {
+    addEnvironment(environmentId)
+  }
+
+  addEnvironment(snapshot.ui.activeEnvironmentId)
+  addEnvironment(snapshot.environments[0]?.id)
+
+  return environmentIds
 }
 
 function effectiveEnvironmentFromNode(nodes: LibraryNode[], nodeId: string) {

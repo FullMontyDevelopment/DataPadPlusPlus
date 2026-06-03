@@ -8,6 +8,10 @@ use super::{
         editor_label_for_connection, language_for_connection, query_tab_title_parts,
         unique_query_tab_title,
     },
+    query_tabs_scoped_redis::{
+        redis_database_index_from_target, redis_key_browser_builder_state,
+        redis_key_browser_query_text, redis_pattern_from_target,
+    },
 };
 use crate::domain::models::{
     ConnectionProfile, CreateScopedQueryTabRequest, QueryTabState, ScopedQueryTarget,
@@ -20,17 +24,19 @@ pub(super) fn build_scoped_query_tab(
     request: CreateScopedQueryTabRequest,
 ) -> QueryTabState {
     let builder_kind = scoped_builder_kind(connection, &request.target);
-    let target_label = scoped_target_object_label(&request.target, connection);
+    let target_object_name = scoped_target_object_name(&request.target, connection);
+    let target_label =
+        scoped_target_object_label(&request.target, connection, target_object_name.as_deref());
     let limit = 20;
     let query_text = if builder_kind.as_deref() == Some("mongo-find") {
         mongo_find_query_text(
-            &target_label,
+            target_object_name.as_deref().unwrap_or_default(),
             limit,
             connection.database.as_deref().map(str::trim),
         )
     } else if builder_kind.as_deref() == Some("mongo-aggregation") {
         mongo_aggregation_query_text(
-            &target_label,
+            target_object_name.as_deref().unwrap_or_default(),
             limit,
             connection.database.as_deref().map(str::trim),
         )
@@ -48,9 +54,13 @@ pub(super) fn build_scoped_query_tab(
             .unwrap_or_else(|| default_query_text(connection))
     };
     let builder_state = match builder_kind.as_deref() {
-        Some("mongo-find") => Some(mongo_find_builder_state(&target_label, &query_text, limit)),
+        Some("mongo-find") => Some(mongo_find_builder_state(
+            target_object_name.as_deref().unwrap_or_default(),
+            &query_text,
+            limit,
+        )),
         Some("mongo-aggregation") => Some(mongo_aggregation_builder_state(
-            &target_label,
+            target_object_name.as_deref().unwrap_or_default(),
             &query_text,
             limit,
         )),
@@ -94,11 +104,21 @@ pub(super) fn build_scoped_query_tab(
         }),
         script_text: default_script_text(connection).map(|text| {
             if connection.engine == "mongodb" && builder_kind.as_deref() == Some("mongo-find") {
-                format!("db.{target_label}.find({{}}).limit({limit})")
+                target_object_name
+                    .as_ref()
+                    .map(|collection| format!("db.{collection}.find({{}}).limit({limit})"))
+                    .unwrap_or_default()
             } else if connection.engine == "mongodb"
                 && builder_kind.as_deref() == Some("mongo-aggregation")
             {
-                format!("db.{target_label}.aggregate([{{ $match: {{}} }}, {{ $limit: {limit} }}])")
+                target_object_name
+                    .as_ref()
+                    .map(|collection| {
+                        format!(
+                            "db.{collection}.aggregate([{{ $match: {{}} }}, {{ $limit: {limit} }}])"
+                        )
+                    })
+                    .unwrap_or_default()
             } else {
                 text
             }
@@ -181,17 +201,56 @@ fn normalized_target_label(label: &str) -> String {
 fn scoped_target_object_label(
     target: &ScopedQueryTarget,
     connection: &ConnectionProfile,
+    target_object_name: Option<&str>,
 ) -> String {
-    let scoped_object = if connection.engine == "mongodb" {
-        target
-            .scope
-            .as_deref()
-            .and_then(|scope| scope.split(':').rfind(|part| !part.is_empty()))
-    } else {
-        None
-    };
+    if connection.engine == "mongodb" {
+        return normalized_target_label(target_object_name.unwrap_or_default());
+    }
 
-    normalized_target_label(scoped_object.unwrap_or(&target.label))
+    normalized_target_label(&target.label)
+}
+
+fn scoped_target_object_name(
+    target: &ScopedQueryTarget,
+    connection: &ConnectionProfile,
+) -> Option<String> {
+    if connection.engine != "mongodb" {
+        return None;
+    }
+
+    if let Some(scope) = target.scope.as_deref() {
+        let parts: Vec<&str> = scope.split(':').filter(|part| !part.is_empty()).collect();
+        let scope_kind = parts.first().copied().unwrap_or_default();
+        if matches!(
+            scope_kind,
+            "collection" | "documents" | "aggregation" | "view" | "gridfs"
+        ) {
+            if parts.len() >= 3 {
+                return non_empty_object_name(&parts[2..].join(":"));
+            }
+            if parts.len() == 2 && scope_kind != "aggregation" {
+                return non_empty_object_name(parts[1]);
+            }
+        }
+    }
+
+    let object_container_index = ["Collections", "Views", "GridFS"]
+        .iter()
+        .filter_map(|container| target.path.iter().position(|part| part == container))
+        .min();
+
+    object_container_index
+        .and_then(|index| target.path.get(index + 1))
+        .and_then(|value| non_empty_object_name(value))
+}
+
+fn non_empty_object_name(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.into())
+    }
 }
 
 fn mongo_find_query_text(collection: &str, limit: u32, database: Option<&str>) -> String {
@@ -261,112 +320,4 @@ fn mongo_aggregation_builder_state(
         "limit": limit,
         "lastAppliedQueryText": query_text,
     })
-}
-
-fn redis_key_browser_query_text(pattern: &str, count: u32, database_index: Option<u32>) -> String {
-    let mut query = json!({
-        "mode": "redis-key-browser",
-        "pattern": pattern,
-        "type": "all",
-        "count": count,
-    });
-
-    if let Some(database_index) = database_index {
-        query["database"] = json!(database_index);
-    }
-
-    serde_json::to_string_pretty(&query).unwrap_or_else(|_| {
-        format!(
-            "{{\n  \"mode\": \"redis-key-browser\",\n  \"pattern\": \"{pattern}\",\n  \"type\": \"all\",\n  \"count\": {count}\n}}"
-        )
-    })
-}
-
-fn redis_key_browser_builder_state(
-    pattern: &str,
-    query_text: &str,
-    database_index: u32,
-) -> serde_json::Value {
-    let mut scan_cursor_by_db = serde_json::Map::new();
-    scan_cursor_by_db.insert(database_index.to_string(), json!("0"));
-
-    json!({
-        "kind": "redis-key-browser",
-        "pattern": pattern,
-        "typeFilter": "all",
-        "databaseIndex": database_index,
-        "delimiter": ":",
-        "cursor": "0",
-        "scanCount": 100,
-        "pageSize": 100,
-        "scannedCount": 0,
-        "scanCursorByDb": scan_cursor_by_db,
-        "filters": { "ttl": "all" },
-        "expandedPrefixes": [],
-        "visibleColumns": ["ttl", "memory", "length"],
-        "viewMode": "tree",
-        "lastAppliedQueryText": query_text,
-    })
-}
-
-fn redis_pattern_from_target(target: &ScopedQueryTarget) -> String {
-    if target.kind == "database"
-        || target.scope.as_deref().is_some_and(|scope| {
-            let Some(rest) = scope.strip_prefix("db:") else {
-                return false;
-            };
-            rest.chars()
-                .next()
-                .is_some_and(|character| character.is_ascii_digit())
-        })
-    {
-        return "*".into();
-    }
-
-    let scoped_prefix = target
-        .scope
-        .as_deref()
-        .and_then(|scope| scope.strip_prefix("prefix:"));
-    let candidate = scoped_prefix.unwrap_or(target.label.as_str()).trim();
-
-    if candidate.is_empty() {
-        "*".into()
-    } else if candidate.contains('*') {
-        candidate.into()
-    } else if candidate.ends_with(':') {
-        format!("{candidate}*")
-    } else {
-        candidate.into()
-    }
-}
-
-fn redis_database_index_from_target(target: &ScopedQueryTarget) -> Option<u32> {
-    let scoped_database = target
-        .scope
-        .as_deref()
-        .and_then(redis_database_index_from_scope);
-    let label_database = redis_database_index_from_label(&target.label);
-    let path_database = target
-        .path
-        .iter()
-        .find_map(|part| redis_database_index_from_label(part));
-
-    scoped_database.or(label_database).or(path_database)
-}
-
-fn redis_database_index_from_scope(scope: &str) -> Option<u32> {
-    let rest = scope.strip_prefix("db:")?;
-    let digits: String = rest
-        .chars()
-        .take_while(|character| character.is_ascii_digit())
-        .collect();
-
-    digits.parse::<u32>().ok()
-}
-
-fn redis_database_index_from_label(label: &str) -> Option<u32> {
-    label
-        .trim()
-        .strip_prefix("DB ")
-        .and_then(|value| value.parse::<u32>().ok())
 }

@@ -3,6 +3,19 @@ use super::redis::{execute_redis_data_edit, fetch_redis_page, load_redis_structu
 
 pub(crate) struct ValkeyAdapter;
 
+const VALKEY_CAPABILITIES: &[&str] = &[
+    "supports_key_browser",
+    "supports_ttl_management",
+    "supports_result_snapshots",
+    "supports_streaming_results",
+    "supports_admin_operations",
+    "supports_user_role_browser",
+    "supports_permission_inspection",
+    "supports_metrics_collection",
+    "supports_import_export",
+    "supports_structure_visualization",
+];
+
 #[async_trait]
 impl DatastoreAdapter for ValkeyAdapter {
     fn manifest(&self) -> AdapterManifest {
@@ -13,7 +26,7 @@ impl DatastoreAdapter for ValkeyAdapter {
             "Valkey adapter",
             "beta",
             "redis",
-            KEYVALUE_CAPABILITIES,
+            VALKEY_CAPABILITIES,
         )
     }
 

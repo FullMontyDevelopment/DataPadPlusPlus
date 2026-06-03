@@ -203,6 +203,146 @@ describe('query intellisense', () => {
     )
   })
 
+  it('has deterministic provider coverage for Wave 4 and Wave 5 secondary engines', () => {
+    const providerCases = [
+      ['cosmosdb', 'document', 'sql', 'document-secondary'],
+      ['litedb', 'document', 'json', 'document-secondary'],
+      ['memcached', 'keyvalue', 'plaintext', 'memcached'],
+      ['prometheus', 'timeseries', 'plaintext', 'timeseries'],
+      ['influxdb', 'timeseries', 'plaintext', 'timeseries'],
+      ['opentsdb', 'timeseries', 'plaintext', 'timeseries'],
+      ['neo4j', 'graph', 'plaintext', 'graph'],
+      ['arango', 'graph', 'plaintext', 'graph'],
+      ['janusgraph', 'graph', 'plaintext', 'graph'],
+      ['neptune', 'graph', 'plaintext', 'graph'],
+    ] as const
+
+    for (const [engine, family, language, providerId] of providerCases) {
+      expect(
+        completionProvidersForConnection(connectionProfile(engine, family), language).map(
+          (provider) => provider.id,
+        ),
+        engine,
+      ).toContain(providerId)
+    }
+  })
+
+  it('suggests Cosmos SQL containers and LiteDB document query fields', () => {
+    const cosmos = connectionProfile('cosmosdb', 'document')
+    const cosmosProvider = completionProvidersForConnection(cosmos, 'sql')[0]
+    const cosmosSuggestions =
+      cosmosProvider?.buildItems({
+        ...completionContext(cosmos, 'SELECT * FROM ', {
+          schemas: [{ name: 'commerce' }],
+          objects: [{ name: 'orders', kind: 'container', schema: 'commerce' }],
+          fields: [{ name: 'status', path: 'status', objectName: 'orders' }],
+        }),
+        language: 'sql',
+      }) ?? []
+
+    expect(cosmosSuggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'select', kind: 'keyword' }),
+        expect.objectContaining({ label: 'commerce.orders', kind: 'table' }),
+        expect.objectContaining({ label: 'partition key filter', kind: 'snippet' }),
+      ]),
+    )
+
+    const litedb = connectionProfile('litedb', 'document')
+    const liteProvider = completionProvidersForConnection(litedb, 'json')[0]
+    const liteSuggestions =
+      liteProvider?.buildItems(
+        completionContext(litedb, '{ ', {
+          objects: [{ name: 'products', kind: 'collection' }],
+          fields: [{ name: 'available', path: 'inventory.available', dataType: 'number' }],
+        }),
+      ) ?? []
+
+    expect(liteSuggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'operation', insertText: '"operation": ' }),
+        expect.objectContaining({ label: 'products', insertText: '"products"' }),
+        expect.objectContaining({ label: 'inventory.available', insertText: '"inventory.available": ' }),
+      ]),
+    )
+  })
+
+  it('suggests Memcached commands and known-key targets', () => {
+    const connection = connectionProfile('memcached', 'keyvalue')
+    const provider = completionProvidersForConnection(connection, 'plaintext')[0]
+    const suggestions =
+      provider?.buildItems({
+        ...completionContext(connection, 'get ', {
+          objects: [
+            { name: 'session:0001', kind: 'known-key' },
+            { name: 'Class 1', kind: 'slab' },
+          ],
+        }),
+        language: 'plaintext',
+      }) ?? []
+
+    expect(suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'get', kind: 'command' }),
+        expect.objectContaining({ label: 'stats slabs', kind: 'command' }),
+        expect.objectContaining({ label: 'session:0001', kind: 'value' }),
+        expect.objectContaining({ label: 'safe set preview', kind: 'snippet' }),
+      ]),
+    )
+  })
+
+  it('suggests time-series metrics, dimensions, and bounded snippets', () => {
+    const connection = connectionProfile('prometheus', 'timeseries')
+    const provider = completionProvidersForConnection(connection, 'plaintext')[0]
+    const suggestions =
+      provider?.buildItems({
+        ...completionContext(connection, 'rate(', {
+          objects: [
+            { name: 'http_requests_total', kind: 'metric' },
+            { name: 'job', kind: 'label' },
+          ],
+        }),
+        language: 'plaintext',
+      }) ?? []
+
+    expect(suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'rate', kind: 'keyword' }),
+        expect.objectContaining({ label: 'http_requests_total', kind: 'field' }),
+        expect.objectContaining({ label: 'job', kind: 'field' }),
+        expect.objectContaining({ label: 'rate over 5m', insertText: 'rate(http_requests_total[5m])' }),
+      ]),
+    )
+  })
+
+  it('suggests graph labels, relationships, properties, and native snippets', () => {
+    const connection = connectionProfile('neo4j', 'graph')
+    const provider = completionProvidersForConnection(connection, 'plaintext')[0]
+    const suggestions =
+      provider?.buildItems({
+        ...completionContext(connection, 'MATCH (n', {
+          objects: [
+            { name: 'fraud', kind: 'graph' },
+            { name: 'Person', kind: 'node-label' },
+            { name: 'PURCHASED', kind: 'relationship' },
+            { name: 'email', kind: 'property-key' },
+          ],
+        }),
+        language: 'plaintext',
+      }) ?? []
+
+    expect(suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'match', kind: 'keyword' }),
+        expect.objectContaining({ label: 'fraud', kind: 'schema' }),
+        expect.objectContaining({ label: 'Person', insertText: ':`Person`' }),
+        expect.objectContaining({ label: 'PURCHASED', insertText: ':`PURCHASED`' }),
+        expect.objectContaining({ label: 'email', kind: 'field' }),
+        expect.objectContaining({ label: 'bounded Cypher match', kind: 'snippet' }),
+      ]),
+    )
+  })
+
   it('suggests environment variables only inside brace tokens', () => {
     const connection = connectionProfile('postgresql', 'sql')
     const context = completionContext(connection, 'select * from {{', {

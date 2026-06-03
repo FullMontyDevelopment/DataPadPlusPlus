@@ -81,10 +81,48 @@ export function updateUiStateLocally(
   const next = cloneSnapshot(snapshot)
   next.ui = {
     ...next.ui,
-    ...patch,
+    ...normalizeUiStatePatch(patch),
   }
   next.updatedAt = new Date().toISOString()
   return migrateWorkspaceSnapshot(next)
+}
+
+export function normalizeUiStatePatch(patch: UpdateUiStateRequest): UpdateUiStateRequest {
+  const next = { ...patch }
+
+  for (const key of UI_SIZE_PATCH_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) {
+      continue
+    }
+
+    const normalized = normalizeUiSize(next[key])
+    if (typeof normalized === 'number') {
+      next[key] = normalized
+    } else {
+      delete next[key]
+    }
+  }
+
+  return next
+}
+
+const UI_SIZE_PATCH_KEYS = [
+  'sidebarWidth',
+  'bottomPanelHeight',
+  'resultsSideWidth',
+  'rightDrawerWidth',
+] as const satisfies readonly (keyof UpdateUiStateRequest)[]
+
+function normalizeUiSize(value: number | undefined) {
+  if (typeof value !== 'number') {
+    return undefined
+  }
+
+  if (!Number.isFinite(value) || value < 0) {
+    return undefined
+  }
+
+  return Math.round(value)
 }
 
 

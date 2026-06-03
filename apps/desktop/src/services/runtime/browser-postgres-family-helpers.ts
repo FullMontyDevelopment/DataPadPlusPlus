@@ -6,7 +6,7 @@ export function isPostgresLike(connection: ConnectionProfile) {
 
 export function parsePostgresObjectScope(scope: string) {
   const value = scope.replace(/^table:/, '')
-  const [schema = 'public', objectName = 'object'] = value.includes('.')
+  const [schema = 'public', objectName = ''] = value.includes('.')
     ? value.split('.', 2)
     : ['public', value]
 
@@ -32,7 +32,7 @@ export function parsePostgresNodeId(connection: ConnectionProfile, nodeId: strin
 
 export function parseCockroachNodeId(connection: ConnectionProfile, nodeId: string) {
   if (nodeId.startsWith('cockroach:')) {
-    const [, maybeDatabase = connection.database || 'defaultdb', maybeSchema = 'public', maybeObject = ''] = nodeId.split(':')
+    const [, maybeDatabase = connection.database?.trim() || '', maybeSchema = 'public', maybeObject = ''] = nodeId.split(':')
     if (['cluster', 'security', 'diagnostics'].includes(maybeDatabase)) {
       return { schema: 'public', objectName: maybeSchema || '' }
     }

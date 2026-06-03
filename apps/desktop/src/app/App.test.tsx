@@ -1,10 +1,16 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { EnvironmentProfile } from '@datapadplusplus/shared-types'
+import type {
+  ConnectionProfile,
+  ConnectionTestResult,
+  EnvironmentProfile,
+} from '@datapadplusplus/shared-types'
 import { desktopClient } from '../services/runtime/client'
 import { saveBrowserSnapshot } from '../services/runtime/browser-store'
 import { App } from './App'
 import { createBlankBootstrapPayload } from './data/workspace-factory'
+import { startupConnectionHealthTargets } from './state/app-state'
 
 vi.mock('@monaco-editor/react', () => ({
   default: ({
@@ -103,6 +109,38 @@ function testEnvironment(id: string, label: string): EnvironmentProfile {
     exportable: true,
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-01T00:00:00.000Z',
+  }
+}
+
+function startupConnection(id: string, name: string): ConnectionProfile {
+  return {
+    id,
+    name,
+    engine: 'postgresql',
+    family: 'sql',
+    host: 'localhost',
+    port: 5432,
+    database: 'app',
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'PG',
+    auth: {},
+    createdAt: '2026-06-01T00:00:00.000Z',
+    updatedAt: '2026-06-01T00:00:00.000Z',
+  }
+}
+
+function resolvedConnectionTestResult(engine: ConnectionTestResult['engine']): ConnectionTestResult {
+  return {
+    ok: true,
+    engine,
+    message: 'Connection ready.',
+    warnings: [],
+    resolvedHost: 'localhost',
+    resolvedDatabase: 'app',
+    durationMs: 2,
   }
 }
 
@@ -274,6 +312,29 @@ async function createCatalogMongoWithBuilderTab() {
 }
 
 describe('App', () => {
+  it('keys startup connection checks by connection and environment revision', () => {
+    const payload = createBlankBootstrapPayload()
+    payload.snapshot.environments = [testEnvironment('env-local', 'Local')]
+    payload.snapshot.ui.activeEnvironmentId = 'env-local'
+    payload.snapshot.connections = [startupConnection('conn-revision', 'Revision SQL')]
+
+    const [initialTarget] = startupConnectionHealthTargets(payload)
+    expect(startupConnectionHealthTargets(payload)).toHaveLength(1)
+
+    const connection = payload.snapshot.connections[0]
+    if (!connection) {
+      throw new Error('Expected startup test connection.')
+    }
+    payload.snapshot.connections[0] = {
+      ...connection,
+      updatedAt: '2026-06-01T00:01:00.000Z',
+    }
+
+    const [updatedTarget] = startupConnectionHealthTargets(payload)
+    expect(updatedTarget?.key).not.toBe(initialTarget?.key)
+    expect(updatedTarget?.key).toContain('conn-revision::env-local')
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
     window.localStorage.clear()
@@ -351,6 +412,75 @@ describe('App', () => {
         environmentId: 'env-prod',
       }),
     )
+    await screen.findByLabelText('library sidebar', {}, { timeout: 5_000 })
+    await waitFor(() => {
+      expect(screen.getByRole('status', { name: 'Connected' })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('status', { name: 'Checking connection' })).not.toBeInTheDocument()
+  })
+
+  it('starts all saved connection tests in parallel on startup', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    snapshot.environments = [testEnvironment('env-local', 'Local')]
+    snapshot.ui.activeEnvironmentId = 'env-local'
+    snapshot.connections = Array.from({ length: 6 }, (_, index) =>
+      startupConnection(`conn-parallel-${index}`, `Parallel SQL ${index + 1}`),
+    )
+    saveBrowserSnapshot(snapshot)
+
+    const resolvers: Array<(result: ConnectionTestResult) => void> = []
+    const testConnectionSpy = vi
+      .spyOn(desktopClient, 'testConnection')
+      .mockImplementation(
+        (request) =>
+          new Promise<ConnectionTestResult>((resolve) => {
+            resolvers.push(resolve)
+          }).then(() => resolvedConnectionTestResult(request.profile.engine)),
+      )
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(testConnectionSpy).toHaveBeenCalledTimes(6)
+    })
+    expect(resolvers).toHaveLength(6)
+
+    for (const resolve of resolvers) {
+      resolve(resolvedConnectionTestResult('postgresql'))
+    }
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status', { name: 'Checking connection' })).not.toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getAllByRole('status', { name: 'Connected' })).toHaveLength(6)
+    })
+  })
+
+  it('settles startup connection tests after React StrictMode effect replay', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    snapshot.environments = [testEnvironment('env-local', 'Local')]
+    snapshot.ui.activeEnvironmentId = 'env-local'
+    snapshot.connections = [startupConnection('conn-strict-startup', 'Strict Startup SQL')]
+    saveBrowserSnapshot(snapshot)
+
+    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValue(
+      resolvedConnectionTestResult('postgresql'),
+    )
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    )
+
+    await waitFor(() => {
+      expect(testConnectionSpy).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('status', { name: 'Checking connection' })).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole('status', { name: 'Connected' })).toBeInTheDocument()
   })
 
   it('tests the inherited Library environment on startup', async () => {
@@ -417,6 +547,10 @@ describe('App', () => {
           environmentId: 'env-qa',
         }),
       )
+    })
+    await screen.findByLabelText('library sidebar', {}, { timeout: 5_000 })
+    await waitFor(() => {
+      expect(screen.getByRole('status', { name: 'Connected' })).toBeInTheDocument()
     })
   })
 

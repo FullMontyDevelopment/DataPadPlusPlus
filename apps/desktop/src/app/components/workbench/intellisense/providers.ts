@@ -9,6 +9,7 @@ import type {
   EditorCompletionContext,
 } from './types'
 import { redisCommandDetail, redisCommandDocs } from '../query-builder/redis-command-docs'
+import { SECONDARY_COMPLETION_PROVIDERS } from './secondary-providers'
 
 const SQL_ENGINES: Array<ConnectionProfile['engine']> = [
   'postgresql',
@@ -173,6 +174,7 @@ export const DEFAULT_COMPLETION_PROVIDERS: DatastoreCompletionProvider[] = [
     languages: ['sql'],
     buildItems: buildCassandraItems,
   },
+  ...SECONDARY_COMPLETION_PROVIDERS,
 ]
 
 export function completionProvidersForConnection(

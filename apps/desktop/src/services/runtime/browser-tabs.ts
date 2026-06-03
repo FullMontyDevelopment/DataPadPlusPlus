@@ -255,7 +255,8 @@ export function createScopedQueryTabInSnapshot(
     return next
   }
 
-  const targetLabel = scopedTargetObjectLabel(request.target, connection)
+  const targetObjectName = scopedTargetObjectName(request.target, connection)
+  const targetLabel = scopedTargetObjectLabel(request.target, connection, targetObjectName)
   const builderKind = scopedBuilderKind(connection, request.target)
   const legacyTitle = scopedQueryTitleCandidate(
     connection,
@@ -276,9 +277,9 @@ export function createScopedQueryTabInSnapshot(
 
   const queryText =
     builderKind === 'mongo-find'
-      ? mongoFindQueryText(targetLabel, 20, connection.database)
+      ? mongoFindQueryText(targetObjectName ?? '', 20, connection.database)
       : builderKind === 'mongo-aggregation'
-        ? mongoAggregationQueryText(targetLabel, 20, connection.database)
+        ? mongoAggregationQueryText(targetObjectName ?? '', 20, connection.database)
       : builderKind === 'redis-key-browser'
         ? redisKeyBrowserQueryText(
             redisPatternFromTarget(request.target),
@@ -310,16 +311,16 @@ export function createScopedQueryTabInSnapshot(
     queryViewMode: builderKind ? 'builder' : defaultQueryViewModeForConnection(connection),
     scriptText:
       connection.engine === 'mongodb' && builderKind === 'mongo-find'
-        ? `db.${targetLabel}.find({}).limit(20)`
+        ? mongoScriptFindText(targetObjectName)
         : connection.engine === 'mongodb' && builderKind === 'mongo-aggregation'
-          ? `db.${targetLabel}.aggregate([{ $match: {} }, { $limit: 20 }])`
+          ? mongoScriptAggregationText(targetObjectName)
         : defaultScriptTextForConnection(connection),
     scopedTarget: request.target,
     builderState:
       builderKind === 'mongo-find'
         ? {
             kind: 'mongo-find',
-            collection: targetLabel,
+            collection: targetObjectName ?? '',
             filters: [],
             projectionMode: 'all',
             projectionFields: [],
@@ -331,7 +332,7 @@ export function createScopedQueryTabInSnapshot(
         : builderKind === 'mongo-aggregation'
           ? {
               kind: 'mongo-aggregation',
-              collection: targetLabel,
+              collection: targetObjectName ?? '',
               stages: [
                 { id: 'stage-match', enabled: true, stage: '$match', body: '{}' },
               ],
@@ -519,13 +520,60 @@ function scopedPathKey(path?: string[]) {
   return (path ?? []).join('\u001f')
 }
 
-function scopedTargetObjectLabel(target: ScopedQueryTarget, connection: ConnectionProfile) {
-  const scopedObject =
-    connection.engine === 'mongodb'
-      ? target.scope?.split(':').filter(Boolean).at(-1)
-      : undefined
+function scopedTargetObjectLabel(
+  target: ScopedQueryTarget,
+  connection: ConnectionProfile,
+  targetObjectName = scopedTargetObjectName(target, connection),
+) {
+  if (connection.engine === 'mongodb') {
+    return normalizeScopedTargetLabel(targetObjectName ?? '')
+  }
 
-  return normalizeScopedTargetLabel(scopedObject ?? target.label)
+  return normalizeScopedTargetLabel(target.label)
+}
+
+function scopedTargetObjectName(
+  target: ScopedQueryTarget,
+  connection: ConnectionProfile,
+) {
+  if (connection.engine !== 'mongodb') {
+    return undefined
+  }
+
+  const scopeParts = target.scope?.split(':').filter(Boolean) ?? []
+  const scopeKind = scopeParts[0]
+  if (
+    scopeKind &&
+    ['collection', 'documents', 'aggregation', 'view', 'gridfs'].includes(scopeKind)
+  ) {
+    if (scopeParts.length >= 3) {
+      return normalizeOptionalObjectName(scopeParts.slice(2).join(':'))
+    }
+    if (scopeParts.length === 2 && scopeKind !== 'aggregation') {
+      return normalizeOptionalObjectName(scopeParts[1])
+    }
+  }
+
+  const path = target.path ?? []
+  const objectContainerIndex = firstExistingIndex(path, ['Collections', 'Views', 'GridFS'])
+  if (objectContainerIndex >= 0) {
+    return normalizeOptionalObjectName(path[objectContainerIndex + 1])
+  }
+
+  return undefined
+}
+
+function firstExistingIndex(values: string[], candidates: string[]) {
+  for (const candidate of candidates) {
+    const index = values.indexOf(candidate)
+    if (index >= 0) return index
+  }
+  return -1
+}
+
+function normalizeOptionalObjectName(value: string | undefined) {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
 }
 
 export function normalizeScopedTargetLabel(label: string) {
@@ -597,6 +645,16 @@ export function mongoFindQueryText(collection: string, limit: number, database?:
     null,
     2,
   )
+}
+
+function mongoScriptFindText(collection: string | undefined) {
+  return collection ? `db.${collection}.find({}).limit(20)` : ''
+}
+
+function mongoScriptAggregationText(collection: string | undefined) {
+  return collection
+    ? `db.${collection}.aggregate([{ $match: {} }, { $limit: 20 }])`
+    : ''
 }
 
 export function mongoAggregationQueryText(collection: string, limit: number, database?: string) {

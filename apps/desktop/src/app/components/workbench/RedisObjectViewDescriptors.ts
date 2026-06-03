@@ -8,6 +8,8 @@ export type RedisObjectViewDescriptor = {
   primaryQueryLabel?: string
 }
 
+type RedisDescriptorEngine = 'redis' | 'valkey'
+
 const DESCRIPTORS: Record<string, RedisObjectViewDescriptor> = {
   databases: {
     kind: 'databases',
@@ -182,12 +184,12 @@ const DEFAULT_DESCRIPTOR: RedisObjectViewDescriptor = {
   emptyDescription: 'Refresh this object or check whether the connected user can inspect it.',
 }
 
-export function getRedisObjectViewDescriptor(kind: string | undefined): RedisObjectViewDescriptor {
-  if (!kind) {
-    return DEFAULT_DESCRIPTOR
-  }
-
-  return DESCRIPTORS[kind] ?? DEFAULT_DESCRIPTOR
+export function getRedisObjectViewDescriptor(
+  kind: string | undefined,
+  engine: RedisDescriptorEngine = 'redis',
+): RedisObjectViewDescriptor {
+  const descriptor = kind ? DESCRIPTORS[kind] ?? DEFAULT_DESCRIPTOR : DEFAULT_DESCRIPTOR
+  return engine === 'valkey' ? valkeyDescriptor(descriptor) : descriptor
 }
 
 export function redisObjectViewMenuLabel(kind: string | undefined): string {
@@ -233,4 +235,22 @@ function typeDescriptor(
     emptyDescription: 'Open the key browser or refresh this type folder to collect bounded key metadata.',
     primaryQueryLabel: `Browse ${title}`,
   }
+}
+
+function valkeyDescriptor(descriptor: RedisObjectViewDescriptor): RedisObjectViewDescriptor {
+  return {
+    ...descriptor,
+    menuLabel: valkeyText(descriptor.menuLabel),
+    title: valkeyText(descriptor.title),
+    purpose: valkeyText(descriptor.purpose),
+    emptyTitle: valkeyText(descriptor.emptyTitle),
+    emptyDescription: valkeyText(descriptor.emptyDescription),
+    primaryQueryLabel: descriptor.primaryQueryLabel
+      ? valkeyText(descriptor.primaryQueryLabel)
+      : undefined,
+  }
+}
+
+function valkeyText(value: string) {
+  return value.replace(/\bRedis\b/g, 'Valkey')
 }

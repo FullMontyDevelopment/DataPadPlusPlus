@@ -31,19 +31,19 @@ export function searchInspectPayload(connection: ConnectionProfile, nodeId: stri
   }
 
   if (nodeId.startsWith('index:')) {
-    return searchIndexPayload(connection, nodeId.replace('index:', '') || 'products-v1')
+    return searchIndexPayload(connection, nodeId.replace('index:', '').trim())
   }
 
   if (nodeId.startsWith('documents:')) {
     return {
-      ...searchIndexPayload(connection, nodeId.replace('documents:', '') || 'products-v1'),
+      ...searchIndexPayload(connection, nodeId.replace('documents:', '').trim()),
       objectView: 'documents',
     }
   }
 
   if (nodeId.startsWith('mapping:')) {
     return {
-      ...searchIndexPayload(connection, nodeId.replace('mapping:', '') || 'products-v1'),
+      ...searchIndexPayload(connection, nodeId.replace('mapping:', '').trim()),
       objectView: 'mappings',
       indices: [],
       aliases: [],
@@ -56,7 +56,7 @@ export function searchInspectPayload(connection: ConnectionProfile, nodeId: stri
 
   if (nodeId.startsWith('settings:')) {
     return {
-      ...searchIndexPayload(connection, nodeId.replace('settings:', '') || 'products-v1'),
+      ...searchIndexPayload(connection, nodeId.replace('settings:', '').trim()),
       objectView: 'settings',
       indices: [],
       fields: [],
@@ -80,7 +80,7 @@ export function searchInspectPayload(connection: ConnectionProfile, nodeId: stri
   }
 
   if (nodeId.startsWith('data-stream:')) {
-    return searchDataStreamPayload(connection, nodeId.replace('data-stream:', '') || 'logs-generic-default')
+    return searchDataStreamPayload(connection, nodeId.replace('data-stream:', '').trim())
   }
 
   if (nodeId === 'search:aliases' || nodeId.startsWith('alias:') || nodeId.startsWith('aliases:')) {
@@ -160,7 +160,7 @@ function searchClusterPayload(connection: ConnectionProfile) {
 
 function searchIndexPayload(connection: ConnectionProfile, indexName: string) {
   const indices = searchIndices(connection)
-  const index = indices.find((candidate) => candidate.name === indexName) ?? indices[0]
+  const index = indices.find((candidate) => candidate.name === indexName)
   if (!index) {
     return {
       engine: connection.engine,
@@ -216,7 +216,7 @@ function searchIndexPayload(connection: ConnectionProfile, indexName: string) {
 
 function searchDataStreamPayload(connection: ConnectionProfile, streamName: string) {
   const streams = searchDataStreams()
-  const stream = streams.find((candidate) => candidate.name === streamName) ?? streams[0]
+  const stream = streams.find((candidate) => candidate.name === streamName)
   if (!stream) {
     return {
       engine: connection.engine,

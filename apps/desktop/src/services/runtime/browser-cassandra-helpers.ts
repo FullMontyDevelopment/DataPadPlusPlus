@@ -21,25 +21,25 @@ export function parseCassandraTableScope(scope: string, fallbackKeyspace: string
 
   return maybeTable
     ? { keyspace: keyspaceAndMaybeTable || fallbackKeyspace, table: maybeTable }
-    : { keyspace: fallbackKeyspace, table: value || 'orders_by_customer' }
+    : { keyspace: fallbackKeyspace, table: value || undefined }
 }
 
 export function cassandraTableNameFromNodeId(connection: ConnectionProfile, nodeId: string) {
   const fallbackKeyspace = cassandraKeyspace(connection)
 
   if (nodeId.startsWith('table:')) {
-    const [, keyspace = fallbackKeyspace, table = 'orders_by_customer'] = nodeId.split(':')
-    return { keyspace, table }
+    const [, keyspace = fallbackKeyspace, table] = nodeId.split(':')
+    return { keyspace, table: table?.trim() || undefined }
   }
 
   if (/^(data|columns|primary-key|indexes|compaction|statistics|permissions):/.test(nodeId)) {
-    const [, keyspace = fallbackKeyspace, table = 'orders_by_customer'] = nodeId.split(':')
-    return { keyspace, table }
+    const [, keyspace = fallbackKeyspace, table] = nodeId.split(':')
+    return { keyspace, table: table?.trim() || undefined }
   }
 
   if (nodeId.startsWith('materialized-view:')) {
-    const [, keyspace = fallbackKeyspace, table = 'orders_by_status'] = nodeId.split(':')
-    return { keyspace, table }
+    const [, keyspace = fallbackKeyspace, table] = nodeId.split(':')
+    return { keyspace, table: table?.trim() || undefined }
   }
 
   return { keyspace: fallbackKeyspace, table: undefined }

@@ -51,6 +51,7 @@ export function createInfluxExplorerNodes(connection: ConnectionProfile, scope?:
   }
 
   if (scope === 'influx:buckets') {
+    if (!defaultBucket) return []
     return influxBuckets(defaultBucket).map((bucket) =>
       influxNode({
         id: `bucket:${bucket.name}`,
@@ -332,7 +333,7 @@ function influxNode(node: Omit<ExplorerNode, 'family'>): ExplorerNode {
 }
 
 function influxDefaultBucket(connection: ConnectionProfile) {
-  return connection.database || 'telemetry'
+  return connection.database?.trim() || ''
 }
 
 function influxBucketFromNodeId(connection: ConnectionProfile, nodeId: string) {

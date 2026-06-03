@@ -162,6 +162,7 @@ pub(super) async fn execute_sqlserver_query(
         if empty_result_sets {
             section_rows.push(SqlServerResultSection {
                 payload: payload_raw("Statement executed successfully.".into()),
+                columns: Vec::new(),
                 row_count: 0,
                 tabular_rows: Vec::new(),
                 duration_ms: duration_ms(batch_started),
@@ -172,25 +173,17 @@ pub(super) async fn execute_sqlserver_query(
     }
 
     let first_section = section_rows.first();
-    let primary_payload = if explain_mode {
-        payload_raw(
-            first_section
-                .map(|section| section.tabular_rows.as_slice())
-                .unwrap_or_default()
-                .iter()
-                .flat_map(|row| row.iter().cloned())
-                .collect::<Vec<String>>()
-                .join("\n"),
-        )
+    let explain_payload = if explain_mode {
+        first_section.map(|section| sqlserver_explain_payload(statement, section))
+    } else {
+        None
+    };
+    let primary_payload = if let Some(plan) = explain_payload.clone() {
+        plan
     } else {
         first_section
             .map(|section| section.payload.clone())
             .unwrap_or_else(|| payload_raw("Statement executed successfully.".into()))
-    };
-    let explain_payload = if explain_mode {
-        Some(primary_payload.clone())
-    } else {
-        None
     };
     let batch_payload = (!explain_mode && section_rows.len() > 1).then(|| {
         payload_batch(
@@ -232,28 +225,41 @@ pub(super) async fn execute_sqlserver_query(
     } else {
         payloads.push(primary_payload);
     }
+    if explain_mode {
+        if let Some(section) = first_section {
+            payloads.push(section.payload.clone());
+        }
+    }
     payloads.push(payload_json(json!({
         "engine": connection.engine,
         "rowCount": total_rows,
         "rowLimit": row_limit,
         "resultSetCount": section_rows.len(),
     })));
-    payloads.push(payload_raw(statement.to_string()));
+    payloads.push(if explain_mode {
+        payload_raw(sqlserver_plan_text(first_section))
+    } else {
+        payload_raw(statement.to_string())
+    });
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: format!("{total_rows} row(s) returned from {}.", connection.name),
+        summary: if explain_mode {
+            format!("SQL Server execution plan returned {total_rows} row(s).")
+        } else {
+            format!("{total_rows} row(s) returned from {}.", connection.name)
+        },
         default_renderer: if batch_payload.is_some() {
             "batch"
         } else if explain_mode {
-            "raw"
+            "plan"
         } else {
             "table"
         },
         renderer_modes: if batch_payload.is_some() {
             vec!["batch", "json", "raw"]
         } else if explain_mode {
-            vec!["raw", "table", "json"]
+            vec!["plan", "table", "json", "raw"]
         } else {
             vec!["table", "json", "raw"]
         },
@@ -268,6 +274,7 @@ pub(super) async fn execute_sqlserver_query(
 
 struct SqlServerResultSection {
     payload: serde_json::Value,
+    columns: Vec<String>,
     row_count: usize,
     tabular_rows: Vec<Vec<String>>,
     duration_ms: u64,
@@ -309,6 +316,7 @@ fn sqlserver_result_section(
 
     SqlServerResultSection {
         payload,
+        columns,
         row_count,
         tabular_rows,
         duration_ms,
@@ -317,18 +325,57 @@ fn sqlserver_result_section(
     }
 }
 
+fn sqlserver_explain_payload(
+    statement: &str,
+    section: &SqlServerResultSection,
+) -> serde_json::Value {
+    let lines = sqlserver_plan_lines(Some(section));
+
+    payload_plan(
+        "text",
+        json!({
+            "statement": statement,
+            "format": "text",
+            "plan": lines,
+            "columns": &section.columns,
+            "rows": &section.tabular_rows,
+        }),
+        "SQL Server SHOWPLAN_TEXT plan returned.",
+    )
+}
+
+fn sqlserver_plan_text(section: Option<&SqlServerResultSection>) -> String {
+    sqlserver_plan_lines(section).join("\n")
+}
+
+fn sqlserver_plan_lines(section: Option<&SqlServerResultSection>) -> Vec<String> {
+    section
+        .map(|section| section.tabular_rows.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .flat_map(|row| row.iter())
+        .flat_map(|value| value.lines())
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
 
     use chrono::NaiveDate;
+    use serde_json::Value;
     use tiberius::{
         time::{Date, DateTime2, DateTimeOffset, Time},
         xml::XmlData,
         ColumnData,
     };
 
-    use super::stringify_tiberius_cell;
+    use super::{
+        payload_table, sqlserver_explain_payload, stringify_tiberius_cell, SqlServerResultSection,
+    };
 
     #[test]
     fn sqlserver_temporal_cells_render_as_native_values() {
@@ -369,6 +416,40 @@ mod tests {
                 "<a>value</a>",
             ))))),
             "<a>value</a>",
+        );
+    }
+
+    #[test]
+    fn sqlserver_showplan_payload_uses_plan_renderer_shape() {
+        let section = SqlServerResultSection {
+            payload: payload_table(
+                vec!["StmtText".into()],
+                vec![vec![
+                    "Clustered Index Scan\n  Predicate: [active]=(1)".into()
+                ]],
+            ),
+            columns: vec!["StmtText".into()],
+            row_count: 1,
+            tabular_rows: vec![vec![
+                "Clustered Index Scan\n  Predicate: [active]=(1)".into()
+            ]],
+            duration_ms: 3,
+            truncated: false,
+            statement: "SET SHOWPLAN_TEXT ON; select * from accounts; SET SHOWPLAN_TEXT OFF;"
+                .into(),
+        };
+
+        let payload = sqlserver_explain_payload("select * from accounts", &section);
+
+        assert_eq!(payload["renderer"], "plan");
+        assert_eq!(payload["format"], "text");
+        assert_eq!(payload["value"]["format"], "text");
+        assert_eq!(payload["value"]["plan"][0], "Clustered Index Scan");
+        assert_eq!(payload["value"]["plan"][1], "  Predicate: [active]=(1)");
+        assert_eq!(payload["value"]["columns"][0], "StmtText");
+        assert_eq!(
+            payload["value"]["rows"][0][0],
+            Value::String("Clustered Index Scan\n  Predicate: [active]=(1)".into())
         );
     }
 

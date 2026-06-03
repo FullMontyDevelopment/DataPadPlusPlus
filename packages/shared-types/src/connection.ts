@@ -188,6 +188,29 @@ export interface RedisConnectionOptions {
   unixSocketPath?: string
 }
 
+export type MemcachedProtocol = 'text' | 'binary'
+
+export type MemcachedAuthMode = 'none' | 'sasl-plain'
+
+export interface MemcachedConnectionOptions {
+  servers?: string[]
+  protocol?: MemcachedProtocol
+  authMode?: MemcachedAuthMode
+  username?: string
+  saslPasswordSecretRef?: SecretRef
+  namespacePrefix?: string
+  defaultTtlSeconds?: number
+  connectTimeoutMs?: number
+  requestTimeoutMs?: number
+  tcpNoDelay?: boolean
+  keepAlive?: boolean
+  enableCompression?: boolean
+  lruCrawlerEnabled?: boolean
+  flushDelaySeconds?: number
+  readOnlyMode?: boolean
+  maxValueBytes?: number
+}
+
 export type SqlServerConnectMode =
   | 'tcp'
   | 'named-instance'
@@ -666,6 +689,7 @@ export interface ConnectionProfile {
   notes?: string
   auth: ConnectionAuth
   redisOptions?: RedisConnectionOptions
+  memcachedOptions?: MemcachedConnectionOptions
   sqliteOptions?: SqliteConnectionOptions
   sqlServerOptions?: SqlServerConnectionOptions
   oracleOptions?: OracleConnectionOptions

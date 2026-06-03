@@ -336,6 +336,59 @@ describe('runtime request validation', () => {
     ).toThrow(/embedded passwords/)
   })
 
+  it('normalizes Memcached connection options without storing plaintext SASL secrets', () => {
+    const profile = validateConnectionTestRequest({
+      environmentId: 'env-qa',
+      secret: 'typed-sasl-password',
+      profile: {
+        id: 'conn-memcached',
+        name: 'Memcached',
+        engine: 'memcached',
+        family: 'keyvalue',
+        host: ' cache-a ',
+        port: 11211,
+        environmentIds: ['env-qa'],
+        tags: [],
+        favorite: false,
+        readOnly: false,
+        icon: 'memcached',
+        auth: {},
+        memcachedOptions: {
+          servers: [' cache-a:11211 ', '', 'cache-b:11211'],
+          protocol: 'text',
+          authMode: 'sasl-plain',
+          username: ' worker ',
+          namespacePrefix: ' catalog: ',
+          defaultTtlSeconds: 60,
+          connectTimeoutMs: 2_500,
+          requestTimeoutMs: 5_000,
+          maxValueBytes: 1_048_576,
+          saslPasswordSecretRef: {
+            id: 'secret-cache',
+            provider: 'os-keyring',
+            service: 'DataPad++',
+            account: 'conn-memcached',
+            label: 'Memcached SASL password',
+          },
+        },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    })
+
+    expect(profile.profile.memcachedOptions).toMatchObject({
+      servers: ['cache-a:11211', 'cache-b:11211'],
+      protocol: 'text',
+      authMode: 'sasl-plain',
+      username: 'worker',
+      namespacePrefix: 'catalog:',
+      connectTimeoutMs: 2_500,
+      requestTimeoutMs: 5_000,
+    })
+    expect(profile.secret).toBe('typed-sasl-password')
+    expect(profile.profile.memcachedOptions?.saslPasswordSecretRef?.id).toBe('secret-cache')
+  })
+
   it('normalizes nullable connection profile fields without raw runtime crashes', () => {
     const profile = validateConnectionProfile({
       id: 'conn-1',

@@ -6,6 +6,7 @@ import {
   createEnvironmentTabInSnapshot,
   createMetricsTabInSnapshot,
   createObjectViewTabInSnapshot,
+  createQueryTabForConnection,
   createScopedQueryTabInSnapshot,
   scopedTargetsMatch,
 } from './browser-tabs'
@@ -104,6 +105,23 @@ describe('browser tab runtime', () => {
     expect(reopened.ui.activeTabId).toBe(settingsTab?.id)
   })
 
+  it('creates connection-level Mongo queries without invented collections', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')
+
+    expect(connection).toBeDefined()
+
+    const tab = createQueryTabForConnection(
+      snapshot,
+      { ...connection!, database: undefined },
+      true,
+    )
+
+    expect(tab.queryText).toContain('"collection": ""')
+    expect(tab.queryText).not.toContain('products')
+    expect(tab.scriptText).toBe('')
+  })
+
   it('opens object views once per connection, environment, and object node', () => {
     const snapshot = createSeedSnapshot()
     const request = {
@@ -167,6 +185,31 @@ describe('browser tab runtime', () => {
     expect(reopened.ui.activeTabId).toBe(openedTab?.id)
   })
 
+  it('does not turn malformed Mongo scoped targets into collection queries', () => {
+    const snapshot = createSeedSnapshot()
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-catalog',
+      target: {
+        kind: 'collection',
+        label: 'Catalog Mongo',
+        path: [],
+        preferredBuilder: 'mongo-find',
+      },
+    })
+    const openedTab = opened.tabs.find((tab) => tab.id === opened.ui.activeTabId)
+
+    expect(openedTab).toMatchObject({
+      title: expect.stringMatching(/^query\.find\.json/),
+      queryText: expect.stringContaining('"collection": ""'),
+      builderState: expect.objectContaining({
+        kind: 'mongo-find',
+        collection: '',
+      }),
+      scriptText: '',
+    })
+    expect(openedTab?.queryText).not.toContain('products')
+  })
+
   it('reuses legacy scoped tabs that were opened before scoped target metadata existed', () => {
     const snapshot = createSeedSnapshot()
     const legacyTab = {
@@ -222,6 +265,31 @@ describe('browser tab runtime', () => {
       scriptText: expect.stringContaining('aggregate'),
     })
     expect(aggregationTab?.queryText).toContain('"operation": "aggregate"')
+  })
+
+  it('does not invent a Mongo collection when scoped query target identity is incomplete', () => {
+    const snapshot = createSeedSnapshot()
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-catalog',
+      target: {
+        kind: 'connection',
+        label: 'Catalog Mongo',
+        path: ['Catalog Mongo'],
+        preferredBuilder: 'mongo-find',
+      },
+    })
+    const tab = opened.tabs.find((item) => item.title === 'query.find.json')
+
+    expect(tab).toMatchObject({
+      title: 'query.find.json',
+      queryViewMode: 'builder',
+      builderState: expect.objectContaining({
+        kind: 'mongo-find',
+        collection: '',
+      }),
+    })
+    expect(tab?.queryText).toContain('"collection": ""')
+    expect(tab?.queryText).not.toContain('"collection": "products"')
   })
 
   it('creates Redis scoped tabs as key-browser tabs filtered to the selected prefix', () => {

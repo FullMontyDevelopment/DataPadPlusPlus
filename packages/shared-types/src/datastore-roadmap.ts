@@ -615,6 +615,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_metrics_collection',
       'supports_cost_estimation',
       'supports_import_export',
+      'supports_backup_restore',
       'supports_streaming_results',
     ],
     baselineFeatures: [
@@ -672,6 +673,8 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_permission_inspection',
       'supports_query_profile',
       'supports_metrics_collection',
+      'supports_import_export',
+      'supports_backup_restore',
       'supports_streaming_results',
       'supports_structure_visualization',
     ],
@@ -681,6 +684,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'CQL editor',
       'Partition-key visual query builder',
       'Role and permission browser',
+      'Contract-backed cqlsh COPY import/export and nodetool snapshot plans',
     ],
     advancedFeatures: [
       'SAI/index guidance',
@@ -688,6 +692,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Partition model, tombstone, and cluster health panels',
       'Nodetool/JMX readouts',
       'Repair and compaction status',
+      'Guarded export, snapshot, and restore plan previews',
     ],
     diagnosticFeatures: [
       'Tracing timeline',
@@ -1013,6 +1018,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_plan_visualization',
       'supports_query_profile',
       'supports_metrics_collection',
+      'supports_import_export',
       'supports_structure_visualization',
       'supports_vector_search',
     ],
@@ -1128,6 +1134,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_plan_visualization',
       'supports_query_profile',
       'supports_metrics_collection',
+      'supports_import_export',
       'supports_structure_visualization',
     ],
     baselineFeatures: [
@@ -1181,6 +1188,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_index_management',
       'supports_query_profile',
       'supports_metrics_collection',
+      'supports_import_export',
       'supports_structure_visualization',
     ],
     baselineFeatures: [
@@ -1287,6 +1295,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_schema_browser',
       'supports_visual_query_builder',
       'supports_result_snapshots',
+      'supports_import_export',
       'supports_query_profile',
       'supports_metrics_collection',
       'supports_streaming_results',

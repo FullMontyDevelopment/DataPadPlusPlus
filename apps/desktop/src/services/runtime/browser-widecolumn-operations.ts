@@ -194,6 +194,40 @@ function cassandraOperationRequest(connection: ConnectionProfile, request: Opera
     ].join('\n')
   }
 
+  if (request.operationId.endsWith('data.import-export')) {
+    const mode = stringValue(parameters.mode) || 'export'
+    const format = stringValue(parameters.format) || 'csv'
+    const direction = mode === 'import' ? 'from' : 'to'
+    const withClause = format.toLowerCase() === 'json'
+      ? "with header = true and null = '<null>'"
+      : 'with header = true'
+
+    return [
+      `-- Cassandra ${mode} plan for ${keyspace}.${tableName}.`,
+      '-- cqlsh COPY is contract-only here; use live execution only after driver/tooling validation.',
+      `copy "${escapeCqlIdentifier(keyspace)}"."${escapeCqlIdentifier(tableName)}" ${direction} '<selected-file>.${format}' ${withClause};`,
+    ].join('\n')
+  }
+
+  if (request.operationId.endsWith('data.backup-restore')) {
+    const mode = stringValue(parameters.mode) || 'backup'
+    const snapshotName = stringValue(parameters.snapshotName) || 'datapad_snapshot'
+
+    if (mode === 'restore') {
+      return [
+        `-- Cassandra restore plan for ${keyspace}.${tableName}.`,
+        '-- Stop writes, clear target SSTables only after backup verification, then stream validated SSTables.',
+        `sstableloader -d <contact-points> '<snapshot-dir>/${escapeCqlIdentifier(keyspace)}.${escapeCqlIdentifier(tableName)}/${escapeCqlLiteral(snapshotName)}';`,
+      ].join('\n')
+    }
+
+    return [
+      `-- Cassandra backup plan for ${keyspace}.${tableName}.`,
+      `nodetool snapshot --tag ${escapeCqlLiteral(snapshotName)} --table "${escapeCqlIdentifier(tableName)}" "${escapeCqlIdentifier(keyspace)}";`,
+      `-- Record schema with: describe table "${escapeCqlIdentifier(keyspace)}"."${escapeCqlIdentifier(tableName)}";`,
+    ].join('\n')
+  }
+
   if (request.operationId.endsWith('index.create')) {
     return `create custom index if not exists "${indexName}" on "${keyspace}"."${tableName}" ("${columnName}") using 'StorageAttachedIndex';`
   }
@@ -247,6 +281,10 @@ function cassandraTableFromObjectName(objectName: string | undefined) {
 
 function escapeCqlLiteral(value: string) {
   return value.replace(/'/g, "''")
+}
+
+function escapeCqlIdentifier(value: string) {
+  return value.replace(/"/g, '""')
 }
 
 function asRecord(value: unknown): JsonRecord {

@@ -19,6 +19,7 @@ import {
   shouldWaitForVisibleResult,
   tabExecution,
 } from './app-actions-execution-utils'
+import { useRuntimeCommandActions } from './app-actions-runtime-commands'
 
 export {
   RESULT_RENDER_ACK_FALLBACK_MS,
@@ -53,8 +54,16 @@ export function useRuntimeActions({
   state,
   stateRef,
   dispatch,
+  applyPayload,
   handleError,
 }: AppActionContext): RuntimeActions {
+  const commandActions = useRuntimeCommandActions({
+    state,
+    stateRef,
+    dispatch,
+    applyPayload,
+    handleError,
+  })
   const recordConnected = useCallback(
     (
       connectionId: string,
@@ -154,13 +163,6 @@ export function useRuntimeActions({
       try {
         ensureWorkspaceUnlocked(state.payload)
         dispatch({ type: 'EXPLORER_LOADING', request, requestId })
-        dispatch({
-          type: 'CONNECTION_HEALTH_CHECKING',
-          connectionId: request.connectionId,
-          environmentId: request.environmentId,
-          source: 'metadata',
-          message: 'Loading metadata',
-        })
         const explorer = await desktopClient.loadExplorer(request)
         dispatch({ type: 'EXPLORER_READY', explorer, requestId })
         recordConnected(
@@ -188,13 +190,6 @@ export function useRuntimeActions({
       try {
         ensureWorkspaceUnlocked(state.payload)
         dispatch({ type: 'STRUCTURE_LOADING' })
-        dispatch({
-          type: 'CONNECTION_HEALTH_CHECKING',
-          connectionId: request.connectionId,
-          environmentId: request.environmentId,
-          source: 'structure',
-          message: 'Loading structure',
-        })
         const structure = await desktopClient.loadStructureMap(request)
         dispatch({ type: 'STRUCTURE_READY', structure })
         recordConnected(
@@ -248,13 +243,6 @@ export function useRuntimeActions({
             execution: tabExecution(executionId, 'server', 'Refreshing Redis keys'),
           })
         }
-        dispatch({
-          type: 'CONNECTION_HEALTH_CHECKING',
-          connectionId: request.connectionId,
-          environmentId: request.environmentId,
-          source: 'redis-browser',
-          message: 'Refreshing Redis keys',
-        })
         const response = await desktopClient.scanRedisKeys(request)
         if (request.tabId) {
           dispatch({
@@ -297,13 +285,6 @@ export function useRuntimeActions({
           type: 'EXECUTION_LOADING',
           tabId: request.tabId,
           execution: tabExecution(executionId, 'server'),
-        })
-        dispatch({
-          type: 'CONNECTION_HEALTH_CHECKING',
-          connectionId: request.connectionId,
-          environmentId: request.environmentId,
-          source: 'redis-browser',
-          message: 'Inspecting Redis key',
         })
         const execution = await desktopClient.inspectRedisKey({
           ...request,
@@ -409,13 +390,6 @@ export function useRuntimeActions({
           tabId,
           execution: tabExecution(executionId, 'server'),
         })
-        dispatch({
-          type: 'CONNECTION_HEALTH_CHECKING',
-          connectionId: executionRequest.connectionId,
-          environmentId: executionRequest.environmentId,
-          source: 'query',
-          message: 'Running query',
-        })
         const execution = await desktopClient.executeQuery(executionRequest)
         const executionWithId = { ...execution, executionId }
         if (executionWithId.result) {
@@ -466,53 +440,6 @@ export function useRuntimeActions({
       }
     },
     [dispatch, handleError, recordConnected, recordIssue, stateRef],
-  )
-
-  const executeTestSuite = useCallback<Actions['executeTestSuite']>(
-    async (request) => {
-      const executionId = createId('execution')
-      try {
-        ensureWorkspaceUnlocked(state.payload)
-        dispatch({
-          type: 'EXECUTION_LOADING',
-          tabId: request.tabId,
-          execution: tabExecution(executionId, 'server', 'Running test suite'),
-        })
-        const response = await desktopClient.executeTestSuite(request)
-        dispatch({ type: 'COMMAND_SUCCESS', payload: await desktopClient.bootstrapApp() })
-        dispatch({
-          type: 'EXECUTION_DISPLAYED',
-          tabId: request.tabId,
-          executionId,
-        })
-        return response
-      } catch (error) {
-        dispatch({
-          type: 'EXECUTION_FAILED',
-          tabId: request.tabId,
-          executionId,
-          message: toUserMessage(error, 'Test suite execution failed.'),
-        })
-        handleError(error)
-        return undefined
-      }
-    },
-    [dispatch, handleError, state.payload],
-  )
-
-  const cancelTestRun = useCallback<Actions['cancelTestRun']>(
-    async (request) => {
-      try {
-        ensureWorkspaceUnlocked(state.payload)
-        const response = await desktopClient.cancelTestRun(request)
-        dispatch({ type: 'COMMAND_SUCCESS', payload: await desktopClient.bootstrapApp() })
-        return response
-      } catch (error) {
-        handleError(error)
-        return undefined
-      }
-    },
-    [dispatch, handleError, state.payload],
   )
 
   const fetchResultPage = useCallback<Actions['fetchResultPage']>(
@@ -629,116 +556,6 @@ export function useRuntimeActions({
     [dispatch],
   )
 
-  const cancelExecution = useCallback<Actions['cancelExecution']>(
-    async (executionId, tabId) => {
-      try {
-        ensureWorkspaceUnlocked(state.payload)
-        const result = await desktopClient.cancelExecution({ executionId, tabId })
-
-        if (!result.ok) {
-          dispatch({
-            type: 'COMMAND_ERROR',
-            message: result.message,
-          })
-        }
-      } catch (error) {
-        handleError(error)
-      }
-    },
-    [dispatch, handleError, state.payload],
-  )
-
-  const pickLocalDatabaseFile = useCallback<Actions['pickLocalDatabaseFile']>(
-    async (request) => {
-      try {
-        ensureWorkspaceUnlocked(state.payload)
-        return await desktopClient.pickLocalDatabaseFile(request)
-      } catch (error) {
-        handleError(error)
-        return { canceled: true }
-      }
-    },
-    [handleError, state.payload],
-  )
-
-  const createLocalDatabase = useCallback<Actions['createLocalDatabase']>(
-    async (request) => {
-      try {
-        ensureWorkspaceUnlocked(state.payload)
-        return await desktopClient.createLocalDatabase(request)
-      } catch (error) {
-        handleError(error)
-        return undefined
-      }
-    },
-    [handleError, state.payload],
-  )
-
-  const listDatastoreOperations = useCallback<Actions['listDatastoreOperations']>(
-    async (request) => {
-      try {
-        ensureWorkspaceUnlocked(state.payload)
-        return await desktopClient.listDatastoreOperations(request)
-      } catch (error) {
-        handleError(error)
-        return undefined
-      }
-    },
-    [handleError, state.payload],
-  )
-
-  const planDatastoreOperation = useCallback<Actions['planDatastoreOperation']>(
-    async (request) => {
-      try {
-        ensureWorkspaceUnlocked(state.payload)
-        return await desktopClient.planDatastoreOperation(request)
-      } catch (error) {
-        handleError(error)
-        return undefined
-      }
-    },
-    [handleError, state.payload],
-  )
-
-  const executeDatastoreOperation = useCallback<Actions['executeDatastoreOperation']>(
-    async (request) => {
-      try {
-        ensureWorkspaceUnlocked(state.payload)
-        return await desktopClient.executeDatastoreOperation(request)
-      } catch (error) {
-        handleError(error)
-        return undefined
-      }
-    },
-    [handleError, state.payload],
-  )
-
-  const planDataEdit = useCallback<Actions['planDataEdit']>(
-    async (request) => {
-      try {
-        ensureWorkspaceUnlocked(state.payload)
-        return await desktopClient.planDataEdit(request)
-      } catch (error) {
-        handleError(error)
-        return undefined
-      }
-    },
-    [handleError, state.payload],
-  )
-
-  const executeDataEdit = useCallback<Actions['executeDataEdit']>(
-    async (request) => {
-      try {
-        ensureWorkspaceUnlocked(state.payload)
-        return await desktopClient.executeDataEdit(request)
-      } catch (error) {
-        handleError(error)
-        return undefined
-      }
-    },
-    [handleError, state.payload],
-  )
-
   return useMemo(
     () => ({
       testConnection,
@@ -748,40 +565,22 @@ export function useRuntimeActions({
       scanRedisKeys,
       inspectRedisKey,
       executeQuery,
-      executeTestSuite,
-      cancelTestRun,
       fetchResultPage,
       fetchDocumentNodeChildren,
       markExecutionDisplayed,
-      cancelExecution,
-      pickLocalDatabaseFile,
-      createLocalDatabase,
-      listDatastoreOperations,
-      planDatastoreOperation,
-      executeDatastoreOperation,
-      planDataEdit,
-      executeDataEdit,
+      ...commandActions,
     }),
     [
-      cancelExecution,
-      createLocalDatabase,
-      executeDatastoreOperation,
+      commandActions,
       executeQuery,
-      executeTestSuite,
-      cancelTestRun,
       fetchDocumentNodeChildren,
       fetchResultPage,
       inspectRedisKey,
       inspectExplorer,
-      listDatastoreOperations,
       loadExplorer,
       loadStructureMap,
       markExecutionDisplayed,
       scanRedisKeys,
-      executeDataEdit,
-      pickLocalDatabaseFile,
-      planDataEdit,
-      planDatastoreOperation,
       testConnection,
     ],
   )

@@ -8,10 +8,11 @@ import {
 } from './browser-sqlserver-helpers'
 
 export function createSqlServerExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
-  const database = connection.database || 'datapadplusplus'
+  const database = connection.database?.trim()
 
   if (!scope) {
     return ['master', 'model', 'msdb', 'tempdb', database]
+      .filter((name): name is string => Boolean(name))
       .filter((item, index, items) => items.indexOf(item) === index)
       .map((name) =>
         sqlServerNode(
@@ -29,17 +30,20 @@ export function createSqlServerExplorerNodes(connection: ConnectionProfile, scop
   }
 
   if (scope.startsWith('database:')) {
-    return sqlServerDatabaseFolders(connection, scope.replace('database:', '') || database)
+    const scopedDatabase = scope.replace('database:', '').trim()
+    return scopedDatabase ? sqlServerDatabaseFolders(connection, scopedDatabase) : []
   }
 
   if (scope.startsWith('sqlserver:')) {
-    const [, scopedDatabase = database, section = 'tables'] = scope.split(':')
-    return sqlServerObjectsForSection(connection, scopedDatabase, section)
+    const [, scopedDatabase = '', section = 'tables'] = scope.split(':')
+    return scopedDatabase ? sqlServerObjectsForSection(connection, scopedDatabase, section) : []
   }
 
   if (scope.startsWith('table:')) {
     const { database: scopedDatabase, schema, objectName } = parseSqlServerObjectScope(scope)
-    return sqlServerTableSections(connection, scopedDatabase, schema, objectName)
+    return scopedDatabase && schema && objectName
+      ? sqlServerTableSections(connection, scopedDatabase, schema, objectName)
+      : []
   }
 
   return []
@@ -101,8 +105,6 @@ function sqlServerDatabaseFolders(connection: ConnectionProfile, database: strin
     folder('query-store', 'Query Store', 'query-store', 'Runtime stats, plans, and regressed queries'),
     folder('performance', 'Performance', 'performance', 'Sessions, locks, waits, and tuning hints'),
     folder('storage', 'Storage', 'storage', 'Files, filegroups, and partitions'),
-    folder('extended-events', 'Extended Events', 'extended-events', 'Database-scoped event sessions'),
-    folder('agent', 'Agent', 'sql-server-agent', 'Jobs, schedules, alerts, and operators'),
   ]
 }
 

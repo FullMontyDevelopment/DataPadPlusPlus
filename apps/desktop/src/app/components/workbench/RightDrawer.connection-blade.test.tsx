@@ -261,6 +261,73 @@ describe('ConnectionBlade', () => {
     )
   })
 
+  it('shows Memcached-native server, protocol, SASL, and timeout options', () => {
+    const onTestConnection = vi.fn()
+
+    render(
+      <ConnectionBlade
+        activeConnection={memcachedConnection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Memcached servers'), {
+      target: { value: 'cache-a:11212\ncache-b:11211' },
+    })
+    fireEvent.change(screen.getByLabelText('Memcached protocol'), {
+      target: { value: 'binary' },
+    })
+    fireEvent.change(screen.getByLabelText('Memcached auth mode'), {
+      target: { value: 'sasl-plain' },
+    })
+    fireEvent.change(screen.getByLabelText('Memcached username'), {
+      target: { value: '{{CACHE_USER}}' },
+    })
+    fireEvent.change(screen.getByLabelText('Memcached credential'), {
+      target: { value: 'sasl-secret' },
+    })
+    fireEvent.change(screen.getByLabelText('Memcached namespace prefix'), {
+      target: { value: 'catalog:' },
+    })
+    fireEvent.change(screen.getByLabelText('Memcached default TTL'), {
+      target: { value: '120' },
+    })
+    fireEvent.change(screen.getByLabelText('Memcached connection timeout'), {
+      target: { value: '2500' },
+    })
+    fireEvent.change(screen.getByLabelText('Memcached request timeout'), {
+      target: { value: '5000' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: memcachedConnection.id,
+        host: 'cache-a',
+        port: 11212,
+        memcachedOptions: expect.objectContaining({
+          servers: ['cache-a:11212', 'cache-b:11211'],
+          protocol: 'binary',
+          authMode: 'sasl-plain',
+          username: '{{CACHE_USER}}',
+          namespacePrefix: 'catalog:',
+          defaultTtlSeconds: 120,
+          connectTimeoutMs: 2500,
+          requestTimeoutMs: 5000,
+        }),
+      }),
+      environment.id,
+      'sasl-secret',
+    )
+  })
+
   it('shows Elasticsearch/OpenSearch-native endpoint, auth, index, and AWS options', () => {
     const onTestConnection = vi.fn()
 
@@ -642,6 +709,37 @@ const cosmosConnection: ConnectionProfile = {
     accountEndpoint: 'http://localhost:8081',
     databaseName: 'catalog',
     authMode: 'emulator',
+  },
+  createdAt: '2026-05-22T00:00:00.000Z',
+  updatedAt: '2026-05-22T00:00:00.000Z',
+}
+
+const memcachedConnection: ConnectionProfile = {
+  id: 'conn-memcached',
+  name: 'Memcached',
+  engine: 'memcached',
+  family: 'keyvalue',
+  host: 'localhost',
+  port: 11211,
+  database: undefined,
+  connectionMode: 'native',
+  environmentIds: [environment.id],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'memcached',
+  auth: {
+    username: undefined,
+    authMechanism: undefined,
+    sslMode: undefined,
+    cloudProvider: undefined,
+    principal: undefined,
+    secretRef: undefined,
+  },
+  memcachedOptions: {
+    servers: ['localhost:11211'],
+    protocol: 'text',
+    authMode: 'none',
   },
   createdAt: '2026-05-22T00:00:00.000Z',
   updatedAt: '2026-05-22T00:00:00.000Z',

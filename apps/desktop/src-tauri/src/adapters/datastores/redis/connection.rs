@@ -408,6 +408,7 @@ mod tests {
             password: Some("p@ss".into()),
             connection_string: None,
             redis_options,
+            memcached_options: None,
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,

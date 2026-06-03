@@ -7,8 +7,8 @@ use super::library::{
     remove_connection_library_nodes,
 };
 use super::profile_options::{
-    interpolate_oracle_options, interpolate_redis_options, interpolate_sqlite_options,
-    interpolate_sqlserver_options,
+    interpolate_memcached_options, interpolate_oracle_options, interpolate_redis_options,
+    interpolate_sqlite_options, interpolate_sqlserver_options,
 };
 use super::profile_options_cloud::{
     interpolate_cassandra_options, interpolate_cosmosdb_options, interpolate_dynamodb_options,
@@ -33,6 +33,11 @@ use crate::{
     security,
 };
 use std::time::Instant;
+use tokio::time::{timeout, Duration};
+
+const CONNECTION_TEST_DEFAULT_TIMEOUT_MS: u64 = 20_000;
+const CONNECTION_TEST_MIN_TIMEOUT_MS: u64 = 1_000;
+const CONNECTION_TEST_MAX_TIMEOUT_MS: u64 = 120_000;
 
 impl ManagedAppState {
     pub fn set_active_connection(
@@ -360,6 +365,10 @@ impl ManagedAppState {
                 .redis_options
                 .as_ref()
                 .map(|options| interpolate_redis_options(options, &interpolate)),
+            memcached_options: profile
+                .memcached_options
+                .as_ref()
+                .map(|options| interpolate_memcached_options(options, &interpolate)),
             sqlite_options: profile
                 .sqlite_options
                 .as_ref()
@@ -450,19 +459,120 @@ impl ManagedAppState {
             ));
         }
 
-        match adapters::test_connection(&resolved, warnings.clone()).await {
-            Ok(result) => Ok(redact_connection_test_result_for_environment(
+        match timeout(
+            connection_test_timeout_duration(&resolved),
+            adapters::test_connection(&resolved, warnings.clone()),
+        )
+        .await
+        {
+            Err(_) => Ok(redact_connection_test_result_for_environment(
+                connection_test_failure_result(
+                    &resolved,
+                    warnings,
+                    CommandError::new(
+                        "connection-test-timeout",
+                        format!(
+                            "Connection test did not finish within {} seconds.",
+                            connection_test_timeout_ms(&resolved) / 1_000
+                        ),
+                    ),
+                    started,
+                ),
+                &resolved_environment,
+                &extra_secret_values,
+            )),
+            Ok(Ok(result)) => Ok(redact_connection_test_result_for_environment(
                 result,
                 &resolved_environment,
                 &extra_secret_values,
             )),
-            Err(error) => Ok(redact_connection_test_result_for_environment(
+            Ok(Err(error)) => Ok(redact_connection_test_result_for_environment(
                 connection_test_failure_result(&resolved, warnings, error, started),
                 &resolved_environment,
                 &extra_secret_values,
             )),
         }
     }
+}
+
+fn connection_test_timeout_duration(connection: &ResolvedConnectionProfile) -> Duration {
+    Duration::from_millis(connection_test_timeout_ms(connection))
+}
+
+pub(super) fn connection_test_timeout_ms(connection: &ResolvedConnectionProfile) -> u64 {
+    let configured =
+        connection
+            .redis_options
+            .as_ref()
+            .and_then(|options| options.connection_timeout_ms.or(options.command_timeout_ms))
+            .or_else(|| {
+                connection
+                    .memcached_options
+                    .as_ref()
+                    .and_then(|options| options.connect_timeout_ms.or(options.request_timeout_ms))
+            })
+            .or_else(|| {
+                connection.sqlserver_options.as_ref().and_then(|options| {
+                    options.connection_timeout_ms.or(options.command_timeout_ms)
+                })
+            })
+            .or_else(|| {
+                connection
+                    .sqlite_options
+                    .as_ref()
+                    .and_then(|options| options.default_timeout_ms.or(options.busy_timeout_ms))
+            })
+            .or_else(|| {
+                connection.oracle_options.as_ref().and_then(|options| {
+                    options.connection_timeout_ms.or(options.request_timeout_ms)
+                })
+            })
+            .or_else(|| {
+                connection
+                    .dynamo_db_options
+                    .as_ref()
+                    .and_then(|options| options.connect_timeout_ms.or(options.request_timeout_ms))
+            })
+            .or_else(|| {
+                connection
+                    .cassandra_options
+                    .as_ref()
+                    .and_then(|options| options.connect_timeout_ms.or(options.request_timeout_ms))
+            })
+            .or_else(|| {
+                connection.cosmos_db_options.as_ref().and_then(|options| {
+                    options.connection_timeout_ms.or(options.request_timeout_ms)
+                })
+            })
+            .or_else(|| {
+                connection.search_options.as_ref().and_then(|options| {
+                    options.connection_timeout_ms.or(options.request_timeout_ms)
+                })
+            })
+            .or_else(|| {
+                connection
+                    .time_series_options
+                    .as_ref()
+                    .and_then(|options| options.connection_timeout_ms.or(options.query_timeout_ms))
+            })
+            .or_else(|| {
+                connection
+                    .graph_options
+                    .as_ref()
+                    .and_then(|options| options.connection_timeout_ms.or(options.query_timeout_ms))
+            })
+            .or_else(|| {
+                connection
+                    .warehouse_options
+                    .as_ref()
+                    .and_then(|options| options.connection_timeout_ms.or(options.query_timeout_ms))
+            })
+            .unwrap_or(CONNECTION_TEST_DEFAULT_TIMEOUT_MS);
+
+    configured.clamp(
+        CONNECTION_TEST_MIN_TIMEOUT_MS,
+        CONNECTION_TEST_MAX_TIMEOUT_MS,
+    )
 }
 
 fn connection_test_failure_result(
@@ -487,17 +597,14 @@ fn connection_test_failure_result(
     }
 }
 
-fn fixture_connection_warnings(connection: &ResolvedConnectionProfile) -> Vec<String> {
+pub(super) fn fixture_connection_warnings(connection: &ResolvedConnectionProfile) -> Vec<String> {
     let Some(endpoint) = fixture_endpoint_for_engine(&connection.engine) else {
         return Vec::new();
     };
-
     if !is_localhost(&connection.host) {
         return Vec::new();
     }
-
     let mut warnings = Vec::new();
-
     if connection.port != Some(endpoint.port) {
         warnings.push(format!(
             "DataPad++ Docker fixtures expose {} on localhost:{}.",
@@ -583,75 +690,4 @@ fn is_localhost(host: &str) -> bool {
         host.trim().to_lowercase().as_str(),
         "localhost" | "127.0.0.1" | "::1"
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fixture_connection_warnings_help_with_mongodb_fixture_ports() {
-        let connection = resolved_connection("mongodb", 27017, Some("admin"), Some("root"), None);
-
-        let warnings = fixture_connection_warnings(&connection);
-
-        assert_eq!(
-            warnings,
-            vec![
-                "DataPad++ Docker fixtures expose MongoDB on localhost:27018.",
-                "Fixture database is \"catalog\".",
-                "Fixture user is \"datapadplusplus\".",
-                "This fixture connection needs a password before it can be tested.",
-            ]
-        );
-    }
-
-    #[test]
-    fn fixture_connection_warnings_respect_inline_test_secret() {
-        let connection = resolved_connection(
-            "mongodb",
-            27017,
-            Some("catalog"),
-            Some("datapadplusplus"),
-            Some("provided-secret"),
-        );
-
-        assert_eq!(
-            fixture_connection_warnings(&connection),
-            vec!["DataPad++ Docker fixtures expose MongoDB on localhost:27018."]
-        );
-    }
-
-    fn resolved_connection(
-        engine: &str,
-        port: u16,
-        database: Option<&str>,
-        username: Option<&str>,
-        password: Option<&str>,
-    ) -> ResolvedConnectionProfile {
-        ResolvedConnectionProfile {
-            id: "conn-test".into(),
-            name: "Test connection".into(),
-            engine: engine.into(),
-            family: "document".into(),
-            host: "localhost".into(),
-            port: Some(port),
-            database: database.map(str::to_string),
-            username: username.map(str::to_string),
-            password: password.map(str::to_string),
-            connection_string: None,
-            redis_options: None,
-            sqlite_options: None,
-            sqlserver_options: None,
-            oracle_options: None,
-            dynamo_db_options: None,
-            cassandra_options: None,
-            cosmos_db_options: None,
-            search_options: None,
-            time_series_options: None,
-            graph_options: None,
-            warehouse_options: None,
-            read_only: false,
-        }
-    }
 }

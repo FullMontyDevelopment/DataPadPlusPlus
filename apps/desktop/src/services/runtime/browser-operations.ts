@@ -61,6 +61,7 @@ export function planOperationLocally(
     request.operationId.includes('.key.set') ||
     request.operationId.includes('.key.touch') ||
     request.operationId.includes('.key.increment') ||
+    request.operationId.includes('.key.decrement') ||
     request.operationId.includes('.extension.') ||
     request.operationId.includes('.file.import') ||
     request.operationId.includes('.collection.import') ||

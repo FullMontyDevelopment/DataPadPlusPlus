@@ -58,9 +58,22 @@ export function timescaleInspectPayload(
   const common = timescaleCommonPayload(schema)
 
   if (nodeId.startsWith('hypertable:')) {
-    const hypertable = common.hypertables.find((row) => row.schema === schema && row.name === objectName) ?? common.hypertables[0]
+    const hypertable = common.hypertables.find((row) => row.schema === schema && row.name === objectName)
     if (!hypertable) {
-      return undefined
+      return {
+        ...base,
+        objectName,
+        tableName: objectName,
+        columns: [],
+        indexes: [],
+        statistics: [],
+        ...common,
+        hypertables: [],
+        chunks: [],
+        compressionPolicies: [],
+        retentionPolicies: [],
+        warnings: ['No hypertable metadata is available for this object.'],
+      }
     }
 
     return {
@@ -86,9 +99,17 @@ export function timescaleInspectPayload(
   }
 
   if (nodeId.startsWith('continuous-aggregate:')) {
-    const aggregate = common.continuousAggregates.find((row) => row.schema === schema && row.name === objectName) ?? common.continuousAggregates[0]
+    const aggregate = common.continuousAggregates.find((row) => row.schema === schema && row.name === objectName)
     if (!aggregate) {
-      return undefined
+      return {
+        ...base,
+        objectName,
+        viewName: objectName,
+        materializedViews: [],
+        ...common,
+        continuousAggregates: [],
+        warnings: ['No continuous aggregate metadata is available for this object.'],
+      }
     }
 
     return {

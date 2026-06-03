@@ -33,6 +33,7 @@ export function createGraphExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (isGraphDatabaseScope(scope)) {
+    if (!graphName) return []
     return [
       graphNode({ id: `node-labels:${graphName}`, label: 'Node Labels', kind: 'node-labels', detail: 'Labels in this graph', path: [graphRootLabel(connection), graphName], scope: 'graph:node-labels', expandable: true }),
       graphNode({ id: `relationships:${graphName}`, label: 'Relationship Types', kind: 'relationship-types', detail: 'Relationship types in this graph', path: [graphRootLabel(connection), graphName], scope: 'graph:relationship-types', expandable: true }),
@@ -214,7 +215,7 @@ function graphRootLabel(connection: ConnectionProfile) {
 }
 
 function graphDefaultName(connection: ConnectionProfile) {
-  return connection.database || (connection.engine === 'neo4j' ? 'neo4j' : connection.name)
+  return connection.database?.trim() || ''
 }
 
 function graphProceduresLabel(connection: ConnectionProfile) {
@@ -230,7 +231,11 @@ function graphProceduresDetail(connection: ConnectionProfile) {
 }
 
 function graphQueryTemplate(connection: ConnectionProfile, graphName: string) {
-  if (connection.engine === 'arango') return `FOR vertex IN ${graphName}\n  LIMIT 25\n  RETURN vertex`
+  if (connection.engine === 'arango') {
+    return graphName
+      ? `FOR vertex IN ${graphName}\n  LIMIT 25\n  RETURN vertex`
+      : 'FOR vertex IN @@collection\n  LIMIT 25\n  RETURN vertex'
+  }
   if (connection.engine === 'neptune' || connection.engine === 'janusgraph') return 'g.V().limit(25)'
   return 'MATCH (n) RETURN n LIMIT 25'
 }
@@ -262,6 +267,7 @@ function graphBasePayload(connection: ConnectionProfile) {
 
 function graphGraphs(connection: ConnectionProfile) {
   const database = graphDefaultName(connection)
+  if (!database) return []
   return [{ name: database, database, nodes: 18420, relationships: 39210, labels: graphNodeLabels(connection).length, relationshipTypes: graphRelationships(connection).length }]
 }
 

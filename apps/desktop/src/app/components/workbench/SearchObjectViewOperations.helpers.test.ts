@@ -61,6 +61,9 @@ describe('SearchObjectViewOperations helpers', () => {
       name: 'normalize-products',
     })
     expect(pipelineActions.map((action) => action.label)).toEqual(['Update Pipeline', 'Simulate'])
+    expect(pipelineActions.find((action) => action.operationId === 'elasticsearch.pipeline.simulate')?.parameters).toMatchObject({
+      documents: [],
+    })
 
     const taskActions = searchOperationActions(searchConnection, indexTab, 'tasks', {
       id: 'node-a:123',

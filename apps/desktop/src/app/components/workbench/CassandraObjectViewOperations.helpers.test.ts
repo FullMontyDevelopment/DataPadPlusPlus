@@ -6,7 +6,7 @@ import {
 } from './CassandraObjectViewOperations.helpers'
 
 describe('CassandraObjectViewOperations helpers', () => {
-  it('exposes trace, index, permission, metrics, and drop previews for table views', () => {
+  it('exposes trace, index, permission, export, snapshot, and drop previews for table views', () => {
     const actions = cassandraOperationActions(cassandraConnection, tab('table', 'orders_by_customer'), 'table', {
       keyspace: 'app',
       tableName: 'orders_by_customer',
@@ -18,6 +18,8 @@ describe('CassandraObjectViewOperations helpers', () => {
       'Trace',
       'Create Index',
       'Permissions',
+      'Export',
+      'Snapshot',
       'Drop Object',
     ])
     expect(actions.find((action) => action.label === 'Create Index')).toMatchObject({
@@ -28,6 +30,19 @@ describe('CassandraObjectViewOperations helpers', () => {
         tableName: 'orders_by_customer',
         indexName: 'orders_status_sai',
         columnName: 'status',
+      }),
+    })
+    expect(actions.find((action) => action.label === 'Export')).toMatchObject({
+      operationId: 'cassandra.data.import-export',
+      parameters: expect.objectContaining({
+        mode: 'export',
+        format: 'csv',
+      }),
+    })
+    expect(actions.find((action) => action.label === 'Snapshot')).toMatchObject({
+      operationId: 'cassandra.data.backup-restore',
+      parameters: expect.objectContaining({
+        snapshotName: 'orders_by_customer_snapshot',
       }),
     })
   })

@@ -23,7 +23,7 @@ Instead of bouncing between SQL tools, MongoDB tools, Redis tools, search consol
 
 > **Pre-release note**
 >
-> DataPad++ is currently pre-release software. A lot of the core experience is already usable, but some datastore-specific features are still being completed, refined, or guarded behind preview flows. Use read-only connections first when connecting to important systems, and treat production changes with care.
+> DataPad++ is currently pre-release software. All 29 declared datastore engines now have a contract-complete native UX gate, but some datastore-specific features still need live fixture, cloud, driver, or deeper native validation before they should be treated as production-complete. Use read-only connections first when connecting to important systems, and treat production changes with care.
 
 ## Why DataPad++ Exists
 
@@ -54,14 +54,14 @@ Current focus areas include:
 
 | Family | Datastores |
 | --- | --- |
-| SQL and relational | PostgreSQL, CockroachDB, SQL Server and Azure SQL, MySQL, MariaDB, SQLite |
+| SQL and relational | PostgreSQL, CockroachDB, SQL Server and Azure SQL, MySQL, MariaDB, SQLite, Oracle, TimescaleDB |
 | Document and NoSQL | MongoDB, DynamoDB, Cassandra |
 | Key-value and cache | Redis, Valkey, Memcached |
 | Search | Elasticsearch, OpenSearch |
 | Local and analytical | SQLite, DuckDB, LiteDB |
 | Expanding surfaces | Oracle, graph stores, warehouses, time-series, metrics, and more |
 
-Some engines are further along than others. MongoDB, Redis/Valkey, SQL Server, PostgreSQL, SQLite, and several relational flows have received the deepest IDE-style treatment so far.
+All declared engines are now accepted for the contract-complete native UX gate. MongoDB, Redis/Valkey, SQL Server, PostgreSQL, SQLite, TimescaleDB, and the core SQL family remain the deepest live/native surfaces, with primary-key SQL row edits pinned on the desktop adapter for supported engines. Elasticsearch/OpenSearch explicit-id document edits and DynamoDB complete-key item edits are also pinned as live-capable desktop scopes. Secondary datastore families now have pinned native connection-flow, object-tree, object-view, guarded-operation, diagnostics/performance, and import/export parity across shared, browser, and Rust contracts. DuckDB, ClickHouse, Snowflake, and BigQuery expose pinned SQL SELECT builders, and Prometheus/InfluxDB/OpenTSDB plus Neo4j/ArangoDB/JanusGraph/Neptune expose pinned query-builder descriptors while keeping mutation paths preview-first. Oracle, Cassandra, local/document/cache, time-series, graph, and warehouse admin/import/diagnostics flows keep explicit contract-only residual risks for optional live validation.
 
 ### Explore Without Guesswork
 
@@ -72,16 +72,16 @@ Depending on the datastore, DataPad++ can show:
 - databases, schemas, tables, views, indexes, functions, procedures, packages, triggers, users, and roles
 - MongoDB databases, collections, views, GridFS, indexes, validation rules, schema previews, users, roles, and statistics
 - Redis logical databases, type folders, keys, TTLs, memory usage, streams, ACLs, slow logs, and diagnostics
-- search indexes, mappings, field capabilities, shards, aliases, lifecycle state, data streams, profile results, and query tools
-- DynamoDB tables, keys, GSIs, LSIs, TTL, streams, backups, capacity, hot partitions, index coverage, and access previews
-- Cassandra keyspaces, tables, primary keys, indexes, materialized views, partition/storage health, tracing, grants, and diagnostics
+- search indexes, mappings, field capabilities, shards, aliases, lifecycle state, data streams, profile results, explicit document-edit targets, and query tools
+- DynamoDB tables, keys, GSIs, LSIs, TTL, streams, backups, capacity, hot partitions, index coverage, access previews, and item edit targets
+- Cassandra keyspaces, tables, primary keys, indexes, materialized views, partition/storage health, tracing, grants, diagnostics, import/export plans, and snapshot plans
 - Prometheus, InfluxDB, and OpenTSDB metrics, labels, measurements, tags, targets, rules, UID metadata, stats, posture panels, and guarded profile/cardinality/retention/UID/export previews
-- Neo4j, ArangoDB, JanusGraph, and Neptune graph labels, relationships, indexes, constraints, access, metrics, and guarded profile/export previews
+- Neo4j, ArangoDB, JanusGraph, and Neptune graph labels, relationships, indexes, constraints, access, metrics, explain/profile, and guarded import/export previews
 - Snowflake, BigQuery, and ClickHouse warehouse objects, jobs, stages/reservations, access, cost/storage/compute posture, ClickHouse query-log/MergeTree/cluster posture, dry-run/cost, table clone/copy/optimize/TTL/freeze, metrics, and import/export previews
 - DuckDB local files, schemas, tables, views, extensions, external file sources, PRAGMAs, local file posture, extension posture, analyze/checkpoint, and CSV/Parquet import/export previews
 - Cosmos DB containers, partition keys, indexing policy, RU throughput, regions, consistency, access, and guarded throughput/index/failover/export previews
 - LiteDB local files, collections, indexes, file storage, storage health, checkpoint/compact, backup/export, and guarded local management previews
-- Memcached stats, slabs, item classes, settings, connections, native cache metadata dumps, stats reset, and guarded flush previews
+- Memcached stats, slabs, item classes, settings, connections, native cache metadata dumps, stats reset, guarded flush previews, and known-key get/gets/set/touch/incr/decr/delete plans
 - local database files, metadata, pragmas, tables, indexes, and integrity checks
 
 Right-click menus are designed to be object-aware. A table should feel like a table. A Redis key should feel like a Redis key. A MongoDB collection should feel like a collection, not a generic blob of JSON.
@@ -92,10 +92,17 @@ Different datastores want different tools. DataPad++ adapts the query window to 
 
 - SQL databases open in a raw SQL editor by default, with metadata-aware IntelliSense.
 - MongoDB supports a find query builder, raw JSON command mode, aggregation work, and safe scripting-style reads.
+- MongoDB document inserts and field set/unset/rename/type-change edits are live-capable in the desktop adapter only when collection/document identity and environment guardrails pass.
 - Redis and Valkey open in a native key browser, with a Redis console available when you want commands.
+- Redis and Valkey core key/member edits are live-capable in the desktop adapter after read-only, identity, and confirmation checks pass; module-backed edits remain capability-gated.
 - Document results can feed fields back into query builders by drag and drop.
 - Scoped object actions can open a query already aimed at a collection, table, keyspace, index, or view.
 - SQL-family connections can open a visual table-and-relationship explorer with focused graph loading, declared relationships, optional inferred links, and guarded schema-operation previews.
+- Search, wide-column, Wave 4 local/document/cache/analytics, and Wave 5 time-series/graph engines now have deterministic IntelliSense providers for their contract-backed keywords, objects, fields, commands, and bounded-query snippets.
+- Search, wide-column, Wave 4 local/document/cache/analytics, and Wave 5 time-series/graph object views now have contract parity across descriptor-backed workflows, focused descriptor tests, posture panels, workspace routing, and guarded action strips without claiming live payload depth.
+- Search, wide-column, Wave 4 local/document/cache/analytics, and Wave 5 time-series/graph guarded operation previews now have contract parity across object-view actions, browser planning, and Rust planning while staying preview-first for admin/write execution.
+- Search, wide-column, Wave 4 local/document/cache/analytics, and Wave 5 time-series/graph diagnostics/performance previews now have contract parity across diagnostics tree roots, posture panels, browser payloads, and Rust metrics/profile plans without claiming live sampling.
+- Search, wide-column, Wave 4 local/document/cache/analytics, and Wave 5 time-series/graph import/export previews now have contract parity across object-view actions, browser planning, and Rust planning while staying plan-only until adapter-owned file/cloud workflows are validated.
 
 Where visual builders exist, they update the actual query immediately. You can learn from the generated query, adjust it, save it, or switch back to the visual mode later.
 
@@ -139,9 +146,9 @@ It is growing into a full datastore workbench with:
 - MongoDB index management, validation views, GridFS tools, schema previews, and user/role surfaces
 - Redis diagnostics, slow log views, ACL views, key import/export plans, and type-aware editors
 - SQL-style object views for tables, procedures, functions, indexes, constraints, query store, security, and performance areas
-- Oracle-style schema, package, storage, security, and performance views
+- Oracle-style schema, package, storage, security, performance, DBMS_XPLAN, import/export, and RMAN preview flows
 - metrics dashboards where the datastore exposes useful counters
-- explain plan rendering, including a purpose-built MongoDB explain UI
+- explain plan rendering, including purpose-built MongoDB explain UI and shared SQL plan views for PostgreSQL, SQL Server, MySQL/MariaDB, SQLite, and compatible PostgreSQL-wire engines
 - test-suite workspaces for datastore-specific setup, execute, assert, and teardown flows
 - interactive result export through Save As dialogs with datastore-appropriate formats such as CSV, JSON, NDJSON, and text
 - per-tab concurrent execution so long-running queries do not block other tabs
@@ -198,6 +205,7 @@ DataPad++ is moving quickly. That is exciting, but it also means:
 - some datastore views may still be preview-backed
 - some operations may generate a plan before live execution is available
 - optional engines may need additional local drivers, Docker fixtures, or credentials
+- contract-complete does not mean every engine has been live-verified against production services
 - release artifacts may change as packaging matures
 - docs may lag a little behind fast-moving features
 
@@ -283,6 +291,7 @@ See [Docker Fixtures](tests/fixtures/README.md) for connection details and comma
 - [Architecture Overview](docs/architecture/overview.md)
 - [Datastore Adapter Roadmap](docs/architecture/datastore-adapter-roadmap.md)
 - [Datastore Readiness And Completion Plan](docs/architecture/datastore-readiness.md)
+- [Native Datastore Completion Tracker](docs/architecture/native-completion-tracker.md)
 - [Security And Safety](docs/architecture/security-and-safety.md)
 
 ## Contributing

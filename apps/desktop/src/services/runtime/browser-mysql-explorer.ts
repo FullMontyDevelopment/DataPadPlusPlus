@@ -6,12 +6,14 @@ import {
 } from './browser-mysql-helpers'
 
 export function createMysqlExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
-  const database = connection.database || 'datapadplusplus'
+  const database = connection.database?.trim() || ''
   const engineLabel = connection.engine === 'mariadb' ? 'MariaDB' : 'MySQL'
 
   if (!scope) {
     return [
-      mysqlNode(connection, `database:${database}`, database, 'database', `${engineLabel} database`, `database:${database}`, ['Databases'], true),
+      ...(database
+        ? [mysqlNode(connection, `database:${database}`, database, 'database', `${engineLabel} database`, `database:${database}`, ['Databases'], true)]
+        : []),
       mysqlNode(connection, 'mysql:system-schemas', 'System Schemas', 'system-schemas', 'information_schema, mysql, performance_schema, and sys', 'mysql:system-schemas', [], true),
       mysqlNode(connection, 'mysql:security', 'Users / Privileges', 'security', 'Users, roles, and grants', 'mysql:security', [], true),
       mysqlNode(connection, 'mysql:diagnostics', 'Diagnostics', 'diagnostics', 'Sessions, replication, and status counters', 'mysql:diagnostics', [], true),
@@ -19,7 +21,8 @@ export function createMysqlExplorerNodes(connection: ConnectionProfile, scope?: 
   }
 
   if (scope.startsWith('database:')) {
-    const scopedDatabase = scope.replace('database:', '') || database
+    const scopedDatabase = scope.replace('database:', '').trim() || database
+    if (!scopedDatabase) return []
     return [
       mysqlFolder(connection, scopedDatabase, 'tables', 'Tables', 'Base tables and storage engines'),
       mysqlFolder(connection, scopedDatabase, 'views', 'Views', 'Stored SELECT definitions'),
@@ -58,11 +61,13 @@ export function createMysqlExplorerNodes(connection: ConnectionProfile, scope?: 
 
   if (scope.startsWith('mysql:')) {
     const [, scopedDatabase = database, section = 'tables'] = scope.split(':')
+    if (!scopedDatabase) return []
     return mysqlObjectsForSection(connection, scopedDatabase, section)
   }
 
   if (scope.startsWith('table:')) {
     const { database: scopedDatabase, objectName } = parseMysqlObjectScope(scope, database)
+    if (!scopedDatabase || !objectName) return []
     return [
       mysqlSection(connection, scopedDatabase, objectName, 'columns', 'Columns', 'Column types and collation'),
       mysqlSection(connection, scopedDatabase, objectName, 'constraints', 'Constraints', 'Primary, unique, check, and foreign keys'),
@@ -80,15 +85,17 @@ export function createMysqlExplorerNodes(connection: ConnectionProfile, scope?: 
 }
 
 export function mysqlInspectQueryTemplate(connection: ConnectionProfile, nodeId: string) {
-  const database = connection.database || 'datapadplusplus'
+  const database = connection.database?.trim() || ''
 
   if (nodeId.startsWith('table:') || nodeId.startsWith('view:')) {
     const { database: scopedDatabase, objectName } = parseMysqlObjectScope(nodeId, database)
+    if (!scopedDatabase || !objectName) return 'select schema_name from information_schema.schemata order by schema_name;'
     return `select * from ${mysqlQualifiedName(scopedDatabase, objectName)} limit 100;`
   }
 
   if (nodeId.startsWith('table-section:')) {
-    const [, scopedDatabase = database, table = 'accounts', section = 'columns'] = nodeId.split(':')
+    const [, scopedDatabase = database, table = '', section = 'columns'] = nodeId.split(':')
+    if (!scopedDatabase || !table) return 'select schema_name from information_schema.schemata order by schema_name;'
     if (section === 'data') {
       return `select * from ${mysqlQualifiedName(scopedDatabase, table)} limit 100;`
     }
@@ -100,11 +107,13 @@ export function mysqlInspectQueryTemplate(connection: ConnectionProfile, nodeId:
 
   if (nodeId.startsWith('procedure:') || nodeId.startsWith('function:')) {
     const { database: scopedDatabase, objectName } = parseMysqlObjectScope(nodeId, database)
+    if (!scopedDatabase || !objectName) return 'select routine_schema, routine_name, routine_type from information_schema.routines order by routine_schema, routine_name;'
     return `show create ${nodeId.startsWith('function:') ? 'function' : 'procedure'} ${mysqlQualifiedName(scopedDatabase, objectName)};`
   }
 
   if (nodeId.startsWith('database:')) {
-    const scopedDatabase = nodeId.replace('database:', '') || database
+    const scopedDatabase = nodeId.replace('database:', '').trim() || database
+    if (!scopedDatabase) return 'select schema_name from information_schema.schemata order by schema_name;'
     return `select table_name, table_type, engine from information_schema.tables where table_schema = '${scopedDatabase}' order by table_name;`
   }
 

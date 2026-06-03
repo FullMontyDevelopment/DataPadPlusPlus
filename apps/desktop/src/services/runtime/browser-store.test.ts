@@ -5,7 +5,9 @@ import {
   findEnvironment,
   findTab,
   loadBrowserSnapshot,
+  normalizeUiStatePatch,
   saveBrowserSnapshot,
+  updateUiStateLocally,
 } from './browser-store'
 
 describe('browser workspace storage', () => {
@@ -169,5 +171,41 @@ describe('browser workspace storage', () => {
     expect(findConnection(snapshot, 'missing-connection')).toBeUndefined()
     expect(findEnvironment(snapshot, 'missing-environment')).toBeUndefined()
     expect(findTab(snapshot, 'missing-tab')).toBeUndefined()
+  })
+
+  it('rounds fractional UI layout sizes before saving browser state', () => {
+    const normalized = normalizeUiStatePatch({
+      bottomPanelHeight: 806.4000244140625,
+      sidebarWidth: 279.5,
+      resultsSideWidth: 420.1,
+      rightDrawerWidth: Number.NaN,
+    })
+
+    expect(normalized).toMatchObject({
+      bottomPanelHeight: 806,
+      sidebarWidth: 280,
+      resultsSideWidth: 420,
+    })
+    expect(normalized).not.toHaveProperty('rightDrawerWidth')
+
+    const snapshot = updateUiStateLocally(createBlankSnapshot(), {
+      bottomPanelHeight: 806.4000244140625,
+      sidebarWidth: 279.5,
+    })
+
+    expect(snapshot.ui.bottomPanelHeight).toBe(806)
+    expect(snapshot.ui.sidebarWidth).toBe(280)
+  })
+
+  it('does not clear existing layout sizes when a UI patch omits them', () => {
+    const snapshot = createBlankSnapshot()
+    snapshot.ui.bottomPanelHeight = 320
+    snapshot.ui.sidebarWidth = 300
+
+    const next = updateUiStateLocally(snapshot, { explorerFilter: 'orders' })
+
+    expect(next.ui.explorerFilter).toBe('orders')
+    expect(next.ui.bottomPanelHeight).toBe(320)
+    expect(next.ui.sidebarWidth).toBe(300)
   })
 })

@@ -236,12 +236,20 @@ const DEFAULT_DESCRIPTOR: MongoObjectViewDescriptor = {
   emptyDescription: 'Refresh this object or verify that the connected user has permission to inspect this metadata.',
 }
 
+const LEGACY_KIND_ALIASES: Record<string, string> = {
+  'sample-results': 'view-results',
+}
+
+function normalizeMongoDescriptorKind(kind: string) {
+  return LEGACY_KIND_ALIASES[kind] ?? kind
+}
+
 export function getMongoObjectViewDescriptor(kind: string | undefined): MongoObjectViewDescriptor {
   if (!kind) {
     return DEFAULT_DESCRIPTOR
   }
 
-  return DESCRIPTORS[kind] ?? DEFAULT_DESCRIPTOR
+  return DESCRIPTORS[normalizeMongoDescriptorKind(kind)] ?? DEFAULT_DESCRIPTOR
 }
 
 export function mongoObjectViewMenuLabel(kind: string | undefined): string {
@@ -257,7 +265,7 @@ export function mongoScopedQueryMenuLabel(kind: string | undefined): string {
     return 'Open Aggregation Builder'
   }
 
-  if (kind === 'pipeline' || kind === 'sample-results' || kind === 'view') {
+  if (kind === 'pipeline' || kind === 'view-results' || kind === 'sample-results' || kind === 'view') {
     return 'Open Results Preview'
   }
 
@@ -274,7 +282,7 @@ export const MONGO_QUERYABLE_OBJECT_KINDS = Object.freeze([
   'collection',
   'documents',
   'aggregations',
-  'sample-results',
+  'view-results',
   'view',
   'pipeline',
   'gridfs-collection',
@@ -283,9 +291,9 @@ export const MONGO_QUERYABLE_OBJECT_KINDS = Object.freeze([
 ])
 
 export function isMongoObjectViewKind(kind: string | undefined): boolean {
-  return Boolean(kind && MONGO_OBJECT_VIEW_KINDS.includes(kind))
+  return Boolean(kind && MONGO_OBJECT_VIEW_KINDS.includes(normalizeMongoDescriptorKind(kind)))
 }
 
 export function isMongoQueryableObjectKind(kind: string | undefined): boolean {
-  return Boolean(kind && MONGO_QUERYABLE_OBJECT_KINDS.includes(kind))
+  return Boolean(kind && MONGO_QUERYABLE_OBJECT_KINDS.includes(normalizeMongoDescriptorKind(kind)))
 }

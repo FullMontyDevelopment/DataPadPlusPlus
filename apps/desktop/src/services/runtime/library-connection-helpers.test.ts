@@ -8,6 +8,7 @@ import {
   connectionLibraryNodeId,
   defaultLibraryFolderForConnection,
   effectiveConnectionEnvironmentId,
+  effectiveConnectionEnvironmentIds,
   ensureConnectionLibraryNodes,
 } from './library-connection-helpers'
 
@@ -58,5 +59,61 @@ describe('Library connection helpers', () => {
 
     expect(defaultLibraryFolderForConnection(snapshot, connection.id)).toBe(folderId)
     expect(effectiveConnectionEnvironmentId(snapshot, connection)).toBe(environment.id)
+  })
+
+  it('resolves every Library row environment for a connection', () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    const qa = createEnvironmentProfile()
+    const prod = { ...createEnvironmentProfile(), id: 'env-prod', label: 'Prod' }
+    const connection = createConnectionProfile('')
+
+    snapshot.environments.push(qa, prod)
+    snapshot.ui.activeEnvironmentId = snapshot.environments[0]?.id ?? ''
+    snapshot.connections.push(connection)
+    snapshot.libraryNodes.push(
+      {
+        id: 'folder-qa',
+        kind: 'folder',
+        name: 'QA',
+        tags: [],
+        environmentId: qa.id,
+        createdAt: '2026-05-18T00:00:00.000Z',
+        updatedAt: '2026-05-18T00:00:00.000Z',
+      },
+      {
+        id: 'folder-prod',
+        kind: 'folder',
+        name: 'Prod',
+        tags: [],
+        environmentId: prod.id,
+        createdAt: '2026-05-18T00:00:00.000Z',
+        updatedAt: '2026-05-18T00:00:00.000Z',
+      },
+      {
+        id: 'library-connection-qa',
+        kind: 'connection',
+        parentId: 'folder-qa',
+        name: connection.name,
+        tags: [],
+        connectionId: connection.id,
+        createdAt: '2026-05-18T00:00:00.000Z',
+        updatedAt: '2026-05-18T00:00:00.000Z',
+      },
+      {
+        id: 'library-connection-prod',
+        kind: 'connection',
+        parentId: 'folder-prod',
+        name: connection.name,
+        tags: [],
+        connectionId: connection.id,
+        createdAt: '2026-05-18T00:00:00.000Z',
+        updatedAt: '2026-05-18T00:00:00.000Z',
+      },
+    )
+
+    expect(effectiveConnectionEnvironmentIds(snapshot, connection)).toEqual([
+      qa.id,
+      prod.id,
+    ])
   })
 })

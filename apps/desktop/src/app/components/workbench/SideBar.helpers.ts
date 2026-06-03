@@ -38,6 +38,7 @@ export function isExplorerNodeQueryable(node: ExplorerNode) {
     'documents',
     'aggregations',
     'gridfs-collection',
+    'view-results',
     'sample-results',
     'table',
     'base-table',
@@ -118,7 +119,7 @@ function preferredBuilderForExplorerNode({
     return 'mongo-aggregation'
   }
 
-  if (engine === 'mongodb' && ['collection', 'documents', 'gridfs-collection', 'sample-results'].includes(kind)) {
+  if (engine === 'mongodb' && ['collection', 'documents', 'gridfs-collection', 'view-results', 'sample-results'].includes(kind)) {
     return 'mongo-find'
   }
 

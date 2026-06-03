@@ -253,6 +253,7 @@ fn build_fixture_connection(
             tags: seed.tags.iter().map(|tag| (*tag).to_string()).collect(),
             favorite: seed.profile.is_none(),
             redis_options: None,
+            memcached_options: None,
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,

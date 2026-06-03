@@ -1,5 +1,10 @@
 import type { ExplorerNode } from '@datapadplusplus/shared-types'
 
+interface MongoObjectScope {
+  databaseName?: string
+  objectName: string
+}
+
 export function documentExplorerNode(node: Omit<ExplorerNode, 'family'>): ExplorerNode {
   return {
     family: 'document',
@@ -9,20 +14,57 @@ export function documentExplorerNode(node: Omit<ExplorerNode, 'family'>): Explor
 
 export function parseMongoObjectScope(scope: string, prefix: string, fallbackDatabase: string) {
   const rest = scope.replace(prefix, '')
-  const [databasePart, ...objectParts] = rest.split(':')
-  const firstPart = databasePart || fallbackDatabase
+  const [databasePart = '', ...objectParts] = rest.split(':')
 
   if (!objectParts.length) {
     return {
       databaseName: fallbackDatabase,
-      objectName: firstPart,
+      objectName: databasePart.trim(),
     }
   }
 
   return {
     databaseName: databasePart || fallbackDatabase,
-    objectName: objectParts.join(':') || firstPart,
+    objectName: objectParts.join(':').trim(),
   }
+}
+
+export function parseMongoObjectScopeStrict(
+  scope: string,
+  prefix: string,
+  fallbackDatabase?: string,
+): MongoObjectScope | undefined {
+  if (!scope.startsWith(prefix)) return undefined
+
+  const parts = scope
+    .slice(prefix.length)
+    .split(':')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  const database = fallbackDatabase?.trim()
+
+  if (parts.length >= 2) {
+    return {
+      databaseName: parts[0]!,
+      objectName: parts.slice(1).join(':'),
+    }
+  }
+
+  if (parts.length === 1) {
+    return {
+      databaseName: database,
+      objectName: parts[0]!,
+    }
+  }
+
+  return undefined
+}
+
+export function parseMongoDatabaseScope(scope: string, prefix: string, fallbackDatabase?: string) {
+  if (!scope.startsWith(prefix)) return undefined
+
+  const database = scope.slice(prefix.length).trim() || fallbackDatabase?.trim()
+  return database || undefined
 }
 
 export function documentFindTemplate(database: string | undefined, collection: string, limit = 20) {

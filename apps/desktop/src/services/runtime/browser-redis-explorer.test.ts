@@ -14,7 +14,6 @@ describe('browser Redis explorer slice', () => {
       'Databases',
       'Pub/Sub',
       'Lua Scripts',
-      'Functions',
       'ACL / Security',
       'Diagnostics',
     ])

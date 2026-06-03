@@ -1,5 +1,6 @@
 import type { ConnectionProfile, OperationManifestResponse } from '@datapadplusplus/shared-types'
 import { buildCockroachOperationManifests } from './browser-cockroach-operation-manifests'
+import { buildDocumentOperationManifests } from './browser-document-operation-manifests'
 import { buildMemcachedOperationManifests } from './browser-memcached-operation-manifests'
 import { buildMysqlOperationManifests } from './browser-mysql-operation-manifests'
 import { buildPostgresOperationManifests } from './browser-postgres-operation-manifests'
@@ -7,6 +8,8 @@ import { buildSearchOperationManifests } from './browser-search-operation-manife
 import { buildSqlServerOperationManifests } from './browser-sqlserver-operation-manifests'
 import { buildSqliteOperationManifests } from './browser-sqlite-operation-manifests'
 import { buildTimescaleOperationManifests } from './browser-timescale-operation-manifests'
+import { buildWaveFiveOperationManifests } from './browser-wave5-operation-manifests'
+import { buildWideColumnOperationManifests } from './browser-widecolumn-operation-manifests'
 
 export function buildAdapterSpecificOperationManifests(
   connection: ConnectionProfile,
@@ -15,12 +18,15 @@ export function buildAdapterSpecificOperationManifests(
   return [
     ...buildMongoOperationManifests(connection, capabilities),
     ...buildRedisOperationManifests(connection, capabilities),
+    ...buildDocumentOperationManifests(connection, capabilities),
     ...buildMemcachedOperationManifests(connection, capabilities),
     ...buildTimescaleOperationManifests(connection, capabilities),
     ...buildCockroachOperationManifests(connection, capabilities),
     ...buildMysqlOperationManifests(connection, capabilities),
     ...buildPostgresOperationManifests(connection, capabilities),
     ...buildSearchOperationManifests(connection, capabilities),
+    ...buildWaveFiveOperationManifests(connection, capabilities),
+    ...buildWideColumnOperationManifests(connection, capabilities),
     ...buildSqlServerOperationManifests(connection, capabilities),
     ...buildSqliteOperationManifests(connection, capabilities),
     ...buildCloudWarehouseOperationManifests(connection, capabilities),

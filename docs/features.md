@@ -148,7 +148,7 @@ You can:
 - review Mongo explain plans in a purpose-built plan dashboard
 - open purpose-built views for schema, indexes, validation, GridFS, users, roles, statistics, and document insert/upload workflows
 
-Document editing is deliberate. You double-click to edit, and the app only enables edits when the adapter can identify the document safely.
+Document editing is deliberate. You double-click to edit, and the desktop adapter only enables live insert-document and field set/unset/rename/type-change edits when it can identify the collection/document safely and the active environment allows the change.
 
 ## Redis And Valkey Experience
 
@@ -169,7 +169,7 @@ The Redis browser includes:
 
 Selecting a key opens its value in the Results panel. DataPad++ can inspect common Redis types such as strings, hashes, lists, sets, sorted sets, and streams. Redis Stack-style types such as JSON, TimeSeries, and probabilistic structures are detected when the server supports them, with unsupported actions shown as unavailable instead of failing mysteriously.
 
-Raw Redis commands are still available from the query toolbar when you need the console.
+Raw Redis commands are still available from the query toolbar when you need the console. Core key and member edits are live-capable in the desktop adapter after read-only, identity, and confirmation checks pass; module-backed edits stay disabled or preview-first until the matching module commands are confirmed.
 
 ## SQL Experience
 
@@ -189,9 +189,9 @@ You can:
 
 DataPad++ aims to respect each SQL dialect. PostgreSQL, SQL Server, MySQL, MariaDB, SQLite, and CockroachDB have different identifier rules, metadata surfaces, and diagnostics. The app should guide you instead of pretending they are all identical.
 
-PostgreSQL workspaces include compact storage, index-health, security, and activity panels so common `pg_stat` and catalog signals are visible without digging through raw metadata. Guarded PostgreSQL maintenance previews cover `VACUUM`, `ANALYZE`, and `REINDEX`, alongside explain/profile, grants, export, and backup workflows.
+PostgreSQL workspaces include compact storage, index-health, security, and activity panels so common `pg_stat` and catalog signals are visible without digging through raw metadata. Guarded PostgreSQL maintenance previews cover `VACUUM`, `ANALYZE`, and `REINDEX`, alongside rendered explain plans, profile, grants, export, and backup workflows.
 
-SQL Server and Azure SQL workspaces include compact storage, index, workload, security, and Agent posture panels. Guarded previews cover `UPDATE STATISTICS`, index rebuild/reorganize/disable/enable workflows, and Query Store workload review.
+SQL Server and Azure SQL workspaces include compact storage, index, workload, security, and Agent posture panels. SHOWPLAN_TEXT results render through the shared plan viewer, and guarded previews cover `UPDATE STATISTICS`, index rebuild/reorganize/disable/enable workflows, import/export, backup/restore, and Query Store workload review.
 
 CockroachDB workspaces include compact table, cluster, locality, job, contention, and security posture panels for distributed SQL signals. Guarded previews cover jobs, ranges, regions, sessions, contention, roles/grants, zone configuration, backup, restore, and import workflows.
 
@@ -200,6 +200,8 @@ CockroachDB live SQL execution is read-oriented. Native inspection commands such
 MySQL and MariaDB expose Workbench-style storage, index, security, session, status, slow-query, InnoDB, and replication surfaces where metadata is available. Maintenance actions such as check, analyze, optimize, repair, and scheduled event enable/disable are shown as guarded previews rather than raw command dumps.
 
 SQLite gets a local-file workbench treatment: file posture, attached databases, PRAGMA health, integrity checks, indexes, triggers, generated columns, and virtual tables are summarized in compact panels. Local maintenance actions such as check, analyze, optimize, vacuum, reindex, backup, and export are planned with guardrails so file-affecting work is explicit.
+
+SQL row editing is live only when the target identity is complete and the connection/environment guardrails allow it. PostgreSQL-family, SQL Server, MySQL/MariaDB, SQLite, and TimescaleDB use primary-key predicates for live row edits, with desktop live-edit scopes and browser preview-only scopes covered by contract tests. Oracle remains contract-only until a live Oracle driver path is configured.
 
 ## Search Experience
 
@@ -210,8 +212,10 @@ You can:
 - configure HTTP, Elastic Cloud, managed OpenSearch, AWS SigV4, API key, default-index, TLS, and timeout options without storing secrets in plaintext
 - browse indexes, data streams, and mappings
 - build search queries visually
+- use deterministic DSL IntelliSense for query keys, index names, mapped fields, and aggregation snippets
 - inspect search hits, source documents, highlights, and aggregations
 - review cluster, field capability, shard-health, Lucene segment, lifecycle, ingestion, security, and profile views without reading raw API payloads
+- edit explicitly identified search documents behind read-only, document-id, and confirmation guards
 - preview force merge, cache clear, reindex, open/close, mapping, settings, alias, template, pipeline, rollover, lifecycle policy, task cancel, snapshot/restore, bulk, and security workflows behind guardrails
 - switch to raw query DSL
 - view profile, explain, shard, index, and cluster diagnostics where supported
@@ -226,11 +230,13 @@ Depending on the engine, DataPad++ can help you:
 - configure endpoint, database or graph name, traversal source, auth mode, AWS/SigV4, TLS, timeout, fetch-size, and default query-language options without storing secrets in plaintext
 - browse graphs, node labels, relationship types, properties, indexes, constraints, procedures, security, and diagnostics
 - open scoped Cypher, AQL, or Gremlin queries from graph objects
+- use graph-query descriptors for Cypher, AQL, Gremlin, openCypher, and SPARQL-style query composition while writes stay preview-first
+- use deterministic graph IntelliSense for query-language keywords, graph names, labels, relationship types, properties, and bounded traversal snippets
 - prepare guarded profile requests before running expensive traversals
 - review metrics, permissions, CloudWatch/IAM-style access, schema indexes, and constraints
-- preview index, constraint, and graph export workflows through environment guardrails
+- preview explain/profile, index, constraint/drop, access, metrics, and graph import/export workflows through environment guardrails
 
-Neo4j, ArangoDB, JanusGraph, and Amazon Neptune each keep their own request shapes and labels so the UI feels native to the graph engine.
+Neo4j, ArangoDB, JanusGraph, and Amazon Neptune each keep their own request shapes and labels so the UI feels native to the graph engine, while live driver/cloud execution remains explicitly guarded.
 
 ## Warehouse Experience
 
@@ -241,6 +247,8 @@ DataPad++ can show:
 - configure Snowflake, BigQuery, ClickHouse, and DuckDB endpoint, account/project, database/dataset/schema, compute, auth, TLS, timeout, row, cost, and local-file options without storing secrets in plaintext
 - databases, datasets, schemas, tables, views, stages, compute warehouses, jobs, reservations, security, and diagnostics
 - scoped Snowflake SQL, GoogleSQL, or ClickHouse SQL queries
+- SQL SELECT builders for DuckDB, ClickHouse, Snowflake, and BigQuery table-focused reads
+- deterministic SQL IntelliSense for warehouse and embedded-OLAP schemas, objects, columns, aliases, functions, and bounded query starts
 - dry-run or plan previews before broad warehouse queries
 - compact cost, compute, storage, access, query-history, warehouse-load, reservation, slot-usage, and job-timeline posture panels
 - cost/profile, query history, utilization, job, access, table clone/copy/optimize, warehouse suspend/resume, and import/export operation previews
@@ -255,10 +263,10 @@ TimescaleDB builds on the PostgreSQL workflow with time-series native surfaces:
 - hypertables, chunks, compression, retention, continuous aggregates, and jobs in the tree
 - compact hypertable, policy, aggregate, and diagnostic posture panels
 - scoped data queries for hypertables and continuous aggregates
-- guarded compression-policy, retention-policy, and continuous-aggregate refresh previews
-- PostgreSQL-style roles, grants, indexes, explain/profile, and export workflows where they apply
+- guarded compression-policy, retention-policy, continuous-aggregate refresh, import/export, and backup/restore previews
+- PostgreSQL-style roles, grants, indexes, rendered explain/profile, row-edit, and export workflows where they apply
 
-Prometheus, InfluxDB, and OpenTSDB keep their own non-SQL time-series workflows, with typed endpoint/auth/bucket/metric connection options, metric/label/bucket/tag trees, chart-ready results, cardinality and retention surfaces, and guarded metadata-operation previews.
+Prometheus, InfluxDB, and OpenTSDB keep their own non-SQL time-series workflows, with typed endpoint/auth/bucket/metric connection options, metric/label/bucket/tag trees, chart-ready results, pinned query-builder descriptors for PromQL, Flux/InfluxQL, and OpenTSDB metric queries, deterministic metric/dimension/function IntelliSense, profile/metrics payloads, cardinality and retention surfaces, UID repair, API export, and guarded metadata-operation previews.
 
 ## Document, Local, And Cache Engines
 
@@ -267,11 +275,14 @@ Document-like cloud and local engines keep their own management surfaces.
 DataPad++ can help you:
 
 - review Cosmos DB containers, partition keys, indexing policy, RU throughput, regions, consistency, access, and diagnostics
+- use deterministic Cosmos SQL and JSON IntelliSense for databases, containers, fields, partition-key helpers, and bounded query snippets
 - preview Cosmos DB query metrics, throughput changes, consistency changes, indexing policy updates, region failover, access checks, exports, and guarded drops
 - inspect LiteDB local files, collections, schema previews, indexes, file storage, storage health, and settings
+- use deterministic LiteDB JSON IntelliSense for collections, inferred fields, operation keys, and bounded find snippets
 - preview LiteDB local health checks, checkpoint/compact, index changes, exports, backups, and collection drops
 - review Memcached stats, slabs, item classes, settings, connection pressure, and cache diagnostics
-- preview Memcached stats collection, stats reset, guarded flush, and LRU crawler metadata dumps without exposing fake key lists
+- use deterministic Memcached command IntelliSense for stats, known-key operations, slab/item-class targets, CAS reads, and guarded write-preview snippets
+- preview Memcached stats collection, stats reset, guarded flush, LRU crawler metadata dumps, and known-key get/gets/set/touch/incr/decr/delete plans without exposing fake key lists
 
 ## Results
 
@@ -352,10 +363,11 @@ DataPad++ supports live edits only where the target is clear and the datastore c
 Examples:
 
 - SQL row edits need table and primary-key context
-- MongoDB document edits need collection and document id context
-- Redis key edits need a concrete key
+- MongoDB document edits need collection context and, except for inserts, stable document id context
+- Redis and Valkey key edits need a concrete key
 - DynamoDB item edits need complete key conditions
-- Cassandra row edits need complete primary-key conditions
+- Elasticsearch and OpenSearch document edits need an explicit index and document id
+- Cassandra row edits need complete primary-key conditions and remain preview-only until the live CQL driver path is available
 
 When DataPad++ cannot prove the target is safe, the action is disabled or shown as a preview plan instead of being executed silently.
 
@@ -373,21 +385,31 @@ Examples include:
 - index and storage stats
 - Redis INFO, SLOWLOG, ACL, and memory information
 - search-engine profile and shard details
-- DynamoDB capacity, TTL, stream, backup, IAM-style access, GSI, and export/import previews
-- Cassandra tracing, SAI/index, grants, and diagnostics previews
+- DynamoDB capacity, TTL, stream, backup/restore, IAM-style access, GSI, item edit, and export/import previews
+- Cassandra tracing, SAI/index, grants, diagnostics, cqlsh COPY import/export, and nodetool snapshot/restore previews
 - Prometheus, InfluxDB, and OpenTSDB profile, metrics/stats, access, posture panels, cardinality, retention, UID repair, export, and guarded metadata-operation previews
-- DuckDB local file posture, extension posture, PRAGMA/maintenance panels, table/database analyze, checkpoint, extension load/install, and CSV/Parquet import/export previews
+- Neo4j, ArangoDB, JanusGraph, and Neptune explain/profile, graph metrics, access/IAM, index, constraint/drop, and graph import/export previews
+- Cosmos DB throughput, consistency, failover, RU metrics, indexing, access, export, and drop previews
+- LiteDB local file health, checkpoint, compact, index rebuild, import/export, backup, and collection drop previews
+- Memcached stats reset, flush, CAS reads, set/touch/increment/decrement/delete, and LRU dump previews
+- DuckDB local file posture, extension posture, PRAGMA/maintenance panels, table/database analyze, checkpoint, extension load/install, CSV/Parquet import/export, and backup previews
+- ClickHouse optimize, TTL materialization, freeze snapshot, query-log, metrics, access, and import/export previews
+- Snowflake and BigQuery cost, metrics, access, clone/copy, suspend/resume where applicable, and cloud import/export previews
 - cloud dry-run or cost estimates where available
 
 Destructive or administrative actions should be previewed first, with the generated SQL, command, or API request visible before execution is allowed.
 
 ## Datastore Coverage
 
-DataPad++ is growing in layers. The complete current readiness matrix lives in the [Datastore Readiness And Completion Plan](architecture/datastore-readiness.md).
+DataPad++ is growing in layers. All 29 declared engines are now accepted for the contract-complete native UX gate, the complete current readiness matrix lives in the [Datastore Readiness And Completion Plan](architecture/datastore-readiness.md), and the one-by-one native-completion queue is tracked in the [Native Datastore Completion Tracker](architecture/native-completion-tracker.md).
 
-### Strongest Current Areas
+### Current Contract Claim
 
-These engines have the deepest native-feeling surfaces today:
+Every declared engine now has explicit contract evidence, per-criterion contract coverage, and a residual-risk note in the shared completeness matrix. This is a contract-complete claim, not a claim that every cloud service, driver, credential mode, or destructive/admin path has live production validation.
+
+### Strongest Live/Native Areas
+
+These engines have the deepest live or native-feeling surfaces today:
 
 - MongoDB
 - Redis and Valkey
@@ -396,15 +418,29 @@ These engines have the deepest native-feeling surfaces today:
 - SQLite
 - CockroachDB
 - MySQL and MariaDB
+- Elasticsearch and OpenSearch explicit-id document editing
+- DynamoDB complete-key item editing
+- Search, wide-column, Wave 4, and Wave 5 native connection-flow parity across shared types, right-drawer fields, browser validation, Rust interpolation, and redaction
+- Search, wide-column, Wave 4, and Wave 5 native object-tree parity across shared, Rust, and browser-preview manifests
+- Search, wide-column, Wave 4, and Wave 5 object-view parity across descriptor-backed workflows, focused descriptor tests, posture panels, workspace routing, and guarded action strips
+- Search, wide-column, Wave 4, and Wave 5 guarded-operation parity across object-view actions, browser manifests/planners, Rust manifests/planners, disabled reasons, confirmations, and plan-only execution wording
+- Search, wide-column, Wave 4, and Wave 5 diagnostics/performance parity across diagnostics trees, object-view posture panels, browser diagnostics/profile payloads, Rust metrics/profile planning, and preview-only residual-risk wording
+- Search, wide-column, Wave 4, and Wave 5 import/export parity across object-view actions, browser manifests/planners, Rust manifests/planners, backup/restore or bounded export plans, and plan-only file/cloud execution wording
+- DuckDB, ClickHouse, Snowflake, and BigQuery SQL SELECT builder coverage
+- Prometheus, InfluxDB, OpenTSDB, Neo4j, ArangoDB, JanusGraph, and Neptune query-builder descriptor coverage
+- Search, wide-column, Wave 4, and Wave 5 deterministic IntelliSense coverage
+- Wave 4 local/document/cache/analytics and Wave 5 time-series/graph slices at the contract-complete gate
 
 ### Next Completion Focus
 
 The next hardening focus is:
 
-- finish MongoDB and Redis/Valkey as reference native datastores
-- deepen core SQL object views, diagnostics, safe row edits, and import/export
-- productionize Elasticsearch/OpenSearch, DynamoDB, and Cassandra
-- deepen local, cloud, analytics, graph, and time-series engines with native object views, operation previews, and live adapter depth
+- finish MongoDB and Redis/Valkey as fully native reference datastores by deepening management views, module/editor coverage, and import/export execution
+- keep the active engine, remaining native criteria, and completion gate current in the [Native Datastore Completion Tracker](architecture/native-completion-tracker.md)
+- deepen core SQL live object views, diagnostics, before/after row-edit previews, and import/export execution
+- add optional live validation for Elasticsearch/OpenSearch cloud auth/admin flows, DynamoDB cloud/IAM flows, Cassandra live CQL, Cosmos DB, LiteDB, Memcached, DuckDB, ClickHouse, Snowflake, BigQuery, Prometheus, InfluxDB, OpenTSDB, Neo4j, ArangoDB, JanusGraph, and Neptune where credentials or fixtures are available
+- promote selected DuckDB, ClickHouse, Snowflake, and BigQuery import/export or admin previews only after cost, permission, local-file, and cloud-storage checks are live
+- promote selected contract-only operation previews to guarded live execution only after adapter-backed permission, cost, and environment checks exist
 
 ### Broader Adapter Set
 

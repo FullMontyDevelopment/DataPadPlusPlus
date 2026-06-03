@@ -5,14 +5,17 @@ use serde_json::Value;
 
 use super::super::super::*;
 
+const DEFAULT_MONGODB_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const DEFAULT_MONGODB_SERVER_SELECTION_TIMEOUT: Duration = Duration::from_secs(15);
+
 pub(super) async fn mongodb_client(
     connection: &ResolvedConnectionProfile,
 ) -> Result<MongoClient, CommandError> {
     let uri = mongodb_uri(connection);
 
     let mut options = ClientOptions::parse(uri).await?;
-    options.server_selection_timeout = Some(Duration::from_secs(5));
-    options.connect_timeout = Some(Duration::from_secs(5));
+    options.server_selection_timeout = Some(DEFAULT_MONGODB_SERVER_SELECTION_TIMEOUT);
+    options.connect_timeout = Some(DEFAULT_MONGODB_CONNECT_TIMEOUT);
 
     Ok(MongoClient::with_options(options)?)
 }
@@ -292,6 +295,7 @@ mod tests {
             password: Some("datapadplusplus".into()),
             connection_string: None,
             redis_options: None,
+            memcached_options: None,
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,

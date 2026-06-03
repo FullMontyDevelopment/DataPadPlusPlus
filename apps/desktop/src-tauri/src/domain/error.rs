@@ -18,6 +18,49 @@ impl CommandError {
             message: redact_sensitive_text(&message),
         }
     }
+
+    pub(crate) fn from_mongodb_message(raw: impl Into<String>) -> Self {
+        let raw = raw.into();
+        let lower = raw.to_lowercase();
+        let (code, hint) = if lower.contains("server selection timeout")
+            || (lower.contains("no available servers") && lower.contains("topology"))
+        {
+            (
+                "mongodb-server-selection-timeout",
+                "MongoDB could not find a reachable server. If the app was idle or the machine slept, wait for the network or VPN to reconnect, then run the query again or use Test Connection.",
+            )
+        } else if lower.contains("authentication")
+            || lower.contains("auth failed")
+            || lower.contains("sasl")
+        {
+            (
+                "mongodb-authentication-failed",
+                "MongoDB authentication failed. Check the username, password, auth database, and authentication mechanism.",
+            )
+        } else if lower.contains("tls") || lower.contains("ssl") || lower.contains("certificate") {
+            (
+                "mongodb-tls-error",
+                "MongoDB TLS negotiation failed. Check TLS settings, certificates, and whether the endpoint requires TLS.",
+            )
+        } else if lower.contains("timed out") || lower.contains("timeout") {
+            (
+                "mongodb-timeout",
+                "MongoDB did not respond before the driver connection timeout. Check network reachability and server load.",
+            )
+        } else if lower.contains("dns")
+            || lower.contains("enotfound")
+            || lower.contains("could not resolve")
+        {
+            (
+                "mongodb-host-resolution",
+                "MongoDB host name could not be resolved. Check the server name, DNS, VPN, or hosts-file entry.",
+            )
+        } else {
+            ("mongodb-error", "MongoDB returned an error.")
+        };
+
+        Self::new(code, format!("{hint} Details: {raw}"))
+    }
 }
 
 pub(crate) fn redact_sensitive_text(value: &str) -> String {
@@ -333,7 +376,7 @@ impl From<sqlx::Error> for CommandError {
 
 impl From<mongodb::error::Error> for CommandError {
     fn from(error: mongodb::error::Error) -> Self {
-        Self::new("mongodb-error", error.to_string())
+        Self::from_mongodb_message(error.to_string())
     }
 }
 
@@ -541,5 +584,16 @@ mod tests {
             .message
             .contains(r#""password": { "bsonType": "string" }"#));
         assert!(error.message.contains(r#""pwd": ********"#));
+    }
+
+    #[test]
+    fn mongodb_server_selection_errors_are_actionable() {
+        let error = CommandError::from_mongodb_message(
+            "Kind: Server selection timeout: No available servers. Topology: { Type: Unknown }",
+        );
+
+        assert_eq!(error.code, "mongodb-server-selection-timeout");
+        assert!(error.message.contains("network or VPN"));
+        assert!(!error.message.contains("password"));
     }
 }

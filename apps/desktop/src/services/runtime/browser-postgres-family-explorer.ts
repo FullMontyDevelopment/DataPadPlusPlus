@@ -7,11 +7,13 @@ import {
 } from './browser-postgres-family-helpers'
 
 export function createCockroachExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
-  const database = connection.database || 'defaultdb'
+  const database = connection.database?.trim() || ''
 
   if (!scope) {
     return [
-      postgresNode(connection, `database:${database}`, database, 'database', 'CockroachDB database', `database:${database}`, ['Databases'], true),
+      ...(database
+        ? [postgresNode(connection, `database:${database}`, database, 'database', 'CockroachDB database', `database:${database}`, ['Databases'], true)]
+        : []),
       postgresNode(connection, 'cockroach:cluster', 'Cluster', 'cluster', 'Nodes, ranges, regions, jobs, and cluster settings', 'cockroach:cluster', [], true),
       postgresNode(connection, 'cockroach:security', 'Security', 'security', 'Roles, grants, and certificates', 'cockroach:security', [], true),
       postgresNode(connection, 'cockroach:diagnostics', 'Diagnostics', 'diagnostics', 'Sessions, statement stats, transactions, and contention', 'cockroach:diagnostics', [], true),
@@ -19,14 +21,18 @@ export function createCockroachExplorerNodes(connection: ConnectionProfile, scop
   }
 
   if (scope.startsWith('database:')) {
+    const scopedDatabase = scope.replace('database:', '').trim() || database
+    if (!scopedDatabase) return []
+
     return [
-      postgresNode(connection, 'schema:public', 'public', 'schema', 'User schema', 'schema:public', ['Databases', database, 'User Schemas'], true),
-      postgresNode(connection, 'schema:crdb_internal', 'crdb_internal', 'schema', 'System schema', 'schema:crdb_internal', ['Databases', database, 'System Schemas'], true),
-      postgresNode(connection, 'schema:pg_catalog', 'pg_catalog', 'schema', 'System schema', 'schema:pg_catalog', ['Databases', database, 'System Schemas'], true),
+      postgresNode(connection, 'schema:public', 'public', 'schema', 'User schema', 'schema:public', ['Databases', scopedDatabase, 'User Schemas'], true),
+      postgresNode(connection, 'schema:crdb_internal', 'crdb_internal', 'schema', 'System schema', 'schema:crdb_internal', ['Databases', scopedDatabase, 'System Schemas'], true),
+      postgresNode(connection, 'schema:pg_catalog', 'pg_catalog', 'schema', 'System schema', 'schema:pg_catalog', ['Databases', scopedDatabase, 'System Schemas'], true),
     ]
   }
 
   if (scope.startsWith('schema:')) {
+    if (!database) return []
     const schema = scope.replace('schema:', '') || 'public'
     return cockroachSchemaFolders(connection, database, schema)
   }
@@ -68,7 +74,7 @@ export function createCockroachExplorerNodes(connection: ConnectionProfile, scop
 
   if (scope.startsWith('table:')) {
     const { schema, objectName } = parsePostgresObjectScope(scope)
-    return postgresTableSections(connection, schema, objectName)
+    return objectName ? postgresTableSections(connection, schema, objectName) : []
   }
 
   return []
@@ -114,7 +120,7 @@ export function createPostgresExplorerNodes(connection: ConnectionProfile, scope
 
   if (scope.startsWith('table:')) {
     const { schema, objectName } = parsePostgresObjectScope(scope)
-    return postgresTableSections(connection, schema, objectName)
+    return objectName ? postgresTableSections(connection, schema, objectName) : []
   }
 
   return []

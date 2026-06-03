@@ -72,7 +72,7 @@ function explorerNodeToConnectionTreeNode(
 ): ConnectionTreeNode {
   const isMongoBuilderNode =
     connection.engine === 'mongodb' &&
-    ['collection', 'documents', 'aggregations', 'sample-results', 'gridfs-collection'].includes(
+    ['collection', 'documents', 'aggregations', 'view-results', 'sample-results', 'gridfs-collection'].includes(
       normalizedKind,
     )
   const isRedisConnection = isRedisLikeConnection(connection)
@@ -178,7 +178,7 @@ function fallbackExplorerQueryTemplate(
 
   if (
     connection.engine === 'mongodb' &&
-    ['collection', 'documents', 'aggregations', 'sample-results', 'gridfs-collection'].includes(
+    ['collection', 'documents', 'aggregations', 'view-results', 'sample-results', 'gridfs-collection'].includes(
       kind,
     )
   ) {
@@ -325,7 +325,7 @@ function isExplorerNodeQueryable(connection: ConnectionProfile, node: ExplorerNo
   const kind = normalizeExplorerKind(connection, node.kind)
 
   if (connection.engine === 'mongodb') {
-    return ['collection', 'documents', 'aggregations', 'sample-results', 'gridfs-collection'].includes(
+    return ['collection', 'documents', 'aggregations', 'view-results', 'sample-results', 'gridfs-collection'].includes(
       kind,
     )
   }

@@ -19,6 +19,7 @@ mod profile_options_warehouse;
 mod profiles;
 mod query_tabs;
 mod query_tabs_scoped;
+mod query_tabs_scoped_redis;
 mod response_redaction;
 mod response_redaction_keys;
 mod saved_work;
@@ -44,6 +45,10 @@ pub struct ManagedAppState {
 
 pub type SharedAppState = Mutex<ManagedAppState>;
 
+#[cfg(test)]
+mod profile_tests;
+#[cfg(test)]
+mod query_tab_scoped_tests;
 #[cfg(test)]
 mod query_tab_tests;
 #[cfg(test)]

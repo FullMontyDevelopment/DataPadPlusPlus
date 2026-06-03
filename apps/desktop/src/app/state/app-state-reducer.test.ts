@@ -117,6 +117,107 @@ describe('app-state reducer connection health', () => {
     expect(health?.message).toBe('Query completed')
   })
 
+  it('does not let a stale health check settle a newer check', () => {
+    let state = reducer(initialState, {
+      type: 'CONNECTION_HEALTH_CHECKING',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'startup',
+      checkId: 'startup-old',
+    })
+
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_CHECKING',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'startup',
+      checkId: 'startup-new',
+    })
+
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_SETTLED',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'startup',
+      checkId: 'startup-old',
+    })
+
+    const health =
+      state.connectionHealthByKey[connectionHealthKey('connection-sql', 'env-local')]
+    expect(health?.status).toBe('checking')
+    expect(health?.checkId).toBe('startup-new')
+  })
+
+  it('ignores a stale health result for a newer active check', () => {
+    let state = reducer(initialState, {
+      type: 'CONNECTION_HEALTH_CHECKING',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'startup',
+      checkId: 'startup-new',
+    })
+
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_READY',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'startup',
+      checkId: 'startup-old',
+      result: {
+        ok: true,
+        engine: 'sqlserver',
+        message: 'Connection ready',
+        warnings: [],
+        resolvedHost: 'localhost',
+        durationMs: 5,
+      },
+    })
+
+    const health =
+      state.connectionHealthByKey[connectionHealthKey('connection-sql', 'env-local')]
+    expect(health?.status).toBe('checking')
+    expect(health?.checkId).toBe('startup-new')
+  })
+
+  it('does not let a slow startup result replace newer health', () => {
+    let state = reducer(initialState, {
+      type: 'CONNECTION_HEALTH_CHECKING',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'startup',
+      checkId: 'startup-old',
+    })
+
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_CONNECTED',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'metadata',
+      message: 'Metadata loaded',
+    })
+
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_READY',
+      connectionId: 'connection-sql',
+      environmentId: 'env-local',
+      source: 'startup',
+      checkId: 'startup-old',
+      result: {
+        ok: false,
+        engine: 'sqlserver',
+        message: 'Connection refused',
+        warnings: [],
+        resolvedHost: 'localhost',
+        durationMs: 50,
+      },
+    })
+
+    const health =
+      state.connectionHealthByKey[connectionHealthKey('connection-sql', 'env-local')]
+    expect(health?.status).toBe('connected')
+    expect(health?.source).toBe('metadata')
+  })
+
   it('redacts secret-looking values from health messages', () => {
     const state = reducer(initialState, {
       type: 'CONNECTION_HEALTH_ISSUE',

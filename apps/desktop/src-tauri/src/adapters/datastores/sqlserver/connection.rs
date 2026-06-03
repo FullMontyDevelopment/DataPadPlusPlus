@@ -219,6 +219,7 @@ mod tests {
             password: Some("secret".into()),
             connection_string: None,
             redis_options: None,
+            memcached_options: None,
             sqlite_options: None,
             sqlserver_options,
             oracle_options: None,

@@ -149,7 +149,7 @@ export function searchOperationActions(
     }))
     actions.push(action(connection, 'pipeline.simulate', 'Simulate', 'Prepare an ingest pipeline simulation', 'job', objectName, {
       ...baseParameters,
-      documents: [{ _source: { message: 'sample' } }],
+      documents: [],
     }))
   }
 

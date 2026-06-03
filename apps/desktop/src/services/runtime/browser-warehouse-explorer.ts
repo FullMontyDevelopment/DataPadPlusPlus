@@ -337,10 +337,10 @@ function warehouseColumns() {
 
 function warehouseStages(connection: ConnectionProfile) {
   if (connection.engine === 'bigquery') {
-    return [{ name: 'external_sales_csv', type: 'external table', url: 'gs://datapad-samples/sales', fileFormat: 'CSV', encryption: 'Google-managed', owner: 'analytics-team' }]
+    return [{ name: 'external_sales_csv', type: 'external table', url: 'Configured Cloud Storage source', fileFormat: 'CSV', encryption: 'Google-managed', owner: 'analytics-team' }]
   }
   return [
-    { name: 'raw_import_stage', type: 'external', url: 's3://datapad-samples/raw', fileFormat: 'CSV', encryption: 'SSE-KMS', owner: 'loader' },
+    { name: 'raw_import_stage', type: 'external', url: 'Configured object storage source', fileFormat: 'CSV', encryption: 'SSE-KMS', owner: 'loader' },
     { name: 'export_stage', type: 'internal', url: '@export_stage', fileFormat: 'PARQUET', encryption: 'managed', owner: 'analytics-team' },
   ]
 }

@@ -27,6 +27,7 @@ Current live or partially live product surfaces include:
 - Settings as a closeable workbench tab with file-based workspace import/export, encrypted bundle integrity, optional secret inclusion, opt-in auto-backups, and curated themes
 - datastore completeness tracking in `packages/shared-types/src/datastore-completeness.ts`
 - a current production-readiness reference in [Datastore Readiness And Completion Plan](datastore-readiness.md)
+- a one-by-one execution board in [Native Datastore Completion Tracker](native-completion-tracker.md)
 - Docker fixture profiles with deterministic seed data
 - release workflow automation that bumps versions, tags `app-vX.Y.Z`, and creates draft Tauri releases
 
@@ -398,4 +399,4 @@ At the current milestone:
 - LiteDB now has a concrete .NET sidecar bridge contract adapter while live sidecar dispatch remains a future bridge pass.
 - Oracle now has a concrete SQL/PLSQL contract adapter with Oracle client/runtime prerequisite warnings while native OCI/thin execution remains a future driver pass.
 - The largest immediate architecture risk has shifted from raw adapter sprawl to live-depth gaps, capability hiding, object-view quality, quality budgets, and drift tests between Rust manifests, TypeScript contracts, fixtures, and docs.
-- The current per-engine completion inventory is maintained in [Datastore Readiness And Completion Plan](datastore-readiness.md).
+- The current per-engine completion inventory is maintained in [Datastore Readiness And Completion Plan](datastore-readiness.md), and the active native-completion queue is maintained in [Native Datastore Completion Tracker](native-completion-tracker.md).

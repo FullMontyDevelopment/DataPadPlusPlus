@@ -71,6 +71,10 @@ export function memcachedOperationRequest(request: OperationPlanRequest) {
     return `incr ${key} ${numberParameter(parameters, 'delta') ?? 1}`
   }
 
+  if (request.operationId.endsWith('key.decrement')) {
+    return `decr ${key} ${numberParameter(parameters, 'delta') ?? 1}`
+  }
+
   return `stats\n# ${request.operationId}`
 }
 

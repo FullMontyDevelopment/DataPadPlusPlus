@@ -8,6 +8,10 @@ export function graphOperationRequest(connection: ConnectionProfile, request: Op
   const objectName = stringValue(request.objectName ?? parameters.objectName) || '<label>'
   const query = stringValue(parameters.query) || defaultGraphQuery(connection, objectName)
 
+  if (request.operationId.endsWith('query.explain')) {
+    return graphExplainRequest(connection, query)
+  }
+
   if (request.operationId.endsWith('query.profile')) {
     return graphProfileRequest(connection, query)
   }
@@ -37,6 +41,30 @@ export function graphOperationRequest(connection: ConnectionProfile, request: Op
   }
 
   return defaultQueryTextForConnection(connection)
+}
+
+function graphExplainRequest(connection: ConnectionProfile, query: string) {
+  if (connection.engine === 'arango') {
+    return jsonRequest({
+      method: 'POST',
+      path: '/_api/explain',
+      body: { query, options: { allPlans: true } },
+    })
+  }
+
+  if (connection.engine === 'neptune') {
+    return jsonRequest({
+      method: 'POST',
+      path: '/gremlin/explain',
+      body: { gremlin: query },
+    })
+  }
+
+  if (connection.engine === 'janusgraph') {
+    return `${query}.explain()`
+  }
+
+  return `EXPLAIN ${stripCypherPlanPrefix(query)}`
 }
 
 function graphProfileRequest(connection: ConnectionProfile, query: string) {

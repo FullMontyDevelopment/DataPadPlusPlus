@@ -1,13 +1,9 @@
 import { useCallback, useMemo } from 'react'
-import type {
-  LibraryItemKind,
-  QueryTabState,
-  WorkspaceSnapshot,
-} from '@datapadplusplus/shared-types'
+import type { QueryTabState } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
-import { defaultLibraryFolderForConnection } from '../../services/runtime/library-connection-helpers'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { toUserMessage } from './app-state-selectors'
+import { saveQueryTabToCurrentTarget } from './app-actions-tabs-save'
 import { shouldRecordConnectionIssue } from './connection-health'
 import type { Actions, AppActionContext } from './app-state-types'
 
@@ -127,13 +123,6 @@ export function useQueryTabActions({
           return
         }
 
-        dispatch({
-          type: 'CONNECTION_HEALTH_CHECKING',
-          connectionId: activeMetricsTab.connectionId,
-          environmentId: activeMetricsTab.environmentId,
-          source: 'metrics',
-          message: 'Refreshing metrics',
-        })
         applyPayload(await desktopClient.refreshMetricsTab(activeMetricsTab.id))
         dispatch({
           type: 'CONNECTION_HEALTH_CONNECTED',
@@ -180,15 +169,6 @@ export function useQueryTabActions({
     async (tabId) => {
       const tab = currentTabs?.find((item) => item.id === tabId)
       try {
-        if (tab) {
-          dispatch({
-            type: 'CONNECTION_HEALTH_CHECKING',
-            connectionId: tab.connectionId,
-            environmentId: tab.environmentId,
-            source: 'metrics',
-            message: 'Refreshing metrics',
-          })
-        }
         applyPayload(await desktopClient.refreshMetricsTab(tabId))
         if (tab) {
           dispatch({
@@ -224,13 +204,6 @@ export function useQueryTabActions({
           return
         }
 
-        dispatch({
-          type: 'CONNECTION_HEALTH_CHECKING',
-          connectionId: activeObjectViewTab.connectionId,
-          environmentId: activeObjectViewTab.environmentId,
-          source: 'object-view',
-          message: 'Refreshing object view',
-        })
         applyPayload(await desktopClient.refreshObjectViewTab(activeObjectViewTab.id))
         dispatch({
           type: 'CONNECTION_HEALTH_CONNECTED',
@@ -255,15 +228,6 @@ export function useQueryTabActions({
     async (tabId) => {
       const tab = currentTabs?.find((item) => item.id === tabId)
       try {
-        if (tab) {
-          dispatch({
-            type: 'CONNECTION_HEALTH_CHECKING',
-            connectionId: tab.connectionId,
-            environmentId: tab.environmentId,
-            source: 'object-view',
-            message: 'Refreshing object view',
-          })
-        }
         applyPayload(await desktopClient.refreshObjectViewTab(tabId))
         if (tab) {
           dispatch({
@@ -384,41 +348,7 @@ export function useQueryTabActions({
   const saveCurrentQuery = useCallback<Actions['saveCurrentQuery']>(
     async (tabId) => {
       try {
-        if (!state.payload) {
-          throw new Error('Workspace is not ready for Library saves.')
-        }
-        ensureWorkspaceUnlocked(state.payload)
-
-        const tab = state.payload.snapshot.tabs.find((item) => item.id === tabId)
-        if (!tab) {
-          throw new Error('The active query tab cannot be saved yet.')
-        }
-        if (tab.tabKind === 'explorer' || tab.tabKind === 'metrics' || tab.tabKind === 'object-view') {
-          return
-        }
-        if (tab.saveTarget?.kind === 'local-file') {
-          applyPayload(
-            await desktopClient.saveQueryTabToLocalFile({
-              tabId,
-              path: tab.saveTarget.path,
-            }),
-          )
-          return
-        }
-
-        applyPayload(
-          await desktopClient.saveQueryTabToLibrary({
-            tabId,
-            itemId:
-              tab.saveTarget?.kind === 'library'
-                ? tab.saveTarget.libraryItemId
-                : tab.savedQueryId,
-            folderId: defaultLibraryFolderForTab(state.payload.snapshot, tab),
-            name: tab.title,
-            kind: inferLibraryItemKind(state.payload.snapshot, tab),
-            tags: [],
-          }),
-        )
+        await saveQueryTabToCurrentTarget({ payload: state.payload, tabId, applyPayload })
       } catch (error) {
         handleError(error)
       }
@@ -429,38 +359,12 @@ export function useQueryTabActions({
   const saveAndCloseTab = useCallback<Actions['saveAndCloseTab']>(
     async (tabId) => {
       try {
-        if (!state.payload) {
-          throw new Error('Workspace is not ready for Library saves.')
-        }
-        ensureWorkspaceUnlocked(state.payload)
-
-        const tab = state.payload.snapshot.tabs.find((item) => item.id === tabId)
-        if (!tab) {
-          throw new Error('The active query tab cannot be saved yet.')
-        }
-        if (tab.tabKind === 'explorer' || tab.tabKind === 'metrics' || tab.tabKind === 'object-view') {
-          applyPayload(await desktopClient.closeQueryTab(tabId))
-          return
-        }
-        if (tab.saveTarget?.kind === 'local-file') {
-          await desktopClient.saveQueryTabToLocalFile({
-            tabId,
-            path: tab.saveTarget.path,
-          })
-        } else {
-          await desktopClient.saveQueryTabToLibrary({
-            tabId,
-            itemId:
-              tab.saveTarget?.kind === 'library'
-                ? tab.saveTarget.libraryItemId
-                : tab.savedQueryId,
-            folderId: defaultLibraryFolderForTab(state.payload.snapshot, tab),
-            name: tab.title,
-            kind: inferLibraryItemKind(state.payload.snapshot, tab),
-            tags: [],
-          })
-        }
-        applyPayload(await desktopClient.closeQueryTab(tabId))
+        await saveQueryTabToCurrentTarget({
+          payload: state.payload,
+          tabId,
+          applyPayload,
+          closeAfterSave: true,
+        })
       } catch (error) {
         handleError(error)
       }
@@ -654,35 +558,4 @@ export function useQueryTabActions({
       updateTestSuiteTab,
     ],
   )
-}
-
-function inferLibraryItemKind(
-  snapshot: WorkspaceSnapshot,
-  tab: QueryTabState,
-): LibraryItemKind {
-  const existingItemId =
-    tab.saveTarget?.kind === 'library' ? tab.saveTarget.libraryItemId : tab.savedQueryId
-  const existingNode = snapshot.libraryNodes.find((node) => node.id === existingItemId)
-
-  if (
-    existingNode?.kind &&
-    existingNode.kind !== 'folder' &&
-    existingNode.kind !== 'connection'
-  ) {
-    return existingNode.kind
-  }
-
-  if (tab.tabKind === 'test-suite' || tab.testSuite) {
-    return 'test-suite'
-  }
-
-  if (/\.(ps1|sh|bash|bat|cmd|js|ts|py)$/i.test(tab.title)) {
-    return 'script'
-  }
-
-  return 'query'
-}
-
-function defaultLibraryFolderForTab(snapshot: WorkspaceSnapshot, tab: QueryTabState) {
-  return defaultLibraryFolderForConnection(snapshot, tab.connectionId)
 }

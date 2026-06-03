@@ -133,9 +133,14 @@ describe('browser operation runtime', () => {
     const operations = buildOperationManifestsForConnection(memcachedConnection)
 
     expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'memcached.stats.reset', label: 'Reset Stats', risk: 'write' }),
+      expect.objectContaining({ id: 'memcached.cache.flush', label: 'Flush Cache', risk: 'destructive' }),
       expect.objectContaining({ id: 'memcached.key.get', label: 'Get Key', risk: 'read' }),
+      expect.objectContaining({ id: 'memcached.key.gets', label: 'Get Key With CAS', risk: 'read' }),
       expect.objectContaining({ id: 'memcached.key.set', label: 'Set Key', risk: 'write' }),
       expect.objectContaining({ id: 'memcached.key.touch', label: 'Touch Key', risk: 'write' }),
+      expect.objectContaining({ id: 'memcached.key.increment', label: 'Increment Key', risk: 'write' }),
+      expect.objectContaining({ id: 'memcached.key.decrement', label: 'Decrement Key', risk: 'write' }),
       expect.objectContaining({ id: 'memcached.key.delete', label: 'Delete Key', risk: 'destructive' }),
     ]))
     expect(operations.map((operation) => operation.id).join(' ')).not.toContain('key.browser')
@@ -929,6 +934,9 @@ describe('browser operation runtime', () => {
     expect(operations).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'elasticsearch.index.force-merge', label: 'Force Merge' }),
       expect.objectContaining({ id: 'elasticsearch.index.reindex', label: 'Reindex' }),
+      expect.objectContaining({ id: 'elasticsearch.alias.put', label: 'Add Alias' }),
+      expect.objectContaining({ id: 'elasticsearch.lifecycle.explain', label: 'Explain ILM' }),
+      expect.objectContaining({ id: 'elasticsearch.pipeline.simulate', label: 'Simulate Pipeline' }),
       expect.objectContaining({ id: 'elasticsearch.pipeline.put', label: 'Update Pipeline' }),
       expect.objectContaining({ id: 'elasticsearch.snapshot.restore', label: 'Restore Snapshot' }),
     ]))
@@ -1076,6 +1084,19 @@ describe('browser operation runtime', () => {
       body: { description: 'DataPad++ pipeline preview' },
     })
 
+    const simulatePlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.pipeline.simulate',
+      objectName: 'normalize-products',
+    })
+    expect(JSON.parse(simulatePlan.plan.generatedRequest)).toMatchObject({
+      method: 'POST',
+      path: '/_ingest/pipeline/normalize-products/_simulate',
+      body: { docs: [] },
+    })
+    expect(simulatePlan.plan.generatedRequest).not.toContain('sample')
+
     const taskPlan = planOperationLocally(snapshot, {
       connectionId: searchConnection.id,
       environmentId: 'env-local',
@@ -1091,6 +1112,15 @@ describe('browser operation runtime', () => {
 
   it('generates DynamoDB capacity, index, access, and export operation previews', () => {
     const snapshot = snapshotWith(dynamoConnection)
+    const operations = buildOperationManifestsForConnection(dynamoConnection)
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'dynamodb.capacity.update', label: 'Update Capacity' }),
+      expect.objectContaining({ id: 'dynamodb.ttl.update', label: 'Update TTL' }),
+      expect.objectContaining({ id: 'dynamodb.streams.update', label: 'Update Streams' }),
+      expect.objectContaining({ id: 'dynamodb.backup.create', label: 'Create Backup' }),
+      expect.objectContaining({ id: 'dynamodb.backup.restore', label: 'Restore Backup' }),
+      expect.objectContaining({ id: 'dynamodb.data.backup-restore', label: 'Backup / Restore' }),
+    ]))
 
     const metricsPlan = planOperationLocally(snapshot, {
       connectionId: dynamoConnection.id,
@@ -1239,9 +1269,26 @@ describe('browser operation runtime', () => {
       tableName: 'Orders',
       backupName: 'Orders-manual',
     })
+
+    const restorePlan = planOperationLocally(snapshot, {
+      connectionId: dynamoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'dynamodb.backup.restore',
+      objectName: 'Orders',
+      parameters: {
+        tableName: 'Orders',
+        sourceBackupArn: 'arn:aws:dynamodb:local:000000000000:table/Orders/backup/manual',
+        targetTableName: 'OrdersRestored',
+      },
+    })
+    expect(JSON.parse(restorePlan.plan.generatedRequest)).toMatchObject({
+      operation: 'DynamoDB.RestoreTableFromBackup',
+      targetTableName: 'OrdersRestored',
+      validation: 'restore-preview',
+    })
   })
 
-  it('generates Cassandra tracing, index, permission, and metrics operation previews', () => {
+  it('generates Cassandra tracing, index, permission, metrics, export, and snapshot operation previews', () => {
     const snapshot = snapshotWith(cassandraConnection)
 
     const tracePlan = planOperationLocally(snapshot, {
@@ -1296,10 +1343,45 @@ describe('browser operation runtime', () => {
     })
     expect(metricsPlan.plan.generatedRequest).toContain('system.local')
     expect(metricsPlan.plan.generatedRequest).toContain("keyspace_name = 'app'")
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: cassandraConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cassandra.data.import-export',
+      objectName: '"app"."orders_by_customer"',
+      parameters: {
+        keyspace: 'app',
+        tableName: 'orders_by_customer',
+        mode: 'export',
+        format: 'csv',
+      },
+    })
+    expect(exportPlan.plan.generatedRequest).toContain('cqlsh COPY is contract-only')
+    expect(exportPlan.plan.generatedRequest).toContain('copy "app"."orders_by_customer" to')
+
+    const snapshotPlan = planOperationLocally(snapshot, {
+      connectionId: cassandraConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cassandra.data.backup-restore',
+      objectName: '"app"."orders_by_customer"',
+      parameters: {
+        keyspace: 'app',
+        tableName: 'orders_by_customer',
+        mode: 'backup',
+        snapshotName: 'orders_manual',
+      },
+    })
+    expect(snapshotPlan.plan.generatedRequest).toContain('nodetool snapshot')
+    expect(snapshotPlan.plan.generatedRequest).toContain('--table "orders_by_customer" "app"')
   })
 
   it('generates native time-series profile, metrics, export, and guarded delete previews', () => {
     const prometheusSnapshot = snapshotWith(prometheusConnection)
+    const prometheusOperations = buildOperationManifestsForConnection(prometheusConnection)
+    expect(prometheusOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'prometheus.cardinality.analyze', label: 'Analyze Cardinality', risk: 'costly' }),
+    ]))
+
     const prometheusProfile = planOperationLocally(prometheusSnapshot, {
       connectionId: prometheusConnection.id,
       environmentId: 'env-local',
@@ -1340,6 +1422,11 @@ describe('browser operation runtime', () => {
     expect(prometheusCardinality.plan.confirmationText).toBeTruthy()
 
     const influxSnapshot = snapshotWith(influxConnection)
+    const influxOperations = buildOperationManifestsForConnection(influxConnection)
+    expect(influxOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'influxdb.retention.update', label: 'Update Retention', risk: 'write' }),
+    ]))
+
     const influxExport = planOperationLocally(influxSnapshot, {
       connectionId: influxConnection.id,
       environmentId: 'env-local',
@@ -1399,6 +1486,11 @@ describe('browser operation runtime', () => {
     })
 
     const openTsdbSnapshot = snapshotWith(openTsdbConnection)
+    const openTsdbOperations = buildOperationManifestsForConnection(openTsdbConnection)
+    expect(openTsdbOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'opentsdb.uid.repair', label: 'Repair UID Metadata', risk: 'write' }),
+    ]))
+
     const openTsdbMetrics = planOperationLocally(openTsdbSnapshot, {
       connectionId: openTsdbConnection.id,
       environmentId: 'env-local',
@@ -1438,6 +1530,24 @@ describe('browser operation runtime', () => {
 
   it('generates graph-native profile, index, access, metrics, and export operation previews', () => {
     const neo4jSnapshot = snapshotWith(neo4jConnection)
+    const neo4jOperations = buildOperationManifestsForConnection(neo4jConnection)
+    expect(neo4jOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'neo4j.query.explain', label: 'View Execution Plan', risk: 'diagnostic' }),
+      expect.objectContaining({ id: 'neo4j.data.import-export', label: 'Import / Export', risk: 'costly' }),
+    ]))
+
+    const explainPlan = planOperationLocally(neo4jSnapshot, {
+      connectionId: neo4jConnection.id,
+      environmentId: 'env-local',
+      operationId: 'neo4j.query.explain',
+      objectName: 'Account',
+      parameters: {
+        label: 'Account',
+        query: 'MATCH (n:`Account`) RETURN n LIMIT 25',
+      },
+    })
+    expect(explainPlan.plan.generatedRequest).toContain('EXPLAIN MATCH (n:`Account`) RETURN n LIMIT 25')
+
     const profilePlan = planOperationLocally(neo4jSnapshot, {
       connectionId: neo4jConnection.id,
       environmentId: 'env-local',
@@ -1465,6 +1575,11 @@ describe('browser operation runtime', () => {
     expect(indexPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
 
     const neptuneSnapshot = snapshotWith(neptuneConnection)
+    const neptuneOperations = buildOperationManifestsForConnection(neptuneConnection)
+    expect(neptuneOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'neptune.security.inspect', label: 'Inspect Permissions', risk: 'read' }),
+    ]))
+
     const metricsPlan = planOperationLocally(neptuneSnapshot, {
       connectionId: neptuneConnection.id,
       environmentId: 'env-local',
@@ -1493,6 +1608,20 @@ describe('browser operation runtime', () => {
       operation: 'Neptune.StartLoaderJob',
       scope: 'analytics',
       validation: 'validate-before-write',
+    })
+
+    const accessPlan = planOperationLocally(neptuneSnapshot, {
+      connectionId: neptuneConnection.id,
+      environmentId: 'env-local',
+      operationId: 'neptune.security.inspect',
+      objectName: 'analytics',
+      parameters: {
+        graphName: 'analytics',
+      },
+    })
+    expect(JSON.parse(accessPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'IAM.SimulatePrincipalPolicy',
+      resource: 'analytics',
     })
   })
 
@@ -1631,6 +1760,13 @@ describe('browser operation runtime', () => {
 
   it('generates Cosmos DB, LiteDB, and Memcached native operation previews', () => {
     const cosmosSnapshot = snapshotWith(cosmosConnection)
+    const cosmosOperations = buildOperationManifestsForConnection(cosmosConnection)
+    expect(cosmosOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'cosmosdb.throughput.update', label: 'Update Throughput', risk: 'write' }),
+      expect.objectContaining({ id: 'cosmosdb.consistency.update', label: 'Update Consistency', risk: 'write' }),
+      expect.objectContaining({ id: 'cosmosdb.regions.failover', label: 'Failover Regions', risk: 'write' }),
+    ]))
+
     const cosmosIndex = planOperationLocally(cosmosSnapshot, {
       connectionId: cosmosConnection.id,
       environmentId: 'env-local',
@@ -1692,7 +1828,31 @@ describe('browser operation runtime', () => {
       },
     })
 
+    const cosmosFailover = planOperationLocally(cosmosSnapshot, {
+      connectionId: cosmosConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cosmosdb.regions.failover',
+      objectName: 'catalog-account',
+      parameters: {
+        account: 'catalog-account',
+        writeRegion: 'West Europe',
+      },
+    })
+    expect(JSON.parse(cosmosFailover.plan.generatedRequest)).toMatchObject({
+      operation: 'CosmosDB.FailoverPriorityChange',
+      account: 'catalog-account',
+      writeRegion: 'West Europe',
+    })
+
     const liteDbSnapshot = snapshotWith(liteDbConnection)
+    const liteDbOperations = buildOperationManifestsForConnection(liteDbConnection)
+    expect(liteDbOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'litedb.storage.checkpoint', label: 'Checkpoint', risk: 'write' }),
+      expect.objectContaining({ id: 'litedb.storage.compact', label: 'Compact File', risk: 'costly' }),
+      expect.objectContaining({ id: 'litedb.storage.rebuild-indexes', label: 'Rebuild Indexes', risk: 'costly' }),
+      expect.objectContaining({ id: 'litedb.data.backup-restore', label: 'Backup / Restore', risk: 'destructive' }),
+    ]))
+
     const liteDbIndex = planOperationLocally(liteDbSnapshot, {
       connectionId: liteDbConnection.id,
       environmentId: 'env-local',
@@ -1738,6 +1898,20 @@ describe('browser operation runtime', () => {
       collection: 'products',
     })
 
+    const liteDbBackup = planOperationLocally(liteDbSnapshot, {
+      connectionId: liteDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'litedb.data.backup-restore',
+      objectName: 'catalog.db',
+      parameters: {
+        databaseFile: 'catalog.db',
+      },
+    })
+    expect(JSON.parse(liteDbBackup.plan.generatedRequest)).toMatchObject({
+      operation: 'LiteDB.Backup',
+      databaseFile: 'catalog.db',
+    })
+
     const memcachedSnapshot = snapshotWith(memcachedConnection)
     const memcachedDump = planOperationLocally(memcachedSnapshot, {
       connectionId: memcachedConnection.id,
@@ -1775,6 +1949,18 @@ describe('browser operation runtime', () => {
     })
     expect(memcachedSet.plan.generatedRequest).toContain('set session:1 0 60 11')
     expect(memcachedSet.plan.generatedRequest).toContain('cached-user')
+
+    const memcachedDecrement = planOperationLocally(memcachedSnapshot, {
+      connectionId: memcachedConnection.id,
+      environmentId: 'env-local',
+      operationId: 'memcached.key.decrement',
+      objectName: 'counter:1',
+      parameters: {
+        key: 'counter:1',
+        delta: 2,
+      },
+    })
+    expect(memcachedDecrement.plan.generatedRequest).toBe('decr counter:1 2')
 
     const memcachedDelete = planOperationLocally(memcachedSnapshot, {
       connectionId: memcachedConnection.id,

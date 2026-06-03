@@ -11,7 +11,13 @@ pub(super) fn redis_manifest() -> AdapterManifest {
             "supports_key_browser",
             "supports_ttl_management",
             "supports_result_snapshots",
+            "supports_streaming_results",
+            "supports_admin_operations",
+            "supports_user_role_browser",
+            "supports_permission_inspection",
             "supports_metrics_collection",
+            "supports_import_export",
+            "supports_vector_search",
             "supports_structure_visualization",
         ],
     )

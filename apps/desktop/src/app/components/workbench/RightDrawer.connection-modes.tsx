@@ -9,6 +9,7 @@ import { CassandraAdvancedFields } from './RightDrawer.cassandra-connection-fiel
 import { CosmosDbConnectionFields } from './RightDrawer.cosmosdb-connection-fields'
 import { DynamoDbConnectionFields } from './RightDrawer.dynamodb-connection-fields'
 import { GraphConnectionFields } from './RightDrawer.graph-connection-fields'
+import { MemcachedConnectionFields } from './RightDrawer.memcached-connection-fields'
 import { OracleAdvancedFields } from './RightDrawer.oracle-connection-fields'
 import { FormField } from './RightDrawer.primitives'
 import { RedisAdvancedFields } from './RightDrawer.redis-connection-fields'
@@ -426,6 +427,15 @@ function NativeConnectionFields({
       {connectionDraft.engine === 'redis' || connectionDraft.engine === 'valkey' ? (
         <RedisAdvancedFields
           connectionDraft={connectionDraft}
+          onUpdateConnectionDraft={onUpdateConnectionDraft}
+        />
+      ) : null}
+
+      {connectionDraft.engine === 'memcached' ? (
+        <MemcachedConnectionFields
+          connectionDraft={connectionDraft}
+          secretDraft={secretDraft}
+          onSecretDraftChange={onSecretDraftChange}
           onUpdateConnectionDraft={onUpdateConnectionDraft}
         />
       ) : null}

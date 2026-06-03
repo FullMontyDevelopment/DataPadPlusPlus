@@ -60,10 +60,11 @@ describe('MongoObjectViewDescriptors', () => {
       'collection',
       'documents',
       'aggregations',
-      'sample-results',
+      'view-results',
       'gridfs-files',
       'gridfs-chunks',
     ]))
+    expect(isMongoQueryableObjectKind('sample-results')).toBe(true)
     expect(isMongoQueryableObjectKind('gridfs-chunks')).toBe(true)
     expect(isMongoQueryableObjectKind('indexes')).toBe(false)
   })

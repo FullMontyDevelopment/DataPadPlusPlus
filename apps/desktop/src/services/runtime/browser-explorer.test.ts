@@ -52,12 +52,7 @@ describe('browser explorer runtime', () => {
       }),
     ])
 
-    expect(createExplorerNodes(mongoConnection(undefined), 'databases')).toEqual([
-      expect.objectContaining({
-        label: 'catalog',
-        scope: 'database:catalog',
-      }),
-    ])
+    expect(createExplorerNodes(mongoConnection(undefined), 'databases')).toEqual([])
 
     expect(createExplorerNodes(mongoConnection(undefined), 'system-databases')).toEqual([
       expect.objectContaining({ label: 'admin', path: ['System Databases'] }),
@@ -601,8 +596,6 @@ describe('browser explorer runtime', () => {
       'Query Store',
       'Performance',
       'Storage',
-      'Extended Events',
-      'Agent',
     ])
 
     expect(createExplorerNodes(connection, 'sqlserver:datapadplusplus:tables')).toEqual([
@@ -877,6 +870,32 @@ describe('browser explorer runtime', () => {
     })
   })
 
+  it('does not invent LiteDB collection metadata for malformed object ids', () => {
+    const connection = liteDbConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    expect(createExplorerNodes(connection, 'litedb:collection:')).toEqual([])
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'litedb:collection:',
+    })
+
+    expect(response.queryTemplate).toContain('"collection": ""')
+    expect(response.payload).toMatchObject({
+      objectView: 'collection',
+      collection: '',
+      collections: [],
+      fields: [],
+      indexes: [],
+      statistics: [],
+    })
+    expect(JSON.stringify(response.payload)).not.toContain('products')
+  })
+
   it('returns Cosmos DB account, database, and container metadata without generic document fallbacks', () => {
     const connection = cosmosConnection()
     const snapshot = {
@@ -970,6 +989,31 @@ describe('browser explorer runtime', () => {
       objectView: 'security',
       security: expect.arrayContaining([expect.objectContaining({ name: 'ReadOnlyApp' })]),
     })
+  })
+
+  it('does not invent Cosmos DB containers for malformed object ids', () => {
+    const connection = cosmosConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cosmos:container:catalog:',
+    })
+
+    expect(response.queryTemplate).toContain('"target": "cosmos:container:catalog:"')
+    expect(response.payload).toMatchObject({
+      objectView: 'container',
+      database: 'catalog',
+      container: '',
+      containers: [],
+      partitionKeys: [],
+      indexingPolicy: [],
+      throughput: [],
+    })
+    expect(JSON.stringify(response.payload)).not.toContain('products')
   })
 
   it('mirrors MySQL and MariaDB database trees without system clutter', () => {
@@ -1202,6 +1246,33 @@ describe('browser explorer runtime', () => {
     expect(JSON.stringify(diagnosticsResponse.payload)).not.toContain('_cat')
   })
 
+  it('does not invent search indices for malformed object ids', () => {
+    const connection = searchConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    expect(createExplorerNodes(connection, 'index:')).toEqual([])
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'index:',
+    })
+
+    expect(response.queryTemplate).toContain('"index": ""')
+    expect(response.payload).toMatchObject({
+      objectView: 'index',
+      index: '',
+      indices: [],
+      fields: [],
+      warnings: expect.arrayContaining([
+        'No search index metadata is available. Refresh the Indices node or select another index.',
+      ]),
+    })
+    expect(JSON.stringify(response.payload)).not.toContain('products-v1')
+  })
+
   it('mirrors DynamoDB tables, access, and diagnostics without live AWS dependencies', () => {
     const connection = dynamoConnection()
 
@@ -1268,6 +1339,31 @@ describe('browser explorer runtime', () => {
       hotPartitions: expect.arrayContaining([expect.objectContaining({ partitionKey: 'CUSTOMER#123' })]),
       alarms: expect.arrayContaining([expect.objectContaining({ state: 'ALARM' })]),
     })
+  })
+
+  it('does not invent DynamoDB tables for malformed object ids', () => {
+    const connection = dynamoConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    expect(createExplorerNodes(connection, 'table:')).toEqual([])
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'table:',
+    })
+
+    expect(response.payload).toMatchObject({
+      engine: 'dynamodb',
+      objectView: 'table',
+      tableName: '',
+      tables: [],
+      items: [],
+      keys: [],
+    })
+    expect(JSON.stringify(response.payload)).not.toContain('Orders')
   })
 
   it('mirrors Cassandra keyspaces, tables, and diagnostics without live cluster dependencies', () => {
@@ -1346,6 +1442,30 @@ describe('browser explorer runtime', () => {
       diagnostics: expect.arrayContaining([expect.objectContaining({ signal: 'Read latency p95' })]),
       warningRows: expect.arrayContaining([expect.objectContaining({ scope: 'tracing' })]),
     })
+  })
+
+  it('does not invent Cassandra table metadata for malformed object ids', () => {
+    const connection = cassandraConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const response = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'table:app:',
+    })
+
+    expect(response.payload).toMatchObject({
+      engine: 'cassandra',
+      objectView: 'table',
+      tableName: '',
+      tables: [],
+      columns: [],
+      primaryKey: [],
+      indexes: [],
+    })
+    expect(JSON.stringify(response.payload)).not.toContain('orders_by_customer')
   })
 
   it('mirrors a Prometheus native metrics and operations tree', () => {

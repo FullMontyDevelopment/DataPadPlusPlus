@@ -13,6 +13,7 @@ const LITEDB_CAPABILITIES: &[&str] = &[
     "supports_query_profile",
     "supports_metrics_collection",
     "supports_import_export",
+    "supports_backup_restore",
     "supports_structure_visualization",
 ];
 

@@ -14,9 +14,9 @@ import {
   hasExplorerScope,
   isExplorerRequestLoading,
   mergeExplorerCacheEntry,
-  mergeExplorerResponse,
   openMessagesPayload,
 } from './app-state-reducer-helpers'
+import { mergeExplorerResponse } from './app-state-explorer-merge'
 
 function payloadWithResult(resultPayload: ResultPayload): BootstrapPayload {
   const payload = createSeedBootstrapPayload()

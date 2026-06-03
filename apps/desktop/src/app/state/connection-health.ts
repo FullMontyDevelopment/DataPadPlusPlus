@@ -23,6 +23,7 @@ export interface ConnectionHealth {
   environmentId: string
   status: ConnectionHealthStatus
   source: ConnectionHealthSource
+  checkId?: string
   lastCheckedAt?: string
   durationMs?: number
   message?: string
@@ -44,12 +45,14 @@ export function connectionHealthChecking(
   environmentId: string,
   source: ConnectionHealthSource,
   message = 'Checking connection',
+  checkId?: string,
 ): ConnectionHealth {
   return sanitizeConnectionHealth({
     connectionId,
     environmentId,
     status: 'checking',
     source,
+    checkId,
     message,
   })
 }

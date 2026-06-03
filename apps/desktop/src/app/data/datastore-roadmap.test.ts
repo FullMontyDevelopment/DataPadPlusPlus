@@ -4,6 +4,7 @@ import {
   DATASTORE_ENGINES,
   DATASTORE_COMPLETENESS_CRITERIA,
   DATASTORE_COMPLETENESS_MATRIX,
+  CONTRACT_COMPLETE_DATASTORE_ENGINES,
   DATASTORE_FAMILIES,
   DATASTORE_FEATURE_BACKLOG,
   BETA_ADAPTER_ENGINES,
@@ -13,7 +14,9 @@ import {
   RESULT_RENDERERS,
   datastoreBacklogByEngine,
   datastoreCompletenessForEngine,
+  contractIncompleteCriteriaForEngine,
   incompleteCriteriaForEngine,
+  isDatastoreContractComplete,
 } from '@datapadplusplus/shared-types'
 import { adapterManifests } from './workspace-factory'
 
@@ -167,15 +170,37 @@ describe('datastore roadmap catalog', () => {
       expect(entry.nativeScore).toBeGreaterThanOrEqual(0)
       expect(entry.nativeScore).toBeLessThanOrEqual(5)
       expect(entry.targetPhase).toBeGreaterThan(0)
+      expect(entry.completionEvidence.length, `${entry.engine} completion evidence`).toBeGreaterThan(0)
+      expect(entry.residualRisk.trim().length, `${entry.engine} residual risk`).toBeGreaterThan(20)
       expect(entry.summary.trim().length).toBeGreaterThan(20)
       expect(entry.criteria.map((criterion) => criterion.criterion)).toEqual([
         ...DATASTORE_COMPLETENESS_CRITERIA,
       ])
       for (const criterion of entry.criteria) {
         expect(criterion.note.trim().length, `${entry.engine}.${criterion.criterion} note`).toBeGreaterThan(20)
+        expect(criterion.contractNote.trim().length, `${entry.engine}.${criterion.criterion} contract note`).toBeGreaterThan(20)
+        expect(criterion.evidence.length, `${entry.engine}.${criterion.criterion} evidence`).toBeGreaterThan(0)
         expect(criterion.next.length, `${entry.engine}.${criterion.criterion} next steps`).toBeGreaterThan(0)
       }
     }
+  })
+
+  it('closes the all-engine contract-complete acceptance gate without hiding native gaps', () => {
+    expect([...CONTRACT_COMPLETE_DATASTORE_ENGINES].sort()).toEqual([...DATASTORE_ENGINES].sort())
+
+    for (const engine of DATASTORE_ENGINES) {
+      const entry = datastoreCompletenessForEngine(engine)
+
+      expect(isDatastoreContractComplete(engine), engine).toBe(true)
+      expect(entry?.completionClaim, engine).toBe('contract-complete')
+      expect(entry?.completionEvidence, engine).toContain('contract')
+      expect(contractIncompleteCriteriaForEngine(engine), engine).toEqual([])
+      expect(entry?.criteria.every((criterion) => criterion.contractStatus === 'covered'), engine).toBe(
+        true,
+      )
+    }
+
+    expect(incompleteCriteriaForEngine('mongodb').length).toBeGreaterThan(0)
   })
 
   it('identifies MongoDB as the first near-native reference target without hiding remaining gaps', () => {
@@ -183,17 +208,546 @@ describe('datastore roadmap catalog', () => {
 
     expect(mongo).toMatchObject({
       readiness: 'near-native',
-      nativeScore: 4,
+      completionClaim: 'contract-complete',
+      nativeScore: 4.15,
       targetPhase: 1,
     })
     expect(mongo?.criteria.find((item) => item.criterion === 'object-views')?.status).toBe(
       'strong',
     )
-    expect(mongo?.criteria.find((item) => item.criterion === 'safe-editing')?.status).toBe(
+    expect(mongo?.criteria.find((item) => item.criterion === 'safe-editing')).toMatchObject({
+      status: 'strong',
+      contractStatus: 'covered',
+    })
+    expect(incompleteCriteriaForEngine('mongodb').map((item) => item.criterion)).toEqual(
+      expect.arrayContaining(['diagnostics-performance', 'import-export']),
+    )
+    expect(incompleteCriteriaForEngine('mongodb').map((item) => item.criterion)).not.toContain(
+      'safe-editing',
+    )
+  })
+
+  it('tracks Wave 6 reference-engine hardening without declaring native completion', () => {
+    const redis = datastoreCompletenessForEngine('redis')
+    const valkey = datastoreCompletenessForEngine('valkey')
+
+    expect(redis).toMatchObject({
+      readiness: 'near-native',
+      completionClaim: 'contract-complete',
+      nativeScore: 3.8,
+    })
+    expect(valkey).toMatchObject({
+      readiness: 'usable',
+      completionClaim: 'contract-complete',
+      nativeScore: 3.35,
+    })
+    expect(redis?.criteria.find((item) => item.criterion === 'tests')).toMatchObject({
+      status: 'strong',
+      contractStatus: 'covered',
+    })
+    expect(redis?.criteria.find((item) => item.criterion === 'import-export')?.status).toBe(
       'partial',
     )
-    expect(incompleteCriteriaForEngine('mongodb').map((item) => item.criterion)).toEqual(
-      expect.arrayContaining(['safe-editing', 'diagnostics-performance', 'import-export']),
+    expect(valkey?.criteria.find((item) => item.criterion === 'import-export')?.status).toBe(
+      'partial',
     )
+  })
+
+  it('tracks Wave 7 core SQL row-edit hardening without promoting Oracle live execution', () => {
+    const liveSqlEngines = [
+      ['postgresql', 3.35],
+      ['cockroachdb', 3.15],
+      ['sqlserver', 3.35],
+      ['mysql', 3.05],
+      ['mariadb', 3.05],
+      ['sqlite', 3.2],
+      ['timescaledb', 3.2],
+    ] as const
+
+    for (const [engine, nativeScore] of liveSqlEngines) {
+      const entry = datastoreCompletenessForEngine(engine)
+      const incompleteCriteria = incompleteCriteriaForEngine(engine).map((item) => item.criterion)
+
+      expect(entry).toMatchObject({
+        readiness: 'usable',
+        completionClaim: 'contract-complete',
+        nativeScore,
+        targetPhase: 2,
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'safe-editing')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'tests')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(incompleteCriteria).not.toContain('safe-editing')
+      expect(incompleteCriteria).not.toContain('tests')
+    }
+
+    const oracle = datastoreCompletenessForEngine('oracle')
+
+    expect(oracle).toMatchObject({
+      readiness: 'foundation',
+      completionClaim: 'contract-complete',
+      nativeScore: 2.75,
+      targetPhase: 2,
+    })
+    expect(oracle?.criteria.find((item) => item.criterion === 'safe-editing')?.status).toBe(
+      'partial',
+    )
+    expect(incompleteCriteriaForEngine('oracle').map((item) => item.criterion)).toContain(
+      'safe-editing',
+    )
+  })
+
+  it('tracks Wave 8 search and DynamoDB edit hardening without promoting Cassandra live execution', () => {
+    const promotedEngines = [
+      ['elasticsearch', 3.55],
+      ['opensearch', 3.45],
+      ['dynamodb', 3.5],
+    ] as const
+
+    for (const [engine, nativeScore] of promotedEngines) {
+      const entry = datastoreCompletenessForEngine(engine)
+      const incompleteCriteria = incompleteCriteriaForEngine(engine).map((item) => item.criterion)
+
+      expect(entry).toMatchObject({
+        readiness: 'foundation',
+        completionClaim: 'contract-complete',
+        nativeScore,
+        targetPhase: 3,
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'safe-editing')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'tests')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(incompleteCriteria).not.toContain('safe-editing')
+      expect(incompleteCriteria).not.toContain('tests')
+    }
+
+    const cassandra = datastoreCompletenessForEngine('cassandra')
+
+    expect(cassandra).toMatchObject({
+      readiness: 'foundation',
+      completionClaim: 'contract-complete',
+      nativeScore: 3.05,
+      targetPhase: 3,
+    })
+    expect(cassandra?.criteria.find((item) => item.criterion === 'safe-editing')?.status).toBe(
+      'partial',
+    )
+    expect(incompleteCriteriaForEngine('cassandra').map((item) => item.criterion)).toContain(
+      'safe-editing',
+    )
+  })
+
+  it('tracks Wave 9 Wave 4 query and test hardening without promoting live mutations', () => {
+    const documentAndCacheEngines = [
+      ['cosmosdb', 3.2],
+      ['litedb', 3.3],
+      ['memcached', 3.25],
+    ] as const
+
+    for (const [engine, nativeScore] of documentAndCacheEngines) {
+      const entry = datastoreCompletenessForEngine(engine)
+
+      expect(entry).toMatchObject({
+        readiness: 'foundation',
+        completionClaim: 'contract-complete',
+        nativeScore,
+        targetPhase: 4,
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'tests')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'safe-editing')?.status).toBe(
+        'partial',
+      )
+    }
+
+    const analyticsEngines = [
+      ['duckdb', 3.7, 'usable'],
+      ['clickhouse', 3.45, 'foundation'],
+      ['snowflake', 3.4, 'foundation'],
+      ['bigquery', 3.4, 'foundation'],
+    ] as const
+
+    for (const [engine, nativeScore, readiness] of analyticsEngines) {
+      const entry = datastoreCompletenessForEngine(engine)
+
+      expect(entry).toMatchObject({
+        readiness,
+        completionClaim: 'contract-complete',
+        nativeScore,
+        targetPhase: 4,
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'query-surface')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'tests')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'safe-editing')?.status).toBe(
+        'partial',
+      )
+    }
+  })
+
+  it('tracks Wave 10 time-series and graph query hardening without promoting writes', () => {
+    const waveTenEngines = [
+      ['prometheus', 3.3],
+      ['influxdb', 3.35],
+      ['opentsdb', 3.2],
+      ['neo4j', 3.4],
+      ['arango', 3.3],
+      ['janusgraph', 3.2],
+      ['neptune', 3.25],
+    ] as const
+
+    for (const [engine, nativeScore] of waveTenEngines) {
+      const entry = datastoreCompletenessForEngine(engine)
+
+      expect(entry).toMatchObject({
+        readiness: 'foundation',
+        completionClaim: 'contract-complete',
+        nativeScore,
+        targetPhase: 5,
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'query-surface')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'tests')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(entry?.criteria.find((item) => item.criterion === 'safe-editing')?.status).toBe(
+        'partial',
+      )
+    }
+  })
+
+  it('tracks Wave 11 deterministic intellisense hardening without live metadata claims', () => {
+    const engines = [
+      'elasticsearch',
+      'opensearch',
+      'dynamodb',
+      'cassandra',
+      'cosmosdb',
+      'litedb',
+      'memcached',
+      'duckdb',
+      'clickhouse',
+      'snowflake',
+      'bigquery',
+      'prometheus',
+      'influxdb',
+      'opentsdb',
+      'neo4j',
+      'arango',
+      'janusgraph',
+      'neptune',
+    ] as const
+
+    for (const engine of engines) {
+      const entry = datastoreCompletenessForEngine(engine)
+
+      expect(entry?.completionClaim, engine).toBe('contract-complete')
+      expect(entry?.criteria.find((item) => item.criterion === 'intellisense')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(
+        entry?.criteria.find((item) => item.criterion === 'intellisense')?.next.join(' '),
+        engine,
+      ).toContain('live')
+    }
+  })
+
+  it('tracks Wave 12 secondary object-tree parity without live capability claims', () => {
+    const engines = [
+      'elasticsearch',
+      'opensearch',
+      'dynamodb',
+      'cassandra',
+      'cosmosdb',
+      'litedb',
+      'memcached',
+      'duckdb',
+      'clickhouse',
+      'snowflake',
+      'bigquery',
+      'prometheus',
+      'influxdb',
+      'opentsdb',
+      'neo4j',
+      'arango',
+      'janusgraph',
+      'neptune',
+    ] as const
+
+    for (const engine of engines) {
+      const entry = datastoreCompletenessForEngine(engine)
+
+      expect(entry?.completionClaim, engine).toBe('contract-complete')
+      expect(entry?.criteria.find((item) => item.criterion === 'object-tree')).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(
+        entry?.criteria.find((item) => item.criterion === 'object-tree')?.note,
+        engine,
+      ).toMatch(/shared\/Rust tree manifests|browser explorer routing/)
+      expect(
+        entry?.criteria.find((item) => item.criterion === 'object-tree')?.next.join(' '),
+        engine,
+      ).toContain('live')
+    }
+  })
+
+  it('tracks Wave 13 secondary connection-flow parity without live driver claims', () => {
+    const engines = [
+      'elasticsearch',
+      'opensearch',
+      'dynamodb',
+      'cassandra',
+      'cosmosdb',
+      'litedb',
+      'memcached',
+      'duckdb',
+      'clickhouse',
+      'snowflake',
+      'bigquery',
+      'prometheus',
+      'influxdb',
+      'opentsdb',
+      'neo4j',
+      'arango',
+      'janusgraph',
+      'neptune',
+    ] as const
+
+    for (const engine of engines) {
+      const entry = datastoreCompletenessForEngine(engine)
+      const connectionFlow = entry?.criteria.find((item) => item.criterion === 'connection-flow')
+
+      expect(entry?.completionClaim, engine).toBe('contract-complete')
+      expect(entry?.summary, engine).toMatch(/connection-flow parity/)
+      expect(connectionFlow, engine).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(connectionFlow?.note, engine).toMatch(/right-drawer fields|Rust interpolation/)
+      expect(connectionFlow?.next.join(' '), engine).toContain('live')
+    }
+  })
+
+  it('tracks Wave 14 secondary guarded-operation parity without live admin claims', () => {
+    const engines = [
+      'elasticsearch',
+      'opensearch',
+      'dynamodb',
+      'cassandra',
+      'cosmosdb',
+      'litedb',
+      'memcached',
+      'duckdb',
+      'clickhouse',
+      'snowflake',
+      'bigquery',
+      'prometheus',
+      'influxdb',
+      'opentsdb',
+      'neo4j',
+      'arango',
+      'janusgraph',
+      'neptune',
+    ] as const
+
+    for (const engine of engines) {
+      const entry = datastoreCompletenessForEngine(engine)
+      const guardedOperations = entry?.criteria.find(
+        (item) => item.criterion === 'guarded-operations',
+      )
+
+      expect(entry?.completionClaim, engine).toBe('contract-complete')
+      expect(entry?.summary, engine).toMatch(/guarded operation parity/)
+      expect(guardedOperations, engine).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(guardedOperations?.note, engine).toMatch(/browser planners|Rust planners/)
+      expect(guardedOperations?.next.join(' '), engine).toContain('live')
+    }
+  })
+
+  it('tracks Wave 15 secondary diagnostics-performance parity without live sampling claims', () => {
+    const engines = [
+      'elasticsearch',
+      'opensearch',
+      'dynamodb',
+      'cassandra',
+      'cosmosdb',
+      'litedb',
+      'memcached',
+      'duckdb',
+      'clickhouse',
+      'snowflake',
+      'bigquery',
+      'prometheus',
+      'influxdb',
+      'opentsdb',
+      'neo4j',
+      'arango',
+      'janusgraph',
+      'neptune',
+    ] as const
+
+    for (const engine of engines) {
+      const entry = datastoreCompletenessForEngine(engine)
+      const diagnostics = entry?.criteria.find(
+        (item) => item.criterion === 'diagnostics-performance',
+      )
+
+      expect(entry?.completionClaim, engine).toBe('contract-complete')
+      expect(entry?.summary, engine).toMatch(/diagnostics\/performance parity/)
+      expect(diagnostics, engine).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(diagnostics?.note, engine).toMatch(/object-view posture panels|Rust metrics\/profile/)
+      expect(diagnostics?.next.join(' '), engine).toContain('live')
+    }
+  })
+
+  it('tracks Wave 16 secondary import-export parity without live file execution claims', () => {
+    const engines = [
+      'elasticsearch',
+      'opensearch',
+      'dynamodb',
+      'cassandra',
+      'cosmosdb',
+      'litedb',
+      'memcached',
+      'duckdb',
+      'clickhouse',
+      'snowflake',
+      'bigquery',
+      'prometheus',
+      'influxdb',
+      'opentsdb',
+      'neo4j',
+      'arango',
+      'janusgraph',
+      'neptune',
+    ] as const
+
+    for (const engine of engines) {
+      const entry = datastoreCompletenessForEngine(engine)
+      const importExport = entry?.criteria.find((item) => item.criterion === 'import-export')
+
+      expect(entry?.completionClaim, engine).toBe('contract-complete')
+      expect(entry?.summary, engine).toMatch(/import\/export parity/)
+      expect(importExport, engine).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(importExport?.note, engine).toMatch(/browser planners|Rust planners|bounded range export/)
+      expect(importExport?.next.join(' '), engine).toMatch(/live|adapter-owned|fixture/)
+    }
+  })
+
+  it('tracks Wave 17 secondary object-view parity without live payload-depth claims', () => {
+    const engines = [
+      'elasticsearch',
+      'opensearch',
+      'dynamodb',
+      'cassandra',
+      'cosmosdb',
+      'litedb',
+      'memcached',
+      'duckdb',
+      'clickhouse',
+      'snowflake',
+      'bigquery',
+      'prometheus',
+      'influxdb',
+      'opentsdb',
+      'neo4j',
+      'arango',
+      'janusgraph',
+      'neptune',
+    ] as const
+
+    for (const engine of engines) {
+      const entry = datastoreCompletenessForEngine(engine)
+      const objectViews = entry?.criteria.find((item) => item.criterion === 'object-views')
+
+      expect(entry?.completionClaim, engine).toBe('contract-complete')
+      expect(entry?.summary, engine).toMatch(/object-view parity/)
+      expect(objectViews, engine).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
+      expect(objectViews?.note, engine).toMatch(/descriptor-backed workflows|focused descriptor tests/)
+      expect(objectViews?.next.join(' '), engine).toMatch(/live|fixture|validation/)
+    }
+  })
+
+  it('promotes Wave 4 engines into contract-complete foundation profiles', () => {
+    const waveFourEngines = [
+      'cosmosdb',
+      'litedb',
+      'memcached',
+      'duckdb',
+      'clickhouse',
+      'snowflake',
+      'bigquery',
+    ] as const
+
+    for (const engine of waveFourEngines) {
+      const entry = datastoreCompletenessForEngine(engine)
+
+      expect(entry?.targetPhase, engine).toBe(4)
+      expect(entry?.readiness, engine).toMatch(/foundation|usable/)
+      expect(entry?.completionClaim, engine).toBe('contract-complete')
+      expect(entry?.summary, engine).toMatch(/contract-complete/)
+      expect(entry?.criteria.find((item) => item.criterion === 'guarded-operations')?.status).toBe(
+        'strong',
+      )
+    }
+  })
+
+  it('promotes Wave 5 engines into contract-complete foundation profiles', () => {
+    const waveFiveEngines = [
+      'prometheus',
+      'influxdb',
+      'opentsdb',
+      'neo4j',
+      'arango',
+      'janusgraph',
+      'neptune',
+    ] as const
+
+    for (const engine of waveFiveEngines) {
+      const entry = datastoreCompletenessForEngine(engine)
+
+      expect(entry?.targetPhase, engine).toBe(5)
+      expect(entry?.readiness, engine).toBe('foundation')
+      expect(entry?.completionClaim, engine).toBe('contract-complete')
+      expect(entry?.summary, engine).toMatch(/contract-complete/)
+      expect(entry?.criteria.find((item) => item.criterion === 'guarded-operations')?.status).toBe(
+        'strong',
+      )
+    }
   })
 })

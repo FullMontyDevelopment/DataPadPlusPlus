@@ -1,9 +1,10 @@
 export function parseMysqlObjectScope(scope: string, fallbackDatabase: string) {
+  const normalizedFallback = fallbackDatabase.trim()
   const parts = scope.split(':')
   if (parts.length >= 3) {
     return {
-      database: parts[1] || fallbackDatabase,
-      objectName: parts[2] || 'accounts',
+      database: parts[1] || normalizedFallback,
+      objectName: parts[2] || '',
     }
   }
 
@@ -12,8 +13,8 @@ export function parseMysqlObjectScope(scope: string, fallbackDatabase: string) {
     ? qualified.split('.', 2)
     : [fallbackDatabase, qualified]
   return {
-    database: database || fallbackDatabase,
-    objectName: objectName || 'accounts',
+    database: database || normalizedFallback,
+    objectName: objectName || '',
   }
 }
 

@@ -1,6 +1,6 @@
 use crate::domain::models::{
-    OracleConnectionOptions, RedisConnectionOptions, SqlServerConnectionOptions,
-    SqliteConnectionOptions,
+    MemcachedConnectionOptions, OracleConnectionOptions, RedisConnectionOptions,
+    SqlServerConnectionOptions, SqliteConnectionOptions,
 };
 
 pub(super) fn interpolate_redis_options(
@@ -47,6 +47,34 @@ pub(super) fn interpolate_redis_options(
         read_from_replicas: options.read_from_replicas,
         cluster_refresh_interval_ms: options.cluster_refresh_interval_ms,
         unix_socket_path: options.unix_socket_path.as_deref().map(interpolate),
+    }
+}
+
+pub(super) fn interpolate_memcached_options(
+    options: &MemcachedConnectionOptions,
+    interpolate: &impl Fn(&str) -> String,
+) -> MemcachedConnectionOptions {
+    MemcachedConnectionOptions {
+        servers: options
+            .servers
+            .iter()
+            .map(|server| interpolate(server))
+            .collect(),
+        protocol: options.protocol.as_deref().map(interpolate),
+        auth_mode: options.auth_mode.as_deref().map(interpolate),
+        username: options.username.as_deref().map(interpolate),
+        sasl_password_secret_ref: options.sasl_password_secret_ref.clone(),
+        namespace_prefix: options.namespace_prefix.as_deref().map(interpolate),
+        default_ttl_seconds: options.default_ttl_seconds,
+        connect_timeout_ms: options.connect_timeout_ms,
+        request_timeout_ms: options.request_timeout_ms,
+        tcp_no_delay: options.tcp_no_delay,
+        keep_alive: options.keep_alive,
+        enable_compression: options.enable_compression,
+        lru_crawler_enabled: options.lru_crawler_enabled,
+        flush_delay_seconds: options.flush_delay_seconds,
+        read_only_mode: options.read_only_mode,
+        max_value_bytes: options.max_value_bytes,
     }
 }
 
@@ -175,5 +203,52 @@ pub(super) fn interpolate_oracle_options(
         client_certificate_path: options.client_certificate_path.as_deref().map(interpolate),
         client_key_path: options.client_key_path.as_deref().map(interpolate),
         trace_directory: options.trace_directory.as_deref().map(interpolate),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::models::SecretRef;
+
+    #[test]
+    fn interpolates_memcached_options_without_secret_values() {
+        let options = MemcachedConnectionOptions {
+            servers: vec!["{{CACHE_HOST}}:11211".into(), "cache-b:11211".into()],
+            username: Some("{{CACHE_USER}}".into()),
+            namespace_prefix: Some("{{CACHE_PREFIX}}:".into()),
+            sasl_password_secret_ref: Some(SecretRef {
+                id: "secret-memcached-sasl".into(),
+                provider: "os-keyring".into(),
+                service: "DataPad++".into(),
+                account: "conn-memcached".into(),
+                label: "Memcached SASL password".into(),
+            }),
+            request_timeout_ms: Some(15_000),
+            ..MemcachedConnectionOptions::default()
+        };
+        let interpolate = |value: &str| {
+            value
+                .replace("{{CACHE_HOST}}", "cache-a")
+                .replace("{{CACHE_USER}}", "worker")
+                .replace("{{CACHE_PREFIX}}", "catalog")
+        };
+
+        let resolved = interpolate_memcached_options(&options, &interpolate);
+
+        assert_eq!(
+            resolved.servers,
+            vec!["cache-a:11211".to_string(), "cache-b:11211".to_string()]
+        );
+        assert_eq!(resolved.username.as_deref(), Some("worker"));
+        assert_eq!(resolved.namespace_prefix.as_deref(), Some("catalog:"));
+        assert_eq!(resolved.request_timeout_ms, Some(15_000));
+        assert_eq!(
+            resolved
+                .sasl_password_secret_ref
+                .as_ref()
+                .map(|secret| secret.id.as_str()),
+            Some("secret-memcached-sasl")
+        );
     }
 }

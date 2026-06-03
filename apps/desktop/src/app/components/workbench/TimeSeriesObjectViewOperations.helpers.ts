@@ -187,7 +187,7 @@ function isOpenTsdbUidLike(kind: string) {
 
 function isImportExportLike(engine: string, kind: string) {
   if (engine === 'prometheus') {
-    return false
+    return ['metric', 'metrics', 'series', 'label', 'labels', 'tsdb', 'storage'].includes(kind)
   }
 
   if (engine === 'influxdb') {

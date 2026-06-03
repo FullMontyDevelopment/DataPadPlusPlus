@@ -69,6 +69,27 @@ pub(super) fn timescale_operation_plan(
         plan.estimated_scan_impact =
             Some("Refresh reads source chunks for the bounded time window.".into());
         plan.confirmation_text = Some(format!("CONFIRM {}", manifest.engine.to_uppercase()));
+    } else if operation_id.ends_with("data.import-export") || operation_id.contains("import-export")
+    {
+        let relation = timescale_relation_identifier(object_name, parameters);
+        plan.generated_request = format!(
+            "copy (select * from {relation}) to '<selected-file>.csv' with (format csv, header true);\n-- For hypertables, review chunk count and compression status before exporting large ranges."
+        );
+        plan.summary = format!("Prepared TimescaleDB import/export preview for {relation}.");
+        plan.estimated_scan_impact =
+            Some("Export can scan every chunk for the selected hypertable or query.".into());
+        plan.confirmation_text = Some(format!("CONFIRM {}", manifest.engine.to_uppercase()));
+    } else if operation_id.ends_with("data.backup-restore")
+        || operation_id.contains("backup-restore")
+    {
+        plan.generated_request = "pg_dump --format=custom --file=<selected-file>.dump <database>\n-- Restore preview:\npg_restore --clean --if-exists --dbname=<target-database> <selected-file>.dump\n-- Review TimescaleDB extension version, compression policies, retention policies, and continuous aggregates before restore.".into();
+        plan.summary = "Prepared TimescaleDB backup/restore preview.".into();
+        plan.destructive = true;
+        plan.required_permissions =
+            vec!["database owner, backup role, or equivalent restore privilege".into()];
+        plan.estimated_scan_impact =
+            Some("Backup scans database objects and hypertable chunks selected by pg_dump.".into());
+        plan.confirmation_text = Some(format!("CONFIRM {}", manifest.engine.to_uppercase()));
     }
 
     plan
@@ -93,6 +114,29 @@ fn timescale_relation_literal(
     ))
 }
 
+fn timescale_relation_identifier(
+    object_name: Option<&str>,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let schema = parameter_string(parameters, "schema");
+    let table = parameter_string(parameters, "table");
+    if let (Some(schema), Some(table)) = (schema, table) {
+        return format!(
+            "{}.{}",
+            quote_identifier(&strip_identifier(&schema)),
+            quote_identifier(&strip_identifier(&table))
+        );
+    }
+
+    object_name
+        .unwrap_or("<schema>.<hypertable>")
+        .split('.')
+        .map(strip_identifier)
+        .map(|part| quote_identifier(&part))
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
 fn parameter_string(parameters: Option<&BTreeMap<String, Value>>, key: &str) -> Option<String> {
     parameters?
         .get(key)?
@@ -114,6 +158,10 @@ fn strip_identifier(value: &str) -> String {
 
 fn escape_sql_literal(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+fn quote_identifier(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
 }
 
 #[cfg(test)]
@@ -192,6 +240,41 @@ mod tests {
         assert!(plan.confirmation_text.is_some());
     }
 
+    #[test]
+    fn timescale_import_export_and_backup_previews_are_native() {
+        let manifest = timescale_manifest();
+        let connection = resolved_connection();
+        let parameters = BTreeMap::from([
+            ("schema".into(), json!("public")),
+            ("table".into(), json!("order_metrics")),
+        ]);
+
+        let export = timescale_operation_plan(
+            &connection,
+            &manifest,
+            "timescaledb.data.import-export",
+            Some("\"public\".\"order_metrics\""),
+            Some(&parameters),
+        );
+        assert!(export.generated_request.contains(
+            "copy (select * from \"public\".\"order_metrics\") to '<selected-file>.csv'"
+        ));
+        assert!(export.generated_request.contains("review chunk count"));
+        assert!(export.confirmation_text.is_some());
+
+        let backup = timescale_operation_plan(
+            &connection,
+            &manifest,
+            "timescaledb.data.backup-restore",
+            None,
+            None,
+        );
+        assert!(backup.generated_request.contains("pg_dump --format=custom"));
+        assert!(backup.generated_request.contains("continuous aggregates"));
+        assert!(backup.destructive);
+        assert!(backup.confirmation_text.is_some());
+    }
+
     fn resolved_connection() -> ResolvedConnectionProfile {
         ResolvedConnectionProfile {
             id: "conn-timescale".into(),
@@ -205,6 +288,7 @@ mod tests {
             password: None,
             connection_string: None,
             redis_options: None,
+            memcached_options: None,
             sqlite_options: None,
             sqlserver_options: None,
             oracle_options: None,

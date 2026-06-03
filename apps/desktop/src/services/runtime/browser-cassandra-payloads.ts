@@ -16,13 +16,19 @@ import {
 
 export function cassandraInspectPayload(connection: ConnectionProfile, nodeId: string) {
   const { keyspace, table } = cassandraTableNameFromNodeId(connection, nodeId)
+  const objectView = cassandraObjectViewFromNodeId(nodeId)
+  const tableLikeNode = /^(table|data|columns|primary-key|indexes|compaction|statistics|permissions|materialized-view):/.test(nodeId)
 
   if (nodeId.startsWith('keyspace:')) {
     return cassandraKeyspacePayload(connection, nodeId.replace('keyspace:', '') || keyspace)
   }
 
   if (table) {
-    return cassandraTablePayload(keyspace, table, cassandraObjectViewFromNodeId(nodeId))
+    return cassandraTablePayload(keyspace, table, objectView)
+  }
+
+  if (tableLikeNode) {
+    return cassandraTablePayload(keyspace, '', objectView)
   }
 
   if (nodeId.startsWith('cassandra:cluster')) {
@@ -74,7 +80,7 @@ function cassandraTablePayload(
   objectView: string,
 ) {
   const tables = cassandraTables()
-  const table = tables.find((candidate) => candidate.name === tableName) ?? tables[0]
+  const table = tables.find((candidate) => candidate.name === tableName)
   if (!table) {
     return {
       engine: 'cassandra',

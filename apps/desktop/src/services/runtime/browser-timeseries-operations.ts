@@ -94,6 +94,22 @@ function prometheusOperationRequest(connection: ConnectionProfile, request: Oper
     })
   }
 
+  if (request.operationId.endsWith('data.import-export')) {
+    return httpJson({
+      operation: 'prometheus.range-export',
+      method: 'GET',
+      path: '/api/v1/query_range',
+      query: {
+        query,
+        start: parameters.start ?? 'now-1h',
+        end: parameters.end ?? 'now',
+        step: parameters.step ?? '30s',
+      },
+      format: parameters.format ?? 'json',
+      validation: ['bounded-range', 'cardinality-check', 'result-snapshot-only'],
+    })
+  }
+
   return defaultQueryTextForConnection(connection)
 }
 
