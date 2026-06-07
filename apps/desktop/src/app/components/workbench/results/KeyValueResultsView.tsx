@@ -22,6 +22,7 @@ import { KeyValueEntryRows } from './KeyValueEntryRows'
 import { KeyValueContextMenu } from './KeyValueContextMenu'
 import { RedisKeyDetailHeader } from './RedisKeyDetailHeader'
 import {
+  buildRedisJsonPathEditRequest,
   buildKeyValueEditRequest,
   buildRedisMemberDeleteRequest,
   buildRedisMemberEditRequest,
@@ -38,10 +39,11 @@ import {
   keyValueRowsFromEntries,
   redisContextTargetKind,
   redisEditKindForValue,
-  redisKeyOperationPlanRequest,
   redisMemberLabel,
   serializedKeyValue,
 } from './keyvalue-results-helpers'
+import { useRedisKeyFileOperations } from './use-redis-key-file-operations'
+import { useRedisJsonPathEditing } from './use-redis-json-path-editing'
 
 interface KeyValueResultsViewProps {
   connection?: ConnectionProfile
@@ -118,6 +120,9 @@ export function KeyValueResultsView({
   const [deletedSelectedKey, setDeletedSelectedKey] = useState<{ deletedKey: string; payloadKey: string }>()
   const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const canEdit = keyValueCanEdit(connection, editContext) && Boolean(onExecuteDataEdit)
+  const redisType = payload?.redisType
+  const canEditValues = canEdit && !['stream', 'timeseries', 'vectorset'].includes(redisType ?? '')
+  const selectedKey = payload?.key
   const activeEntryPatches = entryPatchState.version === entriesVersion
     ? entryPatchState.patches
     : EMPTY_KEYVALUE_ENTRY_PATCHES
@@ -139,6 +144,36 @@ export function KeyValueResultsView({
       }
     })
   }
+
+  const {
+    beginJsonPathEdit,
+    canEditJsonPaths,
+    deleteJsonPath,
+    jsonPathPanel,
+  } = useRedisJsonPathEditing({
+    canEdit,
+    confirmDataEdit,
+    connection,
+    editContext,
+    entries,
+    onExecuteDataEdit,
+    payload,
+    selectedKey,
+    setStatusMessage,
+    updateDraftEntries,
+  })
+  const {
+    canPlanKeyOperation,
+    planKeyExport,
+    planKeyImport,
+  } = useRedisKeyFileOperations({
+    connection,
+    editContext,
+    onPlanOperation,
+    payload,
+    selectedKey,
+    setStatusMessage,
+  })
 
   useEffect(() => {
     if (!contextMenu) {
@@ -172,7 +207,16 @@ export function KeyValueResultsView({
 
     const nextValue = parseKeyValueInput(editingValue)
     const request =
-      selectedKey && redisType && redisType !== 'string'
+      selectedKey && redisType === 'json'
+        ? buildRedisJsonPathEditRequest({
+            connection,
+            editContext,
+            editKind: 'json-set-path',
+            key: selectedKey,
+            path: '$',
+            value: nextValue,
+          })
+      : selectedKey && redisType && redisType !== 'string'
         ? buildRedisMemberEditRequest({
             connection,
             editContext,
@@ -377,7 +421,7 @@ export function KeyValueResultsView({
     const targetKind = deleteTargetState.target
 
     if (!request) {
-      setStatusMessage(`Delete is not available for this ${redisType ?? 'Redis'} item.`)
+      setStatusMessage(`Delete is not available for this ${redisType ?? 'key-value'} item.`)
       return
     }
 
@@ -389,7 +433,7 @@ export function KeyValueResultsView({
               ? `Delete ${keyName} from ${selectedKey}.`
               : `Delete ${keyName}.`,
             confirm: confirmDataEdit,
-            confirmationTitle: targetKind === 'member' ? 'Delete this Redis item?' : 'Delete this key?',
+            confirmationTitle: targetKind === 'member' ? 'Delete this item?' : 'Delete this key?',
           })
 
     if (response?.executed) {
@@ -412,55 +456,11 @@ export function KeyValueResultsView({
     }
   }
 
-  const redisType = payload?.redisType
-  const selectedKey = payload?.key
   const selectedKeyDeleted = Boolean(
     selectedKey &&
       deletedSelectedKey?.payloadKey === selectedKey &&
       deletedSelectedKey.deletedKey === selectedKey,
   )
-  const canPlanKeyOperation = Boolean(onPlanOperation && selectedKey && connection && editContext)
-
-  const planKeyExport = async () => {
-    const request = redisKeyOperationPlanRequest({
-      connection,
-      editContext,
-      payload,
-      operation: 'export',
-    })
-    if (!onPlanOperation || !selectedKey || !request) {
-      return
-    }
-
-    const response = await onPlanOperation(request)
-
-    setStatusMessage(
-      response?.plan
-        ? `Export plan ready for ${selectedKey}.`
-        : `Unable to prepare export for ${selectedKey}.`,
-    )
-  }
-
-  const planKeyImport = async () => {
-    const request = redisKeyOperationPlanRequest({
-      connection,
-      editContext,
-      payload,
-      operation: 'import',
-    })
-    if (!onPlanOperation || !selectedKey || !request) {
-      return
-    }
-
-    const response = await onPlanOperation(request)
-
-    setStatusMessage(
-      response?.plan
-        ? `Import plan ready for ${selectedKey}.`
-        : `Unable to prepare import for ${selectedKey}.`,
-    )
-  }
-
   return (
     <div className="keyvalue-results" aria-label="Key-value results">
       {payload && selectedKey && !selectedKeyDeleted ? (
@@ -522,13 +522,16 @@ export function KeyValueResultsView({
       <div className="keyvalue-results-body">
         <KeyValueEntryRows
           canEdit={canEdit}
+          canEditValues={canEditValues}
           editingKey={editingKey}
           editingValue={editingValue}
           expandedKeys={expandedKeys}
           rows={rows}
           onBeginValueEdit={beginValueEdit}
+          onBeginJsonPathEdit={canEditJsonPaths ? beginJsonPathEdit : undefined}
           onCancelEdit={() => setEditingKey(undefined)}
           onCommitValueEdit={() => void commitValueEdit()}
+          onDeleteJsonPath={canEditJsonPaths ? (path) => void deleteJsonPath(path) : undefined}
           onOpenContextMenu={(keyName, x, y) => setContextMenu({ keyName, x, y })}
           onToggleExpanded={(keyName) =>
             setExpandedKeys((current) => {
@@ -544,6 +547,7 @@ export function KeyValueResultsView({
           onUpdateEditingValue={setEditingValue}
         />
       </div>
+      {jsonPathPanel}
       {pendingTtl ? (
         <KeyValueTtlPanel
           keyName={pendingTtl.keyName}
@@ -559,7 +563,7 @@ export function KeyValueResultsView({
       {statusMessage ? <div className="data-grid-status">{statusMessage}</div> : null}
       {contextMenu ? (
         <KeyValueContextMenu
-          canEdit={canEdit}
+          canEdit={canEditValues}
           canDelete={canEdit && canDeleteRedisContextTarget(selectedKey, redisType)}
           canPersistTtl={canEdit && (!selectedKey || redisType === 'string')}
           canRename={canEdit && (!selectedKey || redisType === 'string')}

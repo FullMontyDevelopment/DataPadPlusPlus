@@ -1619,6 +1619,106 @@ describe('ResultPayloadView', () => {
     expect(screen.getByText('cart')).toBeInTheDocument()
   })
 
+  it('edits and deletes RedisJSON paths from expanded key details', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: `redis.data-edit.${request.editKind}`,
+        engine: 'redis',
+        summary: 'Edited RedisJSON path.',
+        generatedRequest: 'JSON.SET profile:1 $.profile.name "Nova"',
+        requestLanguage: 'redis',
+        destructive: request.editKind === 'json-delete-path',
+        requiredPermissions: ['write concrete key'],
+        warnings: [],
+      },
+      messages: ['Edited RedisJSON path.'],
+      warnings: [],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'JSON.GET profile:1 $',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'profile:1',
+          redisType: 'json',
+          supports: { jsonPaths: true },
+          entries: {
+            'profile:1': '{"profile":{"name":"Avery","legacy":true}}',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand profile:1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand profile:1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand profile' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit path name' }))
+    fireEvent.change(screen.getByLabelText('JSON value for $.profile.name'), {
+      target: { value: '"Nova"' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Set Path' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        editKind: 'json-set-path',
+        target: {
+          objectKind: 'json-path',
+          path: ['$.profile.name'],
+          key: 'profile:1',
+        },
+        changes: [
+          {
+            field: '$.profile.name',
+            path: ['$.profile.name'],
+            value: 'Nova',
+            valueType: 'string',
+          },
+        ],
+      })
+    })
+    expect(screen.getByText('"Nova"')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete path legacy' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenLastCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        editKind: 'json-delete-path',
+        target: {
+          objectKind: 'json-path',
+          path: ['$.profile.legacy'],
+          key: 'profile:1',
+        },
+        changes: [
+          {
+            field: '$.profile.legacy',
+            path: ['$.profile.legacy'],
+            value: undefined,
+            valueType: 'undefined',
+          },
+        ],
+      })
+    })
+    expect(screen.queryByText('legacy')).not.toBeInTheDocument()
+  })
+
   it('executes Redis value and TTL edits from key-value results', async () => {
     const executeDataEdit = vi.fn(async (
       request: DataEditExecutionRequest,
@@ -1709,6 +1809,219 @@ describe('ResultPayloadView', () => {
         ],
       })
     })
+  })
+
+  it('deletes Redis stream entries without offering in-place value edits', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: `redis.data-edit.${request.editKind}`,
+        engine: 'redis',
+        summary: 'Deleted stream entry.',
+        generatedRequest: 'XDEL orders:stream 1714670000000-0',
+        requestLanguage: 'redis',
+        destructive: true,
+        requiredPermissions: ['write concrete key'],
+        warnings: [],
+      },
+      messages: ['Deleted stream entry.'],
+      warnings: [],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'XRANGE orders:stream - + COUNT 10',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'orders:stream',
+          redisType: 'stream',
+          entries: {
+            '1714670000000-0': '{"event":"checkout"}',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: '1714670000000-0' }))
+
+    expect(screen.queryByRole('menuitem', { name: 'Edit Value' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Entry' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        editKind: 'stream-delete-entry',
+        target: {
+          objectKind: 'stream-entry',
+          path: ['1714670000000-0'],
+          key: 'orders:stream',
+          documentId: '1714670000000-0',
+        },
+        changes: [
+          {
+            field: '1714670000000-0',
+            value: undefined,
+            valueType: 'undefined',
+          },
+        ],
+      })
+    })
+    expect(screen.queryByRole('button', { name: '1714670000000-0' })).not.toBeInTheDocument()
+  })
+
+  it('deletes RedisTimeSeries samples without offering in-place value edits', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: `redis.data-edit.${request.editKind}`,
+        engine: 'redis',
+        summary: 'Deleted TimeSeries sample.',
+        generatedRequest: 'TS.DEL metrics:cpu 1714670000000 1714670000000',
+        requestLanguage: 'redis',
+        destructive: true,
+        requiredPermissions: ['write concrete key'],
+        warnings: [],
+      },
+      messages: ['Deleted TimeSeries sample.'],
+      warnings: [],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'TS.RANGE metrics:cpu - + COUNT 10',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'metrics:cpu',
+          redisType: 'timeseries',
+          entries: {
+            '1714670000000': '42.5',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: '1714670000000' }))
+
+    expect(screen.queryByRole('menuitem', { name: 'Edit Value' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Sample' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        editKind: 'timeseries-delete-sample',
+        target: {
+          objectKind: 'timeseries-sample',
+          path: ['1714670000000'],
+          key: 'metrics:cpu',
+          documentId: '1714670000000',
+        },
+        changes: [
+          {
+            field: '1714670000000',
+            value: undefined,
+            valueType: 'undefined',
+          },
+        ],
+      })
+    })
+    expect(screen.queryByRole('button', { name: '1714670000000' })).not.toBeInTheDocument()
+  })
+
+  it('deletes Redis vector elements without offering in-place value edits', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: `redis.data-edit.${request.editKind}`,
+        engine: 'redis',
+        summary: 'Deleted vector element.',
+        generatedRequest: 'VREM embeddings:articles doc:1',
+        requestLanguage: 'redis',
+        destructive: true,
+        requiredPermissions: ['write concrete key'],
+        warnings: [],
+      },
+      messages: ['Deleted vector element.'],
+      warnings: [],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'VRANDMEMBER embeddings:articles 10',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'keyvalue',
+          key: 'embeddings:articles',
+          redisType: 'vectorset',
+          entries: {
+            'doc:1': 'Vector element',
+          },
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'doc:1' }))
+
+    expect(screen.queryByRole('menuitem', { name: 'Edit Value' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Element' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        editKind: 'vector-remove-member',
+        target: {
+          objectKind: 'vector-member',
+          path: ['doc:1'],
+          key: 'embeddings:articles',
+          documentId: 'doc:1',
+        },
+        changes: [
+          {
+            field: 'doc:1',
+            value: undefined,
+            valueType: 'undefined',
+          },
+        ],
+      })
+    })
+    expect(screen.queryByRole('button', { name: 'doc:1' })).not.toBeInTheDocument()
   })
 
   it('resets Redis optimistic key edits when a new result payload arrives', async () => {

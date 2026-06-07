@@ -97,7 +97,38 @@ $env:DATAPADPLUSPLUS_FIXTURE_RUN='1'
 npm run rust:test
 ```
 
-Profiles such as `cache`, `sqlplus`, `analytics`, `search`, `graph`, `widecolumn`, `oracle`, and `cloud-contract` can be enabled when testing those families. These tests must not be required by default CI.
+Profiles such as `cache`, `redis-stack`, `sqlplus`, `analytics`, `search`, `graph`, `widecolumn`, `oracle`, and `cloud-contract` can be enabled when testing those families. These tests must not be required by default CI.
+
+The PostgreSQL reference-engine fixture evidence path is:
+
+```powershell
+npm run fixtures:up
+npm run fixtures:seed
+npm run fixtures:validate:postgres
+```
+
+That validator checks seeded relational volume, catalog/security/extension visibility, `pg_stat_activity`, `pg_locks`, `pg_stat_user_tables`, session action primitives, rendered `EXPLAIN ANALYZE` JSON profile output, routine call/procedure primitives, row-edit before/after evidence, permission-denied guarded writes with a temporary read-only user, table import/export command primitives, and bounded logical backup evidence. Full `pg_dump`/`pg_restore` execution remains outside the scoped native-complete claim unless a later release promotes that workflow with explicit live guardrails.
+
+The MongoDB reference-engine fixture evidence path is:
+
+```powershell
+npm run fixtures:up
+npm run fixtures:seed
+npm run fixtures:validate:mongodb
+```
+
+That validator checks seeded catalog volume, large-document export primitives, collection import/export command primitives, duplicate-key and validator failure evidence, permission-denied diagnostics with a temporary read-only user, and before/after evidence for index hiding, validator updates, and user management.
+
+The Redis reference-engine fixture evidence path is:
+
+```powershell
+npm run fixtures:up:profile -- redis-stack
+npm run fixtures:up:profile -- cache
+npm run fixtures:seed:all
+npm run fixtures:validate:redis -- --require-stack --require-valkey
+```
+
+That validator checks Redis and Valkey core key/stream-group seeds, Valkey core key-file export/import command primitives, TTL behavior, permission-denied guarded writes, and large key-file primitives, plus Redis Stack JSON, TimeSeries, probabilistic module, and vector-set seeds when the selected Redis Stack image exposes vector commands. Add `--require-vector` only with a Redis Stack image that exposes `VADD`; otherwise vector-set live fixture evidence is recorded as an image-dependent optional extension outside the default gate.
 
 ## Coverage Expectations
 

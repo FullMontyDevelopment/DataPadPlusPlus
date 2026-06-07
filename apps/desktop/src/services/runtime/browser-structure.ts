@@ -61,6 +61,7 @@ export function createStructureResponseLocally(
 
   if (connection.family === 'keyvalue') {
     const database = connection.database || '0'
+    const engineLabel = connection.engine === 'valkey' ? 'Valkey' : 'Redis'
     const typeSummaries = [
       { id: 'hash', label: 'Hashes', kind: 'hash', count: '39,992', examples: ['perf:session:000143', 'perf:session:000561'] },
       { id: 'zset', label: 'Sorted Sets', kind: 'zset', count: '1', examples: ['products:inventory'] },
@@ -71,9 +72,9 @@ export function createStructureResponseLocally(
       connectionId: request.connectionId,
       environmentId: request.environmentId,
       engine: connection.engine,
-      summary: 'Preview structure loaded Redis keyspace overview.',
+      summary: `Preview structure loaded ${engineLabel} keyspace overview.`,
       groups: [
-        { id: `db:${database}`, label: `DB ${database}`, kind: 'database', detail: 'Logical Redis database' },
+        { id: `db:${database}`, label: `DB ${database}`, kind: 'database', detail: `Logical ${engineLabel} database` },
       ],
       nodes: typeSummaries.map((summary) => ({
         id: `db:${database}:${summary.id}`,

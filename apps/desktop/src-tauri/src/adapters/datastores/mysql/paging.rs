@@ -1,7 +1,7 @@
 use sqlx::{Column, Row};
 
 use super::super::super::*;
-use super::connection::{mysql_dsn, stringify_mysql_cell};
+use super::connection::{mysql_pool, stringify_mysql_cell};
 
 pub(crate) async fn fetch_mysql_page(
     connection: &ResolvedConnectionProfile,
@@ -10,10 +10,7 @@ pub(crate) async fn fetch_mysql_page(
     let page_size = bounded_page_size(request.page_size);
     let page_index = request.page_index.unwrap_or(1);
     let query = paged_sql(selected_page_query(request), page_size, page_index)?;
-    let pool = sqlx::mysql::MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&mysql_dsn(connection))
-        .await?;
+    let pool = mysql_pool(connection, 1).await?;
     let rows = sqlx::query(&query).fetch_all(&pool).await?;
     let columns = rows
         .first()

@@ -36,6 +36,31 @@ describe('browser Redis explorer slice', () => {
     expect(createRedisExplorerNodes(redisConnection({ deploymentMode: 'sentinel' })).map((node) => node.label)).not.toContain('Cluster')
   })
 
+  it('uses Valkey-specific copy without adding Redis Stack preview branches', () => {
+    const connection = redisConnection({}, 'valkey')
+    const roots = createRedisExplorerNodes(connection)
+    const typeFolders = createRedisExplorerNodes(connection, 'db:0')
+    const keyLeaves = createRedisExplorerNodes(connection, 'db:0:type:hash')
+
+    expect(roots).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'redis:databases', detail: 'Logical Valkey databases' }),
+      expect.objectContaining({ id: 'redis:acl', detail: 'Valkey ACL users and command categories' }),
+    ]))
+    expect(typeFolders.map((node) => node.label)).toEqual([
+      'Keys',
+      'Strings',
+      'Hashes',
+      'Lists',
+      'Sets',
+      'Sorted Sets',
+      'Streams',
+    ])
+    expect(JSON.stringify(typeFolders)).not.toContain('RedisJSON')
+    expect(keyLeaves[0]).toMatchObject({
+      detail: 'Valkey hash / 4 item(s)',
+    })
+  })
+
   it('renders key leaves without sampled language and with executable metadata templates', () => {
     const nodes = createRedisExplorerNodes(redisConnection(), 'db:0:type:hash')
 
@@ -90,11 +115,14 @@ describe('browser Redis explorer slice', () => {
   })
 })
 
-function redisConnection(redisOptions: ConnectionProfile['redisOptions'] = {}): ConnectionProfile {
+function redisConnection(
+  redisOptions: ConnectionProfile['redisOptions'] = {},
+  engine: 'redis' | 'valkey' = 'redis',
+): ConnectionProfile {
   return {
-    id: 'conn-redis',
-    name: 'Redis',
-    engine: 'redis',
+    id: engine === 'valkey' ? 'conn-valkey' : 'conn-redis',
+    name: engine === 'valkey' ? 'Valkey' : 'Redis',
+    engine,
     family: 'keyvalue',
     host: 'localhost',
     port: 6379,
@@ -105,7 +133,7 @@ function redisConnection(redisOptions: ConnectionProfile['redisOptions'] = {}): 
     tags: [],
     favorite: false,
     readOnly: false,
-    icon: 'redis',
+    icon: engine,
     color: undefined,
     group: undefined,
     notes: undefined,

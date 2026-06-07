@@ -211,6 +211,9 @@ async fn append_admin_command_payload(
     match admin.run_command(command).await {
         Ok(result) => {
             append_admin_command_metrics(metrics, name, &result);
+            diagnostics
+                .profiles
+                .push(mongodb_admin_command_profile(name, &result));
             diagnostics.query_history.push(payload_json(json!({
                 "kind": name,
                 "command": command_preview,
@@ -249,6 +252,116 @@ fn append_admin_command_metrics(
             ));
         }
     }
+
+    if command_name == "shardingState" {
+        if let Ok(enabled) = result.get_bool("enabled") {
+            metrics.push(metric(
+                "mongodb.sharding_enabled",
+                if enabled { 1.0 } else { 0.0 },
+                "boolean",
+                json!({ "source": "shardingState" }),
+            ));
+        }
+    }
+}
+
+fn mongodb_admin_command_profile(command_name: &str, result: &Document) -> serde_json::Value {
+    let summary = match command_name {
+        "currentOp" => "MongoDB current operations",
+        "replSetGetStatus" => "MongoDB replica set status",
+        "shardingState" => "MongoDB sharding state",
+        _ => "MongoDB admin command diagnostics",
+    };
+
+    payload_profile(
+        summary,
+        mongodb_admin_command_profile_stages(command_name, result),
+    )
+}
+
+fn mongodb_admin_command_profile_stages(
+    command_name: &str,
+    result: &Document,
+) -> serde_json::Value {
+    if command_name == "currentOp" {
+        if let Ok(operations) = result.get_array("inprog") {
+            return json!(operations
+                .iter()
+                .take(50)
+                .enumerate()
+                .map(|(index, operation)| {
+                    let details = operation.as_document().cloned().unwrap_or_default();
+                    json!({
+                        "name": details
+                            .get_str("op")
+                            .unwrap_or("operation"),
+                        "rows": details
+                            .get_i64("numYields")
+                            .ok()
+                            .or_else(|| details.get_i32("numYields").ok().map(i64::from)),
+                        "details": {
+                            "index": index,
+                            "namespace": details.get_str("ns").unwrap_or(""),
+                            "active": details.get_bool("active").unwrap_or(false),
+                            "secsRunning": details
+                                .get_i64("secs_running")
+                                .ok()
+                                .or_else(|| details.get_i32("secs_running").ok().map(i64::from)),
+                            "raw": details.clone()
+                        }
+                    })
+                })
+                .collect::<Vec<_>>());
+        }
+    }
+
+    if command_name == "replSetGetStatus" {
+        if let Ok(members) = result.get_array("members") {
+            return json!(members
+                .iter()
+                .take(50)
+                .enumerate()
+                .map(|(index, member)| {
+                    let details = member.as_document().cloned().unwrap_or_default();
+                    json!({
+                        "name": details
+                            .get_str("name")
+                            .unwrap_or("member"),
+                        "rows": details
+                            .get_i32("state")
+                            .ok()
+                            .map(i64::from),
+                        "details": {
+                            "index": index,
+                            "state": details.get_str("stateStr").unwrap_or("unknown"),
+                            "health": details.get_i32("health").unwrap_or_default(),
+                            "raw": details.clone()
+                        }
+                    })
+                })
+                .collect::<Vec<_>>());
+        }
+    }
+
+    if command_name == "shardingState" {
+        return json!([{
+            "name": if result.get_bool("enabled").unwrap_or(false) {
+                "sharding-enabled"
+            } else {
+                "sharding-disabled"
+            },
+            "rows": result
+                .get_bool("enabled")
+                .ok()
+                .map(|enabled| if enabled { 1 } else { 0 }),
+            "details": result
+        }]);
+    }
+
+    json!([{
+        "name": command_name,
+        "details": result,
+    }])
 }
 
 async fn append_index_stats(
@@ -456,7 +569,7 @@ mod tests {
 
     use super::{
         append_admin_command_metrics, append_db_stats_metrics, bson_number,
-        mongodb_diagnostic_collection_scope,
+        mongodb_admin_command_profile_stages, mongodb_diagnostic_collection_scope,
     };
 
     #[test]
@@ -509,5 +622,30 @@ mod tests {
             mongodb_diagnostic_collection_scope(Some("database:catalog"), "catalog"),
             None
         );
+    }
+
+    #[test]
+    fn renders_admin_command_payloads_as_profiles() {
+        let current_ops = mongodb_admin_command_profile_stages(
+            "currentOp",
+            &doc! { "inprog": [
+                { "op": "query", "ns": "catalog.products", "active": true, "secs_running": 2 },
+            ] },
+        );
+        assert_eq!(current_ops[0]["name"], "query");
+        assert_eq!(current_ops[0]["details"]["namespace"], "catalog.products");
+
+        let replica = mongodb_admin_command_profile_stages(
+            "replSetGetStatus",
+            &doc! { "members": [
+                { "name": "mongo-1:27017", "state": 1, "stateStr": "PRIMARY", "health": 1 },
+            ] },
+        );
+        assert_eq!(replica[0]["name"], "mongo-1:27017");
+        assert_eq!(replica[0]["details"]["state"], "PRIMARY");
+
+        let sharding =
+            mongodb_admin_command_profile_stages("shardingState", &doc! { "enabled": true });
+        assert_eq!(sharding[0]["name"], "sharding-enabled");
     }
 }

@@ -198,5 +198,104 @@ export function buildOperationManifestsForConnection(
     })
   }
 
-  return [...base, ...optional]
+  return promoteScopedLiveWorkflows(connection, [...base, ...optional])
+}
+
+function promoteScopedLiveWorkflows(
+  connection: ConnectionProfile,
+  operations: OperationManifestResponse['operations'],
+) {
+  return operations.map((operation) => {
+    if (connection.engine === 'postgresql' && operation.id === 'postgresql.query.profile') {
+      return {
+        ...operation,
+        description:
+          'Run guarded PostgreSQL EXPLAIN ANALYZE JSON profiles and render normalized operator stages.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (connection.engine === 'postgresql' && operation.id === 'postgresql.data.import-export') {
+      return {
+        ...operation,
+        description:
+          'Run guarded PostgreSQL table import/export file workflows in the desktop adapter.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (connection.engine === 'postgresql' && operation.id === 'postgresql.data.backup-restore') {
+      return {
+        ...operation,
+        description:
+          'Create guarded bounded PostgreSQL logical backup packages; restore remains preview-first.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (connection.engine === 'sqlserver' && operation.id === 'sqlserver.data.import-export') {
+      return {
+        ...operation,
+        description:
+          'Run guarded SQL Server table import/export file workflows with concrete paths, row limits, and target-column validation.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (connection.engine === 'sqlserver' && operation.id === 'sqlserver.data.backup-restore') {
+      return {
+        ...operation,
+        description:
+          'Create guarded bounded SQL Server logical backup packages and validate restore packages; native .bak restore remains preview-first.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (connection.engine === 'mysql' && operation.id === 'mysql.data.import-export') {
+      return {
+        ...operation,
+        description:
+          'Run guarded MySQL table import/export file workflows with concrete paths, row limits, and target-column validation.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (connection.engine === 'mysql' && operation.id === 'mysql.data.backup-restore') {
+      return {
+        ...operation,
+        description:
+          'Create guarded bounded MySQL logical backup packages and validate restore packages; full mysqldump/mysql restore remains preview-first.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (connection.engine === 'mariadb' && operation.id === 'mariadb.data.import-export') {
+      return {
+        ...operation,
+        description:
+          'Run guarded MariaDB table import/export file workflows with concrete paths, row limits, and target-column validation.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (connection.engine === 'mariadb' && operation.id === 'mariadb.data.backup-restore') {
+      return {
+        ...operation,
+        description:
+          'Create guarded bounded MariaDB logical backup packages and validate restore packages; full mariadb-dump/mysql restore remains preview-first.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    return operation
+  })
 }

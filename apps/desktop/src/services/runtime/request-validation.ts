@@ -300,7 +300,12 @@ function validateOptionalExecutionMode(mode: ExecutionRequest['mode']) {
   if (!normalized) {
     return undefined
   }
-  if (normalized !== 'full' && normalized !== 'selection' && normalized !== 'explain') {
+  if (
+    normalized !== 'full' &&
+    normalized !== 'selection' &&
+    normalized !== 'explain' &&
+    normalized !== 'profile'
+  ) {
     throw new Error(`Unsupported execution mode: ${normalized}.`)
   }
   return normalized

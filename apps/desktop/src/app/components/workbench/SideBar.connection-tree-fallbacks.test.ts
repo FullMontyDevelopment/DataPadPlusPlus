@@ -91,7 +91,15 @@ describe('fallbackConnectionTree', () => {
   it('uses the Redis-native fallback tree for Valkey connections', () => {
     const tree = fallbackConnectionTree(redisConnection({ engine: 'valkey' }))
 
-    expect(findNode(tree, 'Databases')).toBeTruthy()
+    expect(findNode(tree, 'Databases')).toMatchObject({
+      detail: 'Logical Valkey databases',
+    })
+    expect(findNode(tree, 'DB 0')).toMatchObject({
+      detail: 'Valkey logical database',
+    })
+    expect(findNode(tree, 'ACL / Security')).toMatchObject({
+      detail: 'Valkey ACL users, categories, and permissions',
+    })
     expect(findNode(tree, 'Keys')).toBeTruthy()
     expect(findNode(tree, 'Search Indexes')).toBeUndefined()
   })

@@ -73,7 +73,7 @@ export function planDataEditLocally(
     'Preview mode generates guarded data-edit plans without mutating the datastore.',
     ...browserDataEditWarnings(connection, request),
   ]
-  const destructive = request.editKind.includes('delete')
+  const destructive = browserDataEditIsDestructive(request)
   const confirmationText = destructive
     ? `CONFIRM ${connection.engine.toUpperCase()} ${request.editKind.toUpperCase()}`
     : undefined
@@ -130,6 +130,10 @@ function browserDataEditScanImpact(request: DataEditPlanRequest) {
     request.target.itemKey
     ? 'Single object/key predicate supplied; no broad scan should be required.'
     : 'Target is not fully keyed yet; live execution must stay blocked until this is resolved.'
+}
+
+function browserDataEditIsDestructive(request: DataEditPlanRequest) {
+  return request.editKind.includes('delete') || request.editKind === 'vector-remove-member'
 }
 
 export function executeDataEditLocally(
@@ -312,14 +316,22 @@ function browserEditableScopes(
       {
         scope: 'collection',
         label: 'Collection Documents',
-        editKinds: ['insert-document', 'set-field', 'unset-field', 'rename-field', 'change-field-type'],
+        editKinds: [
+          'insert-document',
+          'set-field',
+          'unset-field',
+          'rename-field',
+          'change-field-type',
+          'update-document',
+          'delete-document',
+        ],
         requiresPrimaryKey: true,
         liveExecution: false,
       },
     ]
   }
 
-  if (engine === 'redis' || engine === 'valkey') {
+  if (engine === 'redis') {
     return [
       {
         scope: 'key',
@@ -337,6 +349,42 @@ function browserEditableScopes(
           'set-remove-member',
           'zset-add-member',
           'zset-remove-member',
+          'stream-add-entry',
+          'stream-delete-entry',
+          'timeseries-add-sample',
+          'timeseries-delete-sample',
+          'json-set-path',
+          'json-delete-path',
+          'vector-add-member',
+          'vector-remove-member',
+          'vector-set-attributes',
+        ],
+        requiresPrimaryKey: false,
+        liveExecution: false,
+      },
+    ]
+  }
+
+  if (engine === 'valkey') {
+    return [
+      {
+        scope: 'key',
+        label: 'Keys',
+        editKinds: [
+          'set-key-value',
+          'set-ttl',
+          'delete-key',
+          'hash-set-field',
+          'hash-delete-field',
+          'list-set-index',
+          'list-push',
+          'list-remove-value',
+          'set-add-member',
+          'set-remove-member',
+          'zset-add-member',
+          'zset-remove-member',
+          'stream-add-entry',
+          'stream-delete-entry',
         ],
         requiresPrimaryKey: false,
         liveExecution: false,

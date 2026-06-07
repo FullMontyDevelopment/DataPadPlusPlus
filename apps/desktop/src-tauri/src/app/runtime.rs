@@ -14,6 +14,7 @@ mod preferences;
 mod profile_options;
 mod profile_options_cloud;
 mod profile_options_graph;
+mod profile_options_mysql;
 mod profile_options_timeseries;
 mod profile_options_warehouse;
 mod profiles;

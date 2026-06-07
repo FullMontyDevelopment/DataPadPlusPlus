@@ -1,4 +1,6 @@
 import type { ConnectionProfile, ExplorerNode } from '@datapadplusplus/shared-types'
+import type { CockroachCapabilityKey } from './cockroach-capabilities'
+import { cockroachCapability } from './cockroach-capabilities'
 import {
   cockroachSectionLabel,
   isPostgresSystemSchema,
@@ -10,13 +12,22 @@ export function createCockroachExplorerNodes(connection: ConnectionProfile, scop
   const database = connection.database?.trim() || ''
 
   if (!scope) {
+    const clusterNodes = cockroachClusterNodes(connection)
+    const securityNodes = cockroachSecurityNodes(connection)
+    const diagnosticsNodes = cockroachDiagnosticsNodes(connection)
     return [
       ...(database
         ? [postgresNode(connection, `database:${database}`, database, 'database', 'CockroachDB database', `database:${database}`, ['Databases'], true)]
         : []),
-      postgresNode(connection, 'cockroach:cluster', 'Cluster', 'cluster', 'Nodes, ranges, regions, jobs, and cluster settings', 'cockroach:cluster', [], true),
-      postgresNode(connection, 'cockroach:security', 'Security', 'security', 'Roles, grants, and certificates', 'cockroach:security', [], true),
-      postgresNode(connection, 'cockroach:diagnostics', 'Diagnostics', 'diagnostics', 'Sessions, statement stats, transactions, and contention', 'cockroach:diagnostics', [], true),
+      ...(clusterNodes.length
+        ? [postgresNode(connection, 'cockroach:cluster', 'Cluster', 'cluster', 'Nodes, ranges, regions, jobs, and cluster settings', 'cockroach:cluster', [], true)]
+        : []),
+      ...(securityNodes.length
+        ? [postgresNode(connection, 'cockroach:security', 'Security', 'security', 'Roles, grants, and certificates', 'cockroach:security', [], true)]
+        : []),
+      ...(diagnosticsNodes.length
+        ? [postgresNode(connection, 'cockroach:diagnostics', 'Diagnostics', 'diagnostics', 'Sessions, statement stats, transactions, and contention', 'cockroach:diagnostics', [], true)]
+        : []),
     ]
   }
 
@@ -41,32 +52,15 @@ export function createCockroachExplorerNodes(connection: ConnectionProfile, scop
     const [, section = 'cluster', schema = 'public', subsection = ''] = scope.split(':')
 
     if (section === 'cluster') {
-      return [
-        postgresNode(connection, 'cockroach:cluster:nodes', 'Nodes', 'nodes', 'Node liveness, locality, and capacity', undefined, ['Cluster']),
-        postgresNode(connection, 'cockroach:cluster:ranges', 'Ranges', 'ranges', 'Range distribution and leaseholders', undefined, ['Cluster']),
-        postgresNode(connection, 'cockroach:cluster:regions', 'Regions / Localities', 'regions', 'Regional placement and locality tiers', undefined, ['Cluster']),
-        postgresNode(connection, 'cockroach:cluster:jobs', 'Jobs', 'jobs', 'Schema changes, backups, imports, and changefeeds', undefined, ['Cluster']),
-        postgresNode(connection, 'cockroach:cluster:cluster-settings', 'Cluster Settings', 'cluster-settings', 'Runtime cluster settings', undefined, ['Cluster']),
-      ]
+      return cockroachClusterNodes(connection)
     }
 
     if (section === 'security') {
-      return [
-        postgresNode(connection, 'cockroach:security:roles', 'Roles', 'roles', 'Users, roles, and memberships', undefined, ['Security']),
-        postgresNode(connection, 'cockroach:security:grants', 'Grants', 'grants', 'Visible privileges and default privileges', undefined, ['Security']),
-        postgresNode(connection, 'cockroach:security:certificates', 'Certificates', 'certificates', 'Client and node certificate metadata', undefined, ['Security']),
-      ]
+      return cockroachSecurityNodes(connection)
     }
 
     if (section === 'diagnostics') {
-      return [
-        postgresNode(connection, 'cockroach:diagnostics:sessions', 'Sessions', 'sessions', 'Active SQL sessions', undefined, ['Diagnostics']),
-        postgresNode(connection, 'cockroach:diagnostics:statements', 'Statement Stats', 'statements', 'Statement fingerprints, latency, and retries', undefined, ['Diagnostics']),
-        postgresNode(connection, 'cockroach:diagnostics:transactions', 'Transactions', 'transactions', 'Transaction state and retry pressure', undefined, ['Diagnostics']),
-        postgresNode(connection, 'cockroach:diagnostics:contention', 'Contention', 'contention', 'Waiting keys and blocking transactions', undefined, ['Diagnostics']),
-        postgresNode(connection, 'cockroach:diagnostics:locks', 'Locks', 'locks', 'Visible lock waits', undefined, ['Diagnostics']),
-        postgresNode(connection, 'cockroach:diagnostics:statistics', 'Statistics', 'statistics', 'Table and database statistics', undefined, ['Diagnostics']),
-      ]
+      return cockroachDiagnosticsNodes(connection)
     }
 
     return cockroachObjectsForSection(connection, database, schema, subsection || section)
@@ -78,6 +72,50 @@ export function createCockroachExplorerNodes(connection: ConnectionProfile, scop
   }
 
   return []
+}
+
+function cockroachClusterNodes(connection: ConnectionProfile): ExplorerNode[] {
+  return [
+    cockroachCapNode(connection, 'inspectClusterStatus', 'cockroach:cluster:nodes', 'Nodes', 'nodes', 'Node liveness, locality, and capacity', ['Cluster']),
+    cockroachCapNode(connection, 'inspectRanges', 'cockroach:cluster:ranges', 'Ranges', 'ranges', 'Range distribution and leaseholders', ['Cluster']),
+    cockroachCapNode(connection, 'inspectRegions', 'cockroach:cluster:regions', 'Regions / Localities', 'regions', 'Regional placement and locality tiers', ['Cluster']),
+    cockroachCapNode(connection, 'inspectJobs', 'cockroach:cluster:jobs', 'Jobs', 'jobs', 'Schema changes, backups, imports, and changefeeds', ['Cluster']),
+    cockroachCapNode(connection, 'inspectClusterSettings', 'cockroach:cluster:cluster-settings', 'Cluster Settings', 'cluster-settings', 'Runtime cluster settings', ['Cluster']),
+  ].filter((node): node is ExplorerNode => Boolean(node))
+}
+
+function cockroachSecurityNodes(connection: ConnectionProfile): ExplorerNode[] {
+  return [
+    cockroachCapNode(connection, 'inspectRolesAndGrants', 'cockroach:security:roles', 'Roles', 'roles', 'Users, roles, and memberships', ['Security']),
+    cockroachCapNode(connection, 'inspectRolesAndGrants', 'cockroach:security:grants', 'Grants', 'grants', 'Visible privileges and default privileges', ['Security']),
+    cockroachCapNode(connection, 'inspectCertificates', 'cockroach:security:certificates', 'Certificates', 'certificates', 'Client and node certificate metadata', ['Security']),
+  ].filter((node): node is ExplorerNode => Boolean(node))
+}
+
+function cockroachDiagnosticsNodes(connection: ConnectionProfile): ExplorerNode[] {
+  return [
+    cockroachCapNode(connection, 'inspectSessions', 'cockroach:diagnostics:sessions', 'Sessions', 'sessions', 'Active SQL sessions', ['Diagnostics']),
+    cockroachCapNode(connection, 'inspectContention', 'cockroach:diagnostics:statements', 'Statement Stats', 'statements', 'Statement fingerprints, latency, and retries', ['Diagnostics']),
+    cockroachCapNode(connection, 'inspectContention', 'cockroach:diagnostics:transactions', 'Transactions', 'transactions', 'Transaction state and retry pressure', ['Diagnostics']),
+    cockroachCapNode(connection, 'inspectContention', 'cockroach:diagnostics:contention', 'Contention', 'contention', 'Waiting keys and blocking transactions', ['Diagnostics']),
+    cockroachCapNode(connection, 'inspectContention', 'cockroach:diagnostics:locks', 'Locks', 'locks', 'Visible lock waits', ['Diagnostics']),
+    cockroachCapNode(connection, 'inspectContention', 'cockroach:diagnostics:statistics', 'Statistics', 'statistics', 'Table and database statistics', ['Diagnostics']),
+  ].filter((node): node is ExplorerNode => Boolean(node))
+}
+
+function cockroachCapNode(
+  connection: ConnectionProfile,
+  capability: CockroachCapabilityKey,
+  id: string,
+  label: string,
+  kind: string,
+  detail: string,
+  path: string[],
+): ExplorerNode | undefined {
+  if (!cockroachCapability(connection, capability)) {
+    return undefined
+  }
+  return postgresNode(connection, id, label, kind, detail, undefined, path)
 }
 
 export function createPostgresExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
@@ -102,6 +140,8 @@ export function createPostgresExplorerNodes(connection: ConnectionProfile, scope
       return [
         postgresNode(connection, 'postgres:security:roles', 'Roles', 'roles', 'Login and group roles', undefined, ['Security']),
         postgresNode(connection, 'postgres:security:permissions', 'Permissions', 'permissions', 'Visible grants and privileges', undefined, ['Security']),
+        postgresNode(connection, 'postgres:security:role-memberships', 'Role Memberships', 'role-memberships', 'Role inheritance and admin options', undefined, ['Security']),
+        postgresNode(connection, 'postgres:security:default-privileges', 'Default Privileges', 'default-privileges', 'ALTER DEFAULT PRIVILEGES coverage', undefined, ['Security']),
       ]
     }
     if (schemaOrSection === 'diagnostics') {
@@ -221,6 +261,7 @@ function postgresSchemaFolders(connection: ConnectionProfile, schema: string): E
     folder('procedures', 'Procedures', 'procedures', 'Stored procedures'),
     folder('sequences', 'Sequences', 'sequences', 'Sequence generators'),
     folder('types', 'Types', 'types', 'Enum, composite, domain, and range types'),
+    folder('extensions', 'Extensions', 'extensions', 'Installed extensions and extension-owned objects'),
   ]
 }
 
@@ -292,6 +333,13 @@ function postgresObjectsForSection(
   if (section === 'types') {
     return [
       postgresNode(connection, `type:${schema}:account_status_t`, 'account_status_t', 'type', 'enum type', undefined, path),
+    ]
+  }
+
+  if (section === 'extensions') {
+    return [
+      postgresNode(connection, `extension:${schema}:pg_stat_statements`, 'pg_stat_statements', 'extension', '1.10 / current', undefined, path),
+      postgresNode(connection, `extension:${schema}:uuid-ossp`, 'uuid-ossp', 'extension', '1.1 / update available', undefined, path),
     ]
   }
 

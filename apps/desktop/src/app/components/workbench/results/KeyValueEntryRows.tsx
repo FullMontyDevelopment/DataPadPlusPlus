@@ -5,13 +5,16 @@ import { copyText } from './payload-export'
 
 interface KeyValueEntryRowsProps {
   canEdit: boolean
+  canEditValues?: boolean
   editingKey?: string
   editingValue: string
   expandedKeys: Set<string>
   rows: KeyValueResultRow[]
   onBeginValueEdit(keyName: string, rawValue: string): void
+  onBeginJsonPathEdit?(path: string, value: unknown): void
   onCancelEdit(): void
   onCommitValueEdit(): void
+  onDeleteJsonPath?(path: string, value: unknown): void
   onOpenContextMenu(keyName: string, x: number, y: number): void
   onToggleExpanded(keyName: string): void
   onUpdateEditingValue(value: string): void
@@ -19,13 +22,16 @@ interface KeyValueEntryRowsProps {
 
 export function KeyValueEntryRows({
   canEdit,
+  canEditValues = canEdit,
   editingKey,
   editingValue,
   expandedKeys,
   rows,
   onBeginValueEdit,
+  onBeginJsonPathEdit,
   onCancelEdit,
   onCommitValueEdit,
+  onDeleteJsonPath,
   onOpenContextMenu,
   onToggleExpanded,
   onUpdateEditingValue,
@@ -85,10 +91,14 @@ export function KeyValueEntryRows({
               ) : (
                 <button
                   type="button"
-                  className={`keyvalue-value${canEdit ? ' is-editable' : ''}`}
-                  title={canEdit ? 'Double-click to edit value' : valuePreview(parsedValue)}
+                  className={`keyvalue-value${canEditValues ? ' is-editable' : ''}`}
+                  title={canEditValues ? 'Double-click to edit value' : valuePreview(parsedValue)}
                   onClick={() => void copyText(rawValue)}
-                  onDoubleClick={() => onBeginValueEdit(keyName, rawValue)}
+                  onDoubleClick={() => {
+                    if (canEditValues) {
+                      onBeginValueEdit(keyName, rawValue)
+                    }
+                  }}
                 >
                   {valuePreview(parsedValue)}
                 </button>
@@ -96,7 +106,12 @@ export function KeyValueEntryRows({
             </div>
             {expanded ? (
               <div className="keyvalue-result-detail">
-                <JsonTreeView value={parsedValue} label={keyName} />
+                <JsonTreeView
+                  value={parsedValue}
+                  label={keyName}
+                  onDeleteValue={onDeleteJsonPath}
+                  onEditValue={onBeginJsonPathEdit}
+                />
               </div>
             ) : null}
           </div>

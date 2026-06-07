@@ -145,6 +145,131 @@ export interface SqliteConnectionOptions {
   hmacEnabled?: boolean
 }
 
+export type PostgresConnectMode = 'tcp' | 'unix-socket' | 'cloud-sql-proxy' | 'managed-postgres' | 'connection-string'
+
+export type PostgresTargetSessionAttrs = 'any' | 'read-write' | 'read-only' | 'primary' | 'standby' | 'prefer-standby'
+
+export type CockroachDeploymentMode =
+  | 'local-single-node'
+  | 'self-hosted'
+  | 'cockroach-cloud-dedicated'
+  | 'cockroach-cloud-serverless'
+
+export type TimescaleDeploymentMode =
+  | 'local-dev'
+  | 'self-hosted'
+  | 'managed-postgres'
+  | 'timescale-cloud'
+  | 'postgres-wire'
+
+export type TimescaleLicenseMode =
+  | 'apache'
+  | 'community'
+  | 'timescale'
+  | 'enterprise'
+  | 'unknown'
+
+export interface CockroachConnectionCapabilities {
+  inspectJobs?: boolean
+  inspectRanges?: boolean
+  inspectRegions?: boolean
+  inspectClusterStatus?: boolean
+  inspectClusterSettings?: boolean
+  inspectSessions?: boolean
+  inspectContention?: boolean
+  inspectRolesAndGrants?: boolean
+  inspectCertificates?: boolean
+  inspectZoneConfigurations?: boolean
+  explainAnalyze?: boolean
+}
+
+export interface TimescaleConnectionCapabilities {
+  inspectHypertables?: boolean
+  inspectChunks?: boolean
+  inspectCompression?: boolean
+  inspectRetention?: boolean
+  inspectContinuousAggregates?: boolean
+  inspectJobs?: boolean
+  inspectToolkit?: boolean
+  explainAnalyze?: boolean
+  livePolicyExecution?: boolean
+}
+
+export interface PostgresConnectionOptions {
+  connectMode?: PostgresConnectMode
+  applicationName?: string
+  searchPath?: string
+  targetSessionAttrs?: PostgresTargetSessionAttrs
+  connectTimeoutMs?: number
+  statementTimeoutMs?: number
+  lockTimeoutMs?: number
+  idleInTransactionSessionTimeoutMs?: number
+  useTls?: boolean
+  verifyServerCertificate?: boolean
+  caCertificatePath?: string
+  clientCertificatePath?: string
+  clientKeyPath?: string
+  certificatePasswordSecretRef?: SecretRef
+  unixSocketPath?: string
+  cloudSqlInstance?: string
+  cockroachDeploymentMode?: CockroachDeploymentMode
+  cockroachOrganization?: string
+  cockroachClusterName?: string
+  cockroachClusterId?: string
+  cockroachCloudRegion?: string
+  cockroachDefaultRegion?: string
+  cockroachLocality?: string
+  cockroachServerVersion?: string
+  cockroachBuildTag?: string
+  cockroachAuthDisabledReason?: string
+  cockroachTlsDisabledReason?: string
+  cockroachCapabilities?: CockroachConnectionCapabilities
+  timescaleDeploymentMode?: TimescaleDeploymentMode
+  timescaleProject?: string
+  timescaleServiceId?: string
+  timescaleRegion?: string
+  timescaleExtensionSchema?: string
+  timescaleExtensionVersion?: string
+  timescaleServerVersion?: string
+  timescaleLicense?: TimescaleLicenseMode
+  timescalePolicyExecutionDisabledReason?: string
+  timescaleCompressionDisabledReason?: string
+  timescaleRetentionDisabledReason?: string
+  timescaleContinuousAggregateDisabledReason?: string
+  timescaleCapabilities?: TimescaleConnectionCapabilities
+}
+
+export type MySqlConnectMode = 'tcp' | 'unix-socket' | 'cloud-sql-proxy' | 'managed-mysql' | 'managed-mariadb' | 'connection-string'
+
+export type MySqlAuthMode = 'password' | 'cleartext-plugin' | 'iam-token'
+
+export type MySqlNativeSslMode = 'disabled' | 'preferred' | 'required' | 'verify-ca' | 'verify-identity'
+
+export type MySqlServerFlavor = 'mysql' | 'mariadb' | 'percona' | 'aurora-mysql'
+
+export interface MySqlConnectionOptions {
+  connectMode?: MySqlConnectMode
+  authMode?: MySqlAuthMode
+  sslMode?: MySqlNativeSslMode
+  serverFlavor?: MySqlServerFlavor
+  applicationName?: string
+  charset?: string
+  collation?: string
+  timeZone?: string
+  sqlMode?: string
+  defaultStorageEngine?: string
+  allowLocalInfile?: boolean
+  statementCacheCapacity?: number
+  connectTimeoutMs?: number
+  commandTimeoutMs?: number
+  caCertificatePath?: string
+  clientCertificatePath?: string
+  clientKeyPath?: string
+  certificatePasswordSecretRef?: SecretRef
+  unixSocketPath?: string
+  cloudSqlInstance?: string
+}
+
 export type RedisDeploymentMode =
   | 'standalone'
   | 'tls'
@@ -691,6 +816,8 @@ export interface ConnectionProfile {
   redisOptions?: RedisConnectionOptions
   memcachedOptions?: MemcachedConnectionOptions
   sqliteOptions?: SqliteConnectionOptions
+  postgresOptions?: PostgresConnectionOptions
+  mysqlOptions?: MySqlConnectionOptions
   sqlServerOptions?: SqlServerConnectionOptions
   oracleOptions?: OracleConnectionOptions
   dynamoDbOptions?: DynamoDbConnectionOptions

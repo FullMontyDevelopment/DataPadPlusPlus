@@ -138,3 +138,48 @@ export function KeyValueRenamePanel({
     </div>
   )
 }
+
+interface KeyValueJsonPathPanelProps {
+  keyName: string
+  path: string
+  value: string
+  error?: string
+  onCancel(): void
+  onSetPath(): void
+  onValueChange(value: string): void
+}
+
+export function KeyValueJsonPathPanel({
+  keyName,
+  path,
+  value,
+  error,
+  onCancel,
+  onSetPath,
+  onValueChange,
+}: KeyValueJsonPathPanelProps) {
+  return (
+    <div className="data-grid-confirmation">
+      <div>
+        <strong>Set {path}</strong>
+        <span>{error ?? keyName}</span>
+      </div>
+      <textarea
+        aria-label={`JSON value for ${path}`}
+        value={value}
+        onChange={(event) => onValueChange(event.target.value)}
+      />
+      <button type="button" className="drawer-button" onClick={onCancel}>
+        Cancel
+      </button>
+      <button
+        type="button"
+        className="drawer-button drawer-button--primary"
+        disabled={value.trim().length === 0 || Boolean(error)}
+        onClick={onSetPath}
+      >
+        Set Path
+      </button>
+    </div>
+  )
+}

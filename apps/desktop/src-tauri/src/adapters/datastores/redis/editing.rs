@@ -185,6 +185,68 @@ pub(crate) async fn execute_redis_data_edit(
             messages.push(format!("Hash field `{field}` on `{key}` was deleted."));
             json!({ "command": "HDEL", "key": key, "field": field, "deleted": deleted })
         }
+        "json-set-path" => {
+            if !ensure_redis_json_target(connection, &mut redis, key, &mut warnings).await? {
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let Some(change) = request.changes.first() else {
+                warnings.push("RedisJSON path edits require a value.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            };
+            let Some(value) = change.value.as_ref() else {
+                warnings.push("RedisJSON path edits require a value.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            };
+            let path = redis_json_path(change);
+            let document = redis_json_value(value)?;
+            let response: String = redis::cmd("JSON.SET")
+                .arg(key)
+                .arg(&path)
+                .arg(&document)
+                .query_async(&mut redis)
+                .await?;
+            messages.push(format!("RedisJSON path `{path}` on `{key}` was set."));
+            json!({ "command": "JSON.SET", "key": key, "path": path, "response": response })
+        }
+        "json-delete-path" => {
+            if !ensure_redis_json_target(connection, &mut redis, key, &mut warnings).await? {
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let path = request
+                .changes
+                .first()
+                .map(redis_json_path)
+                .unwrap_or_else(|| "$".into());
+            if path == "$" {
+                warnings.push(
+                    "RedisJSON root deletes must use the delete-key guardrail instead.".into(),
+                );
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let deleted: i64 = redis::cmd("JSON.DEL")
+                .arg(key)
+                .arg(&path)
+                .query_async(&mut redis)
+                .await?;
+
+            if deleted > 0 {
+                messages.push(format!("RedisJSON path `{path}` on `{key}` was deleted."));
+            } else {
+                warnings.push(format!("RedisJSON path `{path}` was not found on `{key}`."));
+            }
+
+            json!({ "command": "JSON.DEL", "key": key, "path": path, "deleted": deleted })
+        }
         "list-set-index" => {
             let Some(index) = first_field(request).and_then(|value| value.parse::<i64>().ok())
             else {
@@ -340,6 +402,222 @@ pub(crate) async fn execute_redis_data_edit(
             ));
             json!({ "command": "ZREM", "key": key, "member": member, "removed": removed })
         }
+        "stream-add-entry" => {
+            if !ensure_redis_stream_target(&mut redis, key, &mut warnings).await? {
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let fields = stream_entry_fields(request);
+            if fields.is_empty() {
+                warnings.push("Stream entry adds require at least one field/value pair.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let entry_id = stream_add_entry_id(request);
+            let mut command = redis::cmd("XADD");
+            command.arg(key).arg(&entry_id);
+            for (field, value) in &fields {
+                command.arg(field).arg(value);
+            }
+            let created_id: String = command.query_async(&mut redis).await?;
+            messages.push(format!("Stream entry `{created_id}` was added to `{key}`."));
+            json!({
+                "command": "XADD",
+                "key": key,
+                "requestedEntryId": entry_id,
+                "entryId": created_id,
+                "fieldCount": fields.len()
+            })
+        }
+        "stream-delete-entry" => {
+            if !ensure_redis_stream_target(&mut redis, key, &mut warnings).await? {
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let entry_ids = stream_delete_entry_ids(request);
+            if entry_ids.is_empty() {
+                warnings.push("Stream entry deletes require an entry id.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let mut command = redis::cmd("XDEL");
+            command.arg(key);
+            for entry_id in &entry_ids {
+                command.arg(entry_id);
+            }
+            let deleted: i64 = command.query_async(&mut redis).await?;
+            if deleted > 0 {
+                messages.push(format!("Deleted {deleted} stream entry(s) from `{key}`."));
+            } else {
+                warnings.push(format!(
+                    "No requested stream entries were found on `{key}`."
+                ));
+            }
+            json!({ "command": "XDEL", "key": key, "entryIds": entry_ids, "deleted": deleted })
+        }
+        "timeseries-add-sample" => {
+            if !ensure_redis_timeseries_target(connection, &mut redis, key, &mut warnings).await? {
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let Some(sample_value) = timeseries_sample_value(request) else {
+                warnings.push("TimeSeries sample adds require a numeric sample value.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            };
+            let timestamp = timeseries_sample_timestamp(request);
+            let response: i64 = redis::cmd("TS.ADD")
+                .arg(key)
+                .arg(&timestamp)
+                .arg(sample_value)
+                .query_async(&mut redis)
+                .await?;
+            messages.push(format!(
+                "TimeSeries sample `{response}` was added to `{key}`."
+            ));
+            json!({ "command": "TS.ADD", "key": key, "timestamp": response })
+        }
+        "timeseries-delete-sample" => {
+            if !ensure_redis_timeseries_target(connection, &mut redis, key, &mut warnings).await? {
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let Some((from_timestamp, to_timestamp)) = timeseries_delete_range(request) else {
+                warnings.push(
+                    "TimeSeries sample deletes require a concrete timestamp or range.".into(),
+                );
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            };
+            let deleted: i64 = redis::cmd("TS.DEL")
+                .arg(key)
+                .arg(from_timestamp)
+                .arg(to_timestamp)
+                .query_async(&mut redis)
+                .await?;
+            if deleted > 0 {
+                messages.push(format!(
+                    "Deleted {deleted} TimeSeries sample(s) from `{key}`."
+                ));
+            } else {
+                warnings.push(format!(
+                    "No TimeSeries samples matched the requested range on `{key}`."
+                ));
+            }
+            json!({ "command": "TS.DEL", "key": key, "deleted": deleted })
+        }
+        "vector-add-member" => {
+            if !ensure_redis_vector_target(connection, &mut redis, key, &mut warnings).await? {
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let Some(member) = vector_member_name(request) else {
+                warnings.push("Vector member adds require an element name.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            };
+            let Some(values) = vector_values(request) else {
+                warnings.push("Vector member adds require numeric vector values.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            };
+            let attributes = vector_add_attributes(request)?;
+            let mut command = redis::cmd("VADD");
+            command
+                .arg(key)
+                .arg("VALUES")
+                .arg(values.len())
+                .arg(&values)
+                .arg(&member);
+            if let Some(attributes) = attributes.as_deref() {
+                command.arg("SETATTR").arg(attributes);
+            }
+            let added: i64 = command.query_async(&mut redis).await?;
+            messages.push(format!("Vector element `{member}` was written to `{key}`."));
+            json!({
+                "command": "VADD",
+                "key": key,
+                "element": member,
+                "dimension": values.len(),
+                "added": added,
+                "attributes": attributes
+            })
+        }
+        "vector-remove-member" => {
+            if !ensure_redis_vector_target(connection, &mut redis, key, &mut warnings).await? {
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let Some(member) = vector_member_name(request) else {
+                warnings.push("Vector member removal requires an element name.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            };
+            let removed: i64 = redis::cmd("VREM")
+                .arg(key)
+                .arg(&member)
+                .query_async(&mut redis)
+                .await?;
+            if removed > 0 {
+                messages.push(format!(
+                    "Vector element `{member}` was removed from `{key}`."
+                ));
+            } else {
+                warnings.push(format!(
+                    "Vector element `{member}` was not found on `{key}`."
+                ));
+            }
+            json!({ "command": "VREM", "key": key, "element": member, "removed": removed })
+        }
+        "vector-set-attributes" => {
+            if !ensure_redis_vector_target(connection, &mut redis, key, &mut warnings).await? {
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            }
+            let Some(member) = vector_member_name(request) else {
+                warnings.push("Vector attribute edits require an element name.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            };
+            let Some(attributes) = vector_attributes(request)? else {
+                warnings
+                    .push("Vector attribute edits require a JSON object or empty string.".into());
+                return Ok(data_edit_response(
+                    request, plan, false, messages, warnings, None,
+                ));
+            };
+            let applied: i64 = redis::cmd("VSETATTR")
+                .arg(key)
+                .arg(&member)
+                .arg(&attributes)
+                .query_async(&mut redis)
+                .await?;
+            if applied > 0 {
+                messages.push(format!(
+                    "Vector attributes for `{member}` on `{key}` were updated."
+                ));
+            } else {
+                warnings.push(format!(
+                    "Vector element `{member}` was not found on `{key}`."
+                ));
+            }
+            json!({ "command": "VSETATTR", "key": key, "element": member, "applied": applied })
+        }
         "persist-ttl" => {
             let persisted: bool = redis::cmd("PERSIST")
                 .arg(key)
@@ -401,6 +679,483 @@ fn redis_value(value: &Value) -> String {
         Value::String(value) => value.clone(),
         other => other.to_string(),
     }
+}
+
+async fn ensure_redis_json_target(
+    connection: &ResolvedConnectionProfile,
+    redis: &mut redis::aio::MultiplexedConnection,
+    key: &str,
+    warnings: &mut Vec<String>,
+) -> Result<bool, CommandError> {
+    if connection.engine != "redis" {
+        warnings.push(
+            "RedisJSON path edits are available only for Redis profiles with RedisJSON support."
+                .into(),
+        );
+        return Ok(false);
+    }
+
+    let key_type: String = redis::cmd("TYPE").arg(key).query_async(redis).await?;
+    let normalized_type = normalize_redis_type(&key_type);
+    if normalized_type != "json" {
+        warnings.push(format!(
+            "RedisJSON path edits require a JSON key; `{key}` is `{normalized_type}`."
+        ));
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+async fn ensure_redis_stream_target(
+    redis: &mut redis::aio::MultiplexedConnection,
+    key: &str,
+    warnings: &mut Vec<String>,
+) -> Result<bool, CommandError> {
+    let key_type: String = redis::cmd("TYPE").arg(key).query_async(redis).await?;
+    let normalized_type = normalize_redis_type(&key_type);
+    if normalized_type != "stream" {
+        warnings.push(format!(
+            "Stream entry edits require an existing stream key; `{key}` is `{normalized_type}`."
+        ));
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+async fn ensure_redis_timeseries_target(
+    connection: &ResolvedConnectionProfile,
+    redis: &mut redis::aio::MultiplexedConnection,
+    key: &str,
+    warnings: &mut Vec<String>,
+) -> Result<bool, CommandError> {
+    if connection.engine != "redis" {
+        warnings.push(
+            "RedisTimeSeries sample edits are available only for Redis profiles with Redis Stack TimeSeries support."
+                .into(),
+        );
+        return Ok(false);
+    }
+
+    let key_type: String = redis::cmd("TYPE").arg(key).query_async(redis).await?;
+    let normalized_type = normalize_redis_type(&key_type);
+    if normalized_type != "timeseries" {
+        warnings.push(format!(
+            "RedisTimeSeries sample edits require a TimeSeries key; `{key}` is `{normalized_type}`."
+        ));
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+async fn ensure_redis_vector_target(
+    connection: &ResolvedConnectionProfile,
+    redis: &mut redis::aio::MultiplexedConnection,
+    key: &str,
+    warnings: &mut Vec<String>,
+) -> Result<bool, CommandError> {
+    if connection.engine != "redis" {
+        warnings.push(
+            "Redis vector-set edits are available only for Redis profiles with vector-set support."
+                .into(),
+        );
+        return Ok(false);
+    }
+
+    let key_type: String = redis::cmd("TYPE").arg(key).query_async(redis).await?;
+    let normalized_type = normalize_redis_type(&key_type);
+    if normalized_type != "vectorset" {
+        warnings.push(format!(
+            "Redis vector edits require a vector-set key; `{key}` is `{normalized_type}`."
+        ));
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+fn redis_json_value(value: &Value) -> Result<String, CommandError> {
+    serde_json::to_string(value).map_err(|error| {
+        CommandError::new(
+            "redis-json-edit-value",
+            format!("RedisJSON edit value could not be serialized: {error}"),
+        )
+    })
+}
+
+fn redis_json_path(change: &DataEditChange) -> String {
+    if let Some(field) = change.field.as_deref().filter(|value| !value.is_empty()) {
+        return if is_redis_json_path(field) {
+            field.into()
+        } else {
+            redis_json_path_from_segments(&[field.to_string()])
+        };
+    }
+
+    change
+        .path
+        .as_ref()
+        .map(|path| redis_json_path_from_segments(path))
+        .unwrap_or_else(|| "$".into())
+}
+
+fn redis_json_path_from_segments(path: &[String]) -> String {
+    if path.is_empty() {
+        return "$".into();
+    }
+    if path.len() == 1 && is_redis_json_path(&path[0]) {
+        return path[0].clone();
+    }
+
+    let mut json_path = "$".to_string();
+    for segment in path {
+        if let Ok(index) = segment.parse::<usize>() {
+            json_path.push_str(&format!("[{index}]"));
+        } else if is_simple_json_path_segment(segment) {
+            json_path.push('.');
+            json_path.push_str(segment);
+        } else {
+            json_path.push('[');
+            json_path
+                .push_str(&serde_json::to_string(segment).unwrap_or_else(|_| "\"<field>\"".into()));
+            json_path.push(']');
+        }
+    }
+
+    json_path
+}
+
+fn is_redis_json_path(value: &str) -> bool {
+    value == "$" || value.starts_with("$.") || value.starts_with("$[")
+}
+
+fn is_simple_json_path_segment(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .is_some_and(|character| character == '_' || character.is_ascii_alphabetic())
+        && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
+}
+
+fn normalize_redis_type(value: &str) -> String {
+    match value.to_ascii_lowercase().as_str() {
+        "rejson-rl" | "json" => "json".into(),
+        "tsdb-type" | "timeseries" => "timeseries".into(),
+        "vectorset" | "vector" | "vectors" => "vectorset".into(),
+        "zset" => "zset".into(),
+        "string" | "hash" | "list" | "set" | "stream" | "none" => value.to_ascii_lowercase(),
+        _ => "module".into(),
+    }
+}
+
+fn stream_add_entry_id(request: &DataEditExecutionRequest) -> String {
+    request
+        .target
+        .document_id
+        .as_ref()
+        .map(redis_value)
+        .or_else(|| {
+            request
+                .changes
+                .first()
+                .and_then(|change| change.new_name.clone())
+        })
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "*".into())
+}
+
+fn stream_delete_entry_ids(request: &DataEditExecutionRequest) -> Vec<String> {
+    let mut ids = Vec::new();
+    if let Some(document_id) = request.target.document_id.as_ref() {
+        let id = redis_value(document_id);
+        if !id.trim().is_empty() {
+            ids.push(id);
+        }
+    }
+
+    ids.extend(
+        request
+            .changes
+            .iter()
+            .filter_map(stream_entry_id_from_change),
+    );
+    ids
+}
+
+fn stream_entry_id_from_change(change: &DataEditChange) -> Option<String> {
+    change
+        .field
+        .clone()
+        .or_else(|| change.path.as_ref().and_then(|path| path.first().cloned()))
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn stream_entry_fields(request: &DataEditExecutionRequest) -> Vec<(String, String)> {
+    if let Some(Value::Object(fields)) = request
+        .changes
+        .first()
+        .and_then(|change| change.value.as_ref())
+        .filter(|_| request.changes.len() == 1)
+    {
+        return fields
+            .iter()
+            .map(|(field, value)| (field.clone(), redis_value(value)))
+            .collect();
+    }
+
+    request
+        .changes
+        .iter()
+        .filter_map(|change| {
+            let field = change
+                .field
+                .clone()
+                .or_else(|| change.path.as_ref().and_then(|path| path.first().cloned()))?;
+            let value = change.value.as_ref()?;
+            Some((field, redis_value(value)))
+        })
+        .collect()
+}
+
+fn timeseries_sample_timestamp(request: &DataEditExecutionRequest) -> String {
+    request
+        .target
+        .document_id
+        .as_ref()
+        .map(redis_value)
+        .or_else(|| {
+            request.changes.first().and_then(|change| {
+                change
+                    .field
+                    .clone()
+                    .or_else(|| change.path.as_ref().and_then(|path| path.first().cloned()))
+                    .or_else(|| change.new_name.clone())
+            })
+        })
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "*".into())
+}
+
+fn timeseries_sample_value(request: &DataEditExecutionRequest) -> Option<f64> {
+    let value = request.changes.first()?.value.as_ref()?;
+    let value = value
+        .as_object()
+        .and_then(|record| record.get("value"))
+        .unwrap_or(value);
+    value
+        .as_f64()
+        .or_else(|| value.as_str().and_then(|raw| raw.parse::<f64>().ok()))
+}
+
+fn timeseries_delete_range(request: &DataEditExecutionRequest) -> Option<(i64, i64)> {
+    let change = request.changes.first();
+    if let Some(range) = change
+        .and_then(|change| change.value.as_ref())
+        .and_then(timeseries_range_from_value)
+    {
+        return Some(range);
+    }
+
+    let from_timestamp = request
+        .target
+        .document_id
+        .as_ref()
+        .and_then(timeseries_timestamp_value)
+        .or_else(|| change.and_then(timeseries_from_change))?;
+    let to_timestamp = change
+        .and_then(|change| {
+            change
+                .new_name
+                .as_deref()
+                .and_then(|value| value.parse::<i64>().ok())
+                .or_else(|| {
+                    change
+                        .path
+                        .as_ref()
+                        .and_then(|path| path.get(1))
+                        .and_then(|value| value.parse::<i64>().ok())
+                })
+        })
+        .unwrap_or(from_timestamp);
+
+    Some((from_timestamp, to_timestamp))
+}
+
+fn timeseries_from_change(change: &DataEditChange) -> Option<i64> {
+    change
+        .field
+        .as_deref()
+        .and_then(|value| value.parse::<i64>().ok())
+        .or_else(|| {
+            change
+                .path
+                .as_ref()
+                .and_then(|path| path.first())
+                .and_then(|value| value.parse::<i64>().ok())
+        })
+}
+
+fn timeseries_range_from_value(value: &Value) -> Option<(i64, i64)> {
+    let record = value.as_object()?;
+    let from = record
+        .get("from")
+        .or_else(|| record.get("start"))
+        .or_else(|| record.get("timestamp"))
+        .and_then(timeseries_timestamp_value)?;
+    let to = record
+        .get("to")
+        .or_else(|| record.get("end"))
+        .and_then(timeseries_timestamp_value)
+        .unwrap_or(from);
+    Some((from, to))
+}
+
+fn timeseries_timestamp_value(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_str().and_then(|raw| raw.parse::<i64>().ok()))
+}
+
+fn vector_member_name(request: &DataEditExecutionRequest) -> Option<String> {
+    request
+        .target
+        .document_id
+        .as_ref()
+        .map(redis_value)
+        .or_else(|| {
+            request.changes.first().and_then(|change| {
+                change
+                    .field
+                    .clone()
+                    .or_else(|| change.path.as_ref().and_then(|path| path.first().cloned()))
+                    .or_else(|| change.new_name.clone())
+                    .or_else(|| change.value.as_ref().and_then(vector_member_from_value))
+            })
+        })
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn vector_member_from_value(value: &Value) -> Option<String> {
+    let record = value.as_object()?;
+    record
+        .get("element")
+        .or_else(|| record.get("member"))
+        .or_else(|| record.get("id"))
+        .map(redis_value)
+}
+
+fn vector_values(request: &DataEditExecutionRequest) -> Option<Vec<f64>> {
+    let first_value = request.changes.first()?.value.as_ref()?;
+    if let Some(values) = vector_values_from_value(first_value) {
+        return Some(values);
+    }
+
+    let values = request
+        .changes
+        .iter()
+        .filter_map(|change| change.value.as_ref().and_then(vector_number_value))
+        .collect::<Vec<_>>();
+    (!values.is_empty()).then_some(values)
+}
+
+fn vector_values_from_value(value: &Value) -> Option<Vec<f64>> {
+    if let Some(items) = value.as_array() {
+        return vector_numbers_from_array(items);
+    }
+
+    let record = value.as_object()?;
+    for key in ["vector", "values", "embedding"] {
+        if let Some(items) = record.get(key).and_then(Value::as_array) {
+            return vector_numbers_from_array(items);
+        }
+    }
+
+    None
+}
+
+fn vector_numbers_from_array(items: &[Value]) -> Option<Vec<f64>> {
+    let values = items
+        .iter()
+        .map(vector_number_value)
+        .collect::<Option<Vec<_>>>()?;
+    (!values.is_empty()).then_some(values)
+}
+
+fn vector_number_value(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_str().and_then(|raw| raw.parse::<f64>().ok()))
+        .filter(|value| value.is_finite())
+        .map(|value| if value == -0.0 { 0.0 } else { value })
+}
+
+fn vector_add_attributes(
+    request: &DataEditExecutionRequest,
+) -> Result<Option<String>, CommandError> {
+    let Some(record) = request
+        .changes
+        .first()
+        .and_then(|change| change.value.as_ref())
+        .and_then(Value::as_object)
+    else {
+        return Ok(None);
+    };
+    let Some(attributes) = record
+        .get("attributes")
+        .or_else(|| record.get("attrs"))
+        .or_else(|| record.get("metadata"))
+    else {
+        return Ok(None);
+    };
+
+    vector_attributes_from_value(attributes)
+}
+
+fn vector_attributes(request: &DataEditExecutionRequest) -> Result<Option<String>, CommandError> {
+    let Some(value) = request
+        .changes
+        .first()
+        .and_then(|change| change.value.as_ref())
+    else {
+        return Ok(None);
+    };
+    vector_attributes_from_value(value)
+}
+
+fn vector_attributes_from_value(value: &Value) -> Result<Option<String>, CommandError> {
+    let attributes = value
+        .as_object()
+        .and_then(|record| {
+            record
+                .get("attributes")
+                .or_else(|| record.get("attrs"))
+                .or_else(|| record.get("metadata"))
+        })
+        .unwrap_or(value);
+
+    match attributes {
+        Value::Null => Ok(Some(String::new())),
+        Value::String(value) if value.is_empty() => Ok(Some(String::new())),
+        Value::String(value) => validate_vector_attributes_json(value).map(Some),
+        other => serde_json::to_string(other).map(Some).map_err(|error| {
+            CommandError::new(
+                "redis-vector-attributes",
+                format!("Vector attributes could not be serialized as JSON: {error}"),
+            )
+        }),
+    }
+}
+
+fn validate_vector_attributes_json(value: &str) -> Result<String, CommandError> {
+    serde_json::from_str::<Value>(value).map_err(|error| {
+        CommandError::new(
+            "redis-vector-attributes",
+            format!("Vector attributes must be a valid JSON string or empty string: {error}"),
+        )
+    })?;
+    Ok(value.into())
 }
 
 fn first_field(request: &DataEditExecutionRequest) -> Option<String> {
@@ -470,6 +1225,231 @@ mod tests {
         assert_eq!(
             redis_value(&json!({"enabled": true})),
             r#"{"enabled":true}"#
+        );
+    }
+
+    #[test]
+    fn redis_json_paths_accept_jsonpath_or_segments() {
+        let direct = DataEditChange {
+            field: Some("$.profile.name".into()),
+            ..Default::default()
+        };
+        let segmented = DataEditChange {
+            path: Some(vec!["profile".into(), "roles".into(), "0".into()]),
+            ..Default::default()
+        };
+        let quoted = DataEditChange {
+            path: Some(vec!["profile data".into(), "api.token".into()]),
+            ..Default::default()
+        };
+
+        assert_eq!(redis_json_path(&direct), "$.profile.name");
+        assert_eq!(redis_json_path(&segmented), "$.profile.roles[0]");
+        assert_eq!(
+            redis_json_path(&quoted),
+            r#"$["profile data"]["api.token"]"#
+        );
+    }
+
+    #[test]
+    fn redis_json_value_serializes_strings_as_json_strings() {
+        assert_eq!(redis_json_value(&json!("active")).unwrap(), r#""active""#);
+        assert_eq!(
+            redis_json_value(&json!({"enabled": true})).unwrap(),
+            r#"{"enabled":true}"#
+        );
+        assert_eq!(normalize_redis_type("ReJSON-RL"), "json");
+    }
+
+    #[test]
+    fn stream_entry_helpers_extract_ids_and_field_values() {
+        let mut add = request(
+            "stream-add-entry",
+            Some("orders:stream"),
+            Some(json!({
+                "event": "checkout",
+                "total": 42,
+                "metadata": { "source": "web" }
+            })),
+        );
+        add.target.document_id = Some(json!("1714670000000-0"));
+
+        assert_eq!(stream_add_entry_id(&add), "1714670000000-0");
+        assert_eq!(
+            stream_entry_fields(&add),
+            vec![
+                ("event".into(), "checkout".into()),
+                ("total".into(), "42".into()),
+                ("metadata".into(), r#"{"source":"web"}"#.into()),
+            ]
+        );
+
+        let delete = DataEditExecutionRequest {
+            connection_id: "conn-redis".into(),
+            environment_id: "env-dev".into(),
+            edit_kind: "stream-delete-entry".into(),
+            target: DataEditTarget {
+                object_kind: "stream-entry".into(),
+                key: Some("orders:stream".into()),
+                document_id: Some(json!("1714670000000-0")),
+                ..Default::default()
+            },
+            changes: vec![DataEditChange {
+                field: Some("1714670000001-0".into()),
+                ..Default::default()
+            }],
+            confirmation_text: None,
+        };
+
+        assert_eq!(
+            stream_delete_entry_ids(&delete),
+            vec!["1714670000000-0", "1714670000001-0"]
+        );
+    }
+
+    #[test]
+    fn stream_entry_helpers_support_per_field_changes_and_auto_ids() {
+        let edit = DataEditExecutionRequest {
+            connection_id: "conn-redis".into(),
+            environment_id: "env-dev".into(),
+            edit_kind: "stream-add-entry".into(),
+            target: DataEditTarget {
+                object_kind: "stream-entry".into(),
+                key: Some("orders:stream".into()),
+                ..Default::default()
+            },
+            changes: vec![
+                DataEditChange {
+                    field: Some("event".into()),
+                    value: Some(json!("paid")),
+                    ..Default::default()
+                },
+                DataEditChange {
+                    path: Some(vec!["amount".into()]),
+                    value: Some(json!(12.5)),
+                    ..Default::default()
+                },
+            ],
+            confirmation_text: None,
+        };
+
+        assert_eq!(stream_add_entry_id(&edit), "*");
+        assert_eq!(
+            stream_entry_fields(&edit),
+            vec![
+                ("event".into(), "paid".into()),
+                ("amount".into(), "12.5".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn timeseries_helpers_extract_sample_values_and_ranges() {
+        let mut add = request(
+            "timeseries-add-sample",
+            Some("metrics:cpu"),
+            Some(json!({ "value": "42.5" })),
+        );
+        add.target.object_kind = "timeseries-sample".into();
+        add.target.document_id = Some(json!(1714670000000_i64));
+
+        assert_eq!(timeseries_sample_timestamp(&add), "1714670000000");
+        assert_eq!(timeseries_sample_value(&add), Some(42.5));
+
+        let delete_single = DataEditExecutionRequest {
+            connection_id: "conn-redis".into(),
+            environment_id: "env-dev".into(),
+            edit_kind: "timeseries-delete-sample".into(),
+            target: DataEditTarget {
+                object_kind: "timeseries-sample".into(),
+                key: Some("metrics:cpu".into()),
+                document_id: Some(json!("1714670000000")),
+                ..Default::default()
+            },
+            changes: vec![],
+            confirmation_text: None,
+        };
+        assert_eq!(
+            timeseries_delete_range(&delete_single),
+            Some((1714670000000, 1714670000000))
+        );
+
+        let delete_range = DataEditExecutionRequest {
+            connection_id: "conn-redis".into(),
+            environment_id: "env-dev".into(),
+            edit_kind: "timeseries-delete-sample".into(),
+            target: DataEditTarget {
+                object_kind: "timeseries-sample".into(),
+                key: Some("metrics:cpu".into()),
+                ..Default::default()
+            },
+            changes: vec![DataEditChange {
+                value: Some(json!({
+                    "from": 1714670000000_i64,
+                    "to": 1714670060000_i64,
+                })),
+                ..Default::default()
+            }],
+            confirmation_text: None,
+        };
+        assert_eq!(
+            timeseries_delete_range(&delete_range),
+            Some((1714670000000, 1714670060000))
+        );
+    }
+
+    #[test]
+    fn vector_helpers_extract_members_vectors_and_attributes() {
+        let mut add = request(
+            "vector-add-member",
+            Some("embeddings:articles"),
+            Some(json!({
+                "element": "doc:1",
+                "vector": ["0.1", 1.2, 0.5],
+                "attributes": {
+                    "category": "docs"
+                }
+            })),
+        );
+        add.target.object_kind = "vector-member".into();
+
+        assert_eq!(vector_member_name(&add).as_deref(), Some("doc:1"));
+        assert_eq!(vector_values(&add), Some(vec![0.1, 1.2, 0.5]));
+        assert_eq!(
+            vector_add_attributes(&add).unwrap().as_deref(),
+            Some(r#"{"category":"docs"}"#)
+        );
+
+        let mut remove = request("vector-remove-member", Some("embeddings:articles"), None);
+        remove.target.object_kind = "vector-member".into();
+        remove.target.document_id = Some(json!("doc:1"));
+        assert_eq!(vector_member_name(&remove).as_deref(), Some("doc:1"));
+
+        let mut attributes = request(
+            "vector-set-attributes",
+            Some("embeddings:articles"),
+            Some(json!({
+                "category": "reference",
+                "year": 2026
+            })),
+        );
+        attributes.target.object_kind = "vector-member".into();
+        attributes.target.document_id = Some(json!("doc:1"));
+        assert_eq!(
+            vector_attributes(&attributes).unwrap().as_deref(),
+            Some(r#"{"category":"reference","year":2026}"#)
+        );
+
+        let mut remove_attributes = request(
+            "vector-set-attributes",
+            Some("embeddings:articles"),
+            Some(json!("")),
+        );
+        remove_attributes.target.object_kind = "vector-member".into();
+        remove_attributes.target.document_id = Some(json!("doc:1"));
+        assert_eq!(
+            vector_attributes(&remove_attributes).unwrap().as_deref(),
+            Some("")
         );
     }
 }

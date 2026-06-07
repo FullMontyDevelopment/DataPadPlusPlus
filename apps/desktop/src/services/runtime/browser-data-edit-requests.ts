@@ -1,4 +1,5 @@
 import type { ConnectionProfile, DataEditPlanRequest } from '@datapadplusplus/shared-types'
+import { keyValueEditRequest } from './browser-keyvalue-edit-request'
 
 const SECRET_REPLACEMENT = '********'
 
@@ -34,13 +35,40 @@ export function browserDataEditWarnings(
     warnings.push('Key/value edits need a single concrete key.')
   }
 
+  if (
+    connection.family === 'keyvalue' &&
+    request.editKind === 'stream-delete-entry' &&
+    target.documentId === undefined &&
+    request.changes.every((change) => !(change.field?.trim() || change.path?.[0]?.trim()))
+  ) {
+    warnings.push('Stream entry deletes need a concrete entry id.')
+  }
+
+  if (
+    connection.family === 'keyvalue' &&
+    request.editKind === 'timeseries-delete-sample' &&
+    target.documentId === undefined &&
+    request.changes.every((change) => !(change.field?.trim() || change.path?.[0]?.trim() || change.value !== undefined))
+  ) {
+    warnings.push('TimeSeries sample deletes need a concrete timestamp or range.')
+  }
+
+  if (
+    connection.family === 'keyvalue' &&
+    request.editKind === 'vector-remove-member' &&
+    target.documentId === undefined &&
+    request.changes.every((change) => !(change.field?.trim() || change.path?.[0]?.trim()))
+  ) {
+    warnings.push('Vector member removal needs a concrete element name.')
+  }
+
   if (connection.family === 'widecolumn' && isEmptyRecord(target.primaryKey ?? target.itemKey)) {
     warnings.push('Wide-column edits require complete key conditions.')
   }
 
   if (
     request.changes.length === 0 &&
-    !['delete-row', 'delete-key', 'delete-item', 'delete-document', 'persist-ttl'].includes(request.editKind)
+    !['delete-row', 'delete-key', 'stream-delete-entry', 'timeseries-delete-sample', 'vector-remove-member', 'delete-item', 'delete-document', 'persist-ttl'].includes(request.editKind)
   ) {
     warnings.push('Data edits need at least one change.')
   }
@@ -59,6 +87,8 @@ export function browserDataEditPermission(
   if (connection.family === 'document') {
     return request.editKind === 'insert-document'
       ? 'insert collection document'
+      : request.editKind === 'delete-document'
+        ? 'delete collection document'
       : 'update collection document'
   }
 
@@ -114,6 +144,33 @@ function mongoEditRequest(request: DataEditPlanRequest) {
     )
   }
 
+  if (request.editKind === 'delete-document') {
+    return JSON.stringify(
+      {
+        database: request.target.database ?? '<database>',
+        collection: request.target.collection ?? '<collection>',
+        operation: 'deleteOne',
+        filter: { _id: request.target.documentId ?? '<_id>' },
+      },
+      null,
+      2,
+    )
+  }
+
+  if (request.editKind === 'update-document') {
+    return JSON.stringify(
+      {
+        database: request.target.database ?? '<database>',
+        collection: request.target.collection ?? '<collection>',
+        operation: 'replaceOne',
+        filter: { _id: request.target.documentId ?? '<_id>' },
+        replacement: request.changes[0]?.value ?? {},
+      },
+      null,
+      2,
+    )
+  }
+
   const update =
     request.editKind === 'unset-field'
       ? { $unset: documentPathObject(request, '') }
@@ -154,58 +211,6 @@ function documentRenameObject(request: DataEditPlanRequest) {
       return [path, change.newName ?? path]
     }),
   )
-}
-
-function keyValueEditRequest(request: DataEditPlanRequest) {
-  const key = request.target.key ?? '<key>'
-  const firstChange = request.changes[0]
-
-  if (request.editKind === 'set-ttl') {
-    return `EXPIRE ${key} ${valueToCommandArg(firstChange?.value ?? '<seconds>')}`
-  }
-
-  if (request.editKind === 'delete-key') {
-    return `DEL ${key}`
-  }
-
-  if (request.editKind === 'rename-key') {
-    return `RENAME ${key} ${firstChange?.newName ?? '<new-key>'}`
-  }
-
-  if (request.editKind === 'persist-ttl') {
-    return `PERSIST ${key}`
-  }
-
-  if (request.editKind === 'hash-set-field') {
-    const field = firstChange?.field ?? '<field>'
-    return `HSET ${key} ${field} ${secretAwareCommandValue(field, firstChange?.value ?? '<value>')}`
-  }
-
-  if (request.editKind === 'hash-delete-field') {
-    return `HDEL ${key} ${firstChange?.field ?? '<field>'}`
-  }
-
-  if (request.editKind === 'list-set-index') {
-    return `LSET ${key} ${firstChange?.field ?? '<index>'} ${valueToCommandArg(firstChange?.value ?? '<value>')}`
-  }
-
-  if (request.editKind === 'set-add-member') {
-    return `SADD ${key} ${valueToCommandArg(firstChange?.value ?? '<member>')}`
-  }
-
-  if (request.editKind === 'set-remove-member') {
-    return `SREM ${key} ${valueToCommandArg(firstChange?.value ?? '<member>')}`
-  }
-
-  if (request.editKind === 'zset-add-member') {
-    return `ZADD ${key} <score> ${firstChange?.field ?? '<member>'}`
-  }
-
-  if (request.editKind === 'zset-remove-member') {
-    return `ZREM ${key} ${firstChange?.field ?? '<member>'}`
-  }
-
-  return `SET ${key} ${secretAwareCommandValue(key, firstChange?.value ?? '<value>')}`
 }
 
 function dynamoDbEditRequest(request: DataEditPlanRequest) {
@@ -339,14 +344,8 @@ function sqlPrimaryKeyPredicate(connection: ConnectionProfile, request: DataEdit
 }
 
 function sqlQuotePair(engine: ConnectionProfile['engine']) {
-  if (engine === 'sqlserver') {
-    return ['[', ']'] as const
-  }
-
-  if (engine === 'mysql' || engine === 'mariadb') {
-    return ['`', '`'] as const
-  }
-
+  if (engine === 'sqlserver') return ['[', ']'] as const
+  if (engine === 'mysql' || engine === 'mariadb') return ['`', '`'] as const
   return ['"', '"'] as const
 }
 
@@ -359,11 +358,7 @@ function sqlParameter(engine: ConnectionProfile['engine'], index: number) {
 }
 
 function isSqlRowEditConnection(connection: ConnectionProfile) {
-  return (
-    connection.family === 'sql' ||
-    connection.family === 'embedded-olap' ||
-    connection.engine === 'timescaledb'
-  )
+  return connection.family === 'sql' || connection.family === 'embedded-olap' || connection.engine === 'timescaledb'
 }
 
 function dataEditPath(field?: string, path?: string[]) {
@@ -372,14 +367,6 @@ function dataEditPath(field?: string, path?: string[]) {
 
 function isEmptyRecord(value?: Record<string, unknown>) {
   return !value || Object.keys(value).length === 0
-}
-
-function valueToCommandArg(value: unknown) {
-  return typeof value === 'string' ? value : JSON.stringify(value)
-}
-
-function secretAwareCommandValue(name: string, value: unknown) {
-  return isSecretLikeName(name) ? SECRET_REPLACEMENT : valueToCommandArg(value)
 }
 
 function secretAwareJsonValue(name: string, value: unknown) {

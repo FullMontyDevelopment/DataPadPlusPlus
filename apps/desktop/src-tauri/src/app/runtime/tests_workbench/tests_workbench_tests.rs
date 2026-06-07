@@ -38,6 +38,8 @@ fn connection(engine: &str, family: &str) -> ConnectionProfile {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,

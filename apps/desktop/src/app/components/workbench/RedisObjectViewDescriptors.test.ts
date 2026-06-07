@@ -9,12 +9,19 @@ describe('RedisObjectViewDescriptors', () => {
   it('uses Redis-specific operation labels', () => {
     expect(redisObjectViewMenuLabel('database')).toBe('Open DB Overview')
     expect(redisObjectViewMenuLabel('keys')).toBe('Browse Keys')
+    expect(redisObjectViewMenuLabel('pubsub-channel')).toBe('Review Pub/Sub Channels')
+    expect(redisObjectViewMenuLabel('stream-groups')).toBe('Review Consumer Groups')
+    expect(redisObjectViewMenuLabel('stream-pending')).toBe('Review Pending Entries')
+    expect(redisObjectViewMenuLabel('search-index')).toBe('Manage Search Indexes')
     expect(redisObjectViewMenuLabel('security')).toBe('Manage ACL / Security')
     expect(redisObjectViewMenuLabel('database')).not.toBe('Open View')
   })
 
   it('normalizes supported object kinds', () => {
     expect(isRedisObjectViewKind('hash')).toBe(true)
+    expect(isRedisObjectViewKind('pubsub-subscriber')).toBe(true)
+    expect(isRedisObjectViewKind('stream-consumers')).toBe(true)
+    expect(isRedisObjectViewKind('vectorset')).toBe(true)
     expect(isRedisObjectViewKind('lua-scripts')).toBe(true)
     expect(isRedisObjectViewKind('acl-users')).toBe(false)
   })

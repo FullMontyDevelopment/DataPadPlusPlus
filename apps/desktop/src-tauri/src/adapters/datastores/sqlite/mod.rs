@@ -5,10 +5,12 @@ mod connection;
 mod diagnostics;
 mod editing;
 mod explorer;
+mod import_export;
 mod metadata;
 mod paging;
 mod query;
 
+pub(crate) use import_export::execute_sqlite_file_operation;
 pub(crate) use metadata::load_sqlite_structure;
 pub(crate) use paging::fetch_sqlite_page;
 

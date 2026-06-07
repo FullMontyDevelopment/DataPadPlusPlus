@@ -1,10 +1,6 @@
 import type { ConnectionProfile, OperationManifestResponse } from '@datapadplusplus/shared-types'
 
-export function buildGenericOptionalOperationManifests(
-  connection: ConnectionProfile,
-  capabilities: ReadonlySet<string>,
-  maturity?: string,
-): OperationManifestResponse['operations'] {
+export function buildGenericOptionalOperationManifests(connection: ConnectionProfile, capabilities: ReadonlySet<string>, maturity?: string): OperationManifestResponse['operations'] {
   const operations: OperationManifestResponse['operations'] = []
   const beta = maturity === 'beta'
 
@@ -21,9 +17,7 @@ export function buildGenericOptionalOperationManifests(
       description: 'Inspect users, roles, grants, and effective privileges where the engine exposes them.',
       requiresConfirmation: false,
       executionSupport: beta ? 'plan-only' : 'live',
-      disabledReason: beta
-        ? 'Beta adapters expose generated plans before live inspection.'
-        : undefined,
+      disabledReason: beta ? 'Beta adapters expose generated plans before live inspection.' : undefined,
       previewOnly: beta,
     })
   }

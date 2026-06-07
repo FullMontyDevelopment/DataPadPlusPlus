@@ -40,6 +40,36 @@ impl DatastoreAdapter for PostgresAdapter {
         sql_capabilities(false, true)
     }
 
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        let manifest = self.manifest();
+        let mut operations = operation_manifests_for_manifest(&manifest);
+        for operation in &mut operations {
+            if matches!(
+                operation.id.as_str(),
+                "postgresql.query.profile"
+                    | "postgresql.data.import-export"
+                    | "postgresql.data.backup-restore"
+            ) {
+                operation.execution_support = "live".into();
+                operation.disabled_reason = None;
+                operation.preview_only = Some(false);
+                operation.description = match operation.id.as_str() {
+                    "postgresql.query.profile" => {
+                        "Run guarded PostgreSQL EXPLAIN ANALYZE JSON profiles for SELECT, WITH, and VALUES statements and render normalized operator stages."
+                    }
+                    "postgresql.data.import-export" => {
+                        "Run guarded PostgreSQL table import/export file workflows with concrete paths, row limits, and type-aware inserts."
+                    }
+                    _ => {
+                        "Create a guarded bounded PostgreSQL logical backup package; restore remains preview-first."
+                    }
+                }
+                .into();
+            }
+        }
+        operations
+    }
+
     async fn test_connection(
         &self,
         connection: &ResolvedConnectionProfile,
@@ -117,5 +147,30 @@ impl DatastoreAdapter for PostgresAdapter {
                 request.execution_id
             ),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn postgres_live_workflow_manifests_are_guarded() {
+        let operations = PostgresAdapter.operation_manifests();
+
+        for id in [
+            "postgresql.query.profile",
+            "postgresql.data.import-export",
+            "postgresql.data.backup-restore",
+        ] {
+            let operation = operations
+                .iter()
+                .find(|operation| operation.id == id)
+                .expect("operation manifest");
+            assert_eq!(operation.execution_support, "live");
+            assert_eq!(operation.preview_only, Some(false));
+            assert!(operation.disabled_reason.is_none());
+            assert!(operation.requires_confirmation);
+        }
     }
 }

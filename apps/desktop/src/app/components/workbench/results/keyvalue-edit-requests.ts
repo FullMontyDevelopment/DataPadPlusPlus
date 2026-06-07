@@ -85,6 +85,13 @@ export function buildRedisMemberEditRequest({
     | 'set-remove-member'
     | 'zset-add-member'
     | 'zset-remove-member'
+    | 'stream-add-entry'
+    | 'stream-delete-entry'
+    | 'timeseries-add-sample'
+    | 'timeseries-delete-sample'
+    | 'vector-add-member'
+    | 'vector-remove-member'
+    | 'vector-set-attributes'
   >
   key: string
   field?: string
@@ -99,13 +106,58 @@ export function buildRedisMemberEditRequest({
     environmentId: editContext.environmentId,
     editKind,
     target: {
-      objectKind: 'key-member',
+      objectKind: redisMemberEditObjectKind(editKind),
       path: field ? [field] : [],
       key,
+      ...(redisMemberEditUsesDocumentId(editKind) && field ? { documentId: field } : {}),
     },
     changes: [
       {
         field,
+        value,
+        valueType: valueTypeName(value),
+      },
+    ],
+  }
+}
+
+export function buildRedisJsonPathEditRequest({
+  connection,
+  editContext,
+  editKind,
+  key,
+  path,
+  value,
+}: {
+  connection?: ConnectionProfile
+  editContext?: DocumentEditContext
+  editKind: Extract<DataEditKind, 'json-set-path' | 'json-delete-path'>
+  key: string
+  path: string
+  value?: unknown
+}): DataEditExecutionRequest | undefined {
+  if (
+    !keyValueCanEdit(connection, editContext) ||
+    !editContext ||
+    connection?.engine !== 'redis' ||
+    !path
+  ) {
+    return undefined
+  }
+
+  return {
+    connectionId: editContext.connectionId,
+    environmentId: editContext.environmentId,
+    editKind,
+    target: {
+      objectKind: 'json-path',
+      path: [path],
+      key,
+    },
+    changes: [
+      {
+        field: path,
+        path: [path],
         value,
         valueType: valueTypeName(value),
       },
@@ -162,7 +214,59 @@ export function buildRedisMemberDeleteRequest({
     })
   }
 
+  if (redisType === 'stream') {
+    return buildRedisMemberEditRequest({
+      connection,
+      editContext,
+      editKind: 'stream-delete-entry',
+      key,
+      field: member,
+    })
+  }
+
+  if (redisType === 'timeseries') {
+    return buildRedisMemberEditRequest({
+      connection,
+      editContext,
+      editKind: 'timeseries-delete-sample',
+      key,
+      field: member,
+    })
+  }
+
+  if (redisType === 'vectorset') {
+    return buildRedisMemberEditRequest({
+      connection,
+      editContext,
+      editKind: 'vector-remove-member',
+      key,
+      field: member,
+    })
+  }
+
   return undefined
+}
+
+function redisMemberEditObjectKind(editKind: DataEditKind) {
+  if (editKind.startsWith('stream-')) {
+    return 'stream-entry'
+  }
+
+  if (editKind.startsWith('timeseries-')) {
+    return 'timeseries-sample'
+  }
+
+  if (editKind.startsWith('vector-')) {
+    return 'vector-member'
+  }
+
+  return 'key-member'
+}
+
+function redisMemberEditUsesDocumentId(editKind: DataEditKind) {
+  return editKind.startsWith('stream-') ||
+    editKind.startsWith('timeseries-') ||
+    editKind.startsWith('vector-')
 }
 
 export function parseKeyValueInput(value: string) {

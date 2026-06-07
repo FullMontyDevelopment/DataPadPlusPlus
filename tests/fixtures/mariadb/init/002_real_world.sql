@@ -84,7 +84,8 @@ select
 from sequence_numbers
 join (
   select 1 as line_number union all select 2 union all select 3
-) lines
+) line_source
+on true
 on duplicate key update sku = values(sku), quantity = values(quantity), unit_price = values(unit_price), discount = values(discount);
 
 insert into support_tickets (ticket_id, account_id, priority, status, channel, subject, created_at, resolved_at)

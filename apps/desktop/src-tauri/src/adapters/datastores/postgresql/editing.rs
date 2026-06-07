@@ -1,12 +1,13 @@
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sqlx::{
-    postgres::{PgArguments, PgPoolOptions},
+    postgres::{PgArguments, PgPoolOptions, PgRow},
     query::Query,
     types::Json,
-    Postgres,
+    Column, Postgres, Row,
 };
 
 use super::super::super::*;
+use super::cells::stringify_pg_cell;
 use super::postgres_dsn;
 
 pub(super) async fn execute_postgres_data_edit(
@@ -54,8 +55,8 @@ pub(super) async fn execute_postgres_data_edit(
         ));
     }
 
-    let statement = match pg_edit_statement(request) {
-        Ok(statement) => statement,
+    let workflow = match pg_edit_workflow(request) {
+        Ok(workflow) => workflow,
         Err(error) => {
             warnings.push(error.message);
             return Ok(data_edit_response(
@@ -68,14 +69,16 @@ pub(super) async fn execute_postgres_data_edit(
         .max_connections(1)
         .connect(&postgres_dsn(connection))
         .await?;
-    let mut query = sqlx::query(&statement.sql);
-    for value in &statement.values {
-        query = bind_pg_value(query, value);
-    }
-    let result = query.execute(&pool).await?;
+
+    let before_rows = if let Some(select) = &workflow.before_select {
+        fetch_pg_edit_rows(&pool, select).await?
+    } else {
+        Vec::new()
+    };
+    let after_rows = fetch_pg_edit_rows(&pool, &workflow.mutation).await?;
     pool.close().await;
 
-    let rows_affected = result.rows_affected();
+    let rows_affected = rows_affected(request, &before_rows, &after_rows);
     if rows_affected == 0 {
         warnings.push(
             "PostgreSQL-family adapter acknowledged the edit request, but no row matched the supplied target."
@@ -87,6 +90,12 @@ pub(super) async fn execute_postgres_data_edit(
             connection.engine, request.edit_kind
         ));
     }
+    if before_rows.len() > 1 || after_rows.len() > 1 {
+        warnings.push(
+            "PostgreSQL-family row-edit evidence returned multiple rows; review the target predicate before continuing."
+                .into(),
+        );
+    }
 
     Ok(data_edit_response(
         request,
@@ -95,8 +104,16 @@ pub(super) async fn execute_postgres_data_edit(
         messages,
         warnings,
         Some(json!({
-            "statement": statement.sql,
+            "statement": workflow.mutation.sql,
             "rowsAffected": rows_affected,
+            "rowEvidence": {
+                "kind": request.edit_kind,
+                "before": before_rows,
+                "after": after_rows,
+                "beforeStatement": workflow.before_select.as_ref().map(|statement| statement.sql.clone()),
+                "afterStatement": workflow.mutation.sql,
+                "primaryKey": request.target.primary_key.clone(),
+            },
         })),
     ))
 }
@@ -107,6 +124,13 @@ struct PgEditStatement {
     values: Vec<Value>,
 }
 
+#[derive(Debug, PartialEq)]
+struct PgEditWorkflow {
+    mutation: PgEditStatement,
+    before_select: Option<PgEditStatement>,
+}
+
+#[cfg(test)]
 fn pg_edit_statement(request: &DataEditExecutionRequest) -> Result<PgEditStatement, CommandError> {
     let table = pg_table_name(request)?;
 
@@ -119,6 +143,32 @@ fn pg_edit_statement(request: &DataEditExecutionRequest) -> Result<PgEditStateme
             format!("PostgreSQL-family row edit `{other}` is not supported."),
         )),
     }
+}
+
+fn pg_edit_workflow(request: &DataEditExecutionRequest) -> Result<PgEditWorkflow, CommandError> {
+    let table = pg_table_name(request)?;
+
+    let mutation = match request.edit_kind.as_str() {
+        "insert-row" => pg_insert_statement(request, &table)?,
+        "update-row" => pg_update_statement(request, &table)?,
+        "delete-row" => pg_delete_statement(request, &table)?,
+        other => {
+            return Err(CommandError::new(
+                "postgres-edit-unsupported",
+                format!("PostgreSQL-family row edit `{other}` is not supported."),
+            ));
+        }
+    };
+    let before_select = if matches!(request.edit_kind.as_str(), "update-row" | "delete-row") {
+        Some(pg_select_by_primary_key_statement(request, &table)?)
+    } else {
+        None
+    };
+
+    Ok(PgEditWorkflow {
+        mutation,
+        before_select,
+    })
 }
 
 fn pg_insert_statement(
@@ -148,7 +198,7 @@ fn pg_insert_statement(
 
     Ok(PgEditStatement {
         sql: format!(
-            "insert into {table} ({}) values ({});",
+            "insert into {table} ({}) values ({}) returning *;",
             fields
                 .iter()
                 .map(|field| quote_pg_identifier(field))
@@ -202,7 +252,7 @@ fn pg_update_statement(
 
     Ok(PgEditStatement {
         sql: format!(
-            "update {table} set {} where {};",
+            "update {table} set {} where {} returning *;",
             assignments.join(", "),
             predicates.join(" and ")
         ),
@@ -226,7 +276,34 @@ fn pg_delete_statement(
         .collect::<Vec<_>>();
 
     Ok(PgEditStatement {
-        sql: format!("delete from {table} where {};", predicates.join(" and ")),
+        sql: format!(
+            "delete from {table} where {} returning *;",
+            predicates.join(" and ")
+        ),
+        values,
+    })
+}
+
+fn pg_select_by_primary_key_statement(
+    request: &DataEditExecutionRequest,
+    table: &str,
+) -> Result<PgEditStatement, CommandError> {
+    let primary_key = required_primary_key(request)?;
+    let predicates = primary_key
+        .iter()
+        .enumerate()
+        .map(|(index, (field, _))| format!("{} = ${}", quote_pg_identifier(field), index + 1))
+        .collect::<Vec<_>>();
+    let values = primary_key
+        .iter()
+        .map(|(_, value)| (*value).clone())
+        .collect::<Vec<_>>();
+
+    Ok(PgEditStatement {
+        sql: format!(
+            "select * from {table} where {} limit 2;",
+            predicates.join(" and ")
+        ),
         values,
     })
 }
@@ -315,6 +392,41 @@ fn bind_pg_value<'q>(
     }
 }
 
+async fn fetch_pg_edit_rows(
+    pool: &sqlx::postgres::PgPool,
+    statement: &PgEditStatement,
+) -> Result<Vec<Value>, CommandError> {
+    let mut query = sqlx::query(&statement.sql);
+    for value in &statement.values {
+        query = bind_pg_value(query, value);
+    }
+
+    Ok(query
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| pg_row_object(&row))
+        .collect())
+}
+
+fn pg_row_object(row: &PgRow) -> Value {
+    let mut object = Map::new();
+    for (index, column) in row.columns().iter().enumerate() {
+        object.insert(
+            column.name().to_string(),
+            json!(stringify_pg_cell(row, index)),
+        );
+    }
+    Value::Object(object)
+}
+
+fn rows_affected(request: &DataEditExecutionRequest, before: &[Value], after: &[Value]) -> u64 {
+    match request.edit_kind.as_str() {
+        "delete-row" => after.len().max(before.len()) as u64,
+        _ => after.len() as u64,
+    }
+}
+
 fn data_edit_response(
     request: &DataEditExecutionRequest,
     plan: DataEditPlanResponse,
@@ -389,7 +501,7 @@ mod tests {
         assert_eq!(
             statement,
             PgEditStatement {
-                sql: r#"insert into "public"."accounts" ("name", "metadata") values ($1, $2);"#
+                sql: r#"insert into "public"."accounts" ("name", "metadata") values ($1, $2) returning *;"#
                     .into(),
                 values: vec![json!("Acme"), json!({"tier": "gold"})],
             }
@@ -415,11 +527,38 @@ mod tests {
         assert_eq!(
             statement,
             PgEditStatement {
-                sql: r#"update "public"."accounts" set "name" = $1 where "id" = $2 and "tenant_id" = $3;"#
+                sql: r#"update "public"."accounts" set "name" = $1 where "id" = $2 and "tenant_id" = $3 returning *;"#
                     .into(),
                 values: vec![json!("DataPad++ Labs"), json!(1), json!(7)],
             }
         );
+    }
+
+    #[test]
+    fn pg_edit_workflow_prefetches_before_rows_for_updates() {
+        let workflow = pg_edit_workflow(&request(
+            "update-row",
+            vec![DataEditChange {
+                field: Some("name".into()),
+                value: Some(json!("DataPad++ Labs")),
+                ..Default::default()
+            }],
+            Some(HashMap::from([
+                ("tenant_id".into(), json!(7)),
+                ("id".into(), json!(1)),
+            ])),
+        ))
+        .expect("update workflow");
+
+        assert_eq!(
+            workflow.before_select,
+            Some(PgEditStatement {
+                sql: r#"select * from "public"."accounts" where "id" = $1 and "tenant_id" = $2 limit 2;"#
+                    .into(),
+                values: vec![json!(1), json!(7)],
+            })
+        );
+        assert!(workflow.mutation.sql.ends_with(" returning *;"));
     }
 
     #[test]

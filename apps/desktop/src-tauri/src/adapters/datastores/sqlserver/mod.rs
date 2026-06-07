@@ -4,6 +4,7 @@ mod connection;
 mod diagnostics;
 mod editing;
 mod explorer;
+mod import_export;
 mod metadata;
 mod query;
 
@@ -12,6 +13,7 @@ pub(crate) use metadata::load_sqlserver_structure;
 use connection::sqlserver_client;
 use diagnostics::collect_sqlserver_diagnostics;
 use editing::execute_sqlserver_data_edit;
+pub(crate) use import_export::execute_sqlserver_file_operation;
 
 pub(crate) struct SqlServerAdapter;
 
@@ -46,6 +48,31 @@ impl DatastoreAdapter for SqlServerAdapter {
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         sql_capabilities(false, true)
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        let manifest = self.manifest();
+        let mut operations = operation_manifests_for_manifest(&manifest);
+        for operation in &mut operations {
+            if matches!(
+                operation.id.as_str(),
+                "sqlserver.data.import-export" | "sqlserver.data.backup-restore"
+            ) {
+                operation.execution_support = "live".into();
+                operation.disabled_reason = None;
+                operation.preview_only = Some(false);
+                operation.description = match operation.id.as_str() {
+                    "sqlserver.data.import-export" => {
+                        "Run guarded SQL Server table import/export file workflows with concrete paths, row limits, and target-column validation."
+                    }
+                    _ => {
+                        "Create guarded bounded SQL Server logical backup packages and validate restore packages; native .bak restore remains preview-first."
+                    }
+                }
+                .into();
+            }
+        }
+        operations
     }
 
     async fn test_connection(
@@ -123,5 +150,29 @@ impl DatastoreAdapter for SqlServerAdapter {
                 request.execution_id
             ),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sqlserver_live_file_workflow_manifests_are_guarded() {
+        let operations = SqlServerAdapter.operation_manifests();
+
+        for id in [
+            "sqlserver.data.import-export",
+            "sqlserver.data.backup-restore",
+        ] {
+            let operation = operations
+                .iter()
+                .find(|operation| operation.id == id)
+                .expect("operation manifest");
+            assert_eq!(operation.execution_support, "live");
+            assert_eq!(operation.preview_only, Some(false));
+            assert!(operation.disabled_reason.is_none());
+            assert!(operation.requires_confirmation);
+        }
     }
 }

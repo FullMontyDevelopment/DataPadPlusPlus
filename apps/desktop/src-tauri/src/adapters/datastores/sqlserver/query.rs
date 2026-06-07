@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use serde_json::json;
+use serde_json::{json, Value};
 use tiberius::{time as tds_time, ColumnData};
 
 use super::super::super::*;
@@ -119,8 +119,12 @@ pub(super) async fn execute_sqlserver_query(
     let started = Instant::now();
     let statement = selected_query(request);
     let explain_mode = execute_mode(request) == "explain";
+    let profile_mode = execute_mode(request) == "profile";
+    let plan_mode = explain_mode || profile_mode;
     let query = if explain_mode {
         format!("SET SHOWPLAN_TEXT ON; {statement}; SET SHOWPLAN_TEXT OFF;")
+    } else if profile_mode {
+        format!("SET SHOWPLAN_XML ON; {statement}; SET SHOWPLAN_XML OFF;")
     } else {
         statement.to_string()
     };
@@ -128,7 +132,7 @@ pub(super) async fn execute_sqlserver_query(
         .row_limit
         .unwrap_or(adapter.execution_capabilities().default_row_limit);
     let mut client = sqlserver_client(connection).await?;
-    let batches = if explain_mode {
+    let batches = if plan_mode {
         single_statement_batch(&query)
     } else {
         split_sql_batch(&query, SqlBatchDialect::SqlServer)
@@ -173,8 +177,14 @@ pub(super) async fn execute_sqlserver_query(
     }
 
     let first_section = section_rows.first();
-    let explain_payload = if explain_mode {
-        first_section.map(|section| sqlserver_explain_payload(statement, section))
+    let explain_payload = if plan_mode {
+        first_section.map(|section| {
+            if profile_mode {
+                sqlserver_profile_payload(statement, section)
+            } else {
+                sqlserver_explain_payload(statement, section)
+            }
+        })
     } else {
         None
     };
@@ -185,7 +195,7 @@ pub(super) async fn execute_sqlserver_query(
             .map(|section| section.payload.clone())
             .unwrap_or_else(|| payload_raw("Statement executed successfully.".into()))
     };
-    let batch_payload = (!explain_mode && section_rows.len() > 1).then(|| {
+    let batch_payload = (!plan_mode && section_rows.len() > 1).then(|| {
         payload_batch(
             section_rows
                 .iter()
@@ -225,7 +235,7 @@ pub(super) async fn execute_sqlserver_query(
     } else {
         payloads.push(primary_payload);
     }
-    if explain_mode {
+    if plan_mode {
         if let Some(section) = first_section {
             payloads.push(section.payload.clone());
         }
@@ -236,29 +246,33 @@ pub(super) async fn execute_sqlserver_query(
         "rowLimit": row_limit,
         "resultSetCount": section_rows.len(),
     })));
-    payloads.push(if explain_mode {
-        payload_raw(sqlserver_plan_text(first_section))
+    payloads.push(if plan_mode {
+        payload_raw(sqlserver_plan_raw(first_section, profile_mode))
     } else {
         payload_raw(statement.to_string())
     });
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: if explain_mode {
-            format!("SQL Server execution plan returned {total_rows} row(s).")
+        summary: if plan_mode {
+            if profile_mode {
+                format!("SQL Server XML Showplan returned {total_rows} row(s).")
+            } else {
+                format!("SQL Server execution plan returned {total_rows} row(s).")
+            }
         } else {
             format!("{total_rows} row(s) returned from {}.", connection.name)
         },
         default_renderer: if batch_payload.is_some() {
             "batch"
-        } else if explain_mode {
+        } else if plan_mode {
             "plan"
         } else {
             "table"
         },
         renderer_modes: if batch_payload.is_some() {
             vec!["batch", "json", "raw"]
-        } else if explain_mode {
+        } else if plan_mode {
             vec!["plan", "table", "json", "raw"]
         } else {
             vec!["table", "json", "raw"]
@@ -344,7 +358,25 @@ fn sqlserver_explain_payload(
     )
 }
 
-fn sqlserver_plan_text(section: Option<&SqlServerResultSection>) -> String {
+fn sqlserver_profile_payload(
+    statement: &str,
+    section: &SqlServerResultSection,
+) -> serde_json::Value {
+    payload_plan(
+        "xml",
+        sqlserver_showplan_xml_payload(statement, section),
+        "SQL Server XML Showplan plan returned.",
+    )
+}
+
+fn sqlserver_plan_raw(section: Option<&SqlServerResultSection>, xml: bool) -> String {
+    if xml {
+        return section
+            .map(sqlserver_showplan_xml_documents)
+            .unwrap_or_default()
+            .join("\n\n");
+    }
+
     sqlserver_plan_lines(section).join("\n")
 }
 
@@ -361,6 +393,281 @@ fn sqlserver_plan_lines(section: Option<&SqlServerResultSection>) -> Vec<String>
         .collect()
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct SqlServerShowplanOperator {
+    depth: usize,
+    physical: String,
+    logical: String,
+    estimated_rows: String,
+    estimated_cost: String,
+    object: String,
+    predicate: String,
+}
+
+impl SqlServerShowplanOperator {
+    fn line(&self) -> String {
+        let operation = if self.physical.is_empty() {
+            self.logical.clone()
+        } else if self.logical.is_empty() || self.logical == self.physical {
+            self.physical.clone()
+        } else {
+            format!("{} ({})", self.physical, self.logical)
+        };
+        let target = if self.object.is_empty() {
+            String::new()
+        } else {
+            format!(" on {}", self.object)
+        };
+        let estimates = match (
+            self.estimated_rows.is_empty(),
+            self.estimated_cost.is_empty(),
+        ) {
+            (true, true) => String::new(),
+            (false, true) => format!(" [rows {}]", self.estimated_rows),
+            (true, false) => format!(" [cost {}]", self.estimated_cost),
+            (false, false) => format!(
+                " [rows {}, cost {}]",
+                self.estimated_rows, self.estimated_cost
+            ),
+        };
+
+        format!(
+            "{}{}{}{}",
+            "  ".repeat(self.depth),
+            operation,
+            target,
+            estimates
+        )
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.physical.clone(),
+            self.logical.clone(),
+            self.estimated_rows.clone(),
+            self.estimated_cost.clone(),
+            self.object.clone(),
+            self.predicate.clone(),
+        ]
+    }
+
+    fn value(&self) -> Value {
+        json!({
+            "depth": self.depth,
+            "physicalOp": self.physical,
+            "logicalOp": self.logical,
+            "estimatedRows": self.estimated_rows,
+            "estimatedCost": self.estimated_cost,
+            "object": self.object,
+            "predicate": self.predicate,
+        })
+    }
+}
+
+fn sqlserver_showplan_xml_payload(statement: &str, section: &SqlServerResultSection) -> Value {
+    let documents = sqlserver_showplan_xml_documents(section);
+    let operators = documents
+        .iter()
+        .flat_map(|document| sqlserver_showplan_operators(document))
+        .collect::<Vec<_>>();
+    let statements = documents
+        .iter()
+        .flat_map(|document| sqlserver_showplan_statements(document))
+        .collect::<Vec<_>>();
+    let plan = operators
+        .iter()
+        .map(SqlServerShowplanOperator::line)
+        .collect::<Vec<_>>();
+    let rows = operators
+        .iter()
+        .map(SqlServerShowplanOperator::row)
+        .collect::<Vec<_>>();
+    let raw_xml_bytes = documents.iter().map(String::len).sum::<usize>();
+    let raw_xml_sample = documents
+        .first()
+        .map(|document| truncate_for_payload(document, 4_096))
+        .unwrap_or_default();
+
+    json!({
+        "statement": statement,
+        "format": "showplan_xml",
+        "plan": plan,
+        "columns": [
+            "Physical Operation",
+            "Logical Operation",
+            "Estimated Rows",
+            "Estimated Cost",
+            "Object",
+            "Predicate"
+        ],
+        "rows": rows,
+        "statements": statements,
+        "operators": operators.iter().map(SqlServerShowplanOperator::value).collect::<Vec<_>>(),
+        "rawXmlBytes": raw_xml_bytes,
+        "rawXmlSample": raw_xml_sample,
+    })
+}
+
+fn sqlserver_showplan_xml_documents(section: &SqlServerResultSection) -> Vec<String> {
+    section
+        .tabular_rows
+        .iter()
+        .flat_map(|row| row.iter())
+        .filter(|value| value.contains("<ShowPlanXML"))
+        .cloned()
+        .collect()
+}
+
+fn sqlserver_showplan_operators(xml: &str) -> Vec<SqlServerShowplanOperator> {
+    let mut operators = Vec::new();
+    let mut offset = 0usize;
+
+    while let Some(relative_start) = xml[offset..].find("<RelOp") {
+        let start = offset + relative_start;
+        let Some(tag) = xml_tag_at(xml, start) else {
+            break;
+        };
+        let segment = xml_operator_segment(xml, start);
+
+        operators.push(SqlServerShowplanOperator {
+            depth: relop_depth(xml, start),
+            physical: xml_attribute(tag, "PhysicalOp").unwrap_or_default(),
+            logical: xml_attribute(tag, "LogicalOp").unwrap_or_default(),
+            estimated_rows: xml_attribute(tag, "EstimateRows").unwrap_or_default(),
+            estimated_cost: xml_attribute(tag, "EstimatedTotalSubtreeCost")
+                .or_else(|| xml_attribute(tag, "EstimateCPU"))
+                .unwrap_or_default(),
+            object: sqlserver_showplan_object(segment),
+            predicate: sqlserver_showplan_predicate(segment),
+        });
+
+        offset = start + tag.len();
+    }
+
+    operators
+}
+
+fn sqlserver_showplan_statements(xml: &str) -> Vec<Value> {
+    let mut statements = Vec::new();
+    let mut offset = 0usize;
+
+    while let Some(relative_start) = xml[offset..].find("<Stmt") {
+        let start = offset + relative_start;
+        let Some(tag) = xml_tag_at(xml, start) else {
+            break;
+        };
+        let statement_text = xml_attribute(tag, "StatementText").unwrap_or_default();
+        let statement_type = xml_attribute(tag, "StatementType").unwrap_or_default();
+        let estimated_rows = xml_attribute(tag, "StatementEstRows").unwrap_or_default();
+        let subtree_cost = xml_attribute(tag, "StatementSubTreeCost").unwrap_or_default();
+        let optimization_level = xml_attribute(tag, "StatementOptmLevel").unwrap_or_default();
+
+        if !statement_text.is_empty()
+            || !statement_type.is_empty()
+            || !estimated_rows.is_empty()
+            || !subtree_cost.is_empty()
+            || !optimization_level.is_empty()
+        {
+            statements.push(json!({
+                "statementText": statement_text,
+                "statementType": statement_type,
+                "estimatedRows": estimated_rows,
+                "subtreeCost": subtree_cost,
+                "optimizationLevel": optimization_level,
+            }));
+        }
+
+        offset = start + tag.len();
+    }
+
+    statements
+}
+
+fn xml_operator_segment(xml: &str, start: usize) -> &str {
+    let rest = &xml[start..];
+    let next_child = rest
+        .get(6..)
+        .and_then(|value| value.find("<RelOp"))
+        .map(|index| index + 6);
+    let close = rest.find("</RelOp>").map(|index| index + "</RelOp>".len());
+    let end = next_child.or(close).unwrap_or(rest.len());
+
+    &rest[..end]
+}
+
+fn sqlserver_showplan_object(segment: &str) -> String {
+    let Some(start) = segment.find("<Object") else {
+        return String::new();
+    };
+    let Some(tag) = xml_tag_at(segment, start) else {
+        return String::new();
+    };
+
+    ["Database", "Schema", "Table", "Index"]
+        .iter()
+        .filter_map(|name| xml_attribute(tag, name))
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+fn sqlserver_showplan_predicate(segment: &str) -> String {
+    let Some(start) = segment.find("ScalarString=") else {
+        return String::new();
+    };
+    let tag_start = segment[..start].rfind('<').unwrap_or(start);
+    let Some(tag) = xml_tag_at(segment, tag_start) else {
+        return String::new();
+    };
+
+    xml_attribute(tag, "ScalarString").unwrap_or_default()
+}
+
+fn relop_depth(xml: &str, start: usize) -> usize {
+    let before = &xml[..start];
+    before
+        .match_indices("<RelOp")
+        .count()
+        .saturating_sub(before.match_indices("</RelOp>").count())
+}
+
+fn xml_tag_at(xml: &str, start: usize) -> Option<&str> {
+    let end = xml[start..].find('>')?;
+    Some(&xml[start..=start + end])
+}
+
+fn xml_attribute(tag: &str, name: &str) -> Option<String> {
+    let needle = format!("{name}=");
+    let start = tag.find(&needle)? + needle.len();
+    let quote = tag[start..].chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let value_start = start + quote.len_utf8();
+    let value_end = tag[value_start..].find(quote)?;
+
+    Some(decode_xml_entities(
+        &tag[value_start..value_start + value_end],
+    ))
+}
+
+fn decode_xml_entities(value: &str) -> String {
+    value
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+fn truncate_for_payload(value: &str, max_chars: usize) -> String {
+    let mut truncated = value.chars().take(max_chars).collect::<String>();
+    if value.chars().count() > max_chars {
+        truncated.push_str("\n<!-- truncated -->");
+    }
+    truncated
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
@@ -374,7 +681,8 @@ mod tests {
     };
 
     use super::{
-        payload_table, sqlserver_explain_payload, stringify_tiberius_cell, SqlServerResultSection,
+        payload_table, sqlserver_explain_payload, sqlserver_profile_payload,
+        sqlserver_showplan_operators, stringify_tiberius_cell, SqlServerResultSection,
     };
 
     #[test]
@@ -450,6 +758,53 @@ mod tests {
         assert_eq!(
             payload["value"]["rows"][0][0],
             Value::String("Clustered Index Scan\n  Predicate: [active]=(1)".into())
+        );
+    }
+
+    #[test]
+    fn sqlserver_xml_showplan_payload_extracts_operator_table() {
+        let xml = r#"<ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan"><BatchSequence><Batch><Statements><StmtSimple StatementText="SELECT * FROM [dbo].[Accounts]" StatementType="SELECT" StatementSubTreeCost="0.008" StatementEstRows="42" StatementOptmLevel="TRIVIAL"><QueryPlan><RelOp NodeId="0" PhysicalOp="Clustered Index Scan" LogicalOp="Clustered Index Scan" EstimateRows="42" EstimatedTotalSubtreeCost="0.008"><OutputList /><IndexScan><Object Database="[datapadplusplus]" Schema="[dbo]" Table="[Accounts]" Index="[PK_Accounts]" /><Predicate><ScalarOperator ScalarString="[dbo].[Accounts].[active]=(1)" /></Predicate></IndexScan></RelOp></QueryPlan></StmtSimple></Statements></Batch></BatchSequence></ShowPlanXML>"#;
+        let section = SqlServerResultSection {
+            payload: payload_table(
+                vec!["Microsoft SQL Server 2004 XML Showplan".into()],
+                vec![vec![xml.into()]],
+            ),
+            columns: vec!["Microsoft SQL Server 2004 XML Showplan".into()],
+            row_count: 1,
+            tabular_rows: vec![vec![xml.into()]],
+            duration_ms: 4,
+            truncated: false,
+            statement: "SET SHOWPLAN_XML ON; select * from [dbo].[Accounts]; SET SHOWPLAN_XML OFF;"
+                .into(),
+        };
+
+        let operators = sqlserver_showplan_operators(xml);
+        let payload = sqlserver_profile_payload("select * from [dbo].[Accounts]", &section);
+
+        assert_eq!(operators[0].physical, "Clustered Index Scan");
+        assert_eq!(
+            operators[0].object,
+            "[datapadplusplus].[dbo].[Accounts].[PK_Accounts]"
+        );
+        assert_eq!(operators[0].predicate, "[dbo].[Accounts].[active]=(1)");
+        assert_eq!(payload["renderer"], "plan");
+        assert_eq!(payload["format"], "xml");
+        assert_eq!(payload["value"]["format"], "showplan_xml");
+        assert_eq!(
+            payload["value"]["statements"][0]["optimizationLevel"],
+            "TRIVIAL"
+        );
+        assert_eq!(
+            payload["value"]["plan"][0],
+            "Clustered Index Scan on [datapadplusplus].[dbo].[Accounts].[PK_Accounts] [rows 42, cost 0.008]"
+        );
+        assert_eq!(
+            payload["value"]["rows"][0][0],
+            Value::String("Clustered Index Scan".into())
+        );
+        assert_eq!(
+            payload["value"]["operators"][0]["estimatedRows"],
+            Value::String("42".into())
         );
     }
 

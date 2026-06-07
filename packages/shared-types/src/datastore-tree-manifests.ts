@@ -21,7 +21,7 @@ function rootsForEngine(
       return mongoTree()
     case 'redis':
     case 'valkey':
-      return redisTree()
+      return redisTree(engine)
     case 'memcached':
       return memcachedTree()
     case 'sqlserver':
@@ -32,7 +32,7 @@ function rootsForEngine(
       return embeddedSqlTree(engine)
     case 'mysql':
     case 'mariadb':
-      return mysqlTree()
+      return mysqlTree(engine)
     case 'oracle':
       return oracleTree()
     case 'cockroachdb':
@@ -110,11 +110,14 @@ function mongoDatabaseChildren(): DatastoreTreeNodeManifest[] {
   ]
 }
 
-function redisTree(): DatastoreTreeNodeManifest[] {
+function redisTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[] {
+  const engineLabel = engine === 'valkey' ? 'Valkey' : 'Redis'
+  const modulePrefix = engine === 'valkey' ? 'Valkey-compatible' : 'Redis Stack'
+
   return [
-    node('databases', 'Databases', 'databases', 'Logical Redis databases', {
+    node('databases', 'Databases', 'databases', `Logical ${engineLabel} databases`, {
       children: [
-        node('db', 'DB {{database:0}}', 'database', 'Redis logical database', {
+        node('db', 'DB {{database:0}}', 'database', `${engineLabel} logical database`, {
           children: [
             node('keys', 'Keys', 'keys', 'All key types'),
             node('strings', 'Strings', 'strings', 'String, bitmap, and HyperLogLog values'),
@@ -123,19 +126,19 @@ function redisTree(): DatastoreTreeNodeManifest[] {
             node('sets', 'Sets', 'sets', 'Set values'),
             node('sorted-sets', 'Sorted Sets', 'sorted-sets', 'Scored set values'),
             node('streams', 'Streams', 'streams', 'Append-only stream values'),
-            node('json', 'JSON', 'json', 'RedisJSON documents', {
+            node('json', 'JSON', 'json', `${modulePrefix} JSON documents`, {
               optionalWhenLiveMetadata: true,
             }),
-            node('time-series', 'Time Series', 'time-series', 'RedisTimeSeries keys', {
+            node('time-series', 'Time Series', 'time-series', `${modulePrefix} time-series keys`, {
               optionalWhenLiveMetadata: true,
             }),
-            node('bloom-filters', 'Bloom Filters', 'bloom', 'RedisBloom filters', {
+            node('bloom-filters', 'Bloom Filters', 'bloom', `${modulePrefix} Bloom filters`, {
               optionalWhenLiveMetadata: true,
             }),
-            node('search-indexes', 'Search Indexes', 'search-indexes', 'RediSearch indexes', {
+            node('search-indexes', 'Search Indexes', 'search-indexes', `${modulePrefix} search indexes`, {
               optionalWhenLiveMetadata: true,
             }),
-            node('vector-indexes', 'Vector Indexes', 'vector-indexes', 'Vector search structures', {
+            node('vector-indexes', 'Vector Indexes', 'vector-indexes', `${modulePrefix} vector structures`, {
               optionalWhenLiveMetadata: true,
             }),
             node('pubsub', 'Pub/Sub', 'pubsub', 'Channels, patterns, and subscribers', {
@@ -152,7 +155,7 @@ function redisTree(): DatastoreTreeNodeManifest[] {
       optionalWhenLiveMetadata: true,
     }),
     node('lua-scripts', 'Lua Scripts', 'lua-scripts', 'Loaded scripts and SHA views'),
-    node('functions', 'Functions', 'functions', 'Redis functions and libraries', {
+    node('functions', 'Functions', 'functions', `${engineLabel} functions and libraries`, {
       optionalWhenLiveMetadata: true,
     }),
     node('security', 'ACL / Security', 'security', 'ACL users, categories, and permissions'),
@@ -482,9 +485,11 @@ function cockroachSchemaChildren(): DatastoreTreeNodeManifest[] {
   ]
 }
 
-function mysqlTree(): DatastoreTreeNodeManifest[] {
+function mysqlTree(engine: DatastoreEngine): DatastoreTreeNodeManifest[] {
+  const isMariaDb = engine === 'mariadb'
+  const engineLabel = isMariaDb ? 'MariaDB' : 'MySQL'
   return [
-    node('databases', 'Databases', 'databases', 'MySQL/MariaDB schemas', {
+    node('databases', 'Databases', 'databases', `${engineLabel} schemas`, {
       children: [
         node('selected-database', '{{database}}', 'database', 'Selected database', {
           children: [
@@ -505,19 +510,44 @@ function mysqlTree(): DatastoreTreeNodeManifest[] {
     node('security', 'Users / Privileges', 'security', 'Users, roles, grants, authentication plugins, and privilege scope', {
       children: [
         node('users', 'Users', 'users', 'User accounts and authentication plugins'),
-        node('roles', 'Roles', 'roles', 'Role assignments where supported'),
+        node('roles', 'Roles', 'roles', isMariaDb ? 'MariaDB roles from mysql.user is_role' : 'Role assignments where supported'),
+        ...(isMariaDb
+          ? [node('role-mappings', 'Role Mappings', 'roles', 'MariaDB mysql.roles_mapping memberships')]
+          : []),
         node('permissions', 'Grants', 'permissions', 'Visible grants and privilege scopes'),
       ],
     }),
     node('diagnostics', 'Diagnostics', 'diagnostics', 'Status, performance schema, and slow query metadata', {
-      children: [
-        node('sessions', 'Sessions', 'sessions', 'Processlist and active statements'),
-        node('status-counters', 'Status Counters', 'statistics', 'Global status and table counters'),
-        node('slow-queries', 'Slow Queries', 'slow-queries', 'Digest latency and slow-query signals'),
-        node('innodb-status', 'InnoDB Status', 'innodb-status', 'Buffer pool, lock waits, and engine health'),
-        node('replication', 'Replication', 'replication', 'Source/replica channel health'),
-      ],
+      children: mysqlDiagnosticsChildren(isMariaDb),
     }),
+  ]
+}
+
+function mysqlDiagnosticsChildren(isMariaDb: boolean): DatastoreTreeNodeManifest[] {
+  const shared = [
+    node('sessions', 'Sessions', 'sessions', 'Processlist and active statements'),
+    node('status-counters', 'Status Counters', 'statistics', 'Global status and table counters'),
+    node('slow-queries', 'Slow Queries', 'slow-queries', 'Digest latency and slow-query signals'),
+    node('performance-schema', 'Performance Schema', 'performance-schema', 'Statement digests, waits, and table/index I/O'),
+    node('metadata-locks', 'Metadata Locks', 'metadata-locks', 'Pending and granted metadata locks'),
+  ]
+
+  if (isMariaDb) {
+    return [
+      ...shared,
+      node('server-variables', 'Server Variables', 'statistics', 'MariaDB version and session variables'),
+      node('storage-engines', 'Storage Engines', 'storage', 'MariaDB storage engine capabilities'),
+      node('analyze-profile', 'ANALYZE FORMAT=JSON', 'profile', 'MariaDB statement profile sample'),
+      node('innodb-status', 'InnoDB Status', 'innodb-status', 'Buffer pool, lock waits, and engine health'),
+      node('replication', 'Replication', 'replication', 'Source/replica channel health'),
+    ]
+  }
+
+  return [
+    ...shared,
+    node('optimizer-trace', 'Optimizer Trace', 'optimizer-trace', 'Optimizer trace settings and recent trace availability'),
+    node('innodb-status', 'InnoDB Status', 'innodb-status', 'Buffer pool, lock waits, and engine health'),
+    node('replication', 'Replication', 'replication', 'Source/replica channel health'),
   ]
 }
 

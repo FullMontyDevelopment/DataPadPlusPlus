@@ -475,11 +475,13 @@ fn editable_scopes(manifest: &AdapterManifest) -> Vec<DatastoreEditableScope> {
                 "unset-field",
                 "rename-field",
                 "change-field-type",
+                "update-document",
+                "delete-document",
             ],
             true,
             true,
         )],
-        "redis" | "valkey" => vec![editable_scope(
+        "redis" => vec![editable_scope(
             "key",
             "Keys",
             &[
@@ -499,13 +501,37 @@ fn editable_scopes(manifest: &AdapterManifest) -> Vec<DatastoreEditableScope> {
                 "zset-remove-member",
                 "stream-add-entry",
                 "stream-delete-entry",
-                "json-set-path",
-                "json-delete-path",
                 "timeseries-add-sample",
                 "timeseries-delete-sample",
+                "json-set-path",
+                "json-delete-path",
                 "vector-add-member",
                 "vector-remove-member",
                 "vector-set-attributes",
+            ],
+            false,
+            true,
+        )],
+        "valkey" => vec![editable_scope(
+            "key",
+            "Keys",
+            &[
+                "set-key-value",
+                "set-ttl",
+                "delete-key",
+                "rename-key",
+                "persist-ttl",
+                "hash-set-field",
+                "hash-delete-field",
+                "list-push",
+                "list-set-index",
+                "list-remove-value",
+                "set-add-member",
+                "set-remove-member",
+                "zset-add-member",
+                "zset-remove-member",
+                "stream-add-entry",
+                "stream-delete-entry",
             ],
             false,
             true,
@@ -1028,25 +1054,76 @@ mod tests {
             .edit_kinds
             .iter()
             .any(|kind| kind == "rename-field"));
+        assert!(mongo_scope
+            .edit_kinds
+            .iter()
+            .any(|kind| kind == "update-document"));
+        assert!(mongo_scope
+            .edit_kinds
+            .iter()
+            .any(|kind| kind == "delete-document"));
 
-        for engine in ["redis", "valkey"] {
-            let experience = experience_for_engine(engine);
-            let key_scope = experience
-                .editable_scopes
-                .iter()
-                .find(|scope| scope.scope == "key")
-                .unwrap_or_else(|| panic!("missing {engine} key edit scope"));
-
+        let redis = experience_for_engine("redis");
+        let redis_scope = redis
+            .editable_scopes
+            .iter()
+            .find(|scope| scope.scope == "key")
+            .expect("missing Redis key edit scope");
+        assert!(redis_scope.live_execution);
+        for edit_kind in [
+            "set-key-value",
+            "set-ttl",
+            "rename-key",
+            "hash-set-field",
+            "stream-add-entry",
+            "stream-delete-entry",
+            "timeseries-add-sample",
+            "timeseries-delete-sample",
+            "json-set-path",
+            "json-delete-path",
+            "vector-add-member",
+            "vector-remove-member",
+            "vector-set-attributes",
+        ] {
             assert!(
-                key_scope.live_execution,
-                "{engine} key edits should be live-capable"
+                redis_scope.edit_kinds.iter().any(|kind| kind == edit_kind),
+                "Redis missing {edit_kind}"
             );
-            for edit_kind in ["set-key-value", "set-ttl", "rename-key", "hash-set-field"] {
-                assert!(
-                    key_scope.edit_kinds.iter().any(|kind| kind == edit_kind),
-                    "{engine} missing {edit_kind}"
-                );
-            }
+        }
+
+        let valkey = experience_for_engine("valkey");
+        let valkey_scope = valkey
+            .editable_scopes
+            .iter()
+            .find(|scope| scope.scope == "key")
+            .expect("missing Valkey key edit scope");
+        assert!(valkey_scope.live_execution);
+        for edit_kind in [
+            "set-key-value",
+            "set-ttl",
+            "rename-key",
+            "hash-set-field",
+            "stream-add-entry",
+            "stream-delete-entry",
+        ] {
+            assert!(
+                valkey_scope.edit_kinds.iter().any(|kind| kind == edit_kind),
+                "Valkey missing {edit_kind}"
+            );
+        }
+        for edit_kind in [
+            "json-set-path",
+            "json-delete-path",
+            "timeseries-add-sample",
+            "timeseries-delete-sample",
+            "vector-add-member",
+            "vector-remove-member",
+            "vector-set-attributes",
+        ] {
+            assert!(
+                !valkey_scope.edit_kinds.iter().any(|kind| kind == edit_kind),
+                "Valkey should hide Redis module edit kind {edit_kind}"
+            );
         }
     }
 

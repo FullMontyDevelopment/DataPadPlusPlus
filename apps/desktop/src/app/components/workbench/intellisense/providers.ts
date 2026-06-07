@@ -8,7 +8,11 @@ import type {
   DatastoreCompletionProvider,
   EditorCompletionContext,
 } from './types'
-import { redisCommandDetail, redisCommandDocs } from '../query-builder/redis-command-docs'
+import { buildMongoItems } from './mongo-provider'
+import { buildCockroachSqlItems } from './cockroach-provider'
+import { buildMySqlItems, quoteMySqlIdentifier } from './mysql-provider'
+import { buildPostgresSqlItems, quotePostgresIdentifier } from './postgres-provider'
+import { buildRedisItems } from './redis-provider'
 import { SECONDARY_COMPLETION_PROVIDERS } from './secondary-providers'
 
 const SQL_ENGINES: Array<ConnectionProfile['engine']> = [
@@ -56,37 +60,6 @@ const SQL_FUNCTIONS = [
   'current_timestamp',
 ]
 
-const MONGO_KEYS = [
-  'collection',
-  'filter',
-  'projection',
-  'sort',
-  'skip',
-  'limit',
-  'pipeline',
-]
-
-const MONGO_OPERATORS = [
-  '$eq',
-  '$ne',
-  '$gt',
-  '$gte',
-  '$lt',
-  '$lte',
-  '$in',
-  '$exists',
-  '$regex',
-  '$and',
-  '$or',
-  '$match',
-  '$project',
-  '$sort',
-  '$limit',
-  '$group',
-]
-
-const REDIS_COMMANDS = redisCommandDocs().map((item) => item.command)
-
 const SEARCH_KEYS = [
   'index',
   'body',
@@ -131,11 +104,19 @@ const CQL_KEYWORDS = [
   'create index',
 ]
 
-export const ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER: DatastoreCompletionProvider = {
-  id: 'environment-variables',
-  languages: ['sql', 'json', 'javascript', 'typescript', 'plaintext', 'redis'],
-  buildItems: buildEnvironmentVariableItems,
-}
+export const ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER: DatastoreCompletionProvider =
+  {
+    id: 'environment-variables',
+    languages: [
+      'sql',
+      'json',
+      'javascript',
+      'typescript',
+      'plaintext',
+      'redis',
+    ],
+    buildItems: buildEnvironmentVariableItems,
+  }
 
 export const DEFAULT_COMPLETION_PROVIDERS: DatastoreCompletionProvider[] = [
   {
@@ -186,18 +167,24 @@ export function completionProvidersForConnection(
   }
 
   return DEFAULT_COMPLETION_PROVIDERS.filter((provider) => {
-    const engineMatches = !provider.engines || provider.engines.includes(connection.engine)
-    const familyMatches = !provider.families || provider.families.includes(connection.family)
+    const engineMatches =
+      !provider.engines || provider.engines.includes(connection.engine)
+    const familyMatches =
+      !provider.families || provider.families.includes(connection.family)
     const languageMatches = provider.languages.includes(language)
 
     return engineMatches && familyMatches && languageMatches
   })
 }
 
-function buildSqlItems(context: EditorCompletionContext): CompletionSuggestion[] {
+function buildSqlItems(
+  context: EditorCompletionContext,
+): CompletionSuggestion[] {
   const aliasTarget = aliasBeforeCursor(context.queryText, context.cursorOffset)
   const aliasMap = parseSqlAliases(context.queryText, context.catalog.objects)
-  const aliasedObject = aliasTarget ? aliasMap.get(aliasTarget.toLowerCase()) : undefined
+  const aliasedObject = aliasTarget
+    ? aliasMap.get(aliasTarget.toLowerCase())
+    : undefined
   const prefix = currentTokenPrefix(context.queryText, context.cursorOffset)
   const sourceObjects = context.catalog.objects.filter((object) =>
     ['table', 'view', 'materialized-view'].includes(object.kind),
@@ -210,8 +197,20 @@ function buildSqlItems(context: EditorCompletionContext): CompletionSuggestion[]
   return uniqueSuggestions([
     ...SQL_KEYWORDS.map((keyword) => suggestion(keyword, keyword, 'keyword')),
     ...SQL_FUNCTIONS.map((fn) => suggestion(fn, `${fn}()`, 'function')),
+    ...(isPostgresCompletionContext(context)
+      ? buildPostgresSqlItems(context)
+      : []),
+    ...(isCockroachCompletionContext(context)
+      ? buildCockroachSqlItems(context)
+      : []),
+    ...(isMySqlCompletionContext(context) ? buildMySqlItems(context) : []),
     ...context.catalog.schemas.map((schema) =>
-      suggestion(schema.name, quoteSqlIdentifier(schema.name, context.connection), 'schema', schema.detail),
+      suggestion(
+        schema.name,
+        quoteSqlIdentifier(schema.name, context.connection),
+        'schema',
+        schema.detail,
+      ),
     ),
     ...sourceObjects.map((object) =>
       suggestion(
@@ -233,65 +232,47 @@ function buildSqlItems(context: EditorCompletionContext): CompletionSuggestion[]
   ])
 }
 
+function isPostgresCompletionContext(context: EditorCompletionContext) {
+  return context.connection?.engine === 'postgresql'
+}
+
+function isCockroachCompletionContext(context: EditorCompletionContext) {
+  return context.connection?.engine === 'cockroachdb'
+}
+
+function isMySqlCompletionContext(context: EditorCompletionContext) {
+  return context.connection?.engine === 'mysql' || context.connection?.engine === 'mariadb'
+}
+
 function buildEnvironmentVariableItems(
   context: EditorCompletionContext,
 ): CompletionSuggestion[] {
-  if (!context.environment || !isInsideVariableToken(context.queryText, context.cursorOffset)) {
+  if (
+    !context.environment ||
+    !isInsideVariableToken(context.queryText, context.cursorOffset)
+  ) {
     return []
   }
 
-  return variableDefinitionsForEnvironment(context.environment).map((definition) =>
-    suggestion(
-      definition.key,
-      `${definition.key}}}`,
-      'variable',
-      definition.kind === 'secret' ? 'secret environment variable' : 'environment variable',
-      definition.kind === 'secret'
-        ? 'Resolved only when used. The value is never shown in the editor.'
-        : undefined,
-    ),
-  )
-}
-
-function buildMongoItems(context: EditorCompletionContext): CompletionSuggestion[] {
-  const collections = context.catalog.objects.filter((object) => object.kind === 'collection')
-
-  return uniqueSuggestions([
-    ...MONGO_KEYS.map((key) => jsonPropertySuggestion(key)),
-    ...MONGO_OPERATORS.map((operator) => jsonPropertySuggestion(operator, 'operator')),
-    ...collections.map((collection) =>
-      suggestion(collection.name, JSON.stringify(collection.name), 'collection', collection.detail),
-    ),
-    ...context.catalog.fields.map((field) =>
+  return variableDefinitionsForEnvironment(context.environment).map(
+    (definition) =>
       suggestion(
-        field.path ?? field.name,
-        `${JSON.stringify(field.path ?? field.name)}: `,
-        'field',
-        field.detail ?? field.dataType,
+        definition.key,
+        `${definition.key}}}`,
+        'variable',
+        definition.kind === 'secret'
+          ? 'secret environment variable'
+          : 'environment variable',
+        definition.kind === 'secret'
+          ? 'Resolved only when used. The value is never shown in the editor.'
+          : undefined,
       ),
-    ),
-    suggestion('find active documents', '"filter": { "status": "active" }', 'snippet'),
-    suggestion('limit 20', '"limit": 20', 'snippet'),
-  ])
-}
-
-function buildRedisItems(context: EditorCompletionContext): CompletionSuggestion[] {
-  const firstToken = firstTokenBeforeCursor(context.queryText, context.cursorOffset)
-  const commandMode = firstToken.length === 0 || context.queryText.trimStart() === firstToken
-  const keys = context.catalog.objects.filter((object) =>
-    ['prefix', 'key', 'hash', 'string', 'list', 'set', 'zset', 'stream'].includes(object.kind),
   )
-
-  return uniqueSuggestions([
-    ...REDIS_COMMANDS.map((command) =>
-      suggestion(command, commandMode ? command : command.toUpperCase(), 'command', redisCommandDetail(command)),
-    ),
-    ...keys.map((key) => suggestion(key.name, key.name, 'value', key.detail)),
-    ...keyPrefixes(keys).map((prefix) => suggestion(prefix, prefix, 'value', 'Key prefix')),
-  ])
 }
 
-function buildSearchItems(context: EditorCompletionContext): CompletionSuggestion[] {
+function buildSearchItems(
+  context: EditorCompletionContext,
+): CompletionSuggestion[] {
   const indexes = context.catalog.objects.filter((object) =>
     ['index', 'data-stream'].includes(object.kind),
   )
@@ -310,31 +291,69 @@ function buildSearchItems(context: EditorCompletionContext): CompletionSuggestio
       ),
     ),
     suggestion('match all query', '"query": { "match_all": {} }', 'snippet'),
-    suggestion('terms aggregation', '"aggs": { "by_field": { "terms": { "field": "" } } }', 'snippet'),
+    suggestion(
+      'terms aggregation',
+      '"aggs": { "by_field": { "terms": { "field": "" } } }',
+      'snippet',
+    ),
   ])
 }
 
-function buildDynamoDbItems(context: EditorCompletionContext): CompletionSuggestion[] {
-  const tables = context.catalog.objects.filter((object) => object.kind === 'table')
+function buildDynamoDbItems(
+  context: EditorCompletionContext,
+): CompletionSuggestion[] {
+  const tables = context.catalog.objects.filter(
+    (object) => object.kind === 'table',
+  )
 
   return uniqueSuggestions([
     ...DYNAMODB_KEYS.map((key) => jsonPropertySuggestion(key)),
-    ...tables.map((table) => suggestion(table.name, JSON.stringify(table.name), 'table', table.detail)),
-    ...context.catalog.fields.map((field) =>
-      suggestion(field.path ?? field.name, field.path ?? field.name, 'field', field.detail ?? field.dataType),
+    ...tables.map((table) =>
+      suggestion(table.name, JSON.stringify(table.name), 'table', table.detail),
     ),
-    suggestion('#name', '"#name": "attributeName"', 'snippet', 'Expression attribute name helper'),
-    suggestion(':value', '":value": { "S": "value" }', 'snippet', 'Expression attribute value helper'),
+    ...context.catalog.fields.map((field) =>
+      suggestion(
+        field.path ?? field.name,
+        field.path ?? field.name,
+        'field',
+        field.detail ?? field.dataType,
+      ),
+    ),
+    suggestion(
+      '#name',
+      '"#name": "attributeName"',
+      'snippet',
+      'Expression attribute name helper',
+    ),
+    suggestion(
+      ':value',
+      '":value": { "S": "value" }',
+      'snippet',
+      'Expression attribute value helper',
+    ),
   ])
 }
 
-function buildCassandraItems(context: EditorCompletionContext): CompletionSuggestion[] {
-  const tables = context.catalog.objects.filter((object) => object.kind === 'table')
+function buildCassandraItems(
+  context: EditorCompletionContext,
+): CompletionSuggestion[] {
+  const tables = context.catalog.objects.filter(
+    (object) => object.kind === 'table',
+  )
 
   return uniqueSuggestions([
     ...CQL_KEYWORDS.map((keyword) => suggestion(keyword, keyword, 'keyword')),
-    ...context.catalog.schemas.map((schema) => suggestion(schema.name, schema.name, 'schema', schema.detail)),
-    ...tables.map((table) => suggestion(objectLabel(table), qualifiedCqlObject(table), 'table', table.detail)),
+    ...context.catalog.schemas.map((schema) =>
+      suggestion(schema.name, schema.name, 'schema', schema.detail),
+    ),
+    ...tables.map((table) =>
+      suggestion(
+        objectLabel(table),
+        qualifiedCqlObject(table),
+        'table',
+        table.detail,
+      ),
+    ),
     ...context.catalog.fields.map((field) =>
       suggestion(
         field.path ?? field.name,
@@ -342,7 +361,7 @@ function buildCassandraItems(context: EditorCompletionContext): CompletionSugges
         'field',
         field.primary
           ? `${field.detail ?? field.dataType ?? 'Column'} / partition-key friendly`
-          : field.detail ?? field.dataType,
+          : (field.detail ?? field.dataType),
       ),
     ),
   ])
@@ -364,7 +383,10 @@ function suggestion(
   }
 }
 
-function isInsideVariableToken(queryText: string, cursorOffset = queryText.length) {
+function isInsideVariableToken(
+  queryText: string,
+  cursorOffset = queryText.length,
+) {
   const beforeCursor = queryText.slice(0, cursorOffset)
   const lastOpen = beforeCursor.lastIndexOf('{{')
 
@@ -374,7 +396,10 @@ function isInsideVariableToken(queryText: string, cursorOffset = queryText.lengt
 
   const lastClose = beforeCursor.lastIndexOf('}}')
 
-  return lastClose < lastOpen && /^[A-Z0-9_]*$/.test(beforeCursor.slice(lastOpen + 2))
+  return (
+    lastClose < lastOpen &&
+    /^[A-Z0-9_]*$/.test(beforeCursor.slice(lastOpen + 2))
+  )
 }
 
 function jsonPropertySuggestion(
@@ -400,7 +425,10 @@ function uniqueSuggestions(suggestions: CompletionSuggestion[]) {
   return result
 }
 
-function quoteSqlIdentifier(identifier: string, connection?: ConnectionProfile) {
+function quoteSqlIdentifier(
+  identifier: string,
+  connection?: ConnectionProfile,
+) {
   if (!connection) {
     return identifier
   }
@@ -409,10 +437,19 @@ function quoteSqlIdentifier(identifier: string, connection?: ConnectionProfile) 
     return `[${identifier.replaceAll(']', ']]')}]`
   }
 
-  return identifier
+  if (['postgresql', 'cockroachdb', 'timescaledb'].includes(connection.engine)) {
+    return quotePostgresIdentifier(identifier)
+  }
+
+  return connection.engine === 'mysql' || connection.engine === 'mariadb'
+    ? quoteMySqlIdentifier(identifier)
+    : identifier
 }
 
-function qualifiedSqlObject(object: CompletionObject, connection?: ConnectionProfile) {
+function qualifiedSqlObject(
+  object: CompletionObject,
+  connection?: ConnectionProfile,
+) {
   const objectName = quoteSqlIdentifier(object.name, connection)
 
   if (!object.schema) {
@@ -442,17 +479,34 @@ function objectsForSchemaPrefix(
   }
 
   return objects
-    .filter((object) => object.schema?.toLowerCase() === schemaPrefix.toLowerCase())
+    .filter(
+      (object) => object.schema?.toLowerCase() === schemaPrefix.toLowerCase(),
+    )
     .map((object) =>
-      suggestion(object.name, quoteSqlIdentifier(object.name, connection), 'table', object.detail),
+      suggestion(
+        object.name,
+        quoteSqlIdentifier(object.name, connection),
+        'table',
+        object.detail,
+      ),
     )
 }
 
-function currentTokenPrefix(queryText: string, cursorOffset = queryText.length) {
+function currentTokenPrefix(
+  queryText: string,
+  cursorOffset = queryText.length,
+) {
   const beforeCursor = queryText.slice(0, cursorOffset)
-  const match = beforeCursor.match(/["[\]\w.]+$/)
+  const match = beforeCursor.match(/[`"[\]\w.]+$/)
 
-  return match?.[0]?.replaceAll('[', '').replaceAll(']', '').replaceAll('"', '') ?? ''
+  return (
+    match?.[0]
+      ?.replaceAll('[', '')
+      .replaceAll(']', '')
+      .replaceAll('"', '')
+      .replaceAll('`', '') ??
+    ''
+  )
 }
 
 function aliasBeforeCursor(queryText: string, cursorOffset = queryText.length) {
@@ -474,7 +528,7 @@ function parseSqlAliases(queryText: string, objects: CompletionObject[]) {
   }
 
   const aliasPattern =
-    /\b(?:from|join)\s+((?:"[^"]+"|\[[^\]]+\]|\w+)(?:\.(?:"[^"]+"|\[[^\]]+\]|\w+))?)\s+(?:as\s+)?(\w+)/gi
+    /\b(?:from|join)\s+((?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[(?:[^\]]|\]\])+\]|\w+)(?:\.(?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[(?:[^\]]|\]\])+\]|\w+))?)\s+(?:as\s+)?(\w+)/gi
   let match: RegExpExecArray | null
 
   while ((match = aliasPattern.exec(queryText)) !== null) {
@@ -496,7 +550,11 @@ function parseSqlAliases(queryText: string, objects: CompletionObject[]) {
 }
 
 function cleanSqlIdentifier(identifier: string) {
-  return identifier.replaceAll('[', '').replaceAll(']', '').replaceAll('"', '')
+  return identifier
+    .replaceAll('[', '')
+    .replaceAll(']', '')
+    .replaceAll('"', '')
+    .replaceAll('`', '')
 }
 
 function fieldsForObject(fields: CompletionField[], object: CompletionObject) {
@@ -505,7 +563,8 @@ function fieldsForObject(fields: CompletionField[], object: CompletionObject) {
       return true
     }
 
-    const objectMatches = field.objectName.toLowerCase() === object.name.toLowerCase()
+    const objectMatches =
+      field.objectName.toLowerCase() === object.name.toLowerCase()
     const schemaMatches =
       !field.schema ||
       !object.schema ||
@@ -513,27 +572,4 @@ function fieldsForObject(fields: CompletionField[], object: CompletionObject) {
 
     return objectMatches && schemaMatches
   })
-}
-
-function firstTokenBeforeCursor(queryText: string, cursorOffset = queryText.length) {
-  const line = queryText
-    .slice(0, cursorOffset)
-    .split(/\r?\n/)
-    .at(-1)
-    ?.trimStart() ?? ''
-  return line.split(/\s+/)[0] ?? ''
-}
-
-function keyPrefixes(keys: CompletionObject[]) {
-  const prefixes = new Set<string>()
-
-  for (const key of keys) {
-    const index = key.name.indexOf(':')
-
-    if (index > 0) {
-      prefixes.add(`${key.name.slice(0, index)}:*`)
-    }
-  }
-
-  return Array.from(prefixes).sort()
 }

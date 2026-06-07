@@ -28,14 +28,18 @@ import {
   RedisKeyView,
   RedisTypeFolderView,
 } from './RedisObjectViewKeyPages'
+import { RedisModuleView } from './RedisObjectViewModulePages'
+import { RedisStreamView } from './RedisObjectViewStreamPages'
 import {
   isRedisClusterKind,
   isRedisDiagnosticsKind,
   isRedisFunctionKind,
   isRedisKeyPayload,
+  isRedisModuleKind,
   isRedisScriptKind,
   isRedisSecurityKind,
   isRedisSentinelKind,
+  isRedisStreamKind,
   isRedisTypeFolderKind,
   objectViewWarnings,
   redisQueryTargetFromObjectView,
@@ -115,6 +119,22 @@ function renderRedisObjectView(
   queryTarget: ScopedQueryTarget | undefined,
   onOpenQuery: (target: ScopedQueryTarget) => void,
 ) {
+  if (isRedisStreamKind(kind)) {
+    return <RedisStreamView kind={kind} descriptor={descriptor} payload={payload} />
+  }
+
+  if (isRedisModuleKind(kind)) {
+    return (
+      <RedisModuleView
+        kind={kind}
+        descriptor={descriptor}
+        payload={payload}
+        queryTarget={queryTarget}
+        onOpenQuery={onOpenQuery}
+      />
+    )
+  }
+
   if (isRedisKeyPayload(payload)) {
     return <RedisKeyView descriptor={descriptor} payload={payload} />
   }

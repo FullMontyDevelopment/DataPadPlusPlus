@@ -117,6 +117,7 @@ export const clientConnections = {
       request.profile.database ?? '',
       request.profile.connectionString ?? '',
       request.profile.auth.username ?? '',
+      JSON.stringify(request.profile.mysqlOptions ?? {}),
     ].flatMap((value) =>
       referencedSensitiveEnvironmentVariableKeys(value, resolvedEnvironment.sensitiveKeys),
     )

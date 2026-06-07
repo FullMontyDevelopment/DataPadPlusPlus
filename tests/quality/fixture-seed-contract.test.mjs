@@ -115,6 +115,122 @@ test('fixture volume defaults stay large enough for workbench performance covera
   assert.match(connectionsSource, /order_events/)
 })
 
+test('Redis optional fixtures cover module and stream-group evidence paths', async () => {
+  const [packageSource, seedSource, readmeSource, connectionsSource, strategySource, validatorSource] =
+    await Promise.all([
+      read('package.json'),
+      read('tests/fixtures/seed.mjs'),
+      read('tests/fixtures/README.md'),
+      read('tests/fixtures/CONNECTIONS.md'),
+      read('docs/testing/strategy.md'),
+      read('tests/fixtures/validate-redis-fixtures.mjs'),
+    ])
+
+  assert.match(packageSource, /"fixtures:validate:redis": "node tests\/fixtures\/validate-redis-fixtures\.mjs"/)
+  assert.match(seedSource, /XGROUP[\s\S]*CREATE[\s\S]*stream:orders[\s\S]*fulfillment/)
+  assert.match(seedSource, /XREADGROUP[\s\S]*GROUP[\s\S]*fulfillment[\s\S]*worker-1/)
+  assert.match(seedSource, /JSON\.SET[\s\S]*json:account:1/)
+  assert.match(seedSource, /TS\.ADD[\s\S]*ts:orders:throughput/)
+  assert.match(seedSource, /BF\.RESERVE[\s\S]*bf:seen-orders/)
+  assert.match(seedSource, /CF\.RESERVE[\s\S]*cf:skus/)
+  assert.match(seedSource, /CMS\.INITBYDIM[\s\S]*cms:regions/)
+  assert.match(seedSource, /TOPK\.RESERVE[\s\S]*topk:products/)
+  assert.match(seedSource, /TDIGEST\.CREATE[\s\S]*tdigest:latency/)
+  assert.match(seedSource, /VADD[\s\S]*vectors:products/)
+  assert.match(validatorSource, /--require-stack/)
+  assert.match(validatorSource, /--require-vector/)
+  assert.match(validatorSource, /JSON\.GET/)
+  assert.match(validatorSource, /TS\.RANGE/)
+  assert.match(validatorSource, /BF\.EXISTS/)
+  assert.match(validatorSource, /DUMP/)
+  assert.match(validatorSource, /RESTORE/)
+  assert.match(validatorSource, /fixture:snapshot:tdigest:latency/)
+  assert.match(validatorSource, /VGETATTR/)
+  assert.match(validatorSource, /Valkey.*core key file export\/import primitives/s)
+  assert.match(validatorSource, /fixture:key-file:stream/)
+  assert.match(validatorSource, /Valkey: permission failure evidence for guarded writes/)
+  assert.match(validatorSource, /fixture_valkey_readonly/)
+  assert.match(validatorSource, /Valkey: large key file export\/import primitives/)
+  assert.match(validatorSource, /fixture:key-file:large:stream/)
+  assert.match(readmeSource, /fixtures:validate:redis -- --require-stack --require-valkey/)
+  assert.match(readmeSource, /--require-vector/)
+  assert.match(readmeSource, /permission-denied guarded writes/)
+  assert.match(strategySource, /large key-file primitives/)
+  assert.match(strategySource, /--require-vector/)
+  assert.match(connectionsSource, /stream:orders` with `fulfillment` consumer-group state/)
+  assert.match(connectionsSource, /large key-file, and permission-denial primitives/)
+  assert.match(connectionsSource, /tdigest:latency[\s\S]*vectors:products/)
+  assert.match(strategySource, /Redis reference-engine fixture evidence path/)
+})
+
+test('MongoDB optional fixtures cover import-export and permission evidence paths', async () => {
+  const [packageSource, readmeSource, connectionsSource, strategySource, validatorSource] =
+    await Promise.all([
+      read('package.json'),
+      read('tests/fixtures/README.md'),
+      read('tests/fixtures/CONNECTIONS.md'),
+      read('docs/testing/strategy.md'),
+      read('tests/fixtures/validate-mongodb-fixtures.mjs'),
+    ])
+
+  assert.match(packageSource, /"fixtures:validate:mongodb": "node tests\/fixtures\/validate-mongodb-fixtures\.mjs"/)
+  assert.match(validatorSource, /MongoDB: seeded catalog and large collections/)
+  assert.match(validatorSource, /MongoDB: collection export\/import primitives/)
+  assert.match(validatorSource, /MongoDB: duplicate-key and validator failure evidence/)
+  assert.match(validatorSource, /MongoDB: permission-specific diagnostics denial evidence/)
+  assert.match(validatorSource, /MongoDB: management before\/after evidence/)
+  assert.match(validatorSource, /fixture_mongodb_readonly/)
+  assert.match(validatorSource, /serverStatus/)
+  assert.match(validatorSource, /currentOp/)
+  assert.match(validatorSource, /fixture_mongodb_import_export/)
+  assert.match(validatorSource, /fixture_mongodb_management/)
+  assert.match(readmeSource, /fixtures:validate:mongodb/)
+  assert.match(readmeSource, /duplicate-key and validator failure evidence/)
+  assert.match(strategySource, /MongoDB reference-engine fixture evidence path/)
+  assert.match(connectionsSource, /fixture_mongodb_import_export/)
+  assert.match(connectionsSource, /fixture_mongodb_readonly/)
+})
+
+test('PostgreSQL optional fixtures cover native-complete evidence paths', async () => {
+  const [
+    packageSource,
+    readmeSource,
+    connectionsSource,
+    strategySource,
+    validatorSource,
+    completenessSource,
+  ] = await Promise.all([
+    read('package.json'),
+    read('tests/fixtures/README.md'),
+    read('tests/fixtures/CONNECTIONS.md'),
+    read('docs/testing/strategy.md'),
+    read('tests/fixtures/validate-postgres-fixtures.mjs'),
+    read('packages/shared-types/src/datastore-completeness.ts'),
+  ])
+
+  assert.match(packageSource, /"fixtures:validate:postgres": "node tests\/fixtures\/validate-postgres-fixtures\.mjs"/)
+  assert.match(validatorSource, /PostgreSQL: seeded relational and volume fixtures/)
+  assert.match(validatorSource, /PostgreSQL: catalog, security, and extension surfaces/)
+  assert.match(validatorSource, /PostgreSQL: diagnostics, locks, and session action primitives/)
+  assert.match(validatorSource, /pg_cancel_backend/)
+  assert.match(validatorSource, /pg_terminate_backend/)
+  assert.match(validatorSource, /PostgreSQL: rendered profile and routine primitives/)
+  assert.match(validatorSource, /EXPLAIN ANALYZE/)
+  assert.match(validatorSource, /PostgreSQL: row-edit before\/after evidence primitives/)
+  assert.match(validatorSource, /PostgreSQL: table import\/export and bounded backup primitives/)
+  assert.match(validatorSource, /PostgreSQL: permission-denied guard evidence/)
+  assert.match(validatorSource, /fixture_postgres_readonly/)
+  assert.match(validatorSource, /full pg_dump\/pg_restore parity remains outside the scoped claim/)
+  assert.match(readmeSource, /fixtures:validate:postgres/)
+  assert.match(readmeSource, /bounded logical backup/)
+  assert.match(strategySource, /PostgreSQL reference-engine fixture evidence path/)
+  assert.match(strategySource, /`?pg_dump`?\/`?pg_restore`? execution remains outside the scoped native-complete claim/)
+  assert.match(connectionsSource, /fixtures:validate:postgres/)
+  assert.match(connectionsSource, /fixture_postgres_readonly/)
+  assert.match(completenessSource, /'postgresql',/)
+  assert.match(completenessSource, /Native-complete for the scoped PostgreSQL workflow/)
+})
+
 test('cloud contract mocks return realistic lists and row counts', async () => {
   const source = await read('tests/fixtures/cloud-contract/server.mjs')
 

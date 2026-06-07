@@ -219,6 +219,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_query_cancellation',
       'supports_structure_visualization',
       'supports_cost_estimation',
+      'supports_backup_restore',
     ],
     baselineFeatures: [
       'Connect and browse database objects',
@@ -231,7 +232,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Query Store history and regressions',
       'DMV dashboards for waits, sessions, locks, and IO',
       'Role and permission inspection',
-      'Guarded statistics refresh, index maintenance, and Query Store workload previews',
+      'Guarded statistics refresh, index maintenance, Query Store workload, import/export, and backup previews',
     ],
     diagnosticFeatures: [
       'Showplan visualization',
@@ -257,6 +258,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     primaryConnectionMechanisms: [
       'Native MySQL protocol through a driver',
       'MySQL connection string with vault-backed password',
+      'Typed SSL, socket, Cloud SQL socket, session, cache, and timeout profile options',
     ],
     defaultPort: 3306,
     managementModel: 'Relational schemas with tables, views, routines, indexes, foreign keys, accounts, host privileges, INFORMATION_SCHEMA, and performance_schema.',

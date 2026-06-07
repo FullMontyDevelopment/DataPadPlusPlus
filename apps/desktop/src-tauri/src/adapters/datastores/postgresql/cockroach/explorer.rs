@@ -1,3 +1,4 @@
+mod capabilities;
 mod inspect;
 mod live;
 mod normalizers;

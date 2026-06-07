@@ -259,6 +259,18 @@ function seedKeyValueDomain(container, command = 'redis-cli') {
       'status',
       'fulfilled',
     ]),
+    redisProtocolCommand(['XGROUP', 'CREATE', 'stream:orders', 'fulfillment', '0', 'MKSTREAM']),
+    redisProtocolCommand([
+      'XREADGROUP',
+      'GROUP',
+      'fulfillment',
+      'worker-1',
+      'COUNT',
+      '1',
+      'STREAMS',
+      'stream:orders',
+      '>',
+    ]),
   ]
 
   docker(['exec', '-i', container, command, '--pipe'], {
@@ -313,6 +325,31 @@ function seedRedisStackDomain(container) {
   redisCommandIfSupported(container, ['TOPK.ADD', 'topk:products', 'luna-lamp', 'aurora-desk'])
   redisCommandIfSupported(container, ['TDIGEST.CREATE', 'tdigest:latency'])
   redisCommandIfSupported(container, ['TDIGEST.ADD', 'tdigest:latency', '12', '18', '23'])
+  redisCommandIfSupported(container, ['DEL', 'vectors:products'])
+  redisCommandIfSupported(container, [
+    'VADD',
+    'vectors:products',
+    'VALUES',
+    '3',
+    '0.12',
+    '0.24',
+    '0.56',
+    'luna-lamp',
+    'SETATTR',
+    JSON.stringify({ sku: 'luna-lamp', category: 'lighting' }),
+  ])
+  redisCommandIfSupported(container, [
+    'VADD',
+    'vectors:products',
+    'VALUES',
+    '3',
+    '0.75',
+    '0.11',
+    '0.20',
+    'aurora-desk',
+    'SETATTR',
+    JSON.stringify({ sku: 'aurora-desk', category: 'furniture' }),
+  ])
 }
 
 function runPython(script) {

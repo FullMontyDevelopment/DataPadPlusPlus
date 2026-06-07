@@ -5,9 +5,11 @@ import {
   isRedisDiagnosticsKind,
   isRedisFunctionKind,
   isRedisKeyPayload,
+  isRedisModuleKind,
   isRedisScriptKind,
   isRedisSecurityKind,
   isRedisSentinelKind,
+  isRedisStreamKind,
   isRedisTypeFolderKind,
   objectViewWarnings,
   redisQueryTargetFromObjectView,
@@ -91,6 +93,10 @@ describe('RedisObjectViewWorkspace helpers', () => {
     expect(isRedisDiagnosticsKind('slowlog')).toBe(true)
     expect(isRedisClusterKind('cluster-slots')).toBe(true)
     expect(isRedisSentinelKind('sentinel-peers')).toBe(true)
+    expect(isRedisStreamKind('stream-group')).toBe(true)
+    expect(isRedisStreamKind('stream')).toBe(false)
+    expect(isRedisModuleKind('json')).toBe(true)
+    expect(isRedisModuleKind('stream')).toBe(false)
     expect(isRedisScriptKind('lua-script')).toBe(true)
     expect(isRedisFunctionKind('functions')).toBe(true)
     expect(isRedisSecurityKind('permissions')).toBe(true)

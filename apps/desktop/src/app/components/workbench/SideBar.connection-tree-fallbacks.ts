@@ -157,9 +157,13 @@ function keyValueConnectionTree(connection: ConnectionProfile): ConnectionTreeNo
 
 function redisConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[] {
   const databaseIndex = redisDatabaseIndex(connection)
+  const engineLabel = connection.engine === 'valkey' ? 'Valkey' : 'Redis'
+  const aclDetail = connection.engine === 'valkey'
+    ? 'Valkey ACL users, categories, and permissions'
+    : 'ACL users, categories, and permissions'
   const roots = [
-    branch('redis-databases', 'Databases', 'databases', 'Logical Redis databases', [
-      branch(`redis-db-${databaseIndex}`, `DB ${databaseIndex}`, 'database', 'Redis logical database', [
+    branch('redis-databases', 'Databases', 'databases', `Logical ${engineLabel} databases`, [
+      branch(`redis-db-${databaseIndex}`, `DB ${databaseIndex}`, 'database', `${engineLabel} logical database`, [
         branch('redis-keys', 'Keys', 'keys', 'All key types', [], redisTypeFolderOptions(databaseIndex, 'keys')),
         branch('redis-strings', 'Strings', 'strings', 'String, bitmap, and HyperLogLog values', [], redisTypeFolderOptions(databaseIndex, 'string')),
         branch('redis-hashes', 'Hashes', 'hashes', 'Hash maps', [], redisTypeFolderOptions(databaseIndex, 'hash')),
@@ -170,7 +174,7 @@ function redisConnectionTree(connection: ConnectionProfile): ConnectionTreeNode[
       ], redisDatabaseNodeOptions(databaseIndex)),
     ], { scope: 'databases' }),
     branch('redis-lua-scripts', 'Lua Scripts', 'lua-scripts', 'Loaded scripts and SHA workflows', [], { scope: 'lua-scripts' }),
-    branch('redis-security', 'ACL / Security', 'security', 'ACL users, categories, and permissions', [], { scope: 'acl' }),
+    branch('redis-security', 'ACL / Security', 'security', aclDetail, [], { scope: 'acl' }),
     branch('redis-diagnostics', 'Diagnostics', 'diagnostics', 'INFO, SLOWLOG, memory, and latency metadata', [], { scope: 'diagnostics' }),
   ]
 

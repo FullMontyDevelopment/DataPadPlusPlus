@@ -77,6 +77,7 @@ export function createConnectionProfile(
     },
     redisOptions: source?.redisOptions ? { ...source.redisOptions } : undefined,
     sqliteOptions: source?.sqliteOptions ? { ...source.sqliteOptions } : undefined,
+    mysqlOptions: source?.mysqlOptions ? { ...source.mysqlOptions } : undefined,
     sqlServerOptions: source?.sqlServerOptions ? { ...source.sqlServerOptions } : undefined,
     oracleOptions: source?.oracleOptions ? { ...source.oracleOptions } : undefined,
     dynamoDbOptions: source?.dynamoDbOptions ? { ...source.dynamoDbOptions } : undefined,

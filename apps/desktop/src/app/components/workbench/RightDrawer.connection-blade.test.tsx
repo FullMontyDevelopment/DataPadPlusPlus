@@ -95,6 +95,467 @@ describe('ConnectionBlade', () => {
     expect(credentialInput).toHaveAttribute('placeholder', 'Stored credential')
   })
 
+  it('shows PostgreSQL-native application, session, TLS, and timeout options', () => {
+    const onTestConnection = vi.fn()
+
+    render(
+      <ConnectionBlade
+        activeConnection={connection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('PostgreSQL connect mode'), {
+      target: { value: 'cloud-sql-proxy' },
+    })
+    fireEvent.change(screen.getByLabelText('PostgreSQL Cloud SQL instance'), {
+      target: { value: 'project:region:instance' },
+    })
+    fireEvent.change(screen.getByLabelText('PostgreSQL application name'), {
+      target: { value: 'DataPad++ QA' },
+    })
+    fireEvent.change(screen.getByLabelText('PostgreSQL target session attributes'), {
+      target: { value: 'read-write' },
+    })
+    fireEvent.change(screen.getByLabelText('PostgreSQL search path'), {
+      target: { value: 'analytics, public' },
+    })
+    fireEvent.click(screen.getByLabelText('TLS'))
+    fireEvent.click(screen.getByLabelText('Verify certificate'))
+    fireEvent.change(screen.getByLabelText('PostgreSQL CA certificate path'), {
+      target: { value: 'C:/certs/root.pem' },
+    })
+    fireEvent.change(screen.getByLabelText('PostgreSQL client certificate path'), {
+      target: { value: 'C:/certs/client.pem' },
+    })
+    fireEvent.change(screen.getByLabelText('PostgreSQL client key path'), {
+      target: { value: 'C:/certs/client.key' },
+    })
+    fireEvent.change(screen.getByLabelText('Connect timeout ms'), {
+      target: { value: '2500' },
+    })
+    fireEvent.change(screen.getByLabelText('Statement timeout ms'), {
+      target: { value: '5000' },
+    })
+    fireEvent.change(screen.getByLabelText('Lock timeout ms'), {
+      target: { value: '1000' },
+    })
+    fireEvent.change(screen.getByLabelText('Idle transaction ms'), {
+      target: { value: '30000' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: connection.id,
+        postgresOptions: expect.objectContaining({
+          connectMode: 'cloud-sql-proxy',
+          cloudSqlInstance: 'project:region:instance',
+          applicationName: 'DataPad++ QA',
+          targetSessionAttrs: 'read-write',
+          searchPath: 'analytics, public',
+          useTls: true,
+          verifyServerCertificate: true,
+          caCertificatePath: 'C:/certs/root.pem',
+          clientCertificatePath: 'C:/certs/client.pem',
+          clientKeyPath: 'C:/certs/client.key',
+          connectTimeoutMs: 2500,
+          statementTimeoutMs: 5000,
+          lockTimeoutMs: 1000,
+          idleInTransactionSessionTimeoutMs: 30_000,
+        }),
+      }),
+      environment.id,
+      '',
+    )
+  })
+
+  it('persists CockroachDB profile metadata and capability toggles', () => {
+    const onTestConnection = vi.fn()
+
+    render(
+      <ConnectionBlade
+        activeConnection={cockroachConnection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('CockroachDB deployment mode'), {
+      target: { value: 'cockroach-cloud-dedicated' },
+    })
+    fireEvent.change(screen.getByLabelText('CockroachDB organization'), {
+      target: { value: 'DataPad Labs' },
+    })
+    fireEvent.change(screen.getByLabelText('CockroachDB cluster name'), {
+      target: { value: 'analytics-crdb' },
+    })
+    fireEvent.change(screen.getByLabelText('CockroachDB cluster id'), {
+      target: { value: 'crl-123' },
+    })
+    fireEvent.change(screen.getByLabelText('CockroachDB cloud region'), {
+      target: { value: 'aws-us-east-1' },
+    })
+    fireEvent.change(screen.getByLabelText('CockroachDB default region'), {
+      target: { value: 'us-east' },
+    })
+    fireEvent.change(screen.getByLabelText('CockroachDB locality'), {
+      target: { value: 'region=us-east,az=a' },
+    })
+    fireEvent.change(screen.getByLabelText('CockroachDB server version'), {
+      target: { value: 'v24.3' },
+    })
+    fireEvent.change(screen.getByLabelText('CockroachDB build tag'), {
+      target: { value: 'v24.3.5' },
+    })
+    fireEvent.change(screen.getByLabelText('CockroachDB auth disabled reason'), {
+      target: { value: 'OIDC is plan-only.' },
+    })
+    fireEvent.change(screen.getByLabelText('CockroachDB TLS disabled reason'), {
+      target: { value: 'Custom CA is plan-only.' },
+    })
+    fireEvent.click(screen.getByLabelText('Ranges'))
+    fireEvent.click(screen.getByLabelText('Contention'))
+    fireEvent.click(screen.getByLabelText('Certificates'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: cockroachConnection.id,
+        postgresOptions: expect.objectContaining({
+          cockroachDeploymentMode: 'cockroach-cloud-dedicated',
+          cockroachOrganization: 'DataPad Labs',
+          cockroachClusterName: 'analytics-crdb',
+          cockroachClusterId: 'crl-123',
+          cockroachCloudRegion: 'aws-us-east-1',
+          cockroachDefaultRegion: 'us-east',
+          cockroachLocality: 'region=us-east,az=a',
+          cockroachServerVersion: 'v24.3',
+          cockroachBuildTag: 'v24.3.5',
+          cockroachAuthDisabledReason: 'OIDC is plan-only.',
+          cockroachTlsDisabledReason: 'Custom CA is plan-only.',
+          cockroachCapabilities: expect.objectContaining({
+            inspectRanges: false,
+            inspectContention: false,
+            inspectCertificates: false,
+          }),
+        }),
+      }),
+      environment.id,
+      '',
+    )
+  })
+
+  it('persists TimescaleDB profile metadata and capability toggles', () => {
+    const onTestConnection = vi.fn()
+
+    render(
+      <ConnectionBlade
+        activeConnection={timescaleConnection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('TimescaleDB deployment mode'), {
+      target: { value: 'timescale-cloud' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB project'), {
+      target: { value: 'DataPad Observability' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB service id'), {
+      target: { value: 'tsdb-123' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB region'), {
+      target: { value: 'aws-us-east-1' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB license'), {
+      target: { value: 'timescale' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB extension schema'), {
+      target: { value: 'public' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB extension version'), {
+      target: { value: '2.15.0' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB server version'), {
+      target: { value: 'PostgreSQL 16' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB policy execution disabled reason'), {
+      target: { value: 'Policy execution is preview-only.' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB compression disabled reason'), {
+      target: { value: 'Owner role required.' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB retention disabled reason'), {
+      target: { value: 'Retention can drop chunks.' },
+    })
+    fireEvent.change(screen.getByLabelText('TimescaleDB continuous aggregate disabled reason'), {
+      target: { value: 'Refresh is manually approved.' },
+    })
+    fireEvent.click(screen.getByLabelText('Compression'))
+    fireEvent.click(screen.getByLabelText('Jobs'))
+    fireEvent.click(screen.getByLabelText('EXPLAIN ANALYZE'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: timescaleConnection.id,
+        postgresOptions: expect.objectContaining({
+          timescaleDeploymentMode: 'timescale-cloud',
+          timescaleProject: 'DataPad Observability',
+          timescaleServiceId: 'tsdb-123',
+          timescaleRegion: 'aws-us-east-1',
+          timescaleLicense: 'timescale',
+          timescaleExtensionSchema: 'public',
+          timescaleExtensionVersion: '2.15.0',
+          timescaleServerVersion: 'PostgreSQL 16',
+          timescalePolicyExecutionDisabledReason: 'Policy execution is preview-only.',
+          timescaleCompressionDisabledReason: 'Owner role required.',
+          timescaleRetentionDisabledReason: 'Retention can drop chunks.',
+          timescaleContinuousAggregateDisabledReason: 'Refresh is manually approved.',
+          timescaleCapabilities: expect.objectContaining({
+            inspectCompression: false,
+            inspectJobs: false,
+            explainAnalyze: false,
+          }),
+        }),
+      }),
+      environment.id,
+      '',
+    )
+  })
+
+  it('shows SQL Server auth metadata fields and plan-only disabled reasons', () => {
+    const onTestConnection = vi.fn()
+
+    render(
+      <ConnectionBlade
+        activeConnection={sqlServerConnection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    expect(screen.getByLabelText('SQL Server auth disabled reason')).toHaveTextContent(
+      'Service principal authentication needs tenant id, client id',
+    )
+
+    fireEvent.change(screen.getByLabelText('SQL Server Azure tenant id'), {
+      target: { value: 'tenant-id' },
+    })
+    fireEvent.change(screen.getByLabelText('SQL Server Azure client id'), {
+      target: { value: 'client-id' },
+    })
+    fireEvent.change(screen.getByLabelText('SQL Server authentication mode'), {
+      target: { value: 'azure-ad-managed-identity' },
+    })
+    fireEvent.change(screen.getByLabelText('SQL Server managed identity client id'), {
+      target: { value: 'mi-client' },
+    })
+
+    expect(screen.getByLabelText('SQL Server auth disabled reason')).toHaveTextContent(
+      'Managed identity client id is saved',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: sqlServerConnection.id,
+        sqlServerOptions: expect.objectContaining({
+          connectMode: 'azure-sql',
+          authenticationMode: 'azure-ad-managed-identity',
+          azureTenantId: 'tenant-id',
+          azureClientId: 'client-id',
+          azureManagedIdentityClientId: 'mi-client',
+          encryptConnection: true,
+        }),
+      }),
+      environment.id,
+      '',
+    )
+  })
+
+  it('shows MySQL-native SSL, socket, session, timeout, and auth metadata fields', () => {
+    const onTestConnection = vi.fn()
+
+    render(
+      <ConnectionBlade
+        activeConnection={mysqlConnection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('MySQL connection mode'), {
+      target: { value: 'cloud-sql-proxy' },
+    })
+    fireEvent.change(screen.getByLabelText('MySQL Cloud SQL instance'), {
+      target: { value: 'project:region:instance' },
+    })
+    fireEvent.change(screen.getByLabelText('MySQL authentication mode'), {
+      target: { value: 'cleartext-plugin' },
+    })
+    expect(screen.getByLabelText('MySQL auth disabled reason')).toHaveTextContent(
+      'must require TLS',
+    )
+    fireEvent.change(screen.getByLabelText('MySQL SSL mode'), {
+      target: { value: 'verify-identity' },
+    })
+    expect(screen.getByLabelText('MySQL auth disabled reason')).toHaveTextContent(
+      'mysql_clear_password gate',
+    )
+    fireEvent.change(screen.getByLabelText('MySQL CA certificate path'), {
+      target: { value: 'C:/certs/root.pem' },
+    })
+    fireEvent.change(screen.getByLabelText('MySQL client certificate path'), {
+      target: { value: 'C:/certs/client.pem' },
+    })
+    fireEvent.change(screen.getByLabelText('MySQL client key path'), {
+      target: { value: 'C:/certs/client.key' },
+    })
+    fireEvent.change(screen.getByLabelText('MySQL charset'), {
+      target: { value: 'utf8mb4' },
+    })
+    fireEvent.change(screen.getByLabelText('MySQL collation'), {
+      target: { value: 'utf8mb4_0900_ai_ci' },
+    })
+    fireEvent.change(screen.getByLabelText('MySQL time zone'), {
+      target: { value: '+00:00' },
+    })
+    fireEvent.change(screen.getByLabelText('Connect timeout ms'), {
+      target: { value: '2500' },
+    })
+    fireEvent.change(screen.getByLabelText('Command timeout ms'), {
+      target: { value: '5000' },
+    })
+    fireEvent.change(screen.getByLabelText('MySQL statement cache capacity'), {
+      target: { value: '250' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: mysqlConnection.id,
+        mysqlOptions: expect.objectContaining({
+          connectMode: 'cloud-sql-proxy',
+          cloudSqlInstance: 'project:region:instance',
+          authMode: 'cleartext-plugin',
+          sslMode: 'verify-identity',
+          caCertificatePath: 'C:/certs/root.pem',
+          clientCertificatePath: 'C:/certs/client.pem',
+          clientKeyPath: 'C:/certs/client.key',
+          charset: 'utf8mb4',
+          collation: 'utf8mb4_0900_ai_ci',
+          timeZone: '+00:00',
+          connectTimeoutMs: 2500,
+          commandTimeoutMs: 5000,
+          statementCacheCapacity: 250,
+        }),
+      }),
+      environment.id,
+      '',
+    )
+  })
+
+  it('shows MariaDB-native flavor, session, storage, and auth metadata fields', () => {
+    const onTestConnection = vi.fn()
+
+    render(
+      <ConnectionBlade
+        activeConnection={mariaDbConnection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('MariaDB connection mode'), {
+      target: { value: 'managed-mariadb' },
+    })
+    fireEvent.change(screen.getByLabelText('MariaDB authentication mode'), {
+      target: { value: 'iam-token' },
+    })
+    expect(screen.getByLabelText('MariaDB auth disabled reason')).toHaveTextContent(
+      'scoped MariaDB claim',
+    )
+    fireEvent.change(screen.getByLabelText('MariaDB SSL mode'), {
+      target: { value: 'required' },
+    })
+    fireEvent.change(screen.getByLabelText('MariaDB server flavor'), {
+      target: { value: 'mariadb' },
+    })
+    fireEvent.change(screen.getByLabelText('MariaDB charset'), {
+      target: { value: 'utf8mb4' },
+    })
+    fireEvent.change(screen.getByLabelText('MariaDB collation'), {
+      target: { value: 'utf8mb4_unicode_ci' },
+    })
+    fireEvent.change(screen.getByLabelText('MariaDB SQL mode'), {
+      target: { value: 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION' },
+    })
+    fireEvent.change(screen.getByLabelText('MariaDB default storage engine'), {
+      target: { value: 'Aria' },
+    })
+    fireEvent.click(screen.getByLabelText('MariaDB allow local infile'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: mariaDbConnection.id,
+        mysqlOptions: expect.objectContaining({
+          connectMode: 'managed-mariadb',
+          authMode: 'iam-token',
+          sslMode: 'required',
+          serverFlavor: 'mariadb',
+          charset: 'utf8mb4',
+          collation: 'utf8mb4_unicode_ci',
+          sqlMode: 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION',
+          defaultStorageEngine: 'Aria',
+          allowLocalInfile: true,
+        }),
+      }),
+      environment.id,
+      '',
+    )
+  })
+
   it('shows DynamoDB-native connection options and keeps secret access keys write-only', () => {
     const onTestConnection = vi.fn()
 
@@ -615,6 +1076,112 @@ const connectionWithStoredSecret: ConnectionProfile = {
       account: 'conn-postgres',
       label: 'PostgreSQL credential',
     },
+  },
+}
+
+const cockroachConnection: ConnectionProfile = {
+  ...connection,
+  id: 'conn-cockroach',
+  name: 'CockroachDB',
+  engine: 'cockroachdb',
+  host: 'localhost',
+  port: 26257,
+  database: 'defaultdb',
+  icon: 'cockroachdb',
+  auth: {
+    ...connection.auth,
+    username: 'root',
+  },
+}
+
+const timescaleConnection: ConnectionProfile = {
+  ...connection,
+  id: 'conn-timescale',
+  name: 'TimescaleDB',
+  engine: 'timescaledb',
+  family: 'timeseries',
+  database: 'metrics',
+  icon: 'timescaledb',
+  auth: {
+    ...connection.auth,
+    username: 'app',
+  },
+}
+
+const sqlServerConnection: ConnectionProfile = {
+  id: 'conn-sqlserver',
+  name: 'Azure SQL',
+  engine: 'sqlserver',
+  family: 'sql',
+  host: 'server.database.windows.net',
+  port: 1433,
+  database: 'app',
+  connectionMode: 'native',
+  environmentIds: [environment.id],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'sqlserver',
+  auth: {
+    username: 'app',
+    authMechanism: undefined,
+    sslMode: undefined,
+    cloudProvider: 'azure',
+    principal: undefined,
+    secretRef: undefined,
+  },
+  sqlServerOptions: {
+    connectMode: 'azure-sql',
+    authenticationMode: 'azure-ad-service-principal',
+    encryptConnection: true,
+  },
+  createdAt: '2026-05-22T00:00:00.000Z',
+  updatedAt: '2026-05-22T00:00:00.000Z',
+}
+
+const mysqlConnection: ConnectionProfile = {
+  id: 'conn-mysql',
+  name: 'MySQL',
+  engine: 'mysql',
+  family: 'sql',
+  host: 'localhost',
+  port: 3306,
+  database: 'commerce',
+  connectionMode: 'native',
+  environmentIds: [environment.id],
+  tags: [],
+  favorite: false,
+  readOnly: false,
+  icon: 'mysql',
+  auth: {
+    username: 'app',
+    authMechanism: undefined,
+    sslMode: undefined,
+    cloudProvider: undefined,
+    principal: undefined,
+    secretRef: undefined,
+  },
+  mysqlOptions: {
+    connectMode: 'tcp',
+    authMode: 'password',
+    sslMode: 'disabled',
+  },
+  createdAt: '2026-05-22T00:00:00.000Z',
+  updatedAt: '2026-05-22T00:00:00.000Z',
+}
+
+const mariaDbConnection: ConnectionProfile = {
+  ...mysqlConnection,
+  id: 'conn-mariadb',
+  name: 'MariaDB',
+  engine: 'mariadb',
+  port: 3307,
+  icon: 'mariadb',
+  mysqlOptions: {
+    connectMode: 'tcp',
+    authMode: 'password',
+    sslMode: 'disabled',
+    serverFlavor: 'mariadb',
   },
 }
 

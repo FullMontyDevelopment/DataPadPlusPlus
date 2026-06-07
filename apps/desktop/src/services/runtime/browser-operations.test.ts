@@ -1,50 +1,21 @@
 import type { ConnectionProfile, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { describe, expect, it } from 'vitest'
-import {
-  buildOperationManifestsForConnection,
-  executeOperationLocally,
-  planOperationLocally,
-} from './browser-operations'
+import { buildOperationManifestsForConnection, executeOperationLocally, planOperationLocally } from './browser-operations'
 
 describe('browser operation runtime', () => {
   it('keeps risky and plan-only operation manifests explicit', () => {
-    const connections = [
-      mongoConnection,
-      redisConnection,
-      sqlServerConnection,
-      postgresConnection,
-      searchConnection,
-      dynamoConnection,
-      cassandraConnection,
-      prometheusConnection,
-      influxConnection,
-      openTsdbConnection,
-      neo4jConnection,
-      neptuneConnection,
-      snowflakeConnection,
-      bigQueryConnection,
-      clickHouseConnection,
-      cosmosConnection,
-      liteDbConnection,
-      memcachedConnection,
-    ]
+    const connections = [mongoConnection, redisConnection, valkeyConnection, sqlServerConnection, postgresConnection, mysqlConnection, mariaDbConnection, searchConnection, dynamoConnection, cassandraConnection, prometheusConnection, influxConnection, openTsdbConnection, neo4jConnection, neptuneConnection, snowflakeConnection, bigQueryConnection, clickHouseConnection, cosmosConnection, liteDbConnection, memcachedConnection]
 
     for (const connection of connections) {
       const operations = buildOperationManifestsForConnection(connection)
 
       for (const operation of operations) {
         if (['write', 'destructive', 'costly'].includes(operation.risk)) {
-          expect(
-            operation.requiresConfirmation,
-            `${operation.id} must require confirmation`,
-          ).toBe(true)
+          expect(operation.requiresConfirmation, `${operation.id} must require confirmation`).toBe(true)
         }
 
         if (operation.executionSupport !== 'live') {
-          expect(
-            operation.disabledReason?.trim(),
-            `${operation.id} must explain why it is not live`,
-          ).toBeTruthy()
+          expect(operation.disabledReason?.trim(), `${operation.id} must explain why it is not live`).toBeTruthy()
         }
       }
     }
@@ -53,103 +24,152 @@ describe('browser operation runtime', () => {
   it('exposes guarded index visibility operations for MongoDB-capable profiles', () => {
     const operations = buildOperationManifestsForConnection(mongoConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: 'mongodb.index.hide',
-        label: 'Hide Index',
-        risk: 'write',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.index.unhide',
-        label: 'Unhide Index',
-        risk: 'write',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.validation.update',
-        label: 'Update Validation Rules',
-        risk: 'write',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.user.create',
-        label: 'Create User',
-        risk: 'write',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.user.drop',
-        label: 'Drop User',
-        risk: 'destructive',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.role.create',
-        label: 'Create Role',
-        risk: 'write',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.role.drop',
-        label: 'Drop Role',
-        risk: 'destructive',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.collection.export',
-        label: 'Export Collection',
-        risk: 'costly',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.collection.import',
-        label: 'Import Documents',
-        risk: 'write',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.gridfs.export',
-        label: 'Export GridFS Files',
-        risk: 'costly',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.gridfs.upload',
-        label: 'Upload GridFS File',
-        risk: 'write',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'mongodb.gridfs.validate',
-        label: 'Validate GridFS Chunks',
-        risk: 'costly',
-        executionSupport: 'plan-only',
-      }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'mongodb.index.hide',
+          label: 'Hide Index',
+          risk: 'write',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.index.unhide',
+          label: 'Unhide Index',
+          risk: 'write',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.validation.update',
+          label: 'Update Validation Rules',
+          risk: 'write',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.user.create',
+          label: 'Create User',
+          risk: 'write',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.user.drop',
+          label: 'Drop User',
+          risk: 'destructive',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.role.create',
+          label: 'Create Role',
+          risk: 'write',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.role.drop',
+          label: 'Drop Role',
+          risk: 'destructive',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.collection.export',
+          label: 'Export Collection',
+          risk: 'costly',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.collection.import',
+          label: 'Import Documents',
+          risk: 'write',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.gridfs.export',
+          label: 'Export GridFS Files',
+          risk: 'costly',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.gridfs.upload',
+          label: 'Upload GridFS File',
+          risk: 'write',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.gridfs.validate',
+          label: 'Validate GridFS Chunks',
+          risk: 'costly',
+          executionSupport: 'plan-only',
+        }),
+      ]),
+    )
   })
 
   it('exposes Memcached known-key operation manifests without key browsing capabilities', () => {
     const operations = buildOperationManifestsForConnection(memcachedConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'memcached.stats.reset', label: 'Reset Stats', risk: 'write' }),
-      expect.objectContaining({ id: 'memcached.cache.flush', label: 'Flush Cache', risk: 'destructive' }),
-      expect.objectContaining({ id: 'memcached.key.get', label: 'Get Key', risk: 'read' }),
-      expect.objectContaining({ id: 'memcached.key.gets', label: 'Get Key With CAS', risk: 'read' }),
-      expect.objectContaining({ id: 'memcached.key.set', label: 'Set Key', risk: 'write' }),
-      expect.objectContaining({ id: 'memcached.key.touch', label: 'Touch Key', risk: 'write' }),
-      expect.objectContaining({ id: 'memcached.key.increment', label: 'Increment Key', risk: 'write' }),
-      expect.objectContaining({ id: 'memcached.key.decrement', label: 'Decrement Key', risk: 'write' }),
-      expect.objectContaining({ id: 'memcached.key.delete', label: 'Delete Key', risk: 'destructive' }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'memcached.stats.reset',
+          label: 'Reset Stats',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'memcached.cache.flush',
+          label: 'Flush Cache',
+          risk: 'destructive',
+        }),
+        expect.objectContaining({
+          id: 'memcached.key.get',
+          label: 'Get Key',
+          risk: 'read',
+        }),
+        expect.objectContaining({
+          id: 'memcached.key.gets',
+          label: 'Get Key With CAS',
+          risk: 'read',
+        }),
+        expect.objectContaining({
+          id: 'memcached.key.set',
+          label: 'Set Key',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'memcached.key.touch',
+          label: 'Touch Key',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'memcached.key.increment',
+          label: 'Increment Key',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'memcached.key.decrement',
+          label: 'Decrement Key',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'memcached.key.delete',
+          label: 'Delete Key',
+          risk: 'destructive',
+        }),
+      ]),
+    )
     expect(operations.map((operation) => operation.id).join(' ')).not.toContain('key.browser')
   })
 
   it('generates MongoDB collMod previews for index hide and unhide requests', () => {
     const snapshot = {
       connections: [mongoConnection],
-      environments: [{ id: 'env-local', name: 'Local', label: 'Local', risk: 'low', variables: {}, sensitiveKeys: [] }],
+      environments: [
+        {
+          id: 'env-local',
+          name: 'Local',
+          label: 'Local',
+          risk: 'low',
+          variables: {},
+          sensitiveKeys: [],
+        },
+      ],
       activeEnvironmentId: 'env-local',
       preferences: {
         theme: 'dark',
@@ -202,7 +222,16 @@ describe('browser operation runtime', () => {
   it('generates MongoDB security and validation previews without exposing secrets', () => {
     const snapshot = {
       connections: [mongoConnection],
-      environments: [{ id: 'env-local', name: 'Local', label: 'Local', risk: 'low', variables: {}, sensitiveKeys: [] }],
+      environments: [
+        {
+          id: 'env-local',
+          name: 'Local',
+          label: 'Local',
+          risk: 'low',
+          variables: {},
+          sensitiveKeys: [],
+        },
+      ],
       activeEnvironmentId: 'env-local',
       preferences: {
         theme: 'dark',
@@ -256,7 +285,16 @@ describe('browser operation runtime', () => {
   it('generates MongoDB collection import and export previews', () => {
     const snapshot = {
       connections: [mongoConnection],
-      environments: [{ id: 'env-local', name: 'Local', label: 'Local', risk: 'low', variables: {}, sensitiveKeys: [] }],
+      environments: [
+        {
+          id: 'env-local',
+          name: 'Local',
+          label: 'Local',
+          risk: 'low',
+          variables: {},
+          sensitiveKeys: [],
+        },
+      ],
       activeEnvironmentId: 'env-local',
       preferences: {
         theme: 'dark',
@@ -285,11 +323,23 @@ describe('browser operation runtime', () => {
       database: 'catalog',
       collection: 'products',
       operation: 'export',
+      workflow: 'mongodb.collection.export',
       format: 'extended-json',
+      target: {
+        kind: 'file',
+        path: '<selected-file>.json',
+      },
       filter: { active: true },
       projection: { sku: 1 },
       sort: { sku: 1 },
       batchSize: 500,
+      serializer: {
+        supportedFormats: ['json', 'extended-json', 'ndjson', 'csv', 'bson'],
+      },
+      executionGate: {
+        owner: 'mongodb-adapter',
+        defaultSupport: 'plan-only',
+      },
     })
 
     const importPlan = planOperationLocally(snapshot, {
@@ -309,17 +359,143 @@ describe('browser operation runtime', () => {
       database: 'catalog',
       collection: 'products',
       operation: 'import',
+      workflow: 'mongodb.collection.import',
       format: 'ndjson',
+      source: {
+        kind: 'file',
+        path: '<selected-file>.ndjson',
+      },
       mode: 'insertMany',
       validation: 'validate-before-write',
+      parser: {
+        supportedFormats: ['json', 'extended-json', 'ndjson', 'csv', 'bson'],
+      },
+      checks: ['file-readable', 'format-detected', 'document-shape', 'validator-compatible', 'duplicate-key-policy'],
+      executionGate: {
+        owner: 'mongodb-adapter',
+        defaultSupport: 'plan-only',
+      },
     })
     expect(importPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+  })
+
+  it('returns MongoDB-specific diagnostic preview payloads for metrics execution', () => {
+    const execution = executeOperationLocally(snapshotWith(mongoConnection), {
+      connectionId: mongoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mongodb.diagnostics.metrics',
+      objectName: 'collection:catalog.products',
+      confirmationText: 'CONFIRM MONGODB',
+    })
+
+    expect(execution.executed).toBe(true)
+    expect(execution.diagnostics?.profiles).toEqual(expect.arrayContaining([expect.objectContaining({ summary: 'MongoDB current operations' }), expect.objectContaining({ summary: 'MongoDB replica set status' }), expect.objectContaining({ summary: 'MongoDB sharding state' })]))
+    expect(execution.diagnostics?.metrics[0]).toMatchObject({
+      renderer: 'metrics',
+      metrics: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'mongodb.current_operations',
+          labels: { source: 'currentOp' },
+        }),
+        expect.objectContaining({
+          name: 'mongodb.replica_state',
+          labels: { source: 'replSetGetStatus' },
+        }),
+        expect.objectContaining({
+          name: 'mongodb.sharding_enabled',
+          labels: { source: 'shardingState' },
+        }),
+      ]),
+    })
+  })
+
+  it('returns MySQL performance schema diagnostic preview payloads for metrics execution', () => {
+    const execution = executeOperationLocally(snapshotWith(mysqlConnection), {
+      connectionId: mysqlConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mysql.diagnostics.metrics',
+      objectName: 'mysql:diagnostics',
+      confirmationText: 'CONFIRM MYSQL',
+    })
+
+    expect(execution.executed).toBe(true)
+    expect(execution.plan.generatedRequest).toContain('performance_schema.events_statements_summary_by_digest')
+    expect(execution.plan.generatedRequest).toContain('@@optimizer_trace')
+    expect(execution.diagnostics?.profiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ summary: 'MySQL sessions, waits, and active statements' }),
+      expect.objectContaining({ summary: 'MySQL performance_schema statement digests' }),
+      expect.objectContaining({ summary: 'MySQL table and index I/O waits' }),
+      expect.objectContaining({ summary: 'MySQL optimizer trace availability' }),
+    ]))
+    expect(execution.diagnostics?.metrics[0]).toMatchObject({
+      renderer: 'metrics',
+      metrics: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'mysql.statement_digests_sampled',
+          labels: { source: 'performance_schema.events_statements_summary_by_digest' },
+        }),
+        expect.objectContaining({
+          name: 'mysql.table_io_operations',
+          labels: expect.objectContaining({ source: 'performance_schema.table_io_waits_summary_by_index_usage' }),
+        }),
+      ]),
+    })
+  })
+
+  it('returns MariaDB status, role, and ANALYZE diagnostic preview payloads for metrics execution', () => {
+    const execution = executeOperationLocally(snapshotWith(mariaDbConnection), {
+      connectionId: mariaDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mariadb.diagnostics.metrics',
+      objectName: 'mariadb:diagnostics',
+      confirmationText: 'CONFIRM MARIADB',
+    })
+
+    expect(execution.executed).toBe(true)
+    expect(execution.plan.generatedRequest).toContain("show variables like 'version%'")
+    expect(execution.plan.generatedRequest).toContain('show engines')
+    expect(execution.plan.generatedRequest).toContain('mysql.roles_mapping')
+    expect(execution.plan.generatedRequest).toContain('analyze format=json select 1;')
+    expect(execution.plan.generatedRequest).not.toContain('@@optimizer_trace')
+    expect(execution.diagnostics?.profiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ summary: 'MariaDB sessions, waits, and active statements' }),
+      expect.objectContaining({ summary: 'MariaDB performance_schema statement digests' }),
+      expect.objectContaining({ summary: 'MariaDB table and index I/O waits' }),
+      expect.objectContaining({ summary: 'MariaDB status variables and storage engines' }),
+      expect.objectContaining({ summary: 'MariaDB ANALYZE FORMAT=JSON profile request' }),
+    ]))
+    expect(execution.diagnostics?.metrics[0]).toMatchObject({
+      renderer: 'metrics',
+      metrics: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'mariadb.threads_running',
+          labels: { source: 'SHOW GLOBAL STATUS' },
+        }),
+        expect.objectContaining({
+          name: 'mariadb.aria_pagecache_reads',
+          labels: { source: 'SHOW GLOBAL STATUS' },
+        }),
+        expect.objectContaining({
+          name: 'mariadb.statement_digests_sampled',
+          labels: { source: 'performance_schema.events_statements_summary_by_digest' },
+        }),
+      ]),
+    })
   })
 
   it('generates MongoDB GridFS export, upload, and validation previews', () => {
     const snapshot = {
       connections: [mongoConnection],
-      environments: [{ id: 'env-local', name: 'Local', label: 'Local', risk: 'low', variables: {}, sensitiveKeys: [] }],
+      environments: [
+        {
+          id: 'env-local',
+          name: 'Local',
+          label: 'Local',
+          risk: 'low',
+          variables: {},
+          sensitiveKeys: [],
+        },
+      ],
       activeEnvironmentId: 'env-local',
       preferences: {
         theme: 'dark',
@@ -402,28 +578,39 @@ describe('browser operation runtime', () => {
   it('exposes Redis key import and export operation previews', () => {
     const operations = buildOperationManifestsForConnection(redisConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: 'redis.key.export',
-        label: 'Export Key',
-        risk: 'costly',
-        scope: 'key',
-        executionSupport: 'plan-only',
-      }),
-      expect.objectContaining({
-        id: 'redis.key.import',
-        label: 'Import Key',
-        risk: 'write',
-        scope: 'key',
-        executionSupport: 'plan-only',
-      }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'redis.key.export',
+          label: 'Export Key',
+          risk: 'costly',
+          scope: 'key',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'redis.key.import',
+          label: 'Import Key',
+          risk: 'write',
+          scope: 'key',
+          executionSupport: 'plan-only',
+        }),
+      ]),
+    )
   })
 
   it('generates Redis key import and export previews', () => {
     const snapshot = {
       connections: [redisConnection],
-      environments: [{ id: 'env-local', name: 'Local', label: 'Local', risk: 'low', variables: {}, sensitiveKeys: [] }],
+      environments: [
+        {
+          id: 'env-local',
+          name: 'Local',
+          label: 'Local',
+          risk: 'low',
+          variables: {},
+          sensitiveKeys: [],
+        },
+      ],
       activeEnvironmentId: 'env-local',
       preferences: {
         theme: 'dark',
@@ -449,14 +636,34 @@ describe('browser operation runtime', () => {
     })
 
     expect(JSON.parse(exportPlan.plan.generatedRequest)).toMatchObject({
-      operation: 'key.export',
+      operation: 'redis.key.export',
+      workflow: 'redis.key-file-workflow',
       key: 'product:luna-lamp',
       type: 'hash',
       format: 'json',
+      target: {
+        kind: 'file',
+        path: '<selected-file>.json',
+        overwrite: false,
+      },
       includeType: true,
       includeTtl: true,
       includeMetadata: true,
       memberRead: 'bounded',
+      serializer: {
+        supportedFormats: ['json', 'ndjson'],
+        supportedTypes: ['string', 'hash', 'list', 'set', 'zset', 'stream', 'json', 'timeseries', 'vectorset', 'bloom', 'cuckoo', 'cms', 'topk', 'tdigest'],
+        moduleTypes: {
+          live: ['json', 'timeseries', 'vectorset', 'bloom', 'cuckoo', 'cms', 'topk', 'tdigest'],
+          humanReadable: ['json', 'timeseries', 'vectorset'],
+          snapshot: ['bloom', 'cuckoo', 'cms', 'topk', 'tdigest'],
+          planOnly: [],
+        },
+      },
+      executionGate: {
+        defaultSupport: 'desktop-live',
+        browserSupport: 'plan-only',
+      },
     })
     expect(exportPlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
 
@@ -474,12 +681,120 @@ describe('browser operation runtime', () => {
     })
 
     expect(JSON.parse(importPlan.plan.generatedRequest)).toMatchObject({
-      operation: 'key.import',
+      operation: 'redis.key.import',
+      workflow: 'redis.key-file-workflow',
       key: 'product:luna-lamp',
       type: 'hash',
+      source: {
+        kind: 'file',
+        path: '<selected-file>.json',
+      },
       mode: 'create-or-replace',
       ttl: 'preserve',
       validation: 'validate-before-write',
+      serializer: {
+        acceptedFormats: ['json', 'ndjson'],
+        acceptedTypes: ['string', 'hash', 'list', 'set', 'zset', 'stream', 'json', 'timeseries', 'vectorset', 'bloom', 'cuckoo', 'cms', 'topk', 'tdigest'],
+        moduleTypes: {
+          live: ['json', 'timeseries', 'vectorset', 'bloom', 'cuckoo', 'cms', 'topk', 'tdigest'],
+          humanReadable: ['json', 'timeseries', 'vectorset'],
+          snapshot: ['bloom', 'cuckoo', 'cms', 'topk', 'tdigest'],
+          planOnly: [],
+        },
+      },
+      executionGate: {
+        defaultSupport: 'desktop-live',
+        browserSupport: 'plan-only',
+      },
+    })
+    expect(importPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+  })
+
+  it('generates Valkey key file previews without Redis Stack module serializers', () => {
+    const snapshot = {
+      connections: [valkeyConnection],
+      environments: [
+        {
+          id: 'env-local',
+          name: 'Local',
+          label: 'Local',
+          risk: 'low',
+          variables: {},
+          sensitiveKeys: [],
+        },
+      ],
+      activeEnvironmentId: 'env-local',
+      preferences: {
+        theme: 'dark',
+        telemetry: 'opt-in',
+        lockAfterMinutes: 15,
+        safeModeEnabled: false,
+      },
+    } as unknown as WorkspaceSnapshot
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: valkeyConnection.id,
+      environmentId: 'env-local',
+      operationId: 'valkey.key.export',
+      objectName: 'session:1',
+      parameters: {
+        key: 'session:1',
+        redisType: 'hash',
+        format: 'json',
+      },
+    })
+
+    expect(JSON.parse(exportPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'valkey.key.export',
+      workflow: 'redis.key-file-workflow',
+      key: 'session:1',
+      type: 'hash',
+      serializer: {
+        supportedTypes: ['string', 'hash', 'list', 'set', 'zset', 'stream'],
+        moduleTypes: {
+          live: [],
+          humanReadable: [],
+          snapshot: [],
+          planOnly: ['json', 'timeseries', 'vectorset', 'bloom', 'cuckoo', 'cms', 'topk', 'tdigest'],
+        },
+      },
+      executionGate: {
+        defaultSupport: 'desktop-live',
+        browserSupport: 'plan-only',
+      },
+    })
+    expect(exportPlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
+
+    const importPlan = planOperationLocally(snapshot, {
+      connectionId: valkeyConnection.id,
+      environmentId: 'env-local',
+      operationId: 'valkey.key.import',
+      objectName: 'session:1',
+      parameters: {
+        key: 'session:1',
+        redisType: 'stream',
+        mode: 'create-or-replace',
+      },
+    })
+
+    expect(JSON.parse(importPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'valkey.key.import',
+      workflow: 'redis.key-file-workflow',
+      key: 'session:1',
+      type: 'stream',
+      serializer: {
+        acceptedTypes: ['string', 'hash', 'list', 'set', 'zset', 'stream'],
+        moduleTypes: {
+          live: [],
+          humanReadable: [],
+          snapshot: [],
+          planOnly: ['json', 'timeseries', 'vectorset', 'bloom', 'cuckoo', 'cms', 'topk', 'tdigest'],
+        },
+      },
+      executionGate: {
+        defaultSupport: 'desktop-live',
+        browserSupport: 'plan-only',
+      },
     })
     expect(importPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
   })
@@ -487,7 +802,16 @@ describe('browser operation runtime', () => {
   it('redacts secret-shaped scalar parameters in generated operation previews', () => {
     const snapshot = {
       connections: [mongoConnection],
-      environments: [{ id: 'env-local', name: 'Local', label: 'Local', risk: 'low', variables: {}, sensitiveKeys: [] }],
+      environments: [
+        {
+          id: 'env-local',
+          name: 'Local',
+          label: 'Local',
+          risk: 'low',
+          variables: {},
+          sensitiveKeys: [],
+        },
+      ],
       activeEnvironmentId: 'env-local',
       preferences: {
         theme: 'dark',
@@ -524,25 +848,29 @@ describe('browser operation runtime', () => {
   it('warns instead of resolving secret variables in browser operation previews', () => {
     const snapshot = {
       connections: [mongoConnection],
-      environments: [{
-        id: 'env-local',
-        name: 'Local',
-        label: 'Local',
-        risk: 'low',
-        variables: {},
-        sensitiveKeys: ['API_TOKEN'],
-        variableDefinitions: [{
-          key: 'API_TOKEN',
-          kind: 'secret',
-          secretRef: {
-            id: 'secret-env-local-api-token',
-            provider: 'os-keyring',
-            service: 'DataPad++',
-            account: 'environment:env-local:API_TOKEN',
-            label: 'API token',
-          },
-        }],
-      }],
+      environments: [
+        {
+          id: 'env-local',
+          name: 'Local',
+          label: 'Local',
+          risk: 'low',
+          variables: {},
+          sensitiveKeys: ['API_TOKEN'],
+          variableDefinitions: [
+            {
+              key: 'API_TOKEN',
+              kind: 'secret',
+              secretRef: {
+                id: 'secret-env-local-api-token',
+                provider: 'os-keyring',
+                service: 'DataPad++',
+                account: 'environment:env-local:API_TOKEN',
+                label: 'API token',
+              },
+            },
+          ],
+        },
+      ],
       activeEnvironmentId: 'env-local',
       preferences: {
         theme: 'dark',
@@ -566,13 +894,9 @@ describe('browser operation runtime', () => {
     const plan = planOperationLocally(snapshot, request)
     const execution = executeOperationLocally(snapshot, request)
 
-    expect(plan.plan.warnings).toContain(
-      'Secret variable API_TOKEN is resolved only by the desktop secret store.',
-    )
+    expect(plan.plan.warnings).toContain('Secret variable API_TOKEN is resolved only by the desktop secret store.')
     expect(execution.executed).toBe(false)
-    expect(execution.warnings).toContain(
-      'Secret variable API_TOKEN cannot be resolved in browser preview.',
-    )
+    expect(execution.warnings).toContain('Secret variable API_TOKEN cannot be resolved in browser preview.')
     expect(JSON.parse(execution.plan.generatedRequest).createUser).toBe('{{API_TOKEN}}')
   })
 
@@ -594,6 +918,22 @@ describe('browser operation runtime', () => {
     expect(explainPlan.plan.generatedRequest).toContain('select top (100) * from [dbo].[Accounts]')
     expect(explainPlan.plan.generatedRequest).not.toContain('limit 100')
 
+    const profilePlan = planOperationLocally(snapshot, {
+      connectionId: sqlServerConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlserver.query.profile',
+      objectName: '[dbo].[Accounts]',
+      parameters: {
+        schema: 'dbo',
+        table: 'Accounts',
+      },
+    })
+
+    expect(profilePlan.plan.generatedRequest).toContain('set showplan_xml on')
+    expect(profilePlan.plan.generatedRequest).toContain('select top (100) * from [dbo].[Accounts]')
+    expect(profilePlan.plan.generatedRequest).not.toContain('statistics io')
+    expect(profilePlan.plan.confirmationText).toBeTruthy()
+
     const indexPlan = planOperationLocally(snapshot, {
       connectionId: sqlServerConnection.id,
       environmentId: 'env-local',
@@ -607,39 +947,110 @@ describe('browser operation runtime', () => {
 
     expect(indexPlan.plan.generatedRequest).toContain('create index [IX_Accounts_account_id] on [dbo].[Accounts] ([account_id]);')
     expect(indexPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
+    const mariaSnapshot = snapshotWith(mariaDbConnection)
+    const mariaExplainPlan = planOperationLocally(mariaSnapshot, {
+      connectionId: mariaDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mariadb.query.explain',
+      objectName: '`shop`.`orders`',
+      parameters: {
+        schema: 'shop',
+        table: 'orders',
+      },
+    })
+
+    expect(mariaExplainPlan.plan.generatedRequest).toContain('explain format=json select * from `shop`.`orders` limit 100;')
+
+    const mariaProfilePlan = planOperationLocally(mariaSnapshot, {
+      connectionId: mariaDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mariadb.query.profile',
+      objectName: '`shop`.`orders`',
+      parameters: {
+        schema: 'shop',
+        table: 'orders',
+      },
+    })
+
+    expect(mariaProfilePlan.plan.generatedRequest).toContain('MariaDB ANALYZE FORMAT=JSON executes the statement')
+    expect(mariaProfilePlan.plan.generatedRequest).toContain('analyze format=json select * from `shop`.`orders` limit 100;')
   })
 
   it('exposes permission, import/export, and backup operation manifests for SQL-family engines', () => {
     const operations = buildOperationManifestsForConnection(postgresConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: 'postgresql.security.inspect',
-        label: 'Inspect Permissions',
-        risk: 'diagnostic',
-      }),
-      expect.objectContaining({
-        id: 'postgresql.data.import-export',
-        label: 'Import / Export',
-        risk: 'costly',
-      }),
-      expect.objectContaining({
-        id: 'postgresql.data.backup-restore',
-        label: 'Backup / Restore',
-        risk: 'destructive',
-      }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'postgresql.security.inspect',
+          label: 'Inspect Permissions',
+          risk: 'diagnostic',
+        }),
+        expect.objectContaining({
+          id: 'postgresql.query.profile',
+          label: 'Profile Query',
+          risk: 'costly',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'postgresql.data.import-export',
+          label: 'Import / Export',
+          risk: 'costly',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'postgresql.data.backup-restore',
+          label: 'Backup / Restore',
+          risk: 'destructive',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+      ]),
+    )
   })
 
   it('generates SQL Server maintenance operation previews', () => {
     const operations = buildOperationManifestsForConnection(sqlServerConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'sqlserver.statistics.update', label: 'Update Statistics', risk: 'costly' }),
-      expect.objectContaining({ id: 'sqlserver.index.reorganize', label: 'Reorganize Index', risk: 'costly' }),
-      expect.objectContaining({ id: 'sqlserver.index.rebuild', label: 'Rebuild Index', risk: 'costly' }),
-      expect.objectContaining({ id: 'sqlserver.query-store.top-queries', label: 'Query Store Top Queries', risk: 'diagnostic' }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'sqlserver.statistics.update',
+          label: 'Update Statistics',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'sqlserver.index.reorganize',
+          label: 'Reorganize Index',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'sqlserver.index.rebuild',
+          label: 'Rebuild Index',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'sqlserver.query-store.top-queries',
+          label: 'Query Store Top Queries',
+          risk: 'diagnostic',
+        }),
+        expect.objectContaining({
+          id: 'sqlserver.data.import-export',
+          label: 'Import / Export',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'sqlserver.data.backup-restore',
+          label: 'Backup / Restore',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+      ]),
+    )
 
     const snapshot = snapshotWith(sqlServerConnection)
     const statsPlan = planOperationLocally(snapshot, {
@@ -677,19 +1088,111 @@ describe('browser operation runtime', () => {
     })
     expect(queryStorePlan.plan.generatedRequest).toContain('from sys.query_store_query')
     expect(queryStorePlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: sqlServerConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlserver.data.import-export',
+      objectName: '[dbo].[Accounts]',
+      parameters: {
+        schema: 'dbo',
+        table: 'Accounts',
+        mode: 'export',
+        format: 'csv',
+      },
+    })
+    const exportRequest = JSON.parse(exportPlan.plan.generatedRequest)
+    expect(exportRequest).toMatchObject({
+      workflow: 'sqlserver.table.export',
+      schema: 'dbo',
+      table: 'Accounts',
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+
+    const importPlan = planOperationLocally(snapshot, {
+      connectionId: sqlServerConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlserver.data.import-export',
+      objectName: '[dbo].[Accounts]',
+      parameters: {
+        schema: 'dbo',
+        table: 'Accounts',
+        mode: 'validate-only',
+        format: 'csv',
+      },
+    })
+    const importRequest = JSON.parse(importPlan.plan.generatedRequest)
+    expect(importRequest).toMatchObject({
+      workflow: 'sqlserver.table.import',
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+    expect(importRequest.executionGate.guards).toContain('insertable target-column validation')
+
+    const backupPlan = planOperationLocally(snapshot, {
+      connectionId: sqlServerConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlserver.data.backup-restore',
+      objectName: 'datapadplusplus',
+      parameters: {
+        mode: 'backup',
+      },
+    })
+    const backupRequest = JSON.parse(backupPlan.plan.generatedRequest)
+    expect(backupRequest).toMatchObject({
+      workflow: 'sqlserver.database.backup',
+      database: 'datapadplusplus',
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
   })
 
   it('generates CockroachDB cluster and data-movement operation previews', () => {
     const operations = buildOperationManifestsForConnection(cockroachConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'cockroachdb.cockroach.jobs', label: 'Browse Jobs', risk: 'diagnostic' }),
-      expect.objectContaining({ id: 'cockroachdb.cockroach.ranges', label: 'Review Ranges', risk: 'diagnostic' }),
-      expect.objectContaining({ id: 'cockroachdb.cockroach.contention', label: 'Analyze Contention', risk: 'diagnostic' }),
-      expect.objectContaining({ id: 'cockroachdb.cockroach.backup', label: 'Backup Database', risk: 'costly' }),
-      expect.objectContaining({ id: 'cockroachdb.cockroach.restore', label: 'Restore Database', risk: 'destructive' }),
-      expect.objectContaining({ id: 'cockroachdb.cockroach.import', label: 'Import Data', risk: 'write' }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'cockroachdb.cockroach.jobs',
+          label: 'Browse Jobs',
+          risk: 'diagnostic',
+        }),
+        expect.objectContaining({
+          id: 'cockroachdb.cockroach.ranges',
+          label: 'Review Ranges',
+          risk: 'diagnostic',
+        }),
+        expect.objectContaining({
+          id: 'cockroachdb.cockroach.contention',
+          label: 'Analyze Contention',
+          risk: 'diagnostic',
+        }),
+        expect.objectContaining({
+          id: 'cockroachdb.cockroach.backup',
+          label: 'Backup Database',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'cockroachdb.cockroach.restore',
+          label: 'Restore Database',
+          risk: 'destructive',
+        }),
+        expect.objectContaining({
+          id: 'cockroachdb.cockroach.import',
+          label: 'Import Data',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'cockroachdb.cockroach.export',
+          label: 'Export Data',
+          risk: 'costly',
+        }),
+      ]),
+    )
 
     const snapshot = snapshotWith(cockroachConnection)
     const rangesPlan = planOperationLocally(snapshot, {
@@ -718,16 +1221,115 @@ describe('browser operation runtime', () => {
     })
     expect(importPlan.plan.generatedRequest).toContain('import into "public"."accounts" csv data')
     expect(importPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: cockroachConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cockroachdb.cockroach.export',
+      objectName: '"public"."accounts"',
+    })
+    expect(exportPlan.plan.generatedRequest).toContain("export into csv 'external://export-location/data.csv'")
+    expect(exportPlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
+
+    const genericExportPlan = planOperationLocally(snapshot, {
+      connectionId: cockroachConnection.id,
+      environmentId: 'env-local',
+      operationId: 'cockroachdb.data.import-export',
+      objectName: '"public"."accounts"',
+      parameters: {
+        mode: 'export',
+        externalUri: 'external://exports/accounts.csv',
+      },
+    })
+    expect(genericExportPlan.plan.generatedRequest).toContain("export into csv 'external://exports/accounts.csv'")
+  })
+
+  it('hides CockroachDB operation manifests for disabled profile capabilities', () => {
+    const connection: ConnectionProfile = {
+      ...cockroachConnection,
+      postgresOptions: {
+        cockroachCapabilities: {
+          inspectJobs: true,
+          inspectRanges: false,
+          inspectRegions: true,
+          inspectClusterStatus: true,
+          inspectClusterSettings: true,
+          inspectSessions: true,
+          inspectContention: false,
+          inspectRolesAndGrants: false,
+          inspectCertificates: false,
+          inspectZoneConfigurations: false,
+          explainAnalyze: false,
+        },
+      },
+    }
+    const operationIds = buildOperationManifestsForConnection(connection).map(
+      (operation) => operation.id,
+    )
+
+    expect(operationIds).toContain('cockroachdb.cockroach.jobs')
+    expect(operationIds).toContain('cockroachdb.cockroach.regions')
+    expect(operationIds).toContain('cockroachdb.cockroach.backup')
+    expect(operationIds).toContain('cockroachdb.cockroach.import')
+    expect(operationIds).toContain('cockroachdb.cockroach.export')
+    expect(operationIds).not.toContain('cockroachdb.cockroach.ranges')
+    expect(operationIds).not.toContain('cockroachdb.cockroach.contention')
+    expect(operationIds).not.toContain('cockroachdb.cockroach.roles-grants')
+    expect(operationIds).not.toContain('cockroachdb.cockroach.zone-configs')
   })
 
   it('generates PostgreSQL maintenance operation previews', () => {
     const operations = buildOperationManifestsForConnection(postgresConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'postgresql.table.analyze', label: 'Analyze Table', risk: 'costly' }),
-      expect.objectContaining({ id: 'postgresql.table.vacuum', label: 'Vacuum Table', risk: 'costly' }),
-      expect.objectContaining({ id: 'postgresql.index.reindex', label: 'Reindex', risk: 'costly' }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'postgresql.routine.execute',
+          label: 'Run Routine',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'postgresql.session.cancel',
+          label: 'Cancel Query',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'postgresql.session.terminate',
+          label: 'Terminate Backend',
+          risk: 'destructive',
+        }),
+        expect.objectContaining({
+          id: 'postgresql.table.analyze',
+          label: 'Analyze Table',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'postgresql.table.vacuum',
+          label: 'Vacuum Table',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'postgresql.index.reindex',
+          label: 'Reindex',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'postgresql.role.grant',
+          label: 'Grant Role',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'postgresql.extension.update',
+          label: 'Update Extension',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'postgresql.extension.drop',
+          label: 'Drop Extension',
+          risk: 'destructive',
+        }),
+      ]),
+    )
 
     const snapshot = snapshotWith(postgresConnection)
     const analyzePlan = planOperationLocally(snapshot, {
@@ -756,17 +1358,207 @@ describe('browser operation runtime', () => {
     })
     expect(reindexPlan.plan.generatedRequest).toContain('reindex index concurrently "public"."accounts_name_idx";')
     expect(reindexPlan.plan.confirmationText).toBeTruthy()
+
+    const profilePlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.query.profile',
+      objectName: '"public"."accounts"',
+      parameters: {
+        query: 'select * from "public"."accounts" where active = true limit 50',
+        format: 'json',
+      },
+    })
+    expect(profilePlan.plan.generatedRequest).toContain('PostgreSQL query profile executes the statement')
+    expect(profilePlan.plan.generatedRequest).toContain('explain (analyze true, buffers true, verbose true, format json)')
+    expect(profilePlan.plan.generatedRequest).toContain('where active = true limit 50;')
+    expect(profilePlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
+    expect(profilePlan.plan.confirmationText).toBeTruthy()
+
+    const routinePlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.routine.execute',
+      objectName: '"public"."refresh_account"',
+      parameters: {
+        schema: 'public',
+        routineName: 'refresh_account',
+        routineKind: 'procedure',
+        arguments: 'account_id integer, force boolean DEFAULT false',
+      },
+    })
+    expect(routinePlan.plan.generatedRequest).toContain('call "public"."refresh_account"(')
+    expect(routinePlan.plan.generatedRequest).toContain('account_id => $1')
+    expect(routinePlan.plan.generatedRequest).toContain('force => $2')
+    expect(routinePlan.plan.generatedRequest).toContain('-- $1 account_id integer')
+    expect(routinePlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+    expect(routinePlan.plan.confirmationText).toBeTruthy()
+
+    const cancelPlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.session.cancel',
+      objectName: '"Diagnostics"',
+      parameters: {
+        sessionPid: 101,
+        sessionUser: 'app',
+        sessionDatabase: 'datapadplusplus',
+        sessionState: 'active',
+      },
+    })
+    expect(cancelPlan.plan.generatedRequest).toContain('pg_cancel_backend(101)')
+    expect(cancelPlan.plan.generatedRequest).toContain('pg_backend_pid() = 101')
+    expect(cancelPlan.plan.generatedRequest).toContain('-- Target: pid 101, user app')
+    expect(cancelPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+    expect(cancelPlan.plan.confirmationText).toBeTruthy()
+
+    const terminatePlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.session.terminate',
+      objectName: '"Diagnostics"',
+      parameters: { sessionPid: 101 },
+    })
+    expect(terminatePlan.plan.generatedRequest).toContain('pg_terminate_backend(101)')
+    expect(terminatePlan.plan.generatedRequest).toContain('rolls back its active transaction')
+    expect(terminatePlan.plan.destructive).toBe(true)
+    expect(terminatePlan.plan.requiredPermissions).toEqual(['owner/admin role or equivalent destructive privilege'])
+
+    const securityPlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.security.inspect',
+      objectName: '"Security"',
+    })
+    expect(securityPlan.plan.generatedRequest).toContain('pg_auth_members')
+    expect(securityPlan.plan.generatedRequest).toContain('pg_default_acl')
+    expect(securityPlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
+
+    const grantPlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.role.grant',
+      objectName: '"Security"',
+      parameters: { roleName: 'app', memberOf: 'reporting' },
+    })
+    expect(grantPlan.plan.generatedRequest).toContain('grant "reporting" to "app";')
+    expect(grantPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+    expect(grantPlan.plan.confirmationText).toBeTruthy()
+
+    const extensionPlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.extension.update',
+      objectName: '"public"."uuid-ossp"',
+      parameters: { extensionName: 'uuid-ossp' },
+    })
+    expect(extensionPlan.plan.generatedRequest).toContain('alter extension "uuid-ossp" update;')
+    expect(extensionPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
+    const dropExtensionPlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.extension.drop',
+      objectName: '"public"."uuid-ossp"',
+      parameters: { extensionName: 'uuid-ossp' },
+    })
+    expect(dropExtensionPlan.plan.generatedRequest).toContain('drop extension "uuid-ossp";')
+    expect(dropExtensionPlan.plan.destructive).toBe(true)
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.data.import-export',
+      objectName: '"public"."accounts"',
+      parameters: {
+        schema: 'public',
+        table: 'accounts',
+        mode: 'export',
+        format: 'ndjson',
+      },
+    })
+    expect(exportPlan.plan.generatedRequest).toContain('"workflow": "postgresql.table.export"')
+    expect(exportPlan.plan.generatedRequest).toContain('"defaultSupport": "live"')
+    expect(exportPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
+    const importPlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.data.import-export',
+      objectName: '"public"."accounts"',
+      parameters: {
+        schema: 'public',
+        table: 'accounts',
+        mode: 'validate-only',
+        format: 'csv',
+      },
+    })
+    expect(importPlan.plan.generatedRequest).toContain('"workflow": "postgresql.table.import"')
+    expect(importPlan.plan.generatedRequest).toContain('type-aware target column validation')
+
+    const backupPlan = planOperationLocally(snapshot, {
+      connectionId: postgresConnection.id,
+      environmentId: 'env-local',
+      operationId: 'postgresql.data.backup-restore',
+      objectName: '"postgres"',
+      parameters: { mode: 'backup', format: 'json', tableLimit: 5 },
+    })
+    expect(backupPlan.plan.generatedRequest).toContain('"workflow": "postgresql.database.backup"')
+    expect(backupPlan.plan.generatedRequest).toContain('full pg_dump/pg_restore restore execution remains preview-first')
+    expect(backupPlan.plan.destructive).toBe(true)
   })
 
   it('generates MySQL-family table maintenance and event operation previews', () => {
     const operations = buildOperationManifestsForConnection(mysqlConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'mysql.table.check', label: 'Check Table', risk: 'diagnostic' }),
-      expect.objectContaining({ id: 'mysql.table.analyze', label: 'Analyze Table', risk: 'costly' }),
-      expect.objectContaining({ id: 'mysql.table.repair', label: 'Repair Table', risk: 'destructive' }),
-      expect.objectContaining({ id: 'mysql.event.enable', label: 'Enable Event', risk: 'write' }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'mysql.table.check',
+          label: 'Check Table',
+          risk: 'diagnostic',
+          executionSupport: 'plan-only',
+          previewOnly: true,
+        }),
+        expect.objectContaining({
+          id: 'mysql.table.analyze',
+          label: 'Analyze Table',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'mysql.table.repair',
+          label: 'Repair Table',
+          risk: 'destructive',
+        }),
+        expect.objectContaining({
+          id: 'mysql.routine.execute',
+          label: 'Run Routine',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'mysql.event.enable',
+          label: 'Enable Event',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'mysql.user.lock',
+          label: 'Lock User',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'mysql.data.import-export',
+          label: 'Import / Export',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'mysql.data.backup-restore',
+          label: 'Backup / Restore',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+      ]),
+    )
 
     const snapshot = snapshotWith(mysqlConnection)
     const checkPlan = planOperationLocally(snapshot, {
@@ -775,7 +1567,18 @@ describe('browser operation runtime', () => {
       operationId: 'mysql.table.check',
       objectName: '`shop`.`orders`',
     })
-    expect(checkPlan.plan.generatedRequest).toBe('check table `shop`.`orders`;')
+    const checkRequest = JSON.parse(checkPlan.plan.generatedRequest)
+    expect(checkRequest).toMatchObject({
+      workflow: 'mysql.table.maintenance',
+      operation: 'check',
+      database: 'shop',
+      table: 'orders',
+      statement: 'check table `shop`.`orders`;',
+      executionGate: {
+        defaultSupport: 'plan-only',
+      },
+    })
+    expect(checkRequest.executionGate.requiredPrivileges).toContain('SELECT privilege on the target table')
     expect(checkPlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
 
     const repairPlan = planOperationLocally(snapshot, {
@@ -784,8 +1587,39 @@ describe('browser operation runtime', () => {
       operationId: 'mysql.table.repair',
       objectName: '`shop`.`orders`',
     })
-    expect(repairPlan.plan.generatedRequest).toBe('repair table `shop`.`orders`;')
+    const repairRequest = JSON.parse(repairPlan.plan.generatedRequest)
+    expect(repairRequest).toMatchObject({
+      workflow: 'mysql.table.maintenance',
+      operation: 'repair',
+      statement: 'repair table `shop`.`orders`;',
+    })
+    expect(repairRequest.executionGate.guards).toContain('require owner/admin confirmation and a recent backup before repair')
     expect(repairPlan.plan.destructive).toBe(true)
+
+    const routinePlan = planOperationLocally(snapshot, {
+      connectionId: mysqlConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mysql.routine.execute',
+      objectName: '`shop`.`refresh_rollups`',
+      parameters: {
+        database: 'shop',
+        routineName: 'refresh_rollups',
+        routineKind: 'procedure',
+        arguments: 'IN account_id bigint, IN force_refresh tinyint(1)',
+      },
+    })
+    const routineRequest = JSON.parse(routinePlan.plan.generatedRequest)
+    expect(routineRequest).toMatchObject({
+      workflow: 'mysql.routine.execute',
+      database: 'shop',
+      routine: 'refresh_rollups',
+      routineKind: 'procedure',
+    })
+    expect(routineRequest.statement).toContain('call `shop`.`refresh_rollups`(')
+    expect(routineRequest.bindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'account_id', direction: 'IN' }),
+      expect.objectContaining({ name: 'force_refresh', direction: 'IN' }),
+    ]))
 
     const eventPlan = planOperationLocally(snapshot, {
       connectionId: mysqlConnection.id,
@@ -793,17 +1627,240 @@ describe('browser operation runtime', () => {
       operationId: 'mysql.event.disable',
       objectName: '`shop`.`refresh_rollups`',
     })
-    expect(eventPlan.plan.generatedRequest).toBe('alter event `shop`.`refresh_rollups` disable;')
+    const eventRequest = JSON.parse(eventPlan.plan.generatedRequest)
+    expect(eventRequest).toMatchObject({
+      workflow: 'mysql.event.toggle',
+      operation: 'disable',
+      database: 'shop',
+      event: 'refresh_rollups',
+      statement: 'alter event `shop`.`refresh_rollups` disable;',
+    })
+    expect(eventRequest.executionGate.requiredPrivileges).toContain('EVENT privilege on the schema')
+
+    const securityPlan = planOperationLocally(snapshot, {
+      connectionId: mysqlConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mysql.security.inspect',
+      objectName: '`shop`',
+      parameters: { database: 'shop' },
+    })
+    const securityRequest = JSON.parse(securityPlan.plan.generatedRequest)
+    expect(securityRequest).toMatchObject({
+      workflow: 'mysql.security.inspect',
+      database: 'shop',
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+    expect(securityRequest.statements.join('\n')).toContain('information_schema.schema_privileges')
+
+    const lockPlan = planOperationLocally(snapshot, {
+      connectionId: mysqlConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mysql.user.lock',
+      objectName: '`shop`',
+      parameters: { userName: 'reporting', userHost: '%' },
+    })
+    const lockRequest = JSON.parse(lockPlan.plan.generatedRequest)
+    expect(lockRequest).toMatchObject({
+      workflow: 'mysql.user.account-state',
+      operation: 'lock',
+      user: 'reporting',
+      host: '%',
+      statement: "alter user 'reporting'@'%' account lock;",
+    })
+    expect(lockRequest.executionGate.guards).toContain('verify user@host identity before generating ALTER USER')
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: mysqlConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mysql.data.import-export',
+      objectName: '`shop`.`orders`',
+      parameters: {
+        database: 'shop',
+        table: 'orders',
+        mode: 'export',
+        format: 'ndjson',
+      },
+    })
+    const exportRequest = JSON.parse(exportPlan.plan.generatedRequest)
+    expect(exportRequest).toMatchObject({
+      workflow: 'mysql.table.export',
+      database: 'shop',
+      table: 'orders',
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+    expect(exportRequest.executionGate.guards).toContain('bounded row export')
+
+    const importPlan = planOperationLocally(snapshot, {
+      connectionId: mysqlConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mysql.data.import-export',
+      objectName: '`shop`.`orders`',
+      parameters: {
+        database: 'shop',
+        table: 'orders',
+        mode: 'validate-only',
+        format: 'csv',
+      },
+    })
+    const importRequest = JSON.parse(importPlan.plan.generatedRequest)
+    expect(importRequest).toMatchObject({
+      workflow: 'mysql.table.import',
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+    expect(importRequest.executionGate.guards).toContain('insertable target-column validation')
+
+    const backupPlan = planOperationLocally(snapshot, {
+      connectionId: mysqlConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mysql.data.backup-restore',
+      objectName: 'shop',
+      parameters: { mode: 'backup', tableLimit: 5 },
+    })
+    const backupRequest = JSON.parse(backupPlan.plan.generatedRequest)
+    expect(backupRequest).toMatchObject({
+      workflow: 'mysql.database.backup',
+      database: 'shop',
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+    expect(backupRequest.executionGate.residualRisk).toContain('full mysqldump/mysql restore execution remains preview-first')
+  })
+
+  it('generates MariaDB table maintenance and role-aware security previews', () => {
+    const operations = buildOperationManifestsForConnection(mariaDbConnection)
+
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'mariadb.table.analyze',
+          label: 'Analyze Table',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'mariadb.security.inspect',
+          label: 'Inspect Permissions',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'mariadb.data.import-export',
+          label: 'Import / Export',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'mariadb.data.backup-restore',
+          label: 'Backup / Restore',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+      ]),
+    )
+
+    const snapshot = snapshotWith(mariaDbConnection)
+    const securityPlan = planOperationLocally(snapshot, {
+      connectionId: mariaDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mariadb.security.inspect',
+      objectName: '`shop`',
+      parameters: { database: 'shop' },
+    })
+    const securityRequest = JSON.parse(securityPlan.plan.generatedRequest)
+    expect(securityRequest).toMatchObject({
+      workflow: 'mariadb.security.inspect',
+      database: 'shop',
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+    expect(securityRequest.statements.join('\n')).toContain('is_role')
+    expect(securityRequest.statements.join('\n')).toContain('mysql.roles_mapping')
+    expect(securityRequest.executionGate.residualRisk).toContain('mysql.roles_mapping')
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: mariaDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mariadb.data.import-export',
+      objectName: '`commerce`.`orders`',
+      parameters: {
+        database: 'commerce',
+        table: 'orders',
+        mode: 'export',
+        format: 'json',
+      },
+    })
+    const exportRequest = JSON.parse(exportPlan.plan.generatedRequest)
+    expect(exportRequest).toMatchObject({
+      workflow: 'mariadb.table.export',
+      database: 'commerce',
+      table: 'orders',
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+
+    const backupPlan = planOperationLocally(snapshot, {
+      connectionId: mariaDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mariadb.data.backup-restore',
+      objectName: 'commerce',
+      parameters: { mode: 'backup', tableLimit: 5 },
+    })
+    const backupRequest = JSON.parse(backupPlan.plan.generatedRequest)
+    expect(backupRequest).toMatchObject({
+      workflow: 'mariadb.database.backup',
+      database: 'commerce',
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+    expect(backupRequest.executionGate.residualRisk).toContain('mariadb-dump/mysql restore execution remains preview-first')
   })
 
   it('generates SQLite local-file maintenance operation previews', () => {
     const operations = buildOperationManifestsForConnection(sqliteConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'sqlite.database.integrity-check', label: 'Integrity Check', risk: 'diagnostic' }),
-      expect.objectContaining({ id: 'sqlite.database.vacuum', label: 'Vacuum Database', risk: 'write' }),
-      expect.objectContaining({ id: 'sqlite.index.reindex', label: 'Reindex', risk: 'write' }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'sqlite.database.integrity-check',
+          label: 'Integrity Check',
+          risk: 'diagnostic',
+        }),
+        expect.objectContaining({
+          id: 'sqlite.database.vacuum',
+          label: 'Vacuum Database',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'sqlite.database.backup',
+          label: 'Backup Database',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'sqlite.table.export',
+          label: 'Export Table',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'sqlite.table.import',
+          label: 'Import Rows',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'sqlite.index.reindex',
+          label: 'Reindex',
+          risk: 'write',
+        }),
+      ]),
+    )
 
     const snapshot = snapshotWith(sqliteConnection)
     const integrityPlan = planOperationLocally(snapshot, {
@@ -825,6 +1882,42 @@ describe('browser operation runtime', () => {
     expect(vacuumPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
     expect(vacuumPlan.plan.confirmationText).toBeTruthy()
 
+    const backupPlan = planOperationLocally(snapshot, {
+      connectionId: sqliteConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlite.database.backup',
+      objectName: '[main]',
+      parameters: { targetPath: 'C:\\fixtures\\backup.sqlite' },
+    })
+    expect(backupPlan.plan.generatedRequest).toContain('"workflow": "sqlite.database.backup"')
+    expect(backupPlan.plan.generatedRequest).toContain('backup.sqlite')
+    expect(backupPlan.plan.confirmationText).toBeTruthy()
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: sqliteConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlite.table.export',
+      objectName: '[main].[accounts]',
+      parameters: {
+        targetPath: 'C:\\fixtures\\accounts.csv',
+        format: 'csv',
+        limit: 500,
+      },
+    })
+    expect(exportPlan.plan.generatedRequest).toContain('"workflow": "sqlite.table.export"')
+    expect(exportPlan.plan.generatedRequest).toContain('"table": "accounts"')
+    expect(exportPlan.plan.generatedRequest).toContain('"limit": 500')
+
+    const importPlan = planOperationLocally(snapshot, {
+      connectionId: sqliteConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlite.table.import',
+      objectName: '[main].[accounts]',
+      parameters: { sourcePath: 'C:\\fixtures\\accounts.csv', mode: 'append' },
+    })
+    expect(importPlan.plan.generatedRequest).toContain('"workflow": "sqlite.table.import"')
+    expect(importPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
+
     const reindexPlan = planOperationLocally(snapshot, {
       connectionId: sqliteConnection.id,
       environmentId: 'env-local',
@@ -837,11 +1930,26 @@ describe('browser operation runtime', () => {
   it('generates TimescaleDB native policy and aggregate refresh previews', () => {
     const operations = buildOperationManifestsForConnection(timescaleConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'timescaledb.timescale.compression-policy', label: 'Compression Policy', risk: 'write' }),
-      expect.objectContaining({ id: 'timescaledb.timescale.retention-policy', label: 'Retention Policy', risk: 'destructive' }),
-      expect.objectContaining({ id: 'timescaledb.timescale.refresh-continuous-aggregate', label: 'Refresh Aggregate', risk: 'costly' }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'timescaledb.timescale.compression-policy',
+          label: 'Compression Policy',
+          risk: 'write',
+          disabledReason: expect.stringContaining('live policy execution is disabled'),
+        }),
+        expect.objectContaining({
+          id: 'timescaledb.timescale.retention-policy',
+          label: 'Retention Policy',
+          risk: 'destructive',
+        }),
+        expect.objectContaining({
+          id: 'timescaledb.timescale.refresh-continuous-aggregate',
+          label: 'Refresh Aggregate',
+          risk: 'costly',
+        }),
+      ]),
+    )
 
     const snapshot = snapshotWith(timescaleConnection)
     const compressionPlan = planOperationLocally(snapshot, {
@@ -888,15 +1996,54 @@ describe('browser operation runtime', () => {
     expect(refreshPlan.plan.confirmationText).toBeTruthy()
   })
 
+  it('uses TimescaleDB profile-specific disabled reasons for policy manifests', () => {
+    const operations = buildOperationManifestsForConnection({
+      ...timescaleConnection,
+      postgresOptions: {
+        timescaleCompressionDisabledReason: 'Owner role required.',
+        timescaleRetentionDisabledReason: 'Retention can drop chunks.',
+        timescaleContinuousAggregateDisabledReason: 'Refresh is manually approved.',
+      },
+    })
+
+    expect(operations.find((operation) => operation.id.endsWith('compression-policy'))).toMatchObject({
+      disabledReason: 'Owner role required.',
+    })
+    expect(operations.find((operation) => operation.id.endsWith('retention-policy'))).toMatchObject({
+      disabledReason: 'Retention can drop chunks.',
+    })
+    expect(operations.find((operation) => operation.id.endsWith('refresh-continuous-aggregate'))).toMatchObject({
+      disabledReason: 'Refresh is manually approved.',
+    })
+  })
+
   it('generates DuckDB local analytics operation previews', () => {
     const operations = buildOperationManifestsForConnection(duckDbConnection)
 
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'duckdb.table.analyze', label: 'Analyze Table', risk: 'costly' }),
-      expect.objectContaining({ id: 'duckdb.database.checkpoint', label: 'Checkpoint', risk: 'write' }),
-      expect.objectContaining({ id: 'duckdb.extension.load', label: 'Load Extension', risk: 'write' }),
-      expect.objectContaining({ id: 'duckdb.file.import', label: 'Import File', risk: 'write' }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'duckdb.table.analyze',
+          label: 'Analyze Table',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'duckdb.database.checkpoint',
+          label: 'Checkpoint',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'duckdb.extension.load',
+          label: 'Load Extension',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'duckdb.file.import',
+          label: 'Import File',
+          risk: 'write',
+        }),
+      ]),
+    )
 
     const snapshot = snapshotWith(duckDbConnection)
     const analyzePlan = planOperationLocally(snapshot, {
@@ -931,15 +2078,38 @@ describe('browser operation runtime', () => {
   it('generates search-family profile, index, and security operation previews', () => {
     const snapshot = snapshotWith(searchConnection)
     const operations = buildOperationManifestsForConnection(searchConnection)
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'elasticsearch.index.force-merge', label: 'Force Merge' }),
-      expect.objectContaining({ id: 'elasticsearch.index.reindex', label: 'Reindex' }),
-      expect.objectContaining({ id: 'elasticsearch.alias.put', label: 'Add Alias' }),
-      expect.objectContaining({ id: 'elasticsearch.lifecycle.explain', label: 'Explain ILM' }),
-      expect.objectContaining({ id: 'elasticsearch.pipeline.simulate', label: 'Simulate Pipeline' }),
-      expect.objectContaining({ id: 'elasticsearch.pipeline.put', label: 'Update Pipeline' }),
-      expect.objectContaining({ id: 'elasticsearch.snapshot.restore', label: 'Restore Snapshot' }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'elasticsearch.index.force-merge',
+          label: 'Force Merge',
+        }),
+        expect.objectContaining({
+          id: 'elasticsearch.index.reindex',
+          label: 'Reindex',
+        }),
+        expect.objectContaining({
+          id: 'elasticsearch.alias.put',
+          label: 'Add Alias',
+        }),
+        expect.objectContaining({
+          id: 'elasticsearch.lifecycle.explain',
+          label: 'Explain ILM',
+        }),
+        expect.objectContaining({
+          id: 'elasticsearch.pipeline.simulate',
+          label: 'Simulate Pipeline',
+        }),
+        expect.objectContaining({
+          id: 'elasticsearch.pipeline.put',
+          label: 'Update Pipeline',
+        }),
+        expect.objectContaining({
+          id: 'elasticsearch.snapshot.restore',
+          label: 'Restore Snapshot',
+        }),
+      ]),
+    )
 
     const profilePlan = planOperationLocally(snapshot, {
       connectionId: searchConnection.id,
@@ -1113,14 +2283,34 @@ describe('browser operation runtime', () => {
   it('generates DynamoDB capacity, index, access, and export operation previews', () => {
     const snapshot = snapshotWith(dynamoConnection)
     const operations = buildOperationManifestsForConnection(dynamoConnection)
-    expect(operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'dynamodb.capacity.update', label: 'Update Capacity' }),
-      expect.objectContaining({ id: 'dynamodb.ttl.update', label: 'Update TTL' }),
-      expect.objectContaining({ id: 'dynamodb.streams.update', label: 'Update Streams' }),
-      expect.objectContaining({ id: 'dynamodb.backup.create', label: 'Create Backup' }),
-      expect.objectContaining({ id: 'dynamodb.backup.restore', label: 'Restore Backup' }),
-      expect.objectContaining({ id: 'dynamodb.data.backup-restore', label: 'Backup / Restore' }),
-    ]))
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'dynamodb.capacity.update',
+          label: 'Update Capacity',
+        }),
+        expect.objectContaining({
+          id: 'dynamodb.ttl.update',
+          label: 'Update TTL',
+        }),
+        expect.objectContaining({
+          id: 'dynamodb.streams.update',
+          label: 'Update Streams',
+        }),
+        expect.objectContaining({
+          id: 'dynamodb.backup.create',
+          label: 'Create Backup',
+        }),
+        expect.objectContaining({
+          id: 'dynamodb.backup.restore',
+          label: 'Restore Backup',
+        }),
+        expect.objectContaining({
+          id: 'dynamodb.data.backup-restore',
+          label: 'Backup / Restore',
+        }),
+      ]),
+    )
 
     const metricsPlan = planOperationLocally(snapshot, {
       connectionId: dynamoConnection.id,
@@ -1153,12 +2343,14 @@ describe('browser operation runtime', () => {
     expect(JSON.parse(indexPlan.plan.generatedRequest)).toMatchObject({
       operation: 'DynamoDB.UpdateTable',
       tableName: 'Orders',
-      globalSecondaryIndexUpdates: [{
-        create: {
-          indexName: 'customer-status-index',
-          keySchema: [{ attributeName: 'customerId', keyType: 'HASH' }],
+      globalSecondaryIndexUpdates: [
+        {
+          create: {
+            indexName: 'customer-status-index',
+            keySchema: [{ attributeName: 'customerId', keyType: 'HASH' }],
+          },
         },
-      }],
+      ],
     })
 
     const capacityPlan = planOperationLocally(snapshot, {
@@ -1318,7 +2510,7 @@ describe('browser operation runtime', () => {
       },
     })
     expect(indexPlan.plan.generatedRequest).toContain('create custom index if not exists "orders_status_sai"')
-    expect(indexPlan.plan.generatedRequest).toContain('using \'StorageAttachedIndex\'')
+    expect(indexPlan.plan.generatedRequest).toContain("using 'StorageAttachedIndex'")
 
     const securityPlan = planOperationLocally(snapshot, {
       connectionId: cassandraConnection.id,
@@ -1378,9 +2570,15 @@ describe('browser operation runtime', () => {
   it('generates native time-series profile, metrics, export, and guarded delete previews', () => {
     const prometheusSnapshot = snapshotWith(prometheusConnection)
     const prometheusOperations = buildOperationManifestsForConnection(prometheusConnection)
-    expect(prometheusOperations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'prometheus.cardinality.analyze', label: 'Analyze Cardinality', risk: 'costly' }),
-    ]))
+    expect(prometheusOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'prometheus.cardinality.analyze',
+          label: 'Analyze Cardinality',
+          risk: 'costly',
+        }),
+      ]),
+    )
 
     const prometheusProfile = planOperationLocally(prometheusSnapshot, {
       connectionId: prometheusConnection.id,
@@ -1423,9 +2621,15 @@ describe('browser operation runtime', () => {
 
     const influxSnapshot = snapshotWith(influxConnection)
     const influxOperations = buildOperationManifestsForConnection(influxConnection)
-    expect(influxOperations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'influxdb.retention.update', label: 'Update Retention', risk: 'write' }),
-    ]))
+    expect(influxOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'influxdb.retention.update',
+          label: 'Update Retention',
+          risk: 'write',
+        }),
+      ]),
+    )
 
     const influxExport = planOperationLocally(influxSnapshot, {
       connectionId: influxConnection.id,
@@ -1487,9 +2691,15 @@ describe('browser operation runtime', () => {
 
     const openTsdbSnapshot = snapshotWith(openTsdbConnection)
     const openTsdbOperations = buildOperationManifestsForConnection(openTsdbConnection)
-    expect(openTsdbOperations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'opentsdb.uid.repair', label: 'Repair UID Metadata', risk: 'write' }),
-    ]))
+    expect(openTsdbOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'opentsdb.uid.repair',
+          label: 'Repair UID Metadata',
+          risk: 'write',
+        }),
+      ]),
+    )
 
     const openTsdbMetrics = planOperationLocally(openTsdbSnapshot, {
       connectionId: openTsdbConnection.id,
@@ -1531,10 +2741,20 @@ describe('browser operation runtime', () => {
   it('generates graph-native profile, index, access, metrics, and export operation previews', () => {
     const neo4jSnapshot = snapshotWith(neo4jConnection)
     const neo4jOperations = buildOperationManifestsForConnection(neo4jConnection)
-    expect(neo4jOperations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'neo4j.query.explain', label: 'View Execution Plan', risk: 'diagnostic' }),
-      expect.objectContaining({ id: 'neo4j.data.import-export', label: 'Import / Export', risk: 'costly' }),
-    ]))
+    expect(neo4jOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'neo4j.query.explain',
+          label: 'View Execution Plan',
+          risk: 'diagnostic',
+        }),
+        expect.objectContaining({
+          id: 'neo4j.data.import-export',
+          label: 'Import / Export',
+          risk: 'costly',
+        }),
+      ]),
+    )
 
     const explainPlan = planOperationLocally(neo4jSnapshot, {
       connectionId: neo4jConnection.id,
@@ -1576,9 +2796,15 @@ describe('browser operation runtime', () => {
 
     const neptuneSnapshot = snapshotWith(neptuneConnection)
     const neptuneOperations = buildOperationManifestsForConnection(neptuneConnection)
-    expect(neptuneOperations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'neptune.security.inspect', label: 'Inspect Permissions', risk: 'read' }),
-    ]))
+    expect(neptuneOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'neptune.security.inspect',
+          label: 'Inspect Permissions',
+          risk: 'read',
+        }),
+      ]),
+    )
 
     const metricsPlan = planOperationLocally(neptuneSnapshot, {
       connectionId: neptuneConnection.id,
@@ -1628,11 +2854,25 @@ describe('browser operation runtime', () => {
   it('generates warehouse-native plan, cost, metrics, access, and export operation previews', () => {
     const snowflakeSnapshot = snapshotWith(snowflakeConnection)
     const snowflakeOperations = buildOperationManifestsForConnection(snowflakeConnection)
-    expect(snowflakeOperations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'snowflake.table.clone', label: 'Clone Table', risk: 'write' }),
-      expect.objectContaining({ id: 'snowflake.warehouse.suspend', label: 'Suspend Warehouse', risk: 'write' }),
-      expect.objectContaining({ id: 'snowflake.warehouse.resume', label: 'Resume Warehouse', risk: 'write' }),
-    ]))
+    expect(snowflakeOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'snowflake.table.clone',
+          label: 'Clone Table',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'snowflake.warehouse.suspend',
+          label: 'Suspend Warehouse',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'snowflake.warehouse.resume',
+          label: 'Resume Warehouse',
+          risk: 'write',
+        }),
+      ]),
+    )
 
     const costPlan = planOperationLocally(snowflakeSnapshot, {
       connectionId: snowflakeConnection.id,
@@ -1670,9 +2910,15 @@ describe('browser operation runtime', () => {
 
     const bigQuerySnapshot = snapshotWith(bigQueryConnection)
     const bigQueryOperations = buildOperationManifestsForConnection(bigQueryConnection)
-    expect(bigQueryOperations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'bigquery.table.copy', label: 'Copy Table', risk: 'write' }),
-    ]))
+    expect(bigQueryOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'bigquery.table.copy',
+          label: 'Copy Table',
+          risk: 'write',
+        }),
+      ]),
+    )
 
     const dryRunPlan = planOperationLocally(bigQuerySnapshot, {
       connectionId: bigQueryConnection.id,
@@ -1707,11 +2953,25 @@ describe('browser operation runtime', () => {
 
     const clickHouseSnapshot = snapshotWith(clickHouseConnection)
     const clickHouseOperations = buildOperationManifestsForConnection(clickHouseConnection)
-    expect(clickHouseOperations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'clickhouse.table.optimize', label: 'Optimize Table', risk: 'costly' }),
-      expect.objectContaining({ id: 'clickhouse.table.materialize-ttl', label: 'Materialize TTL', risk: 'costly' }),
-      expect.objectContaining({ id: 'clickhouse.table.freeze', label: 'Freeze Table', risk: 'write' }),
-    ]))
+    expect(clickHouseOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'clickhouse.table.optimize',
+          label: 'Optimize Table',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'clickhouse.table.materialize-ttl',
+          label: 'Materialize TTL',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'clickhouse.table.freeze',
+          label: 'Freeze Table',
+          risk: 'write',
+        }),
+      ]),
+    )
 
     const exportPlan = planOperationLocally(clickHouseSnapshot, {
       connectionId: clickHouseConnection.id,
@@ -1761,11 +3021,25 @@ describe('browser operation runtime', () => {
   it('generates Cosmos DB, LiteDB, and Memcached native operation previews', () => {
     const cosmosSnapshot = snapshotWith(cosmosConnection)
     const cosmosOperations = buildOperationManifestsForConnection(cosmosConnection)
-    expect(cosmosOperations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'cosmosdb.throughput.update', label: 'Update Throughput', risk: 'write' }),
-      expect.objectContaining({ id: 'cosmosdb.consistency.update', label: 'Update Consistency', risk: 'write' }),
-      expect.objectContaining({ id: 'cosmosdb.regions.failover', label: 'Failover Regions', risk: 'write' }),
-    ]))
+    expect(cosmosOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'cosmosdb.throughput.update',
+          label: 'Update Throughput',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'cosmosdb.consistency.update',
+          label: 'Update Consistency',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'cosmosdb.regions.failover',
+          label: 'Failover Regions',
+          risk: 'write',
+        }),
+      ]),
+    )
 
     const cosmosIndex = planOperationLocally(cosmosSnapshot, {
       connectionId: cosmosConnection.id,
@@ -1846,12 +3120,30 @@ describe('browser operation runtime', () => {
 
     const liteDbSnapshot = snapshotWith(liteDbConnection)
     const liteDbOperations = buildOperationManifestsForConnection(liteDbConnection)
-    expect(liteDbOperations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'litedb.storage.checkpoint', label: 'Checkpoint', risk: 'write' }),
-      expect.objectContaining({ id: 'litedb.storage.compact', label: 'Compact File', risk: 'costly' }),
-      expect.objectContaining({ id: 'litedb.storage.rebuild-indexes', label: 'Rebuild Indexes', risk: 'costly' }),
-      expect.objectContaining({ id: 'litedb.data.backup-restore', label: 'Backup / Restore', risk: 'destructive' }),
-    ]))
+    expect(liteDbOperations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'litedb.storage.checkpoint',
+          label: 'Checkpoint',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'litedb.storage.compact',
+          label: 'Compact File',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'litedb.storage.rebuild-indexes',
+          label: 'Rebuild Indexes',
+          risk: 'costly',
+        }),
+        expect.objectContaining({
+          id: 'litedb.data.backup-restore',
+          label: 'Backup / Restore',
+          risk: 'destructive',
+        }),
+      ]),
+    )
 
     const liteDbIndex = planOperationLocally(liteDbSnapshot, {
       connectionId: liteDbConnection.id,
@@ -1979,7 +3271,16 @@ describe('browser operation runtime', () => {
 function snapshotWith(connection: ConnectionProfile) {
   return {
     connections: [connection],
-    environments: [{ id: 'env-local', name: 'Local', label: 'Local', risk: 'low', variables: {}, sensitiveKeys: [] }],
+    environments: [
+      {
+        id: 'env-local',
+        name: 'Local',
+        label: 'Local',
+        risk: 'low',
+        variables: {},
+        sensitiveKeys: [],
+      },
+    ],
     activeEnvironmentId: 'env-local',
     preferences: {
       theme: 'dark',
@@ -2034,6 +3335,14 @@ const redisConnection: ConnectionProfile = {
   auth: {},
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const valkeyConnection: ConnectionProfile = {
+  ...redisConnection,
+  id: 'conn-valkey',
+  name: 'Valkey',
+  engine: 'valkey',
+  icon: 'valkey',
 }
 
 const sqlServerConnection: ConnectionProfile = {
@@ -2124,6 +3433,15 @@ const mysqlConnection: ConnectionProfile = {
   auth: {},
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const mariaDbConnection: ConnectionProfile = {
+  ...mysqlConnection,
+  id: 'conn-mariadb',
+  name: 'MariaDB',
+  engine: 'mariadb',
+  port: 3307,
+  icon: 'mariadb',
 }
 
 const timescaleConnection: ConnectionProfile = {

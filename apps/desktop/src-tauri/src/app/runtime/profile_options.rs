@@ -1,6 +1,6 @@
 use crate::domain::models::{
-    MemcachedConnectionOptions, OracleConnectionOptions, RedisConnectionOptions,
-    SqlServerConnectionOptions, SqliteConnectionOptions,
+    MemcachedConnectionOptions, OracleConnectionOptions, PostgresConnectionOptions,
+    RedisConnectionOptions, SqlServerConnectionOptions, SqliteConnectionOptions,
 };
 
 pub(super) fn interpolate_redis_options(
@@ -115,6 +115,85 @@ pub(super) fn interpolate_sqlite_options(
     }
 }
 
+pub(super) fn interpolate_postgres_options(
+    options: &PostgresConnectionOptions,
+    interpolate: &impl Fn(&str) -> String,
+) -> PostgresConnectionOptions {
+    PostgresConnectionOptions {
+        connect_mode: options.connect_mode.as_deref().map(interpolate),
+        application_name: options.application_name.as_deref().map(interpolate),
+        search_path: options.search_path.as_deref().map(interpolate),
+        target_session_attrs: options.target_session_attrs.as_deref().map(interpolate),
+        connect_timeout_ms: options.connect_timeout_ms,
+        statement_timeout_ms: options.statement_timeout_ms,
+        lock_timeout_ms: options.lock_timeout_ms,
+        idle_in_transaction_session_timeout_ms: options.idle_in_transaction_session_timeout_ms,
+        use_tls: options.use_tls,
+        verify_server_certificate: options.verify_server_certificate,
+        ca_certificate_path: options.ca_certificate_path.as_deref().map(interpolate),
+        client_certificate_path: options.client_certificate_path.as_deref().map(interpolate),
+        client_key_path: options.client_key_path.as_deref().map(interpolate),
+        certificate_password_secret_ref: options.certificate_password_secret_ref.clone(),
+        unix_socket_path: options.unix_socket_path.as_deref().map(interpolate),
+        cloud_sql_instance: options.cloud_sql_instance.as_deref().map(interpolate),
+        cockroach_deployment_mode: options
+            .cockroach_deployment_mode
+            .as_deref()
+            .map(interpolate),
+        cockroach_organization: options.cockroach_organization.as_deref().map(interpolate),
+        cockroach_cluster_name: options.cockroach_cluster_name.as_deref().map(interpolate),
+        cockroach_cluster_id: options.cockroach_cluster_id.as_deref().map(interpolate),
+        cockroach_cloud_region: options.cockroach_cloud_region.as_deref().map(interpolate),
+        cockroach_default_region: options.cockroach_default_region.as_deref().map(interpolate),
+        cockroach_locality: options.cockroach_locality.as_deref().map(interpolate),
+        cockroach_server_version: options.cockroach_server_version.as_deref().map(interpolate),
+        cockroach_build_tag: options.cockroach_build_tag.as_deref().map(interpolate),
+        cockroach_auth_disabled_reason: options
+            .cockroach_auth_disabled_reason
+            .as_deref()
+            .map(interpolate),
+        cockroach_tls_disabled_reason: options
+            .cockroach_tls_disabled_reason
+            .as_deref()
+            .map(interpolate),
+        cockroach_capabilities: options.cockroach_capabilities.clone(),
+        timescale_deployment_mode: options
+            .timescale_deployment_mode
+            .as_deref()
+            .map(interpolate),
+        timescale_project: options.timescale_project.as_deref().map(interpolate),
+        timescale_service_id: options.timescale_service_id.as_deref().map(interpolate),
+        timescale_region: options.timescale_region.as_deref().map(interpolate),
+        timescale_extension_schema: options
+            .timescale_extension_schema
+            .as_deref()
+            .map(interpolate),
+        timescale_extension_version: options
+            .timescale_extension_version
+            .as_deref()
+            .map(interpolate),
+        timescale_server_version: options.timescale_server_version.as_deref().map(interpolate),
+        timescale_license: options.timescale_license.as_deref().map(interpolate),
+        timescale_policy_execution_disabled_reason: options
+            .timescale_policy_execution_disabled_reason
+            .as_deref()
+            .map(interpolate),
+        timescale_compression_disabled_reason: options
+            .timescale_compression_disabled_reason
+            .as_deref()
+            .map(interpolate),
+        timescale_retention_disabled_reason: options
+            .timescale_retention_disabled_reason
+            .as_deref()
+            .map(interpolate),
+        timescale_continuous_aggregate_disabled_reason: options
+            .timescale_continuous_aggregate_disabled_reason
+            .as_deref()
+            .map(interpolate),
+        timescale_capabilities: options.timescale_capabilities.clone(),
+    }
+}
+
 pub(super) fn interpolate_sqlserver_options(
     options: &SqlServerConnectionOptions,
     interpolate: &impl Fn(&str) -> String,
@@ -207,48 +286,4 @@ pub(super) fn interpolate_oracle_options(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::models::SecretRef;
-
-    #[test]
-    fn interpolates_memcached_options_without_secret_values() {
-        let options = MemcachedConnectionOptions {
-            servers: vec!["{{CACHE_HOST}}:11211".into(), "cache-b:11211".into()],
-            username: Some("{{CACHE_USER}}".into()),
-            namespace_prefix: Some("{{CACHE_PREFIX}}:".into()),
-            sasl_password_secret_ref: Some(SecretRef {
-                id: "secret-memcached-sasl".into(),
-                provider: "os-keyring".into(),
-                service: "DataPad++".into(),
-                account: "conn-memcached".into(),
-                label: "Memcached SASL password".into(),
-            }),
-            request_timeout_ms: Some(15_000),
-            ..MemcachedConnectionOptions::default()
-        };
-        let interpolate = |value: &str| {
-            value
-                .replace("{{CACHE_HOST}}", "cache-a")
-                .replace("{{CACHE_USER}}", "worker")
-                .replace("{{CACHE_PREFIX}}", "catalog")
-        };
-
-        let resolved = interpolate_memcached_options(&options, &interpolate);
-
-        assert_eq!(
-            resolved.servers,
-            vec!["cache-a:11211".to_string(), "cache-b:11211".to_string()]
-        );
-        assert_eq!(resolved.username.as_deref(), Some("worker"));
-        assert_eq!(resolved.namespace_prefix.as_deref(), Some("catalog:"));
-        assert_eq!(resolved.request_timeout_ms, Some(15_000));
-        assert_eq!(
-            resolved
-                .sasl_password_secret_ref
-                .as_ref()
-                .map(|secret| secret.id.as_str()),
-            Some("secret-memcached-sasl")
-        );
-    }
-}
+mod tests;

@@ -545,6 +545,35 @@ describe('SQL SELECT query builder', () => {
     ).toBe('select * from [main].[accounts] limit 100;')
   })
 
+  it('uses MySQL backtick identifiers and numeric boolean literals', () => {
+    expect(
+      buildSqlSelectQueryText(
+        {
+          kind: 'sql-select',
+          schema: 'Sales DB',
+          table: 'Order Items',
+          projectionFields: [{ id: 'field-order-id', field: 'order id' }],
+          filters: [
+            {
+              id: 'filter-active',
+              enabled: true,
+              field: 'active',
+              operator: 'eq',
+              value: 'true',
+              valueType: 'boolean',
+            },
+          ],
+          filterLogic: 'and',
+          sort: [],
+          limit: 10,
+        },
+        'mysql',
+      ),
+    ).toBe(
+      'select `order id` from `Sales DB`.`Order Items` where `active` = 1 limit 10;',
+    )
+  })
+
   it('parses simple table SELECTs back into builder state', () => {
     expect(parseSqlSelectQueryText('select top 50 [order_id], [status] from [dbo].[orders] order by [order_id] desc;', 'sqlserver')).toMatchObject({
       kind: 'sql-select',
@@ -556,6 +585,22 @@ describe('SQL SELECT query builder', () => {
       ],
       sort: [{ field: 'order_id', direction: 'desc' }],
       limit: 50,
+    })
+
+    expect(
+      parseSqlSelectQueryText(
+        'select `order id`, status from `Sales DB`.`Order Items` limit 30;',
+        'mysql',
+      ),
+    ).toMatchObject({
+      kind: 'sql-select',
+      schema: 'Sales DB',
+      table: 'Order Items',
+      projectionFields: [
+        { field: 'order id' },
+        { field: 'status' },
+      ],
+      limit: 30,
     })
   })
 })

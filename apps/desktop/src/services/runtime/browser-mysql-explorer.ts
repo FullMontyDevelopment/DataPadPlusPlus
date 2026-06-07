@@ -7,7 +7,8 @@ import {
 
 export function createMysqlExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
   const database = connection.database?.trim() || ''
-  const engineLabel = connection.engine === 'mariadb' ? 'MariaDB' : 'MySQL'
+  const isMariaDb = connection.engine === 'mariadb'
+  const engineLabel = isMariaDb ? 'MariaDB' : 'MySQL'
 
   if (!scope) {
     return [
@@ -44,16 +45,39 @@ export function createMysqlExplorerNodes(connection: ConnectionProfile, scope?: 
   if (scope === 'mysql:security') {
     return [
       mysqlNode(connection, 'mysql:security:users', 'Users', 'users', 'User accounts and authentication plugins', undefined, ['Users / Privileges']),
-      mysqlNode(connection, 'mysql:security:roles', 'Roles', 'roles', 'Role assignments where supported', undefined, ['Users / Privileges']),
+      mysqlNode(
+        connection,
+        'mysql:security:roles',
+        'Roles',
+        'roles',
+        isMariaDb ? 'MariaDB roles from mysql.user is_role' : 'Role assignments where supported',
+        undefined,
+        ['Users / Privileges'],
+      ),
+      ...(isMariaDb
+        ? [mysqlNode(connection, 'mysql:security:role-mappings', 'Role Mappings', 'roles', 'MariaDB mysql.roles_mapping memberships', undefined, ['Users / Privileges'])]
+        : []),
       mysqlNode(connection, 'mysql:security:permissions', 'Grants', 'permissions', 'Visible grants and privilege scopes', undefined, ['Users / Privileges']),
     ]
   }
 
   if (scope === 'mysql:diagnostics') {
-    return [
+    const sharedDiagnostics = [
       mysqlNode(connection, 'mysql:diagnostics:sessions', 'Sessions', 'sessions', 'Processlist and active statements', undefined, ['Diagnostics']),
       mysqlNode(connection, 'mysql:diagnostics:statistics', 'Status Counters', 'statistics', 'Server and table counters', undefined, ['Diagnostics']),
       mysqlNode(connection, 'mysql:diagnostics:slow-queries', 'Slow Queries', 'slow-queries', 'Digest latency and slow-query signals', undefined, ['Diagnostics']),
+      mysqlNode(connection, 'mysql:diagnostics:performance-schema', 'Performance Schema', 'performance-schema', 'Statement digests, waits, and table/index I/O', undefined, ['Diagnostics']),
+      mysqlNode(connection, 'mysql:diagnostics:metadata-locks', 'Metadata Locks', 'metadata-locks', 'Pending and granted metadata locks', undefined, ['Diagnostics']),
+    ]
+    return [
+      ...sharedDiagnostics,
+      ...(isMariaDb
+        ? [
+            mysqlNode(connection, 'mysql:diagnostics:server-variables', 'Server Variables', 'statistics', 'Version, SQL mode, and server defaults', undefined, ['Diagnostics']),
+            mysqlNode(connection, 'mysql:diagnostics:storage-engines', 'Storage Engines', 'storage', 'MariaDB storage engines and capabilities', undefined, ['Diagnostics']),
+            mysqlNode(connection, 'mysql:diagnostics:analyze-profile', 'ANALYZE FORMAT=JSON', 'profile', 'MariaDB execution profile preview', undefined, ['Diagnostics']),
+          ]
+        : [mysqlNode(connection, 'mysql:diagnostics:optimizer-trace', 'Optimizer Trace', 'optimizer-trace', 'Optimizer trace settings and recent trace availability', undefined, ['Diagnostics'])]),
       mysqlNode(connection, 'mysql:diagnostics:innodb-status', 'InnoDB Status', 'innodb-status', 'Buffer pool, lock waits, and engine health', undefined, ['Diagnostics']),
       mysqlNode(connection, 'mysql:diagnostics:replication', 'Replication', 'replication', 'Source/replica channel health', undefined, ['Diagnostics']),
     ]
@@ -86,6 +110,7 @@ export function createMysqlExplorerNodes(connection: ConnectionProfile, scope?: 
 
 export function mysqlInspectQueryTemplate(connection: ConnectionProfile, nodeId: string) {
   const database = connection.database?.trim() || ''
+  const isMariaDb = connection.engine === 'mariadb'
 
   if (nodeId.startsWith('table:') || nodeId.startsWith('view:')) {
     const { database: scopedDatabase, objectName } = parseMysqlObjectScope(nodeId, database)
@@ -117,12 +142,54 @@ export function mysqlInspectQueryTemplate(connection: ConnectionProfile, nodeId:
     return `select table_name, table_type, engine from information_schema.tables where table_schema = '${scopedDatabase}' order by table_name;`
   }
 
+  if (nodeId.includes('role-mappings')) {
+    return 'select `User` as user_name, `Host` as host, `Role` as role_name, `Admin_option` as admin_option from mysql.roles_mapping order by `User`, `Role`;'
+  }
+
+  if (nodeId.includes('security:roles') && isMariaDb) {
+    return "select user, host, is_role from mysql.user where is_role = 'Y' order by user, host;"
+  }
+
   if (nodeId.includes('security')) {
     return 'select user, host, plugin, account_locked from mysql.user order by user, host;'
   }
 
   if (nodeId.includes('slow-queries')) {
     return 'select digest_text, count_star, avg_timer_wait, max_timer_wait, sum_rows_examined from performance_schema.events_statements_summary_by_digest order by avg_timer_wait desc limit 50;'
+  }
+
+  if (nodeId.includes('performance-schema')) {
+    return [
+      'select * from performance_schema.events_statements_summary_by_digest order by sum_timer_wait desc limit 50;',
+      'select * from performance_schema.table_io_waits_summary_by_index_usage order by sum_timer_wait desc limit 100;',
+    ].join('\n')
+  }
+
+  if (nodeId.includes('metadata-locks')) {
+    return 'select * from performance_schema.metadata_locks order by lock_status, object_schema, object_name limit 100;'
+  }
+
+  if (nodeId.includes('server-variables')) {
+    return [
+      "show variables like 'version%';",
+      "show variables like 'sql_mode';",
+      "show variables like 'default_storage_engine';",
+    ].join('\n')
+  }
+
+  if (nodeId.includes('storage-engines')) {
+    return 'show engines;'
+  }
+
+  if (nodeId.includes('analyze-profile')) {
+    return 'analyze format=json select 1;'
+  }
+
+  if (nodeId.includes('optimizer-trace') && !isMariaDb) {
+    return [
+      'select @@optimizer_trace, @@optimizer_trace_limit, @@optimizer_trace_max_mem_size;',
+      'select query, trace, missing_bytes_beyond_max_mem_size, insufficient_privileges from information_schema.optimizer_trace limit 5;',
+    ].join('\n')
   }
 
   if (nodeId.includes('innodb-status')) {

@@ -13,7 +13,13 @@ describe('PostgresObjectViewInsights', () => {
           rowCount: 476,
           size: '280 KB',
           tables: [{ name: 'accounts', rows: 128, size: '96 KB' }],
-          extensions: [{ name: 'pg_stat_statements', version: '1.10' }],
+          extensions: [
+            { name: 'pg_stat_statements', version: '1.10', updateAvailable: false, status: 'installed' },
+            { name: 'uuid-ossp', version: '1.1', updateAvailable: true, status: 'update available' },
+          ],
+          extensionObjects: [
+            { extension: 'uuid-ossp', object: 'function uuid_generate_v4()', dependency: 'extension member' },
+          ],
           indexes: [
             { name: 'accounts_pkey', columns: 'id', unique: true, valid: true },
             { name: 'orders_updated_at_idx', columns: 'updated_at', unique: false, valid: true },
@@ -23,7 +29,9 @@ describe('PostgresObjectViewInsights', () => {
             { index: 'orders_updated_at_idx', scans: 0, bloatRisk: 'review' },
           ],
           roles: [{ name: 'app', login: true, superuser: false, memberships: 'reporting' }],
-          permissions: [{ principal: 'reporting', privilege: 'SELECT', object: 'public.accounts' }],
+          permissions: [{ principal: 'reporting', privilege: 'SELECT', object: 'public.accounts', objectKind: 'relation' }],
+          roleMemberships: [{ role: 'app', memberOf: 'reporting', adminOption: false }],
+          defaultPrivileges: [{ principal: 'reporting', privilege: 'SELECT', objectKind: 'tables' }],
           activeSessions: 4,
           blockedSessions: 1,
           sessions: [{ user: 'app', state: 'active', blockedBy: '' }],
@@ -38,8 +46,11 @@ describe('PostgresObjectViewInsights', () => {
     expect(screen.getByLabelText('PostgreSQL security posture')).toBeInTheDocument()
     expect(screen.getByLabelText('PostgreSQL activity posture')).toBeInTheDocument()
     expect(screen.getByText('Extensions')).toBeInTheDocument()
+    expect(screen.getByText('Ext Objects')).toBeInTheDocument()
+    expect(screen.getByText('function uuid_generate_v4()')).toBeInTheDocument()
+    expect(screen.getByText('Memberships')).toBeInTheDocument()
     expect(screen.getByText('orders_updated_at_idx')).toBeInTheDocument()
-    expect(screen.getByText('app')).toBeInTheDocument()
+    expect(screen.getAllByText('app').length).toBeGreaterThan(0)
     expect(screen.queryByText(/raw inspection payload/i)).not.toBeInTheDocument()
   })
 

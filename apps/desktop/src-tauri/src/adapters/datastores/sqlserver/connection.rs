@@ -60,9 +60,7 @@ fn config_from_fields(connection: &ResolvedConnectionProfile) -> Result<Config, 
     if !matches!(auth_mode, "sql-server") {
         return Err(CommandError::new(
             "sqlserver-auth-mode-unavailable",
-            format!(
-                "SQL Server {auth_mode} authentication is represented in the profile, but live connections require a configured token/runtime path. Use SQL Server authentication or a connection string for now."
-            ),
+            sqlserver_auth_disabled_reason(auth_mode, options),
         ));
     }
 
@@ -157,9 +155,67 @@ fn apply_sqlserver_options(
     Ok(())
 }
 
+fn sqlserver_auth_disabled_reason(
+    auth_mode: &str,
+    options: Option<&crate::domain::models::SqlServerConnectionOptions>,
+) -> String {
+    let Some(options) = options else {
+        return format!(
+            "SQL Server {auth_mode} authentication is represented in the profile, but live connections require an adapter-specific runtime path. Use SQL Server authentication or a connection string for now."
+        );
+    };
+
+    match auth_mode {
+        "windows" => "Windows Integrated authentication is saved in the profile, but the current TDS runtime does not expose SSPI/Kerberos credential delegation. Use SQL Server authentication or a connection string for now.".into(),
+        "azure-ad-password" => {
+            if options.aad_access_token_secret_ref.is_some() {
+                "Microsoft Entra password mode has a stored token reference, but live token exchange is not wired to the SQL Server driver yet. Use SQL Server authentication or a connection string for now.".into()
+            } else {
+                "Microsoft Entra password mode needs a token-acquisition runtime before live execution. Store tenant/client metadata for planning, then use SQL Server authentication or a connection string for now.".into()
+            }
+        }
+        "azure-ad-integrated" => "Microsoft Entra integrated authentication needs OS account token broker support that is not wired to the SQL Server driver yet. Use SQL Server authentication or a connection string for now.".into(),
+        "azure-ad-interactive" => "Microsoft Entra interactive authentication needs browser/device-code token acquisition that is not wired to the SQL Server driver yet. Use SQL Server authentication or a connection string for now.".into(),
+        "azure-ad-managed-identity" => {
+            if has_text(options.azure_managed_identity_client_id.as_deref()) {
+                "Managed identity client id is saved, but DataPad++ has not wired the Azure managed identity token endpoint into SQL Server live connections yet.".into()
+            } else {
+                "Managed identity authentication needs an Azure managed identity token endpoint and optional client id before SQL Server live connections can use it.".into()
+            }
+        }
+        "azure-ad-service-principal" => {
+            if !has_text(options.azure_tenant_id.as_deref())
+                || !has_text(options.azure_client_id.as_deref())
+                || options.service_principal_secret_ref.is_none()
+            {
+                "Service principal authentication needs tenant id, client id, and a stored client-secret reference before it can be promoted from plan-only.".into()
+            } else {
+                "Service principal metadata is complete, but token exchange is not wired to the SQL Server driver yet. Use SQL Server authentication or a connection string for now.".into()
+            }
+        }
+        "certificate" => {
+            if !has_text(options.client_certificate_path.as_deref())
+                && !has_text(options.certificate_store.as_deref())
+                && !has_text(options.certificate_thumbprint.as_deref())
+            {
+                "Certificate authentication needs a client certificate path or certificate store/thumbprint before it can be promoted from plan-only.".into()
+            } else {
+                "Certificate metadata is saved, but certificate-based SQL Server authentication is not wired to the current TDS runtime yet.".into()
+            }
+        }
+        _ => format!(
+            "SQL Server {auth_mode} authentication is represented in the profile, but live connections require an adapter-specific runtime path. Use SQL Server authentication or a connection string for now."
+        ),
+    }
+}
+
+fn has_text(value: Option<&str>) -> bool {
+    matches!(value, Some(item) if !item.trim().is_empty())
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::domain::models::SqlServerConnectionOptions;
+    use crate::domain::models::{SecretRef, SqlServerConnectionOptions};
 
     use super::*;
 
@@ -192,6 +248,37 @@ mod tests {
         let error = sqlserver_config(&connection).expect_err("AAD should be gated");
 
         assert_eq!(error.code, "sqlserver-auth-mode-unavailable");
+        assert!(error.message.contains("OS account token broker"));
+    }
+
+    #[test]
+    fn sqlserver_auth_disabled_reasons_are_mode_specific() {
+        let mut service_principal = sqlserver_options("azure-sql");
+        service_principal.authentication_mode = Some("azure-ad-service-principal".into());
+        service_principal.azure_tenant_id = Some("tenant".into());
+        service_principal.azure_client_id = Some("client".into());
+        service_principal.service_principal_secret_ref = Some(secret_ref("sp-secret"));
+        let service_principal_error =
+            sqlserver_config(&resolved_connection(Some(service_principal))).expect_err("SP gated");
+        assert!(service_principal_error
+            .message
+            .contains("token exchange is not wired"));
+
+        let mut managed_identity = sqlserver_options("azure-sql");
+        managed_identity.authentication_mode = Some("azure-ad-managed-identity".into());
+        let managed_identity_error = sqlserver_config(&resolved_connection(Some(managed_identity)))
+            .expect_err("managed identity gated");
+        assert!(managed_identity_error
+            .message
+            .contains("managed identity token endpoint"));
+
+        let mut certificate = sqlserver_options("tcp");
+        certificate.authentication_mode = Some("certificate".into());
+        let certificate_error =
+            sqlserver_config(&resolved_connection(Some(certificate))).expect_err("cert gated");
+        assert!(certificate_error
+            .message
+            .contains("client certificate path or certificate store/thumbprint"));
     }
 
     fn sqlserver_options(connect_mode: &str) -> SqlServerConnectionOptions {
@@ -201,6 +288,16 @@ mod tests {
             authentication_mode: Some("sql-server".into()),
             application_name: Some("DataPad++ Tests".into()),
             ..SqlServerConnectionOptions::default()
+        }
+    }
+
+    fn secret_ref(id: &str) -> SecretRef {
+        SecretRef {
+            id: id.into(),
+            provider: "os-keyring".into(),
+            service: "DataPad++".into(),
+            account: "conn".into(),
+            label: "SQL Server secret".into(),
         }
     }
 
@@ -221,6 +318,8 @@ mod tests {
             redis_options: None,
             memcached_options: None,
             sqlite_options: None,
+            postgres_options: None,
+            mysql_options: None,
             sqlserver_options,
             oracle_options: None,
             dynamo_db_options: None,

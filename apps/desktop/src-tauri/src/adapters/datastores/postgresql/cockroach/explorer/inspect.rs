@@ -2,12 +2,33 @@ use serde_json::{json, Map, Value};
 use sqlx::postgres::PgPoolOptions;
 
 use super::super::super::*;
+use super::capabilities::cockroach_capability;
 use super::live::cockroach_live_payload;
 
 pub(crate) async fn inspect_cockroach_node(
     connection: &ResolvedConnectionProfile,
     node_id: &str,
 ) -> Option<(String, String, Value)> {
+    if let Some((capability, warning)) = cockroach_node_capability(node_id) {
+        if !cockroach_capability(connection, capability) {
+            return Some((
+                format!(
+                    "CockroachDB metadata is restricted for {}.",
+                    connection.name
+                ),
+                "-- CockroachDB metadata hidden by profile capability.".into(),
+                json!({
+                    "engine": "cockroachdb",
+                    "nodeId": node_id,
+                    "kind": "restricted",
+                    "disabledReason": warning,
+                    "warnings": [warning],
+                    "objects": []
+                }),
+            ));
+        }
+    }
+
     let surface = cockroach_surface_for_node(node_id)?;
     let summary = surface.summary;
     let query_template = surface.query_template.clone();
@@ -18,6 +39,82 @@ pub(crate) async fn inspect_cockroach_node(
         query_template,
         payload,
     ))
+}
+
+fn cockroach_node_capability(node_id: &str) -> Option<(&'static str, &'static str)> {
+    let normalized = node_id.trim().to_lowercase().replace('_', "-");
+    if matches!(
+        normalized.as_str(),
+        "cockroach:cluster" | "cockroach:security" | "cockroach:diagnostics"
+    ) {
+        return None;
+    }
+    if normalized.contains("jobs") {
+        return Some((
+            "inspect_jobs",
+            "CockroachDB job metadata is hidden because this profile has not enabled job inspection.",
+        ));
+    }
+    if normalized.contains("ranges") {
+        return Some((
+            "inspect_ranges",
+            "CockroachDB range metadata is hidden because this profile has not enabled crdb_internal range inspection.",
+        ));
+    }
+    if normalized.contains("regions") || normalized.contains("localities") {
+        return Some((
+            "inspect_regions",
+            "CockroachDB region and locality metadata is hidden because this profile has not enabled region inspection.",
+        ));
+    }
+    if normalized.contains("cluster-status") {
+        return Some((
+            "inspect_cluster_status",
+            "CockroachDB node and cluster-status metadata is hidden because this profile has not enabled cluster-status inspection.",
+        ));
+    }
+    if normalized.contains("cluster-settings") {
+        return Some((
+            "inspect_cluster_settings",
+            "CockroachDB cluster settings are hidden because this profile has not enabled cluster-setting inspection.",
+        ));
+    }
+    if normalized.contains("sessions") {
+        return Some((
+            "inspect_sessions",
+            "CockroachDB session metadata is hidden because this profile has not enabled session inspection.",
+        ));
+    }
+    if normalized.contains("certificates") {
+        return Some((
+            "inspect_certificates",
+            "CockroachDB certificate metadata is hidden because this profile has not enabled certificate inspection.",
+        ));
+    }
+    if normalized.contains("zone-config") {
+        return Some((
+            "inspect_zone_configurations",
+            "CockroachDB zone configurations are hidden because this profile has not enabled zone-configuration inspection.",
+        ));
+    }
+    if normalized.contains("roles") || normalized.contains("grants") {
+        return Some((
+            "inspect_roles_and_grants",
+            "CockroachDB roles and grants are hidden because this profile has not enabled role/grant inspection.",
+        ));
+    }
+    if normalized.contains("contention")
+        || normalized.contains("transactions")
+        || normalized.contains("statements")
+        || normalized.contains("locks")
+        || normalized.contains("statistics")
+    {
+        return Some((
+            "inspect_contention",
+            "CockroachDB contention, lock, transaction, and statement-stat metadata is hidden because this profile has not enabled contention inspection.",
+        ));
+    }
+    None
 }
 
 struct CockroachInspectionSurface {

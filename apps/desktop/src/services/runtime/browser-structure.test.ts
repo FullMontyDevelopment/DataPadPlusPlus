@@ -5,28 +5,7 @@ import { createStructureResponseLocally } from './browser-structure'
 describe('browser structure preview', () => {
   it('renders Redis as a keyspace overview instead of prefix samples', () => {
     const snapshot = createBlankSnapshot()
-    snapshot.connections = [{
-      id: 'conn-redis',
-      name: 'Redis',
-      engine: 'redis',
-      family: 'keyvalue',
-      host: 'localhost',
-      port: 6379,
-      database: '0',
-      connectionString: undefined,
-      connectionMode: 'native',
-      environmentIds: ['env-local'],
-      tags: [],
-      favorite: false,
-      readOnly: false,
-      icon: 'redis',
-      color: undefined,
-      group: undefined,
-      notes: undefined,
-      auth: {},
-      createdAt: '2026-01-01T00:00:00.000Z',
-      updatedAt: '2026-01-01T00:00:00.000Z',
-    }]
+    snapshot.connections = [keyValueConnection('redis')]
 
     const response = createStructureResponseLocally(snapshot, {
       connectionId: 'conn-redis',
@@ -45,4 +24,52 @@ describe('browser structure preview', () => {
       dataType: 'hash',
     }))
   })
+
+  it('renders Valkey preview structure with Valkey-specific copy', () => {
+    const snapshot = createBlankSnapshot()
+    snapshot.connections = [keyValueConnection('valkey')]
+
+    const response = createStructureResponseLocally(snapshot, {
+      connectionId: 'conn-valkey',
+      environmentId: 'env-local',
+      limit: 120,
+    })
+
+    expect(response.summary).toContain('Valkey keyspace overview')
+    expect(response.groups).toEqual([
+      expect.objectContaining({
+        id: 'db:0',
+        label: 'DB 0',
+        kind: 'database',
+        detail: 'Logical Valkey database',
+      }),
+    ])
+  })
 })
+
+function keyValueConnection(engine: 'redis' | 'valkey') {
+  const label = engine === 'valkey' ? 'Valkey' : 'Redis'
+
+  return {
+    id: `conn-${engine}`,
+    name: label,
+    engine,
+    family: 'keyvalue' as const,
+    host: 'localhost',
+    port: 6379,
+    database: '0',
+    connectionString: undefined,
+    connectionMode: 'native' as const,
+    environmentIds: ['env-local'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: engine,
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}

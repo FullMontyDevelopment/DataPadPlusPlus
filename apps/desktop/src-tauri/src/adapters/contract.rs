@@ -130,6 +130,86 @@ pub trait DatastoreAdapter: Send + Sync {
             }
         }
 
+        if connection.engine == "mongodb"
+            && matches!(
+                request.operation_id.as_str(),
+                "mongodb.collection.export" | "mongodb.collection.import"
+            )
+        {
+            return super::datastores::mongodb::execute_mongodb_collection_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+
+        if operation.execution_support == "live"
+            && matches!(connection.engine.as_str(), "redis" | "valkey")
+            && matches!(
+                request.operation_id.as_str(),
+                "redis.key.export" | "redis.key.import" | "valkey.key.export" | "valkey.key.import"
+            )
+        {
+            return super::datastores::redis::execute_redis_key_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+
+        if operation.execution_support == "live"
+            && connection.engine == "sqlite"
+            && matches!(
+                request.operation_id.as_str(),
+                "sqlite.database.backup" | "sqlite.table.export" | "sqlite.table.import"
+            )
+        {
+            return super::datastores::sqlite::execute_sqlite_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+
+        if operation.execution_support == "live"
+            && connection.engine == "postgresql"
+            && matches!(
+                request.operation_id.as_str(),
+                "postgresql.data.import-export" | "postgresql.data.backup-restore"
+            )
+        {
+            return super::datastores::postgresql::execute_postgres_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+
+        if operation.execution_support == "live"
+            && connection.engine == "sqlserver"
+            && matches!(
+                request.operation_id.as_str(),
+                "sqlserver.data.import-export" | "sqlserver.data.backup-restore"
+            )
+        {
+            return super::datastores::sqlserver::execute_sqlserver_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+
+        if operation.execution_support == "live"
+            && matches!(connection.engine.as_str(), "mysql" | "mariadb")
+            && matches!(
+                request.operation_id.as_str(),
+                "mysql.data.import-export"
+                    | "mysql.data.backup-restore"
+                    | "mariadb.data.import-export"
+                    | "mariadb.data.backup-restore"
+            )
+        {
+            return super::datastores::mysql::execute_mysql_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+
         if operation.execution_support != "live" {
             messages.push(
                 "Generated an operation plan. Live execution is not enabled for this operation."
@@ -224,6 +304,7 @@ pub trait DatastoreAdapter: Send + Sync {
         }
 
         if request.operation_id.contains(".query.") {
+            let query_text = operation_query_execution_text(request, &plan);
             let execution_request = ExecutionRequest {
                 execution_id: None,
                 tab_id: request
@@ -233,12 +314,14 @@ pub trait DatastoreAdapter: Send + Sync {
                 connection_id: request.connection_id.clone(),
                 environment_id: request.environment_id.clone(),
                 language: plan.request_language.clone(),
-                query_text: plan.generated_request.clone(),
+                query_text,
                 execution_input_mode: None,
                 script_text: None,
                 selected_text: None,
                 mode: if request.operation_id.ends_with("query.explain") {
                     Some("explain".into())
+                } else if request.operation_id.ends_with("query.profile") {
+                    Some("profile".into())
                 } else {
                     Some("full".into())
                 },
@@ -348,4 +431,33 @@ pub trait DatastoreAdapter: Send + Sync {
         connection: &ResolvedConnectionProfile,
         request: &CancelExecutionRequest,
     ) -> Result<CancelExecutionResult, CommandError>;
+}
+
+fn operation_query_execution_text(
+    request: &OperationExecutionRequest,
+    plan: &OperationPlan,
+) -> String {
+    if request.operation_id.ends_with("query.profile") {
+        return operation_string_parameter(request, "query")
+            .or_else(|| operation_string_parameter(request, "sql"))
+            .unwrap_or_else(|| {
+                format!(
+                    "select * from {} limit 100",
+                    request.object_name.as_deref().unwrap_or("<object>")
+                )
+            });
+    }
+
+    plan.generated_request.clone()
+}
+
+fn operation_string_parameter(request: &OperationExecutionRequest, key: &str) -> Option<String> {
+    request
+        .parameters
+        .as_ref()
+        .and_then(|parameters| parameters.get(key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }

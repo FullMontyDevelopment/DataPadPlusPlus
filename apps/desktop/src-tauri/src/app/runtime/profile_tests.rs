@@ -1,7 +1,7 @@
 use super::profiles::{connection_test_timeout_ms, fixture_connection_warnings};
 use crate::domain::models::{
-    MemcachedConnectionOptions, RedisConnectionOptions, ResolvedConnectionProfile,
-    SqlServerConnectionOptions,
+    MemcachedConnectionOptions, MySqlConnectionOptions, RedisConnectionOptions,
+    ResolvedConnectionProfile, SqlServerConnectionOptions,
 };
 
 #[test]
@@ -70,6 +70,13 @@ fn connection_test_timeout_uses_configured_values_with_bounds() {
     assert_eq!(connection_test_timeout_ms(&connection), 12_000);
 
     connection.memcached_options = None;
+    connection.mysql_options = Some(MySqlConnectionOptions {
+        command_timeout_ms: Some(18_000),
+        ..MySqlConnectionOptions::default()
+    });
+    assert_eq!(connection_test_timeout_ms(&connection), 18_000);
+
+    connection.mysql_options = None;
     connection.sqlserver_options = Some(SqlServerConnectionOptions {
         command_timeout_ms: Some(42_000),
         ..SqlServerConnectionOptions::default()
@@ -98,6 +105,8 @@ fn resolved_connection(
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,

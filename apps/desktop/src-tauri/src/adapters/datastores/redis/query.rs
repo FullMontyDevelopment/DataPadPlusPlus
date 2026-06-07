@@ -5,6 +5,7 @@ use redis::Value as RedisValue;
 use serde_json::{json, Value};
 
 use super::super::super::*;
+use super::command_info::command_info_payloads;
 use super::commands::{is_redis_write_command, is_supported_redis_read_command};
 use super::connection::redis_connection;
 use super::RedisAdapter;
@@ -299,22 +300,42 @@ async fn execute_redis_single_command(
             }
             let value: RedisValue = redis_command.query_async(&mut *redis).await?;
             let json_value = redis_value_to_json(&value);
+            let command_metadata_payloads = if command == "COMMAND" {
+                command_info_payloads(line, &json_value)
+            } else {
+                None
+            };
+            let command_metadata_count = command_metadata_payloads
+                .as_ref()
+                .and_then(|payloads| redis_command_metadata_count(payloads));
+            let mut payloads = command_metadata_payloads.unwrap_or_else(|| {
+                vec![payload_json(json!({
+                    "command": command,
+                    "value": json_value,
+                }))]
+            });
+            payloads.extend([
+                payload_raw(redis_value_to_raw(&value)),
+                payload_resp(redis_value_to_resp(&value)),
+            ]);
 
             RedisCommandOutcome {
-                payloads: vec![
-                    payload_json(json!({
-                        "command": command,
-                        "value": json_value,
-                    })),
-                    payload_raw(redis_value_to_raw(&value)),
-                    payload_resp(redis_value_to_resp(&value)),
-                ],
-                summary: format!("Redis command {command} returned successfully."),
+                payloads,
+                summary: command_metadata_count
+                    .map(|count| format!("Redis COMMAND metadata returned {count} command(s)."))
+                    .unwrap_or_else(|| format!("Redis command {command} returned successfully.")),
             }
         }
     };
 
     Ok(outcome)
+}
+
+fn redis_command_metadata_count(payloads: &[Value]) -> Option<usize> {
+    payloads
+        .iter()
+        .find_map(|payload| payload.get("value")?.get("commandMetadata")?.as_array())
+        .map(Vec::len)
 }
 
 fn validate_redis_console_command(line: &str) -> Result<(), CommandError> {

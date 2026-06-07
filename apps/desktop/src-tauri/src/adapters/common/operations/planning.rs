@@ -58,7 +58,12 @@ pub(crate) fn generated_operation_request(
             }
 
             if manifest.engine == "sqlite" {
-                return sqlite_operation_request(operation_id, object_name, &parameter_json);
+                return sqlite_operation_request(
+                    operation_id,
+                    object_name,
+                    parameters,
+                    &parameter_json,
+                );
             }
 
             if manifest.engine == "duckdb" {
@@ -66,14 +71,17 @@ pub(crate) fn generated_operation_request(
             }
 
             if matches!(manifest.engine.as_str(), "mysql" | "mariadb") {
-                if let Some(request) = mysql_operation_request(manifest, operation_id, object_name)
+                if let Some(request) =
+                    mysql_operation_request(manifest, operation_id, object_name, parameters)
                 {
                     return request;
                 }
             }
 
             if manifest.engine == "postgresql" {
-                if let Some(request) = postgres_operation_request(operation_id, object_name) {
+                if let Some(request) =
+                    postgres_operation_request(operation_id, object_name, parameters)
+                {
                     return request;
                 }
             }
@@ -243,28 +251,79 @@ fn document_operation_request(
     }
 
     if operation_id.ends_with("collection.export") {
+        let format = parameter("format")
+            .and_then(Value::as_str)
+            .unwrap_or("extended-json");
         return serde_json::to_string_pretty(&serde_json::json!({
             "database": database,
             "collection": collection,
             "operation": "export",
-            "format": parameter("format").cloned().unwrap_or_else(|| serde_json::json!("extended-json")),
+            "workflow": "mongodb.collection.export",
+            "format": format,
+            "target": {
+                "kind": "file",
+                "path": parameter("targetPath")
+                    .or_else(|| parameter("outputPath"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!(format!("<selected-file>.{}", mongo_file_extension(format))))
+            },
             "filter": parameter("filter").cloned().unwrap_or_else(|| serde_json::json!({})),
             "projection": parameter("projection").cloned().unwrap_or_else(|| serde_json::json!({})),
             "sort": parameter("sort").cloned().unwrap_or_else(|| serde_json::json!({})),
-            "batchSize": parameter("batchSize").cloned().unwrap_or_else(|| serde_json::json!(1000))
+            "limit": parameter("limit").cloned().unwrap_or(serde_json::Value::Null),
+            "batchSize": parameter("batchSize").cloned().unwrap_or_else(|| serde_json::json!(1000)),
+            "serializer": {
+                "supportedFormats": ["json", "extended-json", "ndjson", "csv", "bson"],
+                "extendedJsonMode": parameter("extendedJsonMode").cloned().unwrap_or_else(|| serde_json::json!("relaxed")),
+                "includeMetadata": parameter("includeMetadata").cloned().unwrap_or_else(|| serde_json::json!(true))
+            },
+            "validation": {
+                "dryRunFirst": true,
+                "explainFilter": true,
+                "requireReadableTarget": true
+            },
+            "executionGate": mongo_file_workflow_gate("read collection data and write the selected export file")
         }))
         .unwrap_or_else(|_| "{}".into());
     }
 
     if operation_id.ends_with("collection.import") {
+        let format = parameter("format")
+            .and_then(Value::as_str)
+            .unwrap_or("json");
         return serde_json::to_string_pretty(&serde_json::json!({
             "database": database,
             "collection": collection,
             "operation": "import",
-            "format": parameter("format").cloned().unwrap_or_else(|| serde_json::json!("json")),
+            "workflow": "mongodb.collection.import",
+            "format": format,
+            "source": {
+                "kind": "file",
+                "path": parameter("sourcePath")
+                    .or_else(|| parameter("inputPath"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!(format!("<selected-file>.{}", mongo_file_extension(format))))
+            },
             "mode": parameter("mode").cloned().unwrap_or_else(|| serde_json::json!("insertMany")),
             "validation": parameter("validation").cloned().unwrap_or_else(|| serde_json::json!("validate-before-write")),
-            "mapping": parameter("mapping").cloned().unwrap_or_else(|| serde_json::json!({}))
+            "ordered": parameter("ordered").cloned().unwrap_or_else(|| serde_json::json!(false)),
+            "batchSize": parameter("batchSize").cloned().unwrap_or_else(|| serde_json::json!(1000)),
+            "createCollection": parameter("createCollection").cloned().unwrap_or_else(|| serde_json::json!(false)),
+            "duplicateKeyPolicy": parameter("duplicateKeyPolicy").cloned().unwrap_or_else(|| serde_json::json!("stop")),
+            "mapping": parameter("mapping").cloned().unwrap_or_else(|| serde_json::json!({})),
+            "parser": {
+                "supportedFormats": ["json", "extended-json", "ndjson", "csv", "bson"],
+                "extendedJsonMode": parameter("extendedJsonMode").cloned().unwrap_or_else(|| serde_json::json!("relaxed")),
+                "csvHeader": parameter("csvHeader").cloned().unwrap_or_else(|| serde_json::json!(true))
+            },
+            "checks": [
+                "file-readable",
+                "format-detected",
+                "document-shape",
+                "validator-compatible",
+                "duplicate-key-policy"
+            ],
+            "executionGate": mongo_file_workflow_gate("read the selected import file and write documents only after validation")
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -313,6 +372,31 @@ fn document_operation_request(
         "drop" => format!("{{\n  \"dropCollection\": \"{object_name}\"\n}}"),
         _ => format!("{{\n  \"operation\": \"{operation_id}\",\n  \"parameters\": {parameter_json}\n}}"),
     }
+}
+
+fn mongo_file_extension(format: &str) -> &'static str {
+    match format {
+        "ndjson" => "ndjson",
+        "csv" => "csv",
+        "bson" => "bson",
+        _ => "json",
+    }
+}
+
+fn mongo_file_workflow_gate(permission: &str) -> Value {
+    serde_json::json!({
+        "owner": "mongodb-adapter",
+        "defaultSupport": "live",
+        "liveExecutor": "mongodb.collection-file-workflow",
+        "requiredPermission": permission,
+        "liveEvidence": [
+            "confirmed file picker path",
+            "serializer/parser fixture coverage for the selected format",
+            "read-only profile check",
+            "environment confirmation for write or costly work",
+            "before/after summary for writes"
+        ]
+    })
 }
 
 fn redis_operation_request(
@@ -2519,7 +2603,20 @@ fn cassandra_object_kind(kind: Option<&str>) -> &'static str {
     }
 }
 
-fn sqlite_operation_request(operation_id: &str, object_name: &str, parameter_json: &str) -> String {
+fn sqlite_operation_request(
+    operation_id: &str,
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+    parameter_json: &str,
+) -> String {
+    let schema = string_parameter(parameters, "schema").unwrap_or_else(|| {
+        sqlite_object_parts(object_name)
+            .map(|(schema, _)| schema)
+            .unwrap_or_else(|| "main".into())
+    });
+    let table = string_parameter(parameters, "table")
+        .or_else(|| sqlite_object_parts(object_name).map(|(_, table)| table));
+
     if operation_id.ends_with("index.create") {
         return format!(
             "create index [idx_{}_column_name] on {object_name} ([column_name]);",
@@ -2559,7 +2656,74 @@ fn sqlite_operation_request(operation_id: &str, object_name: &str, parameter_jso
     }
 
     if operation_id.contains("vacuum") {
-        return "-- Review file path and locks before running.\nvacuum;\n-- Or compact into a new file:\n-- vacuum into 'compact.sqlite';".into();
+        let compact_path = string_parameter(parameters, "targetPath")
+            .or_else(|| string_parameter(parameters, "outputPath"))
+            .unwrap_or_else(|| "<selected-file>.sqlite".into());
+        return format!(
+            "-- Review file path and locks before running.\nvacuum;\n-- Or compact into a new file:\nvacuum {schema} into '{}';",
+            compact_path.replace('\'', "''")
+        );
+    }
+
+    if operation_id.ends_with("database.backup") {
+        let target_path = string_parameter(parameters, "targetPath")
+            .or_else(|| string_parameter(parameters, "outputPath"))
+            .unwrap_or_else(|| "<selected-file>.sqlite".into());
+        return format!(
+            "vacuum {} into '{}';\n-- Guardrails: absolute target path, parent folder must exist, overwrite requires explicit opt-in.",
+            sqlite_quoted_identifier(&schema),
+            target_path.replace('\'', "''")
+        );
+    }
+
+    if operation_id.ends_with("table.export") {
+        let table = table.unwrap_or_else(|| "<table>".into());
+        let target_path = string_parameter(parameters, "targetPath")
+            .or_else(|| string_parameter(parameters, "outputPath"))
+            .unwrap_or_else(|| "<selected-file>.csv".into());
+        let format = string_parameter(parameters, "format").unwrap_or_else(|| "csv".into());
+        let limit = numeric_parameter(parameters, "limit").unwrap_or(10_000);
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": "sqlite.table.export",
+            "schema": schema,
+            "table": table,
+            "format": format,
+            "targetPath": target_path,
+            "limit": limit,
+            "overwrite": bool_parameter(parameters, "overwrite").unwrap_or(false),
+            "guardrails": [
+                "absolute target path",
+                "parent folder exists",
+                "bounded row export",
+                "overwrite opt-in"
+            ]
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("table.import") {
+        let table = table.unwrap_or_else(|| "<table>".into());
+        let source_path = string_parameter(parameters, "sourcePath")
+            .or_else(|| string_parameter(parameters, "inputPath"))
+            .unwrap_or_else(|| "<selected-file>.csv".into());
+        let format = string_parameter(parameters, "format").unwrap_or_else(|| "csv".into());
+        let mode = string_parameter(parameters, "mode").unwrap_or_else(|| "append".into());
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": "sqlite.table.import",
+            "schema": schema,
+            "table": table,
+            "format": format,
+            "sourcePath": source_path,
+            "mode": mode,
+            "guardrails": [
+                "absolute source path",
+                "existing target table",
+                "CSV header or JSON object rows",
+                "read-only connection blocked",
+                "confirmation required before append"
+            ]
+        }))
+        .unwrap_or_else(|_| "{}".into());
     }
 
     if operation_id.contains("backup") {
@@ -2600,6 +2764,40 @@ fn safe_sqlite_name(value: &str) -> String {
         .chars()
         .take(64)
         .collect::<String>()
+}
+
+fn sqlite_object_parts(object_name: &str) -> Option<(String, String)> {
+    let object_name = object_name.trim();
+    if object_name.is_empty() || object_name.contains('<') || object_name.contains('>') {
+        return None;
+    }
+    let parts = object_name
+        .split('.')
+        .map(sqlite_unquoted_identifier)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    match parts.as_slice() {
+        [table] => Some(("main".into(), table.clone())),
+        [schema, table, ..] => Some((schema.clone(), table.clone())),
+        _ => None,
+    }
+}
+
+fn sqlite_unquoted_identifier(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('`')
+        .trim_matches('[')
+        .trim_matches(']')
+        .into()
+}
+
+fn sqlite_quoted_identifier(value: &str) -> String {
+    format!(
+        "\"{}\"",
+        sqlite_unquoted_identifier(value).replace('"', "\"\"")
+    )
 }
 
 fn duckdb_operation_request(
@@ -2712,40 +2910,64 @@ fn mysql_operation_request(
     manifest: &AdapterManifest,
     operation_id: &str,
     object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
 ) -> Option<String> {
-    if operation_id.ends_with("table.analyze") {
-        return Some(format!("analyze table {object_name};"));
+    if operation_id.ends_with("data.import-export") || operation_id.contains("import-export") {
+        return Some(mysql_import_export_request(
+            manifest,
+            object_name,
+            parameters,
+        ));
     }
 
-    if operation_id.ends_with("table.optimize") {
-        return Some(format!("optimize table {object_name};"));
+    if operation_id.ends_with("data.backup-restore") || operation_id.contains("backup-restore") {
+        return Some(mysql_backup_restore_request(
+            manifest,
+            object_name,
+            parameters,
+        ));
     }
 
-    if operation_id.ends_with("table.check") {
-        return Some(format!("check table {object_name};"));
+    if mysql_table_maintenance_operation(operation_id).is_some() {
+        return Some(mysql_table_maintenance_request(
+            manifest,
+            operation_id,
+            object_name,
+            parameters,
+        ));
     }
 
-    if operation_id.ends_with("table.repair") {
-        return Some(format!("repair table {object_name};"));
+    if operation_id.ends_with("routine.execute") {
+        return Some(mysql_routine_execute_request(
+            manifest,
+            object_name,
+            parameters,
+        ));
     }
 
-    if operation_id.ends_with("event.enable") {
-        return Some(format!("alter event {object_name} enable;"));
+    if operation_id.ends_with("event.enable") || operation_id.ends_with("event.disable") {
+        return Some(mysql_event_state_request(
+            manifest,
+            operation_id,
+            object_name,
+            parameters,
+        ));
     }
 
-    if operation_id.ends_with("event.disable") {
-        return Some(format!("alter event {object_name} disable;"));
+    if operation_id.ends_with("user.lock") || operation_id.ends_with("user.unlock") {
+        return Some(mysql_user_account_request(
+            manifest,
+            operation_id,
+            parameters,
+        ));
     }
 
     if operation_id.ends_with("security.inspect") {
-        return Some(
-            "show grants;\nselect user, host, plugin, account_locked from mysql.user order by user, host;"
-                .into(),
-        );
+        return Some(mysql_security_inspect_request(manifest, parameters));
     }
 
     if operation_id.ends_with("diagnostics.metrics") || operation_id.ends_with("metrics") {
-        return Some("show global status;\nshow full processlist;".into());
+        return Some(mysql_diagnostics_metrics_request());
     }
 
     if operation_id.ends_with("query.profile") {
@@ -2762,7 +2984,754 @@ fn mysql_operation_request(
     None
 }
 
-fn postgres_operation_request(operation_id: &str, object_name: &str) -> Option<String> {
+fn mysql_table_maintenance_request(
+    manifest: &AdapterManifest,
+    operation_id: &str,
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let operation = mysql_table_maintenance_operation(operation_id).unwrap_or("check");
+    let (database, table) = mysql_plan_table_parts(object_name, parameters);
+    let statement = format!("{operation} table {object_name};");
+    let mut guards = vec![
+        "verify target table exists and belongs to the selected database",
+        "inspect storage engine support before running",
+        "review lock and replication impact",
+        "block execution on read-only connections",
+    ];
+    if operation == "repair" {
+        guards.push("require owner/admin confirmation and a recent backup before repair");
+    } else {
+        guards.push("require explicit confirmation before costly maintenance");
+    }
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": format!("{}.table.maintenance", manifest.engine),
+        "operation": operation,
+        "database": database,
+        "table": table,
+        "statement": statement,
+        "lockImpact": mysql_maintenance_lock_impact(operation),
+        "executionGate": {
+            "defaultSupport": "plan-only",
+            "disabledReason": format!(
+                "{} TABLE remains preview-first until the desktop adapter verifies table engine support, privileges, lock impact, and rollback boundaries.",
+                operation.to_ascii_uppercase()
+            ),
+            "requiredPrivileges": mysql_maintenance_privileges(operation),
+            "guards": guards,
+            "residualRisk": "MyISAM and InnoDB differ in CHECK/REPAIR/OPTIMIZE behavior; live execution stays out of scope until fixture-backed."
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn mysql_routine_execute_request(
+    manifest: &AdapterManifest,
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let (database, routine) = mysql_routine_parts(object_name, parameters);
+    let routine_kind = string_parameter(parameters, "routineKind")
+        .unwrap_or_else(|| "procedure".into())
+        .to_ascii_lowercase();
+    let routine_kind = if routine_kind.contains("function") {
+        "function"
+    } else {
+        "procedure"
+    };
+    let arguments = string_parameter(parameters, "arguments")
+        .or_else(|| string_parameter(parameters, "routineArguments"))
+        .unwrap_or_default();
+    let routine_arguments = mysql_routine_arguments(&arguments);
+    let placeholders = routine_arguments
+        .iter()
+        .enumerate()
+        .map(|(index, argument)| {
+            if argument.name.is_empty() {
+                format!("? /* arg{} */", index + 1)
+            } else {
+                format!("{} => ?", argument.name)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let statement = if routine_kind == "function" {
+        format!("select {object_name}({placeholders});")
+    } else {
+        format!("call {object_name}({placeholders});")
+    };
+    let bindings = routine_arguments
+        .iter()
+        .map(|argument| {
+            serde_json::json!({
+                "position": argument.position,
+                "direction": argument.direction,
+                "name": argument.name,
+                "type": argument.type_name,
+                "placeholder": "?"
+            })
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": format!("{}.routine.execute", manifest.engine),
+        "database": database,
+        "routine": routine,
+        "routineKind": routine_kind,
+        "statement": statement,
+        "bindings": bindings,
+        "returns": string_parameter(parameters, "returns"),
+        "language": string_parameter(parameters, "language").unwrap_or_else(|| "SQL".into()),
+        "securityMode": string_parameter(parameters, "security").unwrap_or_else(|| "review definer/invoker metadata".into()),
+        "executionGate": {
+            "defaultSupport": "plan-only",
+            "disabledReason": "MySQL routine execution remains preview-first until parameter binding, OUT/INOUT capture, SQL SECURITY mode, and EXECUTE privilege checks are live-validated.",
+            "requiredPrivileges": [
+                "EXECUTE privilege on the routine",
+                "read/write privileges required by the routine body"
+            ],
+            "guards": [
+                "bind every IN parameter explicitly",
+                "review OUT and INOUT parameters before running",
+                "review SQL SECURITY DEFINER versus INVOKER semantics",
+                "block mutating routines on read-only connections",
+                "show the generated CALL/SELECT statement before execution"
+            ],
+            "residualRisk": "Stored routines can perform writes, dynamic SQL, or privileged work through definers; this preview does not claim live side-effect containment."
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn mysql_event_state_request(
+    manifest: &AdapterManifest,
+    operation_id: &str,
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let action = if operation_id.ends_with("event.enable") {
+        "enable"
+    } else {
+        "disable"
+    };
+    let (database, event_name) = mysql_event_parts(object_name, parameters);
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": format!("{}.event.toggle", manifest.engine),
+        "operation": action,
+        "database": database,
+        "event": event_name,
+        "statement": format!("alter event {object_name} {action};"),
+        "executionGate": {
+            "defaultSupport": "plan-only",
+            "disabledReason": "MySQL event state changes remain preview-first until EVENT privilege, event scheduler state, definer, and schedule metadata are verified live.",
+            "requiredPrivileges": [
+                "EVENT privilege on the schema",
+                "ALTER privilege for the selected event where required"
+            ],
+            "guards": [
+                "verify event exists in the selected schema",
+                "review event_scheduler global state",
+                "review definer account and SQL SECURITY behavior",
+                "review schedule, starts/ends, and time zone before toggling",
+                "block execution on read-only connections"
+            ],
+            "residualRisk": "Toggling events can start background writes or stop maintenance jobs; live execution needs fixture-backed scheduler evidence."
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn mysql_user_account_request(
+    manifest: &AdapterManifest,
+    operation_id: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let action = if operation_id.ends_with("user.lock") {
+        "lock"
+    } else {
+        "unlock"
+    };
+    let user_name = string_parameter(parameters, "userName")
+        .or_else(|| string_parameter(parameters, "roleName"))
+        .unwrap_or_else(|| "<user>".into());
+    let user_host = string_parameter(parameters, "userHost")
+        .or_else(|| string_parameter(parameters, "host"))
+        .unwrap_or_else(|| "%".into());
+    let account = mysql_account_literal(&user_name, &user_host);
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": format!("{}.user.account-state", manifest.engine),
+        "operation": action,
+        "user": user_name,
+        "host": user_host,
+        "statement": format!("alter user {account} account {action};"),
+        "executionGate": {
+            "defaultSupport": "plan-only",
+            "disabledReason": "MySQL account lock/unlock remains preview-first until CREATE USER/ACCOUNT MANAGEMENT privilege checks and active-session impact are live-validated.",
+            "requiredPrivileges": [
+                "CREATE USER or SYSTEM_USER-compatible account management privilege"
+            ],
+            "guards": [
+                "verify user@host identity before generating ALTER USER",
+                "review current account_locked and password_expired state",
+                "warn about active sessions and application connection pools",
+                "block execution on read-only connections",
+                "require explicit confirmation before changing account state"
+            ],
+            "residualRisk": "Host wildcards and role-like accounts can affect more clients than expected; live execution needs principal selection UI."
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn mysql_security_inspect_request(
+    manifest: &AdapterManifest,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let database = string_parameter(parameters, "database")
+        .or_else(|| string_parameter(parameters, "schema"))
+        .unwrap_or_else(|| "<database>".into());
+    let database_literal = mysql_string_literal(&database);
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": format!("{}.security.inspect", manifest.engine),
+        "database": database,
+        "statements": [
+            "show grants;",
+            "select current_user() as currentUser, user() as sessionUser;",
+            "select user, host, plugin, account_locked, password_expired from mysql.user order by user, host;",
+            "select grantee, privilege_type, is_grantable from information_schema.user_privileges order by grantee, privilege_type;",
+            format!("select grantee, table_schema, privilege_type, is_grantable from information_schema.schema_privileges where table_schema = {database_literal} order by grantee, privilege_type;"),
+            format!("select grantee, table_schema, table_name, privilege_type, is_grantable from information_schema.table_privileges where table_schema = {database_literal} order by table_name, grantee, privilege_type;")
+        ],
+        "executionGate": {
+            "defaultSupport": "live",
+            "requiredPrivileges": [
+                "SHOW GRANTS visibility",
+                "mysql.user or INFORMATION_SCHEMA privilege visibility"
+            ],
+            "guards": [
+                "redact principal names from exported diagnostics where configured",
+                "tolerate hidden mysql.* tables when the login lacks catalog privileges",
+                "separate global, schema, table, and routine grants",
+                "never infer write privilege from missing grant rows"
+            ],
+            "residualRisk": "Managed MySQL services can hide mysql.user or role_edges; unavailable surfaces must render disabled reasons instead of empty success."
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn mysql_import_export_request(
+    manifest: &AdapterManifest,
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let mode = string_parameter(parameters, "mode")
+        .unwrap_or_else(|| "export".into())
+        .to_ascii_lowercase();
+    let format = string_parameter(parameters, "format").unwrap_or_else(|| "csv".into());
+    let (database, table) = mysql_plan_table_parts(object_name, parameters);
+    let row_limit = numeric_parameter(parameters, "rowLimit")
+        .or_else(|| numeric_parameter(parameters, "limit"))
+        .unwrap_or(10_000);
+    let import_like = matches!(
+        mode.as_str(),
+        "import" | "append" | "insert" | "validate" | "validate-only"
+    );
+    let default_support = if matches!(manifest.engine.as_str(), "mysql" | "mariadb") {
+        "live"
+    } else {
+        "plan-only"
+    };
+    let workflow_prefix = manifest.engine.as_str();
+    let bulk_export_tools = if manifest.engine == "mariadb" {
+        "mariadb-dump/mysql"
+    } else {
+        "mysqlpump/mysqldump"
+    };
+
+    if import_like {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": format!("{workflow_prefix}.table.import"),
+            "database": database,
+            "schema": database,
+            "table": table,
+            "format": format,
+            "source": {
+                "path": string_parameter(parameters, "sourcePath")
+                    .or_else(|| string_parameter(parameters, "inputPath"))
+                    .unwrap_or_else(|| format!("<selected-file>.{format}"))
+            },
+            "mode": mode,
+            "rowLimit": row_limit,
+            "emptyStringAsNull": bool_parameter(parameters, "emptyStringAsNull").unwrap_or(false),
+            "executionGate": {
+                "defaultSupport": default_support,
+                "guards": [
+                    "desktop adapter execution only",
+                    "absolute source path",
+                    "existing target table",
+                    "insertable target-column validation",
+                    "bounded row import",
+                    "read-only connection blocked",
+                    "explicit confirmation required before append"
+                ],
+                "residualRisk": "LOAD DATA INFILE, generated column mapping, and full dump import workflows remain manual preview paths"
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": format!("{workflow_prefix}.table.export"),
+        "database": database,
+        "schema": database,
+        "table": table,
+        "format": format,
+        "target": {
+            "path": string_parameter(parameters, "targetPath")
+                .or_else(|| string_parameter(parameters, "outputPath"))
+                .unwrap_or_else(|| format!("<selected-file>.{format}")),
+            "overwrite": bool_parameter(parameters, "overwrite").unwrap_or(false)
+        },
+        "rowLimit": row_limit,
+        "serialization": "SELECT rows through the desktop adapter, then local CSV/JSON/NDJSON writer",
+        "executionGate": {
+            "defaultSupport": default_support,
+            "guards": [
+                "desktop adapter execution only",
+                "absolute target path",
+                "parent folder exists",
+                "overwrite opt-in",
+                "bounded row export"
+            ],
+            "residualRisk": format!("server-side INTO OUTFILE and {bulk_export_tools} bulk workflows remain manual preview paths")
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn mysql_backup_restore_request(
+    manifest: &AdapterManifest,
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let mode = string_parameter(parameters, "mode")
+        .unwrap_or_else(|| "backup".into())
+        .to_ascii_lowercase();
+    let database = string_parameter(parameters, "database")
+        .or_else(|| string_parameter(parameters, "schema"))
+        .or_else(|| mysql_plan_database_name(object_name))
+        .unwrap_or_else(|| "database".into());
+    let format = string_parameter(parameters, "format").unwrap_or_else(|| "json".into());
+    let default_support = if matches!(manifest.engine.as_str(), "mysql" | "mariadb") {
+        "live"
+    } else {
+        "plan-only"
+    };
+    let workflow_prefix = manifest.engine.as_str();
+    let restore_tools = if manifest.engine == "mariadb" {
+        "mariadb-dump/mysql"
+    } else {
+        "mysqldump/mysql"
+    };
+
+    if matches!(mode.as_str(), "restore" | "recover" | "import") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": format!("{workflow_prefix}.database.restore"),
+            "database": database,
+            "source": {
+                "path": string_parameter(parameters, "sourcePath")
+                    .or_else(|| string_parameter(parameters, "inputPath"))
+                    .unwrap_or_else(|| "<selected-file>.json".into())
+            },
+            "mode": mode,
+            "executionGate": {
+                "defaultSupport": "plan-only",
+                "guards": [
+                    "restore execution remains preview-first",
+                    "validate package before manual restore",
+                    "review schema DDL, triggers, routines, events, privileges, generated columns, and target database state"
+                ],
+                "residualRisk": format!("full {restore_tools} restore and generated insert replay remain manual reviewed workflows")
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": format!("{workflow_prefix}.database.backup"),
+        "database": database,
+        "target": {
+            "path": string_parameter(parameters, "targetPath")
+                .or_else(|| string_parameter(parameters, "outputPath"))
+                .unwrap_or_else(|| format!("<selected-file>.{format}")),
+            "overwrite": bool_parameter(parameters, "overwrite").unwrap_or(false)
+        },
+        "schema": string_parameter(parameters, "schema"),
+        "format": format,
+        "includeData": bool_parameter(parameters, "includeData").unwrap_or(true),
+        "rowLimit": numeric_parameter(parameters, "rowLimit").unwrap_or(1_000),
+        "tableLimit": numeric_parameter(parameters, "tableLimit").unwrap_or(25),
+        "executionGate": {
+            "defaultSupport": default_support,
+            "guards": [
+                "desktop adapter execution only",
+                "absolute target path",
+                "parent folder exists",
+                "overwrite opt-in",
+                "bounded table list",
+                "bounded rows per table",
+                "logical package restore validation"
+            ],
+            "residualRisk": format!("bounded logical DataPad++ backup package; full {restore_tools} restore execution remains preview-first")
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+struct MysqlRoutineArgument {
+    position: usize,
+    direction: String,
+    name: String,
+    type_name: String,
+}
+
+fn mysql_table_maintenance_operation(operation_id: &str) -> Option<&'static str> {
+    if operation_id.ends_with("table.analyze") {
+        return Some("analyze");
+    }
+    if operation_id.ends_with("table.optimize") {
+        return Some("optimize");
+    }
+    if operation_id.ends_with("table.check") {
+        return Some("check");
+    }
+    if operation_id.ends_with("table.repair") {
+        return Some("repair");
+    }
+    None
+}
+
+fn mysql_maintenance_lock_impact(operation: &str) -> &'static str {
+    match operation {
+        "check" => "metadata and engine-dependent read locks",
+        "analyze" => "statistics refresh can sample or scan index pages",
+        "optimize" => "may rebuild or copy table data depending on engine",
+        _ => "engine-dependent repair can rebuild indexes or modify table files",
+    }
+}
+
+fn mysql_maintenance_privileges(operation: &str) -> Vec<&'static str> {
+    match operation {
+        "check" => vec!["SELECT privilege on the target table"],
+        "analyze" => vec![
+            "INSERT or UPDATE privilege on the target table in MySQL 8.0.31+, or table ownership/admin equivalent",
+        ],
+        "optimize" => vec![
+            "INSERT and SELECT privilege on the target table, or table ownership/admin equivalent",
+        ],
+        _ => vec!["REPAIR privilege on the target table, or table ownership/admin equivalent"],
+    }
+}
+
+fn mysql_routine_parts(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> (String, String) {
+    let explicit_database =
+        string_parameter(parameters, "database").or_else(|| string_parameter(parameters, "schema"));
+    let explicit_routine = string_parameter(parameters, "routineName")
+        .or_else(|| string_parameter(parameters, "routine"));
+    if let Some(routine) = explicit_routine {
+        return (
+            explicit_database.unwrap_or_else(|| "database".into()),
+            routine,
+        );
+    }
+    mysql_plan_table_parts(object_name, parameters)
+}
+
+fn mysql_event_parts(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> (String, String) {
+    let explicit_database =
+        string_parameter(parameters, "database").or_else(|| string_parameter(parameters, "schema"));
+    let explicit_event =
+        string_parameter(parameters, "eventName").or_else(|| string_parameter(parameters, "event"));
+    if let Some(event) = explicit_event {
+        return (
+            explicit_database.unwrap_or_else(|| "database".into()),
+            event,
+        );
+    }
+    mysql_plan_table_parts(object_name, parameters)
+}
+
+fn mysql_routine_arguments(arguments: &str) -> Vec<MysqlRoutineArgument> {
+    split_mysql_routine_arguments(arguments)
+        .into_iter()
+        .enumerate()
+        .map(|(index, argument)| {
+            let mut parts = argument
+                .split_whitespace()
+                .map(str::trim)
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>();
+            let direction = if parts.first().is_some_and(|part| {
+                matches!(part.to_ascii_lowercase().as_str(), "in" | "out" | "inout")
+            }) {
+                parts.remove(0).to_ascii_uppercase()
+            } else {
+                "IN".into()
+            };
+            let name = parts
+                .first()
+                .map(|part| {
+                    clean_mysql_identifier(part)
+                        .trim_start_matches('@')
+                        .to_string()
+                })
+                .filter(|part| !part.is_empty())
+                .unwrap_or_else(|| format!("arg{}", index + 1));
+            if !parts.is_empty() {
+                parts.remove(0);
+            }
+            let type_name = if parts.is_empty() {
+                "unknown".into()
+            } else {
+                parts.join(" ")
+            };
+            MysqlRoutineArgument {
+                position: index + 1,
+                direction,
+                name,
+                type_name,
+            }
+        })
+        .collect()
+}
+
+fn split_mysql_routine_arguments(arguments: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    for item in arguments.chars() {
+        match item {
+            '(' => {
+                depth += 1;
+                current.push(item);
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                current.push(item);
+            }
+            ',' if depth == 0 => {
+                if !current.trim().is_empty() {
+                    parts.push(current.trim().to_string());
+                }
+                current.clear();
+            }
+            _ => current.push(item),
+        }
+    }
+    if !current.trim().is_empty() {
+        parts.push(current.trim().to_string());
+    }
+    parts
+}
+
+fn mysql_account_literal(user: &str, host: &str) -> String {
+    format!(
+        "'{}'@'{}'",
+        user.replace('\'', "''"),
+        host.replace('\'', "''")
+    )
+}
+
+fn mysql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn mysql_plan_table_parts(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> (String, String) {
+    let explicit_database =
+        string_parameter(parameters, "database").or_else(|| string_parameter(parameters, "schema"));
+    let explicit_table =
+        string_parameter(parameters, "table").or_else(|| string_parameter(parameters, "tableName"));
+    if let Some(table) = explicit_table {
+        return (
+            explicit_database.unwrap_or_else(|| "database".into()),
+            table,
+        );
+    }
+
+    let parts = split_mysql_name(object_name)
+        .into_iter()
+        .map(|part| clean_mysql_identifier(&part))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    match parts.as_slice() {
+        [table] => (
+            explicit_database.unwrap_or_else(|| "database".into()),
+            table.clone(),
+        ),
+        [database, table, ..] => (
+            explicit_database.unwrap_or_else(|| database.clone()),
+            table.clone(),
+        ),
+        _ => (
+            explicit_database.unwrap_or_else(|| "database".into()),
+            "<table>".into(),
+        ),
+    }
+}
+
+fn mysql_plan_database_name(object_name: &str) -> Option<String> {
+    let parts = split_mysql_name(object_name)
+        .into_iter()
+        .map(|part| clean_mysql_identifier(&part))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    (parts.len() == 1).then(|| parts[0].clone())
+}
+
+fn split_mysql_name(value: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut chars = value.chars().peekable();
+    let mut quote = None::<char>;
+    let mut bracket_depth = 0u8;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '`' if quote == Some('`') && chars.peek() == Some(&'`') => {
+                current.push('`');
+                chars.next();
+            }
+            '"' if quote == Some('"') && chars.peek() == Some(&'"') => {
+                current.push('"');
+                chars.next();
+            }
+            '[' if quote.is_none() => {
+                bracket_depth = bracket_depth.saturating_add(1);
+                current.push(ch);
+            }
+            ']' if quote.is_none() && bracket_depth > 0 => {
+                bracket_depth -= 1;
+                current.push(ch);
+            }
+            '`' | '"' if bracket_depth == 0 => {
+                if quote == Some(ch) {
+                    quote = None;
+                } else if quote.is_none() {
+                    quote = Some(ch);
+                }
+                current.push(ch);
+            }
+            '.' if bracket_depth == 0 && quote.is_none() => {
+                parts.push(std::mem::take(&mut current));
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
+}
+
+fn clean_mysql_identifier(value: &str) -> String {
+    let trimmed = value.trim();
+    let unwrapped = trimmed
+        .strip_prefix('`')
+        .and_then(|item| item.strip_suffix('`'))
+        .or_else(|| {
+            trimmed
+                .strip_prefix('"')
+                .and_then(|item| item.strip_suffix('"'))
+        })
+        .or_else(|| {
+            trimmed
+                .strip_prefix('[')
+                .and_then(|item| item.strip_suffix(']'))
+        })
+        .unwrap_or(trimmed);
+    unwrapped
+        .replace("``", "`")
+        .replace("\"\"", "\"")
+        .replace("]]", "]")
+}
+
+fn mysql_diagnostics_metrics_request() -> String {
+    [
+        "show global status;",
+        "select id, user, db, command, state, time from information_schema.processlist order by time desc limit 100;",
+        "select digest_text, count_star, sum_timer_wait, avg_timer_wait, max_timer_wait, sum_rows_examined, sum_rows_sent from performance_schema.events_statements_summary_by_digest order by sum_timer_wait desc limit 50;",
+        "select object_schema, object_name, index_name, count_star, count_read, count_write, sum_timer_wait from performance_schema.table_io_waits_summary_by_index_usage order by sum_timer_wait desc limit 100;",
+        "select object_schema, object_name, object_type, lock_type, lock_duration, lock_status, owner_thread_id from performance_schema.metadata_locks order by lock_status, object_schema, object_name limit 100;",
+        "select @@optimizer_trace, @@optimizer_trace_limit, @@optimizer_trace_max_mem_size;",
+        "select query, trace, missing_bytes_beyond_max_mem_size, insufficient_privileges from information_schema.optimizer_trace limit 5;",
+    ]
+    .join("\n")
+}
+
+fn postgres_operation_request(
+    operation_id: &str,
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> Option<String> {
+    if operation_id.ends_with("data.import-export") || operation_id.contains("import-export") {
+        return Some(postgres_import_export_request(object_name, parameters));
+    }
+
+    if operation_id.ends_with("data.backup-restore") || operation_id.contains("backup-restore") {
+        return Some(postgres_backup_restore_request(object_name, parameters));
+    }
+
+    if operation_id.ends_with("query.profile") {
+        let statement = string_parameter(parameters, "query")
+            .or_else(|| string_parameter(parameters, "sql"))
+            .unwrap_or_else(|| format!("select * from {object_name} limit 100"));
+        let analyze = bool_parameter(parameters, "analyze").unwrap_or(true);
+        let buffers = bool_parameter(parameters, "buffers").unwrap_or(true);
+        let wal = bool_parameter(parameters, "wal").unwrap_or(false);
+        let format = string_parameter(parameters, "format").unwrap_or_else(|| "json".into());
+        let mut options = vec![if analyze {
+            "analyze true"
+        } else {
+            "analyze false"
+        }
+        .to_string()];
+        if buffers {
+            options.push("buffers true".into());
+        }
+        if wal {
+            options.push("wal true".into());
+        }
+        options.push("verbose true".into());
+        options.push(format!("format {}", format.to_ascii_lowercase()));
+        return Some(format!(
+            "-- PostgreSQL query profile executes the statement; review row limits and production load first.\nexplain ({})\n{};",
+            options.join(", "),
+            statement.trim().trim_end_matches(';')
+        ));
+    }
+
+    if operation_id.ends_with("routine.execute") {
+        return Some(postgres_routine_execute_request(object_name, parameters));
+    }
+
+    if operation_id.ends_with("session.cancel") || operation_id.ends_with("session.terminate") {
+        return Some(postgres_session_action_request(operation_id, parameters));
+    }
+
     if operation_id.ends_with("table.analyze") {
         return Some(format!("analyze verbose {object_name};"));
     }
@@ -2785,6 +3754,53 @@ fn postgres_operation_request(operation_id: &str, object_name: &str) -> Option<S
         ));
     }
 
+    if operation_id.ends_with("security.inspect") {
+        return Some([
+            "select rolname, rolcanlogin, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls from pg_roles order by rolname;",
+            "select member.rolname as role, parent.rolname as member_of, m.admin_option from pg_auth_members m join pg_roles member on member.oid = m.member join pg_roles parent on parent.oid = m.roleid order by role, member_of;",
+            "select grantee, privilege_type, table_schema, table_name, is_grantable from information_schema.role_table_grants order by table_schema, table_name, grantee;",
+            "select * from pg_default_acl order by defaclnamespace, defaclrole;",
+        ].join("\n"));
+    }
+
+    if operation_id.ends_with("role.grant") {
+        let role_name =
+            string_parameter(parameters, "memberOf").unwrap_or_else(|| "<member_role>".into());
+        let member = string_parameter(parameters, "roleName").unwrap_or_else(|| "<role>".into());
+        return Some(format!(
+            "-- Review role inheritance and admin option before running.\ngrant {} to {};",
+            quote_postgres_identifier(&role_name),
+            quote_postgres_identifier(&member)
+        ));
+    }
+
+    if operation_id.ends_with("role.revoke") {
+        let role_name =
+            string_parameter(parameters, "memberOf").unwrap_or_else(|| "<member_role>".into());
+        let member = string_parameter(parameters, "roleName").unwrap_or_else(|| "<role>".into());
+        return Some(format!(
+            "-- Review dependent privileges before revoking membership.\nrevoke {} from {};",
+            quote_postgres_identifier(&role_name),
+            quote_postgres_identifier(&member)
+        ));
+    }
+
+    if operation_id.ends_with("extension.update") {
+        let extension = postgres_extension_name(parameters, object_name);
+        return Some(format!(
+            "-- Review extension release notes, dependency objects, and required privileges before running.\nalter extension {} update;",
+            quote_postgres_identifier(&extension)
+        ));
+    }
+
+    if operation_id.ends_with("extension.drop") {
+        let extension = postgres_extension_name(parameters, object_name);
+        return Some(format!(
+            "-- Dropping extensions can drop dependent functions, types, operators, or views.\ndrop extension {};",
+            quote_postgres_identifier(&extension)
+        ));
+    }
+
     if operation_id.ends_with("diagnostics.metrics") || operation_id.ends_with("metrics") {
         return Some(
             "select * from pg_stat_activity order by query_start desc nulls last limit 100;\nselect * from pg_stat_database where datname = current_database();"
@@ -2793,6 +3809,518 @@ fn postgres_operation_request(operation_id: &str, object_name: &str) -> Option<S
     }
 
     None
+}
+
+fn postgres_extension_name(
+    parameters: Option<&BTreeMap<String, Value>>,
+    object_name: &str,
+) -> String {
+    let value = string_parameter(parameters, "extensionName").unwrap_or_else(|| object_name.into());
+    let candidate = value
+        .split('.')
+        .next_back()
+        .unwrap_or(value.as_str())
+        .trim()
+        .trim_matches(|character| matches!(character, '"' | '`' | '[' | ']'));
+    let cleaned = candidate
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string();
+
+    if cleaned.is_empty() {
+        "<extension>".into()
+    } else {
+        cleaned
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PostgresRoutineArgument {
+    name: String,
+    data_type: String,
+    named: bool,
+}
+
+fn postgres_routine_execute_request(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let (fallback_schema, fallback_routine) = postgres_plan_table_parts(object_name, parameters);
+    let routine_name = string_parameter(parameters, "routineName")
+        .or_else(|| string_parameter(parameters, "functionName"))
+        .or_else(|| string_parameter(parameters, "procedureName"))
+        .or_else(|| {
+            string_parameter(parameters, "objectName").and_then(|value| {
+                value
+                    .split('.')
+                    .next_back()
+                    .map(clean_postgres_identifier)
+                    .filter(|value| !value.is_empty())
+            })
+        })
+        .unwrap_or(fallback_routine);
+    let schema = string_parameter(parameters, "schema").unwrap_or(fallback_schema);
+    let routine_kind = string_parameter(parameters, "routineKind")
+        .or_else(|| string_parameter(parameters, "objectKind"))
+        .unwrap_or_else(|| "function".into())
+        .to_ascii_lowercase();
+    let arguments = string_parameter(parameters, "arguments")
+        .or_else(|| string_parameter(parameters, "routineArguments"))
+        .unwrap_or_default();
+    let returns = string_parameter(parameters, "returns")
+        .or_else(|| string_parameter(parameters, "returnType"));
+    let routine_arguments = postgres_routine_arguments(&arguments);
+    let target = format!(
+        "{}.{}",
+        quote_postgres_identifier(&schema),
+        quote_postgres_identifier(&routine_name)
+    );
+    let call_arguments = postgres_routine_call_arguments(&routine_arguments);
+    let statement = if routine_kind.contains("procedure") {
+        format!("call {target}({call_arguments});")
+    } else {
+        format!("select {target}({call_arguments}) as result;")
+    };
+    let mut lines = vec![
+        "-- PostgreSQL routine execution preview.".to_string(),
+        "-- Bind parameter values explicitly and review volatility, permissions, defaults, and result cardinality before running.".to_string(),
+    ];
+
+    if !arguments.trim().is_empty() {
+        lines.push(format!("-- Signature: {}", arguments.trim()));
+    }
+    if let Some(returns) = returns.filter(|value| !value.trim().is_empty()) {
+        lines.push(format!("-- Returns: {}", returns.trim()));
+    }
+    if routine_arguments.is_empty() {
+        lines.push("-- Input parameters: none detected.".into());
+    } else {
+        lines.push("-- Bindings:".into());
+        for (index, argument) in routine_arguments.iter().enumerate() {
+            lines.push(format!(
+                "-- ${} {} {} = <{}>",
+                index + 1,
+                argument.name,
+                argument.data_type,
+                argument.name
+            ));
+        }
+    }
+    lines.push(statement);
+    lines.join("\n")
+}
+
+fn postgres_session_action_request(
+    operation_id: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let terminate = operation_id.ends_with("session.terminate");
+    let pid = postgres_backend_pid(parameters);
+    let pid_token = pid
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "<backend_pid>".into());
+    let function_name = if terminate {
+        "pg_terminate_backend"
+    } else {
+        "pg_cancel_backend"
+    };
+    let result_name = if terminate {
+        "terminate_requested"
+    } else {
+        "cancel_requested"
+    };
+    let action = if terminate {
+        "terminate backend"
+    } else {
+        "cancel query"
+    };
+    let statement = if let Some(pid) = pid {
+        format!(
+            "select case\n  when pg_backend_pid() = {pid} then false\n  else {function_name}({pid})\nend as {result_name};"
+        )
+    } else {
+        format!(
+            "-- Provide a concrete backend PID before execution.\nselect {function_name}(<backend_pid>) as {result_name};"
+        )
+    };
+    let impact = if terminate {
+        "-- Terminating a backend disconnects the client and rolls back its active transaction."
+    } else {
+        "-- Canceling asks PostgreSQL to interrupt the active query while keeping the connection alive."
+    };
+
+    [
+        "-- PostgreSQL backend action preview.".to_string(),
+        format!("-- Action: {action}."),
+        "-- Requires pg_signal_backend, matching ownership, or superuser privileges.".into(),
+        "-- Verify PID, user, database, application, state, and current query before running."
+            .into(),
+        impact.into(),
+        format!(
+            "-- Target: {}",
+            postgres_session_target(parameters, &pid_token)
+        ),
+        statement,
+    ]
+    .join("\n")
+}
+
+fn postgres_backend_pid(parameters: Option<&BTreeMap<String, Value>>) -> Option<u64> {
+    numeric_parameter(parameters, "pid")
+        .or_else(|| numeric_parameter(parameters, "backendPid"))
+        .or_else(|| numeric_parameter(parameters, "sessionPid"))
+        .filter(|value| *value > 0)
+}
+
+fn postgres_session_target(
+    parameters: Option<&BTreeMap<String, Value>>,
+    pid_token: &str,
+) -> String {
+    let mut parts = vec![format!("pid {pid_token}")];
+    if let Some(user) = string_parameter(parameters, "sessionUser") {
+        parts.push(format!("user {user}"));
+    }
+    if let Some(database) = string_parameter(parameters, "sessionDatabase") {
+        parts.push(format!("database {database}"));
+    }
+    if let Some(application) = string_parameter(parameters, "application") {
+        parts.push(format!("application {application}"));
+    }
+    if let Some(state) = string_parameter(parameters, "sessionState") {
+        parts.push(format!("state {state}"));
+    }
+    parts.join(", ")
+}
+
+fn postgres_routine_call_arguments(arguments: &[PostgresRoutineArgument]) -> String {
+    if arguments.is_empty() {
+        return String::new();
+    }
+
+    let placeholders = arguments
+        .iter()
+        .enumerate()
+        .map(|(index, argument)| {
+            let placeholder = format!("${}", index + 1);
+            if argument.named {
+                format!(
+                    "{} => {placeholder}",
+                    postgres_argument_reference(&argument.name)
+                )
+            } else {
+                placeholder
+            }
+        })
+        .collect::<Vec<_>>();
+    format!("\n  {}\n", placeholders.join(",\n  "))
+}
+
+fn postgres_routine_arguments(arguments: &str) -> Vec<PostgresRoutineArgument> {
+    let mut parsed = Vec::new();
+
+    for part in split_postgres_arguments(arguments) {
+        let cleaned = strip_postgres_argument_default(&part);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let tokens = cleaned.split_whitespace().collect::<Vec<_>>();
+        if tokens.is_empty() {
+            continue;
+        }
+
+        let mode = tokens[0].trim_matches('"').to_ascii_lowercase();
+        let has_mode = matches!(mode.as_str(), "in" | "out" | "inout" | "variadic");
+        if mode == "out" {
+            continue;
+        }
+
+        let offset = if has_mode { 1 } else { 0 };
+        let remainder = &tokens[offset..];
+        if remainder.is_empty() {
+            continue;
+        }
+
+        let has_named_argument =
+            remainder.len() >= 2 && !postgres_type_starts_argument(remainder[0]);
+        let name = if has_named_argument {
+            clean_postgres_identifier(remainder[0])
+        } else {
+            format!("arg{}", parsed.len() + 1)
+        };
+        let data_type = if has_named_argument {
+            remainder[1..].join(" ")
+        } else {
+            remainder.join(" ")
+        };
+
+        parsed.push(PostgresRoutineArgument {
+            name: if name.is_empty() {
+                format!("arg{}", parsed.len() + 1)
+            } else {
+                name
+            },
+            data_type: if data_type.is_empty() {
+                "<unknown>".into()
+            } else {
+                data_type
+            },
+            named: has_named_argument,
+        });
+    }
+
+    parsed
+}
+
+fn split_postgres_arguments(value: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut depth = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut previous = '\0';
+
+    for (index, character) in value.char_indices() {
+        if character == '\'' && !in_double_quote && previous != '\\' {
+            in_single_quote = !in_single_quote;
+        } else if character == '"' && !in_single_quote {
+            in_double_quote = !in_double_quote;
+        } else if !in_single_quote && !in_double_quote && character == '(' {
+            depth += 1;
+        } else if !in_single_quote && !in_double_quote && character == ')' && depth > 0 {
+            depth -= 1;
+        } else if !in_single_quote && !in_double_quote && depth == 0 && character == ',' {
+            let part = value[start..index].trim();
+            if !part.is_empty() {
+                parts.push(part.into());
+            }
+            start = index + character.len_utf8();
+        }
+        previous = character;
+    }
+
+    let tail = value[start..].trim();
+    if !tail.is_empty() {
+        parts.push(tail.into());
+    }
+    parts
+}
+
+fn strip_postgres_argument_default(value: &str) -> String {
+    let lower = value.to_ascii_lowercase();
+    let cut_index = [" default ", " = "]
+        .iter()
+        .filter_map(|marker| lower.find(marker))
+        .min();
+
+    cut_index
+        .map(|index| value[..index].trim().to_string())
+        .unwrap_or_else(|| value.trim().to_string())
+}
+
+fn postgres_type_starts_argument(token: &str) -> bool {
+    let normalized = clean_postgres_identifier(token).to_ascii_lowercase();
+    normalized.ends_with("[]")
+        || matches!(
+            normalized.as_str(),
+            "bigint"
+                | "bigserial"
+                | "bool"
+                | "boolean"
+                | "box"
+                | "bytea"
+                | "character"
+                | "cidr"
+                | "circle"
+                | "date"
+                | "decimal"
+                | "double"
+                | "inet"
+                | "int"
+                | "int2"
+                | "int4"
+                | "int8"
+                | "integer"
+                | "interval"
+                | "json"
+                | "jsonb"
+                | "line"
+                | "lseg"
+                | "macaddr"
+                | "money"
+                | "numeric"
+                | "path"
+                | "point"
+                | "polygon"
+                | "real"
+                | "serial"
+                | "smallint"
+                | "text"
+                | "time"
+                | "timestamp"
+                | "tsquery"
+                | "tsvector"
+                | "uuid"
+                | "varchar"
+                | "xml"
+        )
+}
+
+fn postgres_argument_reference(name: &str) -> String {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return quote_postgres_identifier(name);
+    };
+    if (first.is_ascii_lowercase() || first == '_')
+        && chars.all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
+        })
+    {
+        name.into()
+    } else {
+        quote_postgres_identifier(name)
+    }
+}
+
+fn postgres_import_export_request(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let mode = string_parameter(parameters, "mode")
+        .unwrap_or_else(|| "export".into())
+        .to_ascii_lowercase();
+    let format = string_parameter(parameters, "format").unwrap_or_else(|| "csv".into());
+    let (schema, table) = postgres_plan_table_parts(object_name, parameters);
+    let workflow = if matches!(
+        mode.as_str(),
+        "import" | "append" | "insert" | "validate" | "validate-only"
+    ) {
+        "postgresql.table.import"
+    } else {
+        "postgresql.table.export"
+    };
+    let path_key = if workflow.ends_with(".import") {
+        "source"
+    } else {
+        "target"
+    };
+    let path_value = format!("<selected-file>.{format}");
+
+    let mut request = serde_json::json!({
+        "workflow": workflow,
+        "mode": mode,
+        "schema": schema,
+        "table": table,
+        "format": format,
+        "rowLimit": numeric_parameter(parameters, "rowLimit").unwrap_or(10_000),
+        "executionGate": {
+            "owner": "postgresql-adapter",
+            "defaultSupport": "live",
+            "requiresConfirmation": true,
+            "guards": [
+                "concrete absolute file path",
+                "read-only connection check for import",
+                "row limit",
+                "type-aware target column validation"
+            ]
+        }
+    });
+    if let Some(object) = request.as_object_mut() {
+        object.insert(
+            path_key.into(),
+            serde_json::json!({
+                "path": path_value,
+                "overwrite": false
+            }),
+        );
+    }
+
+    serde_json::to_string_pretty(&request).unwrap_or_else(|_| "{}".into())
+}
+
+fn postgres_backup_restore_request(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let mode = string_parameter(parameters, "mode")
+        .unwrap_or_else(|| "backup".into())
+        .to_ascii_lowercase();
+    let format = string_parameter(parameters, "format").unwrap_or_else(|| "json".into());
+    let schema = string_parameter(parameters, "schema")
+        .unwrap_or_else(|| postgres_plan_table_parts(object_name, parameters).0);
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": if mode == "restore" {
+            "postgresql.database.restore-preview"
+        } else {
+            "postgresql.database.backup"
+        },
+        "mode": mode,
+        "format": format,
+        "schema": schema,
+        "target": {
+            "path": format!("<selected-file>.{format}"),
+            "overwrite": false
+        },
+        "rowLimit": numeric_parameter(parameters, "rowLimit").unwrap_or(1_000),
+        "tableLimit": numeric_parameter(parameters, "tableLimit").unwrap_or(25),
+        "includeData": bool_parameter(parameters, "includeData").unwrap_or(true),
+        "executionGate": {
+            "owner": "postgresql-adapter",
+            "defaultSupport": if mode == "restore" { "plan-only" } else { "live" },
+            "requiresConfirmation": true,
+            "residualRisk": "bounded logical DataPad++ backup package; full pg_dump/pg_restore restore execution remains preview-first"
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn postgres_plan_table_parts(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> (String, String) {
+    let table = string_parameter(parameters, "table")
+        .or_else(|| string_parameter(parameters, "tableName"))
+        .unwrap_or_else(|| {
+            object_name
+                .split('.')
+                .next_back()
+                .map(clean_postgres_identifier)
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "<table>".into())
+        });
+    let schema = string_parameter(parameters, "schema").unwrap_or_else(|| {
+        object_name
+            .split('.')
+            .next()
+            .map(clean_postgres_identifier)
+            .filter(|value| !value.is_empty() && value != &table)
+            .unwrap_or_else(|| "public".into())
+    });
+
+    (schema, table)
+}
+
+fn clean_postgres_identifier(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('`')
+        .trim_matches('[')
+        .trim_matches(']')
+        .replace("\"\"", "\"")
+}
+
+fn quote_postgres_identifier(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
 }
 
 fn sqlserver_operation_request(
@@ -2822,11 +4350,11 @@ fn sqlserver_operation_request(
     }
 
     if operation_id.ends_with("data.import-export") || operation_id.contains("import-export") {
-        return format!("-- Export with bcp/sqlcmd or the DataPad++ file workflow.\nselect top 1000 * from {object_name};");
+        return sqlserver_import_export_request(object_name, parameters);
     }
 
     if operation_id.ends_with("data.backup-restore") || operation_id.contains("backup-restore") {
-        return "backup database [database_name]\nto disk = '<selected-folder>\\database_name.bak'\nwith compression, checksum;".into();
+        return sqlserver_backup_restore_request(object_name, parameters);
     }
 
     if operation_id.ends_with("index.rebuild") {
@@ -2872,13 +4400,254 @@ fn sqlserver_operation_request(
         "refresh" => "select name, state_desc from sys.databases order by name;".into(),
         "execute" => format!("select top 100 * from {object_name};"),
         "explain" => format!("set showplan_text on;\nselect top 100 * from {object_name};\nset showplan_text off;"),
-        "profile" => format!("set statistics io on;\nset statistics time on;\nselect top 100 * from {object_name};\nset statistics io off;\nset statistics time off;"),
+        "profile" => format!("-- SQL Server XML Showplan does not execute the statement, but it reveals estimated optimizer shape.\nset showplan_xml on;\nselect top 100 * from {object_name};\nset showplan_xml off;"),
         "create" => format!("create table {object_name} (\n  [id] int identity(1, 1) not null primary key,\n  [created_at] datetime2 not null default sysutcdatetime()\n);"),
         "drop" => format!("-- Review before running.\ndrop table {object_name};"),
         "inspect" => "select * from sys.database_permissions;\nselect * from sys.database_principals;".into(),
-        "metrics" => "select * from sys.dm_exec_sessions;\nselect * from sys.dm_exec_requests;\nselect * from sys.dm_os_wait_stats;".into(),
+        "metrics" => "select top 50 * from sys.dm_exec_query_stats order by total_elapsed_time desc;\nselect * from sys.dm_exec_requests;\nselect * from sys.dm_os_wait_stats;\nselect * from sys.dm_io_virtual_file_stats(db_id(), null);\nselect * from sys.dm_exec_query_memory_grants;".into(),
         _ => format!("-- SQL Server {operation_id}\n-- parameters:\n{parameter_json}"),
     }
+}
+
+fn sqlserver_import_export_request(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let (schema, table) = sqlserver_workflow_table_parts(object_name, parameters);
+    let mode = string_parameter(parameters, "mode")
+        .unwrap_or_else(|| "export".into())
+        .to_ascii_lowercase();
+    let format = string_parameter(parameters, "format").unwrap_or_else(|| "csv".into());
+    let row_limit = numeric_parameter(parameters, "rowLimit")
+        .or_else(|| numeric_parameter(parameters, "limit"))
+        .unwrap_or(10_000);
+    let import_like = matches!(
+        mode.as_str(),
+        "import" | "append" | "insert" | "validate" | "validate-only"
+    );
+
+    if import_like {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": "sqlserver.table.import",
+            "schema": schema,
+            "table": table,
+            "format": format,
+            "source": {
+                "path": string_parameter(parameters, "sourcePath")
+                    .or_else(|| string_parameter(parameters, "inputPath"))
+                    .unwrap_or_else(|| format!("<selected-file>.{format}"))
+            },
+            "mode": mode,
+            "rowLimit": row_limit,
+            "emptyStringAsNull": bool_parameter(parameters, "emptyStringAsNull").unwrap_or(false),
+            "executionGate": {
+                "defaultSupport": "live",
+                "guards": [
+                    "desktop adapter execution only",
+                    "absolute source path",
+                    "existing target table",
+                    "insertable target-column validation",
+                    "bounded row import",
+                    "read-only connection blocked",
+                    "explicit confirmation required before append"
+                ],
+                "residualRisk": "bulk load and identity-insert workflows remain manual preview paths"
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": "sqlserver.table.export",
+        "schema": schema,
+        "table": table,
+        "format": format,
+        "target": {
+            "path": string_parameter(parameters, "targetPath")
+                .or_else(|| string_parameter(parameters, "outputPath"))
+                .unwrap_or_else(|| format!("<selected-file>.{format}")),
+            "overwrite": bool_parameter(parameters, "overwrite").unwrap_or(false)
+        },
+        "rowLimit": row_limit,
+        "serialization": "FOR JSON PATH, INCLUDE_NULL_VALUES, then local CSV/JSON/NDJSON writer",
+        "executionGate": {
+            "defaultSupport": "live",
+            "guards": [
+                "desktop adapter execution only",
+                "absolute target path",
+                "parent folder exists",
+                "overwrite opt-in",
+                "bounded row export"
+            ],
+            "residualRisk": "server-side bcp/sqlcmd bulk workflows remain manual preview paths"
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn sqlserver_backup_restore_request(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let mode = string_parameter(parameters, "mode")
+        .unwrap_or_else(|| "backup".into())
+        .to_ascii_lowercase();
+    let database = string_parameter(parameters, "database")
+        .or_else(|| sqlserver_workflow_database_name(object_name))
+        .unwrap_or_else(|| "database".into());
+    let row_limit = numeric_parameter(parameters, "rowLimit").unwrap_or(1_000);
+    let table_limit = numeric_parameter(parameters, "tableLimit").unwrap_or(25);
+
+    if matches!(mode.as_str(), "restore" | "recover" | "import") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": "sqlserver.database.restore",
+            "database": database,
+            "source": {
+                "path": string_parameter(parameters, "sourcePath")
+                    .or_else(|| string_parameter(parameters, "inputPath"))
+                    .unwrap_or_else(|| "<selected-file>.json".into())
+            },
+            "mode": mode,
+            "executionGate": {
+                "defaultSupport": "plan-only",
+                "guards": [
+                    "restore execution remains preview-first",
+                    "validate package before manual restore",
+                    "review schema DDL, identity columns, triggers, constraints, and target database state"
+                ],
+                "residualRisk": "native .bak restore and generated insert replay remain manual reviewed workflows"
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": "sqlserver.database.backup",
+        "database": database,
+        "target": {
+            "path": string_parameter(parameters, "targetPath")
+                .or_else(|| string_parameter(parameters, "outputPath"))
+                .unwrap_or_else(|| "<selected-file>.json".into()),
+            "overwrite": bool_parameter(parameters, "overwrite").unwrap_or(false)
+        },
+        "schema": string_parameter(parameters, "schema"),
+        "format": string_parameter(parameters, "format").unwrap_or_else(|| "json".into()),
+        "includeData": bool_parameter(parameters, "includeData").unwrap_or(true),
+        "rowLimit": row_limit,
+        "tableLimit": table_limit,
+        "executionGate": {
+            "defaultSupport": "live",
+            "guards": [
+                "desktop adapter execution only",
+                "absolute target path",
+                "parent folder exists",
+                "overwrite opt-in",
+                "bounded table list",
+                "bounded rows per table"
+            ],
+            "residualRisk": "bounded logical DataPad++ backup package; native .bak backup/restore execution remains preview-first"
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn sqlserver_workflow_table_parts(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> (String, String) {
+    let explicit_schema = string_parameter(parameters, "schema");
+    let explicit_table =
+        string_parameter(parameters, "table").or_else(|| string_parameter(parameters, "tableName"));
+    if let Some(table) = explicit_table {
+        return (explicit_schema.unwrap_or_else(|| "dbo".into()), table);
+    }
+
+    let parts = split_sqlserver_name(object_name)
+        .into_iter()
+        .map(|part| clean_sqlserver_identifier(&part))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    match parts.as_slice() {
+        [table] => (
+            explicit_schema.unwrap_or_else(|| "dbo".into()),
+            table.clone(),
+        ),
+        [schema, table, ..] => (
+            explicit_schema.unwrap_or_else(|| schema.clone()),
+            table.clone(),
+        ),
+        _ => (
+            explicit_schema.unwrap_or_else(|| "dbo".into()),
+            "<table>".into(),
+        ),
+    }
+}
+
+fn sqlserver_workflow_database_name(object_name: &str) -> Option<String> {
+    let parts = split_sqlserver_name(object_name)
+        .into_iter()
+        .map(|part| clean_sqlserver_identifier(&part))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    (parts.len() == 1).then(|| parts[0].clone())
+}
+
+fn split_sqlserver_name(value: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut bracket_depth = 0u8;
+    let mut quote = None::<char>;
+
+    for ch in value.chars() {
+        match ch {
+            '[' if quote.is_none() => {
+                bracket_depth = bracket_depth.saturating_add(1);
+                current.push(ch);
+            }
+            ']' if quote.is_none() && bracket_depth > 0 => {
+                bracket_depth -= 1;
+                current.push(ch);
+            }
+            '"' | '`' if bracket_depth == 0 => {
+                if quote == Some(ch) {
+                    quote = None;
+                } else if quote.is_none() {
+                    quote = Some(ch);
+                }
+                current.push(ch);
+            }
+            '.' if bracket_depth == 0 && quote.is_none() => {
+                parts.push(std::mem::take(&mut current));
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
+}
+
+fn clean_sqlserver_identifier(value: &str) -> String {
+    let trimmed = value.trim();
+    let unwrapped = trimmed
+        .strip_prefix('[')
+        .and_then(|item| item.strip_suffix(']'))
+        .or_else(|| {
+            trimmed
+                .strip_prefix('"')
+                .and_then(|item| item.strip_suffix('"'))
+        })
+        .or_else(|| {
+            trimmed
+                .strip_prefix('`')
+                .and_then(|item| item.strip_suffix('`'))
+        })
+        .unwrap_or(trimmed);
+    unwrapped
+        .replace("]]", "]")
+        .replace("\"\"", "\"")
+        .replace("``", "`")
 }
 
 fn oracle_operation_request(operation_id: &str, object_name: &str, parameter_json: &str) -> String {
@@ -3113,6 +4882,7 @@ pub(crate) fn default_operation_plan(
 ) -> OperationPlan {
     let object_name = default_object_name(manifest, object_name);
     let destructive = operation_id.contains(".drop")
+        || operation_id.contains(".session.terminate")
         || operation_id.contains("backup-restore")
         || operation_id.contains(".backup.restore")
         || operation_id.contains(".key.delete")
@@ -3129,10 +4899,13 @@ pub(crate) fn default_operation_plan(
         || operation_id.contains(".pipeline.simulate")
         || operation_id.contains(".user.")
         || operation_id.contains(".role.")
+        || operation_id.contains(".routine.execute")
+        || operation_id.contains(".session.cancel")
         || operation_id.contains(".key.set")
         || operation_id.contains(".key.touch")
         || operation_id.contains(".key.increment")
         || operation_id.contains(".key.import")
+        || operation_id.contains(".table.import")
         || operation_id.contains(".key.rename")
         || operation_id.contains(".key.copy")
         || operation_id.contains(".key.move")
@@ -3172,6 +4945,8 @@ pub(crate) fn default_operation_plan(
         || admin_write
         || operation_id.contains(".collection.export")
         || operation_id.contains(".key.export")
+        || operation_id.contains(".table.export")
+        || operation_id.contains(".database.backup")
         || operation_id.contains(".cardinality.")
         || operation_id.contains(".profile")
         || operation_id.contains("metrics");
@@ -3230,7 +5005,7 @@ pub(crate) fn default_operation_plan(
 mod tests {
     use super::{default_operation_plan, generated_operation_request};
     use crate::domain::models::{AdapterManifest, ResolvedConnectionProfile};
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
     #[test]
@@ -3252,14 +5027,17 @@ mod tests {
             "products",
             Some(&parameters),
         );
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&export_request).unwrap()["database"],
-            "catalog"
-        );
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&export_request).unwrap()["operation"],
-            "export"
-        );
+        let export_value = serde_json::from_str::<serde_json::Value>(&export_request).unwrap();
+        assert_eq!(export_value["database"], "catalog");
+        assert_eq!(export_value["operation"], "export");
+        assert_eq!(export_value["workflow"], "mongodb.collection.export");
+        assert_eq!(export_value["target"]["path"], "<selected-file>.ndjson");
+        assert_eq!(export_value["executionGate"]["owner"], "mongodb-adapter");
+        assert_eq!(export_value["executionGate"]["defaultSupport"], "live");
+        assert!(export_value["serializer"]["supportedFormats"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("bson")));
         assert!(export_request.contains("\"active\": true"));
 
         let import_plan = default_operation_plan(
@@ -3269,11 +5047,15 @@ mod tests {
             Some("products"),
             Some(&parameters),
         );
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&import_plan.generated_request).unwrap()
-                ["operation"],
-            "import"
-        );
+        let import_value =
+            serde_json::from_str::<serde_json::Value>(&import_plan.generated_request).unwrap();
+        assert_eq!(import_value["operation"], "import");
+        assert_eq!(import_value["workflow"], "mongodb.collection.import");
+        assert_eq!(import_value["source"]["path"], "<selected-file>.ndjson");
+        assert!(import_value["checks"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("validator-compatible")));
         assert_eq!(
             import_plan.required_permissions,
             vec!["write/admin privilege for the target object"]
@@ -3365,6 +5147,17 @@ mod tests {
         assert!(sqlserver_explain.contains("set showplan_text on"));
         assert!(sqlserver_explain.contains("select top 100 * from [dbo].[Accounts];"));
 
+        let sqlserver_profile = generated_operation_request(
+            &connection,
+            &sqlserver_manifest,
+            "sqlserver.query.profile",
+            "[dbo].[Accounts]",
+            None,
+        );
+        assert!(sqlserver_profile.contains("set showplan_xml on"));
+        assert!(sqlserver_profile.contains("select top 100 * from [dbo].[Accounts];"));
+        assert!(!sqlserver_profile.contains("statistics io"));
+
         let sqlserver_parameters = BTreeMap::from([
             ("schema".into(), json!("dbo")),
             ("table".into(), json!("Accounts")),
@@ -3401,6 +5194,62 @@ mod tests {
         );
         assert!(sqlserver_query_store.contains("from sys.query_store_query"));
 
+        let sqlserver_export = generated_operation_request(
+            &connection,
+            &sqlserver_manifest,
+            "sqlserver.data.import-export",
+            "[dbo].[Accounts]",
+            Some(&sqlserver_parameters),
+        );
+        let sqlserver_export_value =
+            serde_json::from_str::<serde_json::Value>(&sqlserver_export).unwrap();
+        assert_eq!(sqlserver_export_value["workflow"], "sqlserver.table.export");
+        assert_eq!(sqlserver_export_value["schema"], "dbo");
+        assert_eq!(sqlserver_export_value["table"], "Accounts");
+        assert_eq!(
+            sqlserver_export_value["executionGate"]["defaultSupport"],
+            "live"
+        );
+
+        let sqlserver_import_parameters = BTreeMap::from([
+            ("schema".into(), json!("dbo")),
+            ("table".into(), json!("Accounts")),
+            ("mode".into(), json!("validate-only")),
+            ("format".into(), json!("csv")),
+        ]);
+        let sqlserver_import = generated_operation_request(
+            &connection,
+            &sqlserver_manifest,
+            "sqlserver.data.import-export",
+            "[dbo].[Accounts]",
+            Some(&sqlserver_import_parameters),
+        );
+        let sqlserver_import_value =
+            serde_json::from_str::<serde_json::Value>(&sqlserver_import).unwrap();
+        assert_eq!(sqlserver_import_value["workflow"], "sqlserver.table.import");
+        assert_eq!(
+            sqlserver_import_value["executionGate"]["guards"][3],
+            "insertable target-column validation"
+        );
+
+        let sqlserver_backup = generated_operation_request(
+            &connection,
+            &sqlserver_manifest,
+            "sqlserver.data.backup-restore",
+            "[datapadplusplus]",
+            None,
+        );
+        let sqlserver_backup_value =
+            serde_json::from_str::<serde_json::Value>(&sqlserver_backup).unwrap();
+        assert_eq!(
+            sqlserver_backup_value["workflow"],
+            "sqlserver.database.backup"
+        );
+        assert_eq!(
+            sqlserver_backup_value["executionGate"]["residualRisk"],
+            "bounded logical DataPad++ backup package; native .bak backup/restore execution remains preview-first"
+        );
+
         let postgres_export = generated_operation_request(
             &connection,
             &postgres_manifest,
@@ -3408,7 +5257,136 @@ mod tests {
             "\"public\".\"accounts\"",
             None,
         );
-        assert!(postgres_export.contains("copy (select * from \"public\".\"accounts\")"));
+        let postgres_export_value =
+            serde_json::from_str::<serde_json::Value>(&postgres_export).unwrap();
+        assert_eq!(postgres_export_value["workflow"], "postgresql.table.export");
+        assert_eq!(postgres_export_value["schema"], "public");
+        assert_eq!(postgres_export_value["table"], "accounts");
+        assert_eq!(
+            postgres_export_value["target"]["path"],
+            "<selected-file>.csv"
+        );
+        assert_eq!(
+            postgres_export_value["executionGate"]["defaultSupport"],
+            "live"
+        );
+
+        let postgres_import_parameters = BTreeMap::from([
+            ("schema".into(), json!("public")),
+            ("table".into(), json!("accounts")),
+            ("mode".into(), json!("validate-only")),
+            ("format".into(), json!("csv")),
+        ]);
+        let postgres_import = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.data.import-export",
+            "\"public\".\"accounts\"",
+            Some(&postgres_import_parameters),
+        );
+        let postgres_import_value =
+            serde_json::from_str::<serde_json::Value>(&postgres_import).unwrap();
+        assert_eq!(postgres_import_value["workflow"], "postgresql.table.import");
+        assert_eq!(
+            postgres_import_value["source"]["path"],
+            "<selected-file>.csv"
+        );
+        assert_eq!(
+            postgres_import_value["executionGate"]["guards"][3],
+            "type-aware target column validation"
+        );
+
+        let postgres_backup = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.data.backup-restore",
+            "\"postgres\"",
+            None,
+        );
+        let postgres_backup_value =
+            serde_json::from_str::<serde_json::Value>(&postgres_backup).unwrap();
+        assert_eq!(
+            postgres_backup_value["workflow"],
+            "postgresql.database.backup"
+        );
+        assert_eq!(
+            postgres_backup_value["executionGate"]["residualRisk"],
+            "bounded logical DataPad++ backup package; full pg_dump/pg_restore restore execution remains preview-first"
+        );
+
+        let mysql_parameters = BTreeMap::from([
+            ("database".into(), json!("shop")),
+            ("table".into(), json!("orders")),
+            ("mode".into(), json!("validate-only")),
+            ("format".into(), json!("csv")),
+        ]);
+        let mysql_import = generated_operation_request(
+            &connection,
+            &mysql_manifest,
+            "mysql.data.import-export",
+            "`shop`.`orders`",
+            Some(&mysql_parameters),
+        );
+        let mysql_import_value = serde_json::from_str::<serde_json::Value>(&mysql_import).unwrap();
+        assert_eq!(mysql_import_value["workflow"], "mysql.table.import");
+        assert_eq!(mysql_import_value["database"], "shop");
+        assert_eq!(
+            mysql_import_value["executionGate"]["guards"][3],
+            "insertable target-column validation"
+        );
+
+        let mysql_backup = generated_operation_request(
+            &connection,
+            &mysql_manifest,
+            "mysql.data.backup-restore",
+            "shop",
+            None,
+        );
+        let mysql_backup_value = serde_json::from_str::<serde_json::Value>(&mysql_backup).unwrap();
+        assert_eq!(mysql_backup_value["workflow"], "mysql.database.backup");
+        assert_eq!(
+            mysql_backup_value["executionGate"]["defaultSupport"],
+            "live"
+        );
+
+        let mariadb_import = generated_operation_request(
+            &connection,
+            &mariadb_manifest,
+            "mariadb.data.import-export",
+            "`commerce`.`orders`",
+            Some(&BTreeMap::from([
+                ("database".into(), json!("commerce")),
+                ("table".into(), json!("orders")),
+                ("mode".into(), json!("export")),
+                ("format".into(), json!("json")),
+            ])),
+        );
+        let mariadb_import_value =
+            serde_json::from_str::<serde_json::Value>(&mariadb_import).unwrap();
+        assert_eq!(mariadb_import_value["workflow"], "mariadb.table.export");
+        assert_eq!(
+            mariadb_import_value["executionGate"]["defaultSupport"],
+            "live"
+        );
+
+        let mariadb_backup = generated_operation_request(
+            &connection,
+            &mariadb_manifest,
+            "mariadb.data.backup-restore",
+            "commerce",
+            None,
+        );
+        let mariadb_backup_value =
+            serde_json::from_str::<serde_json::Value>(&mariadb_backup).unwrap();
+        assert_eq!(mariadb_backup_value["workflow"], "mariadb.database.backup");
+        assert_eq!(
+            mariadb_backup_value["executionGate"]["defaultSupport"],
+            "live"
+        );
+        assert!(mariadb_backup_value["executionGate"]["residualRisk"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("mariadb-dump/mysql restore"));
 
         let postgres_analyze = generated_operation_request(
             &connection,
@@ -3441,6 +5419,104 @@ mod tests {
         assert!(postgres_reindex
             .contains("reindex index concurrently \"public\".\"accounts_name_idx\";"));
 
+        let postgres_profile = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.query.profile",
+            "\"public\".\"accounts\"",
+            Some(&BTreeMap::from([
+                (
+                    "query".into(),
+                    json!("select * from \"public\".\"accounts\" where active = true limit 50"),
+                ),
+                ("format".into(), json!("json")),
+            ])),
+        );
+        assert!(postgres_profile.contains("PostgreSQL query profile executes the statement"));
+        assert!(postgres_profile
+            .contains("explain (analyze true, buffers true, verbose true, format json)"));
+        assert!(postgres_profile.contains("where active = true limit 50;"));
+
+        let postgres_routine = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.routine.execute",
+            "\"public\".\"refresh_account\"",
+            Some(&BTreeMap::from([
+                ("schema".into(), json!("public")),
+                ("routineName".into(), json!("refresh_account")),
+                ("routineKind".into(), json!("procedure")),
+                (
+                    "arguments".into(),
+                    json!("account_id integer, force boolean DEFAULT false"),
+                ),
+            ])),
+        );
+        assert!(postgres_routine.contains("call \"public\".\"refresh_account\"("));
+        assert!(postgres_routine.contains("account_id => $1"));
+        assert!(postgres_routine.contains("force => $2"));
+        assert!(postgres_routine.contains("-- $1 account_id integer"));
+
+        let postgres_cancel = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.session.cancel",
+            "\"Diagnostics\"",
+            Some(&BTreeMap::from([
+                ("sessionPid".into(), json!(101)),
+                ("sessionUser".into(), json!("app")),
+                ("sessionDatabase".into(), json!("datapadplusplus")),
+                ("sessionState".into(), json!("active")),
+            ])),
+        );
+        assert!(postgres_cancel.contains("pg_cancel_backend(101)"));
+        assert!(postgres_cancel.contains("pg_backend_pid() = 101"));
+        assert!(postgres_cancel.contains("-- Target: pid 101, user app"));
+
+        let postgres_terminate = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.session.terminate",
+            "\"Diagnostics\"",
+            Some(&BTreeMap::from([("sessionPid".into(), json!(101))])),
+        );
+        assert!(postgres_terminate.contains("pg_terminate_backend(101)"));
+        assert!(postgres_terminate.contains("rolls back its active transaction"));
+
+        let postgres_security = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.security.inspect",
+            "\"Security\"",
+            None,
+        );
+        assert!(postgres_security.contains("pg_auth_members"));
+        assert!(postgres_security.contains("pg_default_acl"));
+
+        let postgres_grant = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.role.grant",
+            "\"Security\"",
+            Some(&BTreeMap::from([
+                ("roleName".into(), json!("app")),
+                ("memberOf".into(), json!("reporting")),
+            ])),
+        );
+        assert!(postgres_grant.contains("grant \"reporting\" to \"app\";"));
+
+        let postgres_extension = generated_operation_request(
+            &connection,
+            &postgres_manifest,
+            "postgresql.extension.update",
+            "\"public\".\"uuid-ossp\"",
+            Some(&BTreeMap::from([(
+                "extensionName".into(),
+                json!("uuid-ossp"),
+            )])),
+        );
+        assert!(postgres_extension.contains("alter extension \"uuid-ossp\" update;"));
+
         let sqlite_export = generated_operation_request(
             &connection,
             &sqlite_manifest,
@@ -3450,6 +5526,47 @@ mod tests {
         );
         assert!(sqlite_export.contains(".mode csv"));
         assert!(sqlite_export.contains("select * from [accounts];"));
+
+        let sqlite_table_export = generated_operation_request(
+            &connection,
+            &sqlite_manifest,
+            "sqlite.table.export",
+            "[main].[accounts]",
+            Some(&BTreeMap::from([
+                ("targetPath".into(), json!("C:\\fixtures\\accounts.csv")),
+                ("format".into(), json!("csv")),
+                ("limit".into(), json!(500)),
+            ])),
+        );
+        assert!(sqlite_table_export.contains("\"workflow\": \"sqlite.table.export\""));
+        assert!(sqlite_table_export.contains("\"table\": \"accounts\""));
+        assert!(sqlite_table_export.contains("\"limit\": 500"));
+
+        let sqlite_table_import = generated_operation_request(
+            &connection,
+            &sqlite_manifest,
+            "sqlite.table.import",
+            "[main].[accounts]",
+            Some(&BTreeMap::from([(
+                "sourcePath".into(),
+                json!("C:\\fixtures\\accounts.csv"),
+            )])),
+        );
+        assert!(sqlite_table_import.contains("\"workflow\": \"sqlite.table.import\""));
+        assert!(sqlite_table_import.contains("\"mode\": \"append\""));
+
+        let sqlite_backup = generated_operation_request(
+            &connection,
+            &sqlite_manifest,
+            "sqlite.database.backup",
+            "[main]",
+            Some(&BTreeMap::from([(
+                "targetPath".into(),
+                json!("C:\\fixtures\\backup.sqlite"),
+            )])),
+        );
+        assert!(sqlite_backup.contains("vacuum \"main\" into"));
+        assert!(sqlite_backup.contains("backup.sqlite"));
 
         let sqlite_integrity = generated_operation_request(
             &connection,
@@ -3517,7 +5634,20 @@ mod tests {
             "`shop`.`orders`",
             None,
         );
-        assert_eq!(mysql_check, "check table `shop`.`orders`;");
+        let mysql_check_json: Value =
+            serde_json::from_str(&mysql_check).expect("mysql check request");
+        assert_eq!(mysql_check_json["workflow"], "mysql.table.maintenance");
+        assert_eq!(mysql_check_json["operation"], "check");
+        assert_eq!(mysql_check_json["database"], "shop");
+        assert_eq!(mysql_check_json["table"], "orders");
+        assert_eq!(
+            mysql_check_json["statement"],
+            "check table `shop`.`orders`;"
+        );
+        assert_eq!(
+            mysql_check_json["executionGate"]["defaultSupport"],
+            "plan-only"
+        );
 
         let mysql_repair = generated_operation_request(
             &connection,
@@ -3526,7 +5656,41 @@ mod tests {
             "`shop`.`orders`",
             None,
         );
-        assert_eq!(mysql_repair, "repair table `shop`.`orders`;");
+        let mysql_repair_json: Value =
+            serde_json::from_str(&mysql_repair).expect("mysql repair request");
+        assert_eq!(mysql_repair_json["operation"], "repair");
+        assert!(mysql_repair_json["executionGate"]["guards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(
+                |item| item == "require owner/admin confirmation and a recent backup before repair"
+            ));
+
+        let mysql_routine = generated_operation_request(
+            &connection,
+            &mysql_manifest,
+            "mysql.routine.execute",
+            "`shop`.`refresh_rollups`",
+            Some(&BTreeMap::from([
+                ("database".into(), json!("shop")),
+                ("routineName".into(), json!("refresh_rollups")),
+                ("routineKind".into(), json!("procedure")),
+                (
+                    "arguments".into(),
+                    json!("IN account_id bigint, IN force_refresh tinyint(1)"),
+                ),
+            ])),
+        );
+        let mysql_routine_json: Value =
+            serde_json::from_str(&mysql_routine).expect("mysql routine request");
+        assert_eq!(mysql_routine_json["workflow"], "mysql.routine.execute");
+        assert_eq!(mysql_routine_json["routine"], "refresh_rollups");
+        assert!(mysql_routine_json["statement"]
+            .as_str()
+            .unwrap()
+            .contains("call `shop`.`refresh_rollups`("));
+        assert_eq!(mysql_routine_json["bindings"][0]["name"], "account_id");
 
         let mysql_event = generated_operation_request(
             &connection,
@@ -3535,7 +5699,61 @@ mod tests {
             "`shop`.`refresh_rollups`",
             None,
         );
-        assert_eq!(mysql_event, "alter event `shop`.`refresh_rollups` disable;");
+        let mysql_event_json: Value =
+            serde_json::from_str(&mysql_event).expect("mysql event request");
+        assert_eq!(mysql_event_json["workflow"], "mysql.event.toggle");
+        assert_eq!(mysql_event_json["operation"], "disable");
+        assert_eq!(
+            mysql_event_json["statement"],
+            "alter event `shop`.`refresh_rollups` disable;"
+        );
+
+        let mysql_security = generated_operation_request(
+            &connection,
+            &mysql_manifest,
+            "mysql.security.inspect",
+            "`shop`",
+            Some(&BTreeMap::from([("database".into(), json!("shop"))])),
+        );
+        let mysql_security_json: Value =
+            serde_json::from_str(&mysql_security).expect("mysql security request");
+        assert_eq!(mysql_security_json["workflow"], "mysql.security.inspect");
+        assert!(mysql_security_json["statements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|statement| statement
+                .as_str()
+                .unwrap()
+                .contains("information_schema.schema_privileges")));
+
+        let mysql_lock = generated_operation_request(
+            &connection,
+            &mysql_manifest,
+            "mysql.user.lock",
+            "`shop`",
+            Some(&BTreeMap::from([
+                ("userName".into(), json!("reporting")),
+                ("userHost".into(), json!("%")),
+            ])),
+        );
+        let mysql_lock_json: Value = serde_json::from_str(&mysql_lock).expect("mysql lock request");
+        assert_eq!(mysql_lock_json["workflow"], "mysql.user.account-state");
+        assert_eq!(
+            mysql_lock_json["statement"],
+            "alter user 'reporting'@'%' account lock;"
+        );
+
+        let mysql_metrics = generated_operation_request(
+            &connection,
+            &mysql_manifest,
+            "mysql.diagnostics.metrics",
+            "`shop`.`orders`",
+            None,
+        );
+        assert!(mysql_metrics.contains("performance_schema.events_statements_summary_by_digest"));
+        assert!(mysql_metrics.contains("performance_schema.table_io_waits_summary_by_index_usage"));
+        assert!(mysql_metrics.contains("@@optimizer_trace"));
 
         let mariadb_profile = generated_operation_request(
             &connection,
@@ -4356,6 +6574,30 @@ mod tests {
         assert!(redis_export_request.contains("TTL session:1"));
         assert!(redis_export_request.contains("HGETALL session:1"));
 
+        let redis_json_parameters = BTreeMap::from([
+            ("database".into(), json!("0")),
+            ("key".into(), json!("profile:1")),
+            ("redisType".into(), json!("json")),
+        ]);
+        let redis_json_export_request = generated_operation_request(
+            &connection,
+            &redis_manifest,
+            "redis.key.export",
+            "profile:1",
+            Some(&redis_json_parameters),
+        );
+        assert!(redis_json_export_request.contains("JSON.GET profile:1 $"));
+        let redis_json_import_plan = default_operation_plan(
+            &connection,
+            &redis_manifest,
+            "redis.key.import",
+            Some("profile:1"),
+            Some(&redis_json_parameters),
+        );
+        assert!(redis_json_import_plan
+            .generated_request
+            .contains("JSON.SET profile:1 $ <json>"));
+
         let redis_import_plan = default_operation_plan(
             &connection,
             &redis_manifest,
@@ -4481,6 +6723,8 @@ mod tests {
             redis_options: None,
             memcached_options: None,
             sqlite_options: None,
+            postgres_options: None,
+            mysql_options: None,
             sqlserver_options: None,
             oracle_options: None,
             dynamo_db_options: None,

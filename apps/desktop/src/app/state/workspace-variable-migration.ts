@@ -15,6 +15,7 @@ export function migrateLegacyVariableTokens(snapshot: WorkspaceSnapshot) {
       : connection.connectionString
     connection.redisOptions = migrateJsonVariableTokens(connection.redisOptions)
     connection.sqliteOptions = migrateJsonVariableTokens(connection.sqliteOptions)
+    connection.mysqlOptions = migrateJsonVariableTokens(connection.mysqlOptions)
     connection.sqlServerOptions = migrateJsonVariableTokens(connection.sqlServerOptions)
     connection.oracleOptions = migrateJsonVariableTokens(connection.oracleOptions)
     connection.dynamoDbOptions = migrateJsonVariableTokens(connection.dynamoDbOptions)

@@ -14,10 +14,18 @@ Run optional fixtures:
 ```powershell
 npm run fixtures:up:profile -- sqlplus
 npm run fixtures:up:profile -- redis-stack
+npm run fixtures:up:profile -- cache
 npm run fixtures:up:profile -- search
 npm run fixtures:up:all
 npm run fixtures:seed:all
+npm run fixtures:validate:postgres
+npm run fixtures:validate:mongodb
+npm run fixtures:validate:redis -- --require-stack --require-valkey
 ```
+
+The PostgreSQL validator creates and removes transient `fixture_postgres_*` tables, routines, and a `fixture_postgres_readonly` role to check row evidence, diagnostics, import/export primitives, bounded backup evidence, and permission denial. Full `pg_dump`/`pg_restore` execution stays outside the scoped native-complete fixture claim unless promoted later.
+
+Add `--require-vector` to the Redis validator only when the selected Redis Stack image exposes `VADD`; the default Redis native-complete fixture path treats vector-set live evidence as image-dependent and optional.
 
 The fixture runner writes the actual selected ports to `tests/fixtures/.generated.env`. If a default port is blocked, use the generated value instead of the default below.
 
@@ -36,9 +44,9 @@ The fixture runner writes the actual selected ports to `tests/fixtures/.generate
 
 | Profile | Engine | Host | Port | Database / keyspace | User | Password | Connection string / endpoint | Smoke query |
 | --- | --- | --- | ---: | --- | --- | --- | --- | --- |
-| `cache` | Valkey | `localhost` | `6381` | `0` | | | `redis://localhost:6381/0` | `GET account:1` |
+| `cache` | Valkey | `localhost` | `6381` | `0` | | | `redis://localhost:6381/0` | `GET account:1`, `HGETALL product:luna-lamp` |
 | `cache` | Memcached | `localhost` | `11212` | | | | `localhost:11212` | `get account:1` |
-| `redis-stack` | Redis Stack | `localhost` | `6382` | `0` | | | `redis://localhost:6382/0` | `JSON.GET json:account:1` |
+| `redis-stack` | Redis Stack | `localhost` | `6382` | `0` | | | `redis://localhost:6382/0` | `JSON.GET json:account:1`, `TS.RANGE ts:orders:throughput - +` |
 | `sqlplus` | MariaDB | `localhost` | `33061` | `commerce` | `datapadplusplus` | `datapadplusplus` | `mysql://datapadplusplus:datapadplusplus@localhost:33061/commerce` | `select * from accounts limit 20;` |
 | `sqlplus` | CockroachDB | `localhost` | `26257` | `datapadplusplus` | `root` | | `postgresql://root@localhost:26257/datapadplusplus?sslmode=disable` | `select * from accounts limit 20;` |
 | `sqlplus` | CockroachDB SQL UI | `localhost` | `8080` | | | | `http://localhost:8080` | browser UI |
@@ -68,8 +76,9 @@ The deterministic fixture domain is intentionally repeatable but large enough fo
 | Family | Seeded objects |
 | --- | --- |
 | SQL engines | `accounts`, `products`, `orders`, `order_items`, `support_tickets`, summary views, and indexed performance/event tables where supported. |
-| MongoDB | `catalog.accounts`, `catalog.products`, `catalog.orders`, `catalog.perfDocuments`, `catalog.largeDocuments`. |
-| Redis / Valkey | `account:*`, `product:*`, `orders:recent`, `account:1:segments`, `products:inventory`, `stream:orders`, `perf:session:*`. |
+| MongoDB | `catalog.accounts`, `catalog.products`, `catalog.orders`, `catalog.perfDocuments`, `catalog.largeDocuments`; the MongoDB validator also creates and removes transient `fixture_mongodb_import_export`, `fixture_mongodb_import_export_failures`, `fixture_mongodb_management`, `fixture_mongodb_readonly`, and `fixture_mongodb_management_user` objects to prove import/export, duplicate-key, validator, permission-denial, and management before/after primitives. |
+| Redis / Valkey | `account:*`, `product:*`, `orders:recent`, `account:1:segments`, `products:inventory`, `stream:orders` with `fulfillment` consumer-group state, `perf:session:*`; the Redis validator also creates and removes transient `fixture:key-file:*` keys and a read-only ACL user to prove Valkey core key-file, large key-file, and permission-denial primitives. |
+| Redis Stack | `json:account:1`, `ts:orders:throughput`, `bf:seen-orders`, `cf:skus`, `cms:regions`, `topk:products`, `tdigest:latency`, and optional `vectors:products` when vector commands are available. |
 | Memcached | `account:1`, `product:luna-lamp`, `cache:feature-flags`, `product:fixture:*`. |
 | Search engines | `products` and `orders` indexes with thousands of nested documents. |
 | Cassandra | `accounts_by_id`, `products_by_sku`, `orders_by_account` with partition-friendly row volume. |

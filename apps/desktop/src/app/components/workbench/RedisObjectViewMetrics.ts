@@ -79,6 +79,13 @@ export function redisDiagnosticDetailRows(kind: string, payload: JsonRecord): st
     ])
   }
 
+  if (kind === 'slowlog') {
+    const rows = slowlogRowsFromValue(payload.value)
+    if (rows.length) {
+      return rows
+    }
+  }
+
   const samples = arrayOfRecords(payload.samples)
   if (samples.length) {
     return samples.map((sample) => [
@@ -86,6 +93,13 @@ export function redisDiagnosticDetailRows(kind: string, payload: JsonRecord): st
       `${stringValue(sample.latestMs)} ms`,
       `Max ${stringValue(sample.maxMs)} ms`,
     ])
+  }
+
+  if (kind === 'latency') {
+    const rows = latencyRowsFromValue(payload.value)
+    if (rows.length) {
+      return rows
+    }
   }
 
   const clients = arrayOfRecords(payload.clients)
@@ -98,6 +112,20 @@ export function redisDiagnosticDetailRows(kind: string, payload: JsonRecord): st
         client.idleSeconds !== undefined ? `idle ${client.idleSeconds}s` : '',
       ].filter(Boolean).join(', '),
     ])
+  }
+
+  if (kind === 'clients') {
+    const rows = clientRowsFromValue(payload.value)
+    if (rows.length) {
+      return rows
+    }
+  }
+
+  if (kind === 'memory') {
+    const rows = redisPairsToRows(payload.value)
+    if (rows.length) {
+      return rows
+    }
   }
 
   const keyspace = arrayOfRecords(payload.keyspace)
@@ -123,6 +151,98 @@ export function redisDiagnosticDetailRows(kind: string, payload: JsonRecord): st
   }
 
   return []
+}
+
+function slowlogRowsFromValue(value: unknown): string[][] {
+  return arrayOfArrays(value).map((entry) => {
+    const [id, timestamp, durationMicros, command, clientAddress, clientName] = entry
+    return [
+      `#${stringValue(id) || 'entry'}`,
+      durationText(durationMicros),
+      [
+        redisCommandSummary(command),
+        stringValue(clientAddress),
+        stringValue(clientName),
+        stringValue(timestamp),
+      ].filter(Boolean).join(' / '),
+    ]
+  })
+}
+
+function latencyRowsFromValue(value: unknown): string[][] {
+  return arrayOfArrays(value).map((sample) => {
+    const [event, timestamp, latestMs, maxMs] = sample
+    return [
+      stringValue(event),
+      `${stringValue(latestMs)} ms`,
+      [
+        stringValue(maxMs) ? `Max ${stringValue(maxMs)} ms` : '',
+        stringValue(timestamp),
+      ].filter(Boolean).join(' / '),
+    ]
+  })
+}
+
+function clientRowsFromValue(value: unknown): string[][] {
+  const text = stringValue(value)
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const record = redisKeyValueLineToRecord(line)
+      return [
+        stringValue(record.name) || `Client ${stringValue(record.id) || 'connection'}`,
+        stringValue(record.addr ?? record.laddr ?? record.fd),
+        [
+          record.db !== undefined ? `db ${stringValue(record.db)}` : '',
+          stringValue(record.cmd) ? `cmd ${stringValue(record.cmd)}` : '',
+          record.age !== undefined ? `age ${stringValue(record.age)}s` : '',
+          record.idle !== undefined ? `idle ${stringValue(record.idle)}s` : '',
+        ].filter(Boolean).join(', '),
+      ]
+    })
+}
+
+function redisPairsToRows(value: unknown): string[][] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const rows: string[][] = []
+  for (let index = 0; index < value.length; index += 2) {
+    const key = value[index]
+    if (typeof key !== 'string') {
+      continue
+    }
+    const item = value[index + 1]
+    rows.push([humanize(key), displayValueSummary(item), detailSummary(item)])
+  }
+  return rows
+}
+
+function redisCommandSummary(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map(stringValue).filter(Boolean).join(' ')
+  }
+
+  return stringValue(value)
+}
+
+function arrayOfArrays(value: unknown): unknown[][] {
+  return (Array.isArray(value) ? value : []).filter((item): item is unknown[] => Array.isArray(item))
+}
+
+function redisKeyValueLineToRecord(line: string): JsonRecord {
+  const record: JsonRecord = {}
+  for (const token of line.split(/\s+/)) {
+    const [key, ...rest] = token.split('=')
+    if (!key || rest.length === 0) {
+      continue
+    }
+    record[key] = rest.join('=')
+  }
+  return record
 }
 
 export function cardRowsFromPayload(payload: JsonRecord, keys: string[]) {

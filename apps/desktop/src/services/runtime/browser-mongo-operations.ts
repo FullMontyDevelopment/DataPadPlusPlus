@@ -6,6 +6,7 @@ export function mongoOperationRequest(request: OperationPlanRequest) {
   const indexName = String(parameters.indexName ?? '<index>')
   const database = String(parameters.database ?? '<database>')
   const name = String(parameters.name ?? request.objectName ?? '<name>')
+  const format = String(parameters.format ?? 'extended-json')
 
   if (request.operationId.endsWith('index.create')) {
     return JSON.stringify({
@@ -51,11 +52,28 @@ export function mongoOperationRequest(request: OperationPlanRequest) {
       database,
       collection,
       operation: 'export',
-      format: parameters.format ?? 'extended-json',
+      workflow: 'mongodb.collection.export',
+      format,
+      target: {
+        kind: 'file',
+        path: parameters.targetPath ?? parameters.outputPath ?? `<selected-file>.${mongoExportExtension(format)}`,
+      },
       filter: parameters.filter ?? {},
       projection: parameters.projection ?? {},
       sort: parameters.sort ?? {},
+      limit: parameters.limit ?? null,
       batchSize: parameters.batchSize ?? 1000,
+      serializer: {
+        supportedFormats: ['json', 'extended-json', 'ndjson', 'csv', 'bson'],
+        extendedJsonMode: parameters.extendedJsonMode ?? 'relaxed',
+        includeMetadata: parameters.includeMetadata ?? true,
+      },
+      validation: {
+        dryRunFirst: true,
+        explainFilter: true,
+        requireReadableTarget: true,
+      },
+      executionGate: mongoFileWorkflowGate('read collection data and write the selected export file'),
     }, null, 2)
   }
 
@@ -64,10 +82,32 @@ export function mongoOperationRequest(request: OperationPlanRequest) {
       database,
       collection,
       operation: 'import',
-      format: parameters.format ?? 'json',
+      workflow: 'mongodb.collection.import',
+      format,
+      source: {
+        kind: 'file',
+        path: parameters.sourcePath ?? parameters.inputPath ?? `<selected-file>.${mongoImportExtension(format)}`,
+      },
       mode: parameters.mode ?? 'insertMany',
       validation: parameters.validation ?? 'validate-before-write',
+      ordered: parameters.ordered ?? false,
+      batchSize: parameters.batchSize ?? 1000,
+      createCollection: parameters.createCollection ?? false,
+      duplicateKeyPolicy: parameters.duplicateKeyPolicy ?? 'stop',
       mapping: parameters.mapping ?? {},
+      parser: {
+        supportedFormats: ['json', 'extended-json', 'ndjson', 'csv', 'bson'],
+        extendedJsonMode: parameters.extendedJsonMode ?? 'relaxed',
+        csvHeader: parameters.csvHeader ?? true,
+      },
+      checks: [
+        'file-readable',
+        'format-detected',
+        'document-shape',
+        'validator-compatible',
+        'duplicate-key-policy',
+      ],
+      executionGate: mongoFileWorkflowGate('read the selected import file and write documents only after validation'),
     }, null, 2)
   }
 
@@ -155,4 +195,30 @@ function asRecord(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
+}
+
+function mongoExportExtension(format: string) {
+  if (format === 'ndjson') return 'ndjson'
+  if (format === 'csv') return 'csv'
+  if (format === 'bson') return 'bson'
+  return 'json'
+}
+
+function mongoImportExtension(format: string) {
+  return mongoExportExtension(format)
+}
+
+function mongoFileWorkflowGate(permission: string) {
+  return {
+    owner: 'mongodb-adapter',
+    defaultSupport: 'plan-only',
+    requiredPermission: permission,
+    evidenceRequiredForLive: [
+      'confirmed file picker path',
+      'serializer/parser fixture coverage for the selected format',
+      'read-only profile check',
+      'environment confirmation for write or costly work',
+      'before/after summary for writes',
+    ],
+  }
 }

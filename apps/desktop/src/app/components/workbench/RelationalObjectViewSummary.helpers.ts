@@ -39,8 +39,18 @@ export function summaryStats(kind: string, payload: JsonRecord): SummaryStat[] {
     return compactStats([
       stat('Users', firstCount(undefined, payload.users), 'security'),
       stat('Roles', firstCount(undefined, payload.roles), 'security'),
-      stat('Grants', firstCount(undefined, payload.permissions, payload.grants), 'security'),
+      stat('Memberships', firstCount(undefined, payload.roleMemberships), 'relationship'),
+      stat('Grants', firstCount(undefined, payload.permissions, payload.grants, payload.defaultPrivileges), 'security'),
       stat('Schemas', firstCount(undefined, payload.schemas), 'table'),
+    ])
+  }
+
+  if (['extensions', 'extension'].includes(kind)) {
+    return compactStats([
+      stat('Extensions', firstCount(undefined, payload.extensions), 'table'),
+      stat('Updates', countMatching(payload.extensions, 'updateAvailable', 'true'), 'job'),
+      stat('Objects', firstCount(undefined, payload.extensionObjects), 'relationship'),
+      stat('Deps', firstCount(undefined, payload.dependencies), 'relationship'),
     ])
   }
 
@@ -126,6 +136,16 @@ function firstScalar(value: unknown) {
 
 function count(value: unknown) {
   return Array.isArray(value) ? value.length : 0
+}
+
+function countMatching(value: unknown, key: string, expected: string) {
+  const rows = records(value)
+  const total = rows.filter((row) => {
+    const candidate = row[key]
+    const text = typeof candidate === 'boolean' ? String(candidate) : display(candidate)
+    return text.toLowerCase() === expected
+  }).length
+  return total ? total.toLocaleString() : undefined
 }
 
 function sourceSize(payload: JsonRecord) {

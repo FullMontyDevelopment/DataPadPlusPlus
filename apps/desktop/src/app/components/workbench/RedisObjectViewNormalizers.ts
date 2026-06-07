@@ -259,7 +259,7 @@ function parseAclUserLine(line: string): JsonRecord {
   }
 }
 
-function redisNameValueArrayToRecord(value: unknown): JsonRecord {
+export function redisNameValueArrayToRecord(value: unknown): JsonRecord {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as JsonRecord
   }
@@ -269,6 +269,16 @@ function redisNameValueArrayToRecord(value: unknown): JsonRecord {
   }
 
   const record: JsonRecord = {}
+  for (const item of value) {
+    const pair = redisKeyValuePairRecord(item)
+    if (pair) {
+      record[camelCaseRedisKey(pair.key)] = pair.value
+    }
+  }
+  if (Object.keys(record).length) {
+    return record
+  }
+
   for (let index = 0; index < value.length; index += 2) {
     const key = value[index]
     if (typeof key !== 'string') {
@@ -277,6 +287,16 @@ function redisNameValueArrayToRecord(value: unknown): JsonRecord {
     record[camelCaseRedisKey(key)] = value[index + 1]
   }
   return record
+}
+
+function redisKeyValuePairRecord(value: unknown): { key: string; value: unknown } | undefined {
+  const record = asRecord(value)
+  const key = stringValue(record.key)
+  if (!key || !('value' in record)) {
+    return undefined
+  }
+
+  return { key, value: record.value }
 }
 
 function redisEndpointArrayToRecord(value: unknown): JsonRecord {

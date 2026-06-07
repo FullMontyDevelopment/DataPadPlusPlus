@@ -6,7 +6,8 @@ use crate::{
         error::CommandError,
         models::{
             AppPreferences, ConnectionAuth, ConnectionProfile, EnvironmentProfile, LockState,
-            QueryHistoryEntry, QueryTabState, SavedWorkItem, SecretRef, UiState, WorkspaceSnapshot,
+            MySqlConnectionOptions, QueryHistoryEntry, QueryTabState, SavedWorkItem, SecretRef,
+            UiState, WorkspaceSnapshot,
         },
     },
     persistence, security,
@@ -255,6 +256,8 @@ fn build_fixture_connection(
             redis_options: None,
             memcached_options: None,
             sqlite_options: None,
+            postgres_options: None,
+            mysql_options: mysql_options_for_seed(seed),
             sqlserver_options: None,
             oracle_options: None,
             dynamo_db_options: None,
@@ -282,6 +285,43 @@ fn build_fixture_connection(
         },
         secret,
     )
+}
+
+fn mysql_options_for_seed(seed: &FixtureConnectionSeed) -> Option<MySqlConnectionOptions> {
+    if !matches!(seed.engine, "mysql" | "mariadb") {
+        return None;
+    }
+    let is_mariadb = seed.engine == "mariadb";
+
+    Some(MySqlConnectionOptions {
+        connect_mode: Some("tcp".into()),
+        auth_mode: Some("password".into()),
+        ssl_mode: seed.ssl_mode.map(|mode| match mode {
+            "disable" => "disabled".into(),
+            "require" => "required".into(),
+            "verify-ca" => "verify-ca".into(),
+            "verify-full" => "verify-identity".into(),
+            _ => "preferred".into(),
+        }),
+        server_flavor: Some(if is_mariadb { "mariadb" } else { "mysql" }.into()),
+        charset: Some("utf8mb4".into()),
+        collation: Some(
+            if is_mariadb {
+                "utf8mb4_unicode_ci"
+            } else {
+                "utf8mb4_0900_ai_ci"
+            }
+            .into(),
+        ),
+        time_zone: Some("+00:00".into()),
+        sql_mode: Some("STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION".into()),
+        default_storage_engine: Some(if is_mariadb { "Aria" } else { "InnoDB" }.into()),
+        allow_local_infile: Some(false),
+        statement_cache_capacity: Some(100),
+        connect_timeout_ms: Some(5_000),
+        command_timeout_ms: Some(30_000),
+        ..MySqlConnectionOptions::default()
+    })
 }
 
 fn fixture_query_tab(

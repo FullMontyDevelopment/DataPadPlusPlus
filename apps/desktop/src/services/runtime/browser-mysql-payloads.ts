@@ -9,6 +9,7 @@ import {
   mysqlIdentifier,
   parseMysqlObjectScope,
 } from './browser-mysql-helpers'
+import { mysqlDiagnosticsPayload } from './browser-mysql-diagnostics'
 
 export function mysqlInspectPayload(connection: ConnectionProfile, nodeId: string) {
   const database = connection.database || 'datapadplusplus'
@@ -323,45 +324,28 @@ function mysqlRoutineDefinition(kind: string, database: string, objectName: stri
 }
 
 function mysqlSecurityPayload(connection: ConnectionProfile) {
+  const isMariaDb = connection.engine === 'mariadb'
   return {
     engine: connection.engine,
     objectView: 'security',
     users: [
-      { name: 'app', type: 'user', defaultSchema: connection.database || 'datapadplusplus', authenticationType: 'caching_sha2_password' },
+      { name: 'app', type: 'user', defaultSchema: connection.database || 'datapadplusplus', authenticationType: isMariaDb ? 'mysql_native_password' : 'caching_sha2_password' },
       { name: 'reporting', type: 'user', defaultSchema: connection.database || 'datapadplusplus', authenticationType: 'mysql_native_password' },
     ],
-    roles: [
-      { name: 'readonly', login: 'no', inherit: 'yes', memberships: 'reporting' },
-    ],
+    roles: isMariaDb
+      ? [
+          { name: 'reporting_read', host: '%', login: 'role', inherit: 'yes', isRole: 'Y' },
+          { name: 'app_writer', host: '%', login: 'role', inherit: 'yes', isRole: 'Y' },
+        ]
+      : [
+          { name: 'readonly', login: 'no', inherit: 'yes', memberships: 'reporting' },
+        ],
+    roleMappings: isMariaDb
+      ? [
+          { name: 'reporting', host: '%', member: 'reporting_read', adminOption: 'N', memberships: 'reporting_read (N)' },
+          { name: 'app', host: '%', member: 'app_writer', adminOption: 'Y', memberships: 'app_writer (Y)' },
+        ]
+      : [],
     permissions: mysqlGrants(connection.database || 'datapadplusplus'),
-  }
-}
-
-function mysqlDiagnosticsPayload(connection: ConnectionProfile) {
-  return {
-    engine: connection.engine,
-    objectView: 'diagnostics',
-    activeSessions: 3,
-    sessions: [
-      { sessionId: 11, user: 'app', database: connection.database || 'datapadplusplus', state: 'executing', wait: 'none', blockedBy: '' },
-      { sessionId: 12, user: 'reporting', database: connection.database || 'datapadplusplus', state: 'sleep', wait: 'idle', blockedBy: '' },
-    ],
-    statistics: [
-      { name: 'Questions', rows: 1200, scans: 0, size: '' },
-      { name: 'Slow_queries', rows: 2, scans: 0, size: '' },
-      { name: 'Threads_running', rows: 3, scans: 0, size: '' },
-    ],
-    slowQueries: [
-      { digest: 'SELECT * FROM accounts WHERE status = ?', count: 128, avgMs: 4.2, maxMs: 39.8, rowsExamined: 1280 },
-      { digest: 'SELECT * FROM orders WHERE updated_at > ?', count: 42, avgMs: 9.7, maxMs: 87.3, rowsExamined: 4200 },
-    ],
-    innodbStatus: [
-      { name: 'Buffer pool hit rate', value: '99.1%', status: 'healthy', detail: 'Read pressure is low.' },
-      { name: 'Row lock waits', value: '0', status: 'healthy', detail: 'No active row lock pressure.' },
-      { name: 'History list length', value: '12', status: 'normal', detail: 'Purge lag is within normal range.' },
-    ],
-    replication: [
-      { channel: 'default', role: 'replica', state: 'not configured', lagSeconds: 0, sourceHost: '', gtid: '' },
-    ],
   }
 }

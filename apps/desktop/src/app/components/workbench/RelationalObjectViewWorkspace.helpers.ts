@@ -176,7 +176,7 @@ export function descriptorForConnection(
   }
 
   if (connection.engine === 'mysql' || connection.engine === 'mariadb') {
-    return getMysqlObjectViewDescriptor(kind)
+    return getMysqlObjectViewDescriptor(kind, connection.engine)
   }
 
   if (connection.engine === 'cockroachdb') {

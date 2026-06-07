@@ -1,9 +1,16 @@
 use super::super::super::*;
+use super::capabilities::cockroach_capability;
 
 pub(crate) fn cockroach_section_nodes(
     connection: &ResolvedConnectionProfile,
     scope: &str,
 ) -> Vec<ExplorerNode> {
+    if let Some(capability) = cockroach_scope_capability(scope) {
+        if !cockroach_capability(connection, capability) {
+            return Vec::new();
+        }
+    }
+
     let entries = match scope {
         "cockroach:jobs" => vec![
             (
@@ -190,4 +197,24 @@ pub(crate) fn cockroach_section_nodes(
             expandable: Some(false),
         })
         .collect()
+}
+
+fn cockroach_scope_capability(scope: &str) -> Option<&'static str> {
+    match scope {
+        "cockroach:jobs" => Some("inspect_jobs"),
+        "cockroach:roles" => Some("inspect_roles_and_grants"),
+        "cockroach:regions" => Some("inspect_regions"),
+        "cockroach:ranges" => Some("inspect_ranges"),
+        "cockroach:sessions" => Some("inspect_sessions"),
+        "cockroach:contention"
+        | "cockroach:locks"
+        | "cockroach:statements"
+        | "cockroach:transactions"
+        | "cockroach:statistics" => Some("inspect_contention"),
+        "cockroach:cluster-status" => Some("inspect_cluster_status"),
+        "cockroach:cluster-settings" => Some("inspect_cluster_settings"),
+        "cockroach:zone-configurations" => Some("inspect_zone_configurations"),
+        "cockroach:certificates" => Some("inspect_certificates"),
+        _ => None,
+    }
 }

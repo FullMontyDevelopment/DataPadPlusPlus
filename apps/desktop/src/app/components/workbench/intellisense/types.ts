@@ -48,6 +48,15 @@ export interface CompletionField {
 export interface CompletionCommand {
   name: string
   detail?: string
+  syntax?: string
+  category?: string
+  arity?: number
+  flags?: string[]
+  aclCategories?: string[]
+  firstKeyPosition?: number
+  lastKeyPosition?: number
+  keyStep?: number
+  readOnly?: boolean
 }
 
 export interface CompletionSnippet {

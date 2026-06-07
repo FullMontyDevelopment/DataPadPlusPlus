@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::fs;
 
@@ -8,7 +8,8 @@ use datapadplusplus_desktop_lib::{
         error::CommandError,
         models::{
             DataEditChange, DataEditExecutionRequest, DataEditPlanRequest, DataEditTarget,
-            ExecutionRequest, ExplorerRequest, ResolvedConnectionProfile, ResultPageRequest,
+            ExecutionRequest, ExplorerRequest, OperationExecutionRequest,
+            ResolvedConnectionProfile, ResultPageRequest,
         },
     },
 };
@@ -113,6 +114,8 @@ fn resolved_connection(engine: &str, family: &str) -> ResolvedConnectionProfile 
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -176,6 +179,41 @@ async fn every_registered_adapter_has_consistent_operation_contracts() -> Result
             assert!(!unavailable.reason.trim().is_empty());
         }
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn mariadb_file_workflow_manifests_are_guarded_live() -> Result<(), CommandError> {
+    let connection = resolved_connection("mariadb", "sql");
+    let operations = adapters::operation_manifests(&connection)?;
+
+    for operation_id in ["mariadb.data.import-export", "mariadb.data.backup-restore"] {
+        let operation = operations
+            .iter()
+            .find(|operation| operation.id == operation_id)
+            .unwrap_or_else(|| panic!("{operation_id} manifest"));
+        assert_eq!(operation.execution_support, "live");
+        assert_eq!(operation.preview_only, Some(false));
+        assert!(operation.disabled_reason.is_none());
+        assert!(operation.description.contains("MariaDB"));
+    }
+
+    let export_plan = adapters::plan_operation(
+        &connection,
+        "mariadb.data.import-export",
+        Some("`commerce`.`orders`"),
+        Some(&BTreeMap::from([
+            ("database".into(), json!("commerce")),
+            ("table".into(), json!("orders")),
+            ("mode".into(), json!("export")),
+            ("format".into(), json!("json")),
+        ])),
+    )
+    .await?;
+    assert!(export_plan
+        .generated_request
+        .contains("\"workflow\": \"mariadb.table.export\""));
 
     Ok(())
 }
@@ -382,6 +420,8 @@ async fn data_edit_plans_are_guarded_and_engine_specific() -> Result<(), Command
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -582,7 +622,12 @@ async fn concrete_preview_adapters_surface_contract_without_live_fixture(
             assert!(operations
                 .iter()
                 .filter(|operation| matches!(operation.risk.as_str(), "write" | "destructive"))
-                .all(|operation| operation.preview_only == Some(true)));
+                .all(|operation| operation.preview_only == Some(true)
+                    || (engine == "valkey"
+                        && matches!(
+                            operation.id.as_str(),
+                            "valkey.key.export" | "valkey.key.import"
+                        ))));
         }
 
         let permissions = adapters::inspect_permissions(&connection).await?;
@@ -734,6 +779,9 @@ async fn cockroach_operation_plans_include_cluster_specific_templates() -> Resul
     assert!(operations
         .iter()
         .any(|operation| operation.id == "cockroachdb.cockroach.restore"));
+    assert!(operations
+        .iter()
+        .any(|operation| operation.id == "cockroachdb.cockroach.export"));
 
     let plan =
         adapters::plan_operation(&connection, "cockroachdb.cockroach.contention", None, None)
@@ -763,6 +811,18 @@ async fn cockroach_operation_plans_include_cluster_specific_templates() -> Resul
         .contains("backup database \"datapadplusplus\""));
     assert!(backup.confirmation_text.is_some());
 
+    let export = adapters::plan_operation(
+        &connection,
+        "cockroachdb.cockroach.export",
+        Some("\"public\".\"accounts\""),
+        None,
+    )
+    .await?;
+    assert!(export
+        .generated_request
+        .contains("export into csv 'external://export-location/data.csv'"));
+    assert!(export.confirmation_text.is_some());
+
     let restore = adapters::plan_operation(
         &connection,
         "cockroachdb.cockroach.restore",
@@ -771,6 +831,24 @@ async fn cockroach_operation_plans_include_cluster_specific_templates() -> Resul
     )
     .await?;
     assert!(restore.destructive);
+
+    let generic_export_parameters = BTreeMap::from([
+        ("mode".into(), json!("export")),
+        (
+            "externalUri".into(),
+            json!("external://exports/accounts.csv"),
+        ),
+    ]);
+    let generic_export = adapters::plan_operation(
+        &connection,
+        "cockroachdb.data.import-export",
+        Some("\"public\".\"accounts\""),
+        Some(&generic_export_parameters),
+    )
+    .await?;
+    assert!(generic_export
+        .generated_request
+        .contains("export into csv 'external://exports/accounts.csv'"));
     Ok(())
 }
 
@@ -801,6 +879,8 @@ async fn postgres_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -944,6 +1024,8 @@ async fn sqlserver_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -1032,6 +1114,8 @@ async fn mysql_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -1149,6 +1233,8 @@ async fn sqlite_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -1343,6 +1429,8 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -1500,6 +1588,228 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     )
     .await?;
     assert!(cleanup_result.executed);
+
+    let temp_root = env::temp_dir().join(format!(
+        "datapad-mongodb-adapter-fixture-{}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&temp_root)?;
+    let export_path = temp_root.join("products.ndjson");
+    let _ = fs::remove_file(&export_path);
+    let export_response = adapters::execute_operation(
+        &connection,
+        &OperationExecutionRequest {
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "mongodb.collection.export".into(),
+            object_name: Some("products".into()),
+            parameters: Some(HashMap::from([
+                ("database".into(), json!("catalog")),
+                ("collection".into(), json!("products")),
+                ("format".into(), json!("ndjson")),
+                (
+                    "targetPath".into(),
+                    json!(export_path.display().to_string()),
+                ),
+                ("overwrite".into(), json!(true)),
+                ("filter".into(), json!({ "sku": "luna-lamp" })),
+                ("limit".into(), json!(1)),
+            ])),
+            confirmation_text: Some("CONFIRM MONGODB".into()),
+            row_limit: Some(1),
+            tab_id: None,
+        },
+    )
+    .await?;
+    assert!(export_response.executed);
+    assert_eq!(export_response.execution_support, "live");
+    assert!(
+        export_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("exportedCount"))
+            .and_then(|value| value.as_u64())
+            .unwrap_or_default()
+            >= 1
+    );
+    assert!(fs::read_to_string(&export_path)?.contains("luna-lamp"));
+
+    let import_collection = format!("fixture_mongodb_adapter_import_{}", std::process::id());
+    let import_id = format!("adapter-import-{}", std::process::id());
+    let import_path = temp_root.join("import.json");
+    fs::write(
+        &import_path,
+        serde_json::to_string_pretty(&json!([{
+            "_id": import_id,
+            "sku": import_id,
+            "datapadplusplusFixture": true
+        }]))?,
+    )?;
+    let import_response = adapters::execute_operation(
+        &connection,
+        &OperationExecutionRequest {
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "mongodb.collection.import".into(),
+            object_name: Some(import_collection.clone()),
+            parameters: Some(HashMap::from([
+                ("database".into(), json!("catalog")),
+                ("collection".into(), json!(import_collection.clone())),
+                ("format".into(), json!("json")),
+                (
+                    "sourcePath".into(),
+                    json!(import_path.display().to_string()),
+                ),
+                ("mode".into(), json!("insertMany")),
+                ("createCollection".into(), json!(true)),
+                ("duplicateKeyPolicy".into(), json!("skip")),
+                ("batchSize".into(), json!(2)),
+            ])),
+            confirmation_text: Some("CONFIRM MONGODB".into()),
+            row_limit: Some(10),
+            tab_id: None,
+        },
+    )
+    .await?;
+    assert!(import_response.executed);
+    assert_eq!(
+        import_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("insertedCount"))
+            .and_then(|value| value.as_u64()),
+        Some(1)
+    );
+
+    let duplicate_skip_response = adapters::execute_operation(
+        &connection,
+        &OperationExecutionRequest {
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "mongodb.collection.import".into(),
+            object_name: Some(import_collection.clone()),
+            parameters: Some(HashMap::from([
+                ("database".into(), json!("catalog")),
+                ("collection".into(), json!(import_collection.clone())),
+                ("format".into(), json!("json")),
+                (
+                    "sourcePath".into(),
+                    json!(import_path.display().to_string()),
+                ),
+                ("mode".into(), json!("insertMany")),
+                ("duplicateKeyPolicy".into(), json!("skip")),
+                ("batchSize".into(), json!(2)),
+            ])),
+            confirmation_text: Some("CONFIRM MONGODB".into()),
+            row_limit: Some(10),
+            tab_id: None,
+        },
+    )
+    .await?;
+    assert!(duplicate_skip_response.executed);
+    assert_eq!(
+        duplicate_skip_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("insertedCount"))
+            .and_then(|value| value.as_u64()),
+        Some(0)
+    );
+    assert_eq!(
+        duplicate_skip_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("skippedDuplicates"))
+            .and_then(|value| value.as_u64()),
+        Some(1)
+    );
+
+    let replace_response = adapters::execute_data_edit(
+        &connection,
+        &DataEditExecutionRequest {
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            edit_kind: "update-document".into(),
+            target: DataEditTarget {
+                object_kind: "document".into(),
+                database: Some("catalog".into()),
+                collection: Some(import_collection.clone()),
+                document_id: Some(json!(import_id.clone())),
+                ..Default::default()
+            },
+            changes: vec![DataEditChange {
+                value: Some(json!({
+                    "_id": import_id.clone(),
+                    "sku": format!("{import_id}-replaced"),
+                    "datapadplusplusFixture": true,
+                    "replacement": true
+                })),
+                value_type: Some("json".into()),
+                ..Default::default()
+            }],
+            confirmation_text: None,
+        },
+    )
+    .await?;
+    assert!(replace_response.executed);
+    assert_eq!(
+        replace_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("matchedCount"))
+            .and_then(|value| value.as_u64()),
+        Some(1)
+    );
+
+    let delete_response = adapters::execute_data_edit(
+        &connection,
+        &DataEditExecutionRequest {
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            edit_kind: "delete-document".into(),
+            target: DataEditTarget {
+                object_kind: "document".into(),
+                database: Some("catalog".into()),
+                collection: Some(import_collection.clone()),
+                document_id: Some(json!(import_id.clone())),
+                ..Default::default()
+            },
+            changes: vec![],
+            confirmation_text: Some("CONFIRM MONGODB DELETE-DOCUMENT".into()),
+        },
+    )
+    .await?;
+    assert!(delete_response.executed);
+    assert_eq!(
+        delete_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("deletedCount"))
+            .and_then(|value| value.as_u64()),
+        Some(1)
+    );
+
+    let username = connection.username.as_deref().unwrap_or("datapadplusplus");
+    let password = connection.password.as_deref().unwrap_or("datapadplusplus");
+    let database = connection.database.as_deref().unwrap_or("catalog");
+    let mongo_uri = format!(
+        "mongodb://{username}:{password}@{}:{}/{database}?authSource=admin",
+        connection.host,
+        connection.port.unwrap_or(27017)
+    );
+    let client = mongodb::Client::with_uri_str(mongo_uri).await?;
+    let imported_document = client
+        .database(database)
+        .collection::<mongodb::bson::Document>(&import_collection)
+        .find_one(mongodb::bson::doc! { "_id": &import_id })
+        .await?;
+    assert!(imported_document.is_none());
+    let _ = client
+        .database(database)
+        .collection::<mongodb::bson::Document>(&import_collection)
+        .drop()
+        .await;
+    let _ = fs::remove_dir_all(&temp_root);
     Ok(())
 }
 
@@ -1527,6 +1837,8 @@ async fn redis_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -1688,6 +2000,8 @@ async fn cache_profile_fixture_roundtrips() -> Result<(), CommandError> {
             redis_options: None,
             memcached_options: None,
             sqlite_options: None,
+            postgres_options: None,
+            mysql_options: None,
             sqlserver_options: None,
             oracle_options: None,
             dynamo_db_options: None,
@@ -1767,6 +2081,8 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -1830,6 +2146,8 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -1871,6 +2189,8 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -1919,6 +2239,8 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -1958,6 +2280,8 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -1997,6 +2321,8 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -2041,6 +2367,8 @@ async fn search_profile_fixture_roundtrips() -> Result<(), CommandError> {
             redis_options: None,
             memcached_options: None,
             sqlite_options: None,
+            postgres_options: None,
+            mysql_options: None,
             sqlserver_options: None,
             oracle_options: None,
             dynamo_db_options: None,
@@ -2090,6 +2418,8 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -2129,6 +2459,8 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -2177,6 +2509,8 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -2248,6 +2582,8 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -2285,6 +2621,8 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -2319,6 +2657,8 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,
@@ -2358,6 +2698,8 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,

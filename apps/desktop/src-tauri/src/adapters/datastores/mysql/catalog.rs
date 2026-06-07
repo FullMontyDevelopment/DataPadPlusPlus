@@ -44,8 +44,8 @@ pub(super) fn mysql_operation_manifests(
             "table",
             "costly",
             &["supports_admin_operations"],
-            &["profile", "metrics", "raw"],
-            "Preview refreshing optimizer statistics for a MySQL-family table.",
+            &["profile", "metrics", "json", "raw"],
+            "Plan refreshing optimizer statistics for a MySQL-family table with privilege, lock, and replication guardrails.",
             true,
         ),
         operation_manifest(
@@ -55,8 +55,8 @@ pub(super) fn mysql_operation_manifests(
             "table",
             "costly",
             &["supports_admin_operations"],
-            &["profile", "metrics", "raw"],
-            "Preview an OPTIMIZE TABLE maintenance operation.",
+            &["profile", "metrics", "json", "raw"],
+            "Plan an OPTIMIZE TABLE maintenance workflow with storage-engine and lock-impact checks.",
             true,
         ),
         operation_manifest(
@@ -66,8 +66,8 @@ pub(super) fn mysql_operation_manifests(
             "table",
             "diagnostic",
             &["supports_admin_operations"],
-            &["table", "profile", "raw"],
-            "Preview a CHECK TABLE integrity diagnostic.",
+            &["table", "profile", "json", "raw"],
+            "Plan a CHECK TABLE integrity diagnostic with engine and privilege guardrails.",
             false,
         ),
         operation_manifest(
@@ -77,8 +77,19 @@ pub(super) fn mysql_operation_manifests(
             "table",
             "destructive",
             &["supports_admin_operations"],
-            &["diff", "profile", "raw"],
-            "Preview a guarded REPAIR TABLE workflow for engines that support it.",
+            &["diff", "profile", "json", "raw"],
+            "Plan a guarded REPAIR TABLE workflow for engines that support it.",
+            true,
+        ),
+        operation_manifest(
+            manifest,
+            "routine.execute",
+            "Run Routine",
+            "query",
+            "write",
+            &["supports_result_snapshots"],
+            &["table", "json", "raw"],
+            "Plan a parameter-aware MySQL routine call with EXECUTE privilege and SQL SECURITY guardrails.",
             true,
         ),
         operation_manifest(
@@ -88,8 +99,8 @@ pub(super) fn mysql_operation_manifests(
             "database",
             "write",
             &["supports_admin_operations"],
-            &["diff", "raw"],
-            "Preview enabling a scheduled event.",
+            &["diff", "json", "raw"],
+            "Plan enabling a scheduled event with scheduler, definer, and EVENT privilege guardrails.",
             true,
         ),
         operation_manifest(
@@ -99,10 +110,79 @@ pub(super) fn mysql_operation_manifests(
             "database",
             "write",
             &["supports_admin_operations"],
-            &["diff", "raw"],
-            "Preview disabling a scheduled event.",
+            &["diff", "json", "raw"],
+            "Plan disabling a scheduled event with scheduler, definer, and EVENT privilege guardrails.",
+            true,
+        ),
+        operation_manifest(
+            manifest,
+            "user.lock",
+            "Lock User",
+            "user",
+            "write",
+            &["supports_user_role_browser"],
+            &["diff", "json", "raw"],
+            "Plan locking a MySQL user@host account with account-management guardrails.",
+            true,
+        ),
+        operation_manifest(
+            manifest,
+            "user.unlock",
+            "Unlock User",
+            "user",
+            "write",
+            &["supports_user_role_browser"],
+            &["diff", "json", "raw"],
+            "Plan unlocking a MySQL user@host account with account-management guardrails.",
             true,
         ),
     ]);
+    for operation in &mut operations {
+        match operation.id.rsplit('.').next().unwrap_or_default() {
+            "check" if operation.id.ends_with(".table.check") => {
+                operation.execution_support = "plan-only".into();
+                operation.disabled_reason =
+                    Some("CHECK TABLE needs live engine and privilege validation before direct execution.".into());
+                operation.preview_only = Some(true);
+            }
+            "analyze" if operation.id.ends_with(".table.analyze") => {
+                operation.execution_support = "plan-only".into();
+                operation.disabled_reason =
+                    Some("ANALYZE TABLE remains preview-first until live table privilege and lock-impact checks are adapter-backed.".into());
+                operation.preview_only = Some(true);
+            }
+            "optimize" if operation.id.ends_with(".table.optimize") => {
+                operation.execution_support = "plan-only".into();
+                operation.disabled_reason =
+                    Some("OPTIMIZE TABLE remains preview-first until live engine, size, and lock-impact checks are adapter-backed.".into());
+                operation.preview_only = Some(true);
+            }
+            "repair" if operation.id.ends_with(".table.repair") => {
+                operation.execution_support = "plan-only".into();
+                operation.disabled_reason =
+                    Some("REPAIR TABLE remains preview-first until live backup, engine, and rollback boundaries are adapter-backed.".into());
+                operation.preview_only = Some(true);
+            }
+            "execute" if operation.id.ends_with(".routine.execute") => {
+                operation.execution_support = "plan-only".into();
+                operation.disabled_reason =
+                    Some("Routine execution remains preview-first until parameter binding, OUT/INOUT capture, and EXECUTE privilege checks are live-validated.".into());
+                operation.preview_only = Some(true);
+            }
+            "enable" | "disable" if operation.id.contains(".event.") => {
+                operation.execution_support = "plan-only".into();
+                operation.disabled_reason =
+                    Some("Event state changes remain preview-first until EVENT privilege, event scheduler, and definer metadata are live-validated.".into());
+                operation.preview_only = Some(true);
+            }
+            "lock" | "unlock" if operation.id.contains(".user.") => {
+                operation.execution_support = "plan-only".into();
+                operation.disabled_reason =
+                    Some("Account state changes remain preview-first until account-management privileges and active-session impact are live-validated.".into());
+                operation.preview_only = Some(true);
+            }
+            _ => {}
+        }
+    }
     operations
 }

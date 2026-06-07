@@ -43,7 +43,7 @@ pub(crate) fn default_data_edit_plan(
             summary: data_edit_summary(connection, request, live_execution),
             generated_request,
             request_language: data_edit_language(connection),
-            destructive: request.edit_kind.contains("delete"),
+            destructive: is_destructive_data_edit(request),
             estimated_cost: Some(
                 "Single-object edit; cost depends on the engine and indexes.".into(),
             ),
@@ -176,6 +176,71 @@ fn validate_edit_target(
             if request.target.key.as_deref().unwrap_or_default().is_empty() {
                 warnings.push("Key/value edits need a single concrete key.".into());
             }
+            if request.edit_kind == "stream-delete-entry"
+                && request.target.document_id.is_none()
+                && request.changes.iter().all(|change| {
+                    change
+                        .field
+                        .as_deref()
+                        .map(str::trim)
+                        .unwrap_or_default()
+                        .is_empty()
+                        && change
+                            .path
+                            .as_ref()
+                            .and_then(|path| path.first())
+                            .map(String::as_str)
+                            .map(str::trim)
+                            .unwrap_or_default()
+                            .is_empty()
+                })
+            {
+                warnings.push("Stream entry deletes need a concrete entry id.".into());
+            }
+            if request.edit_kind == "timeseries-delete-sample"
+                && request.target.document_id.is_none()
+                && request.changes.iter().all(|change| {
+                    change
+                        .field
+                        .as_deref()
+                        .map(str::trim)
+                        .unwrap_or_default()
+                        .is_empty()
+                        && change
+                            .path
+                            .as_ref()
+                            .and_then(|path| path.first())
+                            .map(String::as_str)
+                            .map(str::trim)
+                            .unwrap_or_default()
+                            .is_empty()
+                        && change.value.is_none()
+                })
+            {
+                warnings
+                    .push("TimeSeries sample deletes need a concrete timestamp or range.".into());
+            }
+            if request.edit_kind == "vector-remove-member"
+                && request.target.document_id.is_none()
+                && request.changes.iter().all(|change| {
+                    change
+                        .field
+                        .as_deref()
+                        .map(str::trim)
+                        .unwrap_or_default()
+                        .is_empty()
+                        && change
+                            .path
+                            .as_ref()
+                            .and_then(|path| path.first())
+                            .map(String::as_str)
+                            .map(str::trim)
+                            .unwrap_or_default()
+                            .is_empty()
+                })
+            {
+                warnings.push("Vector member removal needs a concrete element name.".into());
+            }
         }
         "widecolumn" => {
             let has_key = request
@@ -218,7 +283,13 @@ fn validate_edit_target(
     if request.changes.is_empty()
         && !matches!(
             request.edit_kind.as_str(),
-            "delete-row" | "delete-key" | "delete-item" | "delete-document"
+            "delete-row"
+                | "delete-key"
+                | "stream-delete-entry"
+                | "timeseries-delete-sample"
+                | "vector-remove-member"
+                | "delete-item"
+                | "delete-document"
         )
     {
         warnings.push("Data edits need at least one change.".into());
@@ -232,7 +303,7 @@ fn confirmation_text(
     request: &DataEditPlanRequest,
     live_execution: bool,
 ) -> Option<String> {
-    if !live_execution || connection.read_only || request.edit_kind.contains("delete") {
+    if !live_execution || connection.read_only || is_destructive_data_edit(request) {
         Some(format!(
             "CONFIRM {} {}",
             connection.engine.to_uppercase(),
@@ -241,6 +312,10 @@ fn confirmation_text(
     } else {
         None
     }
+}
+
+fn is_destructive_data_edit(request: &DataEditPlanRequest) -> bool {
+    request.edit_kind.contains("delete") || request.edit_kind == "vector-remove-member"
 }
 
 fn required_permissions(

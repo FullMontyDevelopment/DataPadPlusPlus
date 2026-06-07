@@ -1,4 +1,5 @@
 use super::super::super::*;
+use super::capabilities::cockroach_capability;
 
 pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
     [
@@ -9,6 +10,7 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "Schema changes, imports, backups, restores, and long-running jobs",
             "cockroach:jobs",
             "show jobs;",
+            "inspect_jobs",
         ),
         (
             "cockroach-roles",
@@ -17,6 +19,7 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "SQL users, roles, grants, and default privileges",
             "cockroach:roles",
             "show roles; show grants;",
+            "inspect_roles_and_grants",
         ),
         (
             "cockroach-regions",
@@ -25,6 +28,7 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "Multi-region database, locality, and survival goal metadata",
             "cockroach:regions",
             "show regions;",
+            "inspect_regions",
         ),
         (
             "cockroach-ranges",
@@ -33,6 +37,7 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "Range distribution, hot spots, and locality-aware placement",
             "cockroach:ranges",
             "select * from crdb_internal.ranges_no_leases limit 100;",
+            "inspect_ranges",
         ),
         (
             "cockroach-sessions",
@@ -41,6 +46,7 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "Active SQL sessions and cancellation candidates",
             "cockroach:sessions",
             "show sessions;",
+            "inspect_sessions",
         ),
         (
             "cockroach-contention",
@@ -49,6 +55,7 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "Lock waits and transaction contention signals",
             "cockroach:contention",
             "select * from crdb_internal.cluster_locks limit 100;",
+            "inspect_contention",
         ),
         (
             "cockroach-cluster-status",
@@ -57,6 +64,7 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "Nodes, liveness, settings, and status surfaces",
             "cockroach:cluster-status",
             "show cluster setting version;",
+            "inspect_cluster_status",
         ),
         (
             "cockroach-statements",
@@ -65,6 +73,7 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "Statement fingerprints, latency, rows, and retry signals",
             "cockroach:statements",
             "select * from crdb_internal.node_statement_statistics limit 100;",
+            "inspect_contention",
         ),
         (
             "cockroach-transactions",
@@ -73,6 +82,7 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "Transaction state, retry pressure, and contention risk",
             "cockroach:transactions",
             "select * from crdb_internal.cluster_transactions limit 100;",
+            "inspect_contention",
         ),
         (
             "cockroach-zone-configurations",
@@ -81,10 +91,12 @@ pub(crate) fn cockroach_root_nodes(connection: &ResolvedConnectionProfile) -> Ve
             "Replication, constraints, lease preferences, and GC settings",
             "cockroach:zone-configurations",
             "show zone configurations;",
+            "inspect_zone_configurations",
         ),
     ]
     .into_iter()
-    .map(|(id, label, kind, detail, scope, query)| ExplorerNode {
+    .filter(|(_, _, _, _, _, _, capability)| cockroach_capability(connection, capability))
+    .map(|(id, label, kind, detail, scope, query, _)| ExplorerNode {
         id: id.into(),
         family: "sql".into(),
         label: label.into(),

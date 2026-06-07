@@ -2,7 +2,10 @@ use serde_json::json;
 
 use super::super::*;
 use super::query_request::postgres_query_request;
-use super::query_results::{postgres_explain_payload, postgres_explain_text, query_postgres_rows};
+use super::query_results::{
+    postgres_explain_payload, postgres_explain_text, postgres_profile_payload,
+    postgres_profile_plan_payload, query_postgres_rows,
+};
 use super::PostgresAdapter;
 
 pub(super) async fn execute_postgres_query(
@@ -18,7 +21,7 @@ pub(super) async fn execute_postgres_query(
             .row_limit
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
-    let statements = if execute_mode(request) == "explain" {
+    let statements = if matches!(execute_mode(request), "explain" | "profile") {
         single_statement_batch(statement)
     } else {
         split_sql_batch(statement, SqlBatchDialect::Postgres)
@@ -117,16 +120,31 @@ pub(super) async fn execute_postgres_query(
     pool.close().await;
     let result = result?;
     let table_payload = payload_table(result.columns.clone(), result.rows.clone());
-    let explain_payload = if query_request.mode == "explain" {
-        Some(postgres_explain_payload(
+    let profile_payload = (query_request.mode == "profile")
+        .then(|| postgres_profile_payload(&result.columns, &result.rows));
+    let plan_payload = match query_request.mode {
+        "explain" => Some(postgres_explain_payload(
             &query_request.wire_statement,
             &result.columns,
             &result.rows,
-        ))
-    } else {
-        None
+        )),
+        "profile" => Some(postgres_profile_plan_payload(
+            &query_request.wire_statement,
+            &result.columns,
+            &result.rows,
+        )),
+        _ => None,
     };
     let mut notices = sql_history_notice(notices);
+    if query_request.mode == "profile" {
+        notices.push(QueryExecutionNotice {
+            code: "postgres-profile-executed".into(),
+            level: "warning".into(),
+            message:
+                "PostgreSQL EXPLAIN ANALYZE executed the read statement to collect profile metrics."
+                    .into(),
+        });
+    }
     if result.truncated {
         notices.push(QueryExecutionNotice {
             code: "postgres-result-truncated".into(),
@@ -153,7 +171,19 @@ pub(super) async fn execute_postgres_query(
             "statement": query_request.statement.clone()
         }
     }]));
-    let payloads = if let Some(plan_payload) = explain_payload.clone() {
+    let payloads = if let Some(profile_payload) = profile_payload {
+        let mut payloads = vec![profile_payload];
+        if let Some(plan_payload) = plan_payload.clone() {
+            payloads.push(plan_payload);
+        }
+        payloads.extend([
+            table_payload,
+            metadata_payload,
+            metrics_payload,
+            payload_raw(postgres_explain_text(&result.columns, &result.rows)),
+        ]);
+        payloads
+    } else if let Some(plan_payload) = plan_payload.clone() {
         vec![
             plan_payload,
             table_payload,
@@ -169,10 +199,17 @@ pub(super) async fn execute_postgres_query(
             payload_raw(query_request.statement.clone()),
         ]
     };
+    let profile_mode = query_request.mode == "profile";
+    let explain_mode = query_request.mode == "explain";
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: if result.truncated {
+        summary: if profile_mode {
+            format!(
+                "PostgreSQL profile returned {} plan row(s) from {}.",
+                result.total_rows, connection.name
+            )
+        } else if result.truncated {
             format!(
                 "{} row(s) loaded from {} out of at least {}.",
                 result.rows.len(),
@@ -185,12 +222,16 @@ pub(super) async fn execute_postgres_query(
                 result.total_rows, connection.name
             )
         },
-        default_renderer: if query_request.mode == "explain" {
+        default_renderer: if profile_mode {
+            "profile"
+        } else if explain_mode {
             "plan"
         } else {
             "table"
         },
-        renderer_modes: if query_request.mode == "explain" {
+        renderer_modes: if profile_mode {
+            vec!["profile", "plan", "table", "json", "raw"]
+        } else if explain_mode {
             vec!["plan", "table", "json", "raw"]
         } else {
             vec!["table", "json", "raw"]
@@ -200,6 +241,6 @@ pub(super) async fn execute_postgres_query(
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
         truncated: result.truncated,
-        explain_payload,
+        explain_payload: plan_payload,
     }))
 }

@@ -22,11 +22,14 @@ export function PostgresObjectViewInsights({ kind, payload }: PostgresObjectView
   const statistics = records(payload.statistics)
   const roles = records(payload.roles)
   const permissions = records(payload.permissions)
+  const roleMemberships = records(payload.roleMemberships)
+  const defaultPrivileges = records(payload.defaultPrivileges)
   const sessions = records(payload.sessions)
   const locks = records(payload.locks)
   const waits = records(payload.waits)
   const statements = records(payload.statements)
   const extensions = records(payload.extensions)
+  const extensionObjects = records(payload.extensionObjects)
 
   if (
     !tables.length &&
@@ -35,18 +38,21 @@ export function PostgresObjectViewInsights({ kind, payload }: PostgresObjectView
     !statistics.length &&
     !roles.length &&
     !permissions.length &&
+    !roleMemberships.length &&
+    !defaultPrivileges.length &&
     !sessions.length &&
     !locks.length &&
     !waits.length &&
     !statements.length &&
-    !extensions.length
+    !extensions.length &&
+    !extensionObjects.length
   ) {
     return null
   }
 
   return (
     <>
-      {(tables.length || statistics.length || extensions.length) ? (
+      {(tables.length || statistics.length || extensions.length || extensionObjects.length) ? (
         <section className="object-view-section" aria-label="PostgreSQL storage posture">
           <PostgresSectionHeading icon="table" title="Storage" unit={scopeLabel(kind)} />
           <div className="object-view-card-grid">
@@ -54,8 +60,11 @@ export function PostgresObjectViewInsights({ kind, payload }: PostgresObjectView
             <Card label="Rows" value={firstDisplay(payload.rowCount, sumField(statistics.length ? statistics : tables, 'rows'))} />
             <Card label="Size" value={firstDisplay(payload.size, firstField(statistics, 'size'))} />
             <Card label="Extensions" value={extensions.length || undefined} />
+            <Card label="Updates" value={countTruthy(extensions, 'updateAvailable')} />
+            <Card label="Ext Objects" value={extensionObjects.length || undefined} />
           </div>
-          <ChipRows rows={statistics.length ? statistics : tables} labelKey="name" valueKey="lastAnalyze" />
+          <ChipRows rows={extensions.length ? extensions : statistics.length ? statistics : tables} labelKey="name" valueKey={extensions.length ? 'status' : 'lastAnalyze'} />
+          <ChipRows rows={extensionObjects} labelKey="object" valueKey="extension" />
         </section>
       ) : null}
 
@@ -72,16 +81,20 @@ export function PostgresObjectViewInsights({ kind, payload }: PostgresObjectView
         </section>
       ) : null}
 
-      {(roles.length || permissions.length) ? (
+      {(roles.length || permissions.length || roleMemberships.length || defaultPrivileges.length) ? (
         <section className="object-view-section" aria-label="PostgreSQL security posture">
           <PostgresSectionHeading icon="security" title="Security" unit={`${roles.length} role(s)`} />
           <div className="object-view-card-grid">
             <Card label="Roles" value={roles.length || undefined} />
             <Card label="Logins" value={countTruthy(roles, 'login')} />
             <Card label="Grants" value={permissions.length || undefined} />
+            <Card label="Memberships" value={roleMemberships.length || undefined} />
+            <Card label="Defaults" value={defaultPrivileges.length || undefined} />
             <Card label="Superusers" value={countTruthy(roles, 'superuser')} />
           </div>
           <ChipRows rows={roles.length ? roles : permissions} labelKey={roles.length ? 'name' : 'principal'} valueKey={roles.length ? 'memberships' : 'privilege'} />
+          <ChipRows rows={roleMemberships} labelKey="role" valueKey="memberOf" />
+          <ChipRows rows={defaultPrivileges} labelKey="principal" valueKey="privilege" />
         </section>
       ) : null}
 

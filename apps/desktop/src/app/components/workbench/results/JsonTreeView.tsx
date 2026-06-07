@@ -20,6 +20,8 @@ interface JsonTreeViewProps {
   defaultExpandAll?: boolean
   onCopyPath?(path: string): void | Promise<void>
   onCopyValue?(value: unknown): void | Promise<void>
+  onDeleteValue?(path: string, value: unknown): void | Promise<void>
+  onEditValue?(path: string, value: unknown): void | Promise<void>
 }
 
 interface JsonTreeNodeProps {
@@ -31,6 +33,8 @@ interface JsonTreeNodeProps {
   maxChildren: number
   onCopyPath?(path: string): void | Promise<void>
   onCopyValue?(value: unknown): void | Promise<void>
+  onDeleteValue?(path: string, value: unknown): void | Promise<void>
+  onEditValue?(path: string, value: unknown): void | Promise<void>
   onToggle(path: string): void
 }
 
@@ -41,6 +45,8 @@ export function JsonTreeView({
   defaultExpandAll = false,
   onCopyPath,
   onCopyValue,
+  onDeleteValue,
+  onEditValue,
 }: JsonTreeViewProps) {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() =>
     defaultExpandAll ? expandablePathsForValue(value) : new Set(),
@@ -71,6 +77,8 @@ export function JsonTreeView({
         maxChildren={maxChildren}
         onCopyPath={onCopyPath}
         onCopyValue={onCopyValue}
+        onDeleteValue={onDeleteValue}
+        onEditValue={onEditValue}
         onToggle={toggleNode}
       />
     </div>
@@ -86,6 +94,8 @@ function JsonTreeNode({
   maxChildren,
   onCopyPath,
   onCopyValue,
+  onDeleteValue,
+  onEditValue,
   onToggle,
 }: JsonTreeNodeProps) {
   const kind = valueKind(value)
@@ -143,6 +153,26 @@ function JsonTreeNode({
               Value
             </button>
           ) : null}
+          {onEditValue ? (
+            <button
+              type="button"
+              className="json-tree-action"
+              aria-label={`Edit path ${label}`}
+              onClick={() => void onEditValue(path, value)}
+            >
+              Edit
+            </button>
+          ) : null}
+          {onDeleteValue && path !== '$' ? (
+            <button
+              type="button"
+              className="json-tree-action"
+              aria-label={`Delete path ${label}`}
+              onClick={() => void onDeleteValue(path, value)}
+            >
+              Delete
+            </button>
+          ) : null}
         </span>
       </div>
       {hasChildren && isExpanded ? (
@@ -158,6 +188,8 @@ function JsonTreeNode({
               maxChildren={maxChildren}
               onCopyPath={onCopyPath}
               onCopyValue={onCopyValue}
+              onDeleteValue={onDeleteValue}
+              onEditValue={onEditValue}
               onToggle={onToggle}
             />
           ))}
@@ -193,7 +225,7 @@ function childrenForValue(value: JsonTreeValue, parentPath: string) {
   if (isRecord(value)) {
     return Object.entries(value).map(([key, item]) => ({
       label: key,
-      path: `${parentPath}.${key}`,
+      path: jsonObjectChildPath(parentPath, key),
       value: item,
     }))
   }
@@ -259,6 +291,14 @@ function truncate(value: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function jsonObjectChildPath(parentPath: string, key: string) {
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+    return `${parentPath}.${key}`
+  }
+
+  return `${parentPath}[${JSON.stringify(key)}]`
 }
 
 function bsonScalarPreview(value: unknown) {

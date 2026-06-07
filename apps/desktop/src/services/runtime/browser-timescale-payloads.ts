@@ -1,3 +1,11 @@
+import type { ConnectionProfile } from '@datapadplusplus/shared-types'
+import type { TimescaleCapabilityKey } from './timescale-capabilities'
+import {
+  timescaleCapability,
+  timescaleCapabilityWarning,
+  timescaleCapabilityWarnings,
+} from './timescale-capabilities'
+
 type JsonRecord = Record<string, unknown>
 
 export function timescaleInspectQueryTemplate(
@@ -49,13 +57,20 @@ export function timescaleInspectQueryTemplate(
 }
 
 export function timescaleInspectPayload(
+  connection: ConnectionProfile,
   base: JsonRecord,
   nodeId: string,
   schema: string,
   objectName: string,
   columns: JsonRecord[],
 ) {
-  const common = timescaleCommonPayload(schema)
+  const normalizedNodeId = nodeId.toLowerCase()
+  const restrictedPayload = restrictedTimescalePayload(connection, normalizedNodeId, base)
+  if (restrictedPayload) {
+    return restrictedPayload
+  }
+
+  const common = timescaleCommonPayload(connection, schema)
 
   if (nodeId.startsWith('hypertable:')) {
     const hypertable = common.hypertables.find((row) => row.schema === schema && row.name === objectName)
@@ -145,7 +160,15 @@ export function timescaleInspectPayload(
       jobCount: common.jobs.length,
       ...common,
       warnings: nodeId.includes('diagnostics')
-        ? ['Diagnostics are scoped to TimescaleDB catalog views visible to the current role.']
+        ? [
+            'Diagnostics are scoped to TimescaleDB catalog views visible to the current role.',
+            ...timescaleCapabilityWarnings(connection, [
+              'inspectCompression',
+              'inspectRetention',
+              'inspectContinuousAggregates',
+              'inspectJobs',
+            ]),
+          ]
         : undefined,
     }
   }
@@ -153,8 +176,9 @@ export function timescaleInspectPayload(
   return undefined
 }
 
-function timescaleCommonPayload(defaultSchema: string) {
+function timescaleCommonPayload(connection: ConnectionProfile, defaultSchema: string) {
   const schema = defaultSchema || 'public'
+  const options = connection.postgresOptions
   const hypertables = [
     {
       schema,
@@ -186,6 +210,20 @@ function timescaleCommonPayload(defaultSchema: string) {
   ]
 
   return {
+    timescaleProfile: {
+      deploymentMode: options?.timescaleDeploymentMode ?? 'self-hosted',
+      project: options?.timescaleProject,
+      serviceId: options?.timescaleServiceId,
+      region: options?.timescaleRegion,
+      extensionSchema: options?.timescaleExtensionSchema ?? 'public',
+      extensionVersion: options?.timescaleExtensionVersion,
+      serverVersion: options?.timescaleServerVersion,
+      license: options?.timescaleLicense ?? 'unknown',
+      policyExecution: timescaleCapability(connection, 'livePolicyExecution')
+        ? 'Guarded live enabled'
+        : 'Preview only',
+      disabledReason: timescaleCapabilityWarning(connection, 'livePolicyExecution'),
+    },
     hypertables,
     chunks,
     compressionPolicies: [
@@ -211,4 +249,45 @@ function timescaleCommonPayload(defaultSchema: string) {
       { signal: 'Retention Window', value: '90 days', status: 'guarded by policy' },
     ],
   }
+}
+
+function restrictedTimescalePayload(
+  connection: ConnectionProfile,
+  normalizedNodeId: string,
+  base: JsonRecord,
+) {
+  const capability = timescaleSpecificCapabilityForNode(normalizedNodeId)
+  if (!capability) {
+    return undefined
+  }
+  const warning = timescaleCapabilityWarning(connection, capability)
+  if (!warning) {
+    return undefined
+  }
+  return {
+    ...base,
+    objectView: 'restricted',
+    disabledReason: warning,
+    warnings: [warning],
+    objects: [],
+  }
+}
+
+function timescaleSpecificCapabilityForNode(
+  normalizedNodeId: string,
+): TimescaleCapabilityKey | undefined {
+  if (normalizedNodeId.includes('chunks')) return 'inspectChunks'
+  if (normalizedNodeId.includes('compression')) return 'inspectCompression'
+  if (normalizedNodeId.includes('retention')) return 'inspectRetention'
+  if (
+    normalizedNodeId.includes('continuous-aggregate') ||
+    normalizedNodeId.includes('continuous-aggregates')
+  ) {
+    return 'inspectContinuousAggregates'
+  }
+  if (normalizedNodeId.includes('jobs')) return 'inspectJobs'
+  if (normalizedNodeId.includes('hypertable') || normalizedNodeId.includes('hypertables')) {
+    return 'inspectHypertables'
+  }
+  return undefined
 }

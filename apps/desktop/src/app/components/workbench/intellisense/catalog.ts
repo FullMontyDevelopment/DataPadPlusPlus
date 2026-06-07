@@ -1,7 +1,9 @@
 import type { ResultPayload, StructureField } from '@datapadplusplus/shared-types'
+import { addRedisCommandsToCatalog } from './redis-command-catalog'
 import type {
   CompletionCatalog,
   CompletionCatalogInput,
+  CompletionCommand,
   CompletionField,
   CompletionObject,
   CompletionSchema,
@@ -34,6 +36,8 @@ const OBJECT_KINDS = new Set([
   'set',
   'zset',
   'stream',
+  'json', 'timeseries', 'bloom', 'cuckoo', 'cms', 'topk', 'tdigest',
+  'search-index', 'search-indexes', 'vectorset', 'module',
   'server',
   'known-key',
   'slab',
@@ -59,6 +63,7 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
   const schemas = new Map<string, CompletionSchema>()
   const objects = new Map<string, CompletionObject>()
   const fields = new Map<string, CompletionField>()
+  const commands = new Map<string, CompletionCommand>()
 
   for (const node of input.explorerNodes) {
     if (node.family !== 'shared') {
@@ -137,8 +142,11 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
 
   for (const payload of input.resultPayloads ?? []) {
     const extracted = fieldsFromPayload(payload)
+    const addedCommands = input.connection?.engine === 'redis' || input.connection?.engine === 'valkey'
+      ? addRedisCommandsToCatalog(commands, payload)
+      : 0
 
-    if (extracted.length > 0) {
+    if (extracted.length > 0 || addedCommands) {
       sources.add('results')
     }
 
@@ -155,7 +163,7 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
     schemas: Array.from(schemas.values()).sort(byName),
     objects: Array.from(objects.values()).sort(byName),
     fields: Array.from(fields.values()).sort(byField),
-    commands: [],
+    commands: Array.from(commands.values()).sort(byName),
     operators: [],
     functions: [],
     snippets: [],

@@ -33,6 +33,7 @@ export function planOperationLocally(
 
   const destructive =
     request.operationId.includes('.drop') ||
+    request.operationId.includes('.session.terminate') ||
     request.operationId.includes('retention-policy') ||
     request.operationId.includes('backup') ||
     request.operationId.includes('restore') ||
@@ -58,6 +59,8 @@ export function planOperationLocally(
     request.operationId.includes('.pipeline.simulate') ||
     request.operationId.includes('.user.') ||
     request.operationId.includes('.role.') ||
+    request.operationId.includes('.routine.execute') ||
+    request.operationId.includes('.session.cancel') ||
     request.operationId.includes('.key.set') ||
     request.operationId.includes('.key.touch') ||
     request.operationId.includes('.key.increment') ||
@@ -67,6 +70,7 @@ export function planOperationLocally(
     request.operationId.includes('.collection.import') ||
     request.operationId.includes('.gridfs.upload') ||
     request.operationId.includes('.key.import') ||
+    request.operationId.includes('.table.import') ||
     request.operationId.includes('.cockroach.import') ||
     request.operationId.includes('.zone-configs') ||
     request.operationId.includes('.event.') ||
@@ -102,6 +106,8 @@ export function planOperationLocally(
     request.operationId.includes('.gridfs.export') ||
     request.operationId.includes('.gridfs.validate') ||
     request.operationId.includes('.key.export') ||
+    request.operationId.includes('.table.export') ||
+    request.operationId.includes('.cockroach.export') ||
     request.operationId.includes('.profile') ||
     request.operationId.includes('.cardinality.') ||
     request.operationId.includes('metrics')

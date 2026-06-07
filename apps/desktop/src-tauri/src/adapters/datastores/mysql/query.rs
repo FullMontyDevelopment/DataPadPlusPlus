@@ -3,7 +3,7 @@ use serde_json::json;
 use sqlx::{mysql::MySqlRow, Column, Row};
 
 use super::super::super::*;
-use super::connection::{mysql_dsn, stringify_mysql_cell};
+use super::connection::{mysql_pool, stringify_mysql_cell};
 use super::MysqlLikeAdapter;
 
 pub(super) async fn execute_mysql_query(
@@ -44,10 +44,7 @@ pub(super) async fn execute_mysql_query(
     let row_limit = request
         .row_limit
         .unwrap_or(adapter.execution_capabilities().default_row_limit);
-    let pool = sqlx::mysql::MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&mysql_dsn(connection))
-        .await?;
+    let pool = mysql_pool(connection, 1).await?;
     let explain_mode = execute_mode(request) == "explain";
 
     if batch_statements.len() > 1 {

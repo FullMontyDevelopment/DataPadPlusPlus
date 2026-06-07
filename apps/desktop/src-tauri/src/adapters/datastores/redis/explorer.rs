@@ -1,5 +1,5 @@
 use redis::Value as RedisValue;
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 
 use super::super::super::*;
 use super::catalog::redis_execution_capabilities;
@@ -23,19 +23,19 @@ const REDIS_MODULE_TYPE_FOLDERS: &[(&str, &str, &str)] = &[
     (
         "json",
         "JSON",
-        "RedisJSON values when the module is installed",
+        "JSON module values when the module is installed",
     ),
     (
         "timeseries",
         "Time Series",
-        "RedisTimeSeries values when the module is installed",
+        "Time-series module values when the module is installed",
     ),
     (
         "bloom",
         "Bloom Filters",
-        "RedisBloom probabilistic values when the module is installed",
+        "Bloom probabilistic values when the module is installed",
     ),
-    ("search-index", "Search Indexes", "RediSearch indexes"),
+    ("search-index", "Search Indexes", "Search indexes"),
     ("vectorset", "Vector Indexes", "Vector search structures"),
 ];
 
@@ -45,13 +45,16 @@ pub(super) async fn list_redis_explorer_nodes(
 ) -> Result<ExplorerResponse, CommandError> {
     let scope = request.scope.as_deref();
     let nodes = match scope {
-        None => redis_root_nodes(),
+        None => redis_root_nodes(connection),
         Some("databases") => redis_database_nodes(connection).await?,
         Some(scope) if scope.starts_with("db:") && !scope.contains(":type:") => {
             redis_database_child_nodes(connection, scope).await?
         }
         Some(scope) if scope.starts_with("db:") && scope.contains(":type:") => {
             redis_key_nodes(connection, request, scope).await?
+        }
+        Some(scope) if scope.starts_with("stream:") => {
+            redis_stream_child_nodes(connection, scope).await?
         }
         Some("cluster") => redis_cluster_nodes(connection).await,
         Some("sentinel") => redis_sentinel_nodes(connection).await,
@@ -68,8 +71,9 @@ pub(super) async fn list_redis_explorer_nodes(
         environment_id: request.environment_id.clone(),
         scope: request.scope.clone(),
         summary: format!(
-            "Loaded {} Redis explorer node(s) for {}.",
+            "Loaded {} {} explorer node(s) for {}.",
             nodes.len(),
+            redis_engine_label(connection),
             connection.name
         ),
         capabilities: redis_execution_capabilities(),
@@ -85,6 +89,7 @@ pub(super) async fn inspect_redis_explorer_node(
         let mut redis = redis_connection(connection).await?;
         select_redis_database(&mut redis, Some(database)).await?;
         let key_type: String = redis::cmd("TYPE").arg(&key).query_async(&mut redis).await?;
+        let normalized_type = normalize_redis_type(&key_type);
         let ttl: i64 = redis::cmd("TTL")
             .arg(&key)
             .query_async(&mut redis)
@@ -96,21 +101,32 @@ pub(super) async fn inspect_redis_explorer_node(
             .query_async(&mut redis)
             .await
             .ok();
+        let module_details = redis_module_key_details(&mut redis, &key, &normalized_type).await;
         return Ok(ExplorerInspectResponse {
             node_id: request.node_id.clone(),
-            summary: format!("Inspection ready for Redis key `{key}`."),
+            summary: format!(
+                "Inspection ready for {} key `{key}`.",
+                redis_engine_label(connection)
+            ),
             query_template: Some(format!("TYPE {key}\nTTL {key}\nGET {key}")),
             payload: Some(json!({
                 "database": database,
                 "key": key,
-                "type": key_type,
+                "type": &normalized_type,
+                "rawType": &key_type,
                 "ttlSeconds": ttl,
                 "memoryUsageBytes": memory_usage,
+                "moduleKind": is_redis_module_kind(&normalized_type).then_some(normalized_type.clone()),
+                "moduleDetails": module_details,
+                "moduleCommands": redis_module_commands(&normalized_type),
+                "disabledActions": redis_module_disabled_actions(connection, &normalized_type),
             })),
         });
     }
 
-    let payload = if request.node_id == "redis:databases" {
+    let payload = if let Some(target) = parse_stream_node_id(&request.node_id) {
+        redis_stream_payload(connection, target).await?
+    } else if request.node_id == "redis:databases" {
         redis_databases_payload(connection).await?
     } else if let Some((database, requested_type)) = parse_database_node_id(&request.node_id) {
         if let Some(requested_type) = requested_type {
@@ -215,13 +231,14 @@ pub(crate) fn redis_scan_match_pattern(pattern: &str) -> String {
     }
 }
 
-fn redis_root_nodes() -> Vec<ExplorerNode> {
+fn redis_root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    let engine_label = redis_engine_label(connection);
     vec![
         node(
             "redis:databases",
             "Databases",
             "databases",
-            "Logical Redis databases",
+            &format!("Logical {engine_label} databases"),
             Some("databases"),
             true,
         ),
@@ -261,7 +278,7 @@ fn redis_root_nodes() -> Vec<ExplorerNode> {
             "redis:functions",
             "Functions",
             "functions",
-            "Redis functions and libraries",
+            &format!("{engine_label} functions and libraries"),
             Some("functions"),
             true,
         ),
@@ -454,14 +471,155 @@ async fn redis_key_nodes(
             family: "keyvalue".into(),
             label: key.clone(),
             kind: normalized_type.clone(),
-            detail: format!("Redis {normalized_type} key"),
-            scope: None,
+            detail: format!("{} {normalized_type} key", redis_engine_label(connection)),
+            scope: (normalized_type == "stream")
+                .then(|| format!("stream:{database}:{}", encode_redis_node_part(&key))),
             path: Some(vec![connection.name.clone(), format!("DB {database}")]),
-            query_template: Some(format!("TYPE {key}\nTTL {key}")),
-            expandable: Some(false),
+            query_template: Some(if normalized_type == "stream" {
+                format!("XINFO STREAM {key}\nXRANGE {key} - + COUNT 100")
+            } else {
+                format!("TYPE {key}\nTTL {key}")
+            }),
+            expandable: Some(normalized_type == "stream"),
         });
     }
     Ok(nodes)
+}
+
+async fn redis_stream_child_nodes(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let target = parse_stream_scope(scope).ok_or_else(|| {
+        CommandError::new(
+            "redis-stream-scope-invalid",
+            "Redis stream scope was invalid.",
+        )
+    })?;
+
+    if let Some(group) = target.group {
+        return Ok(redis_stream_group_child_nodes(
+            connection,
+            target.database,
+            &target.key,
+            &group,
+        ));
+    }
+
+    if target.view == RedisStreamView::Groups {
+        return redis_stream_group_nodes(connection, target.database, &target.key).await;
+    }
+
+    Ok(redis_stream_key_child_nodes(
+        connection,
+        target.database,
+        &target.key,
+    ))
+}
+
+fn redis_stream_key_child_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: u32,
+    key: &str,
+) -> Vec<ExplorerNode> {
+    let encoded_key = encode_redis_node_part(key);
+    let path = redis_stream_key_path(connection, database, key);
+    vec![
+        stream_leaf(
+            &format!("redis:stream:{database}:{encoded_key}:overview"),
+            "Overview",
+            "stream-detail",
+            "XINFO STREAM and stream posture",
+            &path,
+        ),
+        stream_leaf(
+            &format!("redis:stream:{database}:{encoded_key}:entries"),
+            "Recent Entries",
+            "stream-entries",
+            "XRANGE - + COUNT 100",
+            &path,
+        ),
+        stream_node(
+            &format!("redis:stream:{database}:{encoded_key}:groups"),
+            "Consumer Groups",
+            "stream-groups",
+            "XINFO GROUPS",
+            Some(&format!("stream:{database}:{encoded_key}:groups")),
+            true,
+            &path,
+        ),
+    ]
+}
+
+async fn redis_stream_group_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: u32,
+    key: &str,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let mut redis = redis_connection(connection).await?;
+    select_redis_database(&mut redis, Some(database)).await?;
+    let value: RedisValue = redis::cmd("XINFO")
+        .arg("GROUPS")
+        .arg(key)
+        .query_async(&mut redis)
+        .await?;
+    let records = redis_stream_records_from_value(&redis_value_to_json(&value));
+    let encoded_key = encode_redis_node_part(key);
+    let path = redis_stream_key_path(connection, database, key);
+
+    Ok(records
+        .into_iter()
+        .filter_map(|record| {
+            let name = redis_record_string(&record, &["name", "group"])?;
+            let encoded_group = encode_redis_node_part(&name);
+            let detail = redis_stream_group_detail(&record);
+            Some(stream_node(
+                &format!("redis:stream:{database}:{encoded_key}:group:{encoded_group}"),
+                &name,
+                "stream-group",
+                &detail,
+                Some(&format!(
+                    "stream:{database}:{encoded_key}:group:{encoded_group}"
+                )),
+                true,
+                &path,
+            ))
+        })
+        .collect())
+}
+
+fn redis_stream_group_child_nodes(
+    connection: &ResolvedConnectionProfile,
+    database: u32,
+    key: &str,
+    group: &str,
+) -> Vec<ExplorerNode> {
+    let encoded_key = encode_redis_node_part(key);
+    let encoded_group = encode_redis_node_part(group);
+    let path = redis_stream_group_path(connection, database, key, group);
+    vec![
+        stream_leaf(
+            &format!("redis:stream:{database}:{encoded_key}:group:{encoded_group}:detail"),
+            "Group Detail",
+            "stream-group",
+            "XINFO GROUPS and XPENDING summary",
+            &path,
+        ),
+        stream_leaf(
+            &format!("redis:stream:{database}:{encoded_key}:group:{encoded_group}:consumers"),
+            "Consumers",
+            "stream-consumers",
+            "XINFO CONSUMERS",
+            &path,
+        ),
+        stream_leaf(
+            &format!("redis:stream:{database}:{encoded_key}:group:{encoded_group}:pending"),
+            "Pending Entries",
+            "stream-pending",
+            "XPENDING extended entries",
+            &path,
+        ),
+    ]
 }
 
 async fn redis_cluster_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
@@ -694,6 +852,494 @@ async fn redis_command_payload(
     Ok(json!({ "command": command.join(" "), "value": redis_value_to_json(&value) }))
 }
 
+async fn redis_stream_payload(
+    connection: &ResolvedConnectionProfile,
+    target: RedisStreamTarget,
+) -> Result<serde_json::Value, CommandError> {
+    let mut redis = redis_connection(connection).await?;
+    select_redis_database(&mut redis, Some(target.database)).await?;
+
+    match target.view {
+        RedisStreamView::Overview => {
+            let info: RedisValue = redis::cmd("XINFO")
+                .arg("STREAM")
+                .arg(&target.key)
+                .query_async(&mut redis)
+                .await?;
+            let entries: RedisValue = redis::cmd("XRANGE")
+                .arg(&target.key)
+                .arg("-")
+                .arg("+")
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut redis)
+                .await
+                .unwrap_or(RedisValue::Array(Vec::new()));
+            Ok(json!({
+                "database": target.database,
+                "key": &target.key,
+                "type": "stream",
+                "command": format!("XINFO STREAM {}", target.key),
+                "value": redis_value_to_json(&info),
+                "info": redis_stream_record_from_value(&redis_value_to_json(&info)),
+                "entries": redis_value_to_json(&entries),
+            }))
+        }
+        RedisStreamView::Entries => {
+            let entries: RedisValue = redis::cmd("XRANGE")
+                .arg(&target.key)
+                .arg("-")
+                .arg("+")
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut redis)
+                .await?;
+            Ok(json!({
+                "database": target.database,
+                "key": &target.key,
+                "type": "stream",
+                "command": format!("XRANGE {} - + COUNT 100", target.key),
+                "entries": redis_value_to_json(&entries),
+                "value": redis_value_to_json(&entries),
+            }))
+        }
+        RedisStreamView::Groups => {
+            let groups: RedisValue = redis::cmd("XINFO")
+                .arg("GROUPS")
+                .arg(&target.key)
+                .query_async(&mut redis)
+                .await?;
+            Ok(json!({
+                "database": target.database,
+                "key": &target.key,
+                "type": "stream",
+                "command": format!("XINFO GROUPS {}", target.key),
+                "groups": redis_stream_records_from_value(&redis_value_to_json(&groups)),
+                "value": redis_value_to_json(&groups),
+            }))
+        }
+        RedisStreamView::Group | RedisStreamView::GroupDetail => {
+            let group = target.group.ok_or_else(|| {
+                CommandError::new(
+                    "redis-stream-group-missing",
+                    "Redis stream group was missing.",
+                )
+            })?;
+            let groups: RedisValue = redis::cmd("XINFO")
+                .arg("GROUPS")
+                .arg(&target.key)
+                .query_async(&mut redis)
+                .await?;
+            let pending: RedisValue = redis::cmd("XPENDING")
+                .arg(&target.key)
+                .arg(&group)
+                .query_async(&mut redis)
+                .await
+                .unwrap_or(RedisValue::Array(Vec::new()));
+            let group_record = redis_stream_records_from_value(&redis_value_to_json(&groups))
+                .into_iter()
+                .find(|record| {
+                    redis_record_string(record, &["name", "group"]).as_deref() == Some(&group)
+                });
+            Ok(json!({
+                "database": target.database,
+                "key": &target.key,
+                "type": "stream",
+                "group": &group,
+                "command": format!("XINFO GROUPS {}", target.key),
+                "groups": redis_stream_records_from_value(&redis_value_to_json(&groups)),
+                "groupDetail": group_record,
+                "pendingSummary": redis_value_to_json(&pending),
+            }))
+        }
+        RedisStreamView::Consumers => {
+            let group = target.group.ok_or_else(|| {
+                CommandError::new(
+                    "redis-stream-group-missing",
+                    "Redis stream group was missing.",
+                )
+            })?;
+            let consumers: RedisValue = redis::cmd("XINFO")
+                .arg("CONSUMERS")
+                .arg(&target.key)
+                .arg(&group)
+                .query_async(&mut redis)
+                .await?;
+            Ok(json!({
+                "database": target.database,
+                "key": &target.key,
+                "type": "stream",
+                "group": &group,
+                "command": format!("XINFO CONSUMERS {} {}", target.key, group),
+                "consumers": redis_stream_records_from_value(&redis_value_to_json(&consumers)),
+                "value": redis_value_to_json(&consumers),
+            }))
+        }
+        RedisStreamView::Pending => {
+            let group = target.group.ok_or_else(|| {
+                CommandError::new(
+                    "redis-stream-group-missing",
+                    "Redis stream group was missing.",
+                )
+            })?;
+            let summary: RedisValue = redis::cmd("XPENDING")
+                .arg(&target.key)
+                .arg(&group)
+                .query_async(&mut redis)
+                .await?;
+            let entries: RedisValue = redis::cmd("XPENDING")
+                .arg(&target.key)
+                .arg(&group)
+                .arg("-")
+                .arg("+")
+                .arg(100)
+                .query_async(&mut redis)
+                .await
+                .unwrap_or(RedisValue::Array(Vec::new()));
+            Ok(json!({
+                "database": target.database,
+                "key": &target.key,
+                "type": "stream",
+                "group": &group,
+                "command": format!("XPENDING {} {} - + 100", target.key, group),
+                "pendingSummary": redis_value_to_json(&summary),
+                "pendingEntries": redis_value_to_json(&entries),
+                "value": redis_value_to_json(&entries),
+            }))
+        }
+        RedisStreamView::Root => Ok(json!({
+            "database": target.database,
+            "key": &target.key,
+            "type": "stream",
+            "message": "Open a stream child node to inspect entries, consumer groups, consumers, or pending messages.",
+        })),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RedisStreamTarget {
+    database: u32,
+    key: String,
+    group: Option<String>,
+    view: RedisStreamView,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RedisStreamView {
+    Root,
+    Overview,
+    Entries,
+    Groups,
+    Group,
+    GroupDetail,
+    Consumers,
+    Pending,
+}
+
+fn parse_stream_scope(scope: &str) -> Option<RedisStreamTarget> {
+    let parts = scope.split(':').collect::<Vec<_>>();
+    if parts.len() < 3 || parts.first()? != &"stream" {
+        return None;
+    }
+
+    let database = parts.get(1)?.parse().ok()?;
+    let key = decode_redis_node_part(parts.get(2)?)?;
+    match parts.as_slice() {
+        ["stream", _, _] => Some(RedisStreamTarget {
+            database,
+            key,
+            group: None,
+            view: RedisStreamView::Root,
+        }),
+        ["stream", _, _, "groups"] => Some(RedisStreamTarget {
+            database,
+            key,
+            group: None,
+            view: RedisStreamView::Groups,
+        }),
+        ["stream", _, _, "group", group] => Some(RedisStreamTarget {
+            database,
+            key,
+            group: Some(decode_redis_node_part(group)?),
+            view: RedisStreamView::Group,
+        }),
+        _ => None,
+    }
+}
+
+fn parse_stream_node_id(node_id: &str) -> Option<RedisStreamTarget> {
+    let rest = node_id.strip_prefix("redis:stream:")?;
+    let parts = rest.split(':').collect::<Vec<_>>();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let database = parts.first()?.parse().ok()?;
+    let key = decode_redis_node_part(parts.get(1)?)?;
+    match parts.as_slice() {
+        [_, _, "overview"] => Some(RedisStreamTarget {
+            database,
+            key,
+            group: None,
+            view: RedisStreamView::Overview,
+        }),
+        [_, _, "entries"] => Some(RedisStreamTarget {
+            database,
+            key,
+            group: None,
+            view: RedisStreamView::Entries,
+        }),
+        [_, _, "groups"] => Some(RedisStreamTarget {
+            database,
+            key,
+            group: None,
+            view: RedisStreamView::Groups,
+        }),
+        [_, _, "group", group] => Some(RedisStreamTarget {
+            database,
+            key,
+            group: Some(decode_redis_node_part(group)?),
+            view: RedisStreamView::Group,
+        }),
+        [_, _, "group", group, "detail"] => Some(RedisStreamTarget {
+            database,
+            key,
+            group: Some(decode_redis_node_part(group)?),
+            view: RedisStreamView::GroupDetail,
+        }),
+        [_, _, "group", group, "consumers"] => Some(RedisStreamTarget {
+            database,
+            key,
+            group: Some(decode_redis_node_part(group)?),
+            view: RedisStreamView::Consumers,
+        }),
+        [_, _, "group", group, "pending"] => Some(RedisStreamTarget {
+            database,
+            key,
+            group: Some(decode_redis_node_part(group)?),
+            view: RedisStreamView::Pending,
+        }),
+        _ => None,
+    }
+}
+
+fn redis_stream_record_from_value(value: &serde_json::Value) -> serde_json::Value {
+    json!(redis_name_value_record(value))
+}
+
+fn redis_stream_records_from_value(value: &serde_json::Value) -> Vec<serde_json::Value> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(redis_stream_record_from_value)
+                .filter(|record| {
+                    record
+                        .as_object()
+                        .is_some_and(|entries| !entries.is_empty())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn redis_name_value_record(
+    value: &serde_json::Value,
+) -> serde_json::Map<String, serde_json::Value> {
+    if let Some(entries) = value.as_object() {
+        if !entries.contains_key("key") || !entries.contains_key("value") {
+            return entries
+                .iter()
+                .map(|(key, value)| (camel_case_redis_key(key), value.clone()))
+                .collect();
+        }
+    }
+
+    let mut record = serde_json::Map::new();
+    let Some(items) = value.as_array() else {
+        return record;
+    };
+
+    for item in items {
+        let Some(pair) = item.as_object() else {
+            continue;
+        };
+        let Some(key) = pair.get("key").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if let Some(value) = pair.get("value") {
+            record.insert(camel_case_redis_key(key), value.clone());
+        }
+    }
+
+    if !record.is_empty() {
+        return record;
+    }
+
+    for chunk in items.chunks(2) {
+        if let [key, value] = chunk {
+            if let Some(key) = key.as_str() {
+                record.insert(camel_case_redis_key(key), value.clone());
+            }
+        }
+    }
+
+    record
+}
+
+fn redis_record_string(record: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    let entries = record.as_object()?;
+    keys.iter()
+        .find_map(|key| entries.get(*key).and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+}
+
+fn redis_stream_group_detail(record: &serde_json::Value) -> String {
+    let consumers = redis_record_value(record, &["consumers"])
+        .map(redis_json_summary)
+        .unwrap_or_else(|| "0".into());
+    let pending = redis_record_value(record, &["pending"])
+        .map(redis_json_summary)
+        .unwrap_or_else(|| "0".into());
+    let lag = redis_record_value(record, &["lag"])
+        .map(redis_json_summary)
+        .unwrap_or_default();
+    if lag.is_empty() {
+        format!("{consumers} consumer(s), {pending} pending")
+    } else {
+        format!("{consumers} consumer(s), {pending} pending, lag {lag}")
+    }
+}
+
+fn redis_record_value<'a>(
+    record: &'a serde_json::Value,
+    keys: &[&str],
+) -> Option<&'a serde_json::Value> {
+    let entries = record.as_object()?;
+    keys.iter().find_map(|key| entries.get(*key))
+}
+
+fn redis_json_summary(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string().trim_matches('"').to_string())
+}
+
+fn camel_case_redis_key(value: &str) -> String {
+    let mut result = String::new();
+    let mut uppercase_next = false;
+    for character in value.chars() {
+        if character == '-' || character == '_' || character == ' ' {
+            uppercase_next = true;
+            continue;
+        }
+        if uppercase_next {
+            result.extend(character.to_uppercase());
+            uppercase_next = false;
+        } else {
+            result.push(character);
+        }
+    }
+    result
+}
+
+fn redis_stream_key_path(
+    connection: &ResolvedConnectionProfile,
+    database: u32,
+    key: &str,
+) -> Vec<String> {
+    vec![
+        connection.name.clone(),
+        "Databases".into(),
+        format!("DB {database}"),
+        "Streams".into(),
+        key.into(),
+    ]
+}
+
+fn redis_stream_group_path(
+    connection: &ResolvedConnectionProfile,
+    database: u32,
+    key: &str,
+    group: &str,
+) -> Vec<String> {
+    let mut path = redis_stream_key_path(connection, database, key);
+    path.push(group.into());
+    path
+}
+
+fn stream_node(
+    id: &str,
+    label: &str,
+    kind: &str,
+    detail: &str,
+    scope: Option<&str>,
+    expandable: bool,
+    path: &[String],
+) -> ExplorerNode {
+    ExplorerNode {
+        id: id.into(),
+        family: "keyvalue".into(),
+        label: label.into(),
+        kind: kind.into(),
+        detail: detail.into(),
+        scope: scope.map(str::to_string),
+        path: Some(path.to_vec()),
+        query_template: None,
+        expandable: Some(expandable),
+    }
+}
+
+fn stream_leaf(id: &str, label: &str, kind: &str, detail: &str, path: &[String]) -> ExplorerNode {
+    stream_node(id, label, kind, detail, None, false, path)
+}
+
+fn encode_redis_node_part(value: &str) -> String {
+    value
+        .as_bytes()
+        .iter()
+        .map(|byte| match *byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (*byte as char).to_string()
+            }
+            other => format!("%{other:02X}"),
+        })
+        .collect()
+}
+
+fn decode_redis_node_part(value: &str) -> Option<String> {
+    let mut decoded = Vec::new();
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let high = *bytes.get(index + 1)?;
+            let low = *bytes.get(index + 2)?;
+            decoded.push(hex_pair(high, low)?);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).ok()
+}
+
+fn hex_pair(high: u8, low: u8) -> Option<u8> {
+    Some(hex_value(high)? * 16 + hex_value(low)?)
+}
+
+fn hex_value(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn parse_keyspace_databases(info: &str) -> Vec<(u32, String)> {
     info.lines()
         .filter_map(|line| {
@@ -802,6 +1448,10 @@ async fn redis_type_overview_payload(
     database: u32,
     requested_type: &str,
 ) -> Result<serde_json::Value, CommandError> {
+    if is_redis_module_kind(requested_type) {
+        return redis_module_type_overview_payload(connection, database, requested_type).await;
+    }
+
     let mut redis = redis_connection(connection).await?;
     select_redis_database(&mut redis, Some(database)).await?;
     let scan_type = redis_scan_type_argument(requested_type);
@@ -853,6 +1503,297 @@ async fn redis_type_overview_payload(
         "scannedKeys": summaries.len(),
         "keys": summaries,
     }))
+}
+
+async fn redis_module_type_overview_payload(
+    connection: &ResolvedConnectionProfile,
+    database: u32,
+    requested_type: &str,
+) -> Result<serde_json::Value, CommandError> {
+    let mut redis = redis_connection(connection).await?;
+    select_redis_database(&mut redis, Some(database)).await?;
+    let installed_modules = redis_installed_module_names(&mut redis)
+        .await
+        .unwrap_or_default();
+
+    if requested_type == "search-index" {
+        let indexes = redis_search_index_summaries(&mut redis).await;
+        let index_count = indexes.len();
+        return Ok(json!({
+            "database": database,
+            "type": requested_type,
+            "moduleKind": requested_type,
+            "installedModules": installed_modules,
+            "moduleCommands": redis_module_commands(requested_type),
+            "disabledActions": redis_module_disabled_actions(connection, requested_type),
+            "indexes": indexes,
+            "keys": [],
+            "scannedKeys": index_count,
+            "pattern": "*",
+        }));
+    }
+
+    let summaries =
+        redis_type_key_summaries(connection, &mut redis, database, requested_type, 100).await?;
+
+    Ok(json!({
+        "database": database,
+        "type": requested_type,
+        "moduleKind": requested_type,
+        "installedModules": installed_modules,
+        "moduleCommands": redis_module_commands(requested_type),
+        "disabledActions": redis_module_disabled_actions(connection, requested_type),
+        "pattern": "*",
+        "scannedKeys": summaries.len(),
+        "keys": summaries,
+    }))
+}
+
+async fn redis_type_key_summaries(
+    connection: &ResolvedConnectionProfile,
+    redis: &mut redis::aio::MultiplexedConnection,
+    database: u32,
+    requested_type: &str,
+    limit: usize,
+) -> Result<Vec<JsonValue>, CommandError> {
+    let scan_type = redis_scan_type_argument(requested_type);
+    let (_cursor, keys): (u64, Vec<String>) = {
+        let mut command = redis::cmd("SCAN");
+        command
+            .arg(0)
+            .arg("MATCH")
+            .arg("*")
+            .arg("COUNT")
+            .arg(limit as u32);
+        if let Some(scan_type) = scan_type {
+            command.arg("TYPE").arg(scan_type);
+        }
+        command.query_async(redis).await.unwrap_or((0, Vec::new()))
+    };
+    let mut summaries = Vec::new();
+    for key in keys.into_iter().take(limit) {
+        let key_type: String = redis::cmd("TYPE")
+            .arg(&key)
+            .query_async(&mut *redis)
+            .await
+            .unwrap_or_else(|_| "unknown".into());
+        let normalized_type = normalize_redis_type(&key_type);
+        if requested_type != "keys" && requested_type != normalized_type {
+            continue;
+        }
+        let ttl: i64 = redis::cmd("TTL")
+            .arg(&key)
+            .query_async(&mut *redis)
+            .await
+            .unwrap_or(-1);
+        let memory_usage: Option<u64> = redis::cmd("MEMORY")
+            .arg("USAGE")
+            .arg(&key)
+            .query_async(&mut *redis)
+            .await
+            .ok();
+        let module_details = redis_module_key_details(redis, &key, requested_type).await;
+        summaries.push(json!({
+            "database": database,
+            "key": key,
+            "type": normalized_type,
+            "rawType": key_type,
+            "ttlSeconds": ttl,
+            "memoryUsageBytes": memory_usage,
+            "moduleKind": requested_type,
+            "moduleDetails": module_details,
+            "disabledActions": redis_module_disabled_actions(connection, requested_type),
+        }));
+    }
+
+    Ok(summaries)
+}
+
+async fn redis_installed_module_names(
+    redis: &mut redis::aio::MultiplexedConnection,
+) -> Result<Vec<String>, CommandError> {
+    let value: RedisValue = redis::cmd("MODULE").arg("LIST").query_async(redis).await?;
+    let mut modules = Vec::new();
+    collect_module_strings(&redis_value_to_json(&value), &mut modules);
+    modules.sort();
+    modules.dedup();
+    Ok(modules)
+}
+
+async fn redis_module_key_details(
+    redis: &mut redis::aio::MultiplexedConnection,
+    key: &str,
+    module_kind: &str,
+) -> JsonValue {
+    match module_kind {
+        "json" => json!({
+            "jsonType": redis_optional_command_json(redis, "JSON.TYPE", &[key, "$"]).await,
+            "objectLength": redis_optional_command_json(redis, "JSON.OBJLEN", &[key, "$"]).await,
+            "memoryBytes": redis_optional_command_json(redis, "JSON.DEBUG", &["MEMORY", key, "$"]).await,
+        }),
+        "timeseries" => json!({
+            "info": redis_optional_command_json(redis, "TS.INFO", &[key]).await,
+            "samples": redis_optional_command_json(redis, "TS.RANGE", &[key, "-", "+", "COUNT", "25"]).await,
+        }),
+        "bloom" => json!({
+            "info": redis_optional_command_json(redis, "BF.INFO", &[key]).await,
+            "probabilisticType": "Bloom filter",
+        }),
+        "vectorset" => json!({
+            "info": redis_optional_command_json(redis, "VINFO", &[key]).await,
+            "cardinality": redis_optional_command_json(redis, "VCARD", &[key]).await,
+            "dimensions": redis_optional_command_json(redis, "VDIM", &[key]).await,
+        }),
+        _ => JsonValue::Null,
+    }
+}
+
+async fn redis_search_index_summaries(
+    redis: &mut redis::aio::MultiplexedConnection,
+) -> Vec<JsonValue> {
+    let Some(indexes_value) = redis_optional_command_json(redis, "FT._LIST", &[]).await else {
+        return Vec::new();
+    };
+    let indexes = indexes_value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(JsonValue::as_str)
+        .take(100)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    let mut summaries = Vec::new();
+    for index in indexes {
+        let details = redis_optional_command_json(redis, "FT.INFO", &[index.as_str()])
+            .await
+            .map(|value| redis_name_value_record(&value))
+            .map(JsonValue::Object)
+            .unwrap_or(JsonValue::Null);
+        summaries.push(json!({
+            "name": index,
+            "moduleKind": "search-index",
+            "moduleDetails": details,
+        }));
+    }
+    summaries
+}
+
+async fn redis_optional_command_json(
+    redis: &mut redis::aio::MultiplexedConnection,
+    command: &str,
+    args: &[&str],
+) -> Option<JsonValue> {
+    let mut redis_command = redis::cmd(command);
+    for arg in args {
+        redis_command.arg(arg);
+    }
+    redis_command
+        .query_async::<RedisValue>(redis)
+        .await
+        .ok()
+        .map(|value| redis_value_to_json(&value))
+}
+
+fn is_redis_module_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "json" | "timeseries" | "bloom" | "search-index" | "vectorset"
+    )
+}
+
+fn redis_module_commands(module_kind: &str) -> Vec<JsonValue> {
+    let commands: &[(&str, &str)] = match module_kind {
+        "json" => &[
+            ("JSON.TYPE", "Inspect JSON path type"),
+            ("JSON.OBJLEN", "Inspect object length"),
+            ("JSON.DEBUG MEMORY", "Inspect JSON memory usage"),
+        ],
+        "timeseries" => &[
+            (
+                "TS.INFO",
+                "Inspect retention, labels, rules, and sample counts",
+            ),
+            ("TS.RANGE", "Read bounded time-series samples"),
+        ],
+        "bloom" => &[("BF.INFO", "Inspect Bloom filter capacity and fill ratio")],
+        "search-index" => &[
+            ("FT._LIST", "List RediSearch indexes"),
+            (
+                "FT.INFO",
+                "Inspect RediSearch index schema and document counts",
+            ),
+        ],
+        "vectorset" => &[
+            ("VINFO", "Inspect vector-set metadata"),
+            ("VCARD", "Count vector-set elements"),
+            ("VDIM", "Inspect vector dimensionality"),
+        ],
+        _ => &[],
+    };
+
+    commands
+        .iter()
+        .map(|(command, purpose)| {
+            json!({
+                "command": command,
+                "purpose": purpose,
+                "evidence": "optional live read-only probe",
+            })
+        })
+        .collect()
+}
+
+fn redis_module_disabled_actions(
+    connection: &ResolvedConnectionProfile,
+    module_kind: &str,
+) -> JsonValue {
+    if !is_redis_module_kind(module_kind) {
+        return json!({});
+    }
+
+    let engine_label = redis_engine_label(connection);
+    let mut actions = serde_json::Map::new();
+    if !redis_module_live_edit_supported(connection, module_kind) {
+        actions.insert(
+            "edit".into(),
+            json!(format!(
+                "{engine_label} module-backed live edits for `{module_kind}` remain disabled until guarded module-specific write workflows and compatibility evidence are added."
+            )),
+        );
+    }
+    if !redis_module_import_export_supported(connection, module_kind) {
+        actions.insert(
+            "importExport".into(),
+            json!(format!(
+                "{engine_label} module-backed import/export for `{module_kind}` remains planner-only until serializers and fixture coverage prove compatibility."
+            )),
+        );
+    }
+    JsonValue::Object(actions)
+}
+
+fn redis_module_live_edit_supported(
+    connection: &ResolvedConnectionProfile,
+    module_kind: &str,
+) -> bool {
+    connection.engine == "redis" && matches!(module_kind, "json" | "timeseries" | "vectorset")
+}
+
+fn redis_module_import_export_supported(
+    connection: &ResolvedConnectionProfile,
+    module_kind: &str,
+) -> bool {
+    connection.engine == "redis"
+        && matches!(module_kind, "json" | "timeseries" | "vectorset" | "bloom")
+}
+
+fn redis_engine_label(connection: &ResolvedConnectionProfile) -> &'static str {
+    if connection.engine == "valkey" {
+        "Valkey"
+    } else {
+        "Redis"
+    }
 }
 
 async fn redis_type_counts(
@@ -1009,9 +1950,14 @@ fn leaf(id: &str, label: &str, kind: &str, detail: &str) -> ExplorerNode {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_keyspace_databases, redis_core_type_folders_for_test,
-        redis_module_type_folders_for_test, redis_scan_match_pattern,
+        decode_redis_node_part, encode_redis_node_part, parse_keyspace_databases,
+        parse_stream_node_id, redis_core_type_folders_for_test, redis_module_commands,
+        redis_module_disabled_actions, redis_module_type_folders_for_test, redis_name_value_record,
+        redis_root_nodes, redis_scan_match_pattern, redis_stream_records_from_value,
+        RedisStreamView,
     };
+    use crate::domain::models::ResolvedConnectionProfile;
+    use serde_json::json;
 
     #[test]
     fn redis_scan_match_pattern_does_not_double_root_wildcard() {
@@ -1063,6 +2009,161 @@ mod tests {
                 "Vector Indexes"
             ]
         );
+    }
+
+    #[test]
+    fn redis_stream_node_parts_round_trip_colon_keys() {
+        let encoded = encode_redis_node_part("orders:events/%");
+
+        assert_eq!(encoded, "orders%3Aevents%2F%25");
+        assert_eq!(
+            decode_redis_node_part(&encoded).as_deref(),
+            Some("orders:events/%")
+        );
+    }
+
+    #[test]
+    fn redis_stream_node_ids_parse_group_targets() {
+        let target =
+            parse_stream_node_id("redis:stream:2:orders%3Aevents:group:payments%3Av1:pending")
+                .expect("stream target");
+
+        assert_eq!(target.database, 2);
+        assert_eq!(target.key, "orders:events");
+        assert_eq!(target.group.as_deref(), Some("payments:v1"));
+        assert_eq!(target.view, RedisStreamView::Pending);
+    }
+
+    #[test]
+    fn redis_stream_group_records_normalize_resp_arrays() {
+        let records = redis_stream_records_from_value(&json!([[
+            "name",
+            "payments",
+            "consumers",
+            2,
+            "pending",
+            7,
+            "last-delivered-id",
+            "171-0"
+        ]]));
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["name"], "payments");
+        assert_eq!(records[0]["consumers"], 2);
+        assert_eq!(records[0]["lastDeliveredId"], "171-0");
+    }
+
+    #[test]
+    fn redis_module_commands_describe_vector_read_probes() {
+        let redis = redis_connection_profile("redis");
+        let valkey = redis_connection_profile("valkey");
+        let commands = redis_module_commands("vectorset")
+            .into_iter()
+            .filter_map(|record| {
+                record
+                    .get("command")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(commands, vec!["VINFO", "VCARD", "VDIM"]);
+        assert!(redis_module_disabled_actions(&redis, "vectorset")
+            .get("edit")
+            .is_none());
+        assert!(redis_module_disabled_actions(&redis, "vectorset")
+            .get("importExport")
+            .is_none());
+        assert!(redis_module_disabled_actions(&redis, "search-index")
+            .get("importExport")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|reason| reason.contains("search-index")));
+        assert!(redis_module_disabled_actions(&valkey, "vectorset")
+            .get("edit")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|reason| reason.contains("Valkey")));
+        assert!(redis_module_disabled_actions(&valkey, "vectorset")
+            .get("importExport")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|reason| reason.contains("compatibility")));
+    }
+
+    #[test]
+    fn valkey_root_nodes_use_valkey_copy() {
+        let valkey = redis_connection_profile("valkey");
+        let nodes = redis_root_nodes(&valkey);
+
+        assert_eq!(
+            nodes
+                .iter()
+                .find(|node| node.id == "redis:databases")
+                .map(|node| node.detail.as_str()),
+            Some("Logical Valkey databases")
+        );
+        assert_eq!(
+            nodes
+                .iter()
+                .find(|node| node.id == "redis:functions")
+                .map(|node| node.detail.as_str()),
+            Some("Valkey functions and libraries")
+        );
+    }
+
+    #[test]
+    fn redis_module_details_normalize_search_info_arrays() {
+        let record = redis_name_value_record(&json!([
+            "index_name",
+            "idx:orders",
+            "num_docs",
+            42,
+            "attributes",
+            [[
+                "identifier",
+                "$.status",
+                "attribute",
+                "status",
+                "type",
+                "TAG"
+            ]]
+        ]));
+
+        assert_eq!(record["indexName"], "idx:orders");
+        assert_eq!(record["numDocs"], 42);
+        assert!(record.get("attributes").is_some());
+    }
+
+    fn redis_connection_profile(engine: &str) -> ResolvedConnectionProfile {
+        ResolvedConnectionProfile {
+            id: format!("conn-{engine}"),
+            name: if engine == "valkey" {
+                "Valkey".into()
+            } else {
+                "Redis".into()
+            },
+            engine: engine.into(),
+            family: "keyvalue".into(),
+            host: "127.0.0.1".into(),
+            port: Some(6379),
+            database: Some("0".into()),
+            username: None,
+            password: None,
+            connection_string: None,
+            redis_options: None,
+            memcached_options: None,
+            sqlite_options: None,
+            postgres_options: None,
+            mysql_options: None,
+            sqlserver_options: None,
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            warehouse_options: None,
+            read_only: false,
+        }
     }
 }
 

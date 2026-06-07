@@ -208,6 +208,38 @@ export function applyExecutionRequestLocally(
       ],
       explainPayload: { renderer: 'raw', text: explainText },
     }
+  } else if (request.mode === 'profile' && result) {
+    const profilePayload: ResultPayload = {
+      renderer: 'profile',
+      summary: `${connection.engine} profile preview`,
+      stages: [
+        {
+          name: 'browser-preview',
+          durationMs: result.durationMs ?? 0,
+          rows: result.pageInfo?.bufferedRows ?? 0,
+          details: {
+            engine: connection.engine,
+            mode: 'profile',
+            query: queryText,
+          },
+        },
+      ],
+    }
+
+    result = {
+      ...result,
+      id: createId('result'),
+      summary: `Profile preview prepared for ${connection.name}.`,
+      defaultRenderer: 'profile',
+      rendererModes: [
+        'profile',
+        ...result.rendererModes.filter((mode) => mode !== 'profile'),
+      ],
+      payloads: [
+        profilePayload,
+        ...result.payloads.filter((payload) => payload.renderer !== 'profile'),
+      ],
+    }
   }
 
   if (guardrail.status === 'confirm') {

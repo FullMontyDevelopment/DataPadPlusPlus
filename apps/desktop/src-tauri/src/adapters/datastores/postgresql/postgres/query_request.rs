@@ -31,16 +31,26 @@ pub(super) fn postgres_query_request(
         ));
     }
 
-    let mode = if execute_mode == "explain" {
-        if !is_explainable_postgres_read(statement) {
-            return Err(CommandError::new(
-                "postgres-explain-unsupported",
-                "PostgreSQL explain is available for SELECT, WITH, VALUES, and EXPLAIN statements.",
-            ));
+    let mode = match execute_mode {
+        "explain" => {
+            if !is_explainable_postgres_read(statement) {
+                return Err(CommandError::new(
+                    "postgres-explain-unsupported",
+                    "PostgreSQL explain is available for SELECT, WITH, VALUES, and EXPLAIN statements.",
+                ));
+            }
+            "explain"
         }
-        "explain"
-    } else {
-        "read"
+        "profile" => {
+            if !is_profileable_postgres_read(statement) {
+                return Err(CommandError::new(
+                    "postgres-profile-unsupported",
+                    "PostgreSQL profiling is available for SELECT, WITH, and VALUES statements so EXPLAIN ANALYZE cannot wrap administrative SQL.",
+                ));
+            }
+            "profile"
+        }
+        _ => "read",
     };
     let statement = strip_sql_semicolon(statement);
     let wire_statement = postgres_statement_for_mode(&statement, mode);
@@ -57,6 +67,9 @@ pub(super) fn postgres_statement_for_mode(statement: &str, mode: &str) -> String
     match mode {
         "explain" if first_postgres_token(&statement).as_deref() != Some("explain") => {
             format!("EXPLAIN {statement}")
+        }
+        "profile" => {
+            format!("EXPLAIN (ANALYZE true, BUFFERS true, VERBOSE true, FORMAT JSON) {statement}")
         }
         _ => statement,
     }
@@ -115,6 +128,13 @@ fn is_explainable_postgres_read(statement: &str) -> bool {
     matches!(
         first_postgres_token(statement).as_deref(),
         Some("select" | "with" | "values" | "explain")
+    )
+}
+
+fn is_profileable_postgres_read(statement: &str) -> bool {
+    matches!(
+        first_postgres_token(statement).as_deref(),
+        Some("select" | "with" | "values")
     )
 }
 
@@ -337,6 +357,14 @@ mod tests {
     }
 
     #[test]
+    fn postgres_statement_for_mode_builds_json_profile_for_reads() {
+        assert_eq!(
+            postgres_statement_for_mode("select * from accounts;", "profile"),
+            "EXPLAIN (ANALYZE true, BUFFERS true, VERBOSE true, FORMAT JSON) select * from accounts"
+        );
+    }
+
+    #[test]
     fn postgres_read_only_guard_allows_native_reads() {
         assert!(is_read_only_postgres_sql("select * from public.accounts"));
         assert!(is_read_only_postgres_sql(
@@ -372,10 +400,14 @@ mod tests {
 
         let show = postgres_query_request("show search_path", "explain").unwrap_err();
         assert_eq!(show.code, "postgres-explain-unsupported");
+
+        let explain =
+            postgres_query_request("explain select * from accounts", "profile").unwrap_err();
+        assert_eq!(explain.code, "postgres-profile-unsupported");
     }
 
     #[test]
-    fn postgres_query_request_preserves_read_and_explain_modes() {
+    fn postgres_query_request_preserves_read_explain_and_profile_modes() {
         let read = postgres_query_request("select 1;", "full").unwrap();
         assert_eq!(read.statement, "select 1");
         assert_eq!(read.wire_statement, "select 1");
@@ -384,5 +416,12 @@ mod tests {
         let explain = postgres_query_request("select * from accounts", "explain").unwrap();
         assert_eq!(explain.mode, "explain");
         assert_eq!(explain.wire_statement, "EXPLAIN select * from accounts");
+
+        let profile = postgres_query_request("select * from accounts", "profile").unwrap();
+        assert_eq!(profile.mode, "profile");
+        assert_eq!(
+            profile.wire_statement,
+            "EXPLAIN (ANALYZE true, BUFFERS true, VERBOSE true, FORMAT JSON) select * from accounts"
+        );
     }
 }

@@ -2,6 +2,7 @@ import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import { describe, expect, it } from 'vitest'
 import {
   buildKeyValueEditRequest,
+  buildRedisJsonPathEditRequest,
   buildRedisMemberDeleteRequest,
   keyValueCanEdit,
   parseKeyValueInput,
@@ -172,6 +173,132 @@ describe('keyvalue edit requests', () => {
         },
       ],
     })
+
+    expect(
+      buildRedisMemberDeleteRequest({
+        connection,
+        editContext,
+        key: 'orders:stream',
+        member: '1714670000000-0',
+        redisType: 'stream',
+      }),
+    ).toMatchObject({
+      editKind: 'stream-delete-entry',
+      target: {
+        objectKind: 'stream-entry',
+        key: 'orders:stream',
+        path: ['1714670000000-0'],
+        documentId: '1714670000000-0',
+      },
+      changes: [
+        {
+          field: '1714670000000-0',
+        },
+      ],
+    })
+
+    expect(
+      buildRedisMemberDeleteRequest({
+        connection,
+        editContext,
+        key: 'metrics:cpu',
+        member: '1714670000000',
+        redisType: 'timeseries',
+      }),
+    ).toMatchObject({
+      editKind: 'timeseries-delete-sample',
+      target: {
+        objectKind: 'timeseries-sample',
+        key: 'metrics:cpu',
+        path: ['1714670000000'],
+        documentId: '1714670000000',
+      },
+      changes: [
+        {
+          field: '1714670000000',
+        },
+      ],
+    })
+
+    expect(
+      buildRedisMemberDeleteRequest({
+        connection,
+        editContext,
+        key: 'embeddings:articles',
+        member: 'doc:1',
+        redisType: 'vectorset',
+      }),
+    ).toMatchObject({
+      editKind: 'vector-remove-member',
+      target: {
+        objectKind: 'vector-member',
+        key: 'embeddings:articles',
+        path: ['doc:1'],
+        documentId: 'doc:1',
+      },
+      changes: [
+        {
+          field: 'doc:1',
+        },
+      ],
+    })
+  })
+
+  it('builds RedisJSON path edit requests for Redis only', () => {
+    expect(
+      buildRedisJsonPathEditRequest({
+        connection,
+        editContext,
+        editKind: 'json-set-path',
+        key: 'profile:1',
+        path: '$.profile.name',
+        value: 'Avery',
+      }),
+    ).toMatchObject({
+      editKind: 'json-set-path',
+      target: {
+        objectKind: 'json-path',
+        key: 'profile:1',
+        path: ['$.profile.name'],
+      },
+      changes: [
+        {
+          field: '$.profile.name',
+          path: ['$.profile.name'],
+          value: 'Avery',
+          valueType: 'string',
+        },
+      ],
+    })
+
+    expect(
+      buildRedisJsonPathEditRequest({
+        connection,
+        editContext,
+        editKind: 'json-delete-path',
+        key: 'profile:1',
+        path: '$.profile.legacy',
+      }),
+    ).toMatchObject({
+      editKind: 'json-delete-path',
+      changes: [
+        {
+          field: '$.profile.legacy',
+          path: ['$.profile.legacy'],
+        },
+      ],
+    })
+
+    expect(
+      buildRedisJsonPathEditRequest({
+        connection: { ...connection, engine: 'valkey' },
+        editContext,
+        editKind: 'json-set-path',
+        key: 'profile:1',
+        path: '$.profile.name',
+        value: 'Avery',
+      }),
+    ).toBeUndefined()
   })
 
   it('blocks read-only and non-keyvalue connections from key edits', () => {

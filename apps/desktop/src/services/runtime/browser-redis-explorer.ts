@@ -7,12 +7,17 @@ import {
 } from './browser-redis-helpers'
 
 export function createRedisExplorerNodes(connection: ConnectionProfile, scope?: string): ExplorerNode[] {
+  const engineLabel = redisEngineLabel(connection)
+  const aclDetail = connection.engine === 'valkey'
+    ? 'Valkey ACL users and command categories'
+    : 'ACL users and categories'
+
   if (!scope) {
     const nodes = [
-      redisNode(connection, 'redis:databases', 'Databases', 'databases', 'Logical Redis databases', 'databases', true),
+      redisNode(connection, 'redis:databases', 'Databases', 'databases', `Logical ${engineLabel} databases`, 'databases', true),
       redisNode(connection, 'redis:pubsub', 'Pub/Sub', 'pubsub', 'Channels and patterns', 'pubsub', true),
       redisNode(connection, 'redis:lua-scripts', 'Lua Scripts', 'lua-scripts', 'Script workflow surfaces', 'lua-scripts', true),
-      redisNode(connection, 'redis:acl', 'ACL / Security', 'security', 'ACL users and categories', 'acl', true),
+      redisNode(connection, 'redis:acl', 'ACL / Security', 'security', aclDetail, 'acl', true),
       redisNode(connection, 'redis:diagnostics', 'Diagnostics', 'diagnostics', 'INFO, SLOWLOG, memory, latency, clients', 'diagnostics', true),
     ]
 
@@ -42,7 +47,7 @@ export function createRedisExplorerNodes(connection: ConnectionProfile, scope?: 
         `redis:db:${database}:${type.kind}`,
         type.label,
         type.kind,
-        type.detail,
+        redisTypeFolderDetail(connection, type.kind, type.detail),
         `db:${database}:type:${type.kind}`,
         type.kind !== 'pubsub' && type.kind !== 'search-index',
       ),
@@ -57,7 +62,7 @@ export function createRedisExplorerNodes(connection: ConnectionProfile, scope?: 
       family: 'keyvalue',
       label: key.key,
       kind: key.type,
-      detail: `${key.type} / ${key.length} item(s)`,
+      detail: `${engineLabel} ${key.type} / ${key.length} item(s)`,
       path: [connection.name, `DB ${database}`, redisTypeFolderLabel(type)],
       queryTemplate: `TYPE ${key.key}\nTTL ${key.key}`,
     }))
@@ -98,13 +103,13 @@ export function createRedisExplorerNodes(connection: ConnectionProfile, scope?: 
 
   if (scope === 'functions') {
     return [
-      redisNode(connection, 'redis:functions:list', 'Libraries', 'functions', 'Function libraries'),
+      redisNode(connection, 'redis:functions:list', 'Libraries', 'functions', `${engineLabel} function libraries`),
     ]
   }
 
   if (scope === 'acl') {
     return [
-      redisNode(connection, 'redis:acl:users', 'Users', 'users', 'ACL users'),
+      redisNode(connection, 'redis:acl:users', 'Users', 'users', `${engineLabel} ACL users`),
       redisNode(connection, 'redis:acl:categories', 'Categories', 'permissions', 'Command categories'),
       redisNode(connection, 'redis:acl:whoami', 'Current User', 'user', 'Authenticated principal'),
     ]
@@ -165,6 +170,31 @@ export function redisInspectQueryTemplate(nodeId: string) {
   }
 
   return 'INFO'
+}
+
+function redisEngineLabel(connection: ConnectionProfile) {
+  return connection.engine === 'valkey' ? 'Valkey' : 'Redis'
+}
+
+function redisTypeFolderDetail(connection: ConnectionProfile, kind: string, fallback: string) {
+  if (connection.engine !== 'valkey') {
+    return fallback
+  }
+
+  switch (kind) {
+    case 'json':
+      return 'Valkey-compatible JSON module values when supported'
+    case 'timeseries':
+      return 'Valkey-compatible time-series module values when supported'
+    case 'bloom':
+      return 'Valkey-compatible Bloom module values when supported'
+    case 'search-index':
+      return 'Valkey-compatible search indexes when supported'
+    case 'vectorset':
+      return 'Valkey-compatible vector structures when supported'
+    default:
+      return fallback
+  }
 }
 
 function redisNode(

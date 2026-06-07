@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use sqlx::Row;
 
 use super::super::super::*;
-use super::connection::mysql_dsn;
+use super::connection::mysql_pool;
 
 pub(crate) async fn load_mysql_structure(
     connection: &ResolvedConnectionProfile,
@@ -13,10 +13,7 @@ pub(crate) async fn load_mysql_structure(
     let edge_limit = structure_edge_limit(request, 1_000);
     let include_system = request.include_system_objects.unwrap_or(false);
     let schema = connection.database.clone().unwrap_or_default();
-    let pool = sqlx::mysql::MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&mysql_dsn(connection))
-        .await?;
+    let pool = mysql_pool(connection, 1).await?;
     let schema_filter = mysql_schema_filter("t.table_schema", &schema, include_system);
     let table_rows = sqlx::query(&format!(
         "select t.table_schema,

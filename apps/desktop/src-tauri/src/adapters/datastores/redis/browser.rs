@@ -398,6 +398,10 @@ fn append_length_command(pipe: &mut redis::Pipeline, key: &str, key_type: &str) 
             pipe.cmd("XLEN").arg(key);
             true
         }
+        "vectorset" => {
+            pipe.cmd("VCARD").arg(key);
+            true
+        }
         "string" => {
             pipe.cmd("STRLEN").arg(key);
             true
@@ -515,6 +519,11 @@ async fn key_length(
                 field_from_array(&value, "totalSamples").and_then(|item| item.as_u64())
             })
             .unwrap_or(0),
+        "vectorset" => redis::cmd("VCARD")
+            .arg(key)
+            .query_async::<u64>(redis)
+            .await
+            .unwrap_or(0),
         _ => 0,
     };
     Ok(length)
@@ -612,6 +621,14 @@ async fn key_value_sample(
                 .await?;
             Ok(redis_value_to_json(&value))
         }
+        "vectorset" => {
+            let value: RedisValue = redis::cmd("VRANDMEMBER")
+                .arg(key)
+                .arg(sample_size)
+                .query_async(redis)
+                .await?;
+            Ok(redis_value_to_json(&value))
+        }
         "none" => Ok(JsonValue::Null),
         "string" => {
             let end = sample_size.saturating_sub(1);
@@ -693,11 +710,73 @@ fn entries_for_value(key: &str, key_type: &str, value: &JsonValue) -> BTreeMap<S
                 }
             }
         }
+        ("stream", JsonValue::Array(items)) => {
+            for item in items {
+                if let Some((entry_id, fields)) = stream_entry_row(item) {
+                    entries.insert(entry_id, display_json_value(&fields));
+                }
+            }
+        }
+        ("timeseries", JsonValue::Array(items)) => {
+            for item in items {
+                if let Some((timestamp, value)) = timeseries_sample_row(item) {
+                    entries.insert(timestamp, display_json_value(&value));
+                }
+            }
+        }
+        ("vectorset", JsonValue::Array(items)) => {
+            for item in items {
+                if let Some(element) = item.as_str().filter(|value| !value.is_empty()) {
+                    entries.insert(element.into(), "Vector element".into());
+                }
+            }
+        }
         _ => {
             entries.insert(key.into(), display_json_value(value));
         }
     }
     entries
+}
+
+fn stream_entry_row(value: &JsonValue) -> Option<(String, JsonValue)> {
+    if let Some(record) = value.as_object() {
+        let entry_id = record.get("id").and_then(JsonValue::as_str)?.to_string();
+        let fields = record
+            .get("fields")
+            .cloned()
+            .unwrap_or_else(|| JsonValue::Object(Default::default()));
+        return Some((entry_id, fields));
+    }
+
+    let items = value.as_array()?;
+    let entry_id = items.first()?.as_str()?.to_string();
+    let fields = redis_name_value_json_array_to_record(items.get(1)?)?;
+    Some((entry_id, fields))
+}
+
+fn redis_name_value_json_array_to_record(value: &JsonValue) -> Option<JsonValue> {
+    let items = value.as_array()?;
+    let mut record = serde_json::Map::new();
+    for chunk in items.chunks(2) {
+        if let [field, value] = chunk {
+            if let Some(field) = field.as_str() {
+                record.insert(field.into(), value.clone());
+            }
+        }
+    }
+
+    Some(JsonValue::Object(record))
+}
+
+fn timeseries_sample_row(value: &JsonValue) -> Option<(String, JsonValue)> {
+    let items = value.as_array()?;
+    let timestamp = items.first()?;
+    let timestamp = timestamp
+        .as_i64()
+        .map(|value| value.to_string())
+        .or_else(|| timestamp.as_str().map(str::to_string))?;
+    let value = items.get(1).cloned().unwrap_or(JsonValue::Null);
+    Some((timestamp, value))
 }
 
 fn members_for_value(key_type: &str, value: &JsonValue) -> Vec<BTreeMap<String, JsonValue>> {
@@ -734,6 +813,11 @@ fn members_for_value(key_type: &str, value: &JsonValue) -> Vec<BTreeMap<String, 
                     .collect()
             })
             .collect(),
+        ("vectorset", JsonValue::Array(items)) => items
+            .iter()
+            .filter_map(JsonValue::as_str)
+            .map(|member| BTreeMap::from([("member".into(), json!(member))]))
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -748,21 +832,17 @@ fn supports_for_type(key_type: &str) -> BTreeMap<String, bool> {
     supports.insert("setMembers".into(), key_type == "set");
     supports.insert("zsetMembers".into(), key_type == "zset");
     supports.insert("streamEntries".into(), key_type == "stream");
+    supports.insert("timeseriesSamples".into(), key_type == "timeseries");
     supports.insert("jsonPaths".into(), key_type == "json");
+    supports.insert("vectorMembers".into(), key_type == "vectorset");
     supports
 }
 
 fn disabled_module_actions(key_type: &str) -> BTreeMap<String, String> {
     let mut disabled = BTreeMap::new();
     match key_type {
-        "json" => {}
-        "timeseries" => {
-            disabled.insert(
-                "deleteSample".into(),
-                "TimeSeries delete requires TS.DEL support on Redis Stack.".into(),
-            );
-        }
-        "bloom" | "cuckoo" | "cms" | "topk" | "tdigest" | "vectorset" | "module" => {
+        "json" | "timeseries" | "vectorset" => {}
+        "bloom" | "cuckoo" | "cms" | "topk" | "tdigest" | "module" => {
             disabled.insert(
                 "edit".into(),
                 format!(
@@ -992,5 +1072,72 @@ mod tests {
         assert_eq!(ttl_label(60), "60s");
         assert_eq!(format_bytes(120), "120 B");
         assert_eq!(format_bytes(2048), "2.0 KiB");
+    }
+
+    #[test]
+    fn stream_samples_expand_into_entry_rows() {
+        let entries = entries_for_value(
+            "orders:stream",
+            "stream",
+            &json!([
+                ["1714670000000-0", ["event", "checkout", "total", "42"]],
+                {
+                    "id": "1714670000001-0",
+                    "fields": {
+                        "event": "paid"
+                    }
+                }
+            ]),
+        );
+
+        assert_eq!(
+            entries.get("1714670000000-0").map(String::as_str),
+            Some(r#"{"event":"checkout","total":"42"}"#)
+        );
+        assert_eq!(
+            entries.get("1714670000001-0").map(String::as_str),
+            Some(r#"{"event":"paid"}"#)
+        );
+    }
+
+    #[test]
+    fn timeseries_samples_expand_into_timestamp_rows() {
+        let entries = entries_for_value(
+            "metrics:cpu",
+            "timeseries",
+            &json!([[1714670000000_i64, "42.5"], ["1714670060000", 43.25]]),
+        );
+
+        assert_eq!(
+            entries.get("1714670000000").map(String::as_str),
+            Some("42.5")
+        );
+        assert_eq!(
+            entries.get("1714670060000").map(String::as_str),
+            Some("43.25")
+        );
+    }
+
+    #[test]
+    fn vector_samples_expand_into_element_rows() {
+        let entries = entries_for_value(
+            "embeddings:articles",
+            "vectorset",
+            &json!(["doc:1", "doc:2"]),
+        );
+
+        assert_eq!(
+            entries.get("doc:1").map(String::as_str),
+            Some("Vector element")
+        );
+        assert_eq!(
+            entries.get("doc:2").map(String::as_str),
+            Some("Vector element")
+        );
+        assert_eq!(
+            supports_for_type("vectorset").get("vectorMembers"),
+            Some(&true)
+        );
+        assert!(!disabled_module_actions("vectorset").contains_key("edit"));
     }
 }

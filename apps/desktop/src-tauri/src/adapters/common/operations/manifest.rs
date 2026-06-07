@@ -534,58 +534,74 @@ pub(crate) fn operation_manifests_for_manifest(
     }
 
     if manifest.engine == "mongodb" && manifest_has(manifest, "supports_import_export") {
-        operations.extend([
-            operation_manifest(
-                manifest,
-                "collection.export",
-                "Export Collection",
-                "collection",
-                "costly",
-                &["supports_import_export"],
-                &["document", "json", "raw"],
-                "Preview exporting a MongoDB collection or filtered result set.",
-                true,
-            ),
-            operation_manifest(
-                manifest,
-                "collection.import",
-                "Import Documents",
-                "collection",
-                "write",
-                &["supports_import_export"],
-                &["diff", "schema", "raw"],
-                "Preview importing documents into a MongoDB collection with validation.",
-                true,
-            ),
-        ]);
+        let mut collection_export = operation_manifest(
+            manifest,
+            "collection.export",
+            "Export Collection",
+            "collection",
+            "costly",
+            &["supports_import_export"],
+            &["document", "json", "raw"],
+            "Export a MongoDB collection or filtered result set through the guarded native file workflow.",
+            true,
+        );
+        collection_export.execution_support = "live".into();
+        collection_export.disabled_reason = None;
+
+        let mut collection_import = operation_manifest(
+            manifest,
+            "collection.import",
+            "Import Documents",
+            "collection",
+            "write",
+            &["supports_import_export"],
+            &["diff", "schema", "raw"],
+            "Import JSON, Extended JSON, NDJSON, CSV, or BSON documents through the guarded native file workflow.",
+            true,
+        );
+        collection_import.execution_support = "live".into();
+        collection_import.disabled_reason = None;
+
+        operations.extend([collection_export, collection_import]);
     }
 
     if matches!(manifest.engine.as_str(), "redis" | "valkey") {
         if manifest_has(manifest, "supports_import_export") {
-            operations.extend([
-                operation_manifest(
-                    manifest,
-                    "key.export",
-                    "Export Key",
-                    "key",
-                    "costly",
-                    &["supports_import_export"],
-                    &["keyvalue", "json", "raw"],
-                    "Preview exporting one key with type, TTL, and serialization metadata.",
-                    true,
-                ),
-                operation_manifest(
-                    manifest,
-                    "key.import",
-                    "Import Key",
-                    "key",
-                    "write",
-                    &["supports_import_export"],
-                    &["diff", "keyvalue", "raw"],
-                    "Preview importing one key with type validation and TTL handling.",
-                    true,
-                ),
-            ]);
+            let mut key_export = operation_manifest(
+                manifest,
+                "key.export",
+                "Export Key",
+                "key",
+                "costly",
+                &["supports_import_export"],
+                &["keyvalue", "json", "raw"],
+                "Export one Redis-compatible key through the guarded native file workflow with type, TTL, and serialization metadata; Redis also supports RedisJSON documents, TimeSeries samples, vector-set elements, and Redis DUMP snapshots for opaque module values.",
+                true,
+            );
+
+            let mut key_import = operation_manifest(
+                manifest,
+                "key.import",
+                "Import Key",
+                "key",
+                "write",
+                &["supports_import_export"],
+                &["diff", "keyvalue", "raw"],
+                "Import one Redis-compatible key through the guarded native file workflow with type validation, TTL handling, and before/after metadata; Redis also supports RedisJSON documents, TimeSeries samples, vector-set elements, and Redis RESTORE snapshots for opaque module values.",
+                true,
+            );
+
+            if matches!(manifest.engine.as_str(), "redis" | "valkey") {
+                key_export.execution_support = "live".into();
+                key_export.disabled_reason = None;
+                key_export.preview_only = Some(false);
+
+                key_import.execution_support = "live".into();
+                key_import.disabled_reason = None;
+                key_import.preview_only = Some(false);
+            }
+
+            operations.extend([key_export, key_import]);
         }
 
         if manifest_has(manifest, "supports_admin_operations") {
@@ -826,6 +842,47 @@ pub(crate) fn operation_manifests_for_manifest(
         ]);
     }
 
+    if manifest.engine == "postgresql" && manifest_has(manifest, "supports_result_snapshots") {
+        operations.push(operation_manifest(
+            manifest,
+            "routine.execute",
+            "Run Routine",
+            "query",
+            "write",
+            &["supports_result_snapshots"],
+            &["table", "json", "raw"],
+            "Prepare a parameterized PostgreSQL function/procedure call with signature-aware bindings and confirmation guardrails.",
+            true,
+        ));
+    }
+
+    if manifest.engine == "postgresql" && manifest_has(manifest, "supports_query_cancellation") {
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "session.cancel",
+                "Cancel Query",
+                "query",
+                "write",
+                &["supports_query_cancellation"],
+                &["metrics", "raw"],
+                "Prepare a guarded pg_cancel_backend request for a selected PostgreSQL backend PID.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "session.terminate",
+                "Terminate Backend",
+                "query",
+                "destructive",
+                &["supports_query_cancellation"],
+                &["diff", "metrics", "raw"],
+                "Prepare a guarded pg_terminate_backend request for a selected PostgreSQL backend PID.",
+                true,
+            ),
+        ]);
+    }
+
     if manifest.engine == "postgresql" && manifest_has(manifest, "supports_admin_operations") {
         operations.extend([
             operation_manifest(
@@ -881,6 +938,50 @@ pub(crate) fn operation_manifests_for_manifest(
                 &["supports_admin_operations"],
                 &["diff", "profile", "raw"],
                 "Preview a guarded PostgreSQL REINDEX request.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "role.grant",
+                "Grant Role",
+                "role",
+                "write",
+                &["supports_user_role_browser"],
+                &["diff", "raw"],
+                "Preview granting one PostgreSQL role to another role.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "role.revoke",
+                "Revoke Role",
+                "role",
+                "write",
+                &["supports_user_role_browser"],
+                &["diff", "raw"],
+                "Preview revoking a PostgreSQL role membership.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "extension.update",
+                "Update Extension",
+                "extension",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview ALTER EXTENSION UPDATE after version and dependency review.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "extension.drop",
+                "Drop Extension",
+                "extension",
+                "destructive",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Preview dropping an installed PostgreSQL extension and dependent objects.",
                 true,
             ),
         ]);
@@ -1330,6 +1431,15 @@ mod tests {
                 .map(|operation| operation.risk.as_str()),
             Some("destructive")
         );
+        for operation_id in ["mongodb.collection.export", "mongodb.collection.import"] {
+            let operation = operations
+                .iter()
+                .find(|operation| operation.id == operation_id)
+                .expect("MongoDB collection file operation");
+            assert_eq!(operation.execution_support, "live");
+            assert!(operation.disabled_reason.is_none());
+            assert!(operation.requires_confirmation);
+        }
     }
 
     #[test]
@@ -1385,6 +1495,13 @@ mod tests {
                     .map(|operation| operation.risk.as_str()),
                 Some("write")
             );
+            let key_import = operations
+                .iter()
+                .find(|operation| operation.id == format!("{engine}.key.import"))
+                .expect("key import operation");
+            assert_eq!(key_import.execution_support, "live");
+            assert_eq!(key_import.preview_only, Some(false));
+            assert!(key_import.disabled_reason.is_none());
             assert_eq!(
                 operations
                     .iter()
@@ -1612,6 +1729,8 @@ mod tests {
                 "supports_admin_operations".into(),
                 "supports_index_management".into(),
                 "supports_query_profile".into(),
+                "supports_query_cancellation".into(),
+                "supports_user_role_browser".into(),
             ],
             default_language: "sql".into(),
             local_database: None,
@@ -1624,17 +1743,45 @@ mod tests {
             .map(|operation| operation.id.as_str())
             .collect::<Vec<_>>();
 
+        assert!(operation_ids.contains(&"postgresql.routine.execute"));
+        assert!(operation_ids.contains(&"postgresql.session.cancel"));
+        assert!(operation_ids.contains(&"postgresql.session.terminate"));
         assert!(operation_ids.contains(&"postgresql.table.analyze"));
         assert!(operation_ids.contains(&"postgresql.table.vacuum"));
         assert!(operation_ids.contains(&"postgresql.database.analyze"));
         assert!(operation_ids.contains(&"postgresql.database.vacuum"));
         assert!(operation_ids.contains(&"postgresql.index.reindex"));
+        assert!(operation_ids.contains(&"postgresql.role.grant"));
+        assert!(operation_ids.contains(&"postgresql.role.revoke"));
+        assert!(operation_ids.contains(&"postgresql.extension.update"));
+        assert!(operation_ids.contains(&"postgresql.extension.drop"));
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "postgresql.routine.execute")
+                .map(|operation| operation.risk.as_str()),
+            Some("write")
+        );
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "postgresql.session.terminate")
+                .map(|operation| operation.risk.as_str()),
+            Some("destructive")
+        );
         assert_eq!(
             operations
                 .iter()
                 .find(|operation| operation.id == "postgresql.index.reindex")
                 .map(|operation| operation.risk.as_str()),
             Some("costly")
+        );
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "postgresql.extension.drop")
+                .map(|operation| operation.risk.as_str()),
+            Some("destructive")
         );
     }
 

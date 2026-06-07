@@ -22,8 +22,10 @@ export function TimescaleObjectViewInsights({ kind, payload }: TimescaleObjectVi
   const continuousAggregates = records(payload.continuousAggregates)
   const jobs = records(payload.jobs)
   const diagnostics = records(payload.diagnostics)
+  const profile = record(payload.timescaleProfile)
 
   if (
+    !profile &&
     !hypertables.length &&
     !chunks.length &&
     !compressionPolicies.length &&
@@ -37,6 +39,25 @@ export function TimescaleObjectViewInsights({ kind, payload }: TimescaleObjectVi
 
   return (
     <>
+      {profile ? (
+        <section className="object-view-section" aria-label="Timescale profile posture">
+          <TimescaleSectionHeading icon="diagnostics" title="Profile" unit={profileLabel(profile)} />
+          <div className="object-view-card-grid">
+            <Card label="Deployment" value={profile.deploymentMode} />
+            <Card label="Region" value={profile.region} />
+            <Card label="Extension" value={profile.extensionVersion} />
+            <Card label="Policy Mode" value={profile.policyExecution} />
+          </div>
+          {display(profile.disabledReason) !== '-' ? (
+            <div className="object-view-chip-row">
+              <span>
+                Policy execution <strong>{display(profile.disabledReason)}</strong>
+              </span>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="object-view-section" aria-label="Timescale hypertable posture">
         <TimescaleSectionHeading icon="hypertable" title="Hypertables" unit={scopeLabel(kind)} />
         <div className="object-view-card-grid">
@@ -182,6 +203,10 @@ function records(value: unknown): JsonRecord[] {
   return Array.isArray(value) ? value.filter(isRecord) : []
 }
 
+function record(value: unknown): JsonRecord | undefined {
+  return isRecord(value) ? value : undefined
+}
+
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
@@ -201,4 +226,8 @@ function display(value: unknown): string {
 
 function scopeLabel(kind: string) {
   return kind === 'hypertable' ? 'object' : 'time-series'
+}
+
+function profileLabel(profile: JsonRecord) {
+  return display(firstDisplay(profile.license, profile.extensionSchema))
 }

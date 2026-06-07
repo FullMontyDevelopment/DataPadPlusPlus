@@ -185,6 +185,60 @@ fn mongo_insert_document_preview_does_not_require_existing_document_id() {
 }
 
 #[test]
+fn mongo_replace_and_delete_document_previews_are_operation_specific() {
+    let connection = connection("mongodb", "document", false);
+    let experience = experience(&["update-document", "delete-document"], true);
+    let target = DataEditTarget {
+        object_kind: "document".into(),
+        database: Some("catalog".into()),
+        collection: Some("products".into()),
+        document_id: Some(json!("item-1")),
+        ..Default::default()
+    };
+
+    let replace_plan = default_data_edit_plan(
+        &connection,
+        &experience,
+        &request(
+            "update-document",
+            target.clone(),
+            vec![DataEditChange {
+                value: Some(json!({
+                    "_id": "item-1",
+                    "sku": "nova",
+                    "name": "Nova Chair"
+                })),
+                value_type: Some("json".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+    let replace_request: serde_json::Value =
+        serde_json::from_str(&replace_plan.plan.generated_request).expect("replace JSON");
+
+    assert_eq!(replace_plan.execution_support, "live");
+    assert_eq!(replace_request["operation"], "replaceOne");
+    assert_eq!(replace_request["filter"]["_id"], "item-1");
+    assert_eq!(replace_request["replacement"]["sku"], "nova");
+
+    let delete_plan = default_data_edit_plan(
+        &connection,
+        &experience,
+        &request("delete-document", target, vec![]),
+    );
+    let delete_request: serde_json::Value =
+        serde_json::from_str(&delete_plan.plan.generated_request).expect("delete JSON");
+
+    assert!(delete_plan.plan.destructive);
+    assert_eq!(
+        delete_plan.plan.confirmation_text.as_deref(),
+        Some("CONFIRM MONGODB DELETE-DOCUMENT")
+    );
+    assert_eq!(delete_request["operation"], "deleteOne");
+    assert_eq!(delete_request["filter"]["_id"], "item-1");
+}
+
+#[test]
 fn data_edit_previews_redact_secret_shaped_values() {
     let mongo_plan = default_data_edit_plan(
         &connection("mongodb", "document", false),
@@ -319,6 +373,234 @@ fn keyvalue_rename_and_persist_ttl_generate_native_commands() {
     assert_eq!(persist_plan.plan.generated_request, "PERSIST session:1");
     assert!(!rename_plan.plan.destructive);
     assert!(!persist_plan.plan.destructive);
+}
+
+#[test]
+fn redis_json_path_edits_generate_native_commands_and_delete_guardrails() {
+    let connection = connection("redis", "keyvalue", false);
+    let target = DataEditTarget {
+        object_kind: "json-path".into(),
+        key: Some("profile:1".into()),
+        ..Default::default()
+    };
+    let set_plan = default_data_edit_plan(
+        &connection,
+        &experience(&["json-set-path", "json-delete-path"], true),
+        &request(
+            "json-set-path",
+            target.clone(),
+            vec![DataEditChange {
+                field: Some("$.profile.name".into()),
+                value: Some(json!("Avery")),
+                value_type: Some("string".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+    let delete_plan = default_data_edit_plan(
+        &connection,
+        &experience(&["json-set-path", "json-delete-path"], true),
+        &request(
+            "json-delete-path",
+            target,
+            vec![DataEditChange {
+                path: Some(vec!["profile".into(), "legacy flag".into()]),
+                ..Default::default()
+            }],
+        ),
+    );
+
+    assert_eq!(
+        set_plan.plan.generated_request,
+        r#"JSON.SET profile:1 $.profile.name "Avery""#
+    );
+    assert_eq!(
+        delete_plan.plan.generated_request,
+        r#"JSON.DEL profile:1 $.profile["legacy flag"]"#
+    );
+    assert!(delete_plan.plan.destructive);
+    assert_eq!(
+        delete_plan.plan.confirmation_text.as_deref(),
+        Some("CONFIRM REDIS JSON-DELETE-PATH")
+    );
+}
+
+#[test]
+fn redis_stream_entry_edits_generate_native_commands_and_delete_guardrails() {
+    let connection = connection("redis", "keyvalue", false);
+    let target = DataEditTarget {
+        object_kind: "stream-entry".into(),
+        key: Some("orders:stream".into()),
+        document_id: Some(json!("1714670000000-0")),
+        ..Default::default()
+    };
+    let add_plan = default_data_edit_plan(
+        &connection,
+        &experience(&["stream-add-entry", "stream-delete-entry"], true),
+        &request(
+            "stream-add-entry",
+            target.clone(),
+            vec![DataEditChange {
+                value: Some(json!({
+                    "event": "checkout",
+                    "api_token": "secret-value",
+                })),
+                value_type: Some("object".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+    let delete_plan = default_data_edit_plan(
+        &connection,
+        &experience(&["stream-add-entry", "stream-delete-entry"], true),
+        &request(
+            "stream-delete-entry",
+            target,
+            vec![DataEditChange {
+                field: Some("1714670000001-0".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+
+    assert_eq!(
+        add_plan.plan.generated_request,
+        "XADD orders:stream 1714670000000-0 event checkout api_token ********"
+    );
+    assert_eq!(
+        delete_plan.plan.generated_request,
+        "XDEL orders:stream 1714670000000-0 1714670000001-0"
+    );
+    assert!(delete_plan.plan.destructive);
+    assert_eq!(
+        delete_plan.plan.confirmation_text.as_deref(),
+        Some("CONFIRM REDIS STREAM-DELETE-ENTRY")
+    );
+}
+
+#[test]
+fn redis_timeseries_sample_edits_generate_native_commands_and_delete_guardrails() {
+    let connection = connection("redis", "keyvalue", false);
+    let target = DataEditTarget {
+        object_kind: "timeseries-sample".into(),
+        key: Some("metrics:cpu".into()),
+        document_id: Some(json!(1714670000000_i64)),
+        ..Default::default()
+    };
+    let add_plan = default_data_edit_plan(
+        &connection,
+        &experience(&["timeseries-add-sample", "timeseries-delete-sample"], true),
+        &request(
+            "timeseries-add-sample",
+            target.clone(),
+            vec![DataEditChange {
+                value: Some(json!(42.5)),
+                value_type: Some("number".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+    let delete_plan = default_data_edit_plan(
+        &connection,
+        &experience(&["timeseries-add-sample", "timeseries-delete-sample"], true),
+        &request(
+            "timeseries-delete-sample",
+            DataEditTarget {
+                object_kind: "timeseries-sample".into(),
+                key: Some("metrics:cpu".into()),
+                ..Default::default()
+            },
+            vec![DataEditChange {
+                path: Some(vec!["1714670000000".into(), "1714670060000".into()]),
+                ..Default::default()
+            }],
+        ),
+    );
+
+    assert_eq!(
+        add_plan.plan.generated_request,
+        "TS.ADD metrics:cpu 1714670000000 42.5"
+    );
+    assert_eq!(
+        delete_plan.plan.generated_request,
+        "TS.DEL metrics:cpu 1714670000000 1714670060000"
+    );
+    assert!(delete_plan.plan.destructive);
+    assert_eq!(
+        delete_plan.plan.confirmation_text.as_deref(),
+        Some("CONFIRM REDIS TIMESERIES-DELETE-SAMPLE")
+    );
+}
+
+#[test]
+fn redis_vector_member_edits_generate_native_commands_and_delete_guardrails() {
+    let connection = connection("redis", "keyvalue", false);
+    let target = DataEditTarget {
+        object_kind: "vector-member".into(),
+        key: Some("embeddings:articles".into()),
+        document_id: Some(json!("doc:1")),
+        ..Default::default()
+    };
+    let edit_kinds = [
+        "vector-add-member",
+        "vector-remove-member",
+        "vector-set-attributes",
+    ];
+    let add_plan = default_data_edit_plan(
+        &connection,
+        &experience(&edit_kinds, true),
+        &request(
+            "vector-add-member",
+            target.clone(),
+            vec![DataEditChange {
+                value: Some(json!({
+                    "vector": [0.1, 1.2, 0.5],
+                    "attributes": { "category": "docs" }
+                })),
+                value_type: Some("object".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+    let remove_plan = default_data_edit_plan(
+        &connection,
+        &experience(&edit_kinds, true),
+        &request("vector-remove-member", target.clone(), vec![]),
+    );
+    let attributes_plan = default_data_edit_plan(
+        &connection,
+        &experience(&edit_kinds, true),
+        &request(
+            "vector-set-attributes",
+            target,
+            vec![DataEditChange {
+                value: Some(json!({
+                    "category": "reference",
+                    "year": 2026
+                })),
+                value_type: Some("object".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+
+    assert_eq!(
+        add_plan.plan.generated_request,
+        r#"VADD embeddings:articles VALUES 3 0.1 1.2 0.5 doc:1 SETATTR {"category":"docs"}"#
+    );
+    assert_eq!(
+        remove_plan.plan.generated_request,
+        "VREM embeddings:articles doc:1"
+    );
+    assert_eq!(
+        attributes_plan.plan.generated_request,
+        r#"VSETATTR embeddings:articles doc:1 {"category":"reference","year":2026}"#
+    );
+    assert!(remove_plan.plan.destructive);
+    assert_eq!(
+        remove_plan.plan.confirmation_text.as_deref(),
+        Some("CONFIRM REDIS VECTOR-REMOVE-MEMBER")
+    );
 }
 
 #[test]
@@ -463,6 +745,8 @@ fn connection(engine: &str, family: &str, read_only: bool) -> ResolvedConnection
         redis_options: None,
         memcached_options: None,
         sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
         sqlserver_options: None,
         oracle_options: None,
         dynamo_db_options: None,

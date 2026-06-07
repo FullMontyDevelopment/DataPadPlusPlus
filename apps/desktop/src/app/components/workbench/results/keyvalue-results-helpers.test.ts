@@ -11,7 +11,9 @@ import {
   redisEditKindForValue,
   redisKeyOperationPlanRequest,
   redisMemberLabel,
+  deleteRedisJsonPathValue,
   serializedKeyValue,
+  setRedisJsonPathValue,
 } from './keyvalue-results-helpers'
 
 describe('keyvalue results helpers', () => {
@@ -74,16 +76,25 @@ describe('keyvalue results helpers', () => {
     expect(keyValuePrimaryColumnLabel('hash')).toBe('Field')
     expect(keyValuePrimaryColumnLabel('list')).toBe('Index')
     expect(keyValuePrimaryColumnLabel('zset')).toBe('Member')
+    expect(keyValuePrimaryColumnLabel('stream')).toBe('Entry ID')
+    expect(keyValuePrimaryColumnLabel('timeseries')).toBe('Timestamp')
+    expect(keyValuePrimaryColumnLabel('vectorset')).toBe('Element')
     expect(keyValuePrimaryColumnLabel('string')).toBe('Key')
 
     expect(redisMemberLabel('hash')).toBe('Field')
     expect(redisMemberLabel('zset')).toBe('Member')
+    expect(redisMemberLabel('stream')).toBe('Entry')
+    expect(redisMemberLabel('timeseries')).toBe('Sample')
+    expect(redisMemberLabel('vectorset')).toBe('Element')
     expect(redisMemberLabel('list')).toBe('Item')
 
     expect(redisContextTargetKind('products', 'hash')).toBe('member')
     expect(redisContextTargetKind('products', 'string')).toBe('key')
     expect(canDeleteRedisContextTarget('products', 'list')).toBe(false)
     expect(canDeleteRedisContextTarget('products', 'hash')).toBe(true)
+    expect(canDeleteRedisContextTarget('orders:stream', 'stream')).toBe(true)
+    expect(canDeleteRedisContextTarget('metrics:cpu', 'timeseries')).toBe(true)
+    expect(canDeleteRedisContextTarget('embeddings:articles', 'vectorset')).toBe(true)
   })
 
   it('maps value edits to typed Redis edit kinds', () => {
@@ -97,6 +108,37 @@ describe('keyvalue results helpers', () => {
   it('serializes non-string values for local optimistic updates', () => {
     expect(serializedKeyValue('plain')).toBe('plain')
     expect(serializedKeyValue({ ok: true })).toBe('{"ok":true}')
+  })
+
+  it('applies local RedisJSON optimistic path updates', () => {
+    const value = {
+      profile: {
+        name: 'Avery',
+        roles: ['viewer', 'editor'],
+        'legacy.flag': true,
+      },
+    }
+
+    expect(setRedisJsonPathValue(value, '$.profile.name', 'Nova')).toEqual({
+      profile: {
+        name: 'Nova',
+        roles: ['viewer', 'editor'],
+        'legacy.flag': true,
+      },
+    })
+    expect(deleteRedisJsonPathValue(value, '$.profile.roles[0]')).toEqual({
+      profile: {
+        name: 'Avery',
+        roles: ['editor'],
+        'legacy.flag': true,
+      },
+    })
+    expect(deleteRedisJsonPathValue(value, '$.profile["legacy.flag"]')).toEqual({
+      profile: {
+        name: 'Avery',
+        roles: ['viewer', 'editor'],
+      },
+    })
   })
 
   it('builds key import and export operation previews from key payloads', () => {

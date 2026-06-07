@@ -11,12 +11,12 @@ pub(crate) fn datastore_tree_manifest(engine: &str, family: &str) -> DatastoreTr
 fn tree_roots(engine: &str, family: &str) -> Vec<DatastoreTreeNodeManifest> {
     match engine {
         "mongodb" => mongo_tree(),
-        "redis" | "valkey" => redis_tree(),
+        "redis" | "valkey" => redis_tree(engine),
         "memcached" => memcached_tree(),
         "sqlserver" => sqlserver_tree(),
         "sqlite" => sqlite_tree(),
         "duckdb" => embedded_sql_tree(engine),
-        "mysql" | "mariadb" => mysql_tree(),
+        "mysql" | "mariadb" => mysql_tree(engine),
         "oracle" => oracle_tree(),
         "cockroachdb" => cockroach_tree(),
         "postgresql" | "timescaledb" => postgres_family_tree(engine),
@@ -101,18 +101,29 @@ fn mongo_tree() -> Vec<DatastoreTreeNodeManifest> {
     ]
 }
 
-fn redis_tree() -> Vec<DatastoreTreeNodeManifest> {
+fn redis_tree(engine: &str) -> Vec<DatastoreTreeNodeManifest> {
+    let engine_label = if engine == "valkey" {
+        "Valkey"
+    } else {
+        "Redis"
+    };
+    let module_prefix = if engine == "valkey" {
+        "Valkey-compatible"
+    } else {
+        "Redis Stack"
+    };
+
     vec![
         node_with(
             "databases",
             "Databases",
             "databases",
-            "Logical Redis databases",
+            &format!("Logical {engine_label} databases"),
             vec![node_with(
                 "db",
                 "DB {{database:0}}",
                 "database",
-                "Redis logical database",
+                &format!("{engine_label} logical database"),
                 vec![
                     node("keys", "Keys", "keys", "All key types"),
                     node(
@@ -131,30 +142,35 @@ fn redis_tree() -> Vec<DatastoreTreeNodeManifest> {
                         "Scored set values",
                     ),
                     node("streams", "Streams", "streams", "Append-only stream values"),
-                    node_optional("json", "JSON", "json", "RedisJSON documents"),
+                    node_optional(
+                        "json",
+                        "JSON",
+                        "json",
+                        &format!("{module_prefix} JSON documents"),
+                    ),
                     node_optional(
                         "time-series",
                         "Time Series",
                         "time-series",
-                        "RedisTimeSeries keys",
+                        &format!("{module_prefix} time-series keys"),
                     ),
                     node_optional(
                         "bloom-filters",
                         "Bloom Filters",
                         "bloom",
-                        "RedisBloom filters",
+                        &format!("{module_prefix} Bloom filters"),
                     ),
                     node_optional(
                         "search-indexes",
                         "Search Indexes",
                         "search-indexes",
-                        "RediSearch indexes",
+                        &format!("{module_prefix} search indexes"),
                     ),
                     node_optional(
                         "vector-indexes",
                         "Vector Indexes",
                         "vector-indexes",
-                        "Vector search structures",
+                        &format!("{module_prefix} vector structures"),
                     ),
                     node_optional(
                         "pubsub",
@@ -189,7 +205,7 @@ fn redis_tree() -> Vec<DatastoreTreeNodeManifest> {
             "functions",
             "Functions",
             "functions",
-            "Redis functions and libraries",
+            &format!("{engine_label} functions and libraries"),
         ),
         node(
             "security",
@@ -937,13 +953,48 @@ fn cockroach_schema_children() -> Vec<DatastoreTreeNodeManifest> {
     ]
 }
 
-fn mysql_tree() -> Vec<DatastoreTreeNodeManifest> {
+fn mysql_tree(engine: &str) -> Vec<DatastoreTreeNodeManifest> {
+    let is_mariadb = engine == "mariadb";
+    let engine_label = if is_mariadb { "MariaDB" } else { "MySQL" };
+    let mut security_children = vec![
+        node(
+            "users",
+            "Users",
+            "users",
+            "User accounts and authentication plugins",
+        ),
+        node(
+            "roles",
+            "Roles",
+            "roles",
+            if is_mariadb {
+                "MariaDB roles from mysql.user is_role"
+            } else {
+                "Role assignments where supported"
+            },
+        ),
+    ];
+    if is_mariadb {
+        security_children.push(node(
+            "role-mappings",
+            "Role Mappings",
+            "roles",
+            "MariaDB mysql.roles_mapping memberships",
+        ));
+    }
+    security_children.push(node(
+        "permissions",
+        "Grants",
+        "permissions",
+        "Visible grants and privilege scopes",
+    ));
+
     vec![
         node_with(
             "databases",
             "Databases",
             "databases",
-            "MySQL/MariaDB schemas",
+            &format!("{engine_label} schemas"),
             vec![node_with(
                 "selected-database",
                 "{{database}}",
@@ -994,26 +1045,7 @@ fn mysql_tree() -> Vec<DatastoreTreeNodeManifest> {
             "Users / Privileges",
             "security",
             "Users, roles, grants, authentication plugins, and privilege scope",
-            vec![
-                node(
-                    "users",
-                    "Users",
-                    "users",
-                    "User accounts and authentication plugins",
-                ),
-                node(
-                    "roles",
-                    "Roles",
-                    "roles",
-                    "Role assignments where supported",
-                ),
-                node(
-                    "permissions",
-                    "Grants",
-                    "permissions",
-                    "Visible grants and privilege scopes",
-                ),
-            ],
+            security_children,
             NodeOptions::default(),
         ),
         node_with(
@@ -1021,14 +1053,14 @@ fn mysql_tree() -> Vec<DatastoreTreeNodeManifest> {
             "Diagnostics",
             "diagnostics",
             "Status, performance schema, and slow query metadata",
-            mysql_diagnostics_children(),
+            mysql_diagnostics_children(is_mariadb),
             NodeOptions::default(),
         ),
     ]
 }
 
-fn mysql_diagnostics_children() -> Vec<DatastoreTreeNodeManifest> {
-    vec![
+fn mysql_diagnostics_children(is_mariadb: bool) -> Vec<DatastoreTreeNodeManifest> {
+    let mut children = vec![
         node(
             "sessions",
             "Sessions",
@@ -1048,6 +1080,51 @@ fn mysql_diagnostics_children() -> Vec<DatastoreTreeNodeManifest> {
             "Digest latency and slow-query signals",
         ),
         node(
+            "performance-schema",
+            "Performance Schema",
+            "performance-schema",
+            "Statement digests, waits, and table/index I/O",
+        ),
+        node(
+            "metadata-locks",
+            "Metadata Locks",
+            "metadata-locks",
+            "Pending and granted metadata locks",
+        ),
+    ];
+
+    if is_mariadb {
+        children.extend([
+            node(
+                "server-variables",
+                "Server Variables",
+                "statistics",
+                "MariaDB version and session variables",
+            ),
+            node(
+                "storage-engines",
+                "Storage Engines",
+                "storage",
+                "MariaDB storage engine capabilities",
+            ),
+            node(
+                "analyze-profile",
+                "ANALYZE FORMAT=JSON",
+                "profile",
+                "MariaDB statement profile sample",
+            ),
+        ]);
+    } else {
+        children.push(node(
+            "optimizer-trace",
+            "Optimizer Trace",
+            "optimizer-trace",
+            "Optimizer trace settings and recent trace availability",
+        ));
+    }
+
+    children.extend([
+        node(
             "innodb-status",
             "InnoDB Status",
             "innodb-status",
@@ -1059,7 +1136,9 @@ fn mysql_diagnostics_children() -> Vec<DatastoreTreeNodeManifest> {
             "replication",
             "Source/replica channel health",
         ),
-    ]
+    ]);
+
+    children
 }
 
 fn oracle_tree() -> Vec<DatastoreTreeNodeManifest> {
@@ -2486,6 +2565,7 @@ mod tests {
     #[test]
     fn mysql_tree_uses_workbench_style_database_sections() {
         let tree = datastore_tree_manifest("mysql", "sql");
+        let mariadb_tree = datastore_tree_manifest("mariadb", "sql");
         let databases = tree
             .roots
             .iter()
@@ -2519,6 +2599,33 @@ mod tests {
             .roots
             .iter()
             .any(|node| node.label == "Users / Privileges"));
+
+        let mariadb_security = mariadb_tree
+            .roots
+            .iter()
+            .find(|node| node.label == "Users / Privileges")
+            .expect("mariadb security");
+        let mariadb_diagnostics = mariadb_tree
+            .roots
+            .iter()
+            .find(|node| node.label == "Diagnostics")
+            .expect("mariadb diagnostics");
+        let mariadb_security_labels = mariadb_security
+            .children
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+        let mariadb_diagnostic_labels = mariadb_diagnostics
+            .children
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(mariadb_security_labels.contains(&"Role Mappings"));
+        assert!(mariadb_diagnostic_labels.contains(&"Server Variables"));
+        assert!(mariadb_diagnostic_labels.contains(&"Storage Engines"));
+        assert!(mariadb_diagnostic_labels.contains(&"ANALYZE FORMAT=JSON"));
+        assert!(!mariadb_diagnostic_labels.contains(&"Optimizer Trace"));
     }
 
     #[test]
@@ -2569,6 +2676,58 @@ mod tests {
                 .expect("search indexes")
                 .optional_when_live_metadata
         );
+    }
+
+    #[test]
+    fn valkey_tree_uses_valkey_copy_without_redis_stack_claims() {
+        let tree = datastore_tree_manifest("valkey", "keyvalue");
+        let databases = tree
+            .roots
+            .iter()
+            .find(|node| node.id == "databases")
+            .expect("databases root");
+        let db = databases
+            .children
+            .iter()
+            .find(|node| node.id == "db")
+            .expect("logical database template");
+        let json = db
+            .children
+            .iter()
+            .find(|node| node.id == "json")
+            .expect("json module template");
+        let functions = tree
+            .roots
+            .iter()
+            .find(|node| node.id == "functions")
+            .expect("functions root");
+
+        assert_eq!(
+            databases.detail.as_deref(),
+            Some("Logical Valkey databases")
+        );
+        assert_eq!(db.detail.as_deref(), Some("Valkey logical database"));
+        assert_eq!(
+            json.detail.as_deref(),
+            Some("Valkey-compatible JSON documents")
+        );
+        assert!(json.optional_when_live_metadata);
+        assert_eq!(
+            functions.detail.as_deref(),
+            Some("Valkey functions and libraries")
+        );
+        let details = tree
+            .roots
+            .iter()
+            .flat_map(|node| {
+                std::iter::once(node)
+                    .chain(node.children.iter())
+                    .chain(node.children.iter().flat_map(|child| child.children.iter()))
+            })
+            .filter_map(|node| node.detail.as_deref())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!details.contains("Redis Stack"));
     }
 
     #[test]

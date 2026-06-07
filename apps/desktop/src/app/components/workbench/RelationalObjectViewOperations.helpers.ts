@@ -178,7 +178,24 @@ function relationalOperationParameters(
   const schema = stringValue(payload.schema ?? payload.schemaName ?? payload.ownerSchema ?? firstTable?.schema)
   const table = stringValue(payload.tableName ?? payload.viewName ?? payload.objectName ?? payload.name ?? firstTable?.name ?? tab.objectViewState?.label)
   const indexName = stringValue(payload.indexName ?? payload.index)
+  const firstRole = firstPayloadRecord(payload.roles)
+  const firstMembership = firstPayloadRecord(payload.roleMemberships)
+  const firstPermission = firstPayloadRecord(payload.permissions)
+  const firstExtension = firstPayloadRecord(payload.extensions)
+  const firstRoutine =
+    firstPayloadRecord(payload.routines) ??
+    firstPayloadRecord(payload.procedures) ??
+    firstPayloadRecord(payload.functions)
+  const firstEvent = firstPayloadRecord(payload.events)
+  const firstUser = firstPayloadRecord(payload.users)
+  const firstSession = firstPayloadRecord(payload.sessions)
   const columnName = firstColumnName(payload)
+  const objectKind = tab.objectViewState?.kind
+  const routineName = stringValue(
+    payload.routineName ??
+      firstRoutine?.name ??
+      (objectKind === 'function' || objectKind === 'procedure' ? table : undefined),
+  )
 
   return {
     schema,
@@ -186,7 +203,32 @@ function relationalOperationParameters(
     objectName,
     indexName: indexName || suggestedIndexName(objectName, columnName),
     columnName,
-    objectKind: tab.objectViewState?.kind,
+    roleName: stringValue(payload.roleName ?? firstMembership?.role ?? firstRole?.name),
+    memberOf: stringValue(payload.memberOf ?? firstMembership?.memberOf),
+    principal: stringValue(payload.principal ?? firstPermission?.principal),
+    extensionName: stringValue(payload.extensionName ?? firstExtension?.name ?? (tab.objectViewState?.kind === 'extension' ? table : undefined)),
+    routineName,
+    routineKind: stringValue(
+      payload.routineKind ??
+        firstRoutine?.type ??
+        (objectKind === 'function' || objectKind === 'procedure' ? objectKind : undefined),
+    ),
+    eventName: stringValue(payload.eventName ?? firstEvent?.name ?? (objectKind === 'event' ? table : undefined)),
+    userName: stringValue(payload.userName ?? firstUser?.name ?? (objectKind === 'user' ? table : undefined)),
+    userHost: stringValue(payload.userHost ?? firstUser?.host ?? payload.host),
+    arguments: stringValue(payload.arguments ?? payload.routineArguments ?? firstRoutine?.arguments),
+    returns: stringValue(payload.returns ?? payload.returnType ?? firstRoutine?.returns),
+    language: stringValue(payload.language ?? firstRoutine?.language),
+    volatility: stringValue(payload.volatility ?? firstRoutine?.volatility),
+    security: stringValue(payload.security ?? firstRoutine?.security),
+    sessionPid: scalarStringValue(payload.pid ?? payload.backendPid ?? payload.sessionPid ?? firstSession?.pid),
+    sessionUser: stringValue(payload.sessionUser ?? firstSession?.user ?? firstSession?.usename),
+    sessionDatabase: stringValue(payload.sessionDatabase ?? firstSession?.database ?? firstSession?.datname),
+    sessionState: stringValue(payload.sessionState ?? firstSession?.state),
+    application: stringValue(payload.application ?? firstSession?.application ?? firstSession?.applicationName),
+    wait: stringValue(payload.wait ?? firstSession?.wait ?? firstSession?.waitEvent),
+    blockedBy: stringValue(payload.blockedBy ?? firstSession?.blockedBy),
+    objectKind,
   }
 }
 
@@ -290,6 +332,16 @@ function stripSqlIdentifierWrapper(value: string) {
 
 function stringValue(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function scalarStringValue(value: unknown) {
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+  return ''
 }
 
 function dedupeActions(actions: RelationalOperationAction[]) {

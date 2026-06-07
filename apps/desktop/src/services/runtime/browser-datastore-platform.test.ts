@@ -24,9 +24,11 @@ describe('browser datastore platform contracts', () => {
       expect.arrayContaining(['mongo-find', 'mongo-aggregation']),
     )
     expect(mongodb?.editableScopes[0]?.editKinds).toContain('rename-field')
+    expect(mongodb?.editableScopes[0]?.editKinds).toContain('update-document')
+    expect(mongodb?.editableScopes[0]?.editKinds).toContain('delete-document')
     expect(mongodb?.completeness).toMatchObject({
-      readiness: 'near-native',
-      completionClaim: 'contract-complete',
+      readiness: 'native',
+      completionClaim: 'native-complete',
       targetPhase: 1,
     })
     expect(
@@ -50,6 +52,20 @@ describe('browser datastore platform contracts', () => {
       liveExecution: false,
     })
     expect(redis?.editableScopes[0]?.editKinds).toContain('set-ttl')
+    expect(redis?.editableScopes[0]?.editKinds).toContain('stream-add-entry')
+    expect(redis?.editableScopes[0]?.editKinds).toContain('stream-delete-entry')
+    expect(redis?.editableScopes[0]?.editKinds).toContain('timeseries-add-sample')
+    expect(redis?.editableScopes[0]?.editKinds).toContain('timeseries-delete-sample')
+    expect(redis?.editableScopes[0]?.editKinds).toContain('json-set-path')
+    expect(redis?.editableScopes[0]?.editKinds).toContain('json-delete-path')
+    expect(redis?.editableScopes[0]?.editKinds).toContain('vector-add-member')
+    expect(redis?.editableScopes[0]?.editKinds).toContain('vector-remove-member')
+    expect(redis?.editableScopes[0]?.editKinds).toContain('vector-set-attributes')
+    expect(valkey?.editableScopes[0]?.editKinds).toContain('stream-add-entry')
+    expect(valkey?.editableScopes[0]?.editKinds).toContain('stream-delete-entry')
+    expect(valkey?.editableScopes[0]?.editKinds).not.toContain('timeseries-add-sample')
+    expect(valkey?.editableScopes[0]?.editKinds).not.toContain('json-set-path')
+    expect(valkey?.editableScopes[0]?.editKinds).not.toContain('vector-add-member')
     expect(redis?.tree?.roots.map((item) => item.label)).toContain('Databases')
     expect(redis?.tree?.roots.map((item) => item.label)).toContain('ACL / Security')
     for (const referenceExperience of [mongodb, redis, valkey]) {
@@ -369,6 +385,20 @@ describe('browser datastore platform contracts', () => {
       target: { objectKind: 'key', path: ['session:1'], key: 'session:1' },
       changes: [{ field: 'session:1', newName: 'session:renamed' }],
     })
+    const redisJsonSetPlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'json-set-path',
+      target: { objectKind: 'json-path', path: ['profile:1'], key: 'profile:1' },
+      changes: [{ field: '$.profile.name', value: 'Avery', valueType: 'string' }],
+    })
+    const redisJsonDeletePlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'json-delete-path',
+      target: { objectKind: 'json-path', path: ['profile:1'], key: 'profile:1' },
+      changes: [{ path: ['profile', 'legacy flag'] }],
+    })
     const dynamoPlan = planDataEditLocally(connectionProfile('dynamodb', 'widecolumn'), {
       connectionId: 'conn-dynamodb',
       environmentId: 'env-dev',
@@ -394,11 +424,135 @@ describe('browser datastore platform contracts', () => {
       },
       changes: [{ field: 'status', value: 'paid' }],
     })
+    const redisStreamAddPlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'stream-add-entry',
+      target: {
+        objectKind: 'stream-entry',
+        path: ['orders:stream'],
+        key: 'orders:stream',
+        documentId: '1714670000000-0',
+      },
+      changes: [{
+        value: {
+          api_token: 'secret-value',
+          event: 'checkout',
+        },
+      }],
+    })
+    const redisStreamDeletePlan = planDataEditLocally(connectionProfile('valkey', 'keyvalue'), {
+      connectionId: 'conn-valkey',
+      environmentId: 'env-dev',
+      editKind: 'stream-delete-entry',
+      target: {
+        objectKind: 'stream-entry',
+        path: ['orders:stream'],
+        key: 'orders:stream',
+        documentId: '1714670000000-0',
+      },
+      changes: [{ field: '1714670000001-0' }],
+    })
+    const redisTimeSeriesAddPlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'timeseries-add-sample',
+      target: {
+        objectKind: 'timeseries-sample',
+        path: ['metrics:cpu'],
+        key: 'metrics:cpu',
+        documentId: 1714670000000,
+      },
+      changes: [{ value: 42.5 }],
+    })
+    const redisTimeSeriesDeletePlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'timeseries-delete-sample',
+      target: {
+        objectKind: 'timeseries-sample',
+        path: ['metrics:cpu'],
+        key: 'metrics:cpu',
+      },
+      changes: [{ value: { from: 1714670000000, to: 1714670060000 } }],
+    })
+    const redisVectorAddPlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'vector-add-member',
+      target: {
+        objectKind: 'vector-member',
+        path: ['embeddings:articles'],
+        key: 'embeddings:articles',
+        documentId: 'doc:1',
+      },
+      changes: [{
+        value: {
+          vector: [0.1, 1.2, 0.5],
+          attributes: { category: 'docs' },
+        },
+      }],
+    })
+    const redisVectorRemovePlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'vector-remove-member',
+      target: {
+        objectKind: 'vector-member',
+        path: ['embeddings:articles'],
+        key: 'embeddings:articles',
+        documentId: 'doc:1',
+      },
+      changes: [],
+    })
+    const redisVectorAttributesPlan = planDataEditLocally(connectionProfile('redis', 'keyvalue'), {
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      editKind: 'vector-set-attributes',
+      target: {
+        objectKind: 'vector-member',
+        path: ['embeddings:articles'],
+        key: 'embeddings:articles',
+        documentId: 'doc:1',
+      },
+      changes: [{ value: { category: 'reference', year: 2026 } }],
+    })
 
     expect(redisPlan.plan.generatedRequest).toBe('EXPIRE session:1 300')
     expect(redisPersistPlan.plan.generatedRequest).toBe('PERSIST session:1')
     expect(redisPersistPlan.plan.warnings).not.toContain('Data edits need at least one change.')
     expect(redisRenamePlan.plan.generatedRequest).toBe('RENAME session:1 session:renamed')
+    expect(redisJsonSetPlan.plan.generatedRequest).toBe('JSON.SET profile:1 $.profile.name "Avery"')
+    expect(redisJsonDeletePlan.plan.generatedRequest).toBe(
+      'JSON.DEL profile:1 $.profile["legacy flag"]',
+    )
+    expect(redisJsonDeletePlan.plan.confirmationText).toBe('CONFIRM REDIS JSON-DELETE-PATH')
+    expect(redisStreamAddPlan.plan.generatedRequest).toBe(
+      'XADD orders:stream 1714670000000-0 api_token ******** event checkout',
+    )
+    expect(redisStreamDeletePlan.plan.generatedRequest).toBe(
+      'XDEL orders:stream 1714670000000-0 1714670000001-0',
+    )
+    expect(redisStreamDeletePlan.plan.confirmationText).toBe('CONFIRM VALKEY STREAM-DELETE-ENTRY')
+    expect(redisTimeSeriesAddPlan.plan.generatedRequest).toBe(
+      'TS.ADD metrics:cpu 1714670000000 42.5',
+    )
+    expect(redisTimeSeriesDeletePlan.plan.generatedRequest).toBe(
+      'TS.DEL metrics:cpu 1714670000000 1714670060000',
+    )
+    expect(redisTimeSeriesDeletePlan.plan.confirmationText).toBe(
+      'CONFIRM REDIS TIMESERIES-DELETE-SAMPLE',
+    )
+    expect(redisVectorAddPlan.plan.generatedRequest).toBe(
+      'VADD embeddings:articles VALUES 3 0.1 1.2 0.5 doc:1 SETATTR {"category":"docs"}',
+    )
+    expect(redisVectorRemovePlan.plan.generatedRequest).toBe('VREM embeddings:articles doc:1')
+    expect(redisVectorRemovePlan.plan.confirmationText).toBe(
+      'CONFIRM REDIS VECTOR-REMOVE-MEMBER',
+    )
+    expect(redisVectorAttributesPlan.plan.generatedRequest).toBe(
+      'VSETATTR embeddings:articles doc:1 {"category":"reference","year":2026}',
+    )
     expect(JSON.parse(dynamoPlan.plan.generatedRequest)).toMatchObject({
       TableName: 'orders',
       Key: { pk: 'ORDER#1', sk: 'META' },
@@ -487,6 +641,55 @@ describe('browser datastore platform contracts', () => {
       collection: 'products',
       operation: 'insertOne',
       document: { sku: 'nova', name: 'Nova Chair' },
+    })
+  })
+
+  it('plans Mongo document replacements and deletes with native request shapes', () => {
+    const connection = connectionProfile('mongodb', 'document')
+    const replace = planDataEditLocally(connection, {
+      connectionId: connection.id,
+      environmentId: 'env-dev',
+      editKind: 'update-document',
+      target: {
+        objectKind: 'document',
+        path: ['catalog', 'products', 'item-1'],
+        database: 'catalog',
+        collection: 'products',
+        documentId: 'item-1',
+      },
+      changes: [{
+        value: { _id: 'item-1', sku: 'nova', name: 'Nova Chair' },
+        valueType: 'json',
+      }],
+    })
+    const deletion = planDataEditLocally(connection, {
+      connectionId: connection.id,
+      environmentId: 'env-dev',
+      editKind: 'delete-document',
+      target: {
+        objectKind: 'document',
+        path: ['catalog', 'products', 'item-1'],
+        database: 'catalog',
+        collection: 'products',
+        documentId: 'item-1',
+      },
+      changes: [],
+    })
+
+    expect(JSON.parse(replace.plan.generatedRequest)).toMatchObject({
+      database: 'catalog',
+      collection: 'products',
+      operation: 'replaceOne',
+      filter: { _id: 'item-1' },
+      replacement: { _id: 'item-1', sku: 'nova' },
+    })
+    expect(deletion.plan.destructive).toBe(true)
+    expect(deletion.plan.confirmationText).toBe('CONFIRM MONGODB DELETE-DOCUMENT')
+    expect(JSON.parse(deletion.plan.generatedRequest)).toMatchObject({
+      database: 'catalog',
+      collection: 'products',
+      operation: 'deleteOne',
+      filter: { _id: 'item-1' },
     })
   })
 

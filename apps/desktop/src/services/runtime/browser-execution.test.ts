@@ -145,6 +145,32 @@ describe('browser execution runtime', () => {
     expect(result?.explainPayload).toMatchObject({ renderer: 'plan' })
   })
 
+  it('returns deterministic profile payloads in browser preview', () => {
+    const snapshot = createSeedSnapshot()
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-commerce-mysql')
+
+    if (!tab) {
+      throw new Error('Expected seed SQL query tab.')
+    }
+
+    const { snapshot: executed } = applyExecutionRequestLocally(snapshot, {
+      tabId: tab.id,
+      connectionId: tab.connectionId,
+      environmentId: tab.environmentId,
+      language: tab.language,
+      queryText: 'select sku from inventory_items limit 10',
+      mode: 'profile',
+    })
+    const result = executed.tabs.find((item) => item.id === tab.id)?.result
+
+    expect(result?.defaultRenderer).toBe('profile')
+    expect(result?.rendererModes[0]).toBe('profile')
+    expect(result?.payloads[0]).toMatchObject({
+      renderer: 'profile',
+      summary: expect.stringContaining('profile preview'),
+    })
+  })
+
   it('blocks browser preview execution that references secret environment variables', () => {
     const snapshot = createSeedSnapshot()
     const tab = snapshot.tabs.find((item) => item.id === 'tab-sql-ops')

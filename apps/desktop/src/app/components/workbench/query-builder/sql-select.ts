@@ -156,7 +156,7 @@ function sqlPredicate(
     return `${identifier} like ${sqlStringLiteral(`%${escapeSqlLikeValue(row.value)}%`)} escape '\\'`
   }
 
-  const value = sqlLiteral(row.value, row.valueType, row.operator)
+  const value = sqlLiteral(row.value, row.valueType, row.operator, engine)
   return `${identifier} ${SQL_OPERATORS[row.operator]} ${value}`
 }
 
@@ -217,13 +217,14 @@ function sqlLiteral(
   value: string,
   valueType: SqlBuilderValueType,
   operator: SqlSelectFilterOperator,
+  engine: ConnectionProfile['engine'],
 ): string {
   if (operator === 'in') {
     const values: string[] = value
       .split(',')
       .map((part) => part.trim())
       .filter(Boolean)
-      .map((part) => sqlLiteral(part, valueType, 'eq'))
+      .map((part) => sqlLiteral(part, valueType, 'eq', engine))
 
     return `(${values.join(', ') || 'null'})`
   }
@@ -238,7 +239,13 @@ function sqlLiteral(
   }
 
   if (valueType === 'boolean') {
-    return ['true', '1', 'yes'].includes(value.trim().toLowerCase()) ? 'true' : 'false'
+    const truthy = ['true', '1', 'yes'].includes(value.trim().toLowerCase())
+
+    if (engine === 'mysql' || engine === 'mariadb') {
+      return truthy ? '1' : '0'
+    }
+
+    return truthy ? 'true' : 'false'
   }
 
   return `'${value.replaceAll("'", "''")}'`

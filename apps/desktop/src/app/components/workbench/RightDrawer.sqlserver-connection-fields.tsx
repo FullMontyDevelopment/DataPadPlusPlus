@@ -1,4 +1,5 @@
 import type { ConnectionProfile, SqlServerConnectionOptions } from '@datapadplusplus/shared-types'
+import { sqlServerAuthSupport } from '../../../services/runtime/sqlserver-auth-disabled-reasons'
 import { FormField } from './RightDrawer.primitives'
 import type { UpdateConnectionDraft } from './RightDrawer.connection-modes'
 
@@ -17,6 +18,7 @@ export function SqlServerAdvancedFields({
         ...patch,
       },
     })
+  const authSupport = sqlServerAuthSupport(options)
 
   return (
     <div className="connection-advanced-section" aria-label="SQL Server connection options">
@@ -109,13 +111,77 @@ export function SqlServerAdvancedFields({
         </select>
       </FormField>
 
-      {options.authenticationMode && options.authenticationMode !== 'sql-server' ? (
-        <div className="drawer-callout">
-          <strong>Stored profile mode</strong>
-          <span>
-            This mode is saved for the connection profile. Live execution needs a configured token,
-            certificate, or platform runtime path.
-          </span>
+      {!authSupport.live ? (
+        <div className="drawer-callout" role="note" aria-label="SQL Server auth disabled reason">
+          <strong>Plan-only authentication</strong>
+          <span>{authSupport.disabledReason}</span>
+        </div>
+      ) : null}
+
+      {isAzureAuthMode(options.authenticationMode) ? (
+        <div className="connection-advanced-grid">
+          <FormField label="Azure tenant id">
+            <input
+              aria-label="SQL Server Azure tenant id"
+              value={options.azureTenantId ?? ''}
+              onChange={(event) =>
+                updateOptions({ azureTenantId: event.target.value || undefined })
+              }
+            />
+          </FormField>
+          <FormField label="Azure client id">
+            <input
+              aria-label="SQL Server Azure client id"
+              value={options.azureClientId ?? ''}
+              onChange={(event) =>
+                updateOptions({ azureClientId: event.target.value || undefined })
+              }
+            />
+          </FormField>
+        </div>
+      ) : null}
+
+      {options.authenticationMode === 'azure-ad-managed-identity' ? (
+        <FormField label="Managed identity client id">
+          <input
+            aria-label="SQL Server managed identity client id"
+            value={options.azureManagedIdentityClientId ?? ''}
+            onChange={(event) =>
+              updateOptions({ azureManagedIdentityClientId: event.target.value || undefined })
+            }
+          />
+        </FormField>
+      ) : null}
+
+      {options.authenticationMode === 'certificate' ? (
+        <div className="connection-advanced-grid">
+          <FormField label="Client certificate path">
+            <input
+              aria-label="SQL Server client certificate path"
+              value={options.clientCertificatePath ?? ''}
+              onChange={(event) =>
+                updateOptions({ clientCertificatePath: event.target.value || undefined })
+              }
+            />
+          </FormField>
+          <FormField label="Certificate thumbprint">
+            <input
+              aria-label="SQL Server certificate thumbprint"
+              value={options.certificateThumbprint ?? ''}
+              onChange={(event) =>
+                updateOptions({ certificateThumbprint: event.target.value || undefined })
+              }
+            />
+          </FormField>
+          <FormField label="Certificate store">
+            <input
+              aria-label="SQL Server certificate store"
+              value={options.certificateStore ?? ''}
+              onChange={(event) =>
+                updateOptions({ certificateStore: event.target.value || undefined })
+              }
+            />
+          </FormField>
         </div>
       ) : null}
 
@@ -257,4 +323,8 @@ export function SqlServerAdvancedFields({
       </FormField>
     </div>
   )
+}
+
+function isAzureAuthMode(mode: SqlServerConnectionOptions['authenticationMode']) {
+  return Boolean(mode && mode.startsWith('azure-ad-'))
 }

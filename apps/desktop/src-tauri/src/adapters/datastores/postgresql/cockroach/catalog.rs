@@ -136,6 +136,17 @@ pub(super) fn cockroach_operation_manifests(
         ),
         operation_manifest(
             manifest,
+            "cockroach.export",
+            "Export Data",
+            "table",
+            "costly",
+            &["supports_import_export"],
+            &["diff", "table", "raw"],
+            "Preview a guarded CockroachDB EXPORT workflow.",
+            true,
+        ),
+        operation_manifest(
+            manifest,
             "cockroach.zone-configs",
             "Review Zone Configs",
             "cluster",

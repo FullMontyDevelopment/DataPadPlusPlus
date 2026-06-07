@@ -38,10 +38,13 @@ const DESCRIPTORS: Record<string, PostgresObjectViewDescriptor> = {
   procedure: descriptor('procedure', 'Manage Procedure', 'PostgreSQL Procedure', 'Inspect procedure signature, source, ownership, dependencies, and guarded alter/drop previews.', 'No procedure metadata is loaded', 'Refresh this procedure to collect routine metadata.'),
   sequences: descriptor('sequences', 'Open Sequences', 'PostgreSQL Sequences', 'Review sequence ownership, increment, min/max, cache, and cycling metadata.', 'No sequences were returned', 'The schema may not contain sequences.'),
   types: descriptor('types', 'Open Types', 'PostgreSQL Types', 'Review enum, composite, domain, range, and extension-owned type metadata.', 'No types were returned', 'The schema may not contain user-defined types.'),
-  extensions: descriptor('extensions', 'Manage Extensions', 'PostgreSQL Extensions', 'Review installed extensions, versions, schemas, and upgrade availability hints.', 'No extensions were returned', 'Refresh extensions or check pg_extension access.'),
+  extensions: descriptor('extensions', 'Manage Extensions', 'PostgreSQL Extensions', 'Review installed extensions, versions, schemas, upgrade availability, and extension-owned objects.', 'No extensions were returned', 'Refresh extensions or check pg_extension access.'),
+  extension: descriptor('extension', 'Open Extension', 'PostgreSQL Extension', 'Inspect one installed extension, available-version hints, and extension-owned catalog objects.', 'No extension metadata is loaded', 'Refresh this extension or check pg_extension access.'),
   security: descriptor('security', 'Review Security', 'PostgreSQL Security', 'Review roles, grants, ownership, row-level security, and permission-sensitive warnings.', 'No security metadata is loaded', 'Refresh security metadata or check catalog access.'),
   roles: descriptor('roles', 'Review Roles', 'PostgreSQL Roles', 'Review login roles, inheritance, replication/superuser flags, and membership hints.', 'No roles were returned', 'Role metadata may be restricted.'),
+  'role-memberships': descriptor('role-memberships', 'Review Memberships', 'PostgreSQL Role Memberships', 'Review role inheritance, grantors, and admin-option flags.', 'No role memberships were returned', 'Role membership metadata may be restricted.'),
   permissions: descriptor('permissions', 'Review Permissions', 'PostgreSQL Permissions', 'Review table, schema, function, and sequence grants for the selected scope.', 'No permissions were returned', 'The current user may not be allowed to inspect grants.'),
+  'default-privileges': descriptor('default-privileges', 'Review Defaults', 'PostgreSQL Default Privileges', 'Review ALTER DEFAULT PRIVILEGES coverage for future tables, sequences, functions, types, and schemas.', 'No default privileges were returned', 'The current database may not define default privilege overrides.'),
   diagnostics: descriptor('diagnostics', 'Open Diagnostics', 'PostgreSQL Diagnostics', 'Review sessions, locks, wait events, database stats, cache/IO, and query-performance surfaces.', 'No diagnostics are loaded', 'Refresh diagnostics to collect available pg_stat metadata.'),
   sessions: descriptor('sessions', 'Review Sessions', 'PostgreSQL Sessions', 'Review pg_stat_activity sessions, wait events, state, and blocking hints.', 'No sessions were returned', 'pg_stat_activity may be restricted for this role.'),
   locks: descriptor('locks', 'Review Locks', 'PostgreSQL Locks', 'Review lock modes, granted state, relations, and blocking risk.', 'No locks were returned', 'There may be no visible locks or pg_locks access may be restricted.'),
@@ -108,6 +111,14 @@ function normalizePostgresObjectKind(kind: string) {
 
   if (normalized === 'wait-events') {
     return 'waits'
+  }
+
+  if (normalized === 'memberships' || normalized === 'role-membership') {
+    return 'role-memberships'
+  }
+
+  if (normalized === 'default-privilege' || normalized === 'defaults') {
+    return 'default-privileges'
   }
 
   return normalized

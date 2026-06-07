@@ -6,6 +6,7 @@ import {
   redisDatabaseIndex,
   stringValue,
 } from './RedisObjectViewFormatters'
+import { isRedisModuleViewKind } from './RedisObjectViewModuleNormalizers'
 import type { JsonRecord } from './RedisObjectViewTypes'
 
 export function redisQueryTargetFromObjectView(
@@ -54,6 +55,21 @@ export function isRedisTypeFolderKind(kind: string) {
     'search-index',
     'vectorset',
   ].includes(kind)
+}
+
+export function isRedisStreamKind(kind: string) {
+  return [
+    'stream-detail',
+    'stream-entries',
+    'stream-groups',
+    'stream-group',
+    'stream-consumers',
+    'stream-pending',
+  ].includes(kind)
+}
+
+export function isRedisModuleKind(kind: string | undefined) {
+  return isRedisModuleViewKind(kind)
 }
 
 export function isRedisDiagnosticsKind(kind: string) {

@@ -13,6 +13,14 @@ describe('TimescaleObjectViewInsights', () => {
           chunkCount: 11,
           continuousAggregateCount: 1,
           jobCount: 3,
+          timescaleProfile: {
+            deploymentMode: 'timescale-cloud',
+            region: 'aws-us-east-1',
+            extensionVersion: '2.15.0',
+            license: 'timescale',
+            policyExecution: 'Preview only',
+            disabledReason: 'Live policy execution is disabled.',
+          },
           hypertables: [
             { schema: 'public', name: 'order_metrics', chunks: 8, compressed: 'Yes', retention: '90 days', size: '1.8 GB' },
           ],
@@ -40,6 +48,7 @@ describe('TimescaleObjectViewInsights', () => {
       />,
     )
 
+    expect(within(screen.getByRole('region', { name: 'Timescale profile posture' })).getByText('timescale-cloud')).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Timescale hypertable posture' })).getByText('order_metrics')).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Timescale policy posture' })).getByText('Policies')).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Timescale continuous aggregate posture' })).getByText('hourly_order_metrics')).toBeInTheDocument()

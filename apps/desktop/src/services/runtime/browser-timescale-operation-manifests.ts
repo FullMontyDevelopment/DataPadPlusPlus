@@ -1,4 +1,5 @@
 import type { ConnectionProfile, OperationManifestResponse } from '@datapadplusplus/shared-types'
+import { timescalePolicyDisabledReason } from './timescale-capabilities'
 
 export function buildTimescaleOperationManifests(
   connection: ConnectionProfile,
@@ -9,9 +10,9 @@ export function buildTimescaleOperationManifests(
   }
 
   return [
-    timescaleOperation(connection, 'timescaledb.timescale.compression-policy', 'Compression Policy', 'table', 'write', 'Preview adding or updating a TimescaleDB compression policy.'),
-    timescaleOperation(connection, 'timescaledb.timescale.retention-policy', 'Retention Policy', 'table', 'destructive', 'Preview adding or updating a TimescaleDB retention policy.'),
-    timescaleOperation(connection, 'timescaledb.timescale.refresh-continuous-aggregate', 'Refresh Aggregate', 'query', 'costly', 'Preview refreshing a TimescaleDB continuous aggregate.'),
+    timescaleOperation(connection, 'timescaledb.timescale.compression-policy', 'Compression Policy', 'table', 'write', 'Preview adding or updating a TimescaleDB compression policy.', 'compression'),
+    timescaleOperation(connection, 'timescaledb.timescale.retention-policy', 'Retention Policy', 'table', 'destructive', 'Preview adding or updating a TimescaleDB retention policy.', 'retention'),
+    timescaleOperation(connection, 'timescaledb.timescale.refresh-continuous-aggregate', 'Refresh Aggregate', 'query', 'costly', 'Preview refreshing a TimescaleDB continuous aggregate.', 'aggregate'),
   ]
 }
 
@@ -22,6 +23,7 @@ function timescaleOperation(
   scope: OperationManifestResponse['operations'][number]['scope'],
   risk: OperationManifestResponse['operations'][number]['risk'],
   description: string,
+  disabledKind: 'compression' | 'retention' | 'aggregate',
 ): OperationManifestResponse['operations'][number] {
   return {
     id,
@@ -35,7 +37,7 @@ function timescaleOperation(
     description,
     requiresConfirmation: true,
     executionSupport: 'plan-only',
-    disabledReason: 'TimescaleDB policy and refresh execution is guarded and adapter-specific.',
+    disabledReason: timescalePolicyDisabledReason(connection, disabledKind),
     previewOnly: true,
   }
 }

@@ -175,7 +175,7 @@ export function booleanState(value: unknown) {
 
 export function humanize(value: string) {
   return value
-    .replace(/[_-]+/g, ' ')
+    .replace(/[._-]+/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/\b\w/g, (match) => match.toUpperCase())
 }

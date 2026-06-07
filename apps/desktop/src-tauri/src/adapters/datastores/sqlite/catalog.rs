@@ -83,6 +83,17 @@ pub(super) fn sqlite_operation_manifests(
         ),
         operation_manifest(
             manifest,
+            "database.backup",
+            "Backup Database",
+            "database",
+            "costly",
+            &["supports_backup_restore"],
+            &["diff", "metrics", "raw"],
+            "Create a guarded SQLite file backup with VACUUM INTO.",
+            true,
+        ),
+        operation_manifest(
+            manifest,
             "table.analyze",
             "Analyze Table",
             "table",
@@ -90,6 +101,28 @@ pub(super) fn sqlite_operation_manifests(
             &["supports_admin_operations"],
             &["profile", "metrics", "raw"],
             "Preview refreshing SQLite planner statistics for a table or view.",
+            true,
+        ),
+        operation_manifest(
+            manifest,
+            "table.export",
+            "Export Table",
+            "table",
+            "costly",
+            &["supports_import_export"],
+            &["table", "json", "raw"],
+            "Export a SQLite table or view through the guarded native file workflow.",
+            true,
+        ),
+        operation_manifest(
+            manifest,
+            "table.import",
+            "Import Rows",
+            "table",
+            "write",
+            &["supports_import_export"],
+            &["diff", "table", "raw"],
+            "Import CSV, JSON, or NDJSON rows into an existing SQLite table through the guarded native file workflow.",
             true,
         ),
         operation_manifest(
@@ -104,6 +137,17 @@ pub(super) fn sqlite_operation_manifests(
             true,
         ),
     ]);
+    for operation in &mut operations {
+        if matches!(
+            operation.id.as_str(),
+            "sqlite.database.backup" | "sqlite.table.export" | "sqlite.table.import"
+        ) {
+            operation.execution_support = "live".into();
+            operation.disabled_reason = None;
+            operation.preview_only = Some(false);
+        }
+    }
+
     operations
 }
 
@@ -125,7 +169,17 @@ mod tests {
             .iter()
             .any(|capability| capability == "supports_admin_operations"));
         assert!(ids.contains(&"sqlite.database.integrity-check"));
+        assert!(ids.contains(&"sqlite.database.backup"));
+        assert!(ids.contains(&"sqlite.table.export"));
+        assert!(ids.contains(&"sqlite.table.import"));
         assert!(ids.contains(&"sqlite.database.vacuum"));
         assert!(ids.contains(&"sqlite.index.reindex"));
+        assert_eq!(
+            operations
+                .iter()
+                .find(|operation| operation.id == "sqlite.table.export")
+                .map(|operation| operation.execution_support.as_str()),
+            Some("live")
+        );
     }
 }

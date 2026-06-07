@@ -177,6 +177,42 @@ describe('MongoExplainPlanView', () => {
     expect(model.raw).toBeDefined()
   })
 
+  it('normalizes SQL Server XML Showplan operator tables', () => {
+    const model = normalizeGenericPlanPayload({
+      statement: 'select * from [dbo].[Accounts]',
+      format: 'showplan_xml',
+      plan: [
+        'Clustered Index Scan on [datapadplusplus].[dbo].[Accounts].[PK_Accounts] [rows 42, cost 0.008]',
+      ],
+      columns: [
+        'Physical Operation',
+        'Logical Operation',
+        'Estimated Rows',
+        'Estimated Cost',
+        'Object',
+        'Predicate',
+      ],
+      rows: [[
+        'Clustered Index Scan',
+        'Clustered Index Scan',
+        '42',
+        '0.008',
+        '[datapadplusplus].[dbo].[Accounts].[PK_Accounts]',
+        '[dbo].[Accounts].[active]=(1)',
+      ]],
+      operators: [{
+        physicalOp: 'Clustered Index Scan',
+        logicalOp: 'Clustered Index Scan',
+        estimatedRows: '42',
+      }],
+    })
+
+    expect(model.lines[0]).toContain('Clustered Index Scan')
+    expect(model.table?.columns).toContain('Physical Operation')
+    expect(model.table?.rows[0]?.[4]).toBe('[datapadplusplus].[dbo].[Accounts].[PK_Accounts]')
+    expect(model.raw).toBeDefined()
+  })
+
   it('keeps unfamiliar MongoDB explain details behind a disclosure', () => {
     render(
       <ResultPayloadView

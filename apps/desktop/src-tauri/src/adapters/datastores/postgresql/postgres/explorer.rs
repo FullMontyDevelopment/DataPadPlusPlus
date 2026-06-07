@@ -575,9 +575,12 @@ async fn extension_nodes(
     schema: &str,
 ) -> Vec<ExplorerNode> {
     sqlx::query(
-        "select e.extname, e.extversion
+        "select e.extname,
+                e.extversion,
+                coalesce(a.default_version, '') as default_version
          from pg_extension e
          join pg_namespace n on n.oid = e.extnamespace
+         left join pg_available_extensions a on a.name = e.extname
          where n.nspname = $1
          order by e.extname",
     )
@@ -589,12 +592,20 @@ async fn extension_nodes(
     .map(|row| {
         let name = row.get::<String, _>("extname");
         let version = row.try_get::<String, _>("extversion").unwrap_or_default();
+        let default_version = row
+            .try_get::<String, _>("default_version")
+            .unwrap_or_default();
+        let detail = if !default_version.is_empty() && default_version != version {
+            format!("{version} / update {default_version}")
+        } else {
+            version
+        };
         postgres_node(
             connection,
             &format!("extension:{schema}:{name}"),
             &name,
             "extension",
-            &version,
+            &detail,
             None,
             section_path(connection, schema, "Extensions"),
             false,
@@ -729,6 +740,28 @@ fn security_child_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerN
             false,
             None,
         ),
+        postgres_node(
+            connection,
+            "postgres:security:role-memberships",
+            "Role Memberships",
+            "role-memberships",
+            "Role inheritance, grants, and admin option flags",
+            None,
+            vec!["Security".into()],
+            false,
+            None,
+        ),
+        postgres_node(
+            connection,
+            "postgres:security:default-privileges",
+            "Default Privileges",
+            "default-privileges",
+            "ALTER DEFAULT PRIVILEGES coverage for future objects",
+            None,
+            vec!["Security".into()],
+            false,
+            None,
+        ),
     ]
 }
 
@@ -784,6 +817,7 @@ async fn postgres_inspect_payload(
         }
         "view" => view_payload(pool, &target.schema, &target.object_name, false).await,
         "materialized-view" => view_payload(pool, &target.schema, &target.object_name, true).await,
+        "extension" => extension_payload(pool, &target.schema, &target.object_name).await,
         "schema" | "tables" | "views" | "materialized-views" | "functions" | "procedures"
         | "sequences" | "types" | "extensions" => schema_payload(pool, &target.schema).await,
         "index" => index_payload(pool, &target.schema, &target.object_name).await,
@@ -834,7 +868,8 @@ async fn schema_payload(pool: &PgPool, schema: &str) -> Value {
         "procedures": routine_rows(pool, schema, "p", None).await,
         "sequences": sequence_rows(pool, schema, None).await,
         "types": type_rows(pool, schema, None).await,
-        "extensions": extension_rows(pool, schema).await,
+        "extensions": extension_rows(pool, schema, None).await,
+        "extensionObjects": extension_object_rows(pool, schema, None).await,
     })
 }
 
@@ -892,6 +927,15 @@ async fn index_payload(pool: &PgPool, schema: &str, index: &str) -> Value {
     })
 }
 
+async fn extension_payload(pool: &PgPool, schema: &str, extension: &str) -> Value {
+    json!({
+        "schema": schema,
+        "objectName": extension,
+        "extensions": extension_rows(pool, schema, Some(extension)).await,
+        "extensionObjects": extension_object_rows(pool, schema, Some(extension)).await,
+    })
+}
+
 async fn routine_payload(pool: &PgPool, schema: &str, routine: &str, kind: &str) -> Value {
     let prokind = if kind == "procedure" { "p" } else { "f" };
     let routines = routine_rows(pool, schema, prokind, Some(routine)).await;
@@ -915,6 +959,8 @@ async fn security_payload(pool: &PgPool, schema: &str) -> Value {
         "schema": schema,
         "roles": role_rows(pool).await,
         "permissions": permission_rows(pool, schema, None).await,
+        "roleMemberships": role_membership_rows(pool).await,
+        "defaultPrivileges": default_privilege_rows(pool, schema).await,
     })
 }
 
@@ -1404,29 +1450,95 @@ async fn type_rows(pool: &PgPool, schema: &str, type_filter: Option<&str>) -> Ve
         .collect()
 }
 
-async fn extension_rows(pool: &PgPool, schema: &str) -> Vec<Value> {
-    sqlx::query(
-        "select e.extname, e.extversion, n.nspname as schema, d.description
+async fn extension_rows(pool: &PgPool, schema: &str, extension_filter: Option<&str>) -> Vec<Value> {
+    let mut query = String::from(
+        "select e.extname,
+                e.extversion,
+                n.nspname as schema,
+                coalesce(a.default_version, '') as default_version,
+                case
+                    when a.default_version is not null and a.default_version <> e.extversion then 'update available'
+                    else 'installed'
+                end as status,
+                coalesce(a.comment, d.description, '') as description
          from pg_extension e
          join pg_namespace n on n.oid = e.extnamespace
          left join pg_description d on d.objoid = e.oid and d.objsubid = 0
-         where n.nspname = $1
-         order by e.extname",
-    )
-    .bind(schema)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|row| {
-        json!({
-            "name": row.get::<String, _>("extname"),
-            "version": row.get::<String, _>("extversion"),
-            "schema": row.get::<String, _>("schema"),
-            "description": row.try_get::<Option<String>, _>("description").unwrap_or_default().unwrap_or_default(),
+         left join pg_available_extensions a on a.name = e.extname
+         where n.nspname = $1",
+    );
+    if extension_filter.is_some() {
+        query.push_str(" and e.extname = $2");
+    }
+    query.push_str(" order by e.extname");
+
+    let mut sql = sqlx::query(&query).bind(schema);
+    if let Some(extension) = extension_filter {
+        sql = sql.bind(extension);
+    }
+
+    sql.fetch_all(pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| {
+            json!({
+                "name": row.get::<String, _>("extname"),
+                "version": row.get::<String, _>("extversion"),
+                "schema": row.get::<String, _>("schema"),
+                "defaultVersion": row.try_get::<String, _>("default_version").unwrap_or_default(),
+                "status": row.get::<String, _>("status"),
+                "updateAvailable": row.get::<String, _>("status") == "update available",
+                "description": row.try_get::<String, _>("description").unwrap_or_default(),
+            })
         })
-    })
-    .collect()
+        .collect()
+}
+
+async fn extension_object_rows(
+    pool: &PgPool,
+    schema: &str,
+    extension_filter: Option<&str>,
+) -> Vec<Value> {
+    let mut query = String::from(
+        "select e.extname as extension,
+                d.classid::regclass::text as catalog,
+                pg_describe_object(d.classid, d.objid, d.objsubid) as object,
+                case d.deptype
+                    when 'e' then 'extension member'
+                    when 'n' then 'normal dependency'
+                    when 'a' then 'auto dependency'
+                    when 'i' then 'internal dependency'
+                    else d.deptype::text
+                end as dependency
+         from pg_depend d
+         join pg_extension e on e.oid = d.refobjid
+         join pg_namespace n on n.oid = e.extnamespace
+         where n.nspname = $1",
+    );
+    if extension_filter.is_some() {
+        query.push_str(" and e.extname = $2");
+    }
+    query.push_str(" order by e.extname, object limit 300");
+
+    let mut sql = sqlx::query(&query).bind(schema);
+    if let Some(extension) = extension_filter {
+        sql = sql.bind(extension);
+    }
+
+    sql.fetch_all(pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| {
+            json!({
+                "extension": row.get::<String, _>("extension"),
+                "catalog": row.get::<String, _>("catalog"),
+                "object": row.get::<String, _>("object"),
+                "dependency": row.get::<String, _>("dependency"),
+            })
+        })
+        .collect()
 }
 
 async fn relation_statistics(
@@ -1473,11 +1585,30 @@ async fn relation_statistics(
 }
 
 async fn permission_rows(pool: &PgPool, schema: &str, object_filter: Option<&str>) -> Vec<Value> {
+    let mut rows = table_permission_rows(pool, schema, object_filter).await;
+    rows.extend(routine_permission_rows(pool, schema, object_filter).await);
+    rows.extend(sequence_permission_rows(pool, schema, object_filter).await);
+    if object_filter.is_none() {
+        rows.extend(schema_permission_rows(pool, schema).await);
+    }
+
+    rows.sort_by_key(permission_sort_key);
+    rows.truncate(240);
+    rows
+}
+
+async fn table_permission_rows(
+    pool: &PgPool,
+    schema: &str,
+    object_filter: Option<&str>,
+) -> Vec<Value> {
     let mut query = String::from(
         "select grantee,
                 privilege_type,
                 table_schema || '.' || table_name as object,
-                'granted' as state,
+                'relation' as object_type,
+                case when is_grantable = 'YES' then 'grantable' else 'granted' end as state,
+                is_grantable,
                 grantor
          from information_schema.table_privileges
          where table_schema = $1",
@@ -1501,23 +1632,244 @@ async fn permission_rows(pool: &PgPool, schema: &str, object_filter: Option<&str
                 "principal": row.get::<String, _>("grantee"),
                 "privilege": row.get::<String, _>("privilege_type"),
                 "object": row.get::<String, _>("object"),
+                "objectKind": row.get::<String, _>("object_type"),
                 "state": row.get::<String, _>("state"),
                 "grantor": row.get::<String, _>("grantor"),
+                "grantable": row.get::<String, _>("is_grantable") == "YES",
             })
         })
         .collect()
 }
 
+async fn routine_permission_rows(
+    pool: &PgPool,
+    schema: &str,
+    object_filter: Option<&str>,
+) -> Vec<Value> {
+    let mut query = String::from(
+        "select grantee,
+                privilege_type,
+                routine_schema || '.' || routine_name as object,
+                'routine' as object_type,
+                case when is_grantable = 'YES' then 'grantable' else 'granted' end as state,
+                is_grantable,
+                grantor
+         from information_schema.routine_privileges
+         where routine_schema = $1",
+    );
+    if object_filter.is_some() {
+        query.push_str(" and routine_name = $2");
+    }
+    query.push_str(" order by routine_name, grantee, privilege_type limit 200");
+
+    let mut sql = sqlx::query(&query).bind(schema);
+    if let Some(object) = object_filter {
+        sql = sql.bind(object);
+    }
+
+    sql.fetch_all(pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| {
+            json!({
+                "principal": row.get::<String, _>("grantee"),
+                "privilege": row.get::<String, _>("privilege_type"),
+                "object": row.get::<String, _>("object"),
+                "objectKind": row.get::<String, _>("object_type"),
+                "state": row.get::<String, _>("state"),
+                "grantor": row.get::<String, _>("grantor"),
+                "grantable": row.get::<String, _>("is_grantable") == "YES",
+            })
+        })
+        .collect()
+}
+
+async fn sequence_permission_rows(
+    pool: &PgPool,
+    schema: &str,
+    object_filter: Option<&str>,
+) -> Vec<Value> {
+    let mut query = String::from(
+        "select grantee,
+                privilege_type,
+                object_schema || '.' || object_name as object,
+                lower(object_type) as object_type,
+                case when is_grantable = 'YES' then 'grantable' else 'granted' end as state,
+                is_grantable,
+                grantor
+         from information_schema.usage_privileges
+         where object_schema = $1 and object_type = 'SEQUENCE'",
+    );
+    if object_filter.is_some() {
+        query.push_str(" and object_name = $2");
+    }
+    query.push_str(" order by object_name, grantee, privilege_type limit 200");
+
+    let mut sql = sqlx::query(&query).bind(schema);
+    if let Some(object) = object_filter {
+        sql = sql.bind(object);
+    }
+
+    sql.fetch_all(pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| {
+            json!({
+                "principal": row.get::<String, _>("grantee"),
+                "privilege": row.get::<String, _>("privilege_type"),
+                "object": row.get::<String, _>("object"),
+                "objectKind": row.get::<String, _>("object_type"),
+                "state": row.get::<String, _>("state"),
+                "grantor": row.get::<String, _>("grantor"),
+                "grantable": row.get::<String, _>("is_grantable") == "YES",
+            })
+        })
+        .collect()
+}
+
+async fn schema_permission_rows(pool: &PgPool, schema: &str) -> Vec<Value> {
+    sqlx::query(
+        "select case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as grantee,
+                acl.privilege_type,
+                n.nspname as object,
+                'schema' as object_type,
+                case when acl.is_grantable then 'grantable' else 'granted' end as state,
+                acl.is_grantable,
+                pg_get_userbyid(acl.grantor) as grantor
+         from pg_namespace n
+         cross join lateral aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) acl
+         where n.nspname = $1
+         order by grantee, privilege_type",
+    )
+    .bind(schema)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|row| {
+        json!({
+            "principal": row.get::<String, _>("grantee"),
+            "privilege": row.get::<String, _>("privilege_type"),
+            "object": row.get::<String, _>("object"),
+            "objectKind": row.get::<String, _>("object_type"),
+            "state": row.get::<String, _>("state"),
+            "grantor": row.get::<String, _>("grantor"),
+            "grantable": row.get::<bool, _>("is_grantable"),
+        })
+    })
+    .collect()
+}
+
+fn permission_sort_key(value: &Value) -> (String, String, String) {
+    (
+        value
+            .get("object")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        value
+            .get("principal")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        value
+            .get("privilege")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    )
+}
+
+async fn role_membership_rows(pool: &PgPool) -> Vec<Value> {
+    sqlx::query(
+        "select member.rolname as role,
+                parent.rolname as member_of,
+                grantor.rolname as grantor,
+                m.admin_option
+         from pg_auth_members m
+         join pg_roles member on member.oid = m.member
+         join pg_roles parent on parent.oid = m.roleid
+         left join pg_roles grantor on grantor.oid = m.grantor
+         order by member.rolname, parent.rolname
+         limit 300",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|row| {
+        json!({
+            "role": row.get::<String, _>("role"),
+            "memberOf": row.get::<String, _>("member_of"),
+            "grantor": row.try_get::<String, _>("grantor").unwrap_or_default(),
+            "adminOption": row.get::<bool, _>("admin_option"),
+        })
+    })
+    .collect()
+}
+
+async fn default_privilege_rows(pool: &PgPool, schema: &str) -> Vec<Value> {
+    sqlx::query(
+        "select coalesce(n.nspname, '(database)') as schema,
+                pg_get_userbyid(d.defaclrole) as owner,
+                case d.defaclobjtype
+                    when 'r' then 'tables'
+                    when 'S' then 'sequences'
+                    when 'f' then 'functions'
+                    when 'T' then 'types'
+                    when 'n' then 'schemas'
+                    else d.defaclobjtype::text
+                end as object_type,
+                case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as principal,
+                acl.privilege_type,
+                acl.is_grantable,
+                pg_get_userbyid(acl.grantor) as grantor
+         from pg_default_acl d
+         left join pg_namespace n on n.oid = d.defaclnamespace
+         cross join lateral aclexplode(d.defaclacl) acl
+         where n.nspname = $1 or d.defaclnamespace = 0
+         order by schema, owner, object_type, principal, privilege_type
+         limit 200",
+    )
+    .bind(schema)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|row| {
+        let grantable = row.get::<bool, _>("is_grantable");
+        json!({
+            "schema": row.get::<String, _>("schema"),
+            "owner": row.get::<String, _>("owner"),
+            "objectKind": row.get::<String, _>("object_type"),
+            "principal": row.get::<String, _>("principal"),
+            "privilege": row.get::<String, _>("privilege_type"),
+            "state": if grantable { "grantable" } else { "granted" },
+            "grantor": row.get::<String, _>("grantor"),
+            "grantable": grantable,
+        })
+    })
+    .collect()
+}
+
 async fn role_rows(pool: &PgPool) -> Vec<Value> {
     sqlx::query(
         "select rolname, rolcanlogin, rolsuper, rolinherit,
+                rolcreaterole, rolcreatedb, rolreplication, rolbypassrls, rolvaliduntil::text,
                 coalesce(array_to_string(array(
                     select parent.rolname
                     from pg_auth_members m
                     join pg_roles parent on parent.oid = m.roleid
                     where m.member = r.oid
                     order by parent.rolname
-                ), ', '), '') as memberships
+                ), ', '), '') as memberships,
+                coalesce((
+                    select count(*)::bigint
+                    from pg_auth_members m
+                    where m.roleid = r.oid
+                ), 0)::bigint as member_count
          from pg_roles r
          order by rolname
          limit 200",
@@ -1532,7 +1884,13 @@ async fn role_rows(pool: &PgPool) -> Vec<Value> {
             "login": row.get::<bool, _>("rolcanlogin"),
             "superuser": row.get::<bool, _>("rolsuper"),
             "inherit": row.get::<bool, _>("rolinherit"),
+            "createRole": row.get::<bool, _>("rolcreaterole"),
+            "createDb": row.get::<bool, _>("rolcreatedb"),
+            "replication": row.get::<bool, _>("rolreplication"),
+            "bypassRls": row.get::<bool, _>("rolbypassrls"),
+            "validUntil": row.try_get::<Option<String>, _>("rolvaliduntil").unwrap_or_default().unwrap_or_default(),
             "memberships": row.try_get::<String, _>("memberships").unwrap_or_default(),
+            "memberCount": row.get::<i64, _>("member_count"),
         })
     })
     .collect()
@@ -1695,6 +2053,12 @@ impl PostgresObjectTarget {
                 ["security", "permissions"] => {
                     Self::new("permissions-root", "public".into(), String::new())
                 }
+                ["security", "role-memberships"] => {
+                    Self::new("role-memberships", "public".into(), String::new())
+                }
+                ["security", "default-privileges"] => {
+                    Self::new("default-privileges", "public".into(), String::new())
+                }
                 ["diagnostics"] => Self::new("diagnostics", "public".into(), String::new()),
                 ["diagnostics", "sessions"] => {
                     Self::new("sessions", "public".into(), String::new())
@@ -1766,8 +2130,19 @@ fn postgres_inspect_query_template(
         }
         "diagnostics" | "sessions" => "select pid, usename, datname, state, wait_event_type, wait_event from pg_stat_activity order by query_start desc nulls last limit 100;".into(),
         "locks" => "select locktype, mode, granted, relation::regclass::text as relation from pg_locks limit 100;".into(),
-        "security" | "roles" | "permissions-root" => {
-            "select rolname, rolcanlogin, rolsuper, rolinherit from pg_roles order by rolname;".into()
+        "security" | "roles" | "permissions-root" | "role-memberships"
+        | "default-privileges" => [
+            "select rolname, rolcanlogin, rolsuper, rolinherit, rolcreaterole, rolcreatedb from pg_roles order by rolname;",
+            "select member.rolname as role, parent.rolname as member_of, m.admin_option from pg_auth_members m join pg_roles member on member.oid = m.member join pg_roles parent on parent.oid = m.roleid order by role, member_of;",
+            "select grantee, privilege_type, table_schema, table_name, is_grantable from information_schema.role_table_grants order by table_schema, table_name, grantee;",
+            "select * from pg_default_acl order by defaclnamespace, defaclrole;",
+        ].join("\n"),
+        "extension" if !target.object_name.is_empty() => {
+            format!(
+                "select e.extname, e.extversion, n.nspname as schema, a.default_version, a.comment from pg_extension e join pg_namespace n on n.oid = e.extnamespace left join pg_available_extensions a on a.name = e.extname where n.nspname = '{}' and e.extname = '{}';",
+                sql_literal(&target.schema),
+                sql_literal(&target.object_name)
+            )
         }
         "schema" | "tables" | "views" | "materialized-views" | "functions" | "procedures" | "sequences" | "types" | "extensions" => {
             format!("select schemaname, tablename from pg_catalog.pg_tables where schemaname = '{}' order by tablename;", sql_literal(&target.schema))
@@ -2023,6 +2398,28 @@ mod tests {
             PostgresObjectTarget::parse(&connection, "postgres:diagnostics:locks"),
             PostgresObjectTarget::new("locks", "public".into(), String::new())
         );
+        assert_eq!(
+            PostgresObjectTarget::parse(&connection, "postgres:security:role-memberships"),
+            PostgresObjectTarget::new("role-memberships", "public".into(), String::new())
+        );
+        assert_eq!(
+            PostgresObjectTarget::parse(&connection, "extension:public:uuid-ossp"),
+            PostgresObjectTarget::new("extension", "public".into(), "uuid-ossp".into())
+        );
+    }
+
+    #[test]
+    fn inspect_postgres_explorer_node_uses_native_security_and_extension_queries() {
+        let connection = connection();
+        let security_query =
+            postgres_inspect_query_template(&connection, "postgres:security:default-privileges");
+        let extension_query =
+            postgres_inspect_query_template(&connection, "extension:public:uuid-ossp");
+
+        assert!(security_query.contains("pg_auth_members"));
+        assert!(security_query.contains("pg_default_acl"));
+        assert!(extension_query.contains("pg_available_extensions"));
+        assert!(extension_query.contains("e.extname = 'uuid-ossp'"));
     }
 
     #[test]
@@ -2107,6 +2504,8 @@ mod tests {
             redis_options: None,
             memcached_options: None,
             sqlite_options: None,
+            postgres_options: None,
+            mysql_options: None,
             sqlserver_options: None,
             oracle_options: None,
             dynamo_db_options: None,

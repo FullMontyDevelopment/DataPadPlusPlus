@@ -36,7 +36,7 @@ import type {
   StructureNode,
 } from './workspace'
 
-export type QueryExecutionMode = 'full' | 'selection' | 'explain'
+export type QueryExecutionMode = 'full' | 'selection' | 'explain' | 'profile'
 
 export const DATASTORE_OPERATION_RISKS = [
   'read',

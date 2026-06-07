@@ -336,6 +336,183 @@ describe('runtime request validation', () => {
     ).toThrow(/embedded passwords/)
   })
 
+  it('normalizes PostgreSQL-family and CockroachDB profile options', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-cockroach',
+      name: ' CockroachDB ',
+      engine: 'cockroachdb',
+      family: 'sql',
+      host: ' localhost ',
+      port: 26257,
+      database: ' defaultdb ',
+      environmentIds: ['env-qa'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'cockroachdb',
+      auth: {},
+      postgresOptions: {
+        connectMode: 'tcp',
+        applicationName: ' DataPad++ QA ',
+        searchPath: ' public ',
+        targetSessionAttrs: 'read-write',
+        connectTimeoutMs: 2_500,
+        useTls: true,
+        verifyServerCertificate: true,
+        cockroachDeploymentMode: 'cockroach-cloud-dedicated',
+        cockroachOrganization: ' DataPad Labs ',
+        cockroachClusterName: ' analytics-crdb ',
+        cockroachClusterId: ' crl-123 ',
+        cockroachCloudRegion: ' aws-us-east-1 ',
+        cockroachDefaultRegion: ' us-east ',
+        cockroachLocality: ' region=us-east,az=a ',
+        cockroachServerVersion: ' v24.3 ',
+        cockroachBuildTag: ' v24.3.5 ',
+        cockroachAuthDisabledReason: ' OIDC is plan-only. ',
+        cockroachTlsDisabledReason: ' Custom CA is plan-only. ',
+        cockroachCapabilities: {
+          inspectJobs: true,
+          inspectRanges: false,
+          inspectRegions: true,
+          inspectClusterStatus: true,
+          inspectClusterSettings: false,
+          inspectSessions: true,
+          inspectContention: false,
+          inspectRolesAndGrants: true,
+          inspectCertificates: false,
+          inspectZoneConfigurations: true,
+          explainAnalyze: false,
+        },
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile.postgresOptions).toMatchObject({
+      applicationName: 'DataPad++ QA',
+      searchPath: 'public',
+      cockroachOrganization: 'DataPad Labs',
+      cockroachClusterName: 'analytics-crdb',
+      cockroachClusterId: 'crl-123',
+      cockroachCloudRegion: 'aws-us-east-1',
+      cockroachDefaultRegion: 'us-east',
+      cockroachLocality: 'region=us-east,az=a',
+      cockroachServerVersion: 'v24.3',
+      cockroachBuildTag: 'v24.3.5',
+      cockroachAuthDisabledReason: 'OIDC is plan-only.',
+      cockroachTlsDisabledReason: 'Custom CA is plan-only.',
+      cockroachCapabilities: expect.objectContaining({
+        inspectRanges: false,
+        inspectContention: false,
+        explainAnalyze: false,
+      }),
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        postgresOptions: {
+          cockroachDeploymentMode: 'cloud',
+        } as unknown as typeof profile.postgresOptions,
+      }),
+    ).toThrow(/Unsupported CockroachDB deployment mode/)
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        postgresOptions: {
+          cockroachCapabilities: {
+            inspectRanges: 'yes',
+          },
+        } as unknown as typeof profile.postgresOptions,
+      }),
+    ).toThrow(/range-inspection capability/)
+  })
+
+  it('normalizes TimescaleDB profile metadata and capability toggles', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-timescale',
+      name: ' TimescaleDB ',
+      engine: 'timescaledb',
+      family: 'timeseries',
+      host: ' localhost ',
+      port: 5432,
+      database: ' metrics ',
+      environmentIds: ['env-qa'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'timescaledb',
+      auth: {},
+      postgresOptions: {
+        connectMode: 'tcp',
+        timescaleDeploymentMode: 'timescale-cloud',
+        timescaleProject: ' DataPad Observability ',
+        timescaleServiceId: ' tsdb-123 ',
+        timescaleRegion: ' aws-us-east-1 ',
+        timescaleExtensionSchema: ' public ',
+        timescaleExtensionVersion: ' 2.15.0 ',
+        timescaleServerVersion: ' PostgreSQL 16 ',
+        timescaleLicense: 'timescale',
+        timescalePolicyExecutionDisabledReason: ' Policy execution is preview-only. ',
+        timescaleCompressionDisabledReason: ' Compression policy writes need owner role. ',
+        timescaleRetentionDisabledReason: ' Retention is destructive. ',
+        timescaleContinuousAggregateDisabledReason: ' Refresh is manually approved. ',
+        timescaleCapabilities: {
+          inspectHypertables: true,
+          inspectChunks: true,
+          inspectCompression: false,
+          inspectRetention: true,
+          inspectContinuousAggregates: true,
+          inspectJobs: false,
+          inspectToolkit: true,
+          explainAnalyze: false,
+          livePolicyExecution: false,
+        },
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile.postgresOptions).toMatchObject({
+      timescaleDeploymentMode: 'timescale-cloud',
+      timescaleProject: 'DataPad Observability',
+      timescaleServiceId: 'tsdb-123',
+      timescaleRegion: 'aws-us-east-1',
+      timescaleExtensionSchema: 'public',
+      timescaleExtensionVersion: '2.15.0',
+      timescaleServerVersion: 'PostgreSQL 16',
+      timescaleLicense: 'timescale',
+      timescalePolicyExecutionDisabledReason: 'Policy execution is preview-only.',
+      timescaleCompressionDisabledReason: 'Compression policy writes need owner role.',
+      timescaleRetentionDisabledReason: 'Retention is destructive.',
+      timescaleContinuousAggregateDisabledReason: 'Refresh is manually approved.',
+      timescaleCapabilities: expect.objectContaining({
+        inspectCompression: false,
+        inspectJobs: false,
+        livePolicyExecution: false,
+      }),
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        postgresOptions: {
+          timescaleDeploymentMode: 'cloud',
+        } as unknown as typeof profile.postgresOptions,
+      }),
+    ).toThrow(/Unsupported TimescaleDB deployment mode/)
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        postgresOptions: {
+          timescaleCapabilities: {
+            inspectChunks: 'yes',
+          },
+        } as unknown as typeof profile.postgresOptions,
+      }),
+    ).toThrow(/chunk-inspection capability/)
+  })
+
   it('normalizes Memcached connection options without storing plaintext SASL secrets', () => {
     const profile = validateConnectionTestRequest({
       environmentId: 'env-qa',
@@ -387,6 +564,230 @@ describe('runtime request validation', () => {
     })
     expect(profile.secret).toBe('typed-sasl-password')
     expect(profile.profile.memcachedOptions?.saslPasswordSecretRef?.id).toBe('secret-cache')
+  })
+
+  it('normalizes SQL Server connection options and rejects unsupported auth modes', () => {
+    const profile = validateConnectionTestRequest({
+      environmentId: 'env-qa',
+      secret: 'typed-sql-password',
+      profile: {
+        id: 'conn-sqlserver',
+        name: 'Azure SQL',
+        engine: 'sqlserver',
+        family: 'sql',
+        host: ' server.database.windows.net ',
+        port: 1433,
+        database: ' app ',
+        connectionMode: 'native',
+        environmentIds: ['env-qa'],
+        tags: [],
+        favorite: false,
+        readOnly: false,
+        icon: 'sqlserver',
+        auth: {},
+        sqlServerOptions: {
+          connectMode: 'azure-sql',
+          authenticationMode: 'azure-ad-service-principal',
+          azureTenantId: ' tenant ',
+          azureClientId: ' client ',
+          servicePrincipalSecretRef: {
+            id: 'secret-sp',
+            provider: 'os-keyring',
+            service: 'DataPad++',
+            account: 'conn-sqlserver',
+            label: 'SQL Server service principal',
+          },
+          encryptConnection: true,
+          trustServerCertificateCaPath: ' C:/certs/root.pem ',
+          applicationIntent: 'readonly',
+          commandTimeoutMs: 42_000,
+          connectRetryCount: 3,
+        },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    })
+
+    expect(profile.profile).toMatchObject({
+      host: 'server.database.windows.net',
+      database: 'app',
+      sqlServerOptions: {
+        connectMode: 'azure-sql',
+        authenticationMode: 'azure-ad-service-principal',
+        azureTenantId: 'tenant',
+        azureClientId: 'client',
+        encryptConnection: true,
+        trustServerCertificateCaPath: 'C:/certs/root.pem',
+        applicationIntent: 'readonly',
+        commandTimeoutMs: 42_000,
+        connectRetryCount: 3,
+      },
+    })
+    expect(profile.secret).toBe('typed-sql-password')
+    expect(profile.profile.sqlServerOptions?.servicePrincipalSecretRef?.id).toBe('secret-sp')
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile.profile,
+        sqlServerOptions: {
+          authenticationMode: 'magic-runtime',
+        },
+      } as never),
+    ).toThrow(/Unsupported SQL Server authentication mode/)
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile.profile,
+        sqlServerOptions: {
+          authenticationMode: 'sql-server',
+          commandTimeoutMs: 0,
+        },
+      } as never),
+    ).toThrow(/SQL Server command timeout/)
+  })
+
+  it('normalizes MySQL connection options and rejects unsupported profile values', () => {
+    const profile = validateConnectionTestRequest({
+      environmentId: 'env-qa',
+      secret: 'typed-mysql-password',
+      profile: {
+        id: 'conn-mysql',
+        name: 'MySQL',
+        engine: 'mysql',
+        family: 'sql',
+        host: ' db.internal ',
+        port: 3306,
+        database: ' commerce ',
+        connectionMode: 'native',
+        environmentIds: ['env-qa'],
+        tags: [],
+        favorite: false,
+        readOnly: false,
+        icon: 'mysql',
+        auth: {},
+        mysqlOptions: {
+          connectMode: 'cloud-sql-proxy',
+          authMode: 'cleartext-plugin',
+          sslMode: 'verify-identity',
+          serverFlavor: 'mysql',
+          charset: ' utf8mb4 ',
+          collation: ' utf8mb4_0900_ai_ci ',
+          timeZone: ' +00:00 ',
+          sqlMode: ' STRICT_TRANS_TABLES ',
+          defaultStorageEngine: ' InnoDB ',
+          allowLocalInfile: true,
+          statementCacheCapacity: 250,
+          connectTimeoutMs: 2_500,
+          commandTimeoutMs: 5_000,
+          caCertificatePath: ' C:/certs/root.pem ',
+          clientCertificatePath: ' C:/certs/client.pem ',
+          clientKeyPath: ' C:/certs/client.key ',
+          cloudSqlInstance: ' project:region:instance ',
+        },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    })
+
+    expect(profile.profile).toMatchObject({
+      host: 'db.internal',
+      database: 'commerce',
+        mysqlOptions: {
+          connectMode: 'cloud-sql-proxy',
+          authMode: 'cleartext-plugin',
+          sslMode: 'verify-identity',
+          serverFlavor: 'mysql',
+          charset: 'utf8mb4',
+          collation: 'utf8mb4_0900_ai_ci',
+          timeZone: '+00:00',
+          sqlMode: 'STRICT_TRANS_TABLES',
+          defaultStorageEngine: 'InnoDB',
+          allowLocalInfile: true,
+          statementCacheCapacity: 250,
+        connectTimeoutMs: 2_500,
+        commandTimeoutMs: 5_000,
+        caCertificatePath: 'C:/certs/root.pem',
+        clientCertificatePath: 'C:/certs/client.pem',
+        clientKeyPath: 'C:/certs/client.key',
+        cloudSqlInstance: 'project:region:instance',
+      },
+    })
+    expect(profile.secret).toBe('typed-mysql-password')
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile.profile,
+        mysqlOptions: {
+          connectMode: 'mysql-magic',
+        },
+      } as never),
+    ).toThrow(/Unsupported MySQL connection mode/)
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile.profile,
+        mysqlOptions: {
+          connectMode: 'tcp',
+          statementCacheCapacity: 250_000,
+        },
+      } as never),
+    ).toThrow(/MySQL statement cache capacity/)
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile.profile,
+        mysqlOptions: {
+          serverFlavor: 'mariadb-but-not-quite',
+        },
+      } as never),
+    ).toThrow(/Unsupported MySQL server flavor/)
+  })
+
+  it('normalizes MariaDB-flavored MySQL options without losing typed profile metadata', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-mariadb',
+      name: 'MariaDB',
+      engine: 'mariadb',
+      family: 'sql',
+      host: ' db.internal ',
+      port: 3307,
+      database: ' commerce ',
+      connectionMode: 'native',
+      environmentIds: ['env-qa'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'mariadb',
+      auth: {},
+      mysqlOptions: {
+        connectMode: 'managed-mariadb',
+        authMode: 'password',
+        sslMode: 'required',
+        serverFlavor: 'mariadb',
+        charset: ' utf8mb4 ',
+        collation: ' utf8mb4_unicode_ci ',
+        timeZone: ' SYSTEM ',
+        sqlMode: ' STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION ',
+        defaultStorageEngine: ' Aria ',
+        allowLocalInfile: false,
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile).toMatchObject({
+      host: 'db.internal',
+      database: 'commerce',
+      mysqlOptions: {
+        connectMode: 'managed-mariadb',
+        serverFlavor: 'mariadb',
+        collation: 'utf8mb4_unicode_ci',
+        timeZone: 'SYSTEM',
+        sqlMode: 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION',
+        defaultStorageEngine: 'Aria',
+        allowLocalInfile: false,
+      },
+    })
   })
 
   it('normalizes nullable connection profile fields without raw runtime crashes', () => {
@@ -958,6 +1359,17 @@ describe('runtime request validation', () => {
         queryText: 'select 1',
       } as never),
     ).toMatchObject({ executionInputMode: 'raw', language: 'sql', mode: 'explain' })
+
+    expect(
+      validateExecutionRequest({
+        tabId: 'tab-1',
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        language: 'sql',
+        mode: ' profile ',
+        queryText: 'select 1',
+      } as never),
+    ).toMatchObject({ mode: 'profile' })
 
     expect(() =>
       validateExecutionRequest({

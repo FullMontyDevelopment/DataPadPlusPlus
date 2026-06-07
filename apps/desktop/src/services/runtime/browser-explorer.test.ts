@@ -270,6 +270,7 @@ describe('browser explorer runtime', () => {
       'Procedures',
       'Sequences',
       'Types',
+      'Extensions',
     ])
 
     expect(createExplorerNodes(connection, 'postgres:public:tables')).toEqual([
@@ -300,9 +301,16 @@ describe('browser explorer runtime', () => {
       'Permissions',
       'Definition',
     ])
+
+    expect(createExplorerNodes(connection, 'postgres:security').map((node) => node.label)).toEqual([
+      'Roles',
+      'Permissions',
+      'Role Memberships',
+      'Default Privileges',
+    ])
   })
 
-  it('returns PostgreSQL inspection payloads for table and diagnostics object views', () => {
+  it('returns PostgreSQL inspection payloads for table, security, extensions, and diagnostics object views', () => {
     const connection = postgresConnection()
     const snapshot = {
       connections: [connection],
@@ -321,6 +329,35 @@ describe('browser explorer runtime', () => {
       objectName: 'accounts',
       columns: expect.arrayContaining([expect.objectContaining({ name: 'id' })]),
       indexes: expect.arrayContaining([expect.objectContaining({ name: 'accounts_pkey' })]),
+      permissions: expect.arrayContaining([expect.objectContaining({ objectKind: 'relation', grantable: false })]),
+    })
+
+    const securityResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'postgres:security',
+    })
+
+    expect(securityResponse.queryTemplate).toContain('pg_auth_members')
+    expect(securityResponse.queryTemplate).toContain('pg_default_acl')
+    expect(securityResponse.payload).toMatchObject({
+      roles: expect.arrayContaining([expect.objectContaining({ name: 'app', createRole: false })]),
+      permissions: expect.arrayContaining([expect.objectContaining({ objectKind: 'schema', grantable: true })]),
+      roleMemberships: [expect.objectContaining({ role: 'app', memberOf: 'reporting' })],
+      defaultPrivileges: [expect.objectContaining({ objectKind: 'tables', privilege: 'SELECT' })],
+    })
+
+    const extensionResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'extension:public:uuid-ossp',
+    })
+
+    expect(extensionResponse.queryTemplate).toContain('pg_available_extensions')
+    expect(extensionResponse.payload).toMatchObject({
+      objectView: 'extension',
+      extensions: [expect.objectContaining({ name: 'uuid-ossp', updateAvailable: true })],
+      extensionObjects: [expect.objectContaining({ object: 'function uuid_generate_v4()' })],
     })
 
     const diagnosticsResponse = inspectExplorerNodeLocally(snapshot, {
@@ -460,6 +497,10 @@ describe('browser explorer runtime', () => {
     expect(hypertableResponse.payload).toMatchObject({
       engine: 'timescaledb',
       tableName: 'order_metrics',
+      timescaleProfile: expect.objectContaining({
+        deploymentMode: 'self-hosted',
+        policyExecution: 'Preview only',
+      }),
       hypertables: expect.arrayContaining([expect.objectContaining({ name: 'order_metrics' })]),
       chunks: expect.arrayContaining([expect.objectContaining({ chunk: '_hyper_1_42_chunk' })]),
       compressionPolicies: expect.arrayContaining([expect.objectContaining({ policy: 'compress after 7 days' })]),
@@ -490,6 +531,43 @@ describe('browser explorer runtime', () => {
       chunkCount: 3,
       jobs: expect.arrayContaining([expect.objectContaining({ jobType: 'compression policy' })]),
       diagnostics: expect.arrayContaining([expect.objectContaining({ signal: 'Compression Coverage' })]),
+    })
+  })
+
+  it('returns TimescaleDB restricted payload warnings when profile capabilities are disabled', () => {
+    const connection = {
+      ...timescaleConnection(),
+      postgresOptions: {
+        timescaleCapabilities: {
+          inspectCompression: false,
+          inspectJobs: false,
+        },
+      },
+    }
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const compressionResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'compression:public:order_metrics',
+    })
+    expect(compressionResponse.payload).toMatchObject({
+      objectView: 'restricted',
+      disabledReason: expect.stringContaining('compression metadata is hidden'),
+      objects: [],
+    })
+
+    const jobsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'timescale:jobs',
+    })
+    expect(jobsResponse.payload).toMatchObject({
+      objectView: 'restricted',
+      disabledReason: expect.stringContaining('job metadata is hidden'),
+      objects: [],
     })
   })
 
@@ -537,6 +615,76 @@ describe('browser explorer runtime', () => {
     ])
   })
 
+  it('hides CockroachDB profile-restricted cluster and diagnostic surfaces', () => {
+    const connection: ConnectionProfile = {
+      ...cockroachConnection(),
+      postgresOptions: {
+        cockroachCapabilities: {
+          inspectJobs: true,
+          inspectRanges: false,
+          inspectRegions: true,
+          inspectClusterStatus: true,
+          inspectClusterSettings: false,
+          inspectSessions: true,
+          inspectContention: false,
+          inspectRolesAndGrants: true,
+          inspectCertificates: false,
+          inspectZoneConfigurations: true,
+          explainAnalyze: false,
+        },
+      },
+    }
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    expect(createExplorerNodes(connection, 'cockroach:cluster').map((node) => node.label)).toEqual([
+      'Nodes',
+      'Regions / Localities',
+      'Jobs',
+    ])
+    expect(createExplorerNodes(connection, 'cockroach:diagnostics').map((node) => node.label)).toEqual([
+      'Sessions',
+    ])
+    expect(createExplorerNodes(connection, 'cockroach:security').map((node) => node.label)).toEqual([
+      'Roles',
+      'Grants',
+    ])
+
+    const rangesResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cockroach:ranges',
+    })
+
+    expect(rangesResponse.queryTemplate).toBeUndefined()
+    expect(rangesResponse.payload).toMatchObject({
+      engine: 'cockroachdb',
+      objectView: 'restricted',
+      disabledReason: expect.stringContaining('range metadata'),
+      warnings: [expect.stringContaining('range metadata')],
+    })
+
+    const clusterResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cockroach:cluster',
+    })
+
+    expect(clusterResponse.payload).toMatchObject({
+      engine: 'cockroachdb',
+      nodeCount: 3,
+      regionCount: 2,
+      jobCount: 3,
+      warnings: expect.arrayContaining([
+        expect.stringContaining('range metadata'),
+        expect.stringContaining('cluster settings'),
+      ]),
+    })
+    expect(clusterResponse.payload).not.toHaveProperty('ranges')
+    expect(clusterResponse.payload).not.toHaveProperty('clusterSettings')
+  })
+
   it('returns CockroachDB inspection payloads for cluster object views', () => {
     const connection = cockroachConnection()
     const snapshot = {
@@ -570,6 +718,68 @@ describe('browser explorer runtime', () => {
       activeSessions: 5,
       statements: expect.arrayContaining([expect.objectContaining({ retries: 1 })]),
       contention: expect.arrayContaining([expect.objectContaining({ durationMs: 18 })]),
+    })
+  })
+
+  it('returns focused CockroachDB distributed payloads for specific cluster nodes', () => {
+    const connection = cockroachConnection()
+    const snapshot = {
+      connections: [connection],
+    } as WorkspaceSnapshot
+
+    const rangesResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cockroach:ranges',
+    })
+
+    expect(rangesResponse.queryTemplate).toBe('select * from crdb_internal.ranges_no_leases limit 100;')
+    expect(rangesResponse.payload).toMatchObject({
+      engine: 'cockroachdb',
+      rangeCount: 184,
+      ranges: expect.arrayContaining([expect.objectContaining({ rangeId: 42 })]),
+    })
+    expect(rangesResponse.payload).not.toHaveProperty('tables')
+
+    const regionsResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cockroach:regions',
+    })
+
+    expect(regionsResponse.queryTemplate).toContain('show regions')
+    expect(regionsResponse.payload).toMatchObject({
+      engine: 'cockroachdb',
+      regions: expect.arrayContaining([expect.objectContaining({ region: 'us-east' })]),
+      nodes: expect.arrayContaining([expect.objectContaining({ locality: 'region=us-east,az=a' })]),
+    })
+
+    const contentionResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cockroach:contention',
+    })
+
+    expect(contentionResponse.queryTemplate).toContain('cluster_contention_events')
+    expect(contentionResponse.payload).toMatchObject({
+      engine: 'cockroachdb',
+      blockedSessions: 1,
+      locks: expect.arrayContaining([expect.objectContaining({ object: 'public.accounts' })]),
+      contention: expect.arrayContaining([expect.objectContaining({ durationMs: 18 })]),
+    })
+
+    const securityResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'cockroach:security:grants',
+    })
+
+    expect(securityResponse.queryTemplate).toBe('show roles;')
+    expect(securityResponse.payload).toMatchObject({
+      engine: 'cockroachdb',
+      roles: expect.arrayContaining([expect.objectContaining({ name: 'root' })]),
+      defaultPrivileges: expect.arrayContaining([expect.objectContaining({ state: 'default' })]),
+      certificates: expect.arrayContaining([expect.objectContaining({ subject: 'CN=node' })]),
     })
   })
 
@@ -1052,6 +1262,9 @@ describe('browser explorer runtime', () => {
       'Sessions',
       'Status Counters',
       'Slow Queries',
+      'Performance Schema',
+      'Metadata Locks',
+      'Optimizer Trace',
       'InnoDB Status',
       'Replication',
     ])
@@ -1061,6 +1274,26 @@ describe('browser explorer runtime', () => {
       'System Schemas',
       'Users / Privileges',
       'Diagnostics',
+    ])
+
+    expect(createExplorerNodes(mysqlConnection('mariadb'), 'mysql:security').map((node) => node.label)).toEqual([
+      'Users',
+      'Roles',
+      'Role Mappings',
+      'Grants',
+    ])
+
+    expect(createExplorerNodes(mysqlConnection('mariadb'), 'mysql:diagnostics').map((node) => node.label)).toEqual([
+      'Sessions',
+      'Status Counters',
+      'Slow Queries',
+      'Performance Schema',
+      'Metadata Locks',
+      'Server Variables',
+      'Storage Engines',
+      'ANALYZE FORMAT=JSON',
+      'InnoDB Status',
+      'Replication',
     ])
   })
 
@@ -1109,6 +1342,10 @@ describe('browser explorer runtime', () => {
       engine: 'mysql',
       sessions: expect.arrayContaining([expect.objectContaining({ state: 'executing' })]),
       slowQueries: expect.arrayContaining([expect.objectContaining({ digest: expect.stringContaining('accounts') })]),
+      statementDigests: expect.arrayContaining([expect.objectContaining({ digest: expect.stringContaining('orders') })]),
+      tableIo: expect.arrayContaining([expect.objectContaining({ table: 'orders' })]),
+      metadataLocks: expect.arrayContaining([expect.objectContaining({ object: 'orders' })]),
+      optimizerTrace: expect.arrayContaining([expect.objectContaining({ name: 'optimizer_trace' })]),
       innodbStatus: expect.arrayContaining([expect.objectContaining({ name: 'Buffer pool hit rate' })]),
       replication: expect.arrayContaining([expect.objectContaining({ state: 'not configured' })]),
     })
@@ -1126,6 +1363,66 @@ describe('browser explorer runtime', () => {
       nodeId: 'mysql:diagnostics:innodb-status',
     })
     expect(innodbResponse.queryTemplate).toBe('show engine innodb status;')
+
+    const performanceSchemaResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'mysql:diagnostics:performance-schema',
+    })
+    expect(performanceSchemaResponse.queryTemplate).toContain('table_io_waits_summary_by_index_usage')
+
+    const optimizerTraceResponse = inspectExplorerNodeLocally(snapshot, {
+      connectionId: connection.id,
+      environmentId: 'env-local',
+      nodeId: 'mysql:diagnostics:optimizer-trace',
+    })
+    expect(optimizerTraceResponse.queryTemplate).toContain('@@optimizer_trace')
+
+    const mariaDbConnection = mysqlConnection('mariadb')
+    const mariaDbSnapshot = {
+      connections: [mariaDbConnection],
+    } as WorkspaceSnapshot
+    const roleMappingsResponse = inspectExplorerNodeLocally(mariaDbSnapshot, {
+      connectionId: mariaDbConnection.id,
+      environmentId: 'env-local',
+      nodeId: 'mysql:security:role-mappings',
+    })
+    expect(roleMappingsResponse.queryTemplate).toContain('mysql.roles_mapping')
+
+    const mariaDbRolesResponse = inspectExplorerNodeLocally(mariaDbSnapshot, {
+      connectionId: mariaDbConnection.id,
+      environmentId: 'env-local',
+      nodeId: 'mysql:security:roles',
+    })
+    expect(mariaDbRolesResponse.queryTemplate).toContain("is_role = 'Y'")
+
+    const analyzeResponse = inspectExplorerNodeLocally(mariaDbSnapshot, {
+      connectionId: mariaDbConnection.id,
+      environmentId: 'env-local',
+      nodeId: 'mysql:diagnostics:analyze-profile',
+    })
+    expect(analyzeResponse.queryTemplate).toBe('analyze format=json select 1;')
+
+    const variablesResponse = inspectExplorerNodeLocally(mariaDbSnapshot, {
+      connectionId: mariaDbConnection.id,
+      environmentId: 'env-local',
+      nodeId: 'mysql:diagnostics:server-variables',
+    })
+    expect(variablesResponse.queryTemplate).toContain("show variables like 'sql_mode';")
+    expect(variablesResponse.queryTemplate).not.toContain('@@optimizer_trace')
+    expect(variablesResponse.payload).toMatchObject({
+      engine: 'mariadb',
+      serverVariables: expect.arrayContaining([
+        expect.objectContaining({ name: 'sql_mode' }),
+        expect.objectContaining({ name: 'default_storage_engine', value: 'Aria' }),
+      ]),
+      analyzeProfile: expect.arrayContaining([
+        expect.objectContaining({ name: 'ANALYZE FORMAT=JSON', status: 'preview' }),
+      ]),
+      roleMappings: expect.arrayContaining([
+        expect.objectContaining({ member: 'reporting_read' }),
+      ]),
+    })
   })
 
   it('returns MySQL and MariaDB routine source payloads for native source previews', () => {

@@ -388,6 +388,27 @@ describe('sidebar connection tree helpers', () => {
     })
   })
 
+  it('uses Valkey-specific manifest copy without Redis Stack claims', () => {
+    const connection: ConnectionProfile = {
+      ...createSeedSnapshot().connections.find((item) => item.id === 'conn-cache')!,
+      id: 'conn-valkey',
+      name: 'Valkey',
+      engine: 'valkey',
+      icon: 'valkey',
+    }
+    const tree = buildConnectionObjectTree(connection, adapterManifestFor(connection))
+
+    expect(findNode(tree, 'redis:databases')).toMatchObject({
+      detail: 'Logical Valkey databases',
+    })
+    expect(findNode(tree, 'redis:db:0')).toMatchObject({
+      detail: 'Valkey logical database',
+      builderKind: 'redis-key-browser',
+    })
+    expect(findNode(tree, 'redis:functions')).toBeUndefined()
+    expect(JSON.stringify(datastoreTreeForEngine('valkey', 'keyvalue'))).not.toContain('Redis Stack')
+  })
+
   it('maps Redis database explorer nodes to DB-scoped key-browser targets', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-cache')!
@@ -514,6 +535,32 @@ describe('sidebar connection tree helpers', () => {
     expect(findNode(tree, 'indexes:catalog:products')).toMatchObject({
       id: 'indexes:catalog:products',
       label: 'Indexes',
+    })
+  })
+
+  it('keeps Redis stream drilldowns under the selected stream key', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-cache')!
+    const tree = buildConnectionObjectTreeFromExplorerNodes(connection, [
+      {
+        id: 'redis:stream:0:orders%3Aevents:groups',
+        label: 'Consumer Groups',
+        kind: 'stream-groups',
+        detail: 'XINFO GROUPS',
+        family: 'keyvalue',
+        path: [connection.name, 'Databases', 'DB 0', 'Streams', 'orders:events'],
+        expandable: true,
+      },
+    ])
+
+    const stream = findNodeByLabel(tree, 'orders:events')
+    const groups = findNode(tree, 'redis:stream:0:orders%3Aevents:groups')
+
+    expect(stream?.children?.map((child) => child.id)).toContain('redis:stream:0:orders%3Aevents:groups')
+    expect(groups).toMatchObject({
+      label: 'Consumer Groups',
+      kind: 'stream-groups',
+      queryable: false,
     })
   })
 

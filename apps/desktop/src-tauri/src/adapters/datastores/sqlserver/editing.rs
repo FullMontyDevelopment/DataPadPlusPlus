@@ -287,7 +287,7 @@ fn quote_sqlserver_identifier(identifier: &str) -> String {
     format!("[{}]", identifier.replace(']', "]]"))
 }
 
-fn bind_sqlserver_value(query: &mut Query<'_>, value: &Value) {
+pub(super) fn bind_sqlserver_value(query: &mut Query<'_>, value: &Value) {
     match value {
         Value::Null => query.bind(Option::<String>::None),
         Value::Bool(value) => query.bind(*value),

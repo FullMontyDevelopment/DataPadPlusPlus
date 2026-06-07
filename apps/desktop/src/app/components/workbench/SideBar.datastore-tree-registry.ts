@@ -1337,6 +1337,10 @@ function keyValuePlacement(node: ExplorerNode, kind: string, normalizedPath: str
     return redisRootPath
   }
 
+  if (node.id.startsWith('redis:stream:') && normalizedPath.length) {
+    return normalizedPath
+  }
+
   const redisScopedPath = redisScopedPlacement(node, kind)
   if (redisScopedPath) {
     return redisScopedPath

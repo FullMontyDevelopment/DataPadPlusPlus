@@ -62,7 +62,7 @@ pub(super) async fn execute_mongodb_data_edit(
             request, plan, false, messages, warnings, None,
         ));
     };
-    if request.changes.is_empty() {
+    if request.changes.is_empty() && request.edit_kind != "delete-document" {
         warnings.push("MongoDB document edits need at least one field change.".into());
         return Ok(data_edit_response(
             request, plan, false, messages, warnings, None,
@@ -104,6 +104,64 @@ pub(super) async fn execute_mongodb_data_edit(
         ));
     };
 
+    let filter = doc! { "_id": json_value_to_bson(document_id)? };
+    if request.edit_kind == "delete-document" {
+        let delete_result = collection.delete_one(filter).await?;
+        let deleted_count = delete_result.deleted_count;
+
+        if deleted_count == 0 {
+            warnings.push(
+                "MongoDB acknowledged the delete request, but no document matched the supplied `_id`."
+                    .into(),
+            );
+        } else {
+            messages.push(format!(
+                "MongoDB deleted {deleted_count} document(s) from {database_name}.{collection_name}."
+            ));
+        }
+
+        return Ok(data_edit_response(
+            request,
+            plan,
+            deleted_count > 0,
+            messages,
+            warnings,
+            Some(json!({
+                "deletedCount": deleted_count
+            })),
+        ));
+    }
+
+    if request.edit_kind == "update-document" {
+        let replacement = mongodb_replacement_document(request, document_id)?;
+        let replace_result = collection.replace_one(filter, replacement).await?;
+        let matched_count = replace_result.matched_count;
+        let modified_count = replace_result.modified_count;
+
+        if matched_count == 0 {
+            warnings.push(
+                "MongoDB acknowledged the replacement request, but no document matched the supplied `_id`."
+                    .into(),
+            );
+        } else {
+            messages.push(format!(
+                "MongoDB document replacement matched {matched_count} document(s) and modified {modified_count} document(s)."
+            ));
+        }
+
+        return Ok(data_edit_response(
+            request,
+            plan,
+            matched_count > 0,
+            messages,
+            warnings,
+            Some(json!({
+                "matchedCount": matched_count,
+                "modifiedCount": modified_count
+            })),
+        ));
+    }
+
     let update = mongodb_update_document(request)?;
     if update.is_empty() {
         warnings.push("MongoDB document edit did not produce an update document.".into());
@@ -112,7 +170,6 @@ pub(super) async fn execute_mongodb_data_edit(
         ));
     }
 
-    let filter = doc! { "_id": json_value_to_bson(document_id)? };
     let update_result = collection.update_one(filter, update).await?;
     let matched_count = update_result.matched_count;
     let modified_count = update_result.modified_count;
@@ -168,6 +225,51 @@ pub(super) fn mongodb_insert_document(
     }
 
     mongodb_json_to_document(value, "document", "mongodb-insert-bson")
+}
+
+pub(super) fn mongodb_replacement_document(
+    request: &DataEditExecutionRequest,
+    document_id: &Value,
+) -> Result<Document, CommandError> {
+    let Some(value) = request
+        .changes
+        .first()
+        .and_then(|change| change.value.as_ref())
+    else {
+        return Err(CommandError::new(
+            "mongodb-replace-missing-document",
+            "MongoDB document replacement requires one JSON object.",
+        ));
+    };
+
+    if !value.is_object() || value.is_array() {
+        return Err(CommandError::new(
+            "mongodb-replace-invalid-document",
+            "MongoDB document replacement requires a JSON object.",
+        ));
+    }
+
+    let mut document = mongodb_json_to_document(value, "document", "mongodb-replace-bson")?;
+    if document.keys().any(|key| key.starts_with('$')) {
+        return Err(CommandError::new(
+            "mongodb-replace-update-operator",
+            "MongoDB document replacement must be a full document, not an update operator document.",
+        ));
+    }
+
+    let target_id = json_value_to_bson(document_id)?;
+    if let Some(replacement_id) = document.get("_id") {
+        if replacement_id != &target_id {
+            return Err(CommandError::new(
+                "mongodb-replace-id-mismatch",
+                "MongoDB document replacement cannot change `_id`.",
+            ));
+        }
+    } else {
+        document.insert("_id", target_id);
+    }
+
+    Ok(document)
 }
 
 pub(super) fn mongodb_update_document(
@@ -368,6 +470,59 @@ mod tests {
         ))
         .expect_err("arrays are not uploadable documents");
         assert_eq!(error.code, "mongodb-insert-invalid-document");
+    }
+
+    #[test]
+    fn mongodb_replacement_document_preserves_identity_and_rejects_operators() {
+        let document = mongodb_replacement_document(
+            &request(
+                "update-document",
+                vec![DataEditChange {
+                    value: Some(json!({
+                        "sku": "nova",
+                        "status": "active"
+                    })),
+                    ..Default::default()
+                }],
+            ),
+            &json!("product-1"),
+        )
+        .expect("replacement document");
+        assert_eq!(document.get_str("_id").unwrap(), "product-1");
+        assert_eq!(document.get_str("sku").unwrap(), "nova");
+
+        let mismatch = mongodb_replacement_document(
+            &request(
+                "update-document",
+                vec![DataEditChange {
+                    value: Some(json!({
+                        "_id": "product-2",
+                        "sku": "nova"
+                    })),
+                    ..Default::default()
+                }],
+            ),
+            &json!("product-1"),
+        )
+        .expect_err("mismatched ids are not replaceable");
+        assert_eq!(mismatch.code, "mongodb-replace-id-mismatch");
+
+        let update_operator = mongodb_replacement_document(
+            &request(
+                "update-document",
+                vec![DataEditChange {
+                    value: Some(json!({
+                        "$set": {
+                            "sku": "nova"
+                        }
+                    })),
+                    ..Default::default()
+                }],
+            ),
+            &json!("product-1"),
+        )
+        .expect_err("operator documents are not replacements");
+        assert_eq!(update_operator.code, "mongodb-replace-update-operator");
     }
 
     #[test]

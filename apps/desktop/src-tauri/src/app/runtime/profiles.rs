@@ -7,14 +7,15 @@ use super::library::{
     remove_connection_library_nodes,
 };
 use super::profile_options::{
-    interpolate_memcached_options, interpolate_oracle_options, interpolate_redis_options,
-    interpolate_sqlite_options, interpolate_sqlserver_options,
+    interpolate_memcached_options, interpolate_oracle_options, interpolate_postgres_options,
+    interpolate_redis_options, interpolate_sqlite_options, interpolate_sqlserver_options,
 };
 use super::profile_options_cloud::{
     interpolate_cassandra_options, interpolate_cosmosdb_options, interpolate_dynamodb_options,
     interpolate_search_options,
 };
 use super::profile_options_graph::interpolate_graph_options;
+use super::profile_options_mysql::interpolate_mysql_options;
 use super::profile_options_timeseries::interpolate_timeseries_options;
 use super::profile_options_warehouse::interpolate_warehouse_options;
 use super::query_tabs::{build_query_tab, next_query_tab_title};
@@ -373,6 +374,14 @@ impl ManagedAppState {
                 .sqlite_options
                 .as_ref()
                 .map(|options| interpolate_sqlite_options(options, &interpolate)),
+            postgres_options: profile
+                .postgres_options
+                .as_ref()
+                .map(|options| interpolate_postgres_options(options, &interpolate)),
+            mysql_options: profile
+                .mysql_options
+                .as_ref()
+                .map(|options| interpolate_mysql_options(options, &interpolate)),
             sqlserver_options: profile
                 .sqlserver_options
                 .as_ref()
@@ -510,6 +519,20 @@ pub(super) fn connection_test_timeout_ms(connection: &ResolvedConnectionProfile)
                     .memcached_options
                     .as_ref()
                     .and_then(|options| options.connect_timeout_ms.or(options.request_timeout_ms))
+            })
+            .or_else(|| {
+                connection.postgres_options.as_ref().and_then(|options| {
+                    options
+                        .connect_timeout_ms
+                        .or(options.statement_timeout_ms)
+                        .or(options.lock_timeout_ms)
+                })
+            })
+            .or_else(|| {
+                connection
+                    .mysql_options
+                    .as_ref()
+                    .and_then(|options| options.connect_timeout_ms.or(options.command_timeout_ms))
             })
             .or_else(|| {
                 connection.sqlserver_options.as_ref().and_then(|options| {

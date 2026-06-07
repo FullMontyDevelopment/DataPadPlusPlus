@@ -108,6 +108,11 @@ Use profiles only when needed:
 ```bash
 npm run fixtures:up:profile -- search
 npm run fixtures:up:profile -- sqlplus
+npm run fixtures:up:profile -- redis-stack
+npm run fixtures:up:profile -- cache
+npm run fixtures:validate:postgres
+npm run fixtures:validate:mongodb
+npm run fixtures:validate:redis -- --require-stack --require-valkey
 ```
 
 The current env prefix is `DATAPADPLUSPLUS_*`. Legacy prefixes are compatibility fallbacks only.

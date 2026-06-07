@@ -7,12 +7,14 @@ mod diagnostics;
 mod document_lazy;
 mod editing;
 mod explorer;
+mod import_export;
 mod metadata;
 mod paging;
 mod query;
 mod script;
 
 pub(crate) use document_lazy::fetch_mongodb_document_node_children;
+pub(crate) use import_export::execute_mongodb_collection_file_operation;
 pub(crate) use metadata::load_mongodb_structure;
 pub(crate) use paging::fetch_mongodb_page;
 

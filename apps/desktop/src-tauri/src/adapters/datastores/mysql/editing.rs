@@ -1,13 +1,8 @@
 use serde_json::{json, Value};
-use sqlx::{
-    mysql::{MySqlArguments, MySqlPoolOptions},
-    query::Query,
-    types::Json,
-    MySql,
-};
+use sqlx::{mysql::MySqlArguments, query::Query, types::Json, MySql};
 
 use super::super::super::*;
-use super::connection::mysql_dsn;
+use super::connection::mysql_pool;
 
 pub(super) async fn execute_mysql_data_edit(
     engine: &str,
@@ -63,10 +58,7 @@ pub(super) async fn execute_mysql_data_edit(
         }
     };
 
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&mysql_dsn(connection))
-        .await?;
+    let pool = mysql_pool(connection, 1).await?;
     let mut query = sqlx::query(&statement.sql);
     for value in &statement.values {
         query = bind_mysql_value(query, value);
@@ -281,7 +273,7 @@ fn quote_mysql_identifier(identifier: &str) -> String {
     format!("`{}`", identifier.replace('`', "``"))
 }
 
-fn bind_mysql_value<'q>(
+pub(super) fn bind_mysql_value<'q>(
     query: Query<'q, MySql, MySqlArguments>,
     value: &Value,
 ) -> Query<'q, MySql, MySqlArguments> {

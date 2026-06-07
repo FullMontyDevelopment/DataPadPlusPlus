@@ -44,6 +44,69 @@ describe('RelationalObjectViewWorkspace helpers', () => {
     })
   })
 
+  it('renders MySQL performance_schema diagnostics as focused sections and workflows', () => {
+    const connection = connectionFor('mysql')
+    const descriptor = descriptorForConnection(connection, 'performance-schema')
+    const sections = relationalSections('performance-schema', {
+      statementDigests: [{ digest: 'SELECT * FROM orders', count: 42, avgMs: 9.7, rowsExamined: 4200 }],
+      tableIo: [{ schema: 'shop', table: 'orders', index: 'orders_account_id_idx', operations: 420, totalMs: 61.4 }],
+      metadataLocks: [{ schema: 'shop', object: 'orders', lockType: 'SHARED_READ', status: 'GRANTED', sessionId: 11 }],
+      optimizerTrace: [{ name: 'optimizer_trace', enabled: 'enabled=off,one_line=off', traceLimit: 1 }],
+    }, descriptor)
+    const workflows = relationalWorkflows(
+      connection,
+      'performance-schema',
+      descriptor,
+      false,
+      new Set(sections.map((section) => section.key)),
+    )
+
+    expect(sections.map((section) => section.key)).toEqual([
+      'statementDigests',
+      'tableIo',
+      'metadataLocks',
+      'optimizerTrace',
+    ])
+    expect(sections.find((section) => section.key === 'statementDigests')?.columns).toEqual([
+      'digest',
+      'count',
+      'avgMs',
+      'rowsExamined',
+    ])
+    expect(workflows.map((workflow) => workflow.label)).toEqual([
+      'Digests',
+      'I/O',
+      'Locks',
+      'Optimizer',
+    ])
+  })
+
+  it('renders MariaDB role mappings, server variables, and analyze profile as focused sections', () => {
+    const connection = connectionFor('mariadb')
+    const securityDescriptor = descriptorForConnection(connection, 'security')
+    const securitySections = relationalSections('security', {
+      roles: [{ name: 'reporting_read', host: '%', isRole: 'Y' }],
+      roleMappings: [{ name: 'reporting', host: '%', member: 'reporting_read', adminOption: 'N' }],
+      permissions: [{ principal: 'reporting@%', privilege: 'SELECT', object: 'shop' }],
+    }, securityDescriptor)
+    const diagnosticsDescriptor = descriptorForConnection(connection, 'diagnostics')
+    const diagnosticsSections = relationalSections('diagnostics', {
+      serverVariables: [{ name: 'sql_mode', value: 'STRICT_TRANS_TABLES', status: 'info' }],
+      analyzeProfile: [{ name: 'ANALYZE FORMAT=JSON', status: 'preview', queryTemplate: 'analyze format=json select 1;' }],
+      engines: [{ name: 'Aria', support: 'YES', transactions: 'NO' }],
+    }, diagnosticsDescriptor)
+
+    expect(securityDescriptor.title).toBe('MariaDB Users / Privileges')
+    expect(securitySections.map((section) => section.key)).toEqual(['roles', 'roleMappings', 'permissions'])
+    expect(securitySections.find((section) => section.key === 'roleMappings')?.columns).toEqual([
+      'name',
+      'host',
+      'member',
+      'adminOption',
+    ])
+    expect(diagnosticsSections.map((section) => section.key)).toEqual(['serverVariables', 'analyzeProfile', 'engines'])
+  })
+
   it('normalizes sections using preferred SQL-family columns', () => {
     const sections = relationalSections('database', {
       tables: [{
@@ -60,6 +123,36 @@ describe('RelationalObjectViewWorkspace helpers', () => {
     expect(sections[0]?.title).toBe('Tables')
     expect(sections[0]?.columns).toEqual(['schema', 'name', 'rows', 'owner', 'extraSignal'])
     expect(sections[0]?.rows).toEqual([['dbo', 'Accounts', '20', 'app', 'kept']])
+  })
+
+  it('normalizes PostgreSQL extension and security sections with native columns', () => {
+    const sections = relationalSections('security', {
+      roles: [{ name: 'app', createRole: false, createDb: false, memberCount: 1 }],
+      roleMemberships: [{ role: 'app', memberOf: 'reporting', adminOption: false, grantor: 'postgres' }],
+      permissions: [{ principal: 'reporting', privilege: 'SELECT', object: 'public.accounts', objectKind: 'relation', grantable: false }],
+      defaultPrivileges: [{ schema: 'public', owner: 'app', objectKind: 'tables', principal: 'reporting', privilege: 'SELECT' }],
+    }, descriptorForConnection(connectionFor('postgresql'), 'security'))
+
+    expect(sections.map((section) => section.key)).toEqual([
+      'roles',
+      'roleMemberships',
+      'permissions',
+      'defaultPrivileges',
+    ])
+    expect(sections.find((section) => section.key === 'permissions')?.columns).toEqual([
+      'principal',
+      'privilege',
+      'object',
+      'objectKind',
+      'grantable',
+    ])
+
+    const extensionSections = relationalSections('extension', {
+      extensions: [{ name: 'uuid-ossp', version: '1.1', defaultVersion: '1.2', updateAvailable: true }],
+      extensionObjects: [{ extension: 'uuid-ossp', catalog: 'pg_proc', object: 'function uuid_generate_v4()', dependency: 'extension member' }],
+    }, descriptorForConnection(connectionFor('postgresql'), 'extension'))
+
+    expect(extensionSections.map((section) => section.key)).toEqual(['extensions', 'extensionObjects'])
   })
 
   it('does not duplicate storage file sections', () => {

@@ -44,7 +44,9 @@ describe('RelationalObjectViewSummary', () => {
       users: [{ name: 'app' }],
       roles: [{ name: 'reader' }],
       permissions: [{ principal: 'app' }],
-    }).map((stat) => stat.label)).toEqual(['Users', 'Roles', 'Grants'])
+      roleMemberships: [{ role: 'app', memberOf: 'reader' }],
+      defaultPrivileges: [{ principal: 'reader', privilege: 'SELECT' }],
+    }).map((stat) => stat.label)).toEqual(['Users', 'Roles', 'Memberships', 'Grants'])
 
     expect(summaryStats('diagnostics', {
       activeSessions: 7,
@@ -52,6 +54,15 @@ describe('RelationalObjectViewSummary', () => {
       waits: [{ waitType: 'PAGEIOLATCH' }],
       locks: [{ mode: 'S' }],
     }).map((stat) => `${stat.label}:${stat.value}`)).toContain('Blocked:1')
+
+    expect(summaryStats('extensions', {
+      extensions: [{ name: 'uuid-ossp', updateAvailable: true }],
+      extensionObjects: [{ object: 'function uuid_generate_v4()' }],
+    }).map((stat) => `${stat.label}:${stat.value}`)).toEqual([
+      'Extensions:1',
+      'Updates:1',
+      'Objects:1',
+    ])
   })
 
   it('normalizes native foreign-key endpoint shapes', () => {

@@ -10,7 +10,9 @@ import { CosmosDbConnectionFields } from './RightDrawer.cosmosdb-connection-fiel
 import { DynamoDbConnectionFields } from './RightDrawer.dynamodb-connection-fields'
 import { GraphConnectionFields } from './RightDrawer.graph-connection-fields'
 import { MemcachedConnectionFields } from './RightDrawer.memcached-connection-fields'
+import { MySqlAdvancedFields } from './RightDrawer.mysql-connection-fields'
 import { OracleAdvancedFields } from './RightDrawer.oracle-connection-fields'
+import { PostgresAdvancedFields } from './RightDrawer.postgres-connection-fields'
 import { FormField } from './RightDrawer.primitives'
 import { RedisAdvancedFields } from './RightDrawer.redis-connection-fields'
 import { isSearchConnectionEngine } from './RightDrawer.search-connection-helpers'
@@ -403,22 +405,40 @@ function NativeConnectionFields({
         />
       </FormField>
 
-      <FormField label="SSL mode">
-        <input
-          value={connectionDraft.auth.sslMode ?? ''}
-          onChange={(event) =>
-            onUpdateConnectionDraft({
-              auth: {
-                ...connectionDraft.auth,
-                sslMode: (event.target.value || undefined) as ConnectionProfile['auth']['sslMode'],
-              },
-            })
-          }
-        />
-      </FormField>
+      {connectionDraft.engine === 'mysql' || connectionDraft.engine === 'mariadb' ? null : (
+        <FormField label="SSL mode">
+          <input
+            value={connectionDraft.auth.sslMode ?? ''}
+            onChange={(event) =>
+              onUpdateConnectionDraft({
+                auth: {
+                  ...connectionDraft.auth,
+                  sslMode: (event.target.value || undefined) as ConnectionProfile['auth']['sslMode'],
+                },
+              })
+            }
+          />
+        </FormField>
+      )}
 
       {connectionDraft.engine === 'sqlserver' ? (
         <SqlServerAdvancedFields
+          connectionDraft={connectionDraft}
+          onUpdateConnectionDraft={onUpdateConnectionDraft}
+        />
+      ) : null}
+
+      {connectionDraft.engine === 'postgresql' ||
+      connectionDraft.engine === 'cockroachdb' ||
+      connectionDraft.engine === 'timescaledb' ? (
+        <PostgresAdvancedFields
+          connectionDraft={connectionDraft}
+          onUpdateConnectionDraft={onUpdateConnectionDraft}
+        />
+      ) : null}
+
+      {connectionDraft.engine === 'mysql' || connectionDraft.engine === 'mariadb' ? (
+        <MySqlAdvancedFields
           connectionDraft={connectionDraft}
           onUpdateConnectionDraft={onUpdateConnectionDraft}
         />

@@ -108,6 +108,65 @@ describe('RelationalObjectViewOperations helpers', () => {
         operationId: 'cockroachdb.cockroach.zone-configs',
       }),
     ]))
+
+    const tableActions = relationalOperationActions(cockroachConnection, tableTab, 'table', {
+      schema: 'public',
+      tableName: 'accounts',
+    })
+
+    expect(tableActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: 'Import',
+        operationId: 'cockroachdb.cockroach.import',
+      }),
+      expect.objectContaining({
+        label: 'Export',
+        operationId: 'cockroachdb.cockroach.export',
+      }),
+    ]))
+  })
+
+  it('hides CockroachDB operation previews for disabled profile capabilities', () => {
+    const connection: ConnectionProfile = {
+      ...cockroachConnection,
+      postgresOptions: {
+        cockroachCapabilities: {
+          inspectJobs: true,
+          inspectRanges: false,
+          inspectRegions: true,
+          inspectClusterStatus: true,
+          inspectClusterSettings: true,
+          inspectSessions: true,
+          inspectContention: false,
+          inspectRolesAndGrants: false,
+          inspectCertificates: false,
+          inspectZoneConfigurations: false,
+          explainAnalyze: false,
+        },
+      },
+    }
+
+    expect(
+      relationalOperationActions(connection, tableTab, 'cluster', {
+        database: 'datapadplusplus',
+        objectName: 'Cluster',
+      }).map((action) => action.label),
+    ).toEqual(['Jobs', 'Regions', 'Backup', 'Restore'])
+    expect(
+      relationalOperationActions(connection, tableTab, 'security', {
+        objectName: 'Security',
+      }),
+    ).toEqual([])
+    expect(
+      relationalOperationActions(connection, tableTab, 'zone-configurations', {
+        schema: 'public',
+        tableName: 'accounts',
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        label: 'Regions',
+      }),
+    ])
   })
 
   it('uses native identifier quoting for MySQL-compatible object names', () => {
@@ -146,6 +205,42 @@ describe('RelationalObjectViewOperations helpers', () => {
     expect(eventActions[0]).toMatchObject({
       operationId: 'mysql.event.enable',
       objectName: '`shop`.`refresh_rollups`',
+    })
+
+    const routineActions = relationalOperationActions(mysqlConnection, tableTab, 'procedure', {
+      schema: 'shop',
+      objectName: 'refresh_rollups',
+      procedures: [{
+        arguments: 'IN account_id bigint, IN force_refresh tinyint(1)',
+        name: 'refresh_rollups',
+        type: 'procedure',
+      }],
+    })
+
+    expect(routineActions.map((action) => action.label)).toEqual(['Run'])
+    expect(routineActions[0]).toMatchObject({
+      operationId: 'mysql.routine.execute',
+      objectName: '`shop`.`refresh_rollups`',
+      parameters: expect.objectContaining({
+        arguments: 'IN account_id bigint, IN force_refresh tinyint(1)',
+        routineKind: 'procedure',
+        routineName: 'refresh_rollups',
+      }),
+    })
+
+    const securityActions = relationalOperationActions(mysqlConnection, tableTab, 'users', {
+      objectName: 'Users',
+      users: [{ name: 'reporting', host: '%' }],
+    })
+
+    expect(securityActions.map((action) => action.label)).toEqual([
+      'Lock User',
+      'Unlock User',
+      'Grants',
+    ])
+    expect(securityActions[0]).toMatchObject({
+      operationId: 'mysql.user.lock',
+      parameters: expect.objectContaining({ userName: 'reporting', userHost: '%' }),
     })
   })
 
@@ -220,11 +315,15 @@ describe('RelationalObjectViewOperations helpers', () => {
       'Analyze',
       'Optimize',
       'Vacuum',
-      'Export',
       'Backup',
+      'Export',
     ])
     expect(databaseActions.find((action) => action.label === 'Vacuum')).toMatchObject({
       operationId: 'sqlite.database.vacuum',
+      objectName: '[main]',
+    })
+    expect(databaseActions.find((action) => action.label === 'Backup')).toMatchObject({
+      operationId: 'sqlite.database.backup',
       objectName: '[main]',
     })
 
@@ -240,7 +339,7 @@ describe('RelationalObjectViewOperations helpers', () => {
     ]))
   })
 
-  it('adds PostgreSQL vacuum, analyze, and reindex previews', () => {
+  it('adds PostgreSQL vacuum, analyze, reindex, role, and extension previews', () => {
     const postgresTab = {
       ...tableTab,
       connectionId: postgresConnection.id,
@@ -283,6 +382,93 @@ describe('RelationalObjectViewOperations helpers', () => {
         operationId: 'postgresql.index.reindex',
       }),
     ]))
+
+    const securityActions = relationalOperationActions(postgresConnection, postgresTab, 'security', {
+      objectName: 'Security',
+      roles: [{ name: 'app' }],
+      roleMemberships: [{ role: 'app', memberOf: 'reporting' }],
+    })
+
+    expect(securityActions.map((action) => action.label)).toEqual([
+      'Grant Role',
+      'Revoke Role',
+      'Grants',
+    ])
+    expect(securityActions[0]).toMatchObject({
+      operationId: 'postgresql.role.grant',
+      parameters: expect.objectContaining({ roleName: 'app', memberOf: 'reporting' }),
+    })
+
+    const extensionActions = relationalOperationActions(postgresConnection, postgresTab, 'extension', {
+      schema: 'public',
+      objectName: 'uuid-ossp',
+      extensions: [{ name: 'uuid-ossp', updateAvailable: true }],
+    })
+
+    expect(extensionActions.map((action) => action.label)).toEqual(['Update Ext', 'Drop Ext'])
+    expect(extensionActions[0]).toMatchObject({
+      operationId: 'postgresql.extension.update',
+      parameters: expect.objectContaining({ extensionName: 'uuid-ossp' }),
+    })
+
+    const routineTab = {
+      ...postgresTab,
+      objectViewState: {
+        ...postgresTab.objectViewState!,
+        kind: 'function',
+        label: 'lookup_account',
+        nodeId: 'function:public:lookup_account',
+      },
+    } as QueryTabState
+    const routineActions = relationalOperationActions(postgresConnection, routineTab, 'function', {
+      schema: 'public',
+      objectName: 'lookup_account',
+      routines: [{
+        arguments: 'account_id integer, include_inactive boolean DEFAULT false',
+        name: 'lookup_account',
+        returns: 'jsonb',
+        type: 'function',
+      }],
+    })
+
+    expect(routineActions.map((action) => action.label)).toEqual(['Run'])
+    expect(routineActions[0]).toMatchObject({
+      operationId: 'postgresql.routine.execute',
+      objectName: '"public"."lookup_account"',
+      parameters: expect.objectContaining({
+        arguments: 'account_id integer, include_inactive boolean DEFAULT false',
+        returns: 'jsonb',
+        routineKind: 'function',
+        routineName: 'lookup_account',
+      }),
+    })
+
+    const sessionActions = relationalOperationActions(postgresConnection, postgresTab, 'sessions', {
+      schema: 'public',
+      objectName: 'Diagnostics',
+      sessions: [{
+        database: 'datapadplusplus',
+        pid: 101,
+        state: 'active',
+        user: 'app',
+        wait: 'CPU',
+      }],
+    })
+
+    expect(sessionActions.map((action) => action.label)).toEqual(['Cancel', 'Terminate'])
+    expect(sessionActions[0]).toMatchObject({
+      operationId: 'postgresql.session.cancel',
+      parameters: expect.objectContaining({
+        sessionDatabase: 'datapadplusplus',
+        sessionPid: '101',
+        sessionState: 'active',
+        sessionUser: 'app',
+      }),
+    })
+    expect(sessionActions[1]).toMatchObject({
+      operationId: 'postgresql.session.terminate',
+      parameters: expect.objectContaining({ sessionPid: '101' }),
+    })
   })
 
   it('adds TimescaleDB policy actions for hypertables and aggregate refresh actions', () => {

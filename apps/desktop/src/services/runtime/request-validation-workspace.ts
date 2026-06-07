@@ -36,7 +36,10 @@ import { validateCosmosDbConnectionOptions } from './request-validation-cosmosdb
 import { validateDynamoDbConnectionOptions } from './request-validation-dynamodb'
 import { validateGraphConnectionOptions } from './request-validation-graph'
 import { validateMemcachedConnectionOptions } from './request-validation-memcached'
+import { validateMySqlConnectionOptions } from './request-validation-mysql'
+import { validatePostgresConnectionOptions } from './request-validation-postgres'
 import { validateSearchConnectionOptions } from './request-validation-search'
+import { validateSqlServerConnectionOptions } from './request-validation-sqlserver'
 import { validateTimeSeriesConnectionOptions } from './request-validation-timeseries'
 import { validateWarehouseConnectionOptions } from './request-validation-warehouse'
 
@@ -102,6 +105,9 @@ export function validateConnectionProfile(profile: ConnectionProfile): Connectio
     cassandraOptions: validateCassandraConnectionOptions(profile.cassandraOptions),
     cosmosDbOptions: validateCosmosDbConnectionOptions(profile.cosmosDbOptions),
     searchOptions: validateSearchConnectionOptions(profile.searchOptions),
+    postgresOptions: validatePostgresConnectionOptions(profile.postgresOptions),
+    mysqlOptions: validateMySqlConnectionOptions(profile.mysqlOptions),
+    sqlServerOptions: validateSqlServerConnectionOptions(profile.sqlServerOptions),
     timeSeriesOptions: validateTimeSeriesConnectionOptions(profile.timeSeriesOptions),
     graphOptions: validateGraphConnectionOptions(profile.graphOptions),
     warehouseOptions: validateWarehouseConnectionOptions(profile.warehouseOptions),
@@ -293,9 +299,7 @@ function validateQueryViewMode(mode: QueryViewMode | undefined) {
   }
 }
 
-function validateConnectionAuth(
-  auth: ConnectionProfile['auth'] | null | undefined,
-): ConnectionProfile['auth'] {
+function validateConnectionAuth(auth: ConnectionProfile['auth'] | null | undefined): ConnectionProfile['auth'] {
   const username = validateOptionalText(
     auth?.username,
     'Connection username',

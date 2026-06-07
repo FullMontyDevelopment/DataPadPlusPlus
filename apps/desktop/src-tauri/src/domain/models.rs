@@ -187,6 +187,107 @@ pub struct SqliteConnectionOptions {
 
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct CockroachConnectionCapabilities {
+    pub inspect_jobs: Option<bool>,
+    pub inspect_ranges: Option<bool>,
+    pub inspect_regions: Option<bool>,
+    pub inspect_cluster_status: Option<bool>,
+    pub inspect_cluster_settings: Option<bool>,
+    pub inspect_sessions: Option<bool>,
+    pub inspect_contention: Option<bool>,
+    pub inspect_roles_and_grants: Option<bool>,
+    pub inspect_certificates: Option<bool>,
+    pub inspect_zone_configurations: Option<bool>,
+    pub explain_analyze: Option<bool>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TimescaleConnectionCapabilities {
+    pub inspect_hypertables: Option<bool>,
+    pub inspect_chunks: Option<bool>,
+    pub inspect_compression: Option<bool>,
+    pub inspect_retention: Option<bool>,
+    pub inspect_continuous_aggregates: Option<bool>,
+    pub inspect_jobs: Option<bool>,
+    pub inspect_toolkit: Option<bool>,
+    pub explain_analyze: Option<bool>,
+    pub live_policy_execution: Option<bool>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PostgresConnectionOptions {
+    pub connect_mode: Option<String>,
+    pub application_name: Option<String>,
+    pub search_path: Option<String>,
+    pub target_session_attrs: Option<String>,
+    pub connect_timeout_ms: Option<u64>,
+    pub statement_timeout_ms: Option<u64>,
+    pub lock_timeout_ms: Option<u64>,
+    pub idle_in_transaction_session_timeout_ms: Option<u64>,
+    pub use_tls: Option<bool>,
+    pub verify_server_certificate: Option<bool>,
+    pub ca_certificate_path: Option<String>,
+    pub client_certificate_path: Option<String>,
+    pub client_key_path: Option<String>,
+    pub certificate_password_secret_ref: Option<SecretRef>,
+    pub unix_socket_path: Option<String>,
+    pub cloud_sql_instance: Option<String>,
+    pub cockroach_deployment_mode: Option<String>,
+    pub cockroach_organization: Option<String>,
+    pub cockroach_cluster_name: Option<String>,
+    pub cockroach_cluster_id: Option<String>,
+    pub cockroach_cloud_region: Option<String>,
+    pub cockroach_default_region: Option<String>,
+    pub cockroach_locality: Option<String>,
+    pub cockroach_server_version: Option<String>,
+    pub cockroach_build_tag: Option<String>,
+    pub cockroach_auth_disabled_reason: Option<String>,
+    pub cockroach_tls_disabled_reason: Option<String>,
+    pub cockroach_capabilities: Option<CockroachConnectionCapabilities>,
+    pub timescale_deployment_mode: Option<String>,
+    pub timescale_project: Option<String>,
+    pub timescale_service_id: Option<String>,
+    pub timescale_region: Option<String>,
+    pub timescale_extension_schema: Option<String>,
+    pub timescale_extension_version: Option<String>,
+    pub timescale_server_version: Option<String>,
+    pub timescale_license: Option<String>,
+    pub timescale_policy_execution_disabled_reason: Option<String>,
+    pub timescale_compression_disabled_reason: Option<String>,
+    pub timescale_retention_disabled_reason: Option<String>,
+    pub timescale_continuous_aggregate_disabled_reason: Option<String>,
+    pub timescale_capabilities: Option<TimescaleConnectionCapabilities>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MySqlConnectionOptions {
+    pub connect_mode: Option<String>,
+    pub auth_mode: Option<String>,
+    pub ssl_mode: Option<String>,
+    pub server_flavor: Option<String>,
+    pub application_name: Option<String>,
+    pub charset: Option<String>,
+    pub collation: Option<String>,
+    pub time_zone: Option<String>,
+    pub sql_mode: Option<String>,
+    pub default_storage_engine: Option<String>,
+    pub allow_local_infile: Option<bool>,
+    pub statement_cache_capacity: Option<u32>,
+    pub connect_timeout_ms: Option<u64>,
+    pub command_timeout_ms: Option<u64>,
+    pub ca_certificate_path: Option<String>,
+    pub client_certificate_path: Option<String>,
+    pub client_key_path: Option<String>,
+    pub certificate_password_secret_ref: Option<SecretRef>,
+    pub unix_socket_path: Option<String>,
+    pub cloud_sql_instance: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct OracleConnectionOptions {
     pub connect_mode: Option<String>,
     pub service_name: Option<String>,
@@ -483,6 +584,10 @@ pub struct ConnectionProfile {
     #[serde(default)]
     pub sqlite_options: Option<SqliteConnectionOptions>,
     #[serde(default)]
+    pub postgres_options: Option<PostgresConnectionOptions>,
+    #[serde(default)]
+    pub mysql_options: Option<MySqlConnectionOptions>,
+    #[serde(default)]
     pub sqlserver_options: Option<SqlServerConnectionOptions>,
     #[serde(default)]
     pub oracle_options: Option<OracleConnectionOptions>,
@@ -519,6 +624,8 @@ pub struct ResolvedConnectionProfile {
     pub redis_options: Option<RedisConnectionOptions>,
     pub memcached_options: Option<MemcachedConnectionOptions>,
     pub sqlite_options: Option<SqliteConnectionOptions>,
+    pub postgres_options: Option<PostgresConnectionOptions>,
+    pub mysql_options: Option<MySqlConnectionOptions>,
     pub sqlserver_options: Option<SqlServerConnectionOptions>,
     pub oracle_options: Option<OracleConnectionOptions>,
     pub dynamo_db_options: Option<DynamoDbConnectionOptions>,

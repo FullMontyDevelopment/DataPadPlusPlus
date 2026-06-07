@@ -8,6 +8,8 @@ export type MysqlObjectViewDescriptor = {
   primaryQueryLabel?: string
 }
 
+type MysqlFamilyEngine = 'mysql' | 'mariadb'
+
 const DESCRIPTORS: Record<string, MysqlObjectViewDescriptor> = {
   databases: descriptor('databases', 'Open Databases', 'MySQL Databases', 'Review user databases separately from system schemas and server-level surfaces.', 'No databases are visible', 'Refresh databases or verify the account can inspect information_schema.'),
   database: descriptor('database', 'Open Database Overview', 'MySQL Database', 'Review tables, views, routines, events, triggers, indexes, privileges, and storage signals for this database.', 'No database metadata is loaded', 'Refresh this database to collect visible MySQL metadata.'),
@@ -34,10 +36,18 @@ const DESCRIPTORS: Record<string, MysqlObjectViewDescriptor> = {
   security: descriptor('security', 'Review Users / Privileges', 'MySQL Users / Privileges', 'Review users, hosts, roles, grants, authentication plugins, and privilege scope.', 'No security metadata is loaded', 'Refresh security or verify privileges to inspect mysql system tables.'),
   users: descriptor('users', 'Review Users', 'MySQL Users', 'Review user accounts, hosts, plugins, lock state, and password-expiry hints.', 'No users were returned', 'User metadata may be restricted.'),
   roles: descriptor('roles', 'Review Roles', 'MySQL Roles', 'Review roles and role assignments where supported.', 'No roles were returned', 'Roles may be unavailable or restricted.'),
+  'role-mappings': descriptor('role-mappings', 'Review Role Mappings', 'MariaDB Role Mappings', 'Review MariaDB mysql.roles_mapping memberships, admin options, and mapped principals.', 'No role mappings were returned', 'MariaDB role mapping metadata may be unavailable or restricted.'),
   permissions: descriptor('permissions', 'Review Grants', 'MySQL Grants', 'Review database, table, routine, and global grants for visible principals.', 'No grants were returned', 'The current account may not be allowed to inspect grants.'),
   diagnostics: descriptor('diagnostics', 'Open Diagnostics', 'MySQL Diagnostics', 'Review sessions, processlist, InnoDB status, slow-query signals, replication, and performance_schema counters.', 'No diagnostics are loaded', 'Refresh diagnostics to collect available MySQL status metadata.'),
   sessions: descriptor('sessions', 'Review Sessions', 'MySQL Sessions', 'Review active sessions, commands, state, duration, and lock/blocking hints.', 'No sessions were returned', 'Processlist metadata may be restricted.'),
+  statistics: descriptor('statistics', 'Review Status Counters', 'MySQL Status Counters', 'Review global status counters, threads, slow-query counts, and workload signals.', 'No status counters were returned', 'SHOW GLOBAL STATUS may be restricted.'),
   'slow-queries': descriptor('slow-queries', 'Review Slow Queries', 'MySQL Slow Queries', 'Review digest latency, counts, max latency, and rows examined from performance_schema where available.', 'No slow-query rows were returned', 'performance_schema digest metadata may be disabled or restricted.'),
+  'performance-schema': descriptor('performance-schema', 'Review Performance Schema', 'MySQL Performance Schema', 'Review statement digests, table/index I/O waits, metadata locks, and optimizer-trace visibility.', 'No performance_schema rows were returned', 'performance_schema may be disabled, trimmed, or restricted.'),
+  'metadata-locks': descriptor('metadata-locks', 'Review Metadata Locks', 'MySQL Metadata Locks', 'Review pending and granted metadata locks with object, lock mode, session, and user context.', 'No metadata locks were returned', 'metadata_locks may be empty or restricted.'),
+  'optimizer-trace': descriptor('optimizer-trace', 'Review Optimizer Trace', 'MySQL Optimizer Trace', 'Review optimizer_trace settings, memory limits, and recent trace availability without dumping raw trace JSON first.', 'No optimizer trace settings were returned', 'optimizer_trace may be disabled or unavailable for the current account.'),
+  'server-variables': descriptor('server-variables', 'Review Server Variables', 'MariaDB Server Variables', 'Review MariaDB version, SQL mode, default storage engine, and server capability variables.', 'No server variables were returned', 'SHOW VARIABLES may be restricted for the current account.'),
+  'storage-engines': descriptor('storage-engines', 'Review Storage Engines', 'MariaDB Storage Engines', 'Review MariaDB storage engines, transaction support, XA support, and savepoint capability.', 'No storage engines were returned', 'SHOW ENGINES may be restricted for the current account.'),
+  'analyze-profile': descriptor('analyze-profile', 'Review ANALYZE Profile', 'MariaDB ANALYZE FORMAT=JSON', 'Review guarded MariaDB ANALYZE FORMAT=JSON profile metadata and the read-only sample query template.', 'No ANALYZE profile metadata was returned', 'ANALYZE FORMAT=JSON may be unavailable or blocked by permissions.'),
   'innodb-status': descriptor('innodb-status', 'Review InnoDB Status', 'InnoDB Status', 'Review buffer pool, row-lock waits, purge lag, and storage-engine pressure without raw SHOW output.', 'No InnoDB status rows were returned', 'The server may not use InnoDB or metadata may be restricted.'),
   'status-counters': descriptor('status-counters', 'Review Status Counters', 'MySQL Status Counters', 'Review global status counters, threads, slow query counts, and workload signals.', 'No status counters were returned', 'SHOW GLOBAL STATUS may be restricted.'),
   replication: descriptor('replication', 'Open Replication', 'MySQL Replication', 'Review replica/source status, lag, threads, GTID, and channel health.', 'No replication metadata was returned', 'This server may not be configured for replication.'),
@@ -52,12 +62,15 @@ const DEFAULT_DESCRIPTOR: MysqlObjectViewDescriptor = descriptor(
   'Refresh this object or check whether the account can inspect it.',
 )
 
-export function getMysqlObjectViewDescriptor(kind: string | undefined): MysqlObjectViewDescriptor {
+export function getMysqlObjectViewDescriptor(
+  kind: string | undefined,
+  engine: MysqlFamilyEngine = 'mysql',
+): MysqlObjectViewDescriptor {
   if (!kind) {
-    return DEFAULT_DESCRIPTOR
+    return familyDescriptor(DEFAULT_DESCRIPTOR, engine)
   }
 
-  return DESCRIPTORS[normalizeMysqlObjectKind(kind)] ?? DEFAULT_DESCRIPTOR
+  return familyDescriptor(DESCRIPTORS[normalizeMysqlObjectKind(kind)] ?? DEFAULT_DESCRIPTOR, engine)
 }
 
 export function mysqlObjectViewMenuLabel(kind: string | undefined): string {
@@ -92,4 +105,24 @@ function descriptor(
 
 function normalizeMysqlObjectKind(kind: string) {
   return kind.trim().toLowerCase().replace(/[_\s]+/g, '-')
+}
+
+function familyDescriptor(
+  descriptor: MysqlObjectViewDescriptor,
+  engine: MysqlFamilyEngine,
+): MysqlObjectViewDescriptor {
+  if (engine !== 'mariadb') {
+    return descriptor
+  }
+
+  return {
+    ...descriptor,
+    title: descriptor.title.replace(/^MySQL\b/, 'MariaDB'),
+    purpose: descriptor.purpose
+      .replace(/\bMySQL\b/g, 'MariaDB')
+      .replace(/MariaDB or MariaDB/g, 'MariaDB')
+      .replace(/optimizer-trace visibility/i, 'ANALYZE FORMAT=JSON visibility'),
+    emptyTitle: descriptor.emptyTitle.replace(/^MySQL\b/, 'MariaDB'),
+    emptyDescription: descriptor.emptyDescription.replace(/\bMySQL\b/g, 'MariaDB'),
+  }
 }
