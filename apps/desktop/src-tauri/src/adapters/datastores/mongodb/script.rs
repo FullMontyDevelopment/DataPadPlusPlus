@@ -3,6 +3,7 @@ use mongodb::bson::{doc, oid::ObjectId, Bson, DateTime, Document};
 use serde_json::{json, Number, Value};
 
 use super::super::super::*;
+use super::bson_extjson::{mongodb_document_to_json, mongodb_documents_to_json};
 use super::connection::{
     mongodb_client, mongodb_database_name, mongodb_database_name_for_collection_query,
 };
@@ -98,14 +99,14 @@ pub(super) async fn execute_mongodb_script(
                     truncated = true;
                     result_documents.truncate(effective_limit as usize);
                 }
-                let section_documents = serde_json::to_value(&result_documents)?;
+                let section_documents = mongodb_documents_to_json(result_documents.iter());
                 let section_payloads = vec![
                     payload_document(section_documents.clone()),
                     payload_json(json!({
                         "statement": index + 1,
                         "operation": "find",
                         "collection": collection.clone(),
-                        "documents": section_documents,
+                        "documents": section_documents.clone(),
                     })),
                 ];
                 remaining = remaining.saturating_sub(result_documents.len() as u32);
@@ -113,7 +114,7 @@ pub(super) async fn execute_mongodb_script(
                     "statement": index + 1,
                     "operation": "find",
                     "collection": collection,
-                    "documents": result_documents,
+                    "documents": section_documents.clone(),
                 }));
                 batch_sections.push(batch_section(BatchSectionPayload {
                     id: format!("mongodb-script-{}", index + 1),
@@ -161,14 +162,14 @@ pub(super) async fn execute_mongodb_script(
                     truncated = true;
                     result_documents.truncate(remaining as usize);
                 }
-                let section_documents = serde_json::to_value(&result_documents)?;
+                let section_documents = mongodb_documents_to_json(result_documents.iter());
                 let section_payloads = vec![
                     payload_document(section_documents.clone()),
                     payload_json(json!({
                         "statement": index + 1,
                         "operation": "aggregate",
                         "collection": collection.clone(),
-                        "documents": section_documents,
+                        "documents": section_documents.clone(),
                     })),
                 ];
                 remaining = remaining.saturating_sub(result_documents.len() as u32);
@@ -176,7 +177,7 @@ pub(super) async fn execute_mongodb_script(
                     "statement": index + 1,
                     "operation": "aggregate",
                     "collection": collection,
-                    "documents": result_documents,
+                    "documents": section_documents.clone(),
                 }));
                 batch_sections.push(batch_section(BatchSectionPayload {
                     id: format!("mongodb-script-{}", index + 1),
@@ -196,11 +197,11 @@ pub(super) async fn execute_mongodb_script(
                 let database = client.database(&mongodb_database_name(connection));
                 let command = value_to_document(&command)?;
                 let command_result = database.run_command(command).await?;
-                let command_result_json = serde_json::to_value(&command_result)?;
+                let command_result_json = mongodb_document_to_json(&command_result);
                 statement_results.push(json!({
                     "statement": index + 1,
                     "operation": "runCommand",
-                    "result": command_result,
+                    "result": command_result_json.clone(),
                 }));
                 batch_sections.push(batch_section(BatchSectionPayload {
                     id: format!("mongodb-script-{}", index + 1),
@@ -227,12 +228,21 @@ pub(super) async fn execute_mongodb_script(
         }
     }
 
-    let documents_json = serde_json::to_value(&documents)?;
+    let documents_json = mongodb_documents_to_json(documents.iter());
     let json_payload = json!({
         "statements": statement_results,
         "documents": documents_json,
     });
     let raw_documents = serde_json::to_string_pretty(&json_payload).unwrap_or_else(|_| "[]".into());
+    let table_rows = documents_json
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| vec![serde_json::to_string(item).unwrap_or_else(|_| "{}".into())])
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
 
     let batch_payload = (batch_sections.len() > 1).then(|| {
         payload_batch(
@@ -251,13 +261,7 @@ pub(super) async fn execute_mongodb_script(
     payloads.extend([
         payload_document(documents_json.clone()),
         payload_json(json_payload),
-        payload_table(
-            vec!["document".into()],
-            documents
-                .iter()
-                .map(|item| vec![serde_json::to_string(item).unwrap_or_else(|_| "{}".into())])
-                .collect(),
-        ),
+        payload_table(vec!["document".into()], table_rows),
         payload_raw(raw_documents),
     ]);
 

@@ -1110,6 +1110,7 @@ export interface DiagnosticsReport {
   platform: string
   appVersion: string
   logPath?: string
+  breadcrumbPath?: string
   counts: {
     connections: number
     environments: number

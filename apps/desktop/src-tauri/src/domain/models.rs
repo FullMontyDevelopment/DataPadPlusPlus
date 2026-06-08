@@ -1588,6 +1588,8 @@ pub struct DiagnosticsReport {
     pub app_version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub log_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breadcrumb_path: Option<String>,
     pub counts: DiagnosticsCounts,
     pub warnings: Vec<String>,
 }

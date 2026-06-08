@@ -1,8 +1,8 @@
 use futures_util::TryStreamExt;
 use mongodb::bson::{self, doc, Document};
-use serde_json::json;
 
 use super::super::super::*;
+use super::bson_extjson::mongodb_document_to_json;
 use super::connection::{mongodb_client, mongodb_database_name};
 
 pub(crate) async fn load_mongodb_structure(
@@ -66,7 +66,7 @@ pub(crate) async fn load_mongodb_structure(
                 structure_metric("Indexes", index_names.len().to_string()),
             ],
             fields,
-            sample: sample.map(|document| json!(document)),
+            sample: sample.as_ref().map(mongodb_document_to_json),
         });
     }
     for node in &nodes {

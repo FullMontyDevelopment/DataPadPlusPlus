@@ -2,6 +2,7 @@ use mongodb::bson::{doc, oid::ObjectId, Bson, Document};
 use serde_json::{json, Map, Value};
 
 use super::super::super::*;
+use super::bson_extjson::mongodb_document_to_json;
 use super::connection::{mongodb_client, mongodb_database_name_for_collection_query};
 
 pub(crate) fn mongodb_document_payload(
@@ -47,7 +48,7 @@ pub(crate) async fn fetch_mongodb_document_node_children(
                 "The selected document was not found while expanding this field.",
             )
         })?;
-    let document_value = serde_json::to_value(&document)?;
+    let document_value = mongodb_document_to_json(&document);
     let field_value = value_at_path(&document_value, &request.path)
         .cloned()
         .unwrap_or(Value::Null);

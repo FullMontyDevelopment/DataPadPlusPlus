@@ -594,6 +594,15 @@ pub async fn test_connection(
     request: ConnectionTestRequest,
 ) -> Result<ConnectionTestResult, CommandError> {
     let started = std::time::Instant::now();
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "test-connection-start id={} engine={} environment={}",
+            request.profile.id,
+            request.profile.engine,
+            breadcrumb_environment(&request.environment_id)
+        ),
+    );
     infrastructure::log_info(
         "connection-test",
         format!(
@@ -649,6 +658,17 @@ pub async fn test_connection(
             ),
         ),
     }
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "test-connection-complete engine={} durationMs={}",
+            response
+                .as_ref()
+                .map(|result| result.engine.as_str())
+                .unwrap_or("unknown"),
+            started.elapsed().as_millis()
+        ),
+    );
 
     response
 }
@@ -658,8 +678,26 @@ pub async fn list_explorer_nodes(
     state: State<'_, SharedAppState>,
     request: ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "list-explorer-start connection={} environment={} scope={}",
+            request.connection_id,
+            breadcrumb_environment(&request.environment_id),
+            request.scope.as_deref().unwrap_or("<root>")
+        ),
+    );
     let mut runtime = clone_runtime(&state)?;
     let response = runtime.list_explorer_nodes(request).await?;
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "list-explorer-complete connection={} environment={} scope={}",
+            response.connection_id,
+            breadcrumb_environment(&response.environment_id),
+            response.scope.as_deref().unwrap_or("<root>")
+        ),
+    );
     replace_runtime(&state, runtime)?;
     Ok(response)
 }
@@ -669,8 +707,29 @@ pub async fn inspect_explorer_node(
     state: State<'_, SharedAppState>,
     request: ExplorerInspectRequest,
 ) -> Result<ExplorerInspectResponse, CommandError> {
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "inspect-explorer-start connection={} environment={} node={}",
+            request.connection_id,
+            breadcrumb_environment(&request.environment_id),
+            request.node_id
+        ),
+    );
     let runtime = clone_runtime(&state)?;
-    runtime.inspect_explorer_node(request).await
+    let response = runtime.inspect_explorer_node(request).await;
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "inspect-explorer-complete ok={} node={}",
+            response.is_ok(),
+            response
+                .as_ref()
+                .map(|item| item.node_id.as_str())
+                .unwrap_or("<error>")
+        ),
+    );
+    response
 }
 
 #[tauri::command]
@@ -678,8 +737,21 @@ pub async fn load_structure_map(
     state: State<'_, SharedAppState>,
     request: StructureRequest,
 ) -> Result<StructureResponse, CommandError> {
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "load-structure-start connection={} environment={}",
+            request.connection_id,
+            breadcrumb_environment(&request.environment_id)
+        ),
+    );
     let runtime = clone_runtime(&state)?;
-    runtime.load_structure_map(request).await
+    let response = runtime.load_structure_map(request).await;
+    infrastructure::log_breadcrumb(
+        "command",
+        format!("load-structure-complete ok={}", response.is_ok()),
+    );
+    response
 }
 
 #[tauri::command]
@@ -814,13 +886,34 @@ pub async fn execute_query_request(
 ) -> Result<ExecutionResponse, CommandError> {
     let execution_id = request_execution_id(&mut request);
     let tab_id = request.tab_id.clone();
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "execute-query-start execution={} connection={} environment={} language={} mode={}",
+            execution_id,
+            request.connection_id,
+            breadcrumb_environment(&request.environment_id),
+            request.language,
+            request.mode.as_deref().unwrap_or("full")
+        ),
+    );
     mark_tab_execution_running(&state, &tab_id, &execution_id, None)?;
     let mut runtime = clone_runtime(&state)?;
     match runtime.execute_query(request).await {
-        Ok(response) => merge_execution_response(&state, response),
+        Ok(response) => {
+            infrastructure::log_breadcrumb(
+                "command",
+                format!("execute-query-complete execution={execution_id} ok=true"),
+            );
+            merge_execution_response(&state, response)
+        }
         Err(error) => {
             let message = error.message.clone();
             clear_tab_execution_after_error(&state, &tab_id, &execution_id, message)?;
+            infrastructure::log_breadcrumb(
+                "command",
+                format!("execute-query-complete execution={execution_id} ok=false"),
+            );
             Err(error)
         }
     }
@@ -1157,6 +1250,14 @@ fn dialog_path_to_string(path: FilePath) -> Result<String, CommandError> {
     path.into_path()
         .map(|path| path.to_string_lossy().to_string())
         .map_err(|error| CommandError::new("dialog-path-error", error.to_string()))
+}
+
+fn breadcrumb_environment(environment_id: &str) -> &str {
+    if environment_id.trim().is_empty() {
+        "<none>"
+    } else {
+        environment_id
+    }
 }
 
 fn default_workspace_bundle_file_name() -> String {

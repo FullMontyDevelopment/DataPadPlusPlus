@@ -13,11 +13,30 @@ pub(super) async fn mongodb_client(
 ) -> Result<MongoClient, CommandError> {
     let uri = mongodb_uri(connection);
 
+    crate::infrastructure::log_breadcrumb(
+        "mongodb-client",
+        format!(
+            "parse-options-start id={} host={} database={} connectionString={}",
+            connection.id,
+            connection.host,
+            connection.database.as_deref().unwrap_or(""),
+            connection.connection_string.is_some()
+        ),
+    );
     let mut options = ClientOptions::parse(uri).await?;
+    crate::infrastructure::log_breadcrumb(
+        "mongodb-client",
+        format!("parse-options-complete id={}", connection.id),
+    );
     options.server_selection_timeout = Some(DEFAULT_MONGODB_SERVER_SELECTION_TIMEOUT);
     options.connect_timeout = Some(DEFAULT_MONGODB_CONNECT_TIMEOUT);
 
-    Ok(MongoClient::with_options(options)?)
+    let client = MongoClient::with_options(options)?;
+    crate::infrastructure::log_breadcrumb(
+        "mongodb-client",
+        format!("client-created id={}", connection.id),
+    );
+    Ok(client)
 }
 
 pub(super) async fn test_mongodb_connection(
@@ -26,10 +45,21 @@ pub(super) async fn test_mongodb_connection(
     let started = Instant::now();
     let client = mongodb_client(connection).await?;
     let database_name = mongodb_database_name(connection);
+    crate::infrastructure::log_breadcrumb(
+        "mongodb-test",
+        format!("ping-start id={} database={database_name}", connection.id),
+    );
     let _ = client
         .database(&database_name)
         .run_command(doc! {"ping": 1})
         .await?;
+    crate::infrastructure::log_breadcrumb(
+        "mongodb-test",
+        format!(
+            "ping-complete id={} database={database_name}",
+            connection.id
+        ),
+    );
 
     Ok(ConnectionTestResult {
         ok: true,

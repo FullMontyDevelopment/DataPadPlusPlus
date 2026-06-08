@@ -89,6 +89,11 @@ impl ManagedAppState {
             platform: self.health().platform,
             app_version: env!("CARGO_PKG_VERSION").into(),
             log_path: Some(infrastructure::diagnostics_log_path().display().to_string()),
+            breadcrumb_path: Some(
+                infrastructure::diagnostics_breadcrumb_path()
+                    .display()
+                    .to_string(),
+            ),
             counts: DiagnosticsCounts {
                 connections: self.snapshot.connections.len(),
                 environments: self.snapshot.environments.len(),

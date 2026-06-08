@@ -320,6 +320,10 @@ export function DiagnosticsBlade({
             <DrawerDetailRow label="App version" value={diagnostics?.appVersion ?? 'Unknown'} />
             <DrawerDetailRow label="Platform" value={diagnostics?.platform ?? health.platform} />
             <DrawerDetailRow label="Log file" value={diagnostics?.logPath ?? 'Not available'} />
+            <DrawerDetailRow
+              label="Breadcrumbs"
+              value={diagnostics?.breadcrumbPath ?? 'Not available'}
+            />
             <DrawerDetailRow label="Connections" value={String(diagnostics?.counts.connections ?? 0)} />
             <DrawerDetailRow label="Library items" value={String(diagnostics?.counts.library ?? 0)} />
             <DrawerDetailRow label="Environments" value={String(diagnostics?.counts.environments ?? 0)} />

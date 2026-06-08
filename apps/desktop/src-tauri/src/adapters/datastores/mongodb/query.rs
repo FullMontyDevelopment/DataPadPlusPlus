@@ -3,7 +3,10 @@ use mongodb::bson::{doc, Bson, Document};
 use serde_json::{json, Value};
 
 use super::super::super::*;
-use super::bson_extjson::{mongodb_json_to_array, mongodb_json_to_document};
+use super::bson_extjson::{
+    mongodb_bson_to_json, mongodb_document_to_json, mongodb_documents_to_json,
+    mongodb_json_to_array, mongodb_json_to_document,
+};
 use super::connection::{
     mongodb_client, mongodb_database_name_for_collection_query, mongodb_database_name_from_query,
 };
@@ -286,7 +289,7 @@ async fn execute_mongodb_distinct(
             bson_document(input.get("filter").unwrap_or(&json!({})), "filter")?,
         )
         .await?;
-    let values_json = serde_json::to_value(&values)?;
+    let values_json = Value::Array(values.iter().map(mongodb_bson_to_json).collect());
 
     Ok(scalar_result(
         connection,
@@ -342,8 +345,8 @@ async fn execute_mongodb_command(
         .await?;
     let payload = json!({
         "database": database_name,
-        "command": command,
-        "result": response,
+        "command": mongodb_document_to_json(&command),
+        "result": mongodb_document_to_json(&response),
     });
 
     Ok(scalar_result(
@@ -420,12 +423,9 @@ async fn execute_mongodb_explain(
     let explain = database
         .run_command(doc! { "explain": command, "verbosity": verbosity })
         .await?;
-    let plan_payload = payload_plan(
-        "json",
-        serde_json::to_value(&explain)?,
-        "MongoDB execution plan",
-    );
-    let raw = serde_json::to_string_pretty(&explain).unwrap_or_else(|_| "{}".into());
+    let explain_json = mongodb_document_to_json(&explain);
+    let plan_payload = payload_plan("json", explain_json.clone(), "MongoDB execution plan");
+    let raw = serde_json::to_string_pretty(&explain_json).unwrap_or_else(|_| "{}".into());
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
@@ -434,7 +434,7 @@ async fn execute_mongodb_explain(
         renderer_modes: vec!["plan", "json", "raw"],
         payloads: vec![
             plan_payload.clone(),
-            payload_json(serde_json::to_value(&explain)?),
+            payload_json(explain_json),
             payload_raw(raw),
         ],
         notices,
@@ -475,7 +475,7 @@ async fn execute_mongodb_write(
         "insertone" => {
             let document = bson_document(required_value(input, "document")?, "document")?;
             let result = collection.insert_one(document).await?;
-            json!({ "insertedId": result.inserted_id })
+            json!({ "insertedId": mongodb_bson_to_json(&result.inserted_id) })
         }
         "insertmany" => {
             let documents = required_value(input, "documents")?
@@ -485,7 +485,13 @@ async fn execute_mongodb_write(
                 .map(|document| bson_document(document, "documents[]"))
                 .collect::<Result<Vec<_>, _>>()?;
             let result = collection.insert_many(documents).await?;
-            json!({ "insertedIds": result.inserted_ids })
+            json!({
+                "insertedIds": result
+                    .inserted_ids
+                    .iter()
+                    .map(|(index, id)| (index.to_string(), mongodb_bson_to_json(id)))
+                    .collect::<serde_json::Map<_, _>>()
+            })
         }
         "updateone" | "updatemany" => {
             let filter = bson_document(input.get("filter").unwrap_or(&json!({})), "filter")?;
@@ -493,10 +499,18 @@ async fn execute_mongodb_write(
             let update = bson_document(required_value(input, "update")?, "update")?;
             if operation == "updateone" {
                 let result = collection.update_one(filter, update).await?;
-                json!({ "matchedCount": result.matched_count, "modifiedCount": result.modified_count, "upsertedId": result.upserted_id })
+                json!({
+                    "matchedCount": result.matched_count,
+                    "modifiedCount": result.modified_count,
+                    "upsertedId": result.upserted_id.as_ref().map(mongodb_bson_to_json)
+                })
             } else {
                 let result = collection.update_many(filter, update).await?;
-                json!({ "matchedCount": result.matched_count, "modifiedCount": result.modified_count, "upsertedId": result.upserted_id })
+                json!({
+                    "matchedCount": result.matched_count,
+                    "modifiedCount": result.modified_count,
+                    "upsertedId": result.upserted_id.as_ref().map(mongodb_bson_to_json)
+                })
             }
         }
         "replaceone" => {
@@ -504,7 +518,11 @@ async fn execute_mongodb_write(
             reject_empty_write_filter(operation, &filter)?;
             let replacement = bson_document(required_value(input, "replacement")?, "replacement")?;
             let result = collection.replace_one(filter, replacement).await?;
-            json!({ "matchedCount": result.matched_count, "modifiedCount": result.modified_count, "upsertedId": result.upserted_id })
+            json!({
+                "matchedCount": result.matched_count,
+                "modifiedCount": result.modified_count,
+                "upsertedId": result.upserted_id.as_ref().map(mongodb_bson_to_json)
+            })
         }
         "deleteone" | "deletemany" => {
             let filter = bson_document(input.get("filter").unwrap_or(&json!({})), "filter")?;
@@ -570,7 +588,7 @@ fn document_result(input: DocumentResultInput<'_>) -> ExecutionResultEnvelope {
         .iter()
         .take(row_limit as usize)
         .collect::<Vec<&Document>>();
-    let documents_json = serde_json::to_value(&visible_documents).unwrap_or_else(|_| json!([]));
+    let documents_json = mongodb_documents_to_json(visible_documents.iter().copied());
     let document_payload = mongodb_document_payload(
         documents_json.clone(),
         database_name,
@@ -772,7 +790,8 @@ fn bson_value_to_string(value: &Bson) -> String {
         Bson::Double(value) => value.to_string(),
         Bson::Boolean(value) => value.to_string(),
         Bson::Null => "null".into(),
-        other => serde_json::to_string(other).unwrap_or_else(|_| other.to_string()),
+        other => serde_json::to_string(&mongodb_bson_to_json(other))
+            .unwrap_or_else(|_| "<bson-value>".into()),
     }
 }
 

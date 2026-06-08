@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 const SECRET_REPLACEMENT: &str = "********";
+const MAX_ERROR_DETAIL_CHARS: usize = 2048;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +21,7 @@ impl CommandError {
     }
 
     pub(crate) fn from_mongodb_message(raw: impl Into<String>) -> Self {
-        let raw = raw.into();
+        let raw = truncate_error_detail(&raw.into());
         let lower = raw.to_lowercase();
         let (code, hint) = if lower.contains("server selection timeout")
             || (lower.contains("no available servers") && lower.contains("topology"))
@@ -70,10 +71,80 @@ impl CommandError {
 
         Self::new(code, format!("{hint} Details: {raw}"))
     }
+
+    pub(crate) fn from_mongodb_error(error: mongodb::error::Error) -> Self {
+        Self::from_mongodb_message(mongodb_error_summary(&error))
+    }
+}
+
+pub(crate) fn mongodb_error_summary(error: &mongodb::error::Error) -> String {
+    use mongodb::error::ErrorKind;
+
+    let summary = match error.kind.as_ref() {
+        ErrorKind::InvalidArgument { message, .. } => {
+            format!("MongoDB invalid argument: {message}")
+        }
+        ErrorKind::Authentication { message, .. } => {
+            format!("MongoDB authentication failed: {message}")
+        }
+        ErrorKind::DnsResolve { message, .. } => {
+            format!("MongoDB DNS resolution failed: {message}")
+        }
+        ErrorKind::Io(error) => {
+            format!("MongoDB I/O error: {}", error.kind())
+        }
+        ErrorKind::ConnectionPoolCleared { message, .. } => {
+            format!("MongoDB connection pool was cleared: {message}")
+        }
+        ErrorKind::InvalidResponse { message, .. } => {
+            format!("MongoDB returned an invalid response: {message}")
+        }
+        ErrorKind::ServerSelection { message, .. } => {
+            format!("MongoDB server selection timeout or topology error: {message}")
+        }
+        ErrorKind::InvalidTlsConfig { message, .. } => {
+            format!("MongoDB TLS configuration error: {message}")
+        }
+        ErrorKind::Transaction { message, .. } => {
+            format!("MongoDB transaction error: {message}")
+        }
+        ErrorKind::IncompatibleServer { message, .. } => {
+            format!("MongoDB incompatible server: {message}")
+        }
+        ErrorKind::Command(command) => format!(
+            "MongoDB command failed: code={} codeName={} message={}",
+            command.code, command.code_name, command.message
+        ),
+        ErrorKind::BsonDeserialization(error) => {
+            format!("MongoDB BSON deserialization error: {error}")
+        }
+        ErrorKind::BsonSerialization(error) => {
+            format!("MongoDB BSON serialization error: {error}")
+        }
+        ErrorKind::SessionsNotSupported => "MongoDB deployment does not support sessions.".into(),
+        ErrorKind::MissingResumeToken => "MongoDB change stream resume token is missing.".into(),
+        ErrorKind::Shutdown => "MongoDB driver is shutting down.".into(),
+        _ => "MongoDB returned an error that DataPad++ could not classify safely.".into(),
+    };
+
+    truncate_error_detail(&summary)
 }
 
 pub(crate) fn redact_sensitive_text(value: &str) -> String {
     redact_auth_headers(&redact_secret_assignments(&redact_url_credentials(value)))
+}
+
+fn truncate_error_detail(value: &str) -> String {
+    if value.chars().count() <= MAX_ERROR_DETAIL_CHARS {
+        return value.to_string();
+    }
+
+    let mut truncated = value
+        .chars()
+        .take(MAX_ERROR_DETAIL_CHARS)
+        .collect::<String>();
+    truncated.push_str("...");
+    truncated
 }
 
 fn redact_url_credentials(value: &str) -> String {
@@ -385,7 +456,7 @@ impl From<sqlx::Error> for CommandError {
 
 impl From<mongodb::error::Error> for CommandError {
     fn from(error: mongodb::error::Error) -> Self {
-        Self::from_mongodb_message(error.to_string())
+        Self::from_mongodb_error(error)
     }
 }
 

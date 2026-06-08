@@ -8,10 +8,15 @@ use mongodb::{
 use serde_json::{json, Value};
 
 use super::super::super::*;
+use super::bson_extjson::{
+    mongodb_bson_to_json, mongodb_document_to_json, mongodb_documents_to_json,
+};
 use super::catalog::mongodb_execution_capabilities;
 use super::connection::{mongodb_client, mongodb_database_name, mongodb_selected_database_name};
+use crate::domain::error::mongodb_error_summary;
 
 const SYSTEM_DATABASES: &[&str] = &["admin", "config", "local"];
+const MAX_SCHEMA_FIELD_DEPTH: usize = 32;
 
 struct MongoCollectionInfo {
     name: String,
@@ -222,11 +227,14 @@ pub(super) async fn inspect_mongodb_explorer_node(
 
     if let Some(rest) = node_id.strip_prefix("insert-document:") {
         let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
-        let collection_info =
-            collection_info_by_name(&client.database(&database_name), &collection_name)
-                .await
-                .ok()
-                .flatten();
+        let validator = collection_info_by_name(&client.database(&database_name), &collection_name)
+            .await
+            .ok()
+            .flatten()
+            .as_ref()
+            .and_then(|info| info.options.get_document("validator").ok())
+            .map(mongodb_document_to_json)
+            .unwrap_or_else(|| json!({}));
 
         return Ok(ExplorerInspectResponse {
             node_id: request.node_id.clone(),
@@ -239,11 +247,7 @@ pub(super) async fn inspect_mongodb_explorer_node(
             payload: Some(json!({
                 "database": database_name,
                 "collection": collection_name,
-                "validator": collection_info
-                    .as_ref()
-                    .and_then(|info| info.options.get_document("validator").ok())
-                    .cloned()
-                    .unwrap_or_else(Document::new),
+                "validator": validator,
             })),
         });
     }
@@ -265,7 +269,7 @@ pub(super) async fn inspect_mongodb_explorer_node(
             payload: Some(json!({
                 "database": database_name,
                 "collection": collection_name,
-                "indexes": indexes,
+                "indexes": mongodb_document_to_json(&indexes),
             })),
         });
     }
@@ -287,7 +291,7 @@ pub(super) async fn inspect_mongodb_explorer_node(
             payload: Some(json!({
                 "database": database_name,
                 "collection": collection_name,
-                "indexes": indexes,
+                "indexes": mongodb_document_to_json(&indexes),
             })),
         });
     }
@@ -389,7 +393,10 @@ pub(super) async fn inspect_mongodb_explorer_node(
             payload: Some(json!({
                 "database": database_name,
                 "collection": collection_name,
-                "validator": validator,
+                "validator": validator
+                    .as_ref()
+                    .map(mongodb_document_to_json)
+                    .unwrap_or(Value::Null),
             })),
         });
     }
@@ -412,7 +419,10 @@ pub(super) async fn inspect_mongodb_explorer_node(
             payload: Some(json!({
                 "database": database_name,
                 "view": view_name,
-                "pipeline": pipeline,
+                "pipeline": pipeline
+                    .iter()
+                    .map(mongodb_bson_to_json)
+                    .collect::<Vec<_>>(),
             })),
         });
     }
@@ -471,7 +481,10 @@ pub(super) async fn inspect_mongodb_explorer_node(
                     .map(collection_info_payload)
                     .collect::<Vec<_>>(),
                 "gridfsBuckets": gridfs_buckets,
-                "statistics": stats.ok(),
+                "statistics": stats
+                    .ok()
+                    .as_ref()
+                    .map(mongodb_document_to_json),
             })),
         });
     }
@@ -515,10 +528,16 @@ pub(super) async fn inspect_mongodb_explorer_node(
             payload: Some(json!({
                 "database": database_name,
                 "collection": collection_name,
-                "indexes": indexes,
-                "validator": validator,
-                "statistics": statistics,
-                "sampleDocuments": sample_documents,
+                "indexes": indexes
+                    .as_ref()
+                    .map(mongodb_document_to_json),
+                "validator": validator
+                    .as_ref()
+                    .map(mongodb_document_to_json),
+                "statistics": statistics
+                    .as_ref()
+                    .map(mongodb_document_to_json),
+                "sampleDocuments": mongodb_documents_to_json(sample_documents.iter()),
             })),
         });
     }
@@ -1145,7 +1164,7 @@ async fn list_user_nodes(
         Err(error) => vec![permission_warning_node(
             database_name,
             "Users",
-            format!("Users unavailable: {error}"),
+            format!("Users unavailable: {}", mongodb_error_summary(&error)),
         )],
     }
 }
@@ -1181,7 +1200,7 @@ async fn list_role_nodes(
         Err(error) => vec![permission_warning_node(
             database_name,
             "Roles",
-            format!("Roles unavailable: {error}"),
+            format!("Roles unavailable: {}", mongodb_error_summary(&error)),
         )],
     }
 }
@@ -1221,7 +1240,10 @@ async fn inspect_users_or_roles(
             query_template: Some(mongodb_command_query_template(database_name, query_command)),
             payload: Some(json!({
                 "database": database_name,
-                label: payload.get_array(label).cloned().unwrap_or_default(),
+                label: payload
+                    .get_array(label)
+                    .map(|items| items.iter().map(mongodb_bson_to_json).collect::<Vec<_>>())
+                    .unwrap_or_default(),
             })),
         },
         Err(error) => ExplorerInspectResponse {
@@ -1230,7 +1252,7 @@ async fn inspect_users_or_roles(
             query_template: None,
             payload: Some(json!({
                 "database": database_name,
-                "warning": error.to_string(),
+                "warning": mongodb_error_summary(&error),
             })),
         },
     }
@@ -1250,7 +1272,7 @@ fn inspection_with_command_result(
             query_template: Some(mongodb_command_query_template(database_name, command)),
             payload: Some(json!({
                 "database": database_name,
-                "result": payload,
+                "result": mongodb_document_to_json(&payload),
             })),
         },
         Err(error) => ExplorerInspectResponse {
@@ -1259,7 +1281,7 @@ fn inspection_with_command_result(
             query_template: Some(mongodb_command_query_template(database_name, command)),
             payload: Some(json!({
                 "database": database_name,
-                "warning": error.to_string(),
+                "warning": mongodb_error_summary(&error),
             })),
         },
     }
@@ -1313,8 +1335,11 @@ fn collection_info_payload(info: &MongoCollectionInfo) -> Value {
     json!({
         "name": info.name,
         "type": info.collection_type,
-        "options": info.options,
-        "pipeline": info.options.get_array("pipeline").cloned().unwrap_or_default(),
+        "options": mongodb_document_to_json(&info.options),
+        "pipeline": info.options
+            .get_array("pipeline")
+            .map(|items| items.iter().map(mongodb_bson_to_json).collect::<Vec<_>>())
+            .unwrap_or_default(),
     })
 }
 
@@ -1349,7 +1374,7 @@ fn infer_schema_fields(documents: &[Document]) -> Vec<Value> {
     let mut fields = BTreeMap::<String, SchemaFieldSummary>::new();
 
     for document in documents {
-        collect_document_fields("", document, &mut fields);
+        collect_document_fields_at_depth("", document, &mut fields, 0);
     }
 
     fields
@@ -1374,11 +1399,16 @@ fn infer_schema_fields(documents: &[Document]) -> Vec<Value> {
         .collect()
 }
 
-fn collect_document_fields(
+fn collect_document_fields_at_depth(
     prefix: &str,
     document: &Document,
     fields: &mut BTreeMap<String, SchemaFieldSummary>,
+    depth: usize,
 ) {
+    if depth >= MAX_SCHEMA_FIELD_DEPTH {
+        return;
+    }
+
     for (key, value) in document {
         let path = if prefix.is_empty() {
             key.clone()
@@ -1392,13 +1422,11 @@ fn collect_document_fields(
             .entry(bson_type_name(value).into())
             .or_default() += 1;
         if entry.examples.len() < 3 && !matches!(value, Bson::Document(_)) {
-            entry
-                .examples
-                .push(serde_json::to_value(value).unwrap_or_else(|_| json!(bson_type_name(value))));
+            entry.examples.push(mongodb_bson_to_json(value));
         }
 
         if let Bson::Document(child) = value {
-            collect_document_fields(&path, child, fields);
+            collect_document_fields_at_depth(&path, child, fields, depth + 1);
         }
     }
 }

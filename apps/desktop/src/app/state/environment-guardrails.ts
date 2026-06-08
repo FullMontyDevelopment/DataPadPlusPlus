@@ -174,6 +174,7 @@ export function buildDiagnosticsReport(
     platform: health.platform,
     appVersion: '0.1.0',
     logPath: undefined,
+    breadcrumbPath: undefined,
     counts: {
       connections: snapshot.connections.length,
       environments: snapshot.environments.length,

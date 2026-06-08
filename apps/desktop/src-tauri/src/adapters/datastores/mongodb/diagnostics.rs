@@ -6,8 +6,10 @@ use mongodb::{
 use serde_json::json;
 
 use super::super::super::*;
+use super::bson_extjson::mongodb_document_to_json;
 use super::connection::{mongodb_client, mongodb_database_name};
 use super::MongoDbAdapter;
+use crate::domain::error::mongodb_error_summary;
 
 pub(super) async fn collect_mongodb_diagnostics(
     connection: &ResolvedConnectionProfile,
@@ -30,7 +32,8 @@ pub(super) async fn collect_mongodb_diagnostics(
     {
         Ok(status) => append_server_status_metrics(&mut metrics, &status),
         Err(error) => warnings.push(format!(
-            "MongoDB serverStatus metrics are unavailable for this connection: {error}"
+            "MongoDB serverStatus metrics are unavailable for this connection: {}",
+            mongodb_error_summary(&error)
         )),
     }
 
@@ -41,7 +44,8 @@ pub(super) async fn collect_mongodb_diagnostics(
     {
         Ok(stats) => append_db_stats_metrics(&mut metrics, &database_name, &stats),
         Err(error) => warnings.push(format!(
-            "MongoDB dbStats metrics are unavailable for database `{database_name}`: {error}"
+            "MongoDB dbStats metrics are unavailable for database `{database_name}`: {}",
+            mongodb_error_summary(&error)
         )),
     }
 
@@ -144,11 +148,12 @@ async fn append_profiler_status(
             json!([{
                 "name": "profiler-status",
                 "database": database_name,
-                "details": status,
+                "details": mongodb_document_to_json(&status),
             }]),
         )),
         Err(error) => warnings.push(format!(
-            "MongoDB profiler status is unavailable for database `{database_name}`: {error}"
+            "MongoDB profiler status is unavailable for database `{database_name}`: {}",
+            mongodb_error_summary(&error)
         )),
     }
 }
@@ -184,17 +189,19 @@ async fn append_recent_profiler_entries(
                                 .get_str("op")
                                 .unwrap_or("operation"),
                             "database": database_name,
-                            "details": entry,
+                            "details": mongodb_document_to_json(&entry),
                         }))
                         .collect::<Vec<_>>()),
                 ));
             }
             Err(error) => warnings.push(format!(
-                "MongoDB profiler entries are unavailable for database `{database_name}`: {error}"
+                "MongoDB profiler entries are unavailable for database `{database_name}`: {}",
+                mongodb_error_summary(&error)
             )),
         },
         Err(error) => warnings.push(format!(
-            "MongoDB profiler collection is unavailable for database `{database_name}`: {error}"
+            "MongoDB profiler collection is unavailable for database `{database_name}`: {}",
+            mongodb_error_summary(&error)
         )),
     }
 }
@@ -216,12 +223,13 @@ async fn append_admin_command_payload(
                 .push(mongodb_admin_command_profile(name, &result));
             diagnostics.query_history.push(payload_json(json!({
                 "kind": name,
-                "command": command_preview,
-                "result": result,
+                "command": mongodb_document_to_json(&command_preview),
+                "result": mongodb_document_to_json(&result),
             })));
         }
         Err(error) => warnings.push(format!(
-            "MongoDB {name} diagnostics are unavailable: {error}"
+            "MongoDB {name} diagnostics are unavailable: {}",
+            mongodb_error_summary(&error)
         )),
     }
 }
@@ -307,7 +315,7 @@ fn mongodb_admin_command_profile_stages(
                                 .get_i64("secs_running")
                                 .ok()
                                 .or_else(|| details.get_i32("secs_running").ok().map(i64::from)),
-                            "raw": details.clone()
+                            "raw": mongodb_document_to_json(&details)
                         }
                     })
                 })
@@ -335,7 +343,7 @@ fn mongodb_admin_command_profile_stages(
                             "index": index,
                             "state": details.get_str("stateStr").unwrap_or("unknown"),
                             "health": details.get_i32("health").unwrap_or_default(),
-                            "raw": details.clone()
+                            "raw": mongodb_document_to_json(&details)
                         }
                     })
                 })
@@ -354,13 +362,13 @@ fn mongodb_admin_command_profile_stages(
                 .get_bool("enabled")
                 .ok()
                 .map(|enabled| if enabled { 1 } else { 0 }),
-            "details": result
+            "details": mongodb_document_to_json(result)
         }]);
     }
 
     json!([{
         "name": command_name,
-        "details": result,
+        "details": mongodb_document_to_json(result),
     }])
 }
 
@@ -398,17 +406,19 @@ async fn append_index_stats(
                                 .unwrap_or("index"),
                             "database": database_name,
                             "collection": collection_name,
-                            "details": index,
+                            "details": mongodb_document_to_json(&index),
                         }))
                         .collect::<Vec<_>>()),
                 ));
             }
             Err(error) => warnings.push(format!(
-                "MongoDB index statistics are unavailable for `{database_name}.{collection_name}`: {error}"
+                "MongoDB index statistics are unavailable for `{database_name}.{collection_name}`: {}",
+                mongodb_error_summary(&error)
             )),
         },
         Err(error) => warnings.push(format!(
-            "MongoDB index statistics are unavailable for `{database_name}.{collection_name}`: {error}"
+            "MongoDB index statistics are unavailable for `{database_name}.{collection_name}`: {}",
+            mongodb_error_summary(&error)
         )),
     }
 }

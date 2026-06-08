@@ -3,7 +3,7 @@ use mongodb::bson::{doc, Document};
 use serde_json::{json, Value};
 
 use super::super::super::*;
-use super::bson_extjson::mongodb_json_to_document;
+use super::bson_extjson::{mongodb_documents_to_json, mongodb_json_to_document};
 use super::connection::{mongodb_client, mongodb_database_name_for_collection_query};
 use super::document_lazy::{can_use_efficiency_mode, mongodb_document_payload};
 
@@ -95,7 +95,7 @@ pub(crate) async fn fetch_mongodb_page(
     Ok(page_response(
         request,
         mongodb_document_payload(
-            serde_json::to_value(visible_documents)?,
+            mongodb_documents_to_json(visible_documents.iter().copied()),
             &database_resolution.database_name,
             collection_name,
             can_use_efficiency_mode(

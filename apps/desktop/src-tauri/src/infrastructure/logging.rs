@@ -10,6 +10,7 @@ use std::{
 use crate::domain::error::redact_sensitive_text;
 
 static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
+static BREADCRUMB_PATH: OnceLock<PathBuf> = OnceLock::new();
 static PANIC_HOOK_INSTALLED: OnceLock<()> = OnceLock::new();
 
 pub fn initialize_app_logging() {
@@ -19,10 +20,15 @@ pub fn initialize_app_logging() {
         "app",
         format!("DataPad++ file logging initialized at {}", path.display()),
     );
+    log_breadcrumb("app", "process-start");
 }
 
 pub fn diagnostics_log_path() -> PathBuf {
     LOG_PATH.get_or_init(default_log_path).clone()
+}
+
+pub fn diagnostics_breadcrumb_path() -> PathBuf {
+    BREADCRUMB_PATH.get_or_init(default_breadcrumb_path).clone()
 }
 
 pub fn log_info(scope: &str, message: impl AsRef<str>) {
@@ -35,6 +41,10 @@ pub fn log_warning(scope: &str, message: impl AsRef<str>) {
 
 pub fn log_error(scope: &str, message: impl AsRef<str>) {
     append_line("ERROR", scope, message.as_ref());
+}
+
+pub fn log_breadcrumb(scope: &str, message: impl AsRef<str>) {
+    append_breadcrumb(scope, message.as_ref());
 }
 
 fn install_panic_hook() {
@@ -97,6 +107,26 @@ fn append_line(level: &str, scope: &str, message: &str) {
     );
 }
 
+fn append_breadcrumb(scope: &str, message: &str) {
+    let path = diagnostics_breadcrumb_path();
+    if let Some(parent) = path.parent() {
+        let _ = create_dir_all(parent);
+    }
+
+    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else {
+        return;
+    };
+
+    let sanitized_scope = redact_sensitive_text(scope);
+    let sanitized_message = redact_sensitive_text(message);
+    let _ = writeln!(
+        file,
+        "{} [BREADCRUMB] {sanitized_scope}: {sanitized_message}",
+        timestamp_label()
+    );
+    let _ = file.sync_data();
+}
+
 fn timestamp_label() -> String {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -105,11 +135,21 @@ fn timestamp_label() -> String {
 }
 
 fn default_log_path() -> PathBuf {
+    diagnostics_base_path()
+        .join("logs")
+        .join("datapadplusplus.log")
+}
+
+fn default_breadcrumb_path() -> PathBuf {
+    diagnostics_base_path()
+        .join("logs")
+        .join("datapadplusplus-breadcrumbs.log")
+}
+
+fn diagnostics_base_path() -> PathBuf {
     std::env::var_os("LOCALAPPDATA")
         .or_else(|| std::env::var_os("APPDATA"))
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
         .join("DataPad++")
-        .join("logs")
-        .join("datapadplusplus.log")
 }

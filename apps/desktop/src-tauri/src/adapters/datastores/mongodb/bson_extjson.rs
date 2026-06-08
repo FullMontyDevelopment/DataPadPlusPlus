@@ -1,8 +1,10 @@
 use mongodb::bson::{oid::ObjectId, Bson, DateTime, Decimal128, Document, Regex, Timestamp};
-use serde_json::{Number, Value};
+use serde_json::{json, Map, Number, Value};
 use std::str::FromStr;
 
 use super::super::super::*;
+
+const MAX_BSON_JSON_DEPTH: usize = 32;
 
 pub(super) fn mongodb_json_to_document(
     value: &Value,
@@ -56,6 +58,137 @@ pub(super) fn mongodb_json_to_bson(value: &Value, code: &str) -> Result<Bson, Co
             }
             Ok(Bson::Document(document))
         }
+    }
+}
+
+pub(super) fn mongodb_document_to_json(document: &Document) -> Value {
+    document_to_json_at_depth(document, 0)
+}
+
+pub(super) fn mongodb_documents_to_json<'a>(
+    documents: impl IntoIterator<Item = &'a Document>,
+) -> Value {
+    Value::Array(
+        documents
+            .into_iter()
+            .map(mongodb_document_to_json)
+            .collect(),
+    )
+}
+
+pub(super) fn mongodb_bson_to_json(value: &Bson) -> Value {
+    bson_to_json_at_depth(value, 0)
+}
+
+fn bson_to_json_at_depth(value: &Bson, depth: usize) -> Value {
+    if depth >= MAX_BSON_JSON_DEPTH {
+        return bson_depth_marker(value);
+    }
+
+    match value {
+        Bson::Double(value) => Number::from_f64(*value)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+        Bson::String(value) => Value::String(value.clone()),
+        Bson::Array(values) => Value::Array(
+            values
+                .iter()
+                .map(|value| bson_to_json_at_depth(value, depth + 1))
+                .collect(),
+        ),
+        Bson::Document(document) => document_to_json_at_depth(document, depth + 1),
+        Bson::Boolean(value) => Value::Bool(*value),
+        Bson::Null => Value::Null,
+        Bson::RegularExpression(regex) => json!({
+            "$regularExpression": {
+                "pattern": regex.pattern,
+                "options": regex.options,
+            }
+        }),
+        Bson::JavaScriptCode(code) => Value::String(code.clone()),
+        Bson::JavaScriptCodeWithScope(code) => json!({
+            "$code": code.code,
+            "$scope": document_to_json_at_depth(&code.scope, depth + 1),
+        }),
+        Bson::Int32(value) => Value::Number((*value).into()),
+        Bson::Int64(value) => Value::Number((*value).into()),
+        Bson::Timestamp(Timestamp { time, increment }) => json!({
+            "$timestamp": {
+                "t": time,
+                "i": increment,
+            }
+        }),
+        Bson::Binary(binary) => json!({
+            "$binary": {
+                "byteLength": binary.bytes.len(),
+                "subType": format!("{:?}", binary.subtype),
+            }
+        }),
+        Bson::ObjectId(object_id) => json!({ "$oid": object_id.to_hex() }),
+        Bson::DateTime(date_time) => {
+            json!({ "$date": { "$numberLong": date_time.timestamp_millis().to_string() } })
+        }
+        Bson::Symbol(value) => json!({ "$symbol": value }),
+        Bson::Decimal128(value) => json!({ "$numberDecimal": value.to_string() }),
+        Bson::Undefined => json!({ "$undefined": true }),
+        Bson::MaxKey => json!({ "$maxKey": 1 }),
+        Bson::MinKey => json!({ "$minKey": 1 }),
+        Bson::DbPointer(_) => json!({
+            "$dbPointer": {
+                "__datapadUnsupported": true,
+            }
+        }),
+    }
+}
+
+fn document_to_json_at_depth(document: &Document, depth: usize) -> Value {
+    if depth >= MAX_BSON_JSON_DEPTH {
+        return json!({
+            "__datapadTruncated": true,
+            "reason": "max-depth",
+            "bsonType": "document",
+            "fieldCount": document.len(),
+        });
+    }
+
+    let mut object = Map::new();
+    for (key, value) in document {
+        object.insert(key.clone(), bson_to_json_at_depth(value, depth + 1));
+    }
+    Value::Object(object)
+}
+
+fn bson_depth_marker(value: &Bson) -> Value {
+    json!({
+        "__datapadTruncated": true,
+        "reason": "max-depth",
+        "bsonType": bson_type_label(value),
+    })
+}
+
+fn bson_type_label(value: &Bson) -> &'static str {
+    match value {
+        Bson::Double(_) => "double",
+        Bson::String(_) => "string",
+        Bson::Array(_) => "array",
+        Bson::Document(_) => "document",
+        Bson::Boolean(_) => "boolean",
+        Bson::Null => "null",
+        Bson::RegularExpression(_) => "regularExpression",
+        Bson::JavaScriptCode(_) => "javascript",
+        Bson::JavaScriptCodeWithScope(_) => "javascriptWithScope",
+        Bson::Int32(_) => "int32",
+        Bson::Int64(_) => "int64",
+        Bson::Timestamp(_) => "timestamp",
+        Bson::Binary(_) => "binary",
+        Bson::ObjectId(_) => "objectId",
+        Bson::DateTime(_) => "dateTime",
+        Bson::Symbol(_) => "symbol",
+        Bson::Decimal128(_) => "decimal128",
+        Bson::Undefined => "undefined",
+        Bson::MaxKey => "maxKey",
+        Bson::MinKey => "minKey",
+        Bson::DbPointer(_) => "dbPointer",
     }
 }
 
@@ -235,5 +368,24 @@ mod tests {
             Some(Bson::DateTime(_))
         ));
         assert!(matches!(document.get("_id"), Some(Bson::ObjectId(_))));
+    }
+
+    #[test]
+    fn document_to_json_truncates_deep_documents() {
+        let mut value = Bson::String("leaf".into());
+        for index in 0..(MAX_BSON_JSON_DEPTH + 4) {
+            let mut document = Document::new();
+            document.insert(format!("level{index}"), value);
+            value = Bson::Document(document);
+        }
+        let Bson::Document(document) = value else {
+            panic!("expected root document")
+        };
+
+        let rendered = mongodb_document_to_json(&document);
+        let rendered_text = serde_json::to_string(&rendered).expect("json");
+
+        assert!(rendered_text.contains("__datapadTruncated"));
+        assert!(rendered_text.contains("max-depth"));
     }
 }
