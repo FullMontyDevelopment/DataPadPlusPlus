@@ -418,6 +418,22 @@ function httpRawRequest({ method = 'POST', port, path, body = '', headers = {} }
   })
 }
 
+function dynamodbLocalAuthHeaders(port) {
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '')
+  const dateStamp = amzDate.slice(0, 8)
+
+  return {
+    authorization: [
+      'AWS4-HMAC-SHA256',
+      `Credential=local/${dateStamp}/us-east-1/dynamodb/aws4_request,`,
+      'SignedHeaders=content-type;host;x-amz-date;x-amz-target,',
+      'Signature=0000000000000000000000000000000000000000000000000000000000000000',
+    ].join(' '),
+    host: `127.0.0.1:${port}`,
+    'x-amz-date': amzDate,
+  }
+}
+
 function tcpRequest(port, payload) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: '127.0.0.1', port }, () => {
@@ -928,6 +944,7 @@ async function seedCloudContract() {
     const response = await globalThis.fetch(endpoint, {
       method: 'POST',
       headers: {
+        ...dynamodbLocalAuthHeaders(dynamodbPort),
         'x-amz-target': `DynamoDB_20120810.${target}`,
         'content-type': 'application/x-amz-json-1.0',
       },

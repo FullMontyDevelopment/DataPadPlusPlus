@@ -132,152 +132,138 @@ fn validate_edit_target(
 ) -> Vec<String> {
     let mut warnings = Vec::new();
 
-    match connection.family.as_str() {
-        "sql" | "embedded-olap" => {
-            if request
-                .target
-                .table
-                .as_deref()
-                .unwrap_or_default()
-                .is_empty()
-            {
-                warnings.push("SQL data edits need a target table.".into());
-            }
+    if is_sql_row_edit_connection(connection) {
+        validate_sql_row_edit_target(&mut warnings, request);
+        if connection.engine == "timescaledb" {
+            warnings.push(timescale_row_edit_evidence_warning());
+        }
+    } else {
+        match connection.family.as_str() {
+            "document" => {
+                if request
+                    .target
+                    .collection
+                    .as_deref()
+                    .unwrap_or_default()
+                    .is_empty()
+                {
+                    warnings.push("Document edits need a target collection.".into());
+                }
 
-            if matches!(request.edit_kind.as_str(), "update-row" | "delete-row")
-                && request
+                if request.edit_kind != "insert-document" && request.target.document_id.is_none() {
+                    warnings.push("Document edits require a stable document id.".into());
+                }
+            }
+            "keyvalue" => {
+                if request.target.key.as_deref().unwrap_or_default().is_empty() {
+                    warnings.push("Key/value edits need a single concrete key.".into());
+                }
+                if request.edit_kind == "stream-delete-entry"
+                    && request.target.document_id.is_none()
+                    && request.changes.iter().all(|change| {
+                        change
+                            .field
+                            .as_deref()
+                            .map(str::trim)
+                            .unwrap_or_default()
+                            .is_empty()
+                            && change
+                                .path
+                                .as_ref()
+                                .and_then(|path| path.first())
+                                .map(String::as_str)
+                                .map(str::trim)
+                                .unwrap_or_default()
+                                .is_empty()
+                    })
+                {
+                    warnings.push("Stream entry deletes need a concrete entry id.".into());
+                }
+                if request.edit_kind == "timeseries-delete-sample"
+                    && request.target.document_id.is_none()
+                    && request.changes.iter().all(|change| {
+                        change
+                            .field
+                            .as_deref()
+                            .map(str::trim)
+                            .unwrap_or_default()
+                            .is_empty()
+                            && change
+                                .path
+                                .as_ref()
+                                .and_then(|path| path.first())
+                                .map(String::as_str)
+                                .map(str::trim)
+                                .unwrap_or_default()
+                                .is_empty()
+                            && change.value.is_none()
+                    })
+                {
+                    warnings.push(
+                        "TimeSeries sample deletes need a concrete timestamp or range.".into(),
+                    );
+                }
+                if request.edit_kind == "vector-remove-member"
+                    && request.target.document_id.is_none()
+                    && request.changes.iter().all(|change| {
+                        change
+                            .field
+                            .as_deref()
+                            .map(str::trim)
+                            .unwrap_or_default()
+                            .is_empty()
+                            && change
+                                .path
+                                .as_ref()
+                                .and_then(|path| path.first())
+                                .map(String::as_str)
+                                .map(str::trim)
+                                .unwrap_or_default()
+                                .is_empty()
+                    })
+                {
+                    warnings.push("Vector member removal needs a concrete element name.".into());
+                }
+            }
+            "widecolumn" => {
+                let has_key = request
                     .target
                     .primary_key
                     .as_ref()
+                    .or(request.target.item_key.as_ref())
                     .map(HashMap::is_empty)
-                    .unwrap_or(true)
-            {
-                warnings.push(
-                    "SQL update/delete edits require a complete primary key predicate.".into(),
-                );
-            }
-        }
-        "document" => {
-            if request
-                .target
-                .collection
-                .as_deref()
-                .unwrap_or_default()
-                .is_empty()
-            {
-                warnings.push("Document edits need a target collection.".into());
-            }
+                    .map(|empty| !empty)
+                    .unwrap_or(false);
 
-            if request.edit_kind != "insert-document" && request.target.document_id.is_none() {
-                warnings.push("Document edits require a stable document id.".into());
+                if !has_key {
+                    warnings.push("Wide-column edits require complete key conditions.".into());
+                } else if connection.engine == "dynamodb" {
+                    warnings.push(dynamodb_item_edit_evidence_warning());
+                }
             }
-        }
-        "keyvalue" => {
-            if request.target.key.as_deref().unwrap_or_default().is_empty() {
-                warnings.push("Key/value edits need a single concrete key.".into());
-            }
-            if request.edit_kind == "stream-delete-entry"
-                && request.target.document_id.is_none()
-                && request.changes.iter().all(|change| {
-                    change
-                        .field
-                        .as_deref()
-                        .map(str::trim)
-                        .unwrap_or_default()
-                        .is_empty()
-                        && change
-                            .path
-                            .as_ref()
-                            .and_then(|path| path.first())
-                            .map(String::as_str)
-                            .map(str::trim)
-                            .unwrap_or_default()
-                            .is_empty()
-                })
-            {
-                warnings.push("Stream entry deletes need a concrete entry id.".into());
-            }
-            if request.edit_kind == "timeseries-delete-sample"
-                && request.target.document_id.is_none()
-                && request.changes.iter().all(|change| {
-                    change
-                        .field
-                        .as_deref()
-                        .map(str::trim)
-                        .unwrap_or_default()
-                        .is_empty()
-                        && change
-                            .path
-                            .as_ref()
-                            .and_then(|path| path.first())
-                            .map(String::as_str)
-                            .map(str::trim)
-                            .unwrap_or_default()
-                            .is_empty()
-                        && change.value.is_none()
-                })
-            {
-                warnings
-                    .push("TimeSeries sample deletes need a concrete timestamp or range.".into());
-            }
-            if request.edit_kind == "vector-remove-member"
-                && request.target.document_id.is_none()
-                && request.changes.iter().all(|change| {
-                    change
-                        .field
-                        .as_deref()
-                        .map(str::trim)
-                        .unwrap_or_default()
-                        .is_empty()
-                        && change
-                            .path
-                            .as_ref()
-                            .and_then(|path| path.first())
-                            .map(String::as_str)
-                            .map(str::trim)
-                            .unwrap_or_default()
-                            .is_empty()
-                })
-            {
-                warnings.push("Vector member removal needs a concrete element name.".into());
-            }
-        }
-        "widecolumn" => {
-            let has_key = request
-                .target
-                .primary_key
-                .as_ref()
-                .or(request.target.item_key.as_ref())
-                .map(HashMap::is_empty)
-                .map(|empty| !empty)
-                .unwrap_or(false);
+            "search" => {
+                if request
+                    .target
+                    .table
+                    .as_deref()
+                    .or(request.target.collection.as_deref())
+                    .unwrap_or_default()
+                    .is_empty()
+                {
+                    warnings.push("Search document edits need a target index.".into());
+                }
 
-            if !has_key {
-                warnings.push("Wide-column edits require complete key conditions.".into());
+                if matches!(
+                    request.edit_kind.as_str(),
+                    "index-document" | "update-document" | "delete-document"
+                ) && request.target.document_id.is_none()
+                    && request.target.key.as_deref().unwrap_or_default().is_empty()
+                {
+                    warnings.push("Search document edits require a stable document id.".into());
+                }
             }
+            _ => warnings.push("This datastore family has no live data-edit surface yet.".into()),
         }
-        "search" => {
-            if request
-                .target
-                .table
-                .as_deref()
-                .or(request.target.collection.as_deref())
-                .unwrap_or_default()
-                .is_empty()
-            {
-                warnings.push("Search document edits need a target index.".into());
-            }
-
-            if matches!(
-                request.edit_kind.as_str(),
-                "index-document" | "update-document" | "delete-document"
-            ) && request.target.document_id.is_none()
-                && request.target.key.as_deref().unwrap_or_default().is_empty()
-            {
-                warnings.push("Search document edits require a stable document id.".into());
-            }
-        }
-        _ => warnings.push("This datastore family has no live data-edit surface yet.".into()),
     }
 
     if request.changes.is_empty()
@@ -296,6 +282,44 @@ fn validate_edit_target(
     }
 
     warnings
+}
+
+fn validate_sql_row_edit_target(warnings: &mut Vec<String>, request: &DataEditPlanRequest) {
+    if request
+        .target
+        .table
+        .as_deref()
+        .unwrap_or_default()
+        .is_empty()
+    {
+        warnings.push("SQL data edits need a target table.".into());
+    }
+
+    if matches!(request.edit_kind.as_str(), "update-row" | "delete-row")
+        && request
+            .target
+            .primary_key
+            .as_ref()
+            .map(HashMap::is_empty)
+            .unwrap_or(true)
+    {
+        warnings.push("SQL update/delete edits require a complete primary key predicate.".into());
+    }
+}
+
+fn is_sql_row_edit_connection(connection: &ResolvedConnectionProfile) -> bool {
+    matches!(connection.family.as_str(), "sql" | "embedded-olap")
+        || connection.engine == "timescaledb"
+}
+
+fn timescale_row_edit_evidence_warning() -> String {
+    "TimescaleDB row edits use PostgreSQL-wire primary-key prefetches and RETURNING * before/after evidence; chunk, compression, retention, and continuous aggregate policy changes stay in guarded operation previews."
+        .into()
+}
+
+fn dynamodb_item_edit_evidence_warning() -> String {
+    "DynamoDB item edits use consistent GetItem before/after evidence with ReturnConsumedCapacity when a complete item key is supplied."
+        .into()
 }
 
 fn confirmation_text(
@@ -322,8 +346,11 @@ fn required_permissions(
     connection: &ResolvedConnectionProfile,
     request: &DataEditPlanRequest,
 ) -> Vec<String> {
+    if is_sql_row_edit_connection(connection) {
+        return vec![format!("{} on table", request.edit_kind)];
+    }
+
     match connection.family.as_str() {
-        "sql" | "embedded-olap" => vec![format!("{} on table", request.edit_kind)],
         "document" if request.edit_kind == "insert-document" => {
             vec!["insert collection document".into()]
         }
@@ -380,12 +407,13 @@ fn data_edit_summary(
 fn data_edit_language(connection: &ResolvedConnectionProfile) -> String {
     match connection.engine.as_str() {
         "mongodb" => "mongodb",
+        "litedb" => "json",
         "redis" | "valkey" => "redis",
         "dynamodb" => "json",
         "cassandra" => "cql",
         "elasticsearch" | "opensearch" => "query-dsl",
         "sqlserver" | "postgresql" | "cockroachdb" | "mysql" | "mariadb" | "sqlite"
-        | "timescaledb" => "sql",
+        | "timescaledb" | "oracle" => "sql",
         _ => "text",
     }
     .into()

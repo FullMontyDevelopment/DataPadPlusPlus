@@ -317,6 +317,16 @@ function searchDiagnosticsPayload(connection: ConnectionProfile, nodeId: string)
     lifecyclePolicies: [
       { name: connection.engine === 'opensearch' ? 'hot-warm-delete' : 'products-ilm', type: connection.engine === 'opensearch' ? 'ISM' : 'ILM', phase: 'hot', managedIndices: 2, status: 'active' },
     ],
+    slowLogs: [
+      { index: 'products-v1', kind: 'query', level: 'warn', threshold: '200ms', observed: '18ms p95', source: 'index.search.slowlog.threshold.query.warn' },
+      { index: 'products-v1', kind: 'fetch', level: 'info', threshold: '80ms', observed: '7ms p95', source: 'index.search.slowlog.threshold.fetch.info' },
+      { index: 'orders-v1', kind: 'indexing', level: 'debug', threshold: '500ms', observed: '41ms p95', source: 'index.indexing.slowlog.threshold.index.debug' },
+    ],
+    allocationDecisions: [
+      { index: 'products-v1', shard: '0p', node: 'node-a', decision: 'yes', reason: 'balanced allocation' },
+      { index: 'orders-v1', shard: '1r', node: 'node-b', decision: 'throttle', reason: 'disk watermark nearing threshold' },
+      { index: 'logs-2026.06.07', shard: '2r', node: 'node-c', decision: 'yes', reason: 'replica awareness satisfied' },
+    ],
     statistics: [
       { name: 'Open scroll contexts', value: 0, unit: 'contexts', source: 'nodes.stats.search' },
       { name: 'Pending tasks', value: 1, unit: 'tasks', source: 'cluster.pending_tasks' },

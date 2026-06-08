@@ -441,6 +441,100 @@ describe('query intellisense', () => {
     expect(suggestions.map((item) => item.label)).not.toContain('optimizer trace')
   })
 
+  it('suggests Oracle plan, dictionary, PL/SQL, and safe identifier helpers', () => {
+    const connection = connectionProfile('oracle', 'sql')
+    const provider = completionProvidersForConnection(connection, 'sql')[0]
+    const suggestions =
+      provider?.buildItems(
+        completionContext(connection, 'select * from ', {
+          objects: [
+            { name: 'ACCOUNTS', kind: 'table', schema: 'APP' },
+            { name: 'Order Items', kind: 'table', schema: 'APP' },
+            {
+              name: 'ORDER_LABEL',
+              kind: 'function',
+              schema: 'APP',
+              detail: 'Oracle function / input_order_id number',
+            },
+            {
+              name: 'REFRESH_ORDER_CACHE',
+              kind: 'procedure',
+              schema: 'APP',
+              detail: 'Oracle procedure / account_id number',
+            },
+            {
+              name: 'ORDER_API',
+              kind: 'package',
+              schema: 'APP',
+              detail: 'Oracle package',
+            },
+          ],
+          fields: [
+            { name: 'ORDER_ID', objectName: 'ACCOUNTS', schema: 'APP' },
+            { name: 'line total', objectName: 'Order Items', schema: 'APP' },
+          ],
+        }),
+      ) ?? []
+
+    expect(suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'APP.ACCOUNTS',
+          insertText: 'APP.ACCOUNTS',
+          kind: 'table',
+        }),
+        expect.objectContaining({
+          label: 'APP.Order Items',
+          insertText: 'APP."Order Items"',
+          kind: 'table',
+        }),
+        expect.objectContaining({
+          label: 'line total',
+          insertText: '"line total"',
+          kind: 'field',
+        }),
+        expect.objectContaining({
+          label: 'select APP.ORDER_LABEL',
+          insertText: 'select APP.ORDER_LABEL(/* parameters */) from dual;',
+          kind: 'function',
+        }),
+        expect.objectContaining({
+          label: 'execute APP.REFRESH_ORDER_CACHE',
+          insertText: expect.stringContaining('APP.REFRESH_ORDER_CACHE(/* parameters */);'),
+          kind: 'function',
+        }),
+        expect.objectContaining({
+          label: 'package APP.ORDER_API',
+          insertText: expect.stringContaining('all_source'),
+          kind: 'snippet',
+        }),
+        expect.objectContaining({
+          label: 'dbms_xplan display',
+          insertText: expect.stringContaining('dbms_xplan.display'),
+          kind: 'snippet',
+        }),
+        expect.objectContaining({
+          label: 'sql monitor',
+          insertText: expect.stringContaining('v$sql_monitor'),
+          kind: 'snippet',
+        }),
+        expect.objectContaining({
+          label: 'compile errors',
+          insertText: expect.stringContaining('user_errors'),
+          kind: 'snippet',
+        }),
+        expect.objectContaining({
+          label: 'fetch first',
+          kind: 'keyword',
+        }),
+        expect.objectContaining({
+          label: 'nvl',
+          kind: 'function',
+        }),
+      ]),
+    )
+  })
+
   it('suggests MongoDB collections, JSON keys, operators, and document field paths', () => {
     const connection = connectionProfile('mongodb', 'document')
     const provider = completionProvidersForConnection(connection, 'json')[0]
@@ -933,6 +1027,52 @@ describe('query intellisense', () => {
     ).toHaveLength(1)
     expect(DEFAULT_COMPLETION_PROVIDERS.map((provider) => provider.id)).toEqual(
       expect.arrayContaining(['search', 'dynamodb', 'cassandra']),
+    )
+  })
+
+  it('suggests DynamoDB PartiQL and consumed-capacity request helpers', () => {
+    const connection = connectionProfile('dynamodb', 'widecolumn')
+    const provider = completionProvidersForConnection(connection, 'json')[0]
+    const suggestions =
+      provider?.buildItems(
+        {
+          ...completionContext(connection, '{\n  ', {
+            objects: [
+              {
+                name: 'Orders',
+                kind: 'table',
+                detail: 'DynamoDB table',
+              },
+            ],
+            fields: [
+              {
+                name: 'pk',
+                path: 'pk',
+                objectName: 'Orders',
+                dataType: 'S',
+                primary: true,
+              },
+            ],
+          }),
+          language: 'json',
+        },
+      ) ?? []
+
+    expect(suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'statement' }),
+        expect.objectContaining({ label: 'parameters' }),
+        expect.objectContaining({ label: 'nextToken' }),
+        expect.objectContaining({ label: 'returnConsumedCapacity' }),
+        expect.objectContaining({
+          label: 'ExecuteStatement SELECT',
+          insertText: expect.stringContaining('"operation": "ExecuteStatement"'),
+        }),
+        expect.objectContaining({
+          label: 'Query with consumed capacity',
+          insertText: expect.stringContaining('"returnConsumedCapacity": "TOTAL"'),
+        }),
+      ]),
     )
   })
 

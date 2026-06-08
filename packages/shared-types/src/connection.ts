@@ -416,8 +416,12 @@ export type OracleConnectionRole =
   | 'syskm'
   | 'sysrac'
 
+export type OracleExecutionRuntime = 'contract' | 'sqlplus'
+
 export interface OracleConnectionOptions {
   connectMode?: OracleConnectMode
+  executionRuntime?: OracleExecutionRuntime
+  sqlPlusPath?: string
   serviceName?: string
   sid?: string
   tnsAlias?: string

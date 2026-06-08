@@ -1,6 +1,6 @@
 import type { ConnectionProfile, OperationPlanRequest } from '@datapadplusplus/shared-types'
 import { defaultQueryTextForConnection } from '../../app/state/helpers'
-import { sqlOperationRequest } from './browser-sql-operations'
+import { timescaleOperationRequest } from './browser-timescale-operations'
 
 type JsonRecord = Record<string, unknown>
 
@@ -25,28 +25,6 @@ export function timeSeriesOperationRequest(
   }
 
   return defaultQueryTextForConnection(connection)
-}
-
-function timescaleOperationRequest(connection: ConnectionProfile, request: OperationPlanRequest) {
-  const parameters = asRecord(request.parameters)
-  const objectName = String(request.objectName ?? parameters.objectName ?? '<schema>.<hypertable>')
-  const relation = timescaleRelationLiteral(parameters, objectName)
-
-  if (request.operationId.endsWith('timescale.compression-policy')) {
-    return `select add_compression_policy('${relation}', interval '${escapeSqlLiteral(stringValue(parameters.compressAfter) || '7 days')}', if_not_exists => true);`
-  }
-
-  if (request.operationId.endsWith('timescale.retention-policy')) {
-    return `select add_retention_policy('${relation}', interval '${escapeSqlLiteral(stringValue(parameters.dropAfter) || '90 days')}', if_not_exists => true);`
-  }
-
-  if (request.operationId.endsWith('timescale.refresh-continuous-aggregate')) {
-    const startOffset = escapeSqlLiteral(stringValue(parameters.startOffset) || '7 days')
-    const endOffset = escapeSqlLiteral(stringValue(parameters.endOffset) || '0 minutes')
-    return `call refresh_continuous_aggregate('${relation}', now() - interval '${startOffset}', now() - interval '${endOffset}');`
-  }
-
-  return sqlOperationRequest(connection, request)
 }
 
 function prometheusOperationRequest(connection: ConnectionProfile, request: OperationPlanRequest) {
@@ -253,38 +231,6 @@ function openTsdbOperationRequest(connection: ConnectionProfile, request: Operat
   }
 
   return defaultQueryTextForConnection(connection)
-}
-
-function timescaleRelationLiteral(parameters: JsonRecord, objectName: string) {
-  const schema = stringValue(parameters.schema)
-  const table = stringValue(parameters.table)
-  if (schema && table) {
-    return `${escapeSqlLiteral(stripIdentifier(schema))}.${escapeSqlLiteral(stripIdentifier(table))}`
-  }
-
-  return escapeSqlLiteral(
-    objectName
-      .replace(/"/g, '')
-      .replace(/\[/g, '')
-      .replace(/]/g, '')
-      .replace(/`/g, '')
-      .trim(),
-  )
-}
-
-function escapeSqlLiteral(value: string) {
-  return value.replace(/'/g, "''")
-}
-
-function stripIdentifier(value: string) {
-  let result = value.trim()
-  if (['"', '`', '['].includes(result[0] ?? '')) {
-    result = result.slice(1)
-  }
-  if (['"', '`', ']'].includes(result[result.length - 1] ?? '')) {
-    result = result.slice(0, -1)
-  }
-  return result.trim()
 }
 
 function prometheusDiagnosticsPath(parameters: JsonRecord) {

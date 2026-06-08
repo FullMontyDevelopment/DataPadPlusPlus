@@ -134,9 +134,15 @@ export const NATIVE_COMPLETE_DATASTORE_ENGINES = [
   'mysql',
   'mariadb',
   'cockroachdb',
+  'timescaledb',
   'redis',
   'sqlite',
   'valkey',
+  'oracle',
+  'dynamodb',
+  'elasticsearch',
+  'opensearch',
+  'duckdb',
 ] as const satisfies readonly DatastoreEngine[]
 
 const NATIVE_COMPLETE_ENGINE_SET = new Set<DatastoreEngine>(
@@ -729,18 +735,67 @@ const SQLITE_PROFILE = profile({
 
 const ORACLE_RELATIONAL_PROFILE = profile({
   ...RELATIONAL_CORE_PROFILE,
-  'safe-editing': partial(
-    'Oracle row editing remains contract-plan only until a supported live driver/runtime path is available.',
+  'connection-flow': strong(
+    'Oracle connection flow now has typed service-name, SID, TNS alias, Easy Connect, TCPS/cloud-wallet, wallet/certificate, proxy user, connection role, SQLPlus runtime/path, NLS, fetch-size, timeout, pool, client identifier, application, and edition option contracts across shared types, right-drawer fields, Rust descriptor interpolation, connection-test runtime warnings, and secret-safe pass-through.',
     [
-      'Add Oracle live row-edit execution after a supported driver/runtime path is available.',
-      'Keep DDL, grant, compile, import/export, and backup workflows preview-first until Oracle permission checks are adapter-backed.',
+      'Optional extension: add broader live fixture coverage for wallet, TNS alias, proxy-user, role, and managed-service connection variants without storing wallet or credential material.',
     ],
   ),
-  tests: partial(
-    'Oracle has deterministic tree, object-view, operation-plan, and DBMS_XPLAN-shaped contract tests, but no default live driver fixture.',
+  'object-tree': strong(
+    'Oracle exposes SQL Developer-style container, schema, table, view, materialized view, synonym, sequence, PL/SQL function/procedure/package/type, JSON collection, external table, database link, security, storage, performance, and diagnostics branches across shared tree manifests, browser preview routing, Rust explorer routing, and focused sidebar tests, while optional enterprise surfaces stay hidden unless requested or granted.',
     [
-      'Add optional Oracle fixture/live tests once driver prerequisites and CI-safe credentials are documented.',
-      'Add browser-preview coverage for permission-specific dictionary and SQL Monitor disabled reasons.',
+      'Optional extension: add live capability probing for DBA/V$/GV$, Data Guard, RAC, Scheduler, Queue, Flashback, and managed-service surfaces before promoting those branches beyond permission-aware previews.',
+    ],
+  ),
+  'query-surface': strong(
+    'Oracle now has a guarded live SQLPlus query surface when a SQLPlus runtime/path is configured: the desktop adapter uses a single-statement read guard, SQLPlus /nolog stdin credential flow, password redaction, request timeouts, bounded row wrapping, CSV normalization, EXPLAIN PLAN/DBMS_XPLAN result handling, Oracle-specific query templates, SQL Developer-style object query actions, safe contract fallback, and optional fixture evidence for DBMS_XPLAN output.',
+    [
+      'Optional extension: add a thin-driver or OCI-native path, cancellation, server-side cursor paging, and live SQL Monitor report rendering after client prerequisites are documented.',
+      'Keep PL/SQL mutation/admin execution behind guarded operation planners until permission, transaction, and rollback boundaries are adapter-backed.',
+    ],
+  ),
+  intellisense: strong(
+    'Oracle IntelliSense now layers Oracle keywords, functions, DBMS_XPLAN, SQL Monitor, session/wait, invalid-object, compile-error, package-source, function, procedure, and package snippets plus Oracle-safe identifier quoting on top of the shared SQL metadata provider.',
+    [
+      'Optional extension: enrich completions from live ALL_ARGUMENTS, ALL_SOURCE, ALL_SYNONYMS, DBA_/V$ capability probes, and package overload metadata once live metadata loaders are added.',
+    ],
+  ),
+  'object-views': strong(
+    'Oracle object views are descriptor-backed for containers, schemas, tables, views, materialized views, PL/SQL functions/procedures/packages/types, security, storage, sessions, waits, locks, SQL Monitor, execution plans, diagnostics, invalid objects, grants, DDL, indexes, constraints, triggers, partitions, statistics, dependencies, and permissions, with focused workspace/helper/menu tests and rendered PL/SQL source kept behind explicit reveal.',
+    [
+      'Optional extension: replace remaining contract-preview payloads with live dictionary payloads and permission-specific empty states after the Oracle runtime path is available.',
+    ],
+  ),
+  'safe-editing': strong(
+    'Oracle row editing now has a scoped SQLPlus-backed live executor for insert/update/delete row flows with table validation, primary-key or ROWID identity, bounded before/after evidence, read-only and confirmation guards, explicit commit only after evidence collection, and plan-only downshift when SQLPlus is not configured.',
+    [
+      'Optional extension: add thin/OCI driver execution, richer affected-row telemetry, cancellation, and fixture variants for proxy-user, wallet, and role-gated edit failures.',
+      'Keep DDL, grant, compile, import/export, Data Pump, and RMAN workflows preview-first until Oracle permission checks and rollback boundaries are adapter-backed.',
+    ],
+  ),
+  'guarded-operations': strong(
+    'Oracle guarded operations cover query explain/profile, index create/drop, object refresh, create/drop previews, session/security/storage/metrics inspections, SQLPlus/SQLcl import/export plans, Data Pump wording, and RMAN backup/restore previews with explicit review, permission, and preview-first boundaries in browser and Rust planners.',
+    [
+      'Optional extension: add permission-aware live executors for selected compile/grant/DDL/session actions only after transaction, confirmation, and rollback handling are proven.',
+    ],
+  ),
+  'diagnostics-performance': strong(
+    'Oracle diagnostics now include DBMS_XPLAN-shaped plan/profile payloads, SQL Monitor templates, V$SESSION/V$LOCK/V$SQL_MONITOR warnings, storage/security/profile metrics, invalid-object and compile-error object views, and optional fixture evidence for DBMS_XPLAN output, SQL Monitor visibility or denial, restricted dictionary denial, PL/SQL compile errors, and seeded storage/catalog metadata.',
+    [
+      'Optional extension: add live runtime sampling for V$/GV$, ASH/AWR where licensed/granted, SQL Monitor report rendering, and dictionary-specific disabled reasons from adapter-owned errors.',
+    ],
+  ),
+  'import-export': strong(
+    'Oracle import/export and backup/restore are covered as native preview workflows: SQLPlus/SQLcl bounded CSV-style export/import evidence, Data Pump review wording, RMAN backup/restore request templates, object-view actions, browser/Rust operation plans, and optional fixture boundary checks are in place while file/database execution stays preview-first.',
+    [
+      'Optional extension: promote selected Data Pump, SQLcl file, or RMAN workflows only after directory grants, file paths, TDE/wallet state, recovery target, and rollback/confirmation guardrails are adapter-backed.',
+    ],
+  ),
+  tests: strong(
+    'Oracle has deterministic tree, object-view, operation-plan, DBMS_XPLAN-shaped contract, IntelliSense, browser-preview, Rust explorer/query/editing, SQLPlus script/CSV/redaction unit coverage, and Oracle optional fixture validator coverage for seeded volume, dictionary/security/storage metadata, DBMS_XPLAN, SQL Monitor boundaries, PL/SQL compile diagnostics, row identity primitives, SQLPlus export/import boundaries, restricted dictionary denial, and Data Pump/RMAN preview boundaries.',
+    [
+      'Add optional live SQLPlus edit execution tests and thin/OCI driver tests once Oracle client prerequisites and CI-safe credentials are documented.',
+      'Add adapter-owned browser/Rust coverage for permission-specific dictionary and SQL Monitor disabled reasons once live errors are normalized.',
     ],
   ),
 })
@@ -753,41 +808,65 @@ const TIMESCALE_PROFILE = profile({
       'Next: add optional live Timescale Cloud/service capability probing and fixture evidence for constrained extension schemas and managed-service roles.',
     ],
   ),
-  'object-tree': partial(
-    'TimescaleDB exposes native hypertable, chunk, compression, retention, continuous aggregate, job, diagnostics, and PostgreSQL security branches, with browser inspections returning restricted warnings when profile capabilities hide catalog surfaces.',
+  'object-tree': strong(
+    'TimescaleDB exposes native hypertable, chunk, compression, retention, continuous aggregate, job, diagnostics, and PostgreSQL security branches, with browser inspections returning restricted warnings when profile capabilities hide catalog surfaces, Rust live inspections normalizing chunk ranges, compressed chunks, policy jobs, continuous aggregate internals, job statistics, and derived dashboard rows, and optional live fixture validation covering restricted catalog visibility, compressed chunks, aggregate lag, Toolkit variants, and failed-job diagnostic surfaces.',
     [
-      'Next: make live Timescale metadata execution richer for chunk ranges, policy jobs, compressed chunks, continuous aggregate definitions, and permission-restricted catalog views.',
+      'Optional extension: add Timescale Cloud/service capability probing and managed-service role/version variants outside the scoped native-complete claim.',
     ],
   ),
-  'object-views': partial(
-    'TimescaleDB object views render Timescale profile posture plus hypertable, policy, continuous aggregate, and diagnostics cards instead of falling back to raw JSON.',
+  'query-surface': strong(
+    'TimescaleDB uses the PostgreSQL-wire SQL editor, scoped SQL SELECT builders, PostgreSQL EXPLAIN payload rendering, query-profile previews, time-bucket query templates, and Timescale-aware operation planners for compression, retention, continuous aggregate refresh, job, import/export, and backup workflows.',
     [
-      'Next: add rendered time-bucket dashboards, chunk-size/compression coverage charts, continuous aggregate freshness history, and job-run timelines.',
+      'Optional extension: add a richer visual time-bucket builder and live EXPLAIN ANALYZE promotion only after profile execution guardrails are adapter-backed.',
     ],
   ),
-  'guarded-operations': partial(
-    'TimescaleDB guarded policy manifests now use profile-specific disabled reasons for compression, retention, and continuous aggregate refresh previews; policy and refresh execution remains preview-first.',
+  intellisense: strong(
+    'TimescaleDB inherits PostgreSQL metadata-backed SQL IntelliSense and adds Timescale-aware query-helper coverage for hypertables, continuous aggregates, time_bucket/time_bucket_gapfill functions, profile snippets, and safe quoted identifiers through the shared SQL completion path.',
     [
-      'Next: promote selected compression, retention, refresh, and job-control workflows only after live permission checks, rollback boundaries, and fixture evidence are available.',
+      'Optional extension: add live Toolkit-specific aggregate/function completions when a Toolkit-installed fixture image is available.',
     ],
   ),
-  'diagnostics-performance': partial(
-    'TimescaleDB has rendered PostgreSQL EXPLAIN payloads, profile-aware catalog diagnostics, and compact compression/retention/refresh signals.',
+  'object-views': strong(
+    'TimescaleDB object views render Timescale profile posture, hypertable/policy/aggregate/diagnostic cards, time-bucket dashboards, chunk sizing panels, compression coverage, continuous aggregate freshness, job history, and richer live owner/chunk/job/aggregate fields instead of falling back to raw JSON.',
     [
-      'Next: add live Timescale job statistics, chunk sizing, compression ratios, refresh lag history, time-bucket scans, and Toolkit availability diagnostics.',
+      'Optional extension: add Timescale Cloud-specific dashboard variants and more managed-service warning states.',
+    ],
+  ),
+  'safe-editing': strong(
+    'TimescaleDB now pins PostgreSQL-wire row edits as Timescale-specific evidence plans: browser and Rust previews show bounded primary-key prefetches plus RETURNING * mutation/after evidence, Rust live scopes treat Timescale row edits as table writes instead of generic time-series writes, and chunk/compression/retention/continuous aggregate policy changes remain separate guarded operation previews.',
+    [
+      'Optional extension: add generated-column, trigger, and more multi-column time/space identity stress fixtures outside the scoped claim.',
+    ],
+  ),
+  'guarded-operations': strong(
+    'TimescaleDB guarded operation parity now covers profile-specific disabled reasons plus browser/Rust planners for compression policy, retention policy, continuous aggregate refresh, job control, import/export, and backup/restore previews with confirmation, permission, chunk, policy, continuous-aggregate impact wording, and explicit plan-only execution-boundary preflights.',
+    [
+      'Scoped decision: compression, retention, refresh, job-control, import/export, backup, and restore execution stays preview-first; promote selected live workflows only after a separate adapter-owned executor adds permission checks, rollback boundaries, file-path guards, and fixture evidence.',
+    ],
+  ),
+  'import-export': strong(
+    'TimescaleDB import/export and backup/restore previews are native TimescaleDB workflows: browser and Rust planners emit hypertable, chunk, compression, job, continuous-aggregate, extension-version, bounded time-window, CSV/JSON staging, pg_dump, and pg_restore preflights while explicitly keeping file execution preview-first for the scoped claim.',
+    [
+      'Optional extension: promote selected file workflows only after adapter-owned file validation, chunk/policy impact checks, and restore-package guardrails exist.',
+    ],
+  ),
+  'diagnostics-performance': strong(
+    'TimescaleDB has rendered PostgreSQL EXPLAIN payloads, profile-aware catalog diagnostics, compact compression/retention/refresh signals, live-derived chunk sizing, compression coverage, aggregate freshness, job-history rows, job reliability signals, Toolkit availability diagnostics, visible time_bucket/time_bucket_gapfill function diagnostics, bounded time-bucket window summaries, optional pg_stat_statements time-bucket query-duration samples, and rendered dashboard sections for those payloads.',
+    [
+      'Optional extension: add pg_stat_statements-disabled and Toolkit-installed image variants outside the scoped claim.',
     ],
   ),
   tests: strong(
-    'TimescaleDB is covered by shared SQL/tree/object-view/row-edit/operation-plan tests plus focused browser/Rust coverage for typed profile validation, right-drawer fields, Rust interpolation, extension metadata warnings, capability-restricted payloads, rendered profile posture, policy disabled reasons, guarded policy previews, import/export, and backup/restore previews.',
+    'TimescaleDB is covered by shared SQL/tree/object-view/row-edit/operation-plan tests plus focused browser/Rust coverage for typed profile validation, right-drawer fields, Rust interpolation, extension metadata warnings, capability-restricted payloads, rendered profile posture, time-bucket/chunk-sizing/compression/aggregate-freshness/job-history dashboards, live metadata normalizers, before/after row-edit evidence plans, policy disabled reasons, object-view action strips, guarded policy/job-control previews, native import/export preflights, backup/restore previews, and a live-run optional TimescaleDB fixture validator for extension/catalog metadata, hypertable row evidence, restricted-role visibility, continuous aggregate metadata, policy/job boundaries, compressed chunks, aggregate lag, Toolkit variants, bounded file-copy evidence, and failed-job diagnostics.',
     [
-      'Next: add optional TimescaleDB fixture tests for live extension metadata, policy permissions, continuous aggregate refresh boundaries, compression coverage, and import/export file evidence.',
+      'Optional extension: add managed Timescale Cloud, Toolkit-installed, and pg_stat_statements-disabled fixture variants outside default CI.',
     ],
   ),
 })
 
 const SEARCH_PROFILE = profile({
   'connection-flow': strong(
-    'Search connection flow is pinned across typed shared options, right-drawer fields, browser validation, Rust interpolation, timeout selection, and redaction for HTTP, Elastic Cloud, managed OpenSearch, AWS SigV4, default-index, TLS, and credential metadata.',
+    'Search connection flow is pinned across typed shared options, right-drawer fields, browser validation, Rust interpolation, timeout selection, redaction, and explicit live-runtime disabled reasons for HTTP, Elastic Cloud, managed OpenSearch, AWS SigV4, default-index, TLS, and credential metadata.',
     [
       'Contract-only residual risk: promote cloud/IAM, certificate, API key, bearer token, and SigV4 combinations into the live HTTPS/runtime path after fixture or cloud validation.',
     ],
@@ -798,10 +877,10 @@ const SEARCH_PROFILE = profile({
       'Contract-only residual risk: deepen live plugin/capability detection for ILM/ISM, security, Performance Analyzer, vector, and snapshot sections.',
     ],
   ),
-  'query-surface': partial(
-    'Query DSL builder, bounded raw search execution, explain/profile request modes, search-hit tables, aggregations, and profile payloads exist.',
+  'query-surface': strong(
+    'Query DSL builder covers match, term, range, query-string, filters, source fields, sort clauses, and terms/date-histogram/histogram/metric/cardinality aggregations; bounded live search, explain/profile request modes, search-hit tables, aggregation payloads, and normalized profile stages are covered for the scoped claim.',
     [
-      'Add aggregation builder polish plus ES|QL/OpenSearch SQL where available.',
+      'Optional extension: add ES|QL/OpenSearch SQL, mapping-aware aggregation validation, and endpoint-specific query helpers where the engine reports support.',
     ],
   ),
   intellisense: strong(
@@ -811,48 +890,47 @@ const SEARCH_PROFILE = profile({
     ],
   ),
   'object-views': strong(
-    'Search object-view parity is pinned across descriptor-backed workflows, focused descriptor tests, cluster/index/security posture panels, profile-friendly workspaces, and guarded action strips for explain/profile, lifecycle, ingestion, security, bulk, snapshot, and restore workflows.',
+    'Search object-view parity is pinned across descriptor-backed workflows, focused descriptor tests, cluster/index/security/slow-log/allocation posture panels, profile-friendly workspaces, and guarded action strips for explain/profile, lifecycle, ingestion, security, bulk, snapshot, and restore workflows.',
     [
       'Contract-only residual risk: deepen rendered live profile/explain detail, index/security management screens, and plugin-aware payloads after fixture/live validation.',
     ],
   ),
   'safe-editing': strong(
-    'Explicit-id search document index/update/delete edits execute through the native adapter only when index, document id, read-only, and confirmation guardrails pass.',
+    'Explicit-id search document index/update/delete edits execute through the native adapter only when index, document id, read-only, and confirmation guardrails pass, with before/after `_doc` evidence captured around the mutation request.',
     [
-      'Add richer before/after document previews, bulk-safe validators, and fixture/live coverage for auth-specific failures.',
+      'Optional extension: add bulk-safe validators, fixture/live coverage for auth-specific failures, and richer conflict/sequence-number handling.',
     ],
   ),
   'guarded-operations': strong(
-    'Search guarded-operation parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, disabled reasons, confirmations, and HTTP-shaped index/template/pipeline/lifecycle/task/snapshot/alias/rollover/bulk/security requests.',
+    'Search guarded-operation parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, preview-first execution gates, disabled reasons, confirmations, explicit scoped exclusions for broader live admin execution, and HTTP-shaped index/template/pipeline/lifecycle/task/snapshot/alias/rollover/bulk/security/slow-log/allocation requests.',
     [
-      'Contract-only residual risk: promote safe live admin execution only after capability and permission checks are adapter-backed.',
+      'Optional extension: promote selected live admin execution only after capability, permission, rollback, and environment checks are adapter-backed.',
     ],
   ),
   'diagnostics-performance': strong(
-    'Search diagnostics/performance parity is pinned across diagnostics tree roots, object-view posture panels, browser diagnostics payloads, query profile plans, Rust metrics/profile request planning, and profile-friendly result payloads for cluster, shard, segment, lifecycle, metrics, and profile workflows.',
+    'Search diagnostics/performance parity is pinned across diagnostics tree roots, object-view posture panels, browser diagnostics payloads, slow-log/allocation dashboard payloads, query profile plans, Rust metrics/profile/slow-log/allocation request planning, normalized profile-stage result payloads, and profile-friendly result modes for cluster, shard, segment, lifecycle, metrics, and profile workflows.',
     [
-      'Contract-only residual risk: add slow logs, allocation explanations, OpenSearch Performance Analyzer, and richer rendered live profile dashboards.',
+      'Optional extension: add live OpenSearch Performance Analyzer dashboards and deeper rendered live profile dashboards after separate fixture/live validation.',
     ],
   ),
   'import-export': strong(
-    'Search import/export parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, bulk export/import, reindex, snapshot, and restore HTTP-shaped requests.',
+    'Search import/export parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, preview-first execution gates, bounded fixture `_search` export plus `_bulk` import primitives, reindex, snapshot, and restore HTTP-shaped requests; desktop file/cloud import-export execution remains explicitly outside the scoped claim.',
     [
-      'Contract-only residual risk: add adapter-owned file workflows and promote selected export/snapshot flows after fixture/live validation.',
+      'Optional extension: add adapter-owned desktop file workflows and promote selected export/snapshot flows after separate fixture/live validation.',
     ],
   ),
   tests: strong(
-    'Search builder, object-view operation, profile payload, explicit-id data-edit, browser-preview, manifest, and Rust planner tests cover the promoted search contract slice.',
+    'Search builder, aggregation parsing, runtime-boundary, object-view operation, slow-log/allocation dashboard, normalized profile payload, explicit-id data-edit evidence, browser-preview, manifest, Rust planner, and optional search fixture validator coverage now cover the scoped search claim.',
     [
-      'Add optional live Elasticsearch/OpenSearch fixture tests and deeper rendered profile/explain UI coverage.',
+      'Optional extension: add cloud-auth fixture validation and deeper rendered profile/explain UI coverage.',
     ],
   ),
 })
 
 const WIDE_COLUMN_PROFILE = profile({
   'connection-flow': strong(
-    'Wide-column connection flow is pinned across typed shared options, right-drawer fields, browser validation, Rust interpolation, timeout selection, and redaction for DynamoDB local/AWS modes and Cassandra contact-point, secure-bundle, TLS, auth, consistency, retry, and load-balancing metadata.',
+    'Wide-column connection flow is pinned across typed shared options, right-drawer fields, browser validation, Rust interpolation, timeout selection, and redaction for Cassandra contact-point, secure-bundle, TLS, auth, consistency, retry, and load-balancing metadata; DynamoDB has a dedicated native-complete profile override for its local/AWS modes.',
     [
-      'Contract-only residual risk: promote DynamoDB local endpoint, AWS profile, static key, assume-role, and web-identity options into the live AWS SDK/SigV4 runtime path.',
       'Contract-only residual risk: promote Cassandra contact-point, TLS, auth, policy, and secure-bundle options into a live CQL driver path.',
     ],
   ),
@@ -914,16 +992,40 @@ const WIDE_COLUMN_PROFILE = profile({
 
 const DYNAMODB_PROFILE = profile({
   ...WIDE_COLUMN_PROFILE,
-  'safe-editing': strong(
-    'DynamoDB item put/update/delete execution exists behind complete-key, read-only, and confirmation guardrails; Cassandra row editing remains a separate contract-only path.',
+  'connection-flow': strong(
+    'DynamoDB connection flow is pinned across typed local endpoint, endpoint override, static key, shared profile, STS AssumeRole, web identity, ECS task, EC2 metadata, retry, timeout, consumed-capacity, right-drawer, browser validation, Rust interpolation, redaction, deterministic local SigV4-shaped execution, and optional live AWS credential-provider validation paths.',
     [
-      'Add before/after item previews, conditional-expression helpers, and optional DynamoDB Local/cloud fixture coverage.',
+      'Scoped native-complete residual risk: the desktop runtime executes local/endpoint-override HTTP JSON API paths; production AWS HTTPS execution remains covered by the opt-in cloud validator and future SDK-backed runtime work.',
+    ],
+  ),
+  'query-surface': strong(
+    'DynamoDB key-condition, projection/filter expression planning, conditional-write expression planning, Scan, GetItem, DescribeTable, DescribeLimits, ListTables, and guarded read-only PartiQL ExecuteStatement requests execute through the adapter with consumed-capacity, pagination payloads, typed endpointUrl routing, and SigV4-shaped local/endpoint-override JSON API headers.',
+    [
+      'Scoped native-complete residual risk: richer live expression authoring, projection validation, and PartiQL explain/cost hints remain optional polish after real table metadata is available.',
+    ],
+  ),
+  'safe-editing': strong(
+    'DynamoDB item put/update/delete execution exists behind complete-key, read-only, confirmation, and conditional-write guardrails with consistent GetItem before/after evidence and mutation consumed-capacity metadata; Cassandra row editing remains a separate contract-only path.',
+    [
+      'Optional polish: add richer conditional-write UI controls for version attributes and item-level optimistic-lock helpers when live schema metadata is available.',
+    ],
+  ),
+  'diagnostics-performance': strong(
+    'DynamoDB diagnostics now include deterministic SigV4-shaped auth evidence, credential-mode disabled reasons, live/local ListTables and DescribeLimits capacity signals when supported, ReturnConsumedCapacity guidance, CloudWatch.GetMetricData request plans, IAM simulation boundaries, Rust metrics/profile payloads, browser/Rust preview parity for metrics and access plans, and an opt-in AWS cloud validator for STS identity, ListTables, DescribeLimits, table diagnostics, CloudWatch metrics, IAM simulation, STS AssumeRole, web identity, ECS task credentials, and EC2 metadata credentials.',
+    [
+      'Scoped native-complete residual risk: live CloudWatch and IAM validation require optional AWS credentials and explicit strict flags; S3 import/export and managed backup execution remain preview-first.',
+    ],
+  ),
+  'import-export': strong(
+    'DynamoDB import/export and backup/restore parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, local backup/import-export boundary fixture evidence, AWS-shaped ExportTableToPointInTime, ImportTable, CreateBackup, RestoreTableFromBackup, ListBackups, and DescribeContinuousBackups request plans, plus optional cloud read-only preflights.',
+    [
+      'Scoped native-complete residual risk: S3 export/import jobs, backup creation/deletion, and restore execution remain preview-first until a cost-aware guarded cloud executor is separately added.',
     ],
   ),
   tests: strong(
-    'DynamoDB key-condition, consumed-capacity, item edit, operation-preview, object-view, browser-preview, and manifest tests cover the promoted DynamoDB contract slice.',
+    'DynamoDB key-condition, consumed-capacity, SigV4-shaped auth evidence, endpointUrl routing, item edit, operation-preview, object-view, browser-preview, manifest tests, the live-run optional DynamoDB Local fixture validator, and the optional AWS cloud validator cover the promoted scoped native-complete slice, including environment/shared-profile credentials plus opt-in STS AssumeRole, web identity, ECS task, and EC2 metadata credential modes.',
     [
-      'Add optional live fixture tests for DynamoDB Local and cloud IAM modes when dependencies and credentials are available.',
+      'Run `fixtures:validate:dynamodb:cloud` with AWS credentials and strict flags when validating cloud IAM/CloudWatch behavior before a release claim expands beyond the scoped read/diagnostic claim.',
     ],
   ),
 })
@@ -942,9 +1044,9 @@ const WAVE4_DOCUMENT_PROFILE = profile({
     ],
   ),
   'query-surface': partial(
-    'Cosmos SQL request previews and LiteDB collection/query previews include native filters, metrics hooks, and safe default payloads.',
+    'Cosmos SQL request previews and LiteDB collection/query/edit previews include native filters, metrics hooks, safe default payloads, LiteDB configured sidecar read-dispatch contracts with local sidecar-process fixture evidence, and optional real .NET LiteDB sidecar read/edit validation.',
     [
-      'Contract-only residual risk: add API-specific Cosmos Mongo/Cassandra/Gremlin/Table builders and a live LiteDB query executor path.',
+      'Contract-only residual risk: add API-specific Cosmos Mongo/Cassandra/Gremlin/Table builders and promote LiteDB beyond optional real-engine read/edit validation into encrypted-file, import/export, and exclusive writer-lock safety.',
     ],
   ),
   intellisense: strong(
@@ -960,9 +1062,9 @@ const WAVE4_DOCUMENT_PROFILE = profile({
     ],
   ),
   'safe-editing': partial(
-    'Document and collection edits remain guarded by platform edit contracts and preview-first destructive/admin workflows.',
+    'Document and collection edits remain guarded by platform edit contracts and preview-first destructive/admin workflows; LiteDB scoped full-document insert/update/delete now use sidecar-only live execution with confirmation gates, `_id` validation, before/after evidence requests, and optional real .NET sidecar CRUD validation.',
     [
-      'Contract-only residual risk: promote live document CRUD only after identity, partition key, ETag, and file-lock validation are adapter-backed.',
+      'Contract-only residual risk: promote Cosmos document CRUD and broader LiteDB collection/file-storage edits only after identity, partition key, ETag, encrypted-file, and writer-lock validation are adapter-backed.',
     ],
   ),
   'guarded-operations': strong(
@@ -984,9 +1086,9 @@ const WAVE4_DOCUMENT_PROFILE = profile({
     ],
   ),
   tests: strong(
-    'Wave 4 document engines have deterministic manifest, planner, browser-preview, and object-view action coverage for the contract slice.',
+    'Wave 4 document engines have deterministic manifest, planner, browser-preview, object-view action, and LiteDB sidecar CRUD-contract coverage for the contract slice.',
     [
-      'Contract-only residual risk: add live Cosmos emulator/Azure and LiteDB encrypted-file fixture tests outside default CI.',
+      'Contract-only residual risk: add live Cosmos emulator/Azure and LiteDB encrypted-file/import-export/writer-lock fixture tests outside default CI.',
     ],
   ),
 })
@@ -1113,6 +1215,70 @@ const WAVE4_ANALYTICS_PROFILE = profile({
     'Analytics engines have deterministic manifest, SQL-builder, planner, browser-preview, object-view, and roadmap completeness coverage for the contract slice.',
     [
       'Contract-only residual risk: add optional live DuckDB, ClickHouse, Snowflake, and BigQuery fixture/cloud tests outside default CI.',
+    ],
+  ),
+})
+
+const DUCKDB_PROFILE = profile({
+  ...WAVE4_ANALYTICS_PROFILE,
+  'connection-flow': strong(
+    'DuckDB connection flow is pinned across typed local-file and memory options, right-drawer fields, browser validation, Rust interpolation, timeout selection, local database creation, redaction, and bundled runtime connection tests for temporary `.duckdb` files.',
+    [
+      'Optional extension: add encrypted/remote filesystem modes, extension-specific connection presets, and stricter file-lock diagnostics only after live validation exists.',
+    ],
+  ),
+  'object-tree': strong(
+    'DuckDB tree parity is pinned across shared TypeScript manifests, Rust manifests, browser explorer routing, local database/schema/table/view roots, extension posture, external-file source helpers, PRAGMA diagnostics, and fixture-backed catalog roots for temporary `.duckdb` files.',
+    [
+      'Optional extension: deepen live capability hiding for version-specific extensions, attached databases, remote filesystems, and external file-source metadata after fixture-backed capability probes exist.',
+    ],
+  ),
+  'query-surface': strong(
+    'DuckDB now has bundled local-file read SQL execution, bounded table payloads, read-only SQL guards, native EXPLAIN and EXPLAIN ANALYZE plan/profile payloads, SQL SELECT builder coverage, and optional DuckDB fixture validator evidence for 5,000-row local read/profile queries.',
+    [
+      'Optional extension: add richer visual local analytics templates, parameter workflows, and file-scan warnings from live query metadata.',
+    ],
+  ),
+  intellisense: strong(
+    'DuckDB SQL suggestions cover deterministic SQL keywords, local schemas, tables, columns, aliases, analytics functions, read_csv/read_parquet/read_json helpers, and bounded local-file query snippets through the shared dialect-aware provider.',
+    [
+      'Optional extension: add extension-aware function suggestions and file-schema-aware completions after live extension and file-scan metadata are available.',
+    ],
+  ),
+  'object-views': strong(
+    'DuckDB object-view parity is pinned across descriptor-backed schema/table/view/extension/file/PRAGMA/local-file workspaces, local-file and extension posture panels, guarded file actions, and rendered plan/profile sections.',
+    [
+      'Optional extension: deepen per-file scan telemetry, storage-layout cards, attached-database views, and extension-specific views after live metadata is fixture-backed.',
+    ],
+  ),
+  'diagnostics-performance': strong(
+    'DuckDB diagnostics now combine Rust metrics/profile payloads, version/settings metrics, local catalog/table counts, read_csv/read_parquet/read_json query templates, rendered EXPLAIN/EXPLAIN ANALYZE plan lines, and optional fixture evidence for bundled local-file read/EXPLAIN/profile/catalog paths plus database lock-boundary metadata from file read/write and DuckDB open probes.',
+    [
+      'Optional extension: add deeper PRAGMA/storage/profile timelines, per-file scan telemetry, extension capability diagnostics, and optional live external-process contention fixtures if the lock claim expands beyond scoped file-workflow preflight.',
+    ],
+  ),
+  'safe-editing': strong(
+    'DuckDB safe editing is complete for the scoped local-file analytics claim: generic write, DDL, extension, restore, and administrative SQL are blocked from the query path; live write-like behavior is limited to confirmed CSV table import/export and CSV EXPORT DATABASE backup workflows with database file access, read-only, file-probe, lock-boundary, and confirmation metadata; extension install/load, analyze/checkpoint/object admin, and restore execution stay explicit scoped exclusions with execution-boundary metadata.',
+    [
+      'Optional extension: promote selected local OLAP mutation/admin or extension workflows only after identity, transaction, deeper cross-process lock, offline source trust, rollback, and fixture evidence exist; otherwise keep them explicitly scoped out.',
+    ],
+  ),
+  'guarded-operations': strong(
+    'DuckDB guarded operations are pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, disabled reasons, confirmations, table import/export, database backup, restore preflight, analyze/checkpoint/object admin, extension install/load, scoped file-workflow lock-boundary, and explicit restore/admin/extension execution-boundary metadata.',
+    [
+      'Optional extension: convert selected preview-first admin, restore, or extension operations to live execution only after writer-lock, rollback/snapshot, offline-source trust, post-operation validation, and fixture-backed confirmation gates are implemented.',
+    ],
+  ),
+  'import-export': strong(
+    'DuckDB import/export parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, plan-only file import previews, guarded live generic CSV table import/export execution, guarded live CSV EXPORT DATABASE backup folder execution, concrete-path checks, overwrite and row-limit guardrails, database file access/read-only preflights, read/open/write probes, explicit lock-boundary metadata for scoped file workflows, blocked read-only disk evidence, JSON/Parquet extension-backed format preflight, explicit preloaded-extension-only execution boundaries for JSON/Parquet, controlled extension-directory setup, fail-closed unloaded-extension evidence, restore-package preflight with source folder, schema.sql, load.sql, file-count, byte-count, detected-format, and target write/open validation, and explicit restore execution-boundary metadata that scopes destructive IMPORT DATABASE out of the native claim until snapshot, lock, post-restore validation, and confirmation gates are executable.',
+    [
+      'Optional extension: only promote preloaded/offline DuckDB extension-backed execution beyond scoped boundary after an extension-loaded fixture exists; keep external-process contention plus broader local analytics mutation/admin promotion outside scope until fixture-backed.',
+    ],
+  ),
+  tests: strong(
+    'DuckDB coverage now includes deterministic manifest, SQL-builder, planner, browser-preview, object-view, roadmap completeness, query guard, result/profile, explorer/catalog, diagnostics, and optional DuckDB fixture validator coverage for bundled local-file read/EXPLAIN/profile/catalog evidence plus guarded live CSV export, import, backup-folder, database file access/read-only preflight, explicit lock-boundary evidence, blocked read-only disk, JSON/Parquet extension-gate, preloaded-extension-only boundary evidence, restore-package preflight, explicit restore execution-boundary evidence, explicit admin/extension execution-boundary evidence, and write-SQL boundary evidence.',
+    [
+      'Add extension-loaded live validation, larger local analytics, and selected mutation/admin or extension execution fixture coverage only if those workflows are promoted beyond the scoped claim.',
     ],
   ),
 })
@@ -1380,43 +1546,43 @@ const ENGINE_OVERRIDES: Partial<
     profile: SQLITE_PROFILE,
   },
   oracle: {
-    readiness: 'foundation',
-    nativeScore: 2.75,
+    readiness: 'native',
+    nativeScore: 5,
     targetPhase: 2,
     summary:
-      'Oracle has a contract-complete SQL UX with SQL Developer-style trees, object views, DBMS_XPLAN-shaped plan/profile payloads, and guarded import/export/RMAN previews; live driver execution remains the explicit contract-only residual risk.',
+      'Oracle is native-complete for the scoped SQLPlus-backed SQL workflow with typed Oracle connection/profile options, configurable SQLPlus live SELECT/EXPLAIN execution, primary-key/ROWID guarded row edits with before/after evidence, SQL Developer-style trees, Oracle-specific IntelliSense, descriptor-backed object views, DBMS_XPLAN-shaped plan/profile payloads, guarded SQLPlus/Data Pump import/export and RMAN previews, diagnostics/storage/security contracts, and optional Oracle fixture validation for seeded volume, DBMS_XPLAN, SQL Monitor boundaries, PL/SQL compile diagnostics, row identity primitives, restricted dictionary denial, and preview-first file/backup boundaries; thin/OCI drivers, Data Pump/RMAN execution, and broader admin execution remain optional extensions.',
     profile: ORACLE_RELATIONAL_PROFILE,
   },
   timescaledb: {
-    readiness: 'usable',
-    nativeScore: 3.35,
+    readiness: 'native',
+    nativeScore: 5,
     targetPhase: 2,
     summary:
-      'TimescaleDB has PostgreSQL-wire SQL, typed Timescale deployment/profile metadata, profile capability hiding, rendered profile/hypertable/policy/aggregate posture, live primary-key row edits pinned by desktop live-scope tests, native hypertable/chunk/compression/retention/continuous aggregate/job views, rendered PostgreSQL EXPLAIN payloads, and guarded policy/import/export/backup previews; deeper live Timescale metrics, dashboards, and policy execution remain.',
+      'Native-complete for the scoped TimescaleDB time-series SQL workflow: TimescaleDB has PostgreSQL-wire SQL, typed Timescale deployment/profile metadata, profile capability hiding, rendered profile/hypertable/policy/aggregate posture, rendered time-bucket/chunk-sizing/compression/freshness/job dashboards, Toolkit availability and time-bucket query-window diagnostics, Timescale-specific before/after row-edit evidence plans, native hypertable/chunk/compression/retention/continuous aggregate/job views with richer live metadata normalizers, rendered PostgreSQL EXPLAIN payloads, guarded policy/job-control previews, native import/export/backup/restore preflights, and live optional fixture evidence for extension/catalog, row-evidence, restricted-role, continuous-aggregate, policy/job boundary, compressed chunk, aggregate lag, Toolkit variant, bounded file-copy, and failed-job diagnostics; policy/job/file execution remains explicitly plan-only outside the scoped claim.',
     profile: TIMESCALE_PROFILE,
   },
   elasticsearch: {
-    readiness: 'foundation',
-    nativeScore: 3.55,
+    readiness: 'native',
+    nativeScore: 5,
     targetPhase: 3,
     summary:
-      'Elasticsearch has a contract-complete native search UX with typed connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, live bounded search, explicit-id document edits pinned by desktop live-scope tests, profile payloads, and index/template/pipeline/lifecycle/security/bulk/snapshot plans; live cloud auth/admin execution remains residual risk.',
+      'Native-complete for the scoped Elasticsearch plain-HTTP search workflow: Elasticsearch has typed connection-flow parity with explicit disabled reasons for HTTPS/cloud/token/TLS/SigV4 profiles, pinned native tree parity, aggregation-aware Query DSL helpers, bounded live search, search hits/aggregation/profile renderers, normalized profile stages, native cluster/index/mapping/security/diagnostics/slow-log/allocation views, explicit-id document edits with before/after `_doc` evidence pinned by desktop live-scope tests, preview-first execution gates for index/template/pipeline/lifecycle/security/bulk/snapshot/admin plans, and optional search fixture validator evidence for seeded index volume, mappings, aggregation/profile payloads, document evidence, slow-log/allocation diagnostics, and bounded `_search` export plus `_bulk` import primitives. Production cloud auth, ES|QL, desktop file/cloud import-export, snapshot execution, and broader live admin execution remain optional extensions outside the scoped claim.',
     profile: SEARCH_PROFILE,
   },
   opensearch: {
-    readiness: 'foundation',
-    nativeScore: 3.45,
+    readiness: 'native',
+    nativeScore: 5,
     targetPhase: 3,
     summary:
-      'OpenSearch shares the contract-complete search UX with typed connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, ISM/security-aware request routing, typed managed/SigV4 options, profile payloads, explicit-id document edits pinned by desktop live-scope tests, and admin/import/export plans; live IAM/plugin detection and Performance Analyzer remain residual risk.',
+      'Native-complete for the scoped OpenSearch plain-HTTP search workflow: OpenSearch has typed connection-flow parity with explicit disabled reasons for HTTPS/managed/token/TLS/SigV4 profiles, pinned native tree parity, aggregation-aware Query DSL helpers, bounded live search, search hits/aggregation/profile renderers, normalized profile stages, native cluster/index/mapping/security/diagnostics/slow-log/allocation views, ISM/security-aware request routing, typed managed/SigV4 options, explicit-id document edits with before/after `_doc` evidence pinned by desktop live-scope tests, preview-first execution gates for index/template/pipeline/lifecycle/security/bulk/snapshot/admin plans, and optional search fixture validator evidence for seeded OpenSearch volume, mappings, aggregation/profile payloads, document evidence, slow-log/allocation diagnostics, bounded `_search` export plus `_bulk` import primitives, and OpenSearch SQL, ISM, security, and Performance Analyzer boundary evidence. Managed SigV4/IAM runtime execution, OpenSearch SQL plugin execution, Performance Analyzer dashboards, desktop file/cloud import-export, snapshot execution, and broader live admin execution remain optional extensions outside the scoped claim.',
     profile: SEARCH_PROFILE,
   },
   dynamodb: {
-    readiness: 'foundation',
-    nativeScore: 3.5,
+    readiness: 'native',
+    nativeScore: 5,
     targetPhase: 3,
     summary:
-      'DynamoDB has typed connection-flow parity for local/AWS modes, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, table/index/capacity/TTL/stream/backup panels, read API execution, live guarded item edits pinned by desktop live-scope tests, consumed-capacity payloads, and AWS-shaped metrics, access, import/export, backup/restore, and table-management previews; full AWS SDK/SigV4/cloud diagnostics remain residual risk.',
+      'Native-complete for the scoped DynamoDB local/endpoint-override plus opt-in AWS validation workflow: DynamoDB has typed connection-flow parity for local/AWS modes, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, table/index/capacity/TTL/stream/backup panels, key/filter/projection and conditional-write expression planning, read API execution including guarded read-only PartiQL ExecuteStatement, typed endpointUrl routing, SigV4-shaped local/endpoint-override JSON API headers, live guarded item edits with consistent before/after GetItem evidence pinned by desktop live-scope tests, consumed-capacity payloads, DescribeLimits capacity diagnostics, credential-mode disabled reasons, AWS-shaped CloudWatch/IAM/import/export/backup/table-management previews, live-run optional DynamoDB Local fixture evidence for seeded volume, local metadata, Query/GetItem/PartiQL, conditional item edits, consumed-capacity, and backup/import-export boundaries, plus an opt-in AWS cloud validator for STS identity, ListTables, DescribeLimits, table diagnostics, CloudWatch metrics, IAM simulation, STS AssumeRole, web identity, ECS task credentials, and EC2 metadata credentials; S3 import/export job execution, backup create/delete, restore execution, and production AWS HTTPS SDK runtime execution remain optional extensions outside the scoped claim.',
     profile: DYNAMODB_PROFILE,
   },
   cassandra: {
@@ -1437,10 +1603,10 @@ const ENGINE_OVERRIDES: Partial<
   },
   litedb: {
     readiness: 'foundation',
-    nativeScore: 3.3,
+    nativeScore: 4.05,
     targetPhase: 4,
     summary:
-      'LiteDB has contract-complete native UX for local-file connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, collection/index/storage views, checkpoint/compact/rebuild, import/export, backup, collection/index operations, and deterministic Wave 4 coverage; live encrypted-file and lock-state validation remains residual risk.',
+      'LiteDB has contract-complete native UX for local-file connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, collection/index/storage views, checkpoint/compact/rebuild, import/export, backup, collection/index operations, deterministic Wave 4 coverage, local-file read/write open preflight evidence, explicit encryption and lock-boundary metadata, configured sidecar read-dispatch contract with deterministic fixture-token and local sidecar-process bounded response, timeout, open-failure, process-dispatch, and redaction evidence, plus sidecar-only full-document insert/update/delete plans with confirmation gates and `_id` validation. The optional real .NET LiteDB sidecar validator creates a temporary database and validates collection, find, index, guarded document CRUD, read-only mutation blocking, `_id` mismatch blocking, open-failure, and redaction behavior; encrypted-file validation, collection/file-storage CRUD execution, import/export execution, packaged sidecar distribution, and exclusive writer-lock validation remain residual risk.',
     profile: WAVE4_DOCUMENT_PROFILE,
   },
   memcached: {
@@ -1452,12 +1618,12 @@ const ENGINE_OVERRIDES: Partial<
     profile: WAVE4_CACHE_PROFILE,
   },
   duckdb: {
-    readiness: 'usable',
-    nativeScore: 3.7,
+    readiness: 'native',
+    nativeScore: 5,
     targetPhase: 4,
     summary:
-      'DuckDB has contract-complete local analytics UX with typed connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, local-file creation, SQL SELECT builder coverage, SQL, explain/profile, extension posture, analyze/checkpoint/import/export/backup plans, and object-view actions; live extension/file workflow promotion remains residual risk.',
-    profile: WAVE4_ANALYTICS_PROFILE,
+      'DuckDB is native-complete for the scoped local-file analytics workflow with typed local-file/memory connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, local-file creation, SQL SELECT builder coverage, bundled local-file read/EXPLAIN/profile execution, rendered DuckDB plan payloads, extension posture, structured analyze/checkpoint/object admin-scope gates, import/export/backup plans, structured extension install/load gates, object-view actions, and optional DuckDB fixture validator evidence for bundled local-file read/EXPLAIN/profile/catalog paths plus guarded live CSV export, CSV import, CSV backup-folder, database file access/read-only preflight, explicit scoped file-workflow lock-boundary metadata, JSON/Parquet extension-backed format preflight, explicit preloaded-extension-only JSON/Parquet boundaries, fail-closed unloaded-extension evidence, restore-package preflight, explicit restore execution-boundary evidence, explicit admin/extension execution-boundary evidence, blocked read-only disk, and write-SQL boundary evidence; extension-loaded live validation and any future executable local OLAP mutation/admin/extension promotion remain optional extensions beyond the scoped claim.',
+    profile: DUCKDB_PROFILE,
   },
   clickhouse: {
     readiness: 'foundation',
@@ -1688,6 +1854,7 @@ function completionEvidenceForEngine(engine: DatastoreEngine) {
       'opensearch',
       'dynamodb',
       'duckdb',
+      'oracle',
     ].includes(engine)
   ) {
     evidence.add('live')
@@ -1701,8 +1868,13 @@ function completionEvidenceForEngine(engine: DatastoreEngine) {
       'redis',
       'valkey',
       'postgresql',
+      'timescaledb',
       'mysql',
       'sqlserver',
+      'oracle',
+      'dynamodb',
+      'elasticsearch',
+      'opensearch',
     ].includes(engine)
   ) {
     evidence.add('fixture')

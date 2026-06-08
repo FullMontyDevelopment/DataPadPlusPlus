@@ -436,7 +436,7 @@ fn query_builders(manifest: &AdapterManifest) -> Vec<DatastoreExperienceBuilder>
             "split",
         )],
         "postgresql" | "cockroachdb" | "sqlserver" | "mysql" | "mariadb" | "sqlite"
-        | "timescaledb" | "duckdb" | "clickhouse" | "snowflake" | "bigquery" => {
+        | "timescaledb" | "oracle" | "duckdb" | "clickhouse" | "snowflake" | "bigquery" => {
             vec![builder("sql-select", "SQL SELECT Builder", "table", "raw")]
         }
         _ => Vec::new(),
@@ -452,7 +452,7 @@ fn editable_scopes(manifest: &AdapterManifest) -> Vec<DatastoreEditableScope> {
             true,
             true,
         )],
-        "postgresql" | "cockroachdb" | "timescaledb" => vec![editable_scope(
+        "postgresql" | "cockroachdb" | "timescaledb" | "oracle" => vec![editable_scope(
             "table",
             "Table Rows",
             &["insert-row", "update-row", "delete-row"],
@@ -478,6 +478,13 @@ fn editable_scopes(manifest: &AdapterManifest) -> Vec<DatastoreEditableScope> {
                 "update-document",
                 "delete-document",
             ],
+            true,
+            true,
+        )],
+        "litedb" => vec![editable_scope(
+            "collection",
+            "Collection Documents",
+            &["insert-document", "update-document", "delete-document"],
             true,
             true,
         )],
@@ -1128,6 +1135,27 @@ mod tests {
     }
 
     #[test]
+    fn litedb_advertises_scoped_live_document_crud_scope() {
+        let litedb = experience_for_engine("litedb");
+        let scope = litedb
+            .editable_scopes
+            .iter()
+            .find(|scope| scope.scope == "collection")
+            .expect("missing LiteDB collection edit scope");
+
+        assert!(scope.live_execution);
+        assert!(scope.requires_primary_key);
+        assert_eq!(
+            scope.edit_kinds,
+            vec![
+                "insert-document".to_string(),
+                "update-document".to_string(),
+                "delete-document".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn core_sql_engines_advertise_live_primary_key_row_edit_scopes() {
         for engine in [
             "postgresql",
@@ -1137,6 +1165,7 @@ mod tests {
             "mariadb",
             "sqlite",
             "timescaledb",
+            "oracle",
         ] {
             let experience = experience_for_engine(engine);
             let table_scope = experience
@@ -1168,12 +1197,6 @@ mod tests {
                 "{engine} should expose the SQL SELECT builder"
             );
         }
-
-        let oracle = experience_for_engine("oracle");
-        assert!(
-            oracle.editable_scopes.is_empty(),
-            "Oracle remains contract-plan-only until a live driver path exists"
-        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use super::*;
 
@@ -10,15 +10,86 @@ pub(super) fn generated_edit_request(
 ) -> String {
     match connection.engine.as_str() {
         "mongodb" => mongo_edit_request(request),
+        "litedb" => litedb_edit_request(request),
         "redis" | "valkey" => keyvalue_edit_request(request),
         "dynamodb" => dynamodb_edit_request(request),
         "cassandra" => cassandra_edit_request(request),
         "elasticsearch" | "opensearch" => search_edit_request(request),
-        "postgresql" | "cockroachdb" | "timescaledb" => sql_edit_request(request, "\"", "\"", "$"),
+        "oracle" => oracle_sql_edit_request(request),
+        "postgresql" | "cockroachdb" => sql_edit_request(request, "\"", "\"", "$"),
+        "timescaledb" => timescale_sql_edit_request(request),
         "sqlserver" => sql_edit_request(request, "[", "]", "@p"),
         "mysql" | "mariadb" => sql_edit_request(request, "`", "`", "?"),
         _ => sql_edit_request(request, "\"", "\"", "?"),
     }
+}
+
+fn litedb_edit_request(request: &DataEditPlanRequest) -> String {
+    let collection = request
+        .target
+        .collection
+        .as_deref()
+        .unwrap_or("<collection>");
+    let id = request
+        .target
+        .document_id
+        .clone()
+        .or_else(|| {
+            request
+                .changes
+                .first()
+                .and_then(|change| change.value.as_ref())
+                .and_then(|value| value.get("_id").cloned())
+        })
+        .unwrap_or(Value::String("<_id>".into()));
+
+    let request_value = match request.edit_kind.as_str() {
+        "insert-document" => json!({
+            "operation": "InsertDocument",
+            "collection": collection,
+            "id": id,
+            "document": request
+                .changes
+                .first()
+                .and_then(|change| change.value.clone())
+                .unwrap_or(Value::Object(Default::default())),
+            "evidenceRequests": {
+                "before": null,
+                "after": { "operation": "FindById", "collection": collection, "id": id }
+            }
+        }),
+        "update-document" => json!({
+            "operation": "UpdateDocument",
+            "collection": collection,
+            "id": id,
+            "document": request
+                .changes
+                .first()
+                .and_then(|change| change.value.clone())
+                .unwrap_or(Value::Object(Default::default())),
+            "evidenceRequests": {
+                "before": { "operation": "FindById", "collection": collection, "id": id },
+                "after": { "operation": "FindById", "collection": collection, "id": id }
+            }
+        }),
+        "delete-document" => json!({
+            "operation": "DeleteDocument",
+            "collection": collection,
+            "id": id,
+            "evidenceRequests": {
+                "before": { "operation": "FindById", "collection": collection, "id": id },
+                "after": { "operation": "FindById", "collection": collection, "id": id }
+            }
+        }),
+        _ => json!({
+            "operation": "UnsupportedDocumentEdit",
+            "collection": collection,
+            "requestedEditKind": request.edit_kind,
+            "disabledReason": "LiteDB live document editing is currently scoped to insert-document, update-document, and delete-document."
+        }),
+    };
+
+    serde_json::to_string_pretty(&request_value).unwrap_or_else(|_| "{}".into())
 }
 
 fn sql_edit_request(
@@ -98,10 +169,25 @@ fn primary_key_predicate(
     quote_end: &str,
     parameter_prefix: &str,
 ) -> String {
+    primary_key_predicate_with_offset(
+        request,
+        quote_start,
+        quote_end,
+        parameter_prefix,
+        request.changes.len(),
+    )
+}
+
+fn primary_key_predicate_with_offset(
+    request: &DataEditPlanRequest,
+    quote_start: &str,
+    quote_end: &str,
+    parameter_prefix: &str,
+    offset: usize,
+) -> String {
     let Some(primary_key) = &request.target.primary_key else {
         return " where <primary-key> = <value>".into();
     };
-    let offset = request.changes.len();
     let parts = primary_key
         .keys()
         .enumerate()
@@ -116,6 +202,181 @@ fn primary_key_predicate(
 
     if parts.is_empty() {
         " where <primary-key> = <value>".into()
+    } else {
+        format!(" where {}", parts.join(" and "))
+    }
+}
+
+fn timescale_sql_edit_request(request: &DataEditPlanRequest) -> String {
+    let table = sql_table_name(request, "\"", "\"");
+
+    match request.edit_kind.as_str() {
+        "insert-row" => {
+            let mut fields = request
+                .changes
+                .iter()
+                .filter_map(|change| change.field.as_deref())
+                .map(|field| quote_identifier(field, "\"", "\""))
+                .collect::<Vec<_>>();
+            if fields.is_empty() {
+                fields.push(quote_identifier("<field>", "\"", "\""));
+            }
+            let values = (1..=fields.len())
+                .map(|index| parameter("$", index))
+                .collect::<Vec<_>>();
+
+            format!(
+                "-- Mutation and after evidence (RETURNING *)\ninsert into {table} ({}) values ({}) returning *;",
+                fields.join(", "),
+                values.join(", ")
+            )
+        }
+        "delete-row" => {
+            let predicate = primary_key_predicate_with_offset(request, "\"", "\"", "$", 0);
+
+            format!(
+                "-- Before evidence (bounded primary-key prefetch)\nselect * from {table}{predicate} limit 2;\n\n-- Mutation and after evidence (RETURNING *)\ndelete from {table}{predicate} returning *;"
+            )
+        }
+        _ => {
+            let assignments = request
+                .changes
+                .iter()
+                .enumerate()
+                .filter_map(|(index, change)| {
+                    change.field.as_deref().map(|field| {
+                        format!(
+                            "{} = {}",
+                            quote_identifier(field, "\"", "\""),
+                            parameter("$", index + 1)
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
+            let assignment_text = if assignments.is_empty() {
+                format!("{} = $1", quote_identifier("<field>", "\"", "\""))
+            } else {
+                assignments.join(", ")
+            };
+            let before_predicate = primary_key_predicate_with_offset(request, "\"", "\"", "$", 0);
+            let mutation_predicate = primary_key_predicate(request, "\"", "\"", "$");
+
+            format!(
+                "-- Before evidence (bounded primary-key prefetch)\nselect * from {table}{before_predicate} limit 2;\n\n-- Mutation and after evidence (RETURNING *)\nupdate {table} set {assignment_text}{mutation_predicate} returning *;"
+            )
+        }
+    }
+}
+
+fn oracle_sql_edit_request(request: &DataEditPlanRequest) -> String {
+    let table = sql_table_name(request, "\"", "\"");
+
+    match request.edit_kind.as_str() {
+        "insert-row" => {
+            let mut fields = request
+                .changes
+                .iter()
+                .filter_map(|change| change.field.as_deref())
+                .map(|field| quote_identifier(field, "\"", "\""))
+                .collect::<Vec<_>>();
+            if fields.is_empty() {
+                fields.push(quote_identifier("<field>", "\"", "\""));
+            }
+            let values = (1..=fields.len())
+                .map(|index| parameter(":p", index))
+                .collect::<Vec<_>>();
+            if request
+                .target
+                .primary_key
+                .as_ref()
+                .is_some_and(|primary_key| !primary_key.is_empty())
+            {
+                let predicate = oracle_primary_key_predicate(request);
+                return format!(
+                    "-- Mutation\ninsert into {table} ({}) values ({});\n\n-- After evidence (bounded primary-key fetch)\nselect * from {table}{predicate} fetch first 2 rows only;",
+                    fields.join(", "),
+                    values.join(", ")
+                );
+            }
+
+            format!(
+                "-- Mutation and ROWID evidence\nvariable datapad_rowid varchar2(32)\ninsert into {table} ({}) values ({}) returning rowid into :datapad_rowid;\n\n-- After evidence (bounded ROWID fetch)\nselect * from {table} where rowid = chartorowid(:datapad_rowid) fetch first 2 rows only;",
+                fields.join(", "),
+                values.join(", ")
+            )
+        }
+        "delete-row" => {
+            let predicate = oracle_primary_key_predicate(request);
+
+            format!(
+                "-- Before evidence (bounded primary-key or ROWID prefetch)\nselect * from {table}{predicate} fetch first 2 rows only;\n\n-- Mutation\ndelete from {table}{predicate};\n\n-- After evidence (bounded primary-key or ROWID fetch)\nselect * from {table}{predicate} fetch first 2 rows only;"
+            )
+        }
+        _ => {
+            let assignments = request
+                .changes
+                .iter()
+                .enumerate()
+                .filter_map(|(index, change)| {
+                    change.field.as_deref().map(|field| {
+                        format!(
+                            "{} = {}",
+                            quote_identifier(field, "\"", "\""),
+                            parameter(":p", index + 1)
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
+            let assignment_text = if assignments.is_empty() {
+                format!("{} = :p1", quote_identifier("<field>", "\"", "\""))
+            } else {
+                assignments.join(", ")
+            };
+            let predicate =
+                oracle_primary_key_predicate_with_offset(request, request.changes.len());
+            let before_predicate = oracle_primary_key_predicate_with_offset(request, 0);
+
+            format!(
+                "-- Before evidence (bounded primary-key or ROWID prefetch)\nselect * from {table}{before_predicate} fetch first 2 rows only;\n\n-- Mutation\nupdate {table} set {assignment_text}{predicate};\n\n-- After evidence (bounded primary-key or ROWID fetch)\nselect * from {table}{before_predicate} fetch first 2 rows only;"
+            )
+        }
+    }
+}
+
+fn oracle_primary_key_predicate(request: &DataEditPlanRequest) -> String {
+    oracle_primary_key_predicate_with_offset(request, 0)
+}
+
+fn oracle_primary_key_predicate_with_offset(
+    request: &DataEditPlanRequest,
+    offset: usize,
+) -> String {
+    let Some(primary_key) = &request.target.primary_key else {
+        return " where <primary-key-or-rowid> = <value>".into();
+    };
+    let mut entries = primary_key.keys().collect::<Vec<_>>();
+    entries.sort();
+    let parts = entries
+        .into_iter()
+        .enumerate()
+        .map(|(index, key)| {
+            if key.eq_ignore_ascii_case("rowid") {
+                format!(
+                    "rowid = chartorowid({})",
+                    parameter(":p", offset + index + 1)
+                )
+            } else {
+                format!(
+                    "{} = {}",
+                    quote_identifier(key, "\"", "\""),
+                    parameter(":p", offset + index + 1)
+                )
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if parts.is_empty() {
+        " where <primary-key-or-rowid> = <value>".into()
     } else {
         format!(" where {}", parts.join(" and "))
     }
@@ -441,32 +702,229 @@ fn keyvalue_edit_request(request: &DataEditPlanRequest) -> String {
 
 fn dynamodb_edit_request(request: &DataEditPlanRequest) -> String {
     let table = request.target.table.as_deref().unwrap_or("<table>");
-    serde_json::to_string_pretty(&json!({
-        "TableName": table,
-        "Key": request.target.item_key.clone().unwrap_or_default(),
-        "UpdateExpression": "SET #field = :value",
-        "ExpressionAttributeNames": {
-            "#field": request
+    let key = dynamodb_key_value(request);
+    let mutation = match request.edit_kind.as_str() {
+        "delete-item" => {
+            let mut names = Map::new();
+            let condition_expression =
+                dynamodb_key_condition_expression(&key, "attribute_exists", &mut names);
+            let mut mutation = Map::new();
+            mutation.insert("Operation".into(), Value::String("DeleteItem".into()));
+            mutation.insert("TableName".into(), Value::String(table.into()));
+            mutation.insert("Key".into(), key.clone());
+            dynamodb_apply_condition_fields(&mut mutation, condition_expression, names);
+            mutation.insert("ReturnValues".into(), Value::String("ALL_OLD".into()));
+            mutation.insert(
+                "ReturnConsumedCapacity".into(),
+                Value::String("TOTAL".into()),
+            );
+            mutation.insert(
+                "EvidenceRequests".into(),
+                dynamodb_evidence_requests(table, &key),
+            );
+            Value::Object(mutation)
+        }
+        "put-item" => {
+            let mut names = Map::new();
+            let condition_expression =
+                dynamodb_key_condition_expression(&key, "attribute_not_exists", &mut names);
+            let mut mutation = Map::new();
+            mutation.insert("Operation".into(), Value::String("PutItem".into()));
+            mutation.insert("TableName".into(), Value::String(table.into()));
+            mutation.insert("Item".into(), dynamodb_put_item_value(request));
+            dynamodb_apply_condition_fields(&mut mutation, condition_expression, names);
+            mutation.insert("ReturnValues".into(), Value::String("ALL_OLD".into()));
+            mutation.insert(
+                "ReturnConsumedCapacity".into(),
+                Value::String("TOTAL".into()),
+            );
+            mutation.insert(
+                "EvidenceRequests".into(),
+                dynamodb_evidence_requests(table, &key),
+            );
+            Value::Object(mutation)
+        }
+        _ => {
+            let field = request
                 .changes
                 .first()
                 .and_then(|change| change.field.clone())
-                .unwrap_or_else(|| "<field>".into())
+                .unwrap_or_else(|| "<field>".into());
+            let mut names = Map::from_iter([("#field".into(), Value::String(field.clone()))]);
+            let condition_expression =
+                dynamodb_key_condition_expression(&key, "attribute_exists", &mut names);
+            let mut mutation = Map::new();
+            mutation.insert("Operation".into(), Value::String("UpdateItem".into()));
+            mutation.insert("TableName".into(), Value::String(table.into()));
+            mutation.insert("Key".into(), key.clone());
+            mutation.insert(
+                "UpdateExpression".into(),
+                Value::String("SET #field = :value".into()),
+            );
+            mutation.insert("ExpressionAttributeNames".into(), Value::Object(names));
+            mutation.insert(
+                "ExpressionAttributeValues".into(),
+                json!({
+                    ":value": request
+                        .changes
+                        .first()
+                        .map(|change| {
+                            secret_aware_json_value(
+                                change.field.as_deref().unwrap_or("<field>"),
+                                change.value.clone().unwrap_or(Value::String("<value>".into())),
+                            )
+                        })
+                        .unwrap_or(Value::String("<value>".into()))
+                }),
+            );
+            if let Some(condition_expression) = condition_expression {
+                mutation.insert(
+                    "ConditionExpression".into(),
+                    Value::String(condition_expression),
+                );
+            }
+            mutation.insert("ReturnValues".into(), Value::String("ALL_NEW".into()));
+            mutation.insert(
+                "ReturnConsumedCapacity".into(),
+                Value::String("TOTAL".into()),
+            );
+            mutation.insert(
+                "EvidenceRequests".into(),
+                dynamodb_evidence_requests(table, &key),
+            );
+            Value::Object(mutation)
+        }
+    };
+
+    serde_json::to_string_pretty(&mutation).unwrap_or_else(|_| "{}".into())
+}
+
+fn dynamodb_key_value(request: &DataEditPlanRequest) -> Value {
+    request
+        .target
+        .item_key
+        .clone()
+        .or_else(|| request.target.primary_key.clone())
+        .map(|key| json!(key))
+        .unwrap_or_else(|| json!({}))
+}
+
+fn dynamodb_evidence_requests(table: &str, key: &Value) -> Value {
+    if key.as_object().is_none_or(Map::is_empty) {
+        return json!({
+            "UnavailableReason": "Complete item key required for before/after GetItem evidence."
+        });
+    }
+
+    json!({
+        "Before": {
+            "Operation": "GetItem",
+            "TableName": table,
+            "Key": key,
+            "ConsistentRead": true,
+            "ReturnConsumedCapacity": "TOTAL",
         },
-        "ExpressionAttributeValues": {
-            ":value": request
-                .changes
-                .first()
-                .map(|change| {
-                    secret_aware_json_value(
-                        change.field.as_deref().unwrap_or("<field>"),
-                        change.value.clone().unwrap_or(Value::String("<value>".into())),
-                    )
-                })
-                .unwrap_or(Value::String("<value>".into()))
+        "After": {
+            "Operation": "GetItem",
+            "TableName": table,
+            "Key": key,
+            "ConsistentRead": true,
+            "ReturnConsumedCapacity": "TOTAL",
         },
-        "ReturnValues": "ALL_NEW"
-    }))
-    .unwrap_or_else(|_| "{}".into())
+    })
+}
+
+fn dynamodb_apply_condition_fields(
+    mutation: &mut Map<String, Value>,
+    condition_expression: Option<String>,
+    expression_attribute_names: Map<String, Value>,
+) {
+    let Some(condition_expression) = condition_expression else {
+        return;
+    };
+
+    mutation.insert(
+        "ConditionExpression".into(),
+        Value::String(condition_expression),
+    );
+    mutation.insert(
+        "ExpressionAttributeNames".into(),
+        Value::Object(expression_attribute_names),
+    );
+}
+
+fn dynamodb_key_condition_expression(
+    key: &Value,
+    function_name: &str,
+    expression_attribute_names: &mut Map<String, Value>,
+) -> Option<String> {
+    let key = key.as_object().filter(|key| !key.is_empty())?;
+    let expressions = key
+        .keys()
+        .enumerate()
+        .map(|(index, field)| {
+            let token = dynamodb_name_token(expression_attribute_names, field, index);
+            format!("{function_name}({token})")
+        })
+        .collect::<Vec<_>>();
+
+    Some(expressions.join(" AND "))
+}
+
+fn dynamodb_name_token(
+    expression_attribute_names: &mut Map<String, Value>,
+    field: &str,
+    index: usize,
+) -> String {
+    if let Some((token, _)) = expression_attribute_names
+        .iter()
+        .find(|(_, value)| value.as_str() == Some(field))
+    {
+        return token.clone();
+    }
+
+    let mut token_index = index;
+    loop {
+        let token = format!("#key{token_index}");
+        if !expression_attribute_names.contains_key(&token) {
+            expression_attribute_names.insert(token.clone(), Value::String(field.into()));
+            return token;
+        }
+        token_index += 1;
+    }
+}
+
+fn dynamodb_put_item_value(request: &DataEditPlanRequest) -> Value {
+    let mut item = request
+        .target
+        .item_key
+        .clone()
+        .or_else(|| request.target.primary_key.clone())
+        .map(|key| key.into_iter().collect::<Map<_, _>>())
+        .unwrap_or_default();
+
+    for change in &request.changes {
+        if let Some(field) = change.field.as_deref().filter(|value| !value.is_empty()) {
+            item.insert(
+                field.into(),
+                secret_aware_json_value(
+                    field,
+                    change
+                        .value
+                        .clone()
+                        .unwrap_or(Value::String("<value>".into())),
+                ),
+            );
+        } else if let Some(Value::Object(document)) = change.value.clone() {
+            item.extend(document);
+        }
+    }
+
+    if item.is_empty() {
+        item.insert("<field>".into(), Value::String("<value>".into()));
+    }
+
+    Value::Object(item)
 }
 
 fn search_edit_request(request: &DataEditPlanRequest) -> String {
@@ -508,15 +966,19 @@ fn search_edit_request(request: &DataEditPlanRequest) -> String {
         "update-document" => format!("/{index}/_update/{document_id}?refresh=true"),
         _ => format!("/{index}/_doc/{document_id}?refresh=true"),
     };
-
-    if body.is_null() {
+    let evidence_path = format!("/{index}/_doc/{document_id}?realtime=true");
+    let mutation = if body.is_null() {
         format!("{method} {path}")
     } else {
         format!(
             "{method} {path}\n{}",
             serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into())
         )
-    }
+    };
+
+    format!(
+        "GET {evidence_path}\n-- before document evidence\n{mutation}\nGET {evidence_path}\n-- after document evidence"
+    )
 }
 
 fn cassandra_edit_request(request: &DataEditPlanRequest) -> String {

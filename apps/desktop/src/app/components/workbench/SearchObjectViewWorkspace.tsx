@@ -308,6 +308,8 @@ function searchSectionCandidates(kind: string) {
     section('tasks', 'Tasks', ['action', 'description', 'runningTime', 'cancellable', 'node'], 'No tasks were returned.', 'job' as const),
     section('snapshots', 'Snapshots', ['repository', 'snapshot', 'state', 'indices', 'startedAt'], 'No snapshots were returned.', 'job' as const),
     section('lifecyclePolicies', 'Lifecycle Policies', ['name', 'type', 'phase', 'managedIndices', 'status'], 'No lifecycle policies were returned.', 'job' as const),
+    section('slowLogs', 'Slow Logs', ['index', 'kind', 'level', 'threshold', 'observed', 'source'], 'No slow-log settings or samples were returned.', 'job' as const),
+    section('allocationDecisions', 'Allocation Decisions', ['index', 'shard', 'node', 'decision', 'reason'], 'No allocation decisions were returned.', 'index' as const),
     section('statistics', 'Statistics', ['name', 'value', 'unit', 'source'], 'No statistics were returned.', 'job' as const),
     section('users', 'Users', ['name', 'realm', 'roles', 'enabled'], 'No users were returned.', 'security' as const),
     section('roles', 'Roles', ['name', 'clusterPrivileges', 'indexPrivileges', 'applicationPrivileges'], 'No roles were returned.', 'security' as const),
@@ -319,7 +321,7 @@ function searchSectionCandidates(kind: string) {
   }
 
   if (kind === 'diagnostics') {
-    return common.filter((candidate) => ['nodes', 'shards', 'segments', 'tasks', 'snapshots', 'lifecyclePolicies', 'statistics'].includes(candidate.key))
+    return common.filter((candidate) => ['nodes', 'shards', 'segments', 'tasks', 'snapshots', 'lifecyclePolicies', 'slowLogs', 'allocationDecisions', 'statistics'].includes(candidate.key))
   }
 
   if (kind === 'security') {

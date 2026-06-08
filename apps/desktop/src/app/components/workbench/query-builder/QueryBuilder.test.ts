@@ -805,7 +805,28 @@ describe('Search Query DSL builder', () => {
         ],
         sourceFields: [{ id: 'sku', field: 'sku' }],
         sort: [{ id: 'sort-created', field: 'created_at', direction: 'desc' }],
-        aggregations: [{ id: 'agg-status', field: 'status.keyword', name: 'status', size: 5 }],
+        aggregations: [
+          {
+            id: 'agg-status',
+            field: 'status.keyword',
+            name: 'status',
+            type: 'terms',
+            size: 5,
+          },
+          {
+            id: 'agg-day',
+            field: 'created_at',
+            name: 'orders_by_day',
+            type: 'date-histogram',
+            interval: '1d',
+          },
+          {
+            id: 'agg-revenue',
+            field: 'total_amount',
+            name: 'avg_revenue',
+            type: 'avg',
+          },
+        ],
         size: 25,
       }),
     )
@@ -822,6 +843,12 @@ describe('Search Query DSL builder', () => {
     expect(query.body.aggs.status).toEqual({
       terms: { field: 'status.keyword', size: 5 },
     })
+    expect(query.body.aggs.orders_by_day).toEqual({
+      date_histogram: { field: 'created_at', calendar_interval: '1d' },
+    })
+    expect(query.body.aggs.avg_revenue).toEqual({
+      avg: { field: 'total_amount' },
+    })
   })
 
   it('parses wrapped Query DSL into builder state', () => {
@@ -837,7 +864,11 @@ describe('Search Query DSL builder', () => {
           },
           "_source": ["sku"],
           "sort": [{ "created_at": { "order": "desc" } }],
-          "aggs": { "status": { "terms": { "field": "status.keyword", "size": 5 } } },
+          "aggs": {
+            "status": { "terms": { "field": "status.keyword", "size": 5 } },
+            "orders_by_day": { "date_histogram": { "field": "created_at", "calendar_interval": "1d" } },
+            "avg_revenue": { "avg": { "field": "total_amount" } }
+          },
           "size": 25
         }
       }`),
@@ -850,7 +881,20 @@ describe('Search Query DSL builder', () => {
       filters: [{ field: 'status.keyword', value: 'active' }],
       sourceFields: [{ field: 'sku' }],
       sort: [{ field: 'created_at', direction: 'desc' }],
-      aggregations: [{ field: 'status.keyword', name: 'status', size: 5 }],
+      aggregations: [
+        { field: 'status.keyword', name: 'status', type: 'terms', size: 5 },
+        {
+          field: 'created_at',
+          name: 'orders_by_day',
+          type: 'date-histogram',
+          interval: '1d',
+        },
+        {
+          field: 'total_amount',
+          name: 'avg_revenue',
+          type: 'avg',
+        },
+      ],
       size: 25,
     })
   })

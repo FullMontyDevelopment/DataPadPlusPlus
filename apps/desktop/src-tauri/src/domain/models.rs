@@ -290,6 +290,8 @@ pub struct MySqlConnectionOptions {
 #[serde(rename_all = "camelCase")]
 pub struct OracleConnectionOptions {
     pub connect_mode: Option<String>,
+    pub execution_runtime: Option<String>,
+    pub sql_plus_path: Option<String>,
     pub service_name: Option<String>,
     pub sid: Option<String>,
     pub tns_alias: Option<String>,

@@ -72,6 +72,17 @@ pub(super) fn timescale_operation_manifests(
             "Preview refreshing a continuous aggregate over a bounded time window.",
             true,
         ),
+        operation_manifest(
+            manifest,
+            "timescale.job-control",
+            "Job Control",
+            "cluster",
+            "write",
+            &["supports_admin_operations", "supports_time_series_charting"],
+            &["profile", "metrics", "raw"],
+            "Preview pausing, resuming, or manually running a TimescaleDB background job.",
+            true,
+        ),
     ]);
     operations
 }
@@ -99,5 +110,8 @@ mod tests {
         assert!(operations
             .iter()
             .any(|operation| operation.id == "timescaledb.data.backup-restore"));
+        assert!(operations
+            .iter()
+            .any(|operation| operation.id == "timescaledb.timescale.job-control"));
     }
 }

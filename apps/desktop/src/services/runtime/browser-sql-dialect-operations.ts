@@ -1,8 +1,5 @@
-import {
-  duckDbExtensionName,
-  duckDbImportFileRequest,
-} from './browser-sql-operation-format'
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
+export { duckDbOperationRequest } from './browser-duckdb-admin-operations'
 import { mysqlBackupRestoreRequest, mysqlImportExportRequest } from './browser-mysql-file-operations'
 import { mysqlManagementOperationRequest } from './browser-mysql-management-operations'
 import { postgresRoutineExecuteRequest } from './browser-postgres-routine-operations'
@@ -10,38 +7,6 @@ import { postgresSessionOperationRequest } from './browser-postgres-session-oper
 
 export { cockroachOperationRequest } from './browser-cockroach-operations'
 export { sqlServerOperationRequest } from './browser-sqlserver-operations'
-
-export function duckDbOperationRequest(
-  operationId: string,
-  objectName: string,
-  parameters: Record<string, unknown>,
-) {
-  if (operationId.endsWith('table.analyze')) {
-    return `analyze ${objectName};`
-  }
-
-  if (operationId.endsWith('database.analyze')) {
-    return 'analyze;'
-  }
-
-  if (operationId.endsWith('database.checkpoint')) {
-    return 'checkpoint;'
-  }
-
-  if (operationId.endsWith('extension.install')) {
-    return `install ${duckDbExtensionName(parameters.extensionName ?? objectName)};`
-  }
-
-  if (operationId.endsWith('extension.load')) {
-    return `load ${duckDbExtensionName(parameters.extensionName ?? objectName)};`
-  }
-
-  if (operationId.endsWith('file.import')) {
-    return duckDbImportFileRequest(String(parameters.tableName ?? objectName), parameters)
-  }
-
-  return undefined
-}
 
 export function mysqlOperationRequest(
   connection: ConnectionProfile,

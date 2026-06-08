@@ -6,6 +6,7 @@ import type {
   SearchDslQueryMode,
   SearchDslValueType,
 } from '@datapadplusplus/shared-types'
+import { aggregationEntry, parseAggregations } from './search-dsl-aggregations'
 
 export function createDefaultSearchDslBuilderState(
   index = '',
@@ -47,7 +48,7 @@ export function buildSearchDslQueryText(state: SearchDslBuilderState) {
     .filter(Boolean)
   const aggEntries: Array<[string, unknown]> = []
   for (const row of state.aggregations) {
-    const entry = aggregationEntry(row.field, row.name, row.size)
+    const entry = aggregationEntry(row)
     if (entry) {
       aggEntries.push(entry)
     }
@@ -179,18 +180,6 @@ function filterQuery(row: SearchDslFilterRow) {
   return { [row.operator]: { [field]: scalarValue(row.value, row.valueType) } }
 }
 
-function aggregationEntry(field: string, name: string | undefined, size = 10) {
-  const trimmedField = field.trim()
-  if (!trimmedField) {
-    return undefined
-  }
-
-  return [
-    name?.trim() || `${trimmedField.replaceAll('.', '_')}_terms`,
-    { terms: { field: trimmedField, size: Math.max(1, Math.floor(size)) } },
-  ] satisfies [string, unknown]
-}
-
 function scalarValue(value: string, type: SearchDslValueType) {
   if (type === 'boolean') {
     return ['true', '1', 'yes'].includes(value.trim().toLowerCase())
@@ -300,19 +289,6 @@ function parseSort(body: Record<string, unknown>) {
         return field ? [{ id: searchDslBuilderRowId('search-sort'), field, direction: order === 'desc' ? 'desc' as const : 'asc' as const }] : []
       })
     : []
-}
-
-function parseAggregations(body: Record<string, unknown>) {
-  const aggs = objectField(body, 'aggs') ?? objectField(body, 'aggregations')
-  return Object.entries(aggs ?? {}).flatMap(([name, value]) => {
-    const terms = value && typeof value === 'object' && !Array.isArray(value)
-      ? objectField(value as Record<string, unknown>, 'terms')
-      : undefined
-    const field = stringField(terms, 'field')
-    return field
-      ? [{ id: searchDslBuilderRowId('search-agg'), name, field, size: numberField(terms, 'size') ?? 10 }]
-      : []
-  })
 }
 
 function inferValueType(value: unknown): SearchDslValueType {

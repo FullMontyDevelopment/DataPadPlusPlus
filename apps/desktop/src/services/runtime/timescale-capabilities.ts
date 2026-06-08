@@ -57,7 +57,7 @@ export function timescaleCapabilityWarnings(
 
 export function timescalePolicyDisabledReason(
   connection: ConnectionProfile,
-  kind: 'compression' | 'retention' | 'aggregate',
+  kind: 'compression' | 'retention' | 'aggregate' | 'job',
 ): string {
   const options = connection.postgresOptions
   const specific =
@@ -65,7 +65,9 @@ export function timescalePolicyDisabledReason(
       ? options?.timescaleCompressionDisabledReason
       : kind === 'retention'
         ? options?.timescaleRetentionDisabledReason
-        : options?.timescaleContinuousAggregateDisabledReason
+        : kind === 'aggregate'
+          ? options?.timescaleContinuousAggregateDisabledReason
+          : undefined
   return (
     specific ||
     options?.timescalePolicyExecutionDisabledReason ||

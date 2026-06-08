@@ -229,9 +229,15 @@ describe('datastore roadmap catalog', () => {
       'mysql',
       'mariadb',
       'cockroachdb',
+      'timescaledb',
       'redis',
       'sqlite',
       'valkey',
+      'oracle',
+      'dynamodb',
+      'elasticsearch',
+      'opensearch',
+      'duckdb',
     ])
 
     for (const engine of DATASTORE_ENGINES) {
@@ -270,6 +276,9 @@ describe('datastore roadmap catalog', () => {
       'scoped native-complete claim',
     )
     expect(datastoreCompletenessForEngine('valkey')?.residualRisk).toContain(
+      'scoped native-complete claim',
+    )
+    expect(datastoreCompletenessForEngine('oracle')?.residualRisk).toContain(
       'scoped native-complete claim',
     )
   })
@@ -383,9 +392,10 @@ describe('datastore roadmap catalog', () => {
     expect(sqlite?.summary).toContain('VACUUM INTO backup')
   })
 
-  it('tracks Wave 7 core SQL row-edit hardening without promoting Oracle live execution', () => {
+  it('tracks TimescaleDB and Oracle native-complete graduations', () => {
     const liveSqlEngines = [
-      ['timescaledb', 3.35],
+      ['timescaledb', 5],
+      ['oracle', 5],
     ] as const
 
     for (const [engine, nativeScore] of liveSqlEngines) {
@@ -395,8 +405,8 @@ describe('datastore roadmap catalog', () => {
       )
 
       expect(entry).toMatchObject({
-        readiness: 'usable',
-        completionClaim: 'contract-complete',
+        readiness: 'native',
+        completionClaim: 'native-complete',
         nativeScore,
         targetPhase: 2,
       })
@@ -412,25 +422,16 @@ describe('datastore roadmap catalog', () => {
         status: 'strong',
         contractStatus: 'covered',
       })
+      expect(
+        entry?.criteria.find((item) => item.criterion === 'object-tree'),
+      ).toMatchObject({
+        status: 'strong',
+        contractStatus: 'covered',
+      })
       expect(incompleteCriteria).not.toContain('safe-editing')
       expect(incompleteCriteria).not.toContain('tests')
+      expect(incompleteCriteria).toEqual([])
     }
-
-    const oracle = datastoreCompletenessForEngine('oracle')
-
-    expect(oracle).toMatchObject({
-      readiness: 'foundation',
-      completionClaim: 'contract-complete',
-      nativeScore: 2.75,
-      targetPhase: 2,
-    })
-    expect(
-      oracle?.criteria.find((item) => item.criterion === 'safe-editing')
-        ?.status,
-    ).toBe('partial')
-    expect(
-      incompleteCriteriaForEngine('oracle').map((item) => item.criterion),
-    ).toContain('safe-editing')
   })
 
   it('identifies CockroachDB as a scoped native-complete SQL target', () => {
@@ -800,40 +801,50 @@ describe('datastore roadmap catalog', () => {
     expect(sqlserver?.summary).toContain('Native .bak BACKUP/RESTORE')
   })
 
-  it('tracks Wave 8 search and DynamoDB edit hardening without promoting Cassandra live execution', () => {
-    const promotedEngines = [
-      ['elasticsearch', 3.55],
-      ['opensearch', 3.45],
-      ['dynamodb', 3.5],
-    ] as const
+  it('graduates Elasticsearch and OpenSearch as scoped plain-HTTP search workflows', () => {
+    const elasticsearch = datastoreCompletenessForEngine('elasticsearch')
+    expect(elasticsearch).toMatchObject({
+      readiness: 'native',
+      completionClaim: 'native-complete',
+      nativeScore: 5,
+      targetPhase: 3,
+    })
+    expect(elasticsearch?.summary).toContain(
+      'Native-complete for the scoped Elasticsearch plain-HTTP search workflow',
+    )
+    expect(elasticsearch?.summary).toContain('optional search fixture validator')
+    expect(elasticsearch?.summary).toContain('desktop file/cloud import-export')
+    expect(incompleteCriteriaForEngine('elasticsearch')).toEqual([])
 
-    for (const [engine, nativeScore] of promotedEngines) {
-      const entry = datastoreCompletenessForEngine(engine)
-      const incompleteCriteria = incompleteCriteriaForEngine(engine).map(
-        (item) => item.criterion,
-      )
+    const opensearch = datastoreCompletenessForEngine('opensearch')
+    expect(opensearch).toMatchObject({
+      readiness: 'native',
+      completionClaim: 'native-complete',
+      nativeScore: 5,
+      targetPhase: 3,
+    })
+    expect(opensearch?.summary).toContain(
+      'Native-complete for the scoped OpenSearch plain-HTTP search workflow',
+    )
+    expect(opensearch?.summary).toContain('optional search fixture validator')
+    expect(opensearch?.summary).toContain(
+      'OpenSearch SQL, ISM, security, and Performance Analyzer boundary evidence',
+    )
+    expect(opensearch?.summary).toContain('Managed SigV4/IAM runtime execution')
+    expect(opensearch?.summary).toContain('Performance Analyzer')
+    expect(incompleteCriteriaForEngine('opensearch')).toEqual([])
 
-      expect(entry).toMatchObject({
-        readiness: 'foundation',
-        completionClaim: 'contract-complete',
-        nativeScore,
-        targetPhase: 3,
-      })
-      expect(
-        entry?.criteria.find((item) => item.criterion === 'safe-editing'),
-      ).toMatchObject({
-        status: 'strong',
-        contractStatus: 'covered',
-      })
-      expect(
-        entry?.criteria.find((item) => item.criterion === 'tests'),
-      ).toMatchObject({
-        status: 'strong',
-        contractStatus: 'covered',
-      })
-      expect(incompleteCriteria).not.toContain('safe-editing')
-      expect(incompleteCriteria).not.toContain('tests')
-    }
+    const dynamodb = datastoreCompletenessForEngine('dynamodb')
+    expect(dynamodb).toMatchObject({
+      readiness: 'native',
+      completionClaim: 'native-complete',
+      nativeScore: 5,
+      targetPhase: 3,
+    })
+    expect(dynamodb?.summary).toContain(
+      'Native-complete for the scoped DynamoDB',
+    )
+    expect(incompleteCriteriaForEngine('dynamodb')).toEqual([])
 
     const cassandra = datastoreCompletenessForEngine('cassandra')
 
@@ -855,7 +866,7 @@ describe('datastore roadmap catalog', () => {
   it('tracks Wave 9 Wave 4 query and test hardening without promoting live mutations', () => {
     const documentAndCacheEngines = [
       ['cosmosdb', 3.2],
-      ['litedb', 3.3],
+      ['litedb', 4.05],
       ['memcached', 3.25],
     ] as const
 
@@ -881,7 +892,6 @@ describe('datastore roadmap catalog', () => {
     }
 
     const analyticsEngines = [
-      ['duckdb', 3.7, 'usable'],
       ['clickhouse', 3.45, 'foundation'],
       ['snowflake', 3.4, 'foundation'],
       ['bigquery', 3.4, 'foundation'],
@@ -913,6 +923,81 @@ describe('datastore roadmap catalog', () => {
           ?.status,
       ).toBe('partial')
     }
+
+    const duckdb = datastoreCompletenessForEngine('duckdb')
+    expect(duckdb).toMatchObject({
+      readiness: 'native',
+      completionClaim: 'native-complete',
+      nativeScore: 5,
+      targetPhase: 4,
+    })
+    expect(incompleteCriteriaForEngine('duckdb')).toEqual([])
+    expect(duckdb?.summary).toContain(
+      'native-complete for the scoped local-file analytics workflow',
+    )
+    expect(duckdb?.summary).toContain(
+      'optional DuckDB fixture validator evidence',
+    )
+    expect(duckdb?.summary).toContain(
+      'bundled local-file read/EXPLAIN/profile',
+    )
+    expect(duckdb?.summary).toContain(
+      'guarded live CSV export, CSV import, CSV backup-folder',
+    )
+    expect(duckdb?.summary).toContain(
+      'database file access/read-only preflight',
+    )
+    expect(duckdb?.summary).toContain(
+      'explicit scoped file-workflow lock-boundary metadata',
+    )
+    expect(duckdb?.summary).toContain(
+      'JSON/Parquet extension-backed format preflight',
+    )
+    expect(duckdb?.summary).toContain(
+      'explicit preloaded-extension-only JSON/Parquet boundaries',
+    )
+    expect(duckdb?.summary).toContain(
+      'restore-package preflight',
+    )
+    expect(duckdb?.summary).toContain(
+      'explicit restore execution-boundary evidence',
+    )
+    expect(duckdb?.summary).toContain(
+      'structured extension install/load gates',
+    )
+    expect(duckdb?.summary).toContain(
+      'structured analyze/checkpoint/object admin-scope gates',
+    )
+    expect(duckdb?.summary).toContain(
+      'explicit admin/extension execution-boundary evidence',
+    )
+    expect(
+      duckdb?.criteria.find((item) => item.criterion === 'query-surface')
+        ?.note,
+    ).toContain('bundled local-file read SQL execution')
+    expect(
+      duckdb?.criteria.find(
+        (item) => item.criterion === 'diagnostics-performance',
+      )?.note,
+    ).toContain('read_csv/read_parquet/read_json query templates')
+    expect(
+      duckdb?.criteria.find((item) => item.criterion === 'safe-editing')
+    ).toMatchObject({
+      status: 'strong',
+      contractStatus: 'covered',
+    })
+    expect(
+      duckdb?.criteria.find((item) => item.criterion === 'safe-editing')
+        ?.note,
+    ).toContain('explicit scoped exclusions')
+    expect(
+      duckdb?.criteria.find((item) => item.criterion === 'safe-editing')
+        ?.next.join(' '),
+    ).toContain('cross-process lock')
+    expect(
+      duckdb?.criteria.find((item) => item.criterion === 'import-export')
+        ?.note,
+    ).toContain('restore-package preflight')
   })
 
   it('tracks Wave 10 time-series and graph query hardening without promoting writes', () => {
@@ -956,14 +1041,10 @@ describe('datastore roadmap catalog', () => {
 
   it('tracks Wave 11 deterministic intellisense hardening without live metadata claims', () => {
     const engines = [
-      'elasticsearch',
-      'opensearch',
-      'dynamodb',
       'cassandra',
       'cosmosdb',
       'litedb',
       'memcached',
-      'duckdb',
       'clickhouse',
       'snowflake',
       'bigquery',
@@ -997,14 +1078,10 @@ describe('datastore roadmap catalog', () => {
 
   it('tracks Wave 12 secondary object-tree parity without live capability claims', () => {
     const engines = [
-      'elasticsearch',
-      'opensearch',
-      'dynamodb',
       'cassandra',
       'cosmosdb',
       'litedb',
       'memcached',
-      'duckdb',
       'clickhouse',
       'snowflake',
       'bigquery',
@@ -1042,14 +1119,10 @@ describe('datastore roadmap catalog', () => {
 
   it('tracks Wave 13 secondary connection-flow parity without live driver claims', () => {
     const engines = [
-      'elasticsearch',
-      'opensearch',
-      'dynamodb',
       'cassandra',
       'cosmosdb',
       'litedb',
       'memcached',
-      'duckdb',
       'clickhouse',
       'snowflake',
       'bigquery',
@@ -1083,14 +1156,10 @@ describe('datastore roadmap catalog', () => {
 
   it('tracks Wave 14 secondary guarded-operation parity without live admin claims', () => {
     const engines = [
-      'elasticsearch',
-      'opensearch',
-      'dynamodb',
       'cassandra',
       'cosmosdb',
       'litedb',
       'memcached',
-      'duckdb',
       'clickhouse',
       'snowflake',
       'bigquery',
@@ -1124,14 +1193,10 @@ describe('datastore roadmap catalog', () => {
 
   it('tracks Wave 15 secondary diagnostics-performance parity without live sampling claims', () => {
     const engines = [
-      'elasticsearch',
-      'opensearch',
-      'dynamodb',
       'cassandra',
       'cosmosdb',
       'litedb',
       'memcached',
-      'duckdb',
       'clickhouse',
       'snowflake',
       'bigquery',
@@ -1165,14 +1230,10 @@ describe('datastore roadmap catalog', () => {
 
   it('tracks Wave 16 secondary import-export parity without live file execution claims', () => {
     const engines = [
-      'elasticsearch',
-      'opensearch',
-      'dynamodb',
       'cassandra',
       'cosmosdb',
       'litedb',
       'memcached',
-      'duckdb',
       'clickhouse',
       'snowflake',
       'bigquery',
@@ -1208,14 +1269,10 @@ describe('datastore roadmap catalog', () => {
 
   it('tracks Wave 17 secondary object-view parity without live payload-depth claims', () => {
     const engines = [
-      'elasticsearch',
-      'opensearch',
-      'dynamodb',
       'cassandra',
       'cosmosdb',
       'litedb',
       'memcached',
-      'duckdb',
       'clickhouse',
       'snowflake',
       'bigquery',
@@ -1254,7 +1311,6 @@ describe('datastore roadmap catalog', () => {
       'cosmosdb',
       'litedb',
       'memcached',
-      'duckdb',
       'clickhouse',
       'snowflake',
       'bigquery',

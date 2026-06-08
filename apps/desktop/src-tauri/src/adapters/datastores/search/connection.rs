@@ -79,11 +79,21 @@ async fn search_request(
     path_and_query: &str,
     body: Option<&str>,
 ) -> Result<SearchResponse, CommandError> {
+    if let Some(reason) = search_live_disabled_reason(connection) {
+        return Err(CommandError::new("search-live-runtime-disabled", reason));
+    }
+
     let endpoint = SearchEndpoint::from_connection(connection)?;
     let path = endpoint.path(path_and_query);
     let has_body = body.is_some();
     let body = body.unwrap_or("");
-    let auth_header = match (&connection.username, &connection.password) {
+    let username = connection.username.as_ref().or_else(|| {
+        connection
+            .search_options
+            .as_ref()
+            .and_then(|options| options.username.as_ref())
+    });
+    let auth_header = match (username, &connection.password) {
         (Some(username), Some(password)) => {
             let encoded = base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
@@ -130,6 +140,100 @@ async fn search_request(
                 .filter(|line| !line.trim().is_empty())
                 .unwrap_or("Search HTTP request failed."),
         ))
+    }
+}
+
+fn search_live_disabled_reason(connection: &ResolvedConnectionProfile) -> Option<String> {
+    let options = connection.search_options.as_ref();
+    let connect_mode = options
+        .and_then(|options| options.connect_mode.as_deref())
+        .map(normalized_search_option);
+
+    match connect_mode.as_deref() {
+        Some("elastic-cloud") => {
+            return Some("Elastic Cloud search profiles are contract-planned; live execution waits for cloud-id resolution, HTTPS transport, and scoped credential validation.".into())
+        }
+        Some("opensearch-managed") => {
+            return Some("Managed OpenSearch profiles are contract-planned; live execution waits for provider endpoint, TLS, and credential validation.".into())
+        }
+        Some("aws-sigv4") => {
+            return Some("AWS SigV4 search profiles are contract-planned; live execution waits for request signing, region/service validation, and credential resolution.".into())
+        }
+        _ => {}
+    }
+
+    if options
+        .and_then(|options| options.cloud_id.as_deref())
+        .is_some_and(has_search_text)
+    {
+        return Some("Search cloud ids are stored for profile fidelity, but live cloud-id resolution and HTTPS execution are not enabled yet.".into());
+    }
+
+    let auth_mode = options
+        .and_then(|options| options.auth_mode.as_deref())
+        .map(normalized_search_option);
+
+    if let Some(auth_mode) = auth_mode.as_deref() {
+        if !matches!(auth_mode, "" | "none" | "basic") {
+            return Some(format!(
+                "{} search auth is contract-planned; the live runtime currently executes only none/basic auth over plain HTTP.",
+                search_auth_mode_label(auth_mode)
+            ));
+        }
+    }
+
+    if options.and_then(|options| options.use_tls).unwrap_or(false) {
+        return Some("Search TLS profiles are contract-planned; the current live runtime executes plain HTTP endpoints only.".into());
+    }
+
+    if options.is_some_and(|options| {
+        has_search_text_option(options.ca_certificate_path.as_deref())
+            || has_search_text_option(options.client_certificate_path.as_deref())
+            || has_search_text_option(options.client_key_path.as_deref())
+    }) {
+        return Some("Search certificate material is stored for profile fidelity, but live TLS/client-certificate execution is not enabled yet.".into());
+    }
+
+    let endpoint = options
+        .and_then(|options| options.endpoint_url.as_deref())
+        .filter(|value| has_search_text(value))
+        .or(connection.connection_string.as_deref())
+        .filter(|value| has_search_text(value))
+        .or(Some(connection.host.as_str()));
+    if endpoint
+        .map(|value| {
+            value
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("https://")
+        })
+        .unwrap_or(false)
+    {
+        return Some("Search HTTPS endpoints are contract-planned; the current live runtime executes plain HTTP endpoints only.".into());
+    }
+
+    None
+}
+
+fn normalized_search_option(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+fn has_search_text(value: &str) -> bool {
+    !value.trim().is_empty()
+}
+
+fn has_search_text_option(value: Option<&str>) -> bool {
+    value.is_some_and(has_search_text)
+}
+
+fn search_auth_mode_label(auth_mode: &str) -> &'static str {
+    match auth_mode {
+        "api-key" => "API key",
+        "bearer-token" => "Bearer token",
+        "service-token" => "Service token",
+        "aws-sigv4" => "AWS SigV4",
+        _ => "Unsupported",
     }
 }
 
@@ -260,7 +364,7 @@ fn search_path_prefix(connection: &ResolvedConnectionProfile) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::SearchEndpoint;
+    use super::{search_live_disabled_reason, SearchEndpoint};
     use crate::domain::models::{ResolvedConnectionProfile, SearchConnectionOptions};
 
     #[test]
@@ -273,7 +377,81 @@ mod tests {
 
     #[test]
     fn search_endpoint_prefers_typed_endpoint_and_path_prefix() {
-        let connection = ResolvedConnectionProfile {
+        let connection = search_connection(Some(SearchConnectionOptions {
+            endpoint_url: Some("http://localhost:19200/reverse".into()),
+            path_prefix: Some("/elastic".into()),
+            ..SearchConnectionOptions::default()
+        }));
+
+        let endpoint = SearchEndpoint::from_connection(&connection).unwrap();
+
+        assert_eq!(endpoint.host, "localhost");
+        assert_eq!(endpoint.port, 19200);
+        assert_eq!(
+            endpoint.path("/_cluster/health"),
+            "/elastic/_cluster/health"
+        );
+    }
+
+    #[test]
+    fn search_live_disabled_reasons_cover_cloud_token_tls_and_https() {
+        let elastic_cloud = search_connection(Some(SearchConnectionOptions {
+            connect_mode: Some("elastic-cloud".into()),
+            cloud_id: Some("deployment:encoded".into()),
+            ..SearchConnectionOptions::default()
+        }));
+        assert!(search_live_disabled_reason(&elastic_cloud)
+            .unwrap()
+            .contains("Elastic Cloud"));
+
+        let api_key = search_connection(Some(SearchConnectionOptions {
+            auth_mode: Some("api-key".into()),
+            endpoint_url: Some("http://localhost:9200".into()),
+            ..SearchConnectionOptions::default()
+        }));
+        assert!(search_live_disabled_reason(&api_key)
+            .unwrap()
+            .contains("API key"));
+
+        let sigv4 = search_connection(Some(SearchConnectionOptions {
+            connect_mode: Some("aws-sigv4".into()),
+            auth_mode: Some("aws-sigv4".into()),
+            endpoint_url: Some("https://search.us-east-1.es.amazonaws.com".into()),
+            ..SearchConnectionOptions::default()
+        }));
+        assert!(search_live_disabled_reason(&sigv4)
+            .unwrap()
+            .contains("AWS SigV4"));
+
+        let tls = search_connection(Some(SearchConnectionOptions {
+            use_tls: Some(true),
+            ca_certificate_path: Some("/certs/ca.pem".into()),
+            ..SearchConnectionOptions::default()
+        }));
+        assert!(search_live_disabled_reason(&tls).unwrap().contains("TLS"));
+
+        let https = ResolvedConnectionProfile {
+            connection_string: Some("https://search.example.com".into()),
+            ..search_connection(None)
+        };
+        assert!(search_live_disabled_reason(&https)
+            .unwrap()
+            .contains("HTTPS"));
+
+        assert!(
+            search_live_disabled_reason(&search_connection(Some(SearchConnectionOptions {
+                auth_mode: Some("basic".into()),
+                endpoint_url: Some("http://localhost:9200".into()),
+                ..SearchConnectionOptions::default()
+            })))
+            .is_none()
+        );
+    }
+
+    fn search_connection(
+        search_options: Option<SearchConnectionOptions>,
+    ) -> ResolvedConnectionProfile {
+        ResolvedConnectionProfile {
             id: "conn-search".into(),
             name: "Search".into(),
             engine: "elasticsearch".into(),
@@ -294,24 +472,11 @@ mod tests {
             dynamo_db_options: None,
             cassandra_options: None,
             cosmos_db_options: None,
-            search_options: Some(SearchConnectionOptions {
-                endpoint_url: Some("http://localhost:19200/reverse".into()),
-                path_prefix: Some("/elastic".into()),
-                ..SearchConnectionOptions::default()
-            }),
+            search_options,
             time_series_options: None,
             graph_options: None,
             warehouse_options: None,
             read_only: true,
-        };
-
-        let endpoint = SearchEndpoint::from_connection(&connection).unwrap();
-
-        assert_eq!(endpoint.host, "localhost");
-        assert_eq!(endpoint.port, 19200);
-        assert_eq!(
-            endpoint.path("/_cluster/health"),
-            "/elastic/_cluster/health"
-        );
+        }
     }
 }

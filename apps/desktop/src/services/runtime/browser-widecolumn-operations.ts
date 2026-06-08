@@ -1,5 +1,6 @@
 import type { ConnectionProfile, OperationPlanRequest } from '@datapadplusplus/shared-types'
 import { defaultQueryTextForConnection } from '../../app/state/helpers'
+import { dynamoAuthEvidence, dynamoCloudDisabledReasons } from './browser-dynamodb-operation-auth'
 
 type JsonRecord = Record<string, unknown>
 
@@ -26,6 +27,7 @@ function dynamoOperationRequest(connection: ConnectionProfile, request: Operatio
   if (request.operationId.endsWith('diagnostics.metrics')) {
     return dynamoJson({
       operation: 'CloudWatch.GetMetricData',
+      namespace: 'AWS/DynamoDB',
       region: parameters.region ?? connection.database ?? 'local',
       tableName,
       metrics: [
@@ -37,6 +39,16 @@ function dynamoOperationRequest(connection: ConnectionProfile, request: Operatio
       ],
       period: '5m',
       scope: parameters.objectKind ?? 'table',
+      authEvidence: dynamoAuthEvidence(connection),
+      requests: [
+        { operation: 'DynamoDB.ListTables' },
+        { operation: 'DynamoDB.DescribeLimits' },
+        { operation: 'DynamoDB.DescribeTable', tableName },
+        { operation: 'DynamoDB.DescribeTimeToLive', tableName },
+        { operation: 'DynamoDB.DescribeContinuousBackups', tableName },
+        { operation: 'CloudWatch.GetMetricData', namespace: 'AWS/DynamoDB' },
+      ],
+      disabledReasons: dynamoCloudDisabledReasons(connection),
     })
   }
 
@@ -45,6 +57,8 @@ function dynamoOperationRequest(connection: ConnectionProfile, request: Operatio
       operation: 'IAM.SimulatePrincipalPolicy',
       tableName,
       resourceArn: `arn:aws:dynamodb:<region>:<account>:table/${tableName}`,
+      authEvidence: dynamoAuthEvidence(connection),
+      evaluation: 'plan-only-with-disabled-reason',
       actions: [
         'dynamodb:DescribeTable',
         'dynamodb:Query',
@@ -53,6 +67,7 @@ function dynamoOperationRequest(connection: ConnectionProfile, request: Operatio
         'dynamodb:UpdateItem',
         'dynamodb:DeleteItem',
       ],
+      disabledReasons: dynamoCloudDisabledReasons(connection),
     })
   }
 
@@ -93,6 +108,7 @@ function dynamoOperationRequest(connection: ConnectionProfile, request: Operatio
         writeCapacityUnits: numberValue(parameters.writeCapacityUnits) || 50,
       },
       preflight: ['DescribeTable', 'CheckAutoScalingPolicies', 'EstimateCost'],
+      authEvidence: dynamoAuthEvidence(connection),
     })
   }
 
@@ -125,6 +141,8 @@ function dynamoOperationRequest(connection: ConnectionProfile, request: Operatio
       tableName,
       backupName: stringValue(parameters.backupName) || `${tableName}-manual`,
       preflight: ['DescribeTable', 'ListBackups'],
+      authEvidence: dynamoAuthEvidence(connection),
+      disabledReasons: dynamoCloudDisabledReasons(connection),
     })
   }
 
@@ -134,6 +152,8 @@ function dynamoOperationRequest(connection: ConnectionProfile, request: Operatio
       sourceBackupArn: parameters.sourceBackupArn ?? '<selected-backup-arn>',
       targetTableName: stringValue(parameters.targetTableName) || `${tableName}-restore`,
       validation: 'restore-preview',
+      authEvidence: dynamoAuthEvidence(connection),
+      disabledReasons: dynamoCloudDisabledReasons(connection),
     })
   }
 
@@ -146,6 +166,8 @@ function dynamoOperationRequest(connection: ConnectionProfile, request: Operatio
       s3Bucket: parameters.s3Bucket ?? '<selected-bucket>',
       s3Prefix: parameters.s3Prefix ?? tableName,
       validation: mode === 'import' ? 'validate-before-write' : 'point-in-time-export',
+      authEvidence: dynamoAuthEvidence(connection),
+      disabledReasons: dynamoCloudDisabledReasons(connection),
     })
   }
 
@@ -154,6 +176,8 @@ function dynamoOperationRequest(connection: ConnectionProfile, request: Operatio
       operation: 'DynamoDB.DeleteTable',
       tableName,
       preflight: ['DescribeTable', 'ListBackups', 'CheckDeletionProtection'],
+      authEvidence: dynamoAuthEvidence(connection),
+      disabledReasons: dynamoCloudDisabledReasons(connection),
     })
   }
 

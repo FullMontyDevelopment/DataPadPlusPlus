@@ -492,6 +492,7 @@ describe('QueryBuilderPanel', () => {
 
     dropField(section('Aggregations'), 'status.keyword')
     expect(screen.getByLabelText('Aggregation field')).toHaveValue('status.keyword')
+    expect(screen.getByLabelText('Aggregation type')).toHaveValue('terms')
     expect(onBuilderStateChange).toHaveBeenCalled()
   })
 

@@ -95,6 +95,7 @@ export function planOperationLocally(
     request.operationId.includes('.freeze') ||
     request.operationId.includes('.suspend') ||
     request.operationId.includes('.resume') ||
+    request.operationId.includes('.job-control') ||
     request.operationId.includes('.repair') ||
     request.operationId.includes('.analyze') ||
     request.operationId.includes('compression-policy') ||

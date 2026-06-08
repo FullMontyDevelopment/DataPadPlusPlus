@@ -773,93 +773,225 @@ fn litedb_operation_request(
     }
 
     if operation_id.ends_with("storage.checkpoint") {
-        return serde_json::to_string_pretty(&serde_json::json!({
-            "operation": "LiteDB.Checkpoint",
-            "databaseFile": database_file,
-            "preflight": ["verify-file-lock", "flush-dirty-pages"],
-            "effect": "persist pending pages without changing collection data"
-        }))
-        .unwrap_or_else(|_| "{}".into());
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": "LiteDB.Checkpoint",
+                "databaseFile": database_file.clone(),
+                "preflight": ["verify-file-lock", "flush-dirty-pages"],
+                "effect": "persist pending pages without changing collection data"
+            }),
+            &database_file,
+            "storage-checkpoint",
+            true,
+        );
     }
 
     if operation_id.ends_with("storage.compact") {
         let output_file = string_parameter(parameters, "outputFile")
             .unwrap_or_else(|| "<selected-folder>/compacted.db".into());
-        return serde_json::to_string_pretty(&serde_json::json!({
-            "operation": "LiteDB.Compact",
-            "databaseFile": database_file,
-            "outputFile": output_file,
-            "preflight": ["checkpoint", "verify-exclusive-or-online-copy-support", "preserve-encryption-settings"],
-            "validation": ["open-compacted-copy", "compare-collection-counts", "compare-index-counts"]
-        }))
-        .unwrap_or_else(|_| "{}".into());
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": "LiteDB.Compact",
+                "databaseFile": database_file.clone(),
+                "outputFile": output_file,
+                "preflight": ["checkpoint", "verify-exclusive-or-online-copy-support", "preserve-encryption-settings"],
+                "validation": ["open-compacted-copy", "compare-collection-counts", "compare-index-counts"]
+            }),
+            &database_file,
+            "storage-compact",
+            true,
+        );
     }
 
     if operation_id.ends_with("storage.rebuild-indexes") {
-        return serde_json::to_string_pretty(&serde_json::json!({
-            "operation": "LiteDB.RebuildIndexes",
-            "databaseFile": database_file,
-            "collection": collection,
-            "preflight": ["checkpoint", "verify-file-lock", "list-indexes"],
-            "validation": ["compare-index-counts", "sample-indexed-queries"]
-        }))
-        .unwrap_or_else(|_| "{}".into());
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": "LiteDB.RebuildIndexes",
+                "databaseFile": database_file.clone(),
+                "collection": collection.clone(),
+                "preflight": ["checkpoint", "verify-file-lock", "list-indexes"],
+                "validation": ["compare-index-counts", "sample-indexed-queries"]
+            }),
+            &database_file,
+            "storage-rebuild-indexes",
+            true,
+        );
     }
 
     if operation_id.ends_with("index.create") {
-        return format!(
-            "db.GetCollection(\"{}\").EnsureIndex(\"{}\", \"{}\", {unique});",
-            escape_double_quoted(&collection),
-            escape_double_quoted(&index_name),
-            escape_double_quoted(&field)
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": "LiteDB.EnsureIndex",
+                "databaseFile": database_file.clone(),
+                "collection": collection.clone(),
+                "indexName": index_name.clone(),
+                "field": field.clone(),
+                "unique": unique,
+                "statement": format!(
+                    "db.GetCollection(\"{}\").EnsureIndex(\"{}\", \"{}\", {unique});",
+                    escape_double_quoted(&collection),
+                    escape_double_quoted(&index_name),
+                    escape_double_quoted(&field)
+                )
+            }),
+            &database_file,
+            "index-create",
+            true,
         );
     }
 
     if operation_id.ends_with("index.drop") {
-        return format!(
-            "db.GetCollection(\"{}\").DropIndex(\"{}\");",
-            escape_double_quoted(&collection),
-            escape_double_quoted(&index_name)
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": "LiteDB.DropIndex",
+                "databaseFile": database_file.clone(),
+                "collection": collection.clone(),
+                "indexName": index_name.clone(),
+                "statement": format!(
+                    "db.GetCollection(\"{}\").DropIndex(\"{}\");",
+                    escape_double_quoted(&collection),
+                    escape_double_quoted(&index_name)
+                )
+            }),
+            &database_file,
+            "index-drop",
+            true,
         );
     }
 
     if operation_id.ends_with("data.import-export") {
         let mode = string_parameter(parameters, "mode").unwrap_or_else(|| "export".into());
         let format = string_parameter(parameters, "format").unwrap_or_else(|| "json".into());
-        return serde_json::to_string_pretty(&serde_json::json!({
-            "operation": if mode == "import" { "LiteDB.ImportCollection" } else { "LiteDB.ExportCollection" },
-            "databaseFile": database_file,
-            "collection": collection,
-            "format": format,
-            "file": if format == "ndjson" { "<selected-file>.ndjson" } else { "<selected-file>.json" },
-            "validation": if mode == "import" { "parse-bson-and-validate-indexes" } else { "stream-with-bounded-memory" }
-        }))
-        .unwrap_or_else(|_| "{}".into());
-    }
-
-    if operation_id.ends_with("data.backup-restore") {
-        return serde_json::to_string_pretty(&serde_json::json!({
-            "operation": "LiteDB.Backup",
-            "databaseFile": database_file,
-            "outputFile": "<selected-folder>/backup.db",
-            "preflight": ["checkpoint", "verify-file-lock", "preserve-encryption-settings"]
-        }))
-        .unwrap_or_else(|_| "{}".into());
-    }
-
-    if operation_id.ends_with("object.drop") {
-        return format!(
-            "-- Review before running.\ndb.DropCollection(\"{}\");",
-            escape_double_quoted(&collection)
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": if mode == "import" { "LiteDB.ImportCollection" } else { "LiteDB.ExportCollection" },
+                "databaseFile": database_file.clone(),
+                "collection": collection.clone(),
+                "format": format.clone(),
+                "file": if format == "ndjson" { "<selected-file>.ndjson" } else { "<selected-file>.json" },
+                "validation": if mode == "import" { "parse-bson-and-validate-indexes" } else { "stream-with-bounded-memory" }
+            }),
+            &database_file,
+            &format!("data-{mode}"),
+            mode == "import",
         );
     }
 
-    serde_json::to_string_pretty(&serde_json::json!({
-        "operation": operation_id,
+    if operation_id.ends_with("data.backup-restore") {
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": "LiteDB.Backup",
+                "databaseFile": database_file.clone(),
+                "outputFile": "<selected-folder>/backup.db",
+                "preflight": ["checkpoint", "verify-file-lock", "preserve-encryption-settings"]
+            }),
+            &database_file,
+            "data-backup",
+            false,
+        );
+    }
+
+    if operation_id.ends_with("object.drop") {
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": "LiteDB.DropCollection",
+                "databaseFile": database_file.clone(),
+                "collection": collection.clone(),
+                "statement": format!(
+                    "db.DropCollection(\"{}\");",
+                    escape_double_quoted(&collection)
+                )
+            }),
+            &database_file,
+            "object-drop",
+            true,
+        );
+    }
+
+    litedb_operation_plan(
+        serde_json::json!({
+            "operation": operation_id,
+            "databaseFile": database_file.clone(),
+            "collection": collection.clone()
+        }),
+        &database_file,
+        "operation-preview",
+        false,
+    )
+}
+
+fn litedb_operation_plan(
+    mut plan: Value,
+    database_file: &str,
+    intent: &str,
+    write_intent: bool,
+) -> String {
+    let preflight = litedb_local_file_preflight_plan(database_file, intent, write_intent);
+    if let Some(object) = plan.as_object_mut() {
+        object.insert("localFilePreflight".into(), preflight.clone());
+        object.insert(
+            "sidecarExecutionBoundary".into(),
+            preflight["sidecarExecutionBoundary"].clone(),
+        );
+    }
+    serde_json::to_string_pretty(&plan).unwrap_or_else(|_| "{}".into())
+}
+
+fn litedb_local_file_preflight_plan(
+    database_file: &str,
+    intent: &str,
+    write_intent: bool,
+) -> Value {
+    serde_json::json!({
         "databaseFile": database_file,
-        "collection": collection
-    }))
-    .unwrap_or_else(|_| "{}".into())
+        "intent": intent,
+        "pathResolution": {
+            "source": "operation-parameters",
+            "normalizedPath": database_file,
+            "requiresConcreteLocalPathBeforeExecution": true
+        },
+        "probes": ["filesystem-read-open", "filesystem-write-open-if-writable"],
+        "encryptionBoundary": {
+            "passwordSource": "connection-profile-secret",
+            "status": "sidecar-required",
+            "requiredForEncryptedFiles": [
+                "redacted password resolution",
+                "sidecar LiteDB open probe",
+                "request validation against the encrypted file"
+            ]
+        },
+        "lockBoundary": {
+            "scope": "local-file-preflight",
+            "writeIntent": write_intent,
+            "crossProcessContentionValidated": false,
+            "exclusiveWriterLockValidated": false,
+            "sidecarLockProbe": "required-before-live-execution",
+            "residualRisks": [
+                "Plain filesystem probes do not prove LiteDB engine shared/exclusive lock behavior.",
+                "External-process contention and dirty-page checkpoint state require the .NET sidecar."
+            ]
+        },
+        "sidecarExecutionBoundary": {
+            "runtime": "dotnet-litedb-sidecar",
+            "status": "plan-only-until-sidecar",
+            "intent": intent,
+            "writeIntent": write_intent,
+            "requestShapeValidated": true,
+            "liveExecutionValidated": false,
+            "blockedReasons": [
+                "sidecar-dispatch-not-implemented",
+                if write_intent { "exclusive-writer-lock-not-validated" } else { "litedb-engine-open-probe-not-validated" },
+                "encrypted-file-open-not-validated"
+            ],
+            "promotionRequirements": [
+                "bundled or configured LiteDB sidecar executable",
+                "sidecar read/open probe with bounded response",
+                "exclusive writer-lock evidence for mutations and maintenance",
+                "encrypted-file open failure/success evidence without leaking secrets",
+                "before/after validation for document edits and file workflows"
+            ]
+        }
+    })
 }
 
 fn memcached_operation_request(
@@ -1327,6 +1459,32 @@ fn search_operation_request(
         .unwrap_or_else(|_| "{}".into());
     }
 
+    if operation_id.ends_with("diagnostics.slow-log") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "operation": "Search.SlowLogDashboardPlan",
+            "requests": [
+                { "method": "GET", "path": "/_settings?filter_path=**.search.slowlog*" },
+                { "method": "GET", "path": "/_nodes/stats/indices/search,indexing" },
+                { "method": "GET", "path": format!("/{object_path}/_stats/search,indexing") }
+            ],
+            "executionGate": search_execution_gate("diagnostics.slow-log")
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("diagnostics.allocation") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "operation": "Search.AllocationExplainPlan",
+            "requests": [
+                { "method": "GET", "path": "/_cluster/allocation/explain" },
+                { "method": "GET", "path": "/_cat/shards?format=json&bytes=b" },
+                { "method": "GET", "path": "/_cluster/health?level=shards" }
+            ],
+            "executionGate": search_execution_gate("diagnostics.allocation")
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
     if operation_id.ends_with("data.import-export") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "method": "POST",
@@ -1339,7 +1497,8 @@ fn search_operation_request(
                 "size": 1000,
                 "sort": ["_doc"],
                 "format": string_parameter(parameters, "format").unwrap_or_else(|| "ndjson".into())
-            }
+            },
+            "executionGate": search_execution_gate("import-export")
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -1359,7 +1518,8 @@ fn search_operation_request(
             "body": {
                 "indices": object_name,
                 "include_global_state": bool_parameter(parameters, "includeGlobalState").unwrap_or(false)
-            }
+            },
+            "executionGate": search_execution_gate("snapshot")
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -1367,6 +1527,19 @@ fn search_operation_request(
     format!(
         "{{\n  \"index\": \"{object_name}\",\n  \"body\": {{\n    \"query\": {{ \"match_all\": {{}} }},\n    \"size\": 100\n  }},\n  \"operation\": \"{operation_id}\",\n  \"parameters\": {parameter_json}\n}}"
     )
+}
+
+fn search_execution_gate(boundary: &str) -> Value {
+    serde_json::json!({
+        "defaultSupport": "plan-only",
+        "evidence": "plan-only",
+        "boundary": boundary,
+        "runtimeEvidence": "contract",
+        "disabledReasons": [
+            "Search admin/import/export execution remains preview-first until permission, shard-impact, snapshot repository, and rollback boundaries are live-validated.",
+            "Live search runtime currently supports plain HTTP endpoints with none/basic auth; HTTPS, cloud, token, API-key, and SigV4 profiles stay plan-only unless separately validated."
+        ]
+    })
 }
 
 fn search_template_path(
@@ -2290,6 +2463,7 @@ fn dynamodb_operation_request(
     if operation_id.ends_with("diagnostics.metrics") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "operation": "CloudWatch.GetMetricData",
+            "namespace": "AWS/DynamoDB",
             "region": region,
             "tableName": table_name,
             "metrics": [
@@ -2299,7 +2473,17 @@ fn dynamodb_operation_request(
                 "WriteThrottleEvents",
                 "SuccessfulRequestLatency"
             ],
-            "period": "5m"
+            "period": "5m",
+            "authEvidence": dynamodb_contract_auth_evidence(region),
+            "requests": [
+                { "operation": "DynamoDB.ListTables" },
+                { "operation": "DynamoDB.DescribeLimits" },
+                { "operation": "DynamoDB.DescribeTable", "tableName": table_name },
+                { "operation": "DynamoDB.DescribeTimeToLive", "tableName": table_name },
+                { "operation": "DynamoDB.DescribeContinuousBackups", "tableName": table_name },
+                { "operation": "CloudWatch.GetMetricData", "namespace": "AWS/DynamoDB" }
+            ],
+            "disabledReasons": dynamodb_cloud_disabled_reasons()
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -2309,6 +2493,8 @@ fn dynamodb_operation_request(
             "operation": "IAM.SimulatePrincipalPolicy",
             "tableName": table_name,
             "resourceArn": format!("arn:aws:dynamodb:<region>:<account>:table/{table_name}"),
+            "authEvidence": dynamodb_contract_auth_evidence(region),
+            "evaluation": "plan-only-with-disabled-reason",
             "actions": [
                 "dynamodb:DescribeTable",
                 "dynamodb:Query",
@@ -2316,7 +2502,8 @@ fn dynamodb_operation_request(
                 "dynamodb:PutItem",
                 "dynamodb:UpdateItem",
                 "dynamodb:DeleteItem"
-            ]
+            ],
+            "disabledReasons": dynamodb_cloud_disabled_reasons()
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -2384,7 +2571,8 @@ fn dynamodb_operation_request(
                     .and_then(Value::as_u64)
                     .unwrap_or(50)
             },
-            "preflight": ["DescribeTable", "CheckAutoScalingPolicies", "EstimateCost"]
+            "preflight": ["DescribeTable", "CheckAutoScalingPolicies", "EstimateCost"],
+            "authEvidence": dynamodb_contract_auth_evidence(region)
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -2429,7 +2617,9 @@ fn dynamodb_operation_request(
             "backupName": parameter("backupName")
                 .and_then(Value::as_str)
                 .unwrap_or("manual-backup"),
-            "preflight": ["DescribeTable", "ListBackups"]
+            "preflight": ["DescribeTable", "ListBackups"],
+            "authEvidence": dynamodb_contract_auth_evidence(region),
+            "disabledReasons": dynamodb_cloud_disabled_reasons()
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -2443,7 +2633,9 @@ fn dynamodb_operation_request(
             "targetTableName": parameter("targetTableName")
                 .and_then(Value::as_str)
                 .unwrap_or("<restored-table>"),
-            "validation": "restore-preview"
+            "validation": "restore-preview",
+            "authEvidence": dynamodb_contract_auth_evidence(region),
+            "disabledReasons": dynamodb_cloud_disabled_reasons()
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -2464,7 +2656,9 @@ fn dynamodb_operation_request(
             "s3Prefix": parameter("s3Prefix")
                 .and_then(Value::as_str)
                 .unwrap_or(table_name),
-            "validation": if mode == "import" { "validate-before-write" } else { "point-in-time-export" }
+            "validation": if mode == "import" { "validate-before-write" } else { "point-in-time-export" },
+            "authEvidence": dynamodb_contract_auth_evidence(region),
+            "disabledReasons": dynamodb_cloud_disabled_reasons()
         }))
         .unwrap_or_else(|_| "{}".into());
     }
@@ -2473,12 +2667,43 @@ fn dynamodb_operation_request(
         return serde_json::to_string_pretty(&serde_json::json!({
             "operation": "DynamoDB.DeleteTable",
             "tableName": table_name,
-            "preflight": ["DescribeTable", "ListBackups", "CheckDeletionProtection"]
+            "preflight": ["DescribeTable", "ListBackups", "CheckDeletionProtection"],
+            "authEvidence": dynamodb_contract_auth_evidence(region),
+            "disabledReasons": dynamodb_cloud_disabled_reasons()
         }))
         .unwrap_or_else(|_| "{}".into());
     }
 
     format!("{{\n  \"TableName\": \"{table_name}\",\n  \"Limit\": 100,\n  \"Operation\": \"{operation_id}\"\n}}")
+}
+
+fn dynamodb_contract_auth_evidence(region: &str) -> Value {
+    let signing_region = if region.trim().is_empty() || region == "local" {
+        "us-east-1"
+    } else {
+        region
+    };
+
+    serde_json::json!({
+        "scheme": "AWS4-HMAC-SHA256",
+        "service": "dynamodb",
+        "connectMode": "connection-profile",
+        "credentialsProvider": "connection-profile",
+        "signingRegion": signing_region,
+        "endpointMode": "local-http-or-aws-cloud-contract",
+        "signedJsonHttp": true,
+        "liveCloudRuntime": false,
+        "signedHeaders": ["content-type", "host", "x-amz-date", "x-amz-target"],
+        "credentialScope": format!("20260101/{signing_region}/dynamodb/aws4_request"),
+        "credentialMaterial": "Secret values stay in the desktop secret/profile resolver."
+    })
+}
+
+fn dynamodb_cloud_disabled_reasons() -> Vec<&'static str> {
+    vec![
+        "AWS profile, STS AssumeRole, web identity, ECS task, EC2 metadata, and static secret-key resolution are contract-mode in default CI.",
+        "CloudWatch account/table metrics, IAM policy simulation, S3 export/import, and cloud backup validation stay preview-first without optional AWS credentials.",
+    ]
 }
 
 fn cassandra_operation_request(
@@ -2806,27 +3031,79 @@ fn duckdb_operation_request(
     parameters: Option<&BTreeMap<String, Value>>,
 ) -> String {
     if operation_id.ends_with("table.analyze") {
-        return format!("analyze {object_name};");
+        return duckdb_admin_operation_request(
+            "duckdb.table.analyze-preview",
+            "analyze-table",
+            "table",
+            object_name,
+            &format!("analyze {object_name};"),
+            false,
+            true,
+        );
     }
 
     if operation_id.ends_with("database.analyze") {
-        return "analyze;".into();
+        return duckdb_admin_operation_request(
+            "duckdb.database.analyze-preview",
+            "analyze-database",
+            "database",
+            "database",
+            "analyze;",
+            false,
+            true,
+        );
     }
 
     if operation_id.ends_with("database.checkpoint") {
-        return "checkpoint;".into();
+        return duckdb_admin_operation_request(
+            "duckdb.database.checkpoint-preview",
+            "checkpoint",
+            "database",
+            "database",
+            "checkpoint;",
+            false,
+            true,
+        );
+    }
+
+    if operation_id.ends_with("object.create") {
+        let statement = format!(
+            "create table {object_name} (\n  id text primary key,\n  created_at timestamp default current_timestamp\n);"
+        );
+        return duckdb_admin_operation_request(
+            "duckdb.object.create-preview",
+            "create-object",
+            "schema",
+            object_name,
+            &statement,
+            true,
+            true,
+        );
+    }
+
+    if operation_id.ends_with("object.drop") {
+        let statement = format!("drop table {object_name};");
+        return duckdb_admin_operation_request(
+            "duckdb.object.drop-preview",
+            "drop-object",
+            "schema",
+            object_name,
+            &statement,
+            true,
+            true,
+        );
     }
 
     if operation_id.ends_with("extension.install") {
         let extension = string_parameter(parameters, "extensionName")
             .unwrap_or_else(|| safe_duckdb_extension_name(object_name));
-        return format!("install {};", safe_duckdb_extension_name(&extension));
+        return duckdb_extension_operation_request("install", &extension);
     }
 
     if operation_id.ends_with("extension.load") {
         let extension = string_parameter(parameters, "extensionName")
             .unwrap_or_else(|| safe_duckdb_extension_name(object_name));
-        return format!("load {};", safe_duckdb_extension_name(&extension));
+        return duckdb_extension_operation_request("load", &extension);
     }
 
     if operation_id.ends_with("file.import") {
@@ -2838,26 +3115,11 @@ fn duckdb_operation_request(
     }
 
     if operation_id.ends_with("data.import-export") || operation_id.contains("import-export") {
-        let mode = string_parameter(parameters, "mode").unwrap_or_else(|| "export".into());
-        if mode == "import" {
-            let format = string_parameter(parameters, "sourceFormat")
-                .or_else(|| string_parameter(parameters, "format"))
-                .unwrap_or_else(|| "parquet".into());
-            return duckdb_import_file_request(object_name, &format);
-        }
-        let format = string_parameter(parameters, "format").unwrap_or_else(|| "parquet".into());
-        let extension = if format == "parquet" {
-            "parquet"
-        } else {
-            "csv"
-        };
-        return format!(
-            "copy (select * from {object_name}) to '<selected-file>.{extension}' (format {format});"
-        );
+        return duckdb_import_export_request(object_name, parameters);
     }
 
     if operation_id.ends_with("data.backup-restore") || operation_id.contains("backup-restore") {
-        return "export database '<selected-folder>' (format parquet);".into();
+        return duckdb_backup_restore_request(parameters);
     }
 
     match operation_id.rsplit('.').next().unwrap_or(operation_id) {
@@ -2865,8 +3127,26 @@ fn duckdb_operation_request(
         "execute" => format!("select * from {object_name} limit 100;"),
         "explain" => format!("explain select * from {object_name} limit 100;"),
         "profile" => format!("explain analyze select * from {object_name} limit 100;"),
-        "create" => format!("create table {object_name} (\n  id text primary key,\n  created_at timestamp default current_timestamp\n);"),
-        "drop" => format!("-- Review before running.\ndrop table {object_name};"),
+        "create" => duckdb_admin_operation_request(
+            "duckdb.object.create-preview",
+            "create-object",
+            "schema",
+            object_name,
+            &format!(
+                "create table {object_name} (\n  id text primary key,\n  created_at timestamp default current_timestamp\n);"
+            ),
+            true,
+            true,
+        ),
+        "drop" => duckdb_admin_operation_request(
+            "duckdb.object.drop-preview",
+            "drop-object",
+            "schema",
+            object_name,
+            &format!("drop table {object_name};"),
+            true,
+            true,
+        ),
         "inspect" => "select * from duckdb_extensions();\npragma database_list;\nselect name, value from duckdb_settings();".into(),
         "metrics" => "select version();\nselect name, value from duckdb_settings() where name in ('memory_limit', 'threads');".into(),
         _ => format!("-- DuckDB {operation_id}\n-- object: {object_name}"),
@@ -2881,6 +3161,574 @@ fn duckdb_import_file_request(object_name: &str, format: &str) -> String {
     };
 
     format!("create or replace table {object_name} as\nselect * from {reader};")
+}
+
+fn duckdb_import_export_request(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> String {
+    let mode = string_parameter(parameters, "mode")
+        .unwrap_or_else(|| "export".into())
+        .to_ascii_lowercase();
+    let import_like = matches!(
+        mode.as_str(),
+        "import" | "append" | "insert" | "replace" | "create" | "validate" | "validate-only"
+    );
+    let format = if import_like {
+        string_parameter(parameters, "sourceFormat")
+            .or_else(|| string_parameter(parameters, "format"))
+            .unwrap_or_else(|| "csv".into())
+            .to_ascii_lowercase()
+    } else {
+        string_parameter(parameters, "format")
+            .unwrap_or_else(|| "csv".into())
+            .to_ascii_lowercase()
+    };
+    let (schema, table) = duckdb_plan_table_parts(object_name, parameters);
+    let row_limit = numeric_parameter(parameters, "rowLimit")
+        .or_else(|| numeric_parameter(parameters, "limit"))
+        .unwrap_or(10_000);
+
+    if import_like {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": "duckdb.table.import",
+            "mode": mode,
+            "schema": schema,
+            "table": table,
+            "format": format,
+            "source": {
+                "path": string_parameter(parameters, "sourcePath")
+                    .or_else(|| string_parameter(parameters, "inputPath"))
+                    .unwrap_or_else(|| format!("<selected-file>.{}", duckdb_file_extension(&format)))
+            },
+            "rowLimit": row_limit,
+            "databaseLockBoundary": duckdb_database_lock_boundary_contract(
+                "duckdb.table.import",
+                !matches!(mode.as_str(), "validate" | "validate-only")
+            ),
+            "formatPreflight": duckdb_format_preflight_contract(&format, "import"),
+            "executionGate": {
+                "owner": "duckdb-adapter",
+                "defaultSupport": "live",
+                "requiresConfirmation": true,
+                "guards": [
+                    "desktop adapter execution only",
+                    "absolute source path",
+                    "CSV/JSON/Parquet format allowlist",
+                    "bounded row import",
+                    "read-only connection blocked",
+                    "database file access/read-only preflight",
+                    "format capability preflight",
+                    "JSON/Parquet extension catalog probe",
+                    "replace/append mode review"
+                ],
+                "residualRisk": "extension installation, arbitrary DDL, restore execution, and broader local OLAP mutations remain preview-first"
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": "duckdb.table.export",
+        "schema": schema,
+        "table": table,
+        "format": format,
+        "target": {
+            "path": string_parameter(parameters, "targetPath")
+                .or_else(|| string_parameter(parameters, "outputPath"))
+                .unwrap_or_else(|| format!("<selected-file>.{}", duckdb_file_extension(&format))),
+            "overwrite": bool_parameter(parameters, "overwrite").unwrap_or(false)
+        },
+        "rowLimit": row_limit,
+        "statement": format!(
+            "copy (select * from {} limit {row_limit}) to '<selected-file>.{}' (format {});",
+            duckdb_qualified_identifier(&schema, &table),
+            duckdb_file_extension(&format),
+            safe_duckdb_format_keyword(&format)
+        ),
+        "databaseLockBoundary": duckdb_database_lock_boundary_contract("duckdb.table.export", false),
+        "formatPreflight": duckdb_format_preflight_contract(&format, "export"),
+        "executionGate": {
+            "owner": "duckdb-adapter",
+            "defaultSupport": "live",
+            "requiresConfirmation": true,
+            "guards": [
+                "desktop adapter execution only",
+                "absolute target path",
+                "parent folder exists",
+                "overwrite opt-in",
+                "bounded row export",
+                "database file read/open preflight",
+                "format capability preflight",
+                "JSON/Parquet extension catalog probe"
+            ],
+            "residualRisk": "remote filesystem, encrypted files, restore execution, and arbitrary extension management remain optional validation paths"
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn duckdb_backup_restore_request(parameters: Option<&BTreeMap<String, Value>>) -> String {
+    let mode = string_parameter(parameters, "mode")
+        .unwrap_or_else(|| "backup".into())
+        .to_ascii_lowercase();
+    let format = string_parameter(parameters, "format")
+        .unwrap_or_else(|| "csv".into())
+        .to_ascii_lowercase();
+
+    if matches!(mode.as_str(), "restore" | "recover" | "import") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": "duckdb.database.restore-preview",
+            "mode": mode,
+            "format": format,
+            "source": {
+                "path": string_parameter(parameters, "sourcePath")
+                    .or_else(|| string_parameter(parameters, "inputPath"))
+                    .or_else(|| string_parameter(parameters, "sourceFolder"))
+                    .or_else(|| string_parameter(parameters, "inputFolder"))
+                    .unwrap_or_else(|| "<selected-folder>".into())
+            },
+            "restorePreflight": duckdb_restore_preflight_contract(&format),
+            "databaseLockBoundary": duckdb_database_lock_boundary_contract(
+                "duckdb.database.restore-preview",
+                true
+            ),
+            "restoreExecutionBoundary": duckdb_restore_execution_boundary_contract(&mode),
+            "executionGate": {
+                "owner": "duckdb-adapter",
+                "defaultSupport": "plan-only",
+                "requiresConfirmation": true,
+                "guards": [
+                    "absolute restore source folder",
+                    "source folder readability preflight",
+                    "schema.sql/load.sql package marker check",
+                    "target database write/open preflight",
+                    "target snapshot or rollback artifact required before live promotion",
+                    "exclusive DuckDB writer lock evidence required before live promotion",
+                    "restore execution explicitly scoped out of native claim",
+                    "manual IMPORT DATABASE run outside the scoped claim"
+                ],
+                "residualRisk": "IMPORT DATABASE can replace local schemas; execution is explicitly scoped out until rollback/snapshot, exclusive writer-lock, post-restore validation, and confirmation semantics are native"
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": "duckdb.database.backup",
+        "mode": mode,
+        "format": format,
+        "target": {
+            "path": string_parameter(parameters, "targetPath")
+                .or_else(|| string_parameter(parameters, "outputPath"))
+                .or_else(|| string_parameter(parameters, "targetFolder"))
+                .or_else(|| string_parameter(parameters, "outputFolder"))
+                .unwrap_or_else(|| "<selected-folder>".into())
+        },
+        "statement": format!("export database '<selected-folder>' (format {});", safe_duckdb_format_keyword(&format)),
+        "databaseLockBoundary": duckdb_database_lock_boundary_contract("duckdb.database.backup", false),
+        "formatPreflight": duckdb_format_preflight_contract(&format, "backup"),
+        "executionGate": {
+            "owner": "duckdb-adapter",
+            "defaultSupport": "live",
+            "requiresConfirmation": true,
+            "guards": [
+                "desktop adapter execution only",
+                "absolute backup folder",
+                "empty target folder",
+                "parquet/csv backup format allowlist",
+                "database file read/open preflight",
+                "format capability preflight"
+            ],
+            "residualRisk": "IMPORT DATABASE restore execution remains preview-first"
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn duckdb_plan_table_parts(
+    object_name: &str,
+    parameters: Option<&BTreeMap<String, Value>>,
+) -> (String, String) {
+    if let Some(table) = string_parameter(parameters, "targetTable")
+        .or_else(|| string_parameter(parameters, "tableName"))
+        .or_else(|| string_parameter(parameters, "table"))
+    {
+        let explicit_schema = string_parameter(parameters, "schema");
+        let parts = table
+            .split('.')
+            .map(clean_duckdb_identifier)
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        return match parts.as_slice() {
+            [table] => (
+                explicit_schema.unwrap_or_else(|| "main".into()),
+                table.clone(),
+            ),
+            [schema, table, ..] => (
+                explicit_schema.unwrap_or_else(|| schema.clone()),
+                table.clone(),
+            ),
+            _ => (
+                explicit_schema.unwrap_or_else(|| "main".into()),
+                "<table>".into(),
+            ),
+        };
+    }
+
+    let parts = object_name
+        .split('.')
+        .map(clean_duckdb_identifier)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    match parts.as_slice() {
+        [table] => ("main".into(), table.clone()),
+        [schema, table, ..] => (schema.clone(), table.clone()),
+        _ => ("main".into(), "<table>".into()),
+    }
+}
+
+fn clean_duckdb_identifier(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('`')
+        .trim_matches('[')
+        .trim_matches(']')
+        .to_string()
+}
+
+fn duckdb_qualified_identifier(schema: &str, table: &str) -> String {
+    format!(
+        "{}.{}",
+        duckdb_quoted_identifier(schema),
+        duckdb_quoted_identifier(table)
+    )
+}
+
+fn duckdb_quoted_identifier(value: &str) -> String {
+    format!(
+        "\"{}\"",
+        clean_duckdb_identifier(value).replace('"', "\"\"")
+    )
+}
+
+fn duckdb_file_extension(format: &str) -> &'static str {
+    match format {
+        "csv" => "csv",
+        "json" | "jsonl" | "ndjson" => "json",
+        _ => "parquet",
+    }
+}
+
+fn duckdb_format_preflight_contract(format: &str, workflow: &str) -> Value {
+    let required_extension = match format {
+        "json" | "jsonl" | "ndjson" => Some("json"),
+        "parquet" => Some("parquet"),
+        _ => None,
+    };
+
+    serde_json::json!({
+        "format": format,
+        "workflow": workflow,
+        "extensionBacked": required_extension.is_some(),
+        "requiredExtension": required_extension,
+        "extensionExecutionBoundary": duckdb_format_extension_execution_boundary(
+            format,
+            workflow,
+            required_extension
+        ),
+        "checks": if required_extension.is_some() {
+            vec!["duckdb_extensions catalog probe", "operation-level read/write validation"]
+        } else {
+            vec!["bundled DuckDB CSV reader/writer"]
+        }
+    })
+}
+
+fn duckdb_format_extension_execution_boundary(
+    format: &str,
+    workflow: &str,
+    required_extension: Option<&str>,
+) -> Value {
+    let Some(required_extension) = required_extension else {
+        return serde_json::json!({
+            "executionPolicy": "bundled-native",
+            "nativeClaim": "bundled-csv-reader-writer",
+            "format": format,
+            "workflow": workflow,
+            "extensionBacked": false,
+            "operationValidated": "desktop-runtime-required",
+            "networkAutoloadAllowed": false,
+            "extensionInstallExecutionIncluded": false,
+            "blockedReasons": Vec::<String>::new()
+        });
+    };
+
+    serde_json::json!({
+        "executionPolicy": "preloaded-extension-required",
+        "nativeClaim": "preloaded-extension-only",
+        "format": format,
+        "workflow": workflow,
+        "extensionBacked": true,
+        "requiredExtension": required_extension,
+        "installedValidated": "desktop-runtime-required",
+        "loadedValidated": "desktop-runtime-required",
+        "operationValidated": "desktop-runtime-required",
+        "networkAutoloadAllowed": false,
+        "extensionInstallExecutionIncluded": false,
+        "manualInstallLoadOutsideScopedClaim": true,
+        "promotionRequires": [
+            "preloaded DuckDB extension evidence",
+            "offline extension source provenance",
+            "controlled extension_directory evidence",
+            "extension-backed operation fixture",
+            "no network autoload or install during file workflow"
+        ],
+        "blockedReasons": [
+            "extension-backed-format-requires-runtime-preflight",
+            "extension-install-load-scoped-out"
+        ]
+    })
+}
+
+fn duckdb_database_lock_boundary_contract(workflow: &str, requires_write_access: bool) -> Value {
+    let mut checks = vec![
+        "parent folder exists",
+        "database file exists",
+        "filesystem read-open probe",
+    ];
+    if requires_write_access {
+        checks.push("filesystem write-open probe");
+    }
+    checks.extend(["DuckDB adapter open probe", "read-only disk guard"]);
+
+    serde_json::json!({
+        "policy": "desktop-preflight-required",
+        "workflow": workflow,
+        "scope": "local-duckdb-file",
+        "requiresWriteAccess": requires_write_access,
+        "checks": checks,
+        "crossProcessContentionValidated": "desktop-fixture-required",
+        "exclusiveWriterLockValidated": false,
+        "promotionRequires": [
+            "external-process contention fixture",
+            "exclusive DuckDB writer lock acquisition evidence",
+            "operation-scoped transaction or rollback artifact",
+            "post-operation catalog validation",
+            "read-only connection promotion block"
+        ],
+        "scopedResiduals": [
+            "external process contention is not part of the default fixture claim",
+            "exclusive writer-lock evidence is required before admin or restore execution promotion"
+        ]
+    })
+}
+
+fn duckdb_restore_preflight_contract(format: &str) -> Value {
+    serde_json::json!({
+        "format": format,
+        "sourcePackageValidated": "desktop-preflight-required",
+        "operationValidated": false,
+        "checks": [
+            "absolute source folder",
+            "folder readable",
+            "schema.sql marker",
+            "load.sql marker",
+            "backup file count and byte summary",
+            "target database write/open preflight"
+        ],
+        "expectedFormats": ["csv", "parquet"]
+    })
+}
+
+fn duckdb_restore_execution_boundary_contract(mode: &str) -> Value {
+    serde_json::json!({
+        "executionPolicy": "scoped-out",
+        "mode": mode,
+        "nativeClaim": "restore-preflight-only",
+        "destructive": true,
+        "targetMayReplaceCatalog": true,
+        "manualExecutionOutsideScopedClaim": true,
+        "excludedFromLiveFixtureClaim": true,
+        "sourcePackageValidated": "desktop-preflight-required",
+        "targetWriteOpenValidated": "desktop-preflight-required",
+        "previewValidated": "desktop-preflight-required",
+        "promotionRequires": [
+            "exclusive DuckDB writer lock evidence",
+            "target snapshot or rollback artifact before IMPORT DATABASE",
+            "post-restore catalog diff and validation",
+            "explicit destructive restore confirmation",
+            "read-only connection promotion block"
+        ],
+        "blockedReasons": ["restore-execution-scoped-out"]
+    })
+}
+
+fn duckdb_extension_operation_request(operation: &str, extension: &str) -> String {
+    let extension = safe_duckdb_extension_name(extension);
+    let workflow = format!("duckdb.extension.{operation}-preview");
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": workflow,
+        "operation": operation,
+        "extensionName": extension,
+        "statement": format!("{operation} {extension};"),
+        "extensionPreflight": {
+            "extensionName": extension,
+            "catalogProbe": "duckdb_extensions()",
+            "installedState": "desktop-preflight-required",
+            "loadedState": "desktop-preflight-required",
+            "extensionDirectory": "controlled by connection tempDirectory or database parent",
+            "networkAccess": if operation == "install" { "blocked-by-default" } else { "not-required-when-already-installed" },
+            "nativeCodeExecution": "blocked-until-explicit-live-gate"
+        },
+        "extensionExecutionBoundary": duckdb_extension_execution_boundary(operation, &extension),
+        "executionGate": {
+            "owner": "duckdb-adapter",
+            "defaultSupport": "plan-only",
+            "requiresConfirmation": true,
+            "guards": [
+                "sanitized extension name",
+                "duckdb_extensions catalog probe",
+                "controlled extension_directory",
+                "no network auto-install in default workflows",
+                "installed-before-load check",
+                "native extension code execution review",
+                "read-only connection blocked for executable promotion"
+            ],
+            "residualRisk": "DuckDB extensions can download or execute native code; install/load execution remains scoped out until offline source and native-code trust gates are live"
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn duckdb_admin_operation_request(
+    workflow: &str,
+    operation: &str,
+    target_kind: &str,
+    target_name: &str,
+    statement: &str,
+    data_or_catalog_mutation: bool,
+    requires_write: bool,
+) -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": workflow,
+        "operation": operation,
+        "target": {
+            "kind": target_kind,
+            "name": target_name
+        },
+        "statement": statement,
+        "adminScope": {
+            "executionPolicy": "plan-only",
+            "dataOrCatalogMutation": data_or_catalog_mutation,
+            "requiresWriteAccess": requires_write,
+            "rollbackRequiredBeforePromotion": data_or_catalog_mutation,
+            "scopedClaim": "excluded-until-live-admin-guard"
+        },
+        "adminExecutionBoundary": duckdb_admin_execution_boundary(
+            operation,
+            target_kind,
+            target_name,
+            data_or_catalog_mutation,
+            requires_write
+        ),
+        "executionGate": {
+            "owner": "duckdb-adapter",
+            "defaultSupport": "plan-only",
+            "requiresConfirmation": true,
+            "guards": [
+                "database file write/open preflight",
+                "cross-process lock probe",
+                "object identity and diff preview",
+                "rollback or backup boundary review",
+                "read-only connection blocked for executable promotion",
+                "confirmation required before live admin promotion"
+            ],
+            "residualRisk": "DuckDB admin and DDL execution can mutate local analytics files; execution remains scoped out until lock, rollback, and identity boundaries are live"
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn duckdb_admin_execution_boundary(
+    operation: &str,
+    target_kind: &str,
+    target_name: &str,
+    data_or_catalog_mutation: bool,
+    requires_write: bool,
+) -> Value {
+    let mut blocked_reasons = vec!["duckdb-admin-execution-scoped-out"];
+    if data_or_catalog_mutation {
+        blocked_reasons.push("data-or-catalog-mutation-scoped-out");
+    }
+    if requires_write {
+        blocked_reasons.push("requires-write-access");
+    }
+
+    serde_json::json!({
+        "executionPolicy": "scoped-out",
+        "nativeClaim": "admin-preview-only",
+        "operation": operation,
+        "target": {
+            "kind": target_kind,
+            "name": target_name
+        },
+        "dataOrCatalogMutation": data_or_catalog_mutation,
+        "requiresWriteAccess": requires_write,
+        "localDatabaseMayChange": requires_write,
+        "manualExecutionOutsideScopedClaim": true,
+        "excludedFromLiveFixtureClaim": true,
+        "previewValidated": "contract-only",
+        "promotionRequires": [
+            "exclusive DuckDB writer lock evidence",
+            "target snapshot or rollback artifact before data/catalog mutation",
+            "object identity and before/after diff preview",
+            "post-operation catalog or statistics validation",
+            "explicit admin confirmation",
+            "read-only connection promotion block"
+        ],
+        "blockedReasons": blocked_reasons
+    })
+}
+
+fn duckdb_extension_execution_boundary(operation: &str, extension: &str) -> Value {
+    serde_json::json!({
+        "executionPolicy": "scoped-out",
+        "nativeClaim": "extension-preflight-only",
+        "operation": operation,
+        "extensionName": extension,
+        "nativeCodeExecution": true,
+        "networkAccess": if operation == "install" { "blocked-by-default" } else { "not-required-when-already-installed" },
+        "manualExecutionOutsideScopedClaim": true,
+        "excludedFromLiveFixtureClaim": true,
+        "previewValidated": "contract-only",
+        "promotionRequires": [
+            "offline extension source provenance",
+            "controlled extension_directory evidence",
+            "installed-state evidence before load",
+            "native-code trust review",
+            "explicit extension execution confirmation",
+            "read-only connection promotion block"
+        ],
+        "blockedReasons": [
+            "duckdb-extension-execution-scoped-out",
+            "native-code-trust-gate-missing",
+            if operation == "install" {
+                "network-install-scoped-out"
+            } else {
+                "installed-state-live-check-required"
+            }
+        ]
+    })
+}
+
+fn safe_duckdb_format_keyword(format: &str) -> &'static str {
+    match format {
+        "csv" => "csv",
+        "json" | "jsonl" | "ndjson" => "json",
+        _ => "parquet",
+    }
 }
 
 fn safe_duckdb_extension_name(value: &str) -> String {
@@ -5603,7 +6451,48 @@ mod tests {
             "\"main\".\"orders\"",
             None,
         );
-        assert_eq!(duckdb_analyze, "analyze \"main\".\"orders\";");
+        let duckdb_analyze_json: Value =
+            serde_json::from_str(&duckdb_analyze).expect("duckdb analyze request");
+        assert_eq!(
+            duckdb_analyze_json["workflow"],
+            "duckdb.table.analyze-preview"
+        );
+        assert_eq!(duckdb_analyze_json["operation"], "analyze-table");
+        assert_eq!(
+            duckdb_analyze_json["adminScope"]["executionPolicy"],
+            "plan-only"
+        );
+        assert_eq!(
+            duckdb_analyze_json["adminExecutionBoundary"]["executionPolicy"],
+            "scoped-out"
+        );
+        assert_eq!(
+            duckdb_analyze_json["adminExecutionBoundary"]["nativeClaim"],
+            "admin-preview-only"
+        );
+        assert_eq!(
+            duckdb_analyze_json["adminExecutionBoundary"]["operation"],
+            "analyze-table"
+        );
+        assert!(
+            duckdb_analyze_json["adminExecutionBoundary"]["promotionRequires"]
+                .as_array()
+                .is_some_and(|requirements| requirements
+                    .iter()
+                    .any(|requirement| requirement == "exclusive DuckDB writer lock evidence"))
+        );
+        assert!(
+            duckdb_analyze_json["adminExecutionBoundary"]["blockedReasons"]
+                .as_array()
+                .is_some_and(|reasons| reasons
+                    .iter()
+                    .any(|reason| reason == "duckdb-admin-execution-scoped-out"))
+        );
+        assert!(duckdb_analyze_json["executionGate"]["guards"]
+            .as_array()
+            .is_some_and(|guards| guards
+                .iter()
+                .any(|guard| guard == "cross-process lock probe")));
 
         let duckdb_load = generated_operation_request(
             &connection,
@@ -5612,7 +6501,48 @@ mod tests {
             "httpfs",
             Some(&BTreeMap::from([("extensionName".into(), json!("httpfs"))])),
         );
-        assert_eq!(duckdb_load, "load httpfs;");
+        let duckdb_load_json: Value =
+            serde_json::from_str(&duckdb_load).expect("duckdb load extension request");
+        assert_eq!(
+            duckdb_load_json["workflow"],
+            "duckdb.extension.load-preview"
+        );
+        assert_eq!(duckdb_load_json["extensionName"], "httpfs");
+        assert_eq!(
+            duckdb_load_json["extensionPreflight"]["catalogProbe"],
+            "duckdb_extensions()"
+        );
+        assert_eq!(
+            duckdb_load_json["extensionPreflight"]["nativeCodeExecution"],
+            "blocked-until-explicit-live-gate"
+        );
+        assert_eq!(
+            duckdb_load_json["extensionExecutionBoundary"]["executionPolicy"],
+            "scoped-out"
+        );
+        assert_eq!(
+            duckdb_load_json["extensionExecutionBoundary"]["nativeClaim"],
+            "extension-preflight-only"
+        );
+        assert!(
+            duckdb_load_json["extensionExecutionBoundary"]["promotionRequires"]
+                .as_array()
+                .is_some_and(|requirements| requirements
+                    .iter()
+                    .any(|requirement| requirement == "native-code trust review"))
+        );
+        assert!(
+            duckdb_load_json["extensionExecutionBoundary"]["blockedReasons"]
+                .as_array()
+                .is_some_and(|reasons| reasons
+                    .iter()
+                    .any(|reason| reason == "duckdb-extension-execution-scoped-out"))
+        );
+        assert!(duckdb_load_json["executionGate"]["guards"]
+            .as_array()
+            .is_some_and(|guards| guards
+                .iter()
+                .any(|guard| guard == "installed-before-load check")));
 
         let duckdb_import = generated_operation_request(
             &connection,
@@ -5626,6 +6556,213 @@ mod tests {
         );
         assert!(duckdb_import.contains("read_csv_auto"));
         assert!(duckdb_import.contains("create or replace table \"main\".\"orders_import\""));
+
+        let duckdb_export = generated_operation_request(
+            &connection,
+            &duckdb_manifest,
+            "duckdb.data.import-export",
+            "\"main\".\"orders\"",
+            Some(&BTreeMap::from([
+                ("mode".into(), json!("export")),
+                ("format".into(), json!("parquet")),
+                ("targetPath".into(), json!("C:\\exports\\orders.parquet")),
+                ("rowLimit".into(), json!(25)),
+            ])),
+        );
+        let duckdb_export_json: Value =
+            serde_json::from_str(&duckdb_export).expect("duckdb export request");
+        assert_eq!(duckdb_export_json["workflow"], "duckdb.table.export");
+        assert_eq!(duckdb_export_json["schema"], "main");
+        assert_eq!(duckdb_export_json["table"], "orders");
+        assert_eq!(
+            duckdb_export_json["formatPreflight"]["requiredExtension"],
+            "parquet"
+        );
+        assert_eq!(
+            duckdb_export_json["formatPreflight"]["extensionBacked"],
+            true
+        );
+        assert_eq!(
+            duckdb_export_json["formatPreflight"]["extensionExecutionBoundary"]["executionPolicy"],
+            "preloaded-extension-required"
+        );
+        assert_eq!(
+            duckdb_export_json["formatPreflight"]["extensionExecutionBoundary"]
+                ["requiredExtension"],
+            "parquet"
+        );
+        assert_eq!(
+            duckdb_export_json["formatPreflight"]["extensionExecutionBoundary"]
+                ["networkAutoloadAllowed"],
+            false
+        );
+        assert_eq!(
+            duckdb_export_json["executionGate"]["defaultSupport"],
+            "live"
+        );
+        assert_eq!(
+            duckdb_export_json["databaseLockBoundary"]["policy"],
+            "desktop-preflight-required"
+        );
+        assert_eq!(
+            duckdb_export_json["databaseLockBoundary"]["workflow"],
+            "duckdb.table.export"
+        );
+        assert_eq!(
+            duckdb_export_json["databaseLockBoundary"]["requiresWriteAccess"],
+            false
+        );
+        assert_eq!(
+            duckdb_export_json["databaseLockBoundary"]["exclusiveWriterLockValidated"],
+            false
+        );
+        assert!(duckdb_export_json["executionGate"]["guards"]
+            .as_array()
+            .is_some_and(|guards| guards.iter().any(|guard| guard == "bounded row export")));
+        assert!(duckdb_export_json["executionGate"]["guards"]
+            .as_array()
+            .is_some_and(|guards| guards
+                .iter()
+                .any(|guard| guard == "database file read/open preflight")));
+        assert!(duckdb_export_json["executionGate"]["guards"]
+            .as_array()
+            .is_some_and(|guards| guards
+                .iter()
+                .any(|guard| guard == "format capability preflight")));
+
+        let duckdb_generic_import = generated_operation_request(
+            &connection,
+            &duckdb_manifest,
+            "duckdb.data.import-export",
+            "\"main\".\"orders_import\"",
+            Some(&BTreeMap::from([
+                ("mode".into(), json!("import")),
+                ("sourceFormat".into(), json!("csv")),
+                ("sourcePath".into(), json!("C:\\imports\\orders.csv")),
+                ("targetTable".into(), json!("\"main\".\"orders_import\"")),
+            ])),
+        );
+        let duckdb_import_json: Value =
+            serde_json::from_str(&duckdb_generic_import).expect("duckdb import request");
+        assert_eq!(duckdb_import_json["workflow"], "duckdb.table.import");
+        assert_eq!(duckdb_import_json["format"], "csv");
+        assert_eq!(duckdb_import_json["table"], "orders_import");
+        assert_eq!(
+            duckdb_import_json["formatPreflight"]["extensionBacked"],
+            false
+        );
+        assert_eq!(
+            duckdb_import_json["formatPreflight"]["extensionExecutionBoundary"]["executionPolicy"],
+            "bundled-native"
+        );
+        assert_eq!(
+            duckdb_import_json["databaseLockBoundary"]["workflow"],
+            "duckdb.table.import"
+        );
+        assert_eq!(
+            duckdb_import_json["databaseLockBoundary"]["requiresWriteAccess"],
+            true
+        );
+        assert!(duckdb_import_json["databaseLockBoundary"]["checks"]
+            .as_array()
+            .is_some_and(|checks| checks
+                .iter()
+                .any(|check| check == "filesystem write-open probe")));
+        assert!(duckdb_import_json["executionGate"]["guards"]
+            .as_array()
+            .is_some_and(|guards| guards
+                .iter()
+                .any(|guard| guard == "database file access/read-only preflight")));
+
+        let duckdb_backup = generated_operation_request(
+            &connection,
+            &duckdb_manifest,
+            "duckdb.data.backup-restore",
+            "main",
+            Some(&BTreeMap::from([
+                ("mode".into(), json!("backup")),
+                ("targetPath".into(), json!("C:\\exports\\duckdb-backup")),
+            ])),
+        );
+        let duckdb_backup_json: Value =
+            serde_json::from_str(&duckdb_backup).expect("duckdb backup request");
+        assert_eq!(duckdb_backup_json["workflow"], "duckdb.database.backup");
+        assert_eq!(
+            duckdb_backup_json["databaseLockBoundary"]["workflow"],
+            "duckdb.database.backup"
+        );
+        assert_eq!(
+            duckdb_backup_json["executionGate"]["residualRisk"],
+            "IMPORT DATABASE restore execution remains preview-first"
+        );
+
+        let duckdb_restore = generated_operation_request(
+            &connection,
+            &duckdb_manifest,
+            "duckdb.data.backup-restore",
+            "main",
+            Some(&BTreeMap::from([
+                ("mode".into(), json!("restore")),
+                ("sourcePath".into(), json!("C:\\exports\\duckdb-backup")),
+            ])),
+        );
+        let duckdb_restore_json: Value =
+            serde_json::from_str(&duckdb_restore).expect("duckdb restore request");
+        assert_eq!(
+            duckdb_restore_json["workflow"],
+            "duckdb.database.restore-preview"
+        );
+        assert_eq!(
+            duckdb_restore_json["restorePreflight"]["sourcePackageValidated"],
+            "desktop-preflight-required"
+        );
+        assert_eq!(
+            duckdb_restore_json["restorePreflight"]["operationValidated"],
+            false
+        );
+        assert_eq!(
+            duckdb_restore_json["databaseLockBoundary"]["workflow"],
+            "duckdb.database.restore-preview"
+        );
+        assert_eq!(
+            duckdb_restore_json["databaseLockBoundary"]["requiresWriteAccess"],
+            true
+        );
+        assert_eq!(
+            duckdb_restore_json["databaseLockBoundary"]["crossProcessContentionValidated"],
+            "desktop-fixture-required"
+        );
+        assert!(duckdb_restore_json["restorePreflight"]["checks"]
+            .as_array()
+            .is_some_and(|checks| checks.iter().any(|check| check == "schema.sql marker")));
+        assert!(duckdb_restore_json["executionGate"]["guards"]
+            .as_array()
+            .is_some_and(|guards| guards
+                .iter()
+                .any(|guard| guard == "target database write/open preflight")));
+        assert_eq!(
+            duckdb_restore_json["restoreExecutionBoundary"]["executionPolicy"],
+            "scoped-out"
+        );
+        assert_eq!(
+            duckdb_restore_json["restoreExecutionBoundary"]["nativeClaim"],
+            "restore-preflight-only"
+        );
+        assert!(
+            duckdb_restore_json["restoreExecutionBoundary"]["promotionRequires"]
+                .as_array()
+                .is_some_and(
+                    |requirements| requirements.iter().any(|requirement| requirement
+                        == "target snapshot or rollback artifact before IMPORT DATABASE")
+                )
+        );
+        assert!(
+            duckdb_restore_json["restoreExecutionBoundary"]["blockedReasons"]
+                .as_array()
+                .is_some_and(|reasons| reasons
+                    .iter()
+                    .any(|reason| reason == "restore-execution-scoped-out"))
+        );
 
         let mysql_check = generated_operation_request(
             &connection,
@@ -5911,6 +7048,65 @@ mod tests {
         assert_eq!(task_value["method"], "POST");
         assert_eq!(task_value["path"], "/_tasks/node-a%3A123/_cancel");
 
+        let slow_log_request = generated_operation_request(
+            &connection,
+            &manifest,
+            "elasticsearch.diagnostics.slow-log",
+            "products-v1",
+            None,
+        );
+        let slow_log_value = serde_json::from_str::<serde_json::Value>(&slow_log_request).unwrap();
+        assert_eq!(slow_log_value["operation"], "Search.SlowLogDashboardPlan");
+        assert_eq!(
+            slow_log_value["requests"][0]["path"],
+            "/_settings?filter_path=**.search.slowlog*"
+        );
+        assert_eq!(
+            slow_log_value["requests"][1]["path"],
+            "/_nodes/stats/indices/search,indexing"
+        );
+        assert_eq!(
+            slow_log_value["executionGate"]["defaultSupport"],
+            "plan-only"
+        );
+
+        let allocation_request = generated_operation_request(
+            &connection,
+            &manifest,
+            "elasticsearch.diagnostics.allocation",
+            "products-v1",
+            None,
+        );
+        let allocation_value =
+            serde_json::from_str::<serde_json::Value>(&allocation_request).unwrap();
+        assert_eq!(
+            allocation_value["operation"],
+            "Search.AllocationExplainPlan"
+        );
+        assert_eq!(
+            allocation_value["requests"][0]["path"],
+            "/_cluster/allocation/explain"
+        );
+        assert_eq!(
+            allocation_value["requests"][1]["path"],
+            "/_cat/shards?format=json&bytes=b"
+        );
+
+        let import_request = generated_operation_request(
+            &connection,
+            &manifest,
+            "elasticsearch.data.import-export",
+            "products-v1",
+            None,
+        );
+        let import_value = serde_json::from_str::<serde_json::Value>(&import_request).unwrap();
+        assert_eq!(import_value["path"], "/products-v1/_search");
+        assert_eq!(import_value["executionGate"]["defaultSupport"], "plan-only");
+        assert!(import_value["executionGate"]["disabledReasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("preview-first"));
+
         let component_template_request = generated_operation_request(
             &connection,
             &manifest,
@@ -5976,6 +7172,50 @@ mod tests {
         assert_eq!(
             dynamo_value["globalSecondaryIndexUpdates"][0]["create"]["indexName"],
             "customer-status-index"
+        );
+
+        let dynamo_metrics = generated_operation_request(
+            &connection,
+            &dynamo_manifest,
+            "dynamodb.diagnostics.metrics",
+            "Orders",
+            Some(&BTreeMap::from([
+                ("tableName".into(), json!("Orders")),
+                ("region".into(), json!("us-west-2")),
+            ])),
+        );
+        let dynamo_metrics_value =
+            serde_json::from_str::<serde_json::Value>(&dynamo_metrics).unwrap();
+        assert_eq!(
+            dynamo_metrics_value["operation"],
+            "CloudWatch.GetMetricData"
+        );
+        assert_eq!(dynamo_metrics_value["namespace"], "AWS/DynamoDB");
+        assert_eq!(
+            dynamo_metrics_value["authEvidence"]["credentialScope"],
+            "20260101/us-west-2/dynamodb/aws4_request"
+        );
+        assert!(dynamo_metrics_value["disabledReasons"][1]
+            .as_str()
+            .unwrap()
+            .contains("IAM policy simulation"));
+
+        let dynamo_access = generated_operation_request(
+            &connection,
+            &dynamo_manifest,
+            "dynamodb.security.inspect",
+            "Orders",
+            Some(&BTreeMap::from([("tableName".into(), json!("Orders"))])),
+        );
+        let dynamo_access_value =
+            serde_json::from_str::<serde_json::Value>(&dynamo_access).unwrap();
+        assert_eq!(
+            dynamo_access_value["operation"],
+            "IAM.SimulatePrincipalPolicy"
+        );
+        assert_eq!(
+            dynamo_access_value["authEvidence"]["scheme"],
+            "AWS4-HMAC-SHA256"
         );
 
         let ttl_parameters = BTreeMap::from([
@@ -6535,6 +7775,19 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&litedb_compact_request).unwrap();
         assert_eq!(litedb_compact_value["operation"], "LiteDB.Compact");
         assert_eq!(litedb_compact_value["databaseFile"], "catalog.db");
+        assert_eq!(
+            litedb_compact_value["localFilePreflight"]["lockBoundary"]
+                ["exclusiveWriterLockValidated"],
+            false
+        );
+        assert_eq!(
+            litedb_compact_value["localFilePreflight"]["encryptionBoundary"]["status"],
+            "sidecar-required"
+        );
+        assert_eq!(
+            litedb_compact_value["sidecarExecutionBoundary"]["status"],
+            "plan-only-until-sidecar"
+        );
 
         let litedb_rebuild_request = generated_operation_request(
             &connection,
@@ -6547,6 +7800,10 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&litedb_rebuild_request).unwrap();
         assert_eq!(litedb_rebuild_value["operation"], "LiteDB.RebuildIndexes");
         assert_eq!(litedb_rebuild_value["collection"], "products");
+        assert_eq!(
+            litedb_rebuild_value["localFilePreflight"]["intent"],
+            "storage-rebuild-indexes"
+        );
 
         let litedb_backup_request = generated_operation_request(
             &connection,
@@ -6562,6 +7819,18 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&litedb_backup_request).unwrap();
         assert_eq!(litedb_backup_value["operation"], "LiteDB.Backup");
         assert_eq!(litedb_backup_value["databaseFile"], "catalog.db");
+        assert_eq!(
+            litedb_backup_value["sidecarExecutionBoundary"]["runtime"],
+            "dotnet-litedb-sidecar"
+        );
+        assert!(
+            litedb_backup_value["localFilePreflight"]["encryptionBoundary"]
+                ["requiredForEncryptedFiles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value.as_str() == Some("sidecar LiteDB open probe"))
+        );
 
         let redis_export_request = generated_operation_request(
             &connection,

@@ -8,6 +8,7 @@ import type {
   SearchDslValueType,
 } from '@datapadplusplus/shared-types'
 import { BuilderSection } from './BuilderSection'
+import { SearchAggregationSection } from './SearchDslAggregationSection'
 import {
   buildSearchDslQueryText,
   newSearchFilter,
@@ -302,63 +303,6 @@ function SearchSortSection({
             className="query-builder-remove"
             aria-label={`Remove sort ${sort.field || 'empty'}`}
             onClick={() => updateDraft({ sort: draft.sort.filter((item) => item.id !== sort.id) })}
-          >
-            Remove
-          </button>
-        </div>
-      ))}
-    </BuilderSection>
-  )
-}
-
-function SearchAggregationSection({
-  draft,
-  updateDraft,
-}: {
-  draft: SearchDslBuilderState
-  updateDraft(patch: Partial<SearchDslBuilderState>): void
-}) {
-  return (
-    <BuilderSection
-      title="Aggregations"
-      actionLabel="Add Terms"
-      dropHint="Drop a field to aggregate"
-      onAdd={() => updateDraft({ aggregations: [...draft.aggregations, { id: searchDslBuilderRowId('search-agg'), field: '', size: 10 }] })}
-      onDropField={(field) => updateDraft({ aggregations: [...draft.aggregations, { id: searchDslBuilderRowId('search-agg'), field, size: 10 }] })}
-    >
-      {draft.aggregations.length === 0 ? (
-        <p className="query-builder-empty">No aggregations requested.</p>
-      ) : draft.aggregations.map((agg) => (
-        <div key={agg.id} className="query-builder-row query-builder-row--filter">
-          <input
-            aria-label="Aggregation field"
-            value={agg.field}
-            onChange={(event) =>
-              updateDraft({ aggregations: draft.aggregations.map((item) => item.id === agg.id ? { ...item, field: event.target.value } : item) })
-            }
-          />
-          <input
-            aria-label="Aggregation name"
-            value={agg.name ?? ''}
-            placeholder="optional name"
-            onChange={(event) =>
-              updateDraft({ aggregations: draft.aggregations.map((item) => item.id === agg.id ? { ...item, name: event.target.value } : item) })
-            }
-          />
-          <input
-            aria-label="Aggregation size"
-            type="number"
-            min={1}
-            value={agg.size ?? 10}
-            onChange={(event) =>
-              updateDraft({ aggregations: draft.aggregations.map((item) => item.id === agg.id ? { ...item, size: numberValue(event.target.value, 10) } : item) })
-            }
-          />
-          <button
-            type="button"
-            className="query-builder-remove"
-            aria-label={`Remove aggregation ${agg.field || 'empty'}`}
-            onClick={() => updateDraft({ aggregations: draft.aggregations.filter((item) => item.id !== agg.id) })}
           >
             Remove
           </button>

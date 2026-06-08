@@ -254,6 +254,8 @@ pub(super) fn interpolate_oracle_options(
 ) -> OracleConnectionOptions {
     OracleConnectionOptions {
         connect_mode: options.connect_mode.as_deref().map(interpolate),
+        execution_runtime: options.execution_runtime.as_deref().map(interpolate),
+        sql_plus_path: options.sql_plus_path.as_deref().map(interpolate),
         service_name: options.service_name.as_deref().map(interpolate),
         sid: options.sid.as_deref().map(interpolate),
         tns_alias: options.tns_alias.as_deref().map(interpolate),

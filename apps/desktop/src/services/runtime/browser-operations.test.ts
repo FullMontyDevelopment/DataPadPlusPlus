@@ -1948,6 +1948,21 @@ describe('browser operation runtime', () => {
           label: 'Refresh Aggregate',
           risk: 'costly',
         }),
+        expect.objectContaining({
+          id: 'timescaledb.timescale.job-control',
+          label: 'Job Control',
+          risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'timescaledb.data.import-export',
+          description: expect.stringContaining('bounded time windows'),
+          disabledReason: expect.stringContaining('preview-first'),
+        }),
+        expect.objectContaining({
+          id: 'timescaledb.data.backup-restore',
+          description: expect.stringContaining('extension-version'),
+          disabledReason: expect.stringContaining('preview-first'),
+        }),
       ]),
     )
 
@@ -1963,7 +1978,9 @@ describe('browser operation runtime', () => {
         compressAfter: '7 days',
       },
     })
-    expect(compressionPlan.plan.generatedRequest).toBe("select add_compression_policy('public.order_metrics', interval '7 days', if_not_exists => true);")
+    expect(compressionPlan.plan.generatedRequest).toContain('execution boundary: compression policy stays plan-only')
+    expect(compressionPlan.plan.generatedRequest).toContain('timescaledb_information.hypertables')
+    expect(compressionPlan.plan.generatedRequest).toContain("select add_compression_policy('public.order_metrics', interval '7 days', if_not_exists => true);")
     expect(compressionPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
 
     const retentionPlan = planOperationLocally(snapshot, {
@@ -1977,7 +1994,8 @@ describe('browser operation runtime', () => {
         dropAfter: '90 days',
       },
     })
-    expect(retentionPlan.plan.generatedRequest).toBe("select add_retention_policy('public.order_metrics', interval '90 days', if_not_exists => true);")
+    expect(retentionPlan.plan.generatedRequest).toContain('execution boundary: retention policy stays plan-only')
+    expect(retentionPlan.plan.generatedRequest).toContain("select add_retention_policy('public.order_metrics', interval '90 days', if_not_exists => true);")
     expect(retentionPlan.plan.destructive).toBe(true)
     expect(retentionPlan.plan.requiredPermissions).toEqual(['owner/admin role or equivalent destructive privilege'])
 
@@ -1992,8 +2010,74 @@ describe('browser operation runtime', () => {
         startOffset: '3 days',
       },
     })
+    expect(refreshPlan.plan.generatedRequest).toContain('execution boundary: continuous aggregate refresh stays plan-only')
+    expect(refreshPlan.plan.generatedRequest).toContain('timescaledb_information.continuous_aggregates')
     expect(refreshPlan.plan.generatedRequest).toContain("refresh_continuous_aggregate('observability.hourly_order_metrics'")
     expect(refreshPlan.plan.confirmationText).toBeTruthy()
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: timescaleConnection.id,
+      environmentId: 'env-local',
+      operationId: 'timescaledb.data.import-export',
+      objectName: '"public"."order_metrics"',
+      parameters: {
+        schema: 'public',
+        table: 'order_metrics',
+        mode: 'export',
+        format: 'csv',
+        start: '2026-05-01T00:00:00Z',
+        end: '2026-06-01T00:00:00Z',
+      },
+    })
+    expect(exportPlan.plan.generatedRequest).toContain('execution boundary: export file workflow stays plan-only')
+    expect(exportPlan.plan.generatedRequest).toContain('timescaledb_information.chunks')
+    expect(exportPlan.plan.generatedRequest).toContain('compression_settings')
+    expect(exportPlan.plan.generatedRequest).toContain('copy (select * from "public"."order_metrics"')
+    expect(exportPlan.plan.generatedRequest).toContain('"time" >= timestamp with time zone')
+
+    const importPlan = planOperationLocally(snapshot, {
+      connectionId: timescaleConnection.id,
+      environmentId: 'env-local',
+      operationId: 'timescaledb.data.import-export',
+      objectName: '"public"."order_metrics"',
+      parameters: {
+        schema: 'public',
+        table: 'order_metrics',
+        mode: 'import',
+        format: 'ndjson',
+      },
+    })
+    expect(importPlan.plan.generatedRequest).toContain('execution boundary: import file workflow stays plan-only')
+    expect(importPlan.plan.generatedRequest).toContain('datapad_timescale_import_payload')
+    expect(importPlan.plan.generatedRequest).toContain('column mapping and chunk policy checks')
+
+    const restorePlan = planOperationLocally(snapshot, {
+      connectionId: timescaleConnection.id,
+      environmentId: 'env-local',
+      operationId: 'timescaledb.data.backup-restore',
+      parameters: {
+        mode: 'restore',
+        database: 'metrics',
+      },
+    })
+    expect(restorePlan.plan.generatedRequest).toContain('execution boundary: restore file workflow stays plan-only')
+    expect(restorePlan.plan.generatedRequest).toContain('pg_restore --clean --if-exists --dbname=metrics')
+    expect(restorePlan.plan.generatedRequest).toContain('timescaledb_information.continuous_aggregates')
+    expect(restorePlan.plan.destructive).toBe(true)
+
+    const jobPlan = planOperationLocally(snapshot, {
+      connectionId: timescaleConnection.id,
+      environmentId: 'env-local',
+      operationId: 'timescaledb.timescale.job-control',
+      parameters: {
+        jobId: 1001,
+        action: 'pause',
+      },
+    })
+    expect(jobPlan.plan.generatedRequest).toContain('execution boundary: job-control workflow stays plan-only')
+    expect(jobPlan.plan.generatedRequest).toContain('timescaledb_information.job_stats')
+    expect(jobPlan.plan.generatedRequest).toContain('select alter_job(1001, scheduled => false);')
+    expect(jobPlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
   })
 
   it('uses TimescaleDB profile-specific disabled reasons for policy manifests', () => {
@@ -2036,11 +2120,24 @@ describe('browser operation runtime', () => {
           id: 'duckdb.extension.load',
           label: 'Load Extension',
           risk: 'write',
+          disabledReason:
+            'DuckDB extension loading remains plan-only until installed-state and native-code execution gates are live.',
         }),
         expect.objectContaining({
           id: 'duckdb.file.import',
           label: 'Import File',
           risk: 'write',
+        }),
+        expect.objectContaining({
+          id: 'duckdb.data.import-export',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'duckdb.data.backup-restore',
+          risk: 'costly',
+          executionSupport: 'live',
+          previewOnly: false,
         }),
       ]),
     )
@@ -2052,7 +2149,44 @@ describe('browser operation runtime', () => {
       operationId: 'duckdb.table.analyze',
       objectName: '"main"."orders"',
     })
-    expect(analyzePlan.plan.generatedRequest).toBe('analyze "main"."orders";')
+    const analyzeRequest = JSON.parse(analyzePlan.plan.generatedRequest)
+    expect(analyzeRequest).toMatchObject({
+      workflow: 'duckdb.table.analyze-preview',
+      operation: 'analyze-table',
+      target: {
+        kind: 'table',
+        name: '"main"."orders"',
+      },
+      statement: 'analyze "main"."orders";',
+      adminScope: {
+        executionPolicy: 'plan-only',
+        dataOrCatalogMutation: false,
+        requiresWriteAccess: true,
+      },
+      adminExecutionBoundary: {
+        executionPolicy: 'scoped-out',
+        nativeClaim: 'admin-preview-only',
+        operation: 'analyze-table',
+        localDatabaseMayChange: true,
+        manualExecutionOutsideScopedClaim: true,
+        excludedFromLiveFixtureClaim: true,
+      },
+      executionGate: {
+        defaultSupport: 'plan-only',
+      },
+    })
+    expect(analyzeRequest.adminExecutionBoundary.promotionRequires).toContain(
+      'exclusive DuckDB writer lock evidence',
+    )
+    expect(analyzeRequest.adminExecutionBoundary.promotionRequires).toContain(
+      'post-operation catalog or statistics validation',
+    )
+    expect(analyzeRequest.adminExecutionBoundary.blockedReasons).toContain(
+      'duckdb-admin-execution-scoped-out',
+    )
+    expect(analyzeRequest.adminExecutionBoundary.blockedReasons).toContain('requires-write-access')
+    expect(analyzeRequest.executionGate.guards).toContain('cross-process lock probe')
+    expect(analyzeRequest.executionGate.guards).toContain('rollback or backup boundary review')
     expect(analyzePlan.plan.requiredPermissions).toEqual(['write/admin privilege for the target object'])
 
     const extensionPlan = planOperationLocally(snapshot, {
@@ -2062,7 +2196,44 @@ describe('browser operation runtime', () => {
       objectName: 'httpfs',
       parameters: { extensionName: 'httpfs' },
     })
-    expect(extensionPlan.plan.generatedRequest).toBe('load httpfs;')
+    const extensionRequest = JSON.parse(extensionPlan.plan.generatedRequest)
+    expect(extensionRequest).toMatchObject({
+      workflow: 'duckdb.extension.load-preview',
+      operation: 'load',
+      extensionName: 'httpfs',
+      statement: 'load httpfs;',
+      extensionPreflight: {
+        catalogProbe: 'duckdb_extensions()',
+        installedState: 'desktop-preflight-required',
+        nativeCodeExecution: 'blocked-until-explicit-live-gate',
+      },
+      extensionExecutionBoundary: {
+        executionPolicy: 'scoped-out',
+        nativeClaim: 'extension-preflight-only',
+        operation: 'load',
+        extensionName: 'httpfs',
+        nativeCodeExecution: true,
+        manualExecutionOutsideScopedClaim: true,
+        excludedFromLiveFixtureClaim: true,
+      },
+      executionGate: {
+        defaultSupport: 'plan-only',
+      },
+    })
+    expect(extensionRequest.extensionExecutionBoundary.promotionRequires).toContain(
+      'offline extension source provenance',
+    )
+    expect(extensionRequest.extensionExecutionBoundary.promotionRequires).toContain(
+      'native-code trust review',
+    )
+    expect(extensionRequest.extensionExecutionBoundary.blockedReasons).toContain(
+      'duckdb-extension-execution-scoped-out',
+    )
+    expect(extensionRequest.extensionExecutionBoundary.blockedReasons).toContain(
+      'installed-state-live-check-required',
+    )
+    expect(extensionRequest.executionGate.guards).toContain('installed-before-load check')
+    expect(extensionRequest.executionGate.guards).toContain('native extension code execution review')
 
     const importPlan = planOperationLocally(snapshot, {
       connectionId: duckDbConnection.id,
@@ -2073,6 +2244,180 @@ describe('browser operation runtime', () => {
     })
     expect(importPlan.plan.generatedRequest).toContain('read_csv_auto')
     expect(importPlan.plan.generatedRequest).toContain('create or replace table "main"."orders_import"')
+
+    const exportPlan = planOperationLocally(snapshot, {
+      connectionId: duckDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'duckdb.data.import-export',
+      objectName: '"main"."orders"',
+      parameters: {
+        mode: 'export',
+        format: 'parquet',
+        targetPath: 'C:\\exports\\orders.parquet',
+        rowLimit: 25,
+      },
+    })
+    const exportRequest = JSON.parse(exportPlan.plan.generatedRequest)
+    expect(exportRequest).toMatchObject({
+      workflow: 'duckdb.table.export',
+      schema: 'main',
+      table: 'orders',
+      format: 'parquet',
+      rowLimit: 25,
+      formatPreflight: {
+        extensionBacked: true,
+        requiredExtension: 'parquet',
+        extensionExecutionBoundary: {
+          executionPolicy: 'preloaded-extension-required',
+          nativeClaim: 'preloaded-extension-only',
+          requiredExtension: 'parquet',
+          networkAutoloadAllowed: false,
+          extensionInstallExecutionIncluded: false,
+        },
+      },
+      databaseLockBoundary: {
+        policy: 'desktop-preflight-required',
+        workflow: 'duckdb.table.export',
+        requiresWriteAccess: false,
+        exclusiveWriterLockValidated: false,
+      },
+      executionGate: {
+        owner: 'duckdb-adapter',
+        defaultSupport: 'live',
+      },
+    })
+    expect(exportRequest.databaseLockBoundary.checks).toContain('filesystem read-open probe')
+    expect(exportRequest.databaseLockBoundary.checks).toContain('DuckDB adapter open probe')
+    expect(exportRequest.databaseLockBoundary.scopedResiduals).toContain(
+      'external process contention is not part of the default fixture claim',
+    )
+    expect(exportRequest.executionGate.guards).toContain('bounded row export')
+    expect(exportRequest.formatPreflight.extensionExecutionBoundary.promotionRequires).toContain(
+      'offline extension source provenance',
+    )
+    expect(exportRequest.formatPreflight.extensionExecutionBoundary.blockedReasons).toContain(
+      'extension-install-load-scoped-out',
+    )
+    expect(exportRequest.executionGate.guards).toContain('database file read/open preflight')
+    expect(exportRequest.executionGate.guards).toContain('format capability preflight')
+    expect(exportRequest.executionGate.guards).toContain('JSON/Parquet extension catalog probe')
+
+    const genericImportPlan = planOperationLocally(snapshot, {
+      connectionId: duckDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'duckdb.data.import-export',
+      objectName: '"main"."orders_import"',
+      parameters: {
+        mode: 'import',
+        sourceFormat: 'csv',
+        sourcePath: 'C:\\imports\\orders.csv',
+        targetTable: '"main"."orders_import"',
+      },
+    })
+    const genericImportRequest = JSON.parse(genericImportPlan.plan.generatedRequest)
+    expect(genericImportRequest).toMatchObject({
+      workflow: 'duckdb.table.import',
+      mode: 'import',
+      schema: 'main',
+      table: 'orders_import',
+      format: 'csv',
+      formatPreflight: {
+        extensionBacked: false,
+        requiredExtension: null,
+        extensionExecutionBoundary: {
+          executionPolicy: 'bundled-native',
+          nativeClaim: 'bundled-csv-reader-writer',
+          networkAutoloadAllowed: false,
+          extensionInstallExecutionIncluded: false,
+        },
+      },
+      databaseLockBoundary: {
+        policy: 'desktop-preflight-required',
+        workflow: 'duckdb.table.import',
+        requiresWriteAccess: true,
+        exclusiveWriterLockValidated: false,
+      },
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+    expect(genericImportRequest.databaseLockBoundary.checks).toContain('filesystem write-open probe')
+    expect(genericImportRequest.databaseLockBoundary.promotionRequires).toContain(
+      'exclusive DuckDB writer lock acquisition evidence',
+    )
+    expect(genericImportRequest.executionGate.guards).toContain('read-only connection blocked')
+    expect(genericImportRequest.executionGate.guards).toContain('database file access/read-only preflight')
+    expect(genericImportRequest.executionGate.guards).toContain('format capability preflight')
+
+    const backupPlan = planOperationLocally(snapshot, {
+      connectionId: duckDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'duckdb.data.backup-restore',
+      objectName: 'main',
+      parameters: {
+        mode: 'backup',
+        targetPath: 'C:\\exports\\duckdb-backup',
+      },
+    })
+    const backupRequest = JSON.parse(backupPlan.plan.generatedRequest)
+    expect(backupRequest).toMatchObject({
+      workflow: 'duckdb.database.backup',
+      databaseLockBoundary: {
+        policy: 'desktop-preflight-required',
+        workflow: 'duckdb.database.backup',
+        requiresWriteAccess: false,
+      },
+      executionGate: {
+        defaultSupport: 'live',
+      },
+    })
+    expect(backupRequest.executionGate.guards).toContain('database file read/open preflight')
+    expect(backupRequest.executionGate.guards).toContain('format capability preflight')
+    expect(backupRequest.executionGate.residualRisk).toContain('restore execution remains preview-first')
+
+    const restorePlan = planOperationLocally(snapshot, {
+      connectionId: duckDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'duckdb.data.backup-restore',
+      objectName: 'main',
+      parameters: {
+        mode: 'restore',
+        sourcePath: 'C:\\exports\\duckdb-backup',
+      },
+    })
+    const restoreRequest = JSON.parse(restorePlan.plan.generatedRequest)
+    expect(restoreRequest).toMatchObject({
+      workflow: 'duckdb.database.restore-preview',
+      restorePreflight: {
+        sourcePackageValidated: 'desktop-preflight-required',
+        operationValidated: false,
+      },
+      databaseLockBoundary: {
+        policy: 'desktop-preflight-required',
+        workflow: 'duckdb.database.restore-preview',
+        requiresWriteAccess: true,
+        exclusiveWriterLockValidated: false,
+      },
+      restoreExecutionBoundary: {
+        executionPolicy: 'scoped-out',
+        nativeClaim: 'restore-preflight-only',
+        destructive: true,
+      },
+      executionGate: {
+        defaultSupport: 'plan-only',
+      },
+    })
+    expect(restoreRequest.restorePreflight.checks).toContain('schema.sql marker')
+    expect(restoreRequest.restorePreflight.checks).toContain('load.sql marker')
+    expect(restoreRequest.executionGate.guards).toContain('absolute restore source folder')
+    expect(restoreRequest.executionGate.guards).toContain('source folder readability preflight')
+    expect(restoreRequest.executionGate.guards).toContain('schema.sql/load.sql package marker check')
+    expect(restoreRequest.executionGate.guards).toContain('target database write/open preflight')
+    expect(restoreRequest.executionGate.guards).toContain('restore execution explicitly scoped out of native claim')
+    expect(restoreRequest.restoreExecutionBoundary.promotionRequires).toContain(
+      'target snapshot or rollback artifact before IMPORT DATABASE',
+    )
+    expect(restoreRequest.restoreExecutionBoundary.blockedReasons).toContain('restore-execution-scoped-out')
   })
 
   it('generates search-family profile, index, and security operation previews', () => {
@@ -2107,6 +2452,14 @@ describe('browser operation runtime', () => {
         expect.objectContaining({
           id: 'elasticsearch.snapshot.restore',
           label: 'Restore Snapshot',
+        }),
+        expect.objectContaining({
+          id: 'elasticsearch.diagnostics.slow-log',
+          label: 'Slow Log Plan',
+        }),
+        expect.objectContaining({
+          id: 'elasticsearch.diagnostics.allocation',
+          label: 'Allocation Explain',
         }),
       ]),
     )
@@ -2278,6 +2631,60 @@ describe('browser operation runtime', () => {
       method: 'POST',
       path: '/_tasks/node-a%3A123/_cancel',
     })
+
+    const slowLogPlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.diagnostics.slow-log',
+      objectName: 'products-v1',
+    })
+    expect(JSON.parse(slowLogPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'Search.SlowLogDashboardPlan',
+      requests: expect.arrayContaining([
+        { method: 'GET', path: '/_settings?filter_path=**.search.slowlog*' },
+        { method: 'GET', path: '/_nodes/stats/indices/search,indexing' },
+      ]),
+      executionGate: {
+        defaultSupport: 'plan-only',
+        runtimeEvidence: 'live',
+      },
+    })
+
+    const allocationPlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.diagnostics.allocation',
+      objectName: 'products-v1',
+    })
+    expect(JSON.parse(allocationPlan.plan.generatedRequest)).toMatchObject({
+      operation: 'Search.AllocationExplainPlan',
+      requests: expect.arrayContaining([
+        { method: 'GET', path: '/_cluster/allocation/explain' },
+        { method: 'GET', path: '/_cat/shards?format=json&bytes=b' },
+      ]),
+      executionGate: {
+        defaultSupport: 'plan-only',
+        runtimeEvidence: 'live',
+      },
+    })
+
+    const importExportPlan = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.data.import-export',
+      objectName: 'products-v1',
+    })
+    expect(JSON.parse(importExportPlan.plan.generatedRequest)).toMatchObject({
+      method: 'POST',
+      path: '/products-v1/_search',
+      executionGate: {
+        defaultSupport: 'plan-only',
+        disabledReasons: expect.arrayContaining([
+          expect.stringContaining('preview-first'),
+          expect.stringContaining('plain HTTP'),
+        ]),
+      },
+    })
   })
 
   it('generates DynamoDB capacity, index, access, and export operation previews', () => {
@@ -2324,8 +2731,18 @@ describe('browser operation runtime', () => {
     })
     expect(JSON.parse(metricsPlan.plan.generatedRequest)).toMatchObject({
       operation: 'CloudWatch.GetMetricData',
+      namespace: 'AWS/DynamoDB',
       tableName: 'Orders',
       metrics: expect.arrayContaining(['ConsumedReadCapacityUnits', 'ReadThrottleEvents']),
+      authEvidence: {
+        scheme: 'AWS4-HMAC-SHA256',
+        endpointMode: 'local-http',
+        liveCloudRuntime: false,
+        signedHeaders: expect.arrayContaining(['x-amz-date', 'x-amz-target']),
+      },
+      disabledReasons: expect.arrayContaining([
+        expect.stringContaining('CloudWatch account/table metrics'),
+      ]),
     })
 
     const indexPlan = planOperationLocally(snapshot, {
@@ -2428,6 +2845,46 @@ describe('browser operation runtime', () => {
       operation: 'IAM.SimulatePrincipalPolicy',
       tableName: 'Orders',
       actions: expect.arrayContaining(['dynamodb:Query', 'dynamodb:UpdateItem']),
+      authEvidence: {
+        scheme: 'AWS4-HMAC-SHA256',
+        credentialsProvider: 'local',
+      },
+      disabledReasons: expect.arrayContaining([
+        expect.stringContaining('IAM policy simulation'),
+      ]),
+    })
+
+    const cloudMetricsPlan = planOperationLocally(snapshotWith({
+      ...dynamoConnection,
+      host: 'dynamodb.us-east-2.amazonaws.com',
+      port: 443,
+      database: 'us-east-2',
+      dynamoDbOptions: {
+        connectMode: 'assume-role',
+        region: 'us-east-2',
+        roleArn: 'arn:aws:iam::123456789012:role/DataPadReadOnly',
+      },
+    }), {
+      connectionId: dynamoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'dynamodb.diagnostics.metrics',
+      objectName: 'Orders',
+      parameters: {
+        tableName: 'Orders',
+      },
+    })
+    expect(JSON.parse(cloudMetricsPlan.plan.generatedRequest)).toMatchObject({
+      authEvidence: {
+        connectMode: 'assume-role',
+        credentialsProvider: 'assume-role',
+        signingRegion: 'us-east-2',
+        endpointMode: 'aws-cloud-contract',
+        liveCloudRuntime: false,
+      },
+      disabledReasons: expect.arrayContaining([
+        expect.stringContaining('STS AssumeRole'),
+        expect.stringContaining('CloudWatch account/table metrics'),
+      ]),
     })
 
     const exportPlan = planOperationLocally(snapshot, {
@@ -3172,6 +3629,17 @@ describe('browser operation runtime', () => {
     expect(JSON.parse(liteDbCompact.plan.generatedRequest)).toMatchObject({
       operation: 'LiteDB.Compact',
       databaseFile: 'catalog.db',
+      localFilePreflight: {
+        lockBoundary: {
+          exclusiveWriterLockValidated: false,
+        },
+        encryptionBoundary: {
+          status: 'sidecar-required',
+        },
+      },
+      sidecarExecutionBoundary: {
+        status: 'plan-only-until-sidecar',
+      },
     })
 
     const liteDbRebuild = planOperationLocally(liteDbSnapshot, {
@@ -3188,6 +3656,9 @@ describe('browser operation runtime', () => {
       operation: 'LiteDB.RebuildIndexes',
       databaseFile: 'catalog.db',
       collection: 'products',
+      localFilePreflight: {
+        intent: 'storage-rebuild-indexes',
+      },
     })
 
     const liteDbBackup = planOperationLocally(liteDbSnapshot, {
@@ -3202,6 +3673,16 @@ describe('browser operation runtime', () => {
     expect(JSON.parse(liteDbBackup.plan.generatedRequest)).toMatchObject({
       operation: 'LiteDB.Backup',
       databaseFile: 'catalog.db',
+      localFilePreflight: {
+        encryptionBoundary: {
+          requiredForEncryptedFiles: expect.arrayContaining([
+            'sidecar LiteDB open probe',
+          ]),
+        },
+      },
+      sidecarExecutionBoundary: {
+        runtime: 'dotnet-litedb-sidecar',
+      },
     })
 
     const memcachedSnapshot = snapshotWith(memcachedConnection)

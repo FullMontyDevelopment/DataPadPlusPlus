@@ -95,6 +95,109 @@ fn sql_dialects_quote_identifiers_and_parameters_for_preview_requests() {
 }
 
 #[test]
+fn timescale_row_edit_preview_pins_returning_evidence_contract() {
+    let plan = default_data_edit_plan(
+        &connection("timescaledb", "timeseries", false),
+        &experience(&["update-row"], true),
+        &request(
+            "update-row",
+            DataEditTarget {
+                object_kind: "row".into(),
+                schema: Some("metrics".into()),
+                table: Some("conditions".into()),
+                primary_key: Some(HashMap::from([("id".into(), json!(1))])),
+                ..Default::default()
+            },
+            vec![change("temperature", json!(72.5))],
+        ),
+    );
+
+    assert_eq!(plan.execution_support, "live");
+    assert_eq!(plan.plan.request_language, "sql");
+    assert!(plan
+        .plan
+        .required_permissions
+        .contains(&"update-row on table".into()));
+    assert!(plan
+        .plan
+        .generated_request
+        .contains("select * from \"metrics\".\"conditions\" where \"id\" = $1 limit 2;"));
+    assert!(plan.plan.generated_request.contains(
+        "update \"metrics\".\"conditions\" set \"temperature\" = $1 where \"id\" = $2 returning *;"
+    ));
+    assert!(plan
+        .plan
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("RETURNING * before/after evidence")));
+    assert!(!plan
+        .plan
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("no live data-edit surface")));
+}
+
+#[test]
+fn oracle_row_edit_preview_pins_sqlplus_identity_evidence_contract() {
+    let update_plan = default_data_edit_plan(
+        &connection("oracle", "sql", false),
+        &experience(&["update-row"], true),
+        &request(
+            "update-row",
+            DataEditTarget {
+                object_kind: "row".into(),
+                schema: Some("APP".into()),
+                table: Some("ACCOUNTS".into()),
+                primary_key: Some(HashMap::from([("ID".into(), json!(1))])),
+                ..Default::default()
+            },
+            vec![change("STATUS", json!("ACTIVE"))],
+        ),
+    );
+    let insert_plan = default_data_edit_plan(
+        &connection("oracle", "sql", false),
+        &experience(&["insert-row"], true),
+        &request(
+            "insert-row",
+            DataEditTarget {
+                object_kind: "row".into(),
+                schema: Some("APP".into()),
+                table: Some("ACCOUNTS".into()),
+                ..Default::default()
+            },
+            vec![change("ACCOUNT_NAME", json!("DataPad++ Labs"))],
+        ),
+    );
+
+    assert_eq!(update_plan.execution_support, "live");
+    assert_eq!(update_plan.plan.request_language, "sql");
+    assert!(update_plan
+        .plan
+        .generated_request
+        .contains("-- Before evidence (bounded primary-key or ROWID prefetch)"));
+    assert!(update_plan
+        .plan
+        .generated_request
+        .contains("update \"APP\".\"ACCOUNTS\" set \"STATUS\" = :p1 where \"ID\" = :p2;"));
+    assert!(update_plan
+        .plan
+        .generated_request
+        .contains("fetch first 2 rows only"));
+    assert!(insert_plan
+        .plan
+        .generated_request
+        .contains("variable datapad_rowid varchar2(32)"));
+    assert!(insert_plan
+        .plan
+        .generated_request
+        .contains("returning rowid into :datapad_rowid"));
+    assert!(insert_plan
+        .plan
+        .generated_request
+        .contains("chartorowid(:datapad_rowid)"));
+}
+
+#[test]
 fn mongo_nested_rename_and_unset_requests_are_operation_specific() {
     let connection = connection("mongodb", "document", false);
     let experience = experience(&["rename-field", "unset-field"], true);
@@ -236,6 +339,63 @@ fn mongo_replace_and_delete_document_previews_are_operation_specific() {
     );
     assert_eq!(delete_request["operation"], "deleteOne");
     assert_eq!(delete_request["filter"]["_id"], "item-1");
+}
+
+#[test]
+fn litedb_document_crud_previews_use_sidecar_json_with_evidence_requests() {
+    let connection = connection("litedb", "document", false);
+    let experience = experience(
+        &["insert-document", "update-document", "delete-document"],
+        true,
+    );
+    let target = DataEditTarget {
+        object_kind: "document".into(),
+        collection: Some("products".into()),
+        document_id: Some(json!(42)),
+        ..Default::default()
+    };
+
+    let update_plan = default_data_edit_plan(
+        &connection,
+        &experience,
+        &request(
+            "update-document",
+            target.clone(),
+            vec![DataEditChange {
+                value: Some(json!({
+                    "_id": 42,
+                    "sku": "tea-042",
+                    "category": "pantry"
+                })),
+                value_type: Some("json".into()),
+                ..Default::default()
+            }],
+        ),
+    );
+    let update_request: serde_json::Value =
+        serde_json::from_str(&update_plan.plan.generated_request).expect("LiteDB JSON");
+
+    assert_eq!(update_plan.execution_support, "live");
+    assert_eq!(update_plan.plan.request_language, "json");
+    assert_eq!(update_request["operation"], "UpdateDocument");
+    assert_eq!(update_request["collection"], "products");
+    assert_eq!(
+        update_request["evidenceRequests"]["before"]["operation"],
+        "FindById"
+    );
+    assert_eq!(update_request["evidenceRequests"]["after"]["id"], 42);
+
+    let delete_plan = default_data_edit_plan(
+        &connection,
+        &experience,
+        &request("delete-document", target, vec![]),
+    );
+    let delete_request: serde_json::Value =
+        serde_json::from_str(&delete_plan.plan.generated_request).expect("LiteDB delete JSON");
+
+    assert!(delete_plan.plan.destructive);
+    assert_eq!(delete_request["operation"], "DeleteDocument");
+    assert_eq!(delete_request["id"], 42);
 }
 
 #[test]
@@ -626,6 +786,30 @@ fn dynamodb_delete_item_is_destructive_and_confirmation_gated() {
         plan.plan.confirmation_text.as_deref(),
         Some("CONFIRM DYNAMODB DELETE-ITEM")
     );
+    let generated: serde_json::Value =
+        serde_json::from_str(&plan.plan.generated_request).expect("DynamoDB preview JSON");
+    assert_eq!(generated["Operation"], "DeleteItem");
+    assert_eq!(generated["ConditionExpression"], "attribute_exists(#key0)");
+    assert_eq!(generated["ExpressionAttributeNames"]["#key0"], "order_id");
+    assert_eq!(generated["ReturnValues"], "ALL_OLD");
+    assert_eq!(generated["ReturnConsumedCapacity"], "TOTAL");
+    assert_eq!(
+        generated["EvidenceRequests"]["Before"]["Operation"],
+        "GetItem"
+    );
+    assert_eq!(
+        generated["EvidenceRequests"]["Before"]["ConsistentRead"],
+        true
+    );
+    assert_eq!(
+        generated["EvidenceRequests"]["After"]["ReturnConsumedCapacity"],
+        "TOTAL"
+    );
+    assert!(plan
+        .plan
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("before/after evidence")));
 }
 
 #[test]
@@ -650,6 +834,18 @@ fn search_document_preview_uses_http_shape_and_delete_guardrails() {
         .plan
         .generated_request
         .contains("POST /orders/_update/101?refresh=true"));
+    assert!(update_plan
+        .plan
+        .generated_request
+        .contains("GET /orders/_doc/101?realtime=true"));
+    assert!(update_plan
+        .plan
+        .generated_request
+        .contains("before document evidence"));
+    assert!(update_plan
+        .plan
+        .generated_request
+        .contains("after document evidence"));
 
     let delete_plan = default_data_edit_plan(
         &connection("opensearch", "search", false),

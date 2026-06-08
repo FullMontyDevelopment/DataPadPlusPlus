@@ -296,6 +296,47 @@ function promoteScopedLiveWorkflows(
         previewOnly: false,
       }
     }
+    if (connection.engine === 'duckdb' && operation.id === 'duckdb.data.import-export') {
+      return {
+        ...operation,
+        description:
+          'Run guarded DuckDB CSV, JSON, or Parquet table import/export file workflows.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (connection.engine === 'duckdb' && operation.id === 'duckdb.data.backup-restore') {
+      return {
+        ...operation,
+        description:
+          'Create guarded DuckDB EXPORT DATABASE backup folders; restore remains preview-first.',
+        risk: 'costly' as const,
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (connection.engine === 'timescaledb' && operation.id === 'timescaledb.data.import-export') {
+      return {
+        ...operation,
+        description:
+          'Preview TimescaleDB hypertable import/export workflows with bounded time windows, chunk checks, compression checks, and policy refresh guidance.',
+        disabledReason:
+          'TimescaleDB import/export execution remains preview-first until adapter-owned file workflows validate columns, chunks, policies, and continuous aggregate impact.',
+        previewOnly: true,
+      }
+    }
+    if (connection.engine === 'timescaledb' && operation.id === 'timescaledb.data.backup-restore') {
+      return {
+        ...operation,
+        description:
+          'Preview TimescaleDB backup/restore workflows with extension-version, hypertable, chunk, policy, job, and continuous-aggregate preflights.',
+        disabledReason:
+          'TimescaleDB backup/restore execution remains preview-first until extension compatibility, policy replay, and restore boundaries are adapter-backed.',
+        previewOnly: true,
+      }
+    }
     return operation
   })
 }

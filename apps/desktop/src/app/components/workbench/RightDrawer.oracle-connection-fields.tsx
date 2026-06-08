@@ -99,6 +99,31 @@ export function OracleAdvancedFields({
       ) : null}
 
       <div className="connection-advanced-grid">
+        <FormField label="Execution runtime">
+          <select
+            aria-label="Oracle execution runtime"
+            value={options.executionRuntime ?? 'contract'}
+            onChange={(event) =>
+              updateOptions({
+                executionRuntime: event.target.value as OracleConnectionOptions['executionRuntime'],
+              })
+            }
+          >
+            <option value="contract">Contract preview</option>
+            <option value="sqlplus">SQLPlus client</option>
+          </select>
+        </FormField>
+        <FormField label="SQLPlus path">
+          <input
+            aria-label="Oracle SQLPlus path"
+            value={options.sqlPlusPath ?? ''}
+            placeholder="sqlplus"
+            onChange={(event) => updateOptions({ sqlPlusPath: event.target.value || undefined })}
+          />
+        </FormField>
+      </div>
+
+      <div className="connection-advanced-grid">
         <FormField label="Role">
           <select
             aria-label="Oracle connection role"

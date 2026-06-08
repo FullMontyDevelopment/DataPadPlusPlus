@@ -27,6 +27,8 @@ apps/desktop/dist/
 apps/desktop/coverage/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/target-*/
+apps/desktop/src-tauri/sidecars/**/bin/
+apps/desktop/src-tauri/sidecars/**/obj/
 apps/desktop/src-tauri/gen/
 
 packages/*/dist/

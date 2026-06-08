@@ -503,6 +503,10 @@ describe('browser explorer runtime', () => {
       }),
       hypertables: expect.arrayContaining([expect.objectContaining({ name: 'order_metrics' })]),
       chunks: expect.arrayContaining([expect.objectContaining({ chunk: '_hyper_1_42_chunk' })]),
+      timeBuckets: expect.arrayContaining([expect.objectContaining({ bucket: '1 hour', status: 'current' })]),
+      chunkSizing: expect.arrayContaining([expect.objectContaining({ chunk: '_hyper_1_42_chunk', size: '120 MB' })]),
+      compressionCoverage: expect.arrayContaining([expect.objectContaining({ ratio: '87.5%' })]),
+      jobHistory: expect.arrayContaining([expect.objectContaining({ job: 'Compression order_metrics' })]),
       compressionPolicies: expect.arrayContaining([expect.objectContaining({ policy: 'compress after 7 days' })]),
       retentionPolicies: expect.arrayContaining([expect.objectContaining({ window: '90 days' })]),
     })
@@ -517,6 +521,8 @@ describe('browser explorer runtime', () => {
       engine: 'timescaledb',
       viewName: 'hourly_order_metrics',
       continuousAggregates: expect.arrayContaining([expect.objectContaining({ bucket: '1 hour' })]),
+      aggregateFreshness: expect.arrayContaining([expect.objectContaining({ invalidationLag: '6 minutes' })]),
+      jobHistory: expect.arrayContaining([expect.objectContaining({ job: 'Refresh hourly_order_metrics' })]),
     })
 
     const diagnosticsResponse = inspectExplorerNodeLocally(snapshot, {
@@ -526,10 +532,17 @@ describe('browser explorer runtime', () => {
     })
 
     expect(diagnosticsResponse.queryTemplate).toContain('timescaledb_information.chunks')
+    expect(diagnosticsResponse.queryTemplate).toContain('timescaledb_toolkit')
+    expect(diagnosticsResponse.queryTemplate).toContain('pg_stat_statements')
     expect(diagnosticsResponse.payload).toMatchObject({
       hypertableCount: 2,
       chunkCount: 3,
       jobs: expect.arrayContaining([expect.objectContaining({ jobType: 'compression policy' })]),
+      jobHistory: expect.arrayContaining([expect.objectContaining({ duration: '12s' })]),
+      aggregateFreshness: expect.arrayContaining([expect.objectContaining({ status: 'healthy' })]),
+      toolkitDiagnostics: expect.arrayContaining([expect.objectContaining({ name: 'timescaledb_toolkit' })]),
+      timeBucketWindows: expect.arrayContaining([expect.objectContaining({ gapfill: 'available' })]),
+      timeBucketQueryStats: expect.arrayContaining([expect.objectContaining({ meanExecMs: '48.00' })]),
       diagnostics: expect.arrayContaining([expect.objectContaining({ signal: 'Compression Coverage' })]),
     })
   })

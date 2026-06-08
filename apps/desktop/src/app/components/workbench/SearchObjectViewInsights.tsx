@@ -18,6 +18,8 @@ export function SearchObjectViewInsights({
   const fields = records(payload.fields).length ? records(payload.fields) : records(payload.mappings)
   const shards = records(payload.shards)
   const lifecyclePolicies = records(payload.lifecyclePolicies)
+  const slowLogs = records(payload.slowLogs)
+  const allocationDecisions = records(payload.allocationDecisions)
 
   if (!isInsightKind(kind)) {
     return null
@@ -32,6 +34,8 @@ export function SearchObjectViewInsights({
         connection={connection}
         lifecyclePolicies={lifecyclePolicies}
       />
+      <SlowLogStatus slowLogs={slowLogs} />
+      <AllocationStatus allocationDecisions={allocationDecisions} />
     </>
   )
 }
@@ -120,6 +124,80 @@ function ShardHealth({ shards }: { shards: JsonRecord[] }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </section>
+  )
+}
+
+function SlowLogStatus({ slowLogs }: { slowLogs: JsonRecord[] }) {
+  if (!slowLogs.length) {
+    return null
+  }
+
+  const alertLevels = slowLogs.filter((entry) => /warn|error/i.test(stringValue(entry.level))).length
+  const kinds = new Set(slowLogs.map((entry) => stringValue(entry.kind)).filter(Boolean))
+
+  return (
+    <section className="object-view-section" aria-label="Search slow log posture">
+      <div className="object-view-section-heading">
+        <ObjectSearchIcon className="panel-inline-icon" />
+        <strong>Slow Log Posture</strong>
+        <span>{slowLogs.length} threshold(s)</span>
+      </div>
+      <div className="object-view-card-grid">
+        <MetricCard label="Thresholds" value={String(slowLogs.length)} />
+        <MetricCard label="Warn/Error" value={String(alertLevels)} />
+        <MetricCard label="Kinds" value={String(kinds.size)} />
+      </div>
+      <div className="object-view-chip-row">
+        {slowLogs.slice(0, 12).map((entry, index) => (
+          <span key={`${displayValue(entry.index)}-${displayValue(entry.kind)}-${index}`}>
+            {displayValue(entry.index)}
+            {' '}
+            <strong>{displayValue(entry.kind)}</strong>
+            {' '}
+            {displayValue(entry.level)}
+            {' '}
+            {displayValue(entry.threshold)}
+          </span>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function AllocationStatus({ allocationDecisions }: { allocationDecisions: JsonRecord[] }) {
+  if (!allocationDecisions.length) {
+    return null
+  }
+
+  const constrained = allocationDecisions.filter((entry) => /no|throttle|deny/i.test(stringValue(entry.decision))).length
+  const nodes = new Set(allocationDecisions.map((entry) => stringValue(entry.node)).filter(Boolean))
+
+  return (
+    <section className="object-view-section" aria-label="Shard allocation posture">
+      <div className="object-view-section-heading">
+        <ObjectIndexIcon className="panel-inline-icon" />
+        <strong>Allocation Posture</strong>
+        <span>{allocationDecisions.length} decision(s)</span>
+      </div>
+      <div className="object-view-card-grid">
+        <MetricCard label="Decisions" value={String(allocationDecisions.length)} />
+        <MetricCard label="Constrained" value={String(constrained)} />
+        <MetricCard label="Nodes" value={String(nodes.size)} />
+      </div>
+      <div className="object-view-chip-row">
+        {allocationDecisions.slice(0, 12).map((entry, index) => (
+          <span key={`${displayValue(entry.index)}-${displayValue(entry.shard)}-${index}`}>
+            {displayValue(entry.index)}
+            {' '}
+            <strong>{displayValue(entry.shard)}</strong>
+            {' '}
+            {displayValue(entry.decision)}
+            {' '}
+            {displayValue(entry.node)}
+          </span>
+        ))}
       </div>
     </section>
   )

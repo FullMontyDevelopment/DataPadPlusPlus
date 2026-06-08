@@ -1,6 +1,7 @@
 import type { ConnectionProfile, QueryTabState } from '@datapadplusplus/shared-types'
 import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 import type { TimeSeriesOperationAction, TimeSeriesOperationIconName } from './TimeSeriesObjectViewOperations'
+import { timescaleObjectName, timescaleOperationActions } from './TimeSeriesObjectViewOperations.timescale-actions'
 
 type JsonRecord = Record<string, unknown>
 
@@ -54,6 +55,10 @@ export function timeSeriesOperationActions(
     actions.push(action(connection, 'uid.repair', 'UID Repair', 'Prepare a guarded UID metadata repair workflow', 'storage', target.objectName, baseParameters))
   }
 
+  if (connection.engine === 'timescaledb') {
+    actions.push(...timescaleOperationActions(connection, normalizedKind, target, baseParameters, supported))
+  }
+
   if (isImportExportLike(connection.engine, normalizedKind) && supported.has('importExport')) {
     actions.push(action(connection, 'data.import-export', 'Export', 'Prepare an engine-native time-series export workflow', target.icon, target.objectName, {
       ...baseParameters,
@@ -89,7 +94,9 @@ function timeSeriesOperationTarget(
   const measurement = stringValue(payload.measurement ?? payload.name ?? state?.label)
   const label = stringValue(state?.label)
   const objectName = stringValue(
-    connection.engine === 'influxdb'
+    connection.engine === 'timescaledb'
+      ? timescaleObjectName(payload, label)
+      : connection.engine === 'influxdb'
       ? kind.includes('bucket')
         ? payload.bucket ?? payload.name ?? label
         : payload.measurement ?? payload.name ?? label ?? payload.bucket
@@ -122,6 +129,9 @@ function supportedTimeSeriesOperations(connection: ConnectionProfile) {
   if (capabilities.has('supports_import_export')) {
     supported.add('importExport')
   }
+  if (capabilities.has('supports_backup_restore')) {
+    supported.add('backupRestore')
+  }
   if (capabilities.has('supports_admin_operations')) {
     supported.add('admin')
   }
@@ -139,6 +149,9 @@ function timeSeriesOperationParameters(
     bucket: target.bucket || undefined,
     measurement: target.measurement || undefined,
     metric: target.metric || undefined,
+    schema: payload.schema ?? payload.hypertableSchema ?? payload.viewSchema,
+    table: payload.table ?? payload.hypertableName ?? payload.viewName ?? payload.name,
+    jobId: payload.jobId ?? payload.job_id ?? payload.id,
     tag: payload.tag ?? payload.name,
     field: payload.field,
     query: target.queryTemplate,
@@ -186,6 +199,10 @@ function isOpenTsdbUidLike(kind: string) {
 }
 
 function isImportExportLike(engine: string, kind: string) {
+  if (engine === 'timescaledb') {
+    return false
+  }
+
   if (engine === 'prometheus') {
     return ['metric', 'metrics', 'series', 'label', 'labels', 'tsdb', 'storage'].includes(kind)
   }
@@ -215,6 +232,10 @@ function defaultQueryTemplate(
   bucket: string,
   measurement: string,
 ) {
+  if (connection.engine === 'timescaledb') {
+    return `select * from ${objectName || '"public"."<hypertable>"'} limit 100;`
+  }
+
   if (connection.engine === 'prometheus') {
     return objectName || 'up'
   }
@@ -232,6 +253,10 @@ function defaultQueryTemplate(
 }
 
 function defaultExportFormat(engine: string) {
+  if (engine === 'timescaledb') {
+    return 'csv'
+  }
+
   if (engine === 'influxdb') {
     return 'line-protocol'
   }
@@ -257,6 +282,12 @@ function deleteLabel(engine: string, kind: string) {
 
 function targetIcon(engine: string, kind: string): TimeSeriesOperationIconName {
   const normalizedKind = normalizeKind(kind)
+  if (engine === 'timescaledb') {
+    if (normalizedKind.includes('job') || normalizedKind.includes('aggregate')) return 'job'
+    if (normalizedKind.includes('compression') || normalizedKind.includes('retention')) return 'storage'
+    return 'metric'
+  }
+
   if (engine === 'influxdb') {
     return normalizedKind.includes('bucket') ? 'bucket' : 'series'
   }

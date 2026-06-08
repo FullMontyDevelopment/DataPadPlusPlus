@@ -1,5 +1,6 @@
 import type { ConnectionProfile, OperationPlanRequest } from '@datapadplusplus/shared-types'
 import { defaultQueryTextForConnection } from '../../app/state/helpers'
+import { searchPreviewExecutionGate } from './search-runtime-support'
 
 export function searchOperationRequest(connection: ConnectionProfile, request: OperationPlanRequest) {
   const parameters = request.parameters ?? {}
@@ -203,12 +204,38 @@ export function searchOperationRequest(connection: ConnectionProfile, request: O
       : searchRequest('GET', '/_security/role', undefined)
   }
 
+  if (request.operationId.endsWith('diagnostics.slow-log')) {
+    return JSON.stringify({
+      operation: 'Search.SlowLogDashboardPlan',
+      requests: [
+        { method: 'GET', path: '/_settings?filter_path=**.search.slowlog*' },
+        { method: 'GET', path: '/_nodes/stats/indices/search,indexing' },
+        { method: 'GET', path: `/${index}/_stats/search,indexing` },
+      ],
+      executionGate: searchPreviewExecutionGate(connection, 'diagnostics.slow-log'),
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('diagnostics.allocation')) {
+    return JSON.stringify({
+      operation: 'Search.AllocationExplainPlan',
+      requests: [
+        { method: 'GET', path: '/_cluster/allocation/explain' },
+        { method: 'GET', path: '/_cat/shards?format=json&bytes=b' },
+        { method: 'GET', path: '/_cluster/health?level=shards' },
+      ],
+      executionGate: searchPreviewExecutionGate(connection, 'diagnostics.allocation'),
+    }, null, 2)
+  }
+
   if (request.operationId.endsWith('data.import-export')) {
     return searchRequest('POST', `/${index}/_search`, {
       query: parameters.query ?? { match_all: {} },
       size: 1000,
       sort: ['_doc'],
       format: parameters.format ?? 'ndjson',
+    }, {
+      executionGate: searchPreviewExecutionGate(connection, 'import-export'),
     })
   }
 
@@ -216,6 +243,8 @@ export function searchOperationRequest(connection: ConnectionProfile, request: O
     return searchRequest('PUT', '/_snapshot/<repository>/<snapshot>', {
       indices: request.objectName ?? '*',
       include_global_state: false,
+    }, {
+      executionGate: searchPreviewExecutionGate(connection, 'snapshot'),
     })
   }
 
@@ -229,11 +258,17 @@ export function searchOperationRequest(connection: ConnectionProfile, request: O
   return defaultQueryTextForConnection(connection)
 }
 
-function searchRequest(method: string, path: string, body: unknown) {
+function searchRequest(
+  method: string,
+  path: string,
+  body: unknown,
+  extra?: Record<string, unknown>,
+) {
   return JSON.stringify({
     method,
     path,
     ...(body === undefined ? {} : { body }),
+    ...extra,
   }, null, 2)
 }
 

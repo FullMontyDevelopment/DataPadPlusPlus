@@ -3,12 +3,14 @@ use super::super::*;
 mod catalog;
 mod connection;
 mod diagnostics;
+mod editing;
 mod explorer;
 mod query;
 
 use catalog::*;
 use connection::test_litedb_connection;
 use diagnostics::collect_litedb_diagnostics;
+use editing::{execute_litedb_data_edit, plan_litedb_data_edit};
 use explorer::{inspect_litedb_explorer_node, list_litedb_explorer_nodes};
 
 pub(crate) struct LiteDbAdapter;
@@ -61,6 +63,22 @@ impl DatastoreAdapter for LiteDbAdapter {
         request: &ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
         Ok(no_additional_pages_response("litedb", request))
+    }
+
+    async fn plan_data_edit(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &DataEditPlanRequest,
+    ) -> Result<DataEditPlanResponse, CommandError> {
+        Ok(plan_litedb_data_edit(self, connection, request))
+    }
+
+    async fn execute_data_edit(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &DataEditExecutionRequest,
+    ) -> Result<DataEditExecutionResponse, CommandError> {
+        execute_litedb_data_edit(self, connection, request).await
     }
 
     async fn collect_diagnostics(

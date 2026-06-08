@@ -1,8 +1,9 @@
 import type { ConnectionProfile, OperationPlanRequest } from '@datapadplusplus/shared-types'
 import { defaultQueryTextForConnection } from '../../app/state/helpers'
+import { duckDbBackupRestoreRequest, duckDbImportExportRequest } from './browser-duckdb-file-operations'
 import { cockroachOperationRequest, duckDbOperationRequest, mysqlOperationRequest, postgresOperationRequest, sqlServerOperationRequest, sqliteOperationRequest } from './browser-sql-dialect-operations'
 import { postgresBackupRestoreRequest, postgresImportExportRequest } from './browser-postgres-file-operations'
-import { duckDbImportFileRequest, quoteSqlIdentifier, suggestedSqlIndexName } from './browser-sql-operation-format'
+import { quoteSqlIdentifier, suggestedSqlIndexName } from './browser-sql-operation-format'
 
 export function sqlOperationRequest(connection: ConnectionProfile, request: OperationPlanRequest) {
   const parameters = request.parameters ?? {}
@@ -190,13 +191,8 @@ function sqlSecurityInspectRequest(connection: ConnectionProfile, objectName: st
 }
 
 function sqlImportExportRequest(connection: ConnectionProfile, objectName: string, parameters: Record<string, unknown>) {
-  const format = String(parameters.format ?? 'csv')
-
   if (connection.engine === 'duckdb') {
-    if (parameters.mode === 'import') {
-      return duckDbImportFileRequest(objectName, parameters)
-    }
-    return `copy (select * from ${objectName}) to '<selected-file>.${format === 'parquet' ? 'parquet' : 'csv'}' (format ${format});`
+    return duckDbImportExportRequest(objectName, parameters)
   }
 
   if (connection.engine === 'postgresql' || connection.engine === 'timescaledb') {
@@ -231,7 +227,7 @@ function sqlBackupRestoreRequest(connection: ConnectionProfile, objectName: stri
   }
 
   if (connection.engine === 'duckdb') {
-    return "export database '<selected-folder>' (format parquet);"
+    return duckDbBackupRestoreRequest(parameters)
   }
 
   if (connection.engine === 'mysql' || connection.engine === 'mariadb') {

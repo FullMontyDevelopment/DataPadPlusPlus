@@ -79,6 +79,7 @@ const SQL_SELECT_ENGINES = new Set<ConnectionProfile['engine']>([
   'mariadb',
   'sqlite',
   'timescaledb',
+  'oracle',
   'duckdb',
   'clickhouse',
   'snowflake',

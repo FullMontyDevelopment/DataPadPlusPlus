@@ -3,12 +3,14 @@ use super::super::*;
 mod catalog;
 mod connection;
 mod diagnostics;
+mod editing;
 mod explorer;
 mod query;
 
 use catalog::*;
 use connection::test_oracle_connection;
 use diagnostics::collect_oracle_diagnostics;
+use editing::{execute_oracle_data_edit, oracle_data_edit_plan};
 use explorer::{inspect_oracle_explorer_node, list_oracle_explorer_nodes};
 
 pub(crate) struct OracleAdapter;
@@ -53,6 +55,26 @@ impl DatastoreAdapter for OracleAdapter {
         notices: Vec<QueryExecutionNotice>,
     ) -> Result<ExecutionResultEnvelope, CommandError> {
         query::execute_oracle_query(self, connection, request, notices).await
+    }
+
+    async fn plan_data_edit(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &DataEditPlanRequest,
+    ) -> Result<DataEditPlanResponse, CommandError> {
+        Ok(oracle_data_edit_plan(
+            connection,
+            &self.experience_manifest(),
+            request,
+        ))
+    }
+
+    async fn execute_data_edit(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &DataEditExecutionRequest,
+    ) -> Result<DataEditExecutionResponse, CommandError> {
+        execute_oracle_data_edit(connection, &self.experience_manifest(), request).await
     }
 
     async fn fetch_result_page(

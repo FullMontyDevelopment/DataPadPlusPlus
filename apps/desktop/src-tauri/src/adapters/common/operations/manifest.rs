@@ -384,17 +384,41 @@ pub(crate) fn operation_manifests_for_manifest(
     }
 
     if manifest.family == "search" && manifest_has(manifest, "supports_query_profile") {
-        operations.push(operation_manifest(
-            manifest,
-            "task.cancel",
-            "Cancel Task",
-            "query",
-            "write",
-            &["supports_query_profile"],
-            &["diff", "raw"],
-            "Preview canceling a running search cluster task.",
-            true,
-        ));
+        operations.extend([
+            operation_manifest(
+                manifest,
+                "task.cancel",
+                "Cancel Task",
+                "query",
+                "write",
+                &["supports_query_profile"],
+                &["diff", "raw"],
+                "Preview canceling a running search cluster task.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "diagnostics.slow-log",
+                "Slow Log Plan",
+                "cluster",
+                "diagnostic",
+                &["supports_query_profile"],
+                &["metrics", "table", "json", "raw"],
+                "Plan slow-log settings, search counters, and index-level query/indexing diagnostics.",
+                false,
+            ),
+            operation_manifest(
+                manifest,
+                "diagnostics.allocation",
+                "Allocation Explain",
+                "cluster",
+                "diagnostic",
+                &["supports_query_profile"],
+                &["table", "json", "raw"],
+                "Plan shard allocation explain and cat-shards requests with cluster-health context.",
+                false,
+            ),
+        ]);
     }
 
     if manifest.family == "search" && manifest_has(manifest, "supports_backup_restore") {
@@ -1866,6 +1890,8 @@ mod tests {
         assert!(operation_ids.contains(&"elasticsearch.pipeline.put"));
         assert!(operation_ids.contains(&"elasticsearch.pipeline.simulate"));
         assert!(operation_ids.contains(&"elasticsearch.task.cancel"));
+        assert!(operation_ids.contains(&"elasticsearch.diagnostics.slow-log"));
+        assert!(operation_ids.contains(&"elasticsearch.diagnostics.allocation"));
         assert!(operation_ids.contains(&"elasticsearch.data.import-export"));
         assert!(operation_ids.contains(&"elasticsearch.snapshot.restore"));
         assert_eq!(

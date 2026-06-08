@@ -74,9 +74,11 @@ export function planDataEditLocally(
     ...browserDataEditWarnings(connection, request),
   ]
   const destructive = browserDataEditIsDestructive(request)
-  const confirmationText = destructive
+  const confirmationText = connection.engine === 'litedb' && isLiteDbDocumentCrud(request.editKind)
     ? `CONFIRM ${connection.engine.toUpperCase()} ${request.editKind.toUpperCase()}`
-    : undefined
+    : destructive
+      ? `CONFIRM ${connection.engine.toUpperCase()} ${request.editKind.toUpperCase()}`
+      : undefined
   const plan: DataEditPlanResponse['plan'] = {
     operationId: `${connection.engine}.data-edit.${request.editKind}`,
     engine: connection.engine,
@@ -296,7 +298,16 @@ function browserEditableScopes(
   family: ConnectionProfile['family'],
 ): DatastoreExperienceManifest['editableScopes'] {
   if (
-    ['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'sqlite', 'timescaledb'].includes(
+    [
+      'postgresql',
+      'cockroachdb',
+      'sqlserver',
+      'mysql',
+      'mariadb',
+      'sqlite',
+      'timescaledb',
+      'oracle',
+    ].includes(
       engine,
     )
   ) {
@@ -325,6 +336,18 @@ function browserEditableScopes(
           'update-document',
           'delete-document',
         ],
+        requiresPrimaryKey: true,
+        liveExecution: false,
+      },
+    ]
+  }
+
+  if (engine === 'litedb') {
+    return [
+      {
+        scope: 'collection',
+        label: 'Collection Documents',
+        editKinds: ['insert-document', 'update-document', 'delete-document'],
         requiresPrimaryKey: true,
         liveExecution: false,
       },
@@ -417,6 +440,10 @@ function browserEditableScopes(
   }
 
   return []
+}
+
+function isLiteDbDocumentCrud(editKind: string) {
+  return ['insert-document', 'update-document', 'delete-document'].includes(editKind)
 }
 
 function browserDiagnosticsTabs(

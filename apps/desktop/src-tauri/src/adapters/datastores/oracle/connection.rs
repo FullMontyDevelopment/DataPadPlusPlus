@@ -4,19 +4,33 @@ pub(super) async fn test_oracle_connection(
     connection: &ResolvedConnectionProfile,
 ) -> Result<ConnectionTestResult, CommandError> {
     let started = Instant::now();
+    let sqlplus_path = oracle_sqlplus_path(connection);
+    let mut warnings = vec![
+        "Dictionary views and DBMS_XPLAN/profile access depend on user grants; unavailable actions should remain permission-aware."
+            .into(),
+    ];
+    if sqlplus_path.is_none() {
+        warnings.push(
+            "Oracle live execution requires an Oracle SQLPlus client path; this profile will use guarded contract previews until one is configured."
+                .into(),
+        );
+    }
+
     Ok(ConnectionTestResult {
         ok: true,
         engine: connection.engine.clone(),
-        message: format!(
-            "Oracle adapter accepted {} as a SQL/PLSQL contract profile; native OCI execution is isolated for the Oracle driver pass.",
-            connection.name
-        ),
-        warnings: vec![
-            "Oracle live execution requires Oracle client/runtime prerequisites or a thin driver path; this adapter currently builds guarded SQL/PLSQL request, metadata, and diagnostics payloads."
-                .into(),
-            "Dictionary views and DBMS_XPLAN/profile access depend on user grants; unavailable actions should remain permission-aware."
-                .into(),
-        ],
+        message: if let Some(path) = sqlplus_path {
+            format!(
+                "Oracle adapter accepted {} with SQLPlus live execution configured at {}.",
+                connection.name, path
+            )
+        } else {
+            format!(
+                "Oracle adapter accepted {} as a SQL/PLSQL contract profile.",
+                connection.name
+            )
+        },
+        warnings,
         resolved_host: connection.host.clone(),
         resolved_database: Some(oracle_service_name(connection)),
         duration_ms: Some(duration_ms(started)),
@@ -93,9 +107,32 @@ pub(super) fn oracle_connect_descriptor(connection: &ResolvedConnectionProfile) 
     format!("{host}:{port}/{}", oracle_service_name(connection))
 }
 
+pub(super) fn oracle_sqlplus_path(connection: &ResolvedConnectionProfile) -> Option<String> {
+    let options = connection.oracle_options.as_ref()?;
+    let configured_path = options
+        .sql_plus_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(path) = configured_path {
+        return Some(path.to_string());
+    }
+
+    let runtime_is_sqlplus = options
+        .execution_runtime
+        .as_deref()
+        .map(|value| value.eq_ignore_ascii_case("sqlplus"))
+        .unwrap_or(false);
+    if runtime_is_sqlplus {
+        Some("sqlplus".into())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{oracle_connect_descriptor, oracle_service_name};
+    use super::{oracle_connect_descriptor, oracle_service_name, oracle_sqlplus_path};
     use crate::domain::models::{OracleConnectionOptions, ResolvedConnectionProfile};
 
     fn connection() -> ResolvedConnectionProfile {
@@ -172,5 +209,27 @@ mod tests {
             oracle_connect_descriptor(&connection),
             "tcps://dbhost:1521/sales_high"
         );
+    }
+
+    #[test]
+    fn oracle_sqlplus_path_requires_runtime_or_path() {
+        assert_eq!(oracle_sqlplus_path(&connection()), None);
+
+        let mut with_path = connection();
+        with_path.oracle_options = Some(OracleConnectionOptions {
+            sql_plus_path: Some("C:/oracle/bin/sqlplus.exe".into()),
+            ..Default::default()
+        });
+        assert_eq!(
+            oracle_sqlplus_path(&with_path),
+            Some("C:/oracle/bin/sqlplus.exe".into())
+        );
+
+        let mut with_runtime = connection();
+        with_runtime.oracle_options = Some(OracleConnectionOptions {
+            execution_runtime: Some("sqlplus".into()),
+            ..Default::default()
+        });
+        assert_eq!(oracle_sqlplus_path(&with_runtime), Some("sqlplus".into()));
     }
 }

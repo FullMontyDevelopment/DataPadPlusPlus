@@ -1,7 +1,15 @@
 import type { ConnectionProfile, DataEditPlanRequest } from '@datapadplusplus/shared-types'
+import {
+  dynamoDbDataEditRequest,
+  dynamoDbDataEditWarnings,
+} from './browser-dynamodb-data-edit-request'
 import { keyValueEditRequest } from './browser-keyvalue-edit-request'
-
-const SECRET_REPLACEMENT = '********'
+import { liteDbEditRequest } from './browser-litedb-data-edit-request'
+import { oracleDataEditRequest } from './browser-oracle-data-edit-request'
+import {
+  timescaleDataEditRequest,
+  timescaleDataEditWarnings,
+} from './browser-timescale-data-edit-request'
 
 export function browserDataEditWarnings(
   connection: ConnectionProfile,
@@ -12,6 +20,10 @@ export function browserDataEditWarnings(
 
   if (isSqlRowEditConnection(connection) && !target.table) {
     warnings.push('SQL data edits need a target table.')
+  }
+
+  if (connection.engine === 'timescaledb') {
+    warnings.push(...timescaleDataEditWarnings(request))
   }
 
   if (
@@ -66,6 +78,10 @@ export function browserDataEditWarnings(
     warnings.push('Wide-column edits require complete key conditions.')
   }
 
+  if (connection.engine === 'dynamodb') {
+    warnings.push(...dynamoDbDataEditWarnings(request))
+  }
+
   if (
     request.changes.length === 0 &&
     !['delete-row', 'delete-key', 'stream-delete-entry', 'timeseries-delete-sample', 'vector-remove-member', 'delete-item', 'delete-document', 'persist-ttl'].includes(request.editKind)
@@ -107,6 +123,10 @@ export function browserDataEditRequest(
   connection: ConnectionProfile,
   request: DataEditPlanRequest,
 ) {
+  if (connection.engine === 'litedb') {
+    return liteDbEditRequest(request)
+  }
+
   if (connection.engine === 'mongodb') {
     return mongoEditRequest(request)
   }
@@ -116,7 +136,7 @@ export function browserDataEditRequest(
   }
 
   if (connection.engine === 'dynamodb') {
-    return dynamoDbEditRequest(request)
+    return dynamoDbDataEditRequest(request)
   }
 
   if (connection.engine === 'elasticsearch' || connection.engine === 'opensearch') {
@@ -125,6 +145,14 @@ export function browserDataEditRequest(
 
   if (connection.engine === 'cassandra') {
     return cassandraEditRequest(request)
+  }
+
+  if (connection.engine === 'timescaledb') {
+    return timescaleDataEditRequest(request)
+  }
+
+  if (connection.engine === 'oracle') {
+    return oracleDataEditRequest(request)
   }
 
   return sqlEditRequest(connection, request)
@@ -210,50 +238,6 @@ function documentRenameObject(request: DataEditPlanRequest) {
       const path = dataEditPath(change.field, change.path)
       return [path, change.newName ?? path]
     }),
-  )
-}
-
-function dynamoDbEditRequest(request: DataEditPlanRequest) {
-  if (request.editKind === 'delete-item') {
-    return JSON.stringify(
-      {
-        TableName: request.target.table ?? '<table>',
-        Key: request.target.itemKey ?? {},
-        ReturnValues: 'ALL_OLD',
-      },
-      null,
-      2,
-    )
-  }
-
-  if (request.editKind === 'put-item') {
-    return JSON.stringify(
-      {
-        TableName: request.target.table ?? '<table>',
-        Item: request.changes[0]?.value ?? {},
-        ReturnValues: 'NONE',
-      },
-      null,
-      2,
-    )
-  }
-
-  return JSON.stringify(
-    {
-      TableName: request.target.table ?? '<table>',
-      Key: request.target.itemKey ?? {},
-      UpdateExpression: 'SET #field = :value',
-      ExpressionAttributeNames: { '#field': request.changes[0]?.field ?? '<field>' },
-      ExpressionAttributeValues: {
-        ':value': secretAwareJsonValue(
-          request.changes[0]?.field ?? '<field>',
-          request.changes[0]?.value ?? '<value>',
-        ),
-      },
-      ReturnValues: 'ALL_NEW',
-    },
-    null,
-    2,
   )
 }
 
@@ -367,13 +351,4 @@ function dataEditPath(field?: string, path?: string[]) {
 
 function isEmptyRecord(value?: Record<string, unknown>) {
   return !value || Object.keys(value).length === 0
-}
-
-function secretAwareJsonValue(name: string, value: unknown) {
-  return isSecretLikeName(name) ? SECRET_REPLACEMENT : value
-}
-
-function isSecretLikeName(value: string) {
-  const normalized = value.toLowerCase().replaceAll(/[^a-z0-9]+/g, '_')
-  return /(^|_)(password|pwd|pass|token|secret|secretkey|apikey|api_key|authtoken|auth_token|accesstoken|access_token)($|_)/.test(normalized)
 }

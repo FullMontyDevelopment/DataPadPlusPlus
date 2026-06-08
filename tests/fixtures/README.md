@@ -15,6 +15,14 @@ Connection strings, credentials, and seeded smoke queries are listed in
 - Validate PostgreSQL fixture evidence: `npm run fixtures:validate:postgres`
 - Validate MongoDB fixture evidence: `npm run fixtures:validate:mongodb`
 - Validate Redis/Redis Stack/Valkey fixture evidence: `npm run fixtures:validate:redis`
+- Validate TimescaleDB fixture evidence: `npm run fixtures:validate:timescale`
+- Validate Oracle fixture evidence: `npm run fixtures:validate:oracle`
+- Validate DynamoDB Local fixture evidence: `npm run fixtures:validate:dynamodb`
+- Validate opt-in DynamoDB AWS cloud evidence: `npm run fixtures:validate:dynamodb:cloud`
+- Validate Elasticsearch/OpenSearch fixture evidence: `npm run fixtures:validate:search`
+- Validate DuckDB local fixture evidence: `npm run fixtures:validate:duckdb`
+- Validate LiteDB local-file and sidecar dispatch evidence: `npm run fixtures:validate:litedb`
+- Validate opt-in LiteDB .NET sidecar evidence: `DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE=1 npm run fixtures:validate:litedb:dotnet`
 - Stop and remove volumes: `npm run fixtures:down`
 
 Run seeded Rust fixture tests with:
@@ -56,6 +64,73 @@ npm run fixtures:validate:redis -- --require-stack --require-valkey
 ```
 
 The validator checks core Redis and Valkey seeded keys plus stream consumer groups, validates Valkey core key-file export/import command primitives, TTL behavior, permission-denied guarded writes, and large key-file primitives, and checks Redis Stack JSON, TimeSeries, Bloom, Cuckoo, CMS, TopK, t-digest, and vector-set fixture data when the selected Redis Stack image exposes vector commands. Add `--require-vector` only with a Redis Stack image that exposes `VADD`; otherwise vector-set live fixture evidence is intentionally image-dependent and optional.
+
+For TimescaleDB optional evidence, start and seed the `sqlplus` profile, then run the TimescaleDB validator:
+
+```powershell
+npm run fixtures:up:profile -- sqlplus
+npm run fixtures:seed:all
+npm run fixtures:validate:timescale
+```
+
+The validator checks TimescaleDB extension/version visibility, seeded hypertable and chunk catalog rows, seeded metric volume, hypertable row-edit before/after evidence with `RETURNING` row snapshots, restricted catalog visibility and permission-denied writes through a temporary `fixture_timescale_readonly` role, continuous aggregate and policy/job boundary evidence, compressed chunk and aggregate lag evidence, Toolkit availability/function variants, bounded CSV export/import evidence, and failed-job diagnostics through transient `fixture_timescale_*` objects. Live policy/file execution remains preview-first; this optional validator proves metadata, permissions, and planner boundary evidence while keeping production-style policy/job execution outside the scoped claim.
+
+For Oracle optional evidence, start and seed the `oracle` profile, then run the Oracle validator:
+
+```powershell
+npm run fixtures:up:profile -- oracle
+npm run fixtures:seed:all
+npm run fixtures:validate:oracle
+```
+
+The validator checks Oracle seeded relational volume, dictionary/security/storage metadata, DBMS_XPLAN output, SQL Monitor visibility or permission-boundary evidence, PL/SQL package source and compile diagnostics, row identity and DML `RETURNING` primitives, SQLPlus bounded CSV-style export/import evidence, restricted dictionary denial evidence, and Data Pump/RMAN preview boundary wording through transient `fixture_oracle_*` objects. Desktop Oracle SQLPlus query and primary-key/ROWID row-edit execution are now configurable per connection; Data Pump and RMAN execution remain outside the scoped claim until guarded executors are added.
+
+For DynamoDB Local optional evidence, start and seed the `cloud-contract` profile, then run the DynamoDB validator:
+
+```powershell
+npm run fixtures:up:profile -- cloud-contract
+npm run fixtures:seed:all
+npm run fixtures:validate:dynamodb
+```
+
+The validator checks seeded table volume, consumed-capacity payloads, table/key/GSI/TTL metadata through a transient `fixture_dynamodb_contract` table, Query/GetItem/PartiQL read evidence, conditional item-edit before/after evidence with `attribute_exists` and `attribute_not_exists`, and local backup/import-export boundary evidence. The adapter now emits deterministic SigV4-shaped local/endpoint-override request evidence and diagnostics disabled reasons.
+
+For opt-in live AWS validation, configure either `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` or `DATAPADPLUSPLUS_AWS_PROFILE`/`AWS_PROFILE`, then run:
+
+```powershell
+$env:DATAPADPLUSPLUS_DYNAMODB_CLOUD_VALIDATE = '1'
+$env:DATAPADPLUSPLUS_DYNAMODB_CLOUD_REGION = 'us-east-1'
+$env:DATAPADPLUSPLUS_DYNAMODB_CLOUD_TABLE = '<optional-table-name>'
+npm run fixtures:validate:dynamodb:cloud
+```
+
+The cloud validator signs DynamoDB, STS, CloudWatch, and IAM requests with AWS4-HMAC-SHA256 and checks credential identity, `ListTables`, `DescribeLimits`, optional table diagnostics, optional CloudWatch metrics, and optional IAM simulation. Set `DATAPADPLUSPLUS_DYNAMODB_CLOUD_CREDENTIAL_PROVIDER=assume-role` with `DATAPADPLUSPLUS_DYNAMODB_CLOUD_ASSUME_ROLE_ARN` for STS AssumeRole, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_CREDENTIAL_PROVIDER=web-identity` with `DATAPADPLUSPLUS_DYNAMODB_CLOUD_WEB_IDENTITY_ROLE_ARN` plus `DATAPADPLUSPLUS_DYNAMODB_CLOUD_WEB_IDENTITY_TOKEN_FILE`, or `DATAPADPLUSPLUS_DYNAMODB_CLOUD_CREDENTIAL_PROVIDER=ecs-task` / `ec2-instance` with `DATAPADPLUSPLUS_DYNAMODB_CLOUD_ALLOW_METADATA=1` to validate ECS task and EC2 metadata temporary-provider paths. Set `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_TABLE=1`, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_CLOUDWATCH=1`, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_IAM=1`, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_ASSUME_ROLE=1`, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_WEB_IDENTITY=1`, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_ECS_TASK=1`, or `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_EC2_INSTANCE=1` to make those optional checks fail closed. Backup/create and S3 import/export execution remain preview-first; the validator only runs read-only preflights unless a later guarded executor explicitly promotes them.
+
+For Elasticsearch/OpenSearch optional evidence, start and seed the `search` profile, then run the search validator:
+
+```powershell
+npm run fixtures:up:profile -- search
+npm run fixtures:seed:all
+npm run fixtures:validate:search
+```
+
+The validator checks seeded `products` and `orders` index volume, mappings, aggregation/profile responses, explicit-id document edit before/after evidence through transient `fixture-search-contract-*` indexes, slow-log settings, node search/indexing stats, shard/allocation diagnostic boundaries, bounded `_search` export plus `_bulk` import primitives through transient `fixture-search-import-*` indexes, and OpenSearch SQL, ISM, security, and Performance Analyzer plugin boundaries. Desktop file/cloud import-export, snapshot execution, production cloud auth, managed SigV4/IAM execution, OpenSearch SQL plugin execution, Performance Analyzer dashboards, and broader admin execution remain outside the scoped search native-complete claims until separately guarded.
+
+For DuckDB local optional evidence, run the bundled DuckDB validator:
+
+```powershell
+npm run fixtures:validate:duckdb
+```
+
+The validator creates a temporary `.duckdb` file through the bundled Rust DuckDB runtime and checks bundled local-file read/EXPLAIN/profile query execution, catalog explorer roots, table inspection payloads, diagnostics templates, write SQL guard failures, plan-only file import boundaries, guarded CSV export/import, backup-folder execution, database-file preflight/read-only guard evidence, lock-boundary evidence for filesystem read/write and DuckDB open probes, JSON/Parquet preloaded-extension-only boundary evidence, restore-package preflight for `schema.sql`, `load.sql`, detected formats, file counts, bytes, target write/open readiness, and explicit restore/admin/extension execution-boundary evidence for scoped-out destructive `IMPORT DATABASE`, admin/DDL, and extension execution. Docker is not required. Extension-loaded live JSON/Parquet execution and any promoted local OLAP mutation/admin/extension execution remain outside the scoped native-complete evidence until separately guarded.
+
+For LiteDB local-file and sidecar dispatch evidence, run the LiteDB validator:
+
+```powershell
+npm run fixtures:validate:litedb
+```
+
+The validator runs focused Rust unit tests against temporary `.db` files and checks local-file read/write open preflight, read-only write blocking, password/encryption posture, lock-boundary metadata, configured sidecar read-dispatch through both a deterministic fixture-sidecar token and a spawned local sidecar-process fixture, bounded response normalization, process open-failure mapping, timeout clamps, redacted failure output, and sidecar-shaped document CRUD planning. Docker and a real .NET LiteDB engine sidecar are not required for the default gate. The opt-in `.NET` sidecar validator, run with `DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE=1 npm run fixtures:validate:litedb:dotnet` after building the sidecar project, creates a temporary real LiteDB database and validates collection listing, bounded reads, index metadata, guarded full-document insert/update/delete, before/after reads, read-only mutation blocking, `_id` mismatch blocking, missing-file error mapping, and redaction. Encrypted-file validation, import/export execution, packaged sidecar distribution, collection/file-storage management execution, and exclusive writer-lock validation remain outside this checkpoint.
 
 ## Profiles
 
@@ -134,13 +209,13 @@ The core fixtures also include deterministic high-volume data for paging, virtua
 | Redis Stack (`redis-stack`) | `json:account:1`, `ts:orders:throughput`, Bloom/Cuckoo/CMS/TopK/t-digest module keys, optional `vectors:products` | Small module evidence set |
 | MariaDB (`sqlplus`) | `orders`, `order_items`, `perf_order_events` | 25,000 / 75,000 / 100,000 rows |
 | CockroachDB (`sqlplus`) | `orders`, `order_items`, `support_tickets` | 25,000 / 75,000 / 5,000 rows |
-| TimescaleDB (`sqlplus`) | `order_metrics`, `system_metrics` | 100,000 / 100,000 rows |
+| TimescaleDB (`sqlplus`) | `order_metrics`, `system_metrics`, transient `fixture_timescale_*` validation objects | 100,000 / 100,000 rows plus extension/catalog, row-evidence, permission-denial, continuous-aggregate, policy/job boundary, compressed chunk, Toolkit variant, aggregate lag, bounded file-copy, and failed-job diagnostic primitives |
 | ClickHouse (`analytics`) | `analytics.events`, `analytics.order_items` | 250,000 / 75,000 rows |
 | InfluxDB (`analytics`) | `service_health` | 50,000 points |
-| Search engines (`search`) | `products`, `orders` indexes | 5,000 / 10,000 documents |
+| Search engines (`search`) | `products`, `orders`, transient `fixture-search-contract-*`, and transient `fixture-search-import-*` indexes | 5,000 / 10,000 documents plus profile, document-evidence, diagnostics, and bounded import/export primitive evidence |
 | Cassandra (`widecolumn`) | `accounts_by_id`, `products_by_sku`, `orders_by_account` | 500 / 1,000 / 10,000 rows |
-| Oracle (`oracle`) | `orders`, `order_items`, `support_tickets` | 25,000 / 75,000 / 5,000 rows |
-| DynamoDB Local (`cloud-contract`) | `accounts`, `products`, `orders`, `order_events` | 500 / 1,000 / 5,000 / 10,000 items |
+| Oracle (`oracle`) | `orders`, `order_items`, `support_tickets`, transient `fixture_oracle_*` validation objects | 25,000 / 75,000 / 5,000 rows plus DBMS_XPLAN, SQL Monitor boundary, PL/SQL compile diagnostics, row identity, bounded SQLPlus export/import, restricted dictionary, and Data Pump/RMAN preview-boundary primitives |
+| DynamoDB Local (`cloud-contract`) | `accounts`, `products`, `orders`, `order_events`, transient `fixture_dynamodb_contract` validation table | 500 / 1,000 / 5,000 / 10,000 items plus local Query/GetItem/PartiQL, conditional-write, capacity, metadata, and boundary evidence |
 | Cloud API mocks (`cloud-contract`) | BigQuery, Snowflake, Cosmos DB, Neptune responses | 50-100 rows/documents/nodes per query |
 | Neo4j (`graph`) | Account/order graph | 500 accounts / 2,500 orders |
 | ArangoDB (`graph`) | `accounts`, `orders` collections | 500 / 5,000 documents |

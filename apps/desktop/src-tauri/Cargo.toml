@@ -31,5 +31,5 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-r
 tauri = { version = "2", features = ["image-png", "tray-icon"] }
 tauri-plugin-dialog = "2"
 tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls", "sql-browser-tokio"] }
-tokio = { version = "1", features = ["net"] }
+tokio = { version = "1", features = ["io-util", "net", "process", "time"] }
 tokio-util = { version = "0.7", features = ["compat"] }

@@ -63,6 +63,24 @@ describe('SearchObjectViewWorkspace', () => {
     expect(screen.getAllByText('normalize-products').length).toBeGreaterThan(0)
   })
 
+  it('renders search diagnostic slow-log and allocation panels', () => {
+    render(
+      <SearchObjectViewWorkspace
+        connection={searchConnection}
+        environment={environment}
+        tab={diagnosticsTab}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('region', { name: 'Search slow log posture' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Shard allocation posture' })).toBeInTheDocument()
+    expect(screen.getByText('Slow Logs')).toBeInTheDocument()
+    expect(screen.getByText('Allocation Decisions')).toBeInTheDocument()
+    expect(screen.getAllByText('disk watermark nearing threshold').length).toBeGreaterThan(0)
+  })
+
   it('plans native search mapping, settings, alias, and lifecycle operations from the index view', async () => {
     const onPlanOperation = vi.fn(async (): Promise<OperationPlanResponse> => operationPlanResponse)
 
@@ -253,6 +271,39 @@ const pipelineTab = {
       ],
       templates: [
         { name: 'products-template', type: 'index', patterns: 'products-*', priority: 100 },
+      ],
+    },
+  },
+} as QueryTabState
+
+const diagnosticsTab = {
+  ...indexTab,
+  id: 'tab-search-diagnostics',
+  title: 'Diagnostics',
+  objectViewState: {
+    ...indexTab.objectViewState!,
+    nodeId: 'search:diagnostics',
+    kind: 'diagnostics',
+    label: 'Diagnostics',
+    path: ['Diagnostics'],
+    queryTemplate: undefined,
+    payload: {
+      engine: 'elasticsearch',
+      objectView: 'diagnostics',
+      slowLogs: [
+        { index: 'products-v1', kind: 'query', level: 'warn', threshold: '200ms', observed: '18ms p95', source: 'index.search.slowlog.threshold.query.warn' },
+      ],
+      allocationDecisions: [
+        { index: 'orders-v1', shard: '1r', node: 'node-b', decision: 'throttle', reason: 'disk watermark nearing threshold' },
+      ],
+      nodes: [
+        { name: 'node-b', roles: 'data_hot,ingest', heapUsed: '38%', diskUsed: '29%', status: 'online' },
+      ],
+      shards: [
+        { index: 'orders-v1', shard: 1, primary: false, state: 'STARTED', node: 'node-b', documents: 50000, storage: '180 MB' },
+      ],
+      statistics: [
+        { name: 'Pending tasks', value: 1, unit: 'tasks', source: 'cluster.pending_tasks' },
       ],
     },
   },

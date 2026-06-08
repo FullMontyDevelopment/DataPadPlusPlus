@@ -58,8 +58,27 @@ pub(super) async fn execute_dynamodb_data_edit(
         }
     };
 
+    let evidence_request = dynamodb_get_item_evidence_request(request)?;
+    let before_response = if let Some(evidence) = evidence_request.as_ref() {
+        Some(dynamodb_call(connection, &evidence.operation, &evidence.body).await?)
+    } else {
+        None
+    };
     let response = dynamodb_call(connection, &edit.operation, &edit.body).await?;
+    let after_response = if let Some(evidence) = evidence_request.as_ref() {
+        Some(dynamodb_call(connection, &evidence.operation, &evidence.body).await?)
+    } else {
+        None
+    };
     messages.push(format!("DynamoDB {} completed.", request.edit_kind));
+    if evidence_request.is_some() {
+        messages.push("DynamoDB before/after item evidence captured.".into());
+    } else {
+        warnings.push(
+            "DynamoDB item evidence could not run because no complete item key was supplied."
+                .into(),
+        );
+    }
 
     Ok(data_edit_response(
         request,
@@ -67,15 +86,17 @@ pub(super) async fn execute_dynamodb_data_edit(
         true,
         messages,
         warnings,
-        Some(json!({
-            "operation": edit.operation,
-            "body": edit.body,
-            "response": response,
-        })),
+        Some(dynamodb_edit_metadata(
+            &edit,
+            &response,
+            evidence_request.as_ref(),
+            before_response.as_ref(),
+            after_response.as_ref(),
+        )),
     ))
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct DynamoDbEditRequest {
     operation: String,
     body: Value,
@@ -99,7 +120,8 @@ fn put_item_request(
     request: &DataEditExecutionRequest,
 ) -> Result<DynamoDbEditRequest, CommandError> {
     let table = required_table(request)?;
-    let mut item = item_key(request).unwrap_or_default();
+    let key = item_key(request).unwrap_or_default();
+    let mut item = key.clone();
     for change in &request.changes {
         let field = required_change_field(change)?;
         item.insert(
@@ -115,13 +137,28 @@ fn put_item_request(
         ));
     }
 
+    let mut names = Map::new();
+    let condition_expression =
+        dynamodb_key_condition_expression(&mut names, &key, "attribute_not_exists");
+    let mut body = Map::new();
+    body.insert("TableName".into(), Value::String(table));
+    body.insert("Item".into(), Value::Object(item));
+    if let Some(condition_expression) = condition_expression {
+        body.insert(
+            "ConditionExpression".into(),
+            Value::String(condition_expression),
+        );
+        body.insert("ExpressionAttributeNames".into(), Value::Object(names));
+    }
+    body.insert("ReturnValues".into(), Value::String("ALL_OLD".into()));
+    body.insert(
+        "ReturnConsumedCapacity".into(),
+        Value::String("TOTAL".into()),
+    );
+
     Ok(DynamoDbEditRequest {
         operation: "PutItem".into(),
-        body: json!({
-            "TableName": table,
-            "Item": Value::Object(item),
-            "ReturnConsumedCapacity": "TOTAL",
-        }),
+        body: Value::Object(body),
     })
 }
 
@@ -159,17 +196,32 @@ fn update_item_request(
         assignments.push(format!("{name_token} = {value_token}"));
     }
 
+    let condition_expression =
+        dynamodb_key_condition_expression(&mut names, &key, "attribute_exists");
+    let mut body = Map::new();
+    body.insert("TableName".into(), Value::String(table));
+    body.insert("Key".into(), Value::Object(key));
+    body.insert(
+        "UpdateExpression".into(),
+        Value::String(format!("SET {}", assignments.join(", "))),
+    );
+    body.insert("ExpressionAttributeNames".into(), Value::Object(names));
+    body.insert("ExpressionAttributeValues".into(), Value::Object(values));
+    if let Some(condition_expression) = condition_expression {
+        body.insert(
+            "ConditionExpression".into(),
+            Value::String(condition_expression),
+        );
+    }
+    body.insert("ReturnValues".into(), Value::String("ALL_NEW".into()));
+    body.insert(
+        "ReturnConsumedCapacity".into(),
+        Value::String("TOTAL".into()),
+    );
+
     Ok(DynamoDbEditRequest {
         operation: "UpdateItem".into(),
-        body: json!({
-            "TableName": table,
-            "Key": Value::Object(key),
-            "UpdateExpression": format!("SET {}", assignments.join(", ")),
-            "ExpressionAttributeNames": Value::Object(names),
-            "ExpressionAttributeValues": Value::Object(values),
-            "ReturnValues": "ALL_NEW",
-            "ReturnConsumedCapacity": "TOTAL",
-        }),
+        body: Value::Object(body),
     })
 }
 
@@ -186,15 +238,152 @@ fn delete_item_request(
             )
         })?;
 
+    let mut names = Map::new();
+    let condition_expression =
+        dynamodb_key_condition_expression(&mut names, &key, "attribute_exists");
+    let mut body = Map::new();
+    body.insert("TableName".into(), Value::String(table));
+    body.insert("Key".into(), Value::Object(key));
+    if let Some(condition_expression) = condition_expression {
+        body.insert(
+            "ConditionExpression".into(),
+            Value::String(condition_expression),
+        );
+        body.insert("ExpressionAttributeNames".into(), Value::Object(names));
+    }
+    body.insert("ReturnValues".into(), Value::String("ALL_OLD".into()));
+    body.insert(
+        "ReturnConsumedCapacity".into(),
+        Value::String("TOTAL".into()),
+    );
+
     Ok(DynamoDbEditRequest {
         operation: "DeleteItem".into(),
+        body: Value::Object(body),
+    })
+}
+
+fn dynamodb_key_condition_expression(
+    names: &mut Map<String, Value>,
+    key: &Map<String, Value>,
+    function_name: &str,
+) -> Option<String> {
+    if key.is_empty() {
+        return None;
+    }
+
+    let expressions = key
+        .keys()
+        .enumerate()
+        .map(|(index, field)| {
+            let token = dynamodb_name_token(names, field, index);
+            format!("{function_name}({token})")
+        })
+        .collect::<Vec<_>>();
+
+    Some(expressions.join(" AND "))
+}
+
+fn dynamodb_name_token(names: &mut Map<String, Value>, field: &str, index: usize) -> String {
+    if let Some((token, _)) = names
+        .iter()
+        .find(|(_, value)| value.as_str() == Some(field))
+    {
+        return token.clone();
+    }
+
+    let mut token_index = index;
+    loop {
+        let token = format!("#key{token_index}");
+        if !names.contains_key(&token) {
+            names.insert(token.clone(), Value::String(field.into()));
+            return token;
+        }
+        token_index += 1;
+    }
+}
+
+fn dynamodb_get_item_evidence_request(
+    request: &DataEditExecutionRequest,
+) -> Result<Option<DynamoDbEditRequest>, CommandError> {
+    let Some(key) = item_key(request).filter(|key| !key.is_empty()) else {
+        return Ok(None);
+    };
+
+    Ok(Some(DynamoDbEditRequest {
+        operation: "GetItem".into(),
         body: json!({
-            "TableName": table,
+            "TableName": required_table(request)?,
             "Key": Value::Object(key),
-            "ReturnValues": "ALL_OLD",
+            "ConsistentRead": true,
             "ReturnConsumedCapacity": "TOTAL",
         }),
+    }))
+}
+
+fn dynamodb_edit_metadata(
+    edit: &DynamoDbEditRequest,
+    response: &Value,
+    evidence_request: Option<&DynamoDbEditRequest>,
+    before_response: Option<&Value>,
+    after_response: Option<&Value>,
+) -> Value {
+    let mutation_returned_attributes = response.get("Attributes").cloned().unwrap_or(Value::Null);
+    let item_evidence = if let Some(evidence_request) = evidence_request {
+        json!({
+            "before": item_from_get_response(before_response).unwrap_or(Value::Null),
+            "after": item_from_get_response(after_response).unwrap_or(Value::Null),
+            "beforeRequest": {
+                "operation": evidence_request.operation,
+                "body": evidence_request.body,
+            },
+            "mutationRequest": {
+                "operation": edit.operation,
+                "body": edit.body,
+            },
+            "afterRequest": {
+                "operation": evidence_request.operation,
+                "body": evidence_request.body,
+            },
+            "mutationReturnedAttributes": mutation_returned_attributes,
+            "consumedCapacity": {
+                "before": consumed_capacity_from_response(before_response),
+                "mutation": response.get("ConsumedCapacity").cloned().unwrap_or(Value::Null),
+                "after": consumed_capacity_from_response(after_response),
+            },
+        })
+    } else {
+        json!({
+            "before": mutation_returned_attributes,
+            "after": Value::Null,
+            "mutationRequest": {
+                "operation": edit.operation,
+                "body": edit.body,
+            },
+            "mutationReturnedAttributes": mutation_returned_attributes,
+            "unavailableReason": "Complete item key was not supplied, so DataPad++ could not run before/after GetItem evidence.",
+            "consumedCapacity": {
+                "mutation": response.get("ConsumedCapacity").cloned().unwrap_or(Value::Null),
+            },
+        })
+    };
+
+    json!({
+        "operation": edit.operation,
+        "body": edit.body,
+        "response": response,
+        "itemEvidence": item_evidence,
     })
+}
+
+fn item_from_get_response(response: Option<&Value>) -> Option<Value> {
+    response.and_then(|value| value.get("Item").cloned())
+}
+
+fn consumed_capacity_from_response(response: Option<&Value>) -> Value {
+    response
+        .and_then(|value| value.get("ConsumedCapacity").cloned())
+        .unwrap_or(Value::Null)
 }
 
 fn required_table(request: &DataEditExecutionRequest) -> Result<String, CommandError> {
@@ -339,6 +528,8 @@ mod tests {
         assert_eq!(edit.body["Key"]["order_id"], json!({ "S": "101" }));
         assert_eq!(edit.body["UpdateExpression"], "SET #n0 = :v0");
         assert_eq!(edit.body["ExpressionAttributeNames"]["#n0"], "status");
+        assert_eq!(edit.body["ExpressionAttributeNames"]["#key0"], "order_id");
+        assert_eq!(edit.body["ConditionExpression"], "attribute_exists(#key0)");
         assert_eq!(
             edit.body["ExpressionAttributeValues"][":v0"],
             json!({ "S": "fulfilled" })
@@ -361,6 +552,12 @@ mod tests {
         assert_eq!(edit.operation, "PutItem");
         assert_eq!(edit.body["Item"]["order_id"], json!({ "S": "102" }));
         assert_eq!(edit.body["Item"]["total_amount"], json!({ "N": "128.4" }));
+        assert_eq!(
+            edit.body["ConditionExpression"],
+            "attribute_not_exists(#key0)"
+        );
+        assert_eq!(edit.body["ExpressionAttributeNames"]["#key0"], "order_id");
+        assert_eq!(edit.body["ReturnValues"], "ALL_OLD");
     }
 
     #[test]
@@ -369,6 +566,99 @@ mod tests {
             dynamodb_edit_request(&request("delete-item", Vec::new(), None)).expect_err("key");
 
         assert_eq!(error.code, "dynamodb-edit-missing-key");
+    }
+
+    #[test]
+    fn dynamodb_delete_item_request_requires_existing_item_condition() {
+        let edit = dynamodb_edit_request(&request(
+            "delete-item",
+            Vec::new(),
+            Some(HashMap::from([("order_id".into(), json!("101"))])),
+        ))
+        .expect("delete item");
+
+        assert_eq!(edit.operation, "DeleteItem");
+        assert_eq!(edit.body["Key"]["order_id"], json!({ "S": "101" }));
+        assert_eq!(edit.body["ConditionExpression"], "attribute_exists(#key0)");
+        assert_eq!(edit.body["ExpressionAttributeNames"]["#key0"], "order_id");
+    }
+
+    #[test]
+    fn dynamodb_get_item_evidence_request_uses_consistent_complete_key_reads() {
+        let evidence = dynamodb_get_item_evidence_request(&request(
+            "update-item",
+            vec![DataEditChange {
+                field: Some("status".into()),
+                value: Some(json!("fulfilled")),
+                ..Default::default()
+            }],
+            Some(HashMap::from([("order_id".into(), json!("101"))])),
+        ))
+        .expect("evidence request")
+        .expect("complete key");
+
+        assert_eq!(evidence.operation, "GetItem");
+        assert_eq!(evidence.body["TableName"], "orders");
+        assert_eq!(evidence.body["Key"]["order_id"], json!({ "S": "101" }));
+        assert_eq!(evidence.body["ConsistentRead"], true);
+        assert_eq!(evidence.body["ReturnConsumedCapacity"], "TOTAL");
+    }
+
+    #[test]
+    fn dynamodb_edit_metadata_captures_before_after_items_and_capacity() {
+        let edit = dynamodb_edit_request(&request(
+            "update-item",
+            vec![DataEditChange {
+                field: Some("status".into()),
+                value: Some(json!("fulfilled")),
+                ..Default::default()
+            }],
+            Some(HashMap::from([("order_id".into(), json!("101"))])),
+        ))
+        .expect("update");
+        let evidence = DynamoDbEditRequest {
+            operation: "GetItem".into(),
+            body: json!({
+                "TableName": "orders",
+                "Key": { "order_id": { "S": "101" } },
+                "ConsistentRead": true,
+                "ReturnConsumedCapacity": "TOTAL",
+            }),
+        };
+        let metadata = dynamodb_edit_metadata(
+            &edit,
+            &json!({
+                "Attributes": { "order_id": { "S": "101" }, "status": { "S": "fulfilled" } },
+                "ConsumedCapacity": { "TableName": "orders", "CapacityUnits": 1.0 }
+            }),
+            Some(&evidence),
+            Some(&json!({
+                "Item": { "order_id": { "S": "101" }, "status": { "S": "pending" } },
+                "ConsumedCapacity": { "TableName": "orders", "CapacityUnits": 0.5 }
+            })),
+            Some(&json!({
+                "Item": { "order_id": { "S": "101" }, "status": { "S": "fulfilled" } },
+                "ConsumedCapacity": { "TableName": "orders", "CapacityUnits": 0.5 }
+            })),
+        );
+
+        assert_eq!(metadata["itemEvidence"]["before"]["status"]["S"], "pending");
+        assert_eq!(
+            metadata["itemEvidence"]["after"]["status"]["S"],
+            "fulfilled"
+        );
+        assert_eq!(
+            metadata["itemEvidence"]["mutationRequest"]["operation"],
+            "UpdateItem"
+        );
+        assert_eq!(
+            metadata["itemEvidence"]["beforeRequest"]["operation"],
+            "GetItem"
+        );
+        assert_eq!(
+            metadata["itemEvidence"]["consumedCapacity"]["mutation"]["CapacityUnits"],
+            1.0
+        );
     }
 
     #[test]

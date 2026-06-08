@@ -113,6 +113,9 @@ npm run fixtures:up:profile -- cache
 npm run fixtures:validate:postgres
 npm run fixtures:validate:mongodb
 npm run fixtures:validate:redis -- --require-stack --require-valkey
+npm run fixtures:validate:timescale
+npm run fixtures:validate:oracle
+npm run fixtures:validate:dynamodb
 ```
 
 The current env prefix is `DATAPADPLUSPLUS_*`. Legacy prefixes are compatibility fallbacks only.

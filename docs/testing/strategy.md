@@ -130,6 +130,83 @@ npm run fixtures:validate:redis -- --require-stack --require-valkey
 
 That validator checks Redis and Valkey core key/stream-group seeds, Valkey core key-file export/import command primitives, TTL behavior, permission-denied guarded writes, and large key-file primitives, plus Redis Stack JSON, TimeSeries, probabilistic module, and vector-set seeds when the selected Redis Stack image exposes vector commands. Add `--require-vector` only with a Redis Stack image that exposes `VADD`; otherwise vector-set live fixture evidence is recorded as an image-dependent optional extension outside the default gate.
 
+The TimescaleDB optional fixture evidence path is:
+
+```powershell
+npm run fixtures:up:profile -- sqlplus
+npm run fixtures:seed:all
+npm run fixtures:validate:timescale
+```
+
+That validator checks TimescaleDB extension/version visibility, seeded hypertable and chunk catalog metadata, seeded metric volume, hypertable row-edit before/after evidence with `RETURNING` snapshots, restricted catalog visibility, permission-denied guarded writes with a temporary read-only role, continuous aggregate plus policy/job boundary evidence, compressed chunk, aggregate lag, Toolkit variant, bounded file-copy, and failed-job diagnostic evidence through transient `fixture_timescale_*` objects. Live TimescaleDB policy/file execution remains preview-first unless a later slice promotes those workflows with explicit guardrails.
+
+The Oracle optional fixture evidence path is:
+
+```powershell
+npm run fixtures:up:profile -- oracle
+npm run fixtures:seed:all
+npm run fixtures:validate:oracle
+```
+
+That validator checks Oracle seeded relational volume, dictionary/security/storage metadata, DBMS_XPLAN plan output, SQL Monitor visibility or permission-boundary evidence, PL/SQL package source and compile diagnostics, row identity and DML `RETURNING` primitives, bounded SQLPlus export/import evidence, restricted dictionary denial evidence, and Data Pump/RMAN preview boundary wording through transient `fixture_oracle_*` objects. Desktop Oracle SQLPlus query and primary-key/ROWID row-edit execution are now configurable per connection; Data Pump and RMAN execution remain outside the scoped claim until guarded executors are added.
+
+The DynamoDB Local optional fixture evidence path is:
+
+```powershell
+npm run fixtures:up:profile -- cloud-contract
+npm run fixtures:seed:all
+npm run fixtures:validate:dynamodb
+```
+
+That validator checks seeded table volume, table/key/GSI/TTL metadata through a transient `fixture_dynamodb_contract` table, consumed-capacity payloads, Query, GetItem, PartiQL read evidence, conditional item-edit before/after evidence with `attribute_exists` and `attribute_not_exists`, and backup/import-export local boundary evidence. The desktop adapter now has deterministic SigV4-shaped local/endpoint-override request evidence and diagnostics disabled reasons.
+
+The DynamoDB AWS cloud optional validation path is:
+
+```powershell
+$env:DATAPADPLUSPLUS_DYNAMODB_CLOUD_VALIDATE = '1'
+$env:DATAPADPLUSPLUS_DYNAMODB_CLOUD_REGION = 'us-east-1'
+$env:DATAPADPLUSPLUS_DYNAMODB_CLOUD_TABLE = '<optional-table-name>'
+npm run fixtures:validate:dynamodb:cloud
+```
+
+The cloud validator resolves environment, shared-profile, STS AssumeRole, web identity, ECS task, or EC2 metadata AWS credentials, signs DynamoDB, STS, CloudWatch, and IAM calls with AWS4-HMAC-SHA256, and checks STS identity, `ListTables`, `DescribeLimits`, optional table metadata, optional CloudWatch metrics, and optional IAM simulation. It is excluded from default CI and exits as skipped unless `DATAPADPLUSPLUS_DYNAMODB_CLOUD_VALIDATE=1` is set. Use `DATAPADPLUSPLUS_DYNAMODB_CLOUD_CREDENTIAL_PROVIDER=assume-role`, `web-identity`, `ecs-task`, or `ec2-instance` with the documented role/token/metadata variables to validate temporary providers. Table, CloudWatch, IAM, and temporary-provider failures can be made strict with `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_TABLE=1`, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_CLOUDWATCH=1`, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_IAM=1`, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_ASSUME_ROLE=1`, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_WEB_IDENTITY=1`, `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_ECS_TASK=1`, and `DATAPADPLUSPLUS_DYNAMODB_CLOUD_REQUIRE_EC2_INSTANCE=1`; S3 import/export and backup execution remain preview-first.
+
+The Elasticsearch/OpenSearch optional fixture evidence path is:
+
+```powershell
+npm run fixtures:up:profile -- search
+npm run fixtures:seed:all
+npm run fixtures:validate:search
+```
+
+That validator checks seeded `products` and `orders` index volume, mappings, aggregation/profile responses, explicit-id document edit before/after evidence, slow-log settings, node search/indexing stats, shard/allocation diagnostic boundaries, bounded `_search` export plus `_bulk` import primitives through transient `fixture-search-contract-*` and `fixture-search-import-*` indexes, and OpenSearch SQL, ISM, security, and Performance Analyzer plugin boundaries. Desktop file/cloud import-export, snapshot execution, production cloud auth, managed SigV4/IAM execution, OpenSearch SQL plugin execution, Performance Analyzer dashboards, and broader admin execution remain outside the scoped search native-complete claims unless later promoted with explicit guardrails.
+
+The DuckDB optional fixture evidence path is:
+
+```powershell
+npm run fixtures:validate:duckdb
+```
+
+That validator runs a focused Rust adapter integration test against a temporary `.duckdb` file created by the bundled DuckDB runtime. It checks local-file read SQL, EXPLAIN, profile, catalog explorer roots, table inspection payloads, diagnostics templates, write SQL guard failures, plan-only file import boundaries, guarded CSV export/import execution, backup-folder execution, database-file preflight/read-only guard evidence, lock-boundary evidence for filesystem read/write and DuckDB open probes, JSON/Parquet preloaded-extension-only boundary evidence, restore-package preflight for `schema.sql`, `load.sql`, detected formats, file counts, bytes, target write/open readiness, and explicit restore/admin/extension execution-boundary evidence for scoped-out destructive `IMPORT DATABASE`, admin/DDL, and extension execution. Docker is not required. Extension-loaded live JSON/Parquet execution and any promoted local OLAP mutation/admin/extension execution remain outside the scoped DuckDB native-complete evidence until later promoted with explicit guardrails.
+
+The LiteDB optional fixture evidence path is:
+
+```powershell
+npm run fixtures:validate:litedb
+```
+
+That validator runs focused Rust unit tests against temporary `.db` files. It checks local-file read/write open preflight, read-only write blocking, password/encryption posture, lock-boundary metadata, configured sidecar read-dispatch through both a deterministic fixture-sidecar token and a spawned local sidecar-process fixture, bounded response normalization, process open-failure mapping, timeout clamps, redacted failure output, and the LiteDB planner's sidecar-shaped document CRUD contracts. Docker and a real .NET LiteDB engine sidecar are not required for the default gate.
+
+The optional real LiteDB engine sidecar validator is:
+
+```powershell
+dotnet build apps/desktop/src-tauri/sidecars/litedb/DataPadPlusPlus.LiteDbSidecar.csproj
+$env:DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE='1'
+npm run fixtures:validate:litedb:dotnet
+```
+
+It creates a temporary LiteDB database through the .NET sidecar, validates collection listing, bounded reads, index metadata, guarded full-document insert/update/delete, before/after reads, read-only mutation blocking, `_id` mismatch blocking, missing-file error mapping, and secret redaction. Encrypted-file validation, import/export execution, packaged sidecar distribution, collection/file-storage management execution, and exclusive writer-lock validation remain outside this checkpoint until later LiteDB slices promote them with explicit guardrails.
+
 ## Coverage Expectations
 
 Feature work should add tests near the product slice being changed:

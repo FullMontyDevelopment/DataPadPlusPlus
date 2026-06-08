@@ -10,7 +10,9 @@ import type {
 } from './types'
 import { buildMongoItems } from './mongo-provider'
 import { buildCockroachSqlItems } from './cockroach-provider'
+import { buildDynamoDbItems } from './dynamodb-provider'
 import { buildMySqlItems, quoteMySqlIdentifier } from './mysql-provider'
+import { buildOracleSqlItems, quoteOracleIdentifier } from './oracle-provider'
 import { buildPostgresSqlItems, quotePostgresIdentifier } from './postgres-provider'
 import { buildRedisItems } from './redis-provider'
 import { SECONDARY_COMPLETION_PROVIDERS } from './secondary-providers'
@@ -75,19 +77,6 @@ const SEARCH_KEYS = [
   'size',
   'sort',
   '_source',
-]
-
-const DYNAMODB_KEYS = [
-  'operation',
-  'tableName',
-  'indexName',
-  'keyConditionExpression',
-  'filterExpression',
-  'projectionExpression',
-  'expressionAttributeNames',
-  'expressionAttributeValues',
-  'consistentRead',
-  'limit',
 ]
 
 const CQL_KEYWORDS = [
@@ -204,6 +193,7 @@ function buildSqlItems(
       ? buildCockroachSqlItems(context)
       : []),
     ...(isMySqlCompletionContext(context) ? buildMySqlItems(context) : []),
+    ...(context.connection?.engine === 'oracle' ? buildOracleSqlItems(context) : []),
     ...context.catalog.schemas.map((schema) =>
       suggestion(
         schema.name,
@@ -232,16 +222,12 @@ function buildSqlItems(
   ])
 }
 
-function isPostgresCompletionContext(context: EditorCompletionContext) {
-  return context.connection?.engine === 'postgresql'
-}
+function isPostgresCompletionContext(context: EditorCompletionContext) { return context.connection?.engine === 'postgresql' }
 
-function isCockroachCompletionContext(context: EditorCompletionContext) {
-  return context.connection?.engine === 'cockroachdb'
-}
+function isCockroachCompletionContext(context: EditorCompletionContext) { return context.connection?.engine === 'cockroachdb' }
 
 function isMySqlCompletionContext(context: EditorCompletionContext) {
-  return context.connection?.engine === 'mysql' || context.connection?.engine === 'mariadb'
+  return ['mysql', 'mariadb'].includes(context.connection?.engine ?? '')
 }
 
 function buildEnvironmentVariableItems(
@@ -295,41 +281,6 @@ function buildSearchItems(
       'terms aggregation',
       '"aggs": { "by_field": { "terms": { "field": "" } } }',
       'snippet',
-    ),
-  ])
-}
-
-function buildDynamoDbItems(
-  context: EditorCompletionContext,
-): CompletionSuggestion[] {
-  const tables = context.catalog.objects.filter(
-    (object) => object.kind === 'table',
-  )
-
-  return uniqueSuggestions([
-    ...DYNAMODB_KEYS.map((key) => jsonPropertySuggestion(key)),
-    ...tables.map((table) =>
-      suggestion(table.name, JSON.stringify(table.name), 'table', table.detail),
-    ),
-    ...context.catalog.fields.map((field) =>
-      suggestion(
-        field.path ?? field.name,
-        field.path ?? field.name,
-        'field',
-        field.detail ?? field.dataType,
-      ),
-    ),
-    suggestion(
-      '#name',
-      '"#name": "attributeName"',
-      'snippet',
-      'Expression attribute name helper',
-    ),
-    suggestion(
-      ':value',
-      '":value": { "S": "value" }',
-      'snippet',
-      'Expression attribute value helper',
     ),
   ])
 }
@@ -439,6 +390,10 @@ function quoteSqlIdentifier(
 
   if (['postgresql', 'cockroachdb', 'timescaledb'].includes(connection.engine)) {
     return quotePostgresIdentifier(identifier)
+  }
+
+  if (connection.engine === 'oracle') {
+    return quoteOracleIdentifier(identifier)
   }
 
   return connection.engine === 'mysql' || connection.engine === 'mariadb'

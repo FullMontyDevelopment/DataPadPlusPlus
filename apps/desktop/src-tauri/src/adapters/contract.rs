@@ -210,6 +210,19 @@ pub trait DatastoreAdapter: Send + Sync {
             .await;
         }
 
+        if operation.execution_support == "live"
+            && connection.engine == "duckdb"
+            && matches!(
+                request.operation_id.as_str(),
+                "duckdb.data.import-export" | "duckdb.data.backup-restore"
+            )
+        {
+            return super::datastores::duckdb::execute_duckdb_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+
         if operation.execution_support != "live" {
             messages.push(
                 "Generated an operation plan. Live execution is not enabled for this operation."

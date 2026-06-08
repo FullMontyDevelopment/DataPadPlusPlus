@@ -120,7 +120,7 @@ Current query experiences include:
 - MongoDB query builder, raw command JSON, aggregation work, and safe scripting
 - Redis and Valkey key browser plus Redis console
 - Elasticsearch/OpenSearch query builder
-- DynamoDB key-condition builder
+- DynamoDB key-condition, projection/filter, and conditional-write helpers plus guarded read-only PartiQL `ExecuteStatement` requests in raw JSON mode
 - Cassandra partition-key builder
 
 When a builder is available, the toolbar shows the modes that make sense for that datastore. MongoDB, for example, offers Query Builder, Raw, and Scripting. Redis offers Key Browser and Console. SQL tabs open as editors by default, and scoped table or view actions can open a SELECT builder when useful.
@@ -209,7 +209,7 @@ MySQL is native-complete for the scoped MySQL workflow. It exposes typed native 
 
 SQLite gets a local-file workbench treatment: file posture, attached databases, PRAGMA health, integrity checks, indexes, triggers, generated columns, and virtual tables are summarized in compact panels. Local maintenance actions such as check, analyze, optimize, vacuum, and reindex are planned with guardrails, while guarded desktop live workflows cover `VACUUM INTO` backup plus CSV/JSON/NDJSON table or view export and table import. Browser preview remains plan-only for those file workflows.
 
-SQL row editing is live only when the target identity is complete and the connection/environment guardrails allow it. PostgreSQL-family, SQL Server, MySQL/MariaDB, SQLite, and TimescaleDB use primary-key predicates for live row edits, with desktop live-edit scopes and browser preview-only scopes covered by contract tests. Oracle remains contract-only until a live Oracle driver path is configured.
+SQL row editing is live only when the target identity is complete and the connection/environment guardrails allow it. PostgreSQL-family, SQL Server, MySQL/MariaDB, SQLite, and TimescaleDB use primary-key predicates for live row edits, with desktop live-edit scopes and browser preview-only scopes covered by contract tests. Oracle uses configured SQLPlus live execution for scoped insert/update/delete row workflows with primary-key or ROWID identity, bounded before/after evidence, read-only gates, confirmation gates, and browser preview-only request contracts.
 
 ## Search Experience
 
@@ -217,14 +217,14 @@ For Elasticsearch and OpenSearch, DataPad++ focuses on search-oriented workflows
 
 You can:
 
-- configure HTTP, Elastic Cloud, managed OpenSearch, AWS SigV4, API key, default-index, TLS, and timeout options without storing secrets in plaintext
+- configure HTTP, Elastic Cloud, managed OpenSearch, AWS SigV4, API key, default-index, TLS, and timeout options without storing secrets in plaintext, with explicit plan-only reasons when the current live runtime cannot execute a profile yet
 - browse indexes, data streams, and mappings
-- build search queries visually
+- build search queries visually with filters, source fields, sorting, and terms/date-histogram/histogram/metric/cardinality aggregations
 - use deterministic DSL IntelliSense for query keys, index names, mapped fields, and aggregation snippets
 - inspect search hits, source documents, highlights, and aggregations
-- review cluster, field capability, shard-health, Lucene segment, lifecycle, ingestion, security, and profile views without reading raw API payloads
-- edit explicitly identified search documents behind read-only, document-id, and confirmation guards
-- preview force merge, cache clear, reindex, open/close, mapping, settings, alias, template, pipeline, rollover, lifecycle policy, task cancel, snapshot/restore, bulk, and security workflows behind guardrails
+- review cluster, field capability, shard-health, Lucene segment, lifecycle, ingestion, security, slow-log, allocation, and normalized profile-stage views without reading raw API payloads
+- edit explicitly identified search documents behind read-only, document-id, and confirmation guards, with before/after `_doc` evidence captured by the desktop adapter
+- preview force merge, cache clear, reindex, open/close, mapping, settings, alias, template, pipeline, rollover, lifecycle policy, task cancel, snapshot/restore, bulk, security, slow-log, and allocation workflows behind guardrails
 - switch to raw query DSL
 - view profile, explain, shard, index, and cluster diagnostics where supported
 - plan index and mapping operations behind safety prompts
@@ -264,6 +264,8 @@ DataPad++ can show:
 
 Snowflake, BigQuery, and ClickHouse previews use their native concepts such as query history, credit usage, warehouse load, streams, shares, zero-copy clones, dry-run estimates, job timelines, reservations, slot usage, scheduled queries, copy jobs, system query logs, MergeTree parts, replicas, table optimization, TTL materialization, freeze snapshots, stages, and warehouse utilization.
 
+DuckDB is native-complete for the scoped local-file analytics workflow. It supports typed local-file and memory profiles, local database creation, bundled local-file read SQL, rendered EXPLAIN and EXPLAIN ANALYZE payloads, deterministic DuckDB IntelliSense, native local-file/object/extension posture panels, guarded CSV table export/import, CSV backup-folder execution, database-file preflight/read-only and scoped lock-boundary evidence, fail-closed JSON/Parquet preloaded-extension-only gates, restore-package preflight, and explicit restore/admin/extension execution-boundary exclusions. Extension-loaded JSON/Parquet execution and broader local OLAP mutation, admin, restore, and extension execution remain optional extensions outside the scoped claim.
+
 ## Time-Series SQL Experience
 
 TimescaleDB builds on the PostgreSQL workflow with time-series native surfaces:
@@ -271,9 +273,12 @@ TimescaleDB builds on the PostgreSQL workflow with time-series native surfaces:
 - hypertables, chunks, compression, retention, continuous aggregates, and jobs in the tree
 - typed Timescale deployment/profile metadata with capability-hiding for restricted catalog surfaces
 - compact profile, hypertable, policy, aggregate, and diagnostic posture panels
+- rendered time-bucket, chunk-sizing, compression-coverage, aggregate-freshness, job-history, Toolkit availability, bucket-window, and time-bucket query-history dashboards
 - scoped data queries for hypertables and continuous aggregates
+- guarded compression, retention, continuous aggregate refresh, job-control, import/export, backup, and restore previews with Timescale-native preflights
 - guarded compression-policy, retention-policy, continuous-aggregate refresh, import/export, and backup/restore previews
 - PostgreSQL-style roles, grants, indexes, rendered explain/profile, row-edit, and export workflows where they apply
+- optional fixture validation for extension/catalog metadata, seeded hypertables/chunks, row-edit before/after evidence, restricted catalog visibility, permission-denied writes, and continuous aggregate plus policy/job boundary evidence
 
 Prometheus, InfluxDB, and OpenTSDB keep their own non-SQL time-series workflows, with typed endpoint/auth/bucket/metric connection options, metric/label/bucket/tag trees, chart-ready results, pinned query-builder descriptors for PromQL, Flux/InfluxQL, and OpenTSDB metric queries, deterministic metric/dimension/function IntelliSense, profile/metrics payloads, cardinality and retention surfaces, UID repair, API export, and guarded metadata-operation previews.
 
@@ -286,9 +291,9 @@ DataPad++ can help you:
 - review Cosmos DB containers, partition keys, indexing policy, RU throughput, regions, consistency, access, and diagnostics
 - use deterministic Cosmos SQL and JSON IntelliSense for databases, containers, fields, partition-key helpers, and bounded query snippets
 - preview Cosmos DB query metrics, throughput changes, consistency changes, indexing policy updates, region failover, access checks, exports, and guarded drops
-- inspect LiteDB local files, collections, schema previews, indexes, file storage, storage health, and settings
+- inspect LiteDB local files, collections, schema previews, indexes, file storage, storage health, local-file preflight, encryption posture, lock-boundary posture, and settings
 - use deterministic LiteDB JSON IntelliSense for collections, inferred fields, operation keys, and bounded find snippets
-- preview LiteDB local health checks, checkpoint/compact, index changes, exports, backups, and collection drops
+- preview LiteDB local health checks, checkpoint/compact, index changes, exports, backups, collection drops, configured sidecar read-dispatch boundaries with local process evidence, and sidecar-only full-document CRUD plans
 - review Memcached stats, slabs, item classes, settings, connection pressure, and cache diagnostics
 - use deterministic Memcached command IntelliSense for stats, known-key operations, slab/item-class targets, CAS reads, and guarded write-preview snippets
 - preview Memcached stats collection, stats reset, guarded flush, LRU crawler metadata dumps, and known-key get/gets/set/touch/incr/decr/delete plans without exposing fake key lists
@@ -374,7 +379,7 @@ Examples:
 - SQL row edits need table and primary-key context
 - MongoDB document edits need collection context and, except for inserts, stable document id context
 - Redis and Valkey key edits need a concrete key
-- DynamoDB item edits need complete key conditions
+- DynamoDB item edits need complete key conditions and use conditional-write guards
 - Elasticsearch and OpenSearch document edits need an explicit index and document id
 - Cassandra row edits need complete primary-key conditions and remain preview-only until the live CQL driver path is available
 
@@ -399,9 +404,9 @@ Examples include:
 - Prometheus, InfluxDB, and OpenTSDB profile, metrics/stats, access, posture panels, cardinality, retention, UID repair, export, and guarded metadata-operation previews
 - Neo4j, ArangoDB, JanusGraph, and Neptune explain/profile, graph metrics, access/IAM, index, constraint/drop, and graph import/export previews
 - Cosmos DB throughput, consistency, failover, RU metrics, indexing, access, export, and drop previews
-- LiteDB local file health, checkpoint, compact, index rebuild, import/export, backup, and collection drop previews
+- LiteDB local file health, read/write open preflight, encryption and lock-boundary metadata, configured sidecar read-dispatch contracts with local sidecar-process evidence, sidecar-only document CRUD plans, optional .NET engine read/edit validation, checkpoint, compact, index rebuild, import/export, backup, and collection drop previews
 - Memcached stats reset, flush, CAS reads, set/touch/increment/decrement/delete, and LRU dump previews
-- DuckDB local file posture, extension posture, PRAGMA/maintenance panels, table/database analyze, checkpoint, extension load/install, CSV/Parquet import/export, and backup previews
+- DuckDB local file posture, extension posture, PRAGMA/maintenance panels, structured analyze/checkpoint/object admin-scope gates with explicit admin execution-boundary metadata, structured extension load/install gates with explicit extension execution-boundary metadata, guarded CSV table import/export and backup-folder execution, database-file preflight/read-only guard evidence, explicit scoped file-workflow lock-boundary metadata, fail-closed JSON/Parquet preloaded-extension-only gates, restore-package preflight, explicit restore execution-boundary metadata, and JSON/Parquet extension-backed previews
 - ClickHouse optimize, TTL materialization, freeze snapshot, query-log, metrics, access, and import/export previews
 - Snowflake and BigQuery cost, metrics, access, clone/copy, suspend/resume where applicable, and cloud import/export previews
 - cloud dry-run or cost estimates where available
@@ -410,11 +415,11 @@ Destructive or administrative actions should be previewed first, with the genera
 
 ## Datastore Coverage
 
-DataPad++ is growing in layers. All 29 declared engines are now accepted for the contract-complete native UX gate, MongoDB, PostgreSQL, SQL Server, MySQL, MariaDB, Redis, SQLite, and Valkey are native-complete for scoped claims, the complete current readiness matrix lives in the [Datastore Readiness And Completion Plan](architecture/datastore-readiness.md), and the one-by-one native-completion queue is tracked in the [Native Datastore Completion Tracker](architecture/native-completion-tracker.md).
+DataPad++ is growing in layers. All 29 declared engines are now accepted for the contract-complete native UX gate, MongoDB, PostgreSQL, CockroachDB, SQL Server, MySQL, MariaDB, Redis, SQLite, TimescaleDB, Valkey, Oracle, DynamoDB, Elasticsearch, OpenSearch, and DuckDB are native-complete for scoped claims, the complete current readiness matrix lives in the [Datastore Readiness And Completion Plan](architecture/datastore-readiness.md), and the one-by-one native-completion queue is tracked in the [Native Datastore Completion Tracker](architecture/native-completion-tracker.md).
 
 ### Current Contract Claim
 
-Every declared engine now has explicit contract evidence, per-criterion contract coverage, and a residual-risk note in the shared completeness matrix. MongoDB, PostgreSQL, SQL Server, MySQL, MariaDB, Redis, SQLite, and Valkey additionally have scoped native-complete claims. This is not a claim that every cloud service, driver, credential mode, or destructive/admin path has live production validation.
+Every declared engine now has explicit contract evidence, per-criterion contract coverage, and a residual-risk note in the shared completeness matrix. MongoDB, PostgreSQL, CockroachDB, SQL Server, MySQL, MariaDB, Redis, SQLite, TimescaleDB, Valkey, Oracle, DynamoDB, Elasticsearch, OpenSearch, and DuckDB additionally have scoped native-complete claims. This is not a claim that every cloud service, driver, credential mode, or destructive/admin path has live production validation.
 
 ### Strongest Live/Native Areas
 
@@ -427,8 +432,9 @@ These engines have the deepest live or native-feeling surfaces today:
 - SQLite
 - CockroachDB
 - MySQL and MariaDB
-- Elasticsearch and OpenSearch explicit-id document editing
-- DynamoDB complete-key item editing
+- Oracle SQLPlus-backed SQL workflows
+- Elasticsearch and OpenSearch scoped plain-HTTP search workflows with aggregation-aware Query DSL, normalized profile stages, explicit-id document editing with before/after `_doc` evidence, slow-log/allocation diagnostics, and OpenSearch SQL/ISM/security/Performance Analyzer boundary evidence
+- DynamoDB complete-key item editing with before/after item evidence and conditional writes
 - Search, wide-column, Wave 4, and Wave 5 native connection-flow parity across shared types, right-drawer fields, browser validation, Rust interpolation, and redaction
 - Search, wide-column, Wave 4, and Wave 5 native object-tree parity across shared, Rust, and browser-preview manifests
 - Search, wide-column, Wave 4, and Wave 5 object-view parity across descriptor-backed workflows, focused descriptor tests, posture panels, workspace routing, and guarded action strips
@@ -444,11 +450,11 @@ These engines have the deepest live or native-feeling surfaces today:
 
 The next hardening focus is:
 
-- continue with TimescaleDB next in the core SQL native-completion queue, focused on hypertable/chunk/compression/retention/job object-view dashboards, rendered time-bucket dashboards, guarded policy/job workflows, import/export polish, and optional fixture evidence
+- continue LiteDB native-completion work after the local-file preflight, local sidecar-process protocol checkpoint, optional real .NET engine read/edit validation, and guarded document CRUD checkpoint, focusing next on encrypted-file validation, import/export execution, packaged sidecar distribution, collection/file-storage management execution, and exclusive writer-lock validation
 - keep the active engine, remaining native criteria, and completion gate current in the [Native Datastore Completion Tracker](architecture/native-completion-tracker.md)
 - deepen core SQL distributed diagnostics, guarded operations, before/after row-edit previews, and import/export execution
 - add optional live validation for Elasticsearch/OpenSearch cloud auth/admin flows, DynamoDB cloud/IAM flows, Cassandra live CQL, Cosmos DB, LiteDB, Memcached, DuckDB, ClickHouse, Snowflake, BigQuery, Prometheus, InfluxDB, OpenTSDB, Neo4j, ArangoDB, JanusGraph, and Neptune where credentials or fixtures are available
-- promote selected DuckDB, ClickHouse, Snowflake, and BigQuery import/export or admin previews only after cost, permission, local-file, and cloud-storage checks are live
+- promote selected DuckDB extension-loaded JSON/Parquet, restore, extension/admin, ClickHouse, Snowflake, and BigQuery import/export or admin previews only after cost, permission, local-file, extension, and cloud-storage checks are live
 - promote selected contract-only operation previews to guarded live execution only after adapter-backed permission, cost, and environment checks exist
 
 ### Broader Adapter Set
@@ -481,7 +487,7 @@ Some adapters are available as beta, preview, local fixture, cloud-contract, or 
 
 For contributors and testers, the repository includes repeatable Docker fixtures with seeded sample data.
 
-The default fixture set includes PostgreSQL, MySQL, SQL Server, MongoDB, Redis, and SQLite. Optional profiles add Redis Stack, search engines, cache stores, analytics stores, graph stores, Cassandra, Oracle, and cloud-contract mocks. PostgreSQL reference-engine fixture evidence can be checked with `npm run fixtures:validate:postgres` after starting and seeding the default fixtures. MongoDB reference-engine fixture evidence can be checked with `npm run fixtures:validate:mongodb` after starting and seeding the default fixtures. Redis/Valkey reference-engine fixture evidence, including Valkey core key-file command primitives, permission-denied guarded writes, and large key-file primitives, can be checked with `npm run fixtures:validate:redis -- --require-stack --require-valkey` after starting and seeding the Redis Stack and cache profiles; add `--require-vector` only when the selected Redis Stack image exposes `VADD`.
+The default fixture set includes PostgreSQL, MySQL, SQL Server, MongoDB, Redis, and SQLite. Optional profiles add Redis Stack, search engines, cache stores, analytics stores, graph stores, Cassandra, Oracle, and cloud-contract mocks. PostgreSQL reference-engine fixture evidence can be checked with `npm run fixtures:validate:postgres` after starting and seeding the default fixtures. MongoDB reference-engine fixture evidence can be checked with `npm run fixtures:validate:mongodb` after starting and seeding the default fixtures. Redis/Valkey reference-engine fixture evidence, including Valkey core key-file command primitives, permission-denied guarded writes, and large key-file primitives, can be checked with `npm run fixtures:validate:redis -- --require-stack --require-valkey` after starting and seeding the Redis Stack and cache profiles; add `--require-vector` only when the selected Redis Stack image exposes `VADD`. TimescaleDB optional fixture evidence, including compressed chunk, aggregate lag, Toolkit variant, bounded file-copy, and failed-job diagnostic checks, can be checked with `npm run fixtures:validate:timescale` after starting and seeding the `sqlplus` profile. Oracle optional fixture evidence, including DBMS_XPLAN, SQL Monitor boundary, PL/SQL compile diagnostics, row identity, bounded SQLPlus export/import, restricted dictionary, and Data Pump/RMAN preview-boundary checks, can be checked with `npm run fixtures:validate:oracle` after starting and seeding the `oracle` profile. DynamoDB Local optional fixture evidence, including seeded volume, consumed-capacity reads, Query/GetItem/PartiQL, conditional item-edit before/after evidence, transient key/GSI/TTL metadata, and backup/import-export boundary checks, can be checked with `npm run fixtures:validate:dynamodb` after starting and seeding the `cloud-contract` profile. Search optional fixture evidence, including seeded Elasticsearch/OpenSearch volume, aggregation/profile payloads, document edit evidence, slow-log/allocation diagnostics, bounded `_search`/`_bulk` primitives, and OpenSearch SQL/ISM/security/Performance Analyzer boundaries, can be checked with `npm run fixtures:validate:search` after starting and seeding the `search` profile. DuckDB optional fixture evidence, including bundled local-file read/EXPLAIN/profile execution, catalog inspection, diagnostics templates, guarded CSV export/import, backup-folder execution, database-file preflight/read-only guard evidence, explicit lock-boundary evidence, JSON/Parquet preloaded-extension-only boundary evidence, restore-package preflight, explicit restore/admin/extension execution-boundary evidence, and write-SQL guard boundaries, can be checked with `npm run fixtures:validate:duckdb` without Docker. LiteDB optional fixture evidence, including local-file read/write open preflight, encryption and lock-boundary metadata, fixture-token and local sidecar-process read dispatch, bounded response normalization, process open-failure mapping, timeout, and redaction evidence, can be checked with `npm run fixtures:validate:litedb` without Docker or a real .NET LiteDB engine sidecar; optional real LiteDB engine sidecar validation, including guarded full-document insert/update/delete, before/after reads, read-only mutation blocking, and `_id` mismatch blocking, can be run with `DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE=1 npm run fixtures:validate:litedb:dotnet` after the .NET sidecar has been restored and built. Live AWS DynamoDB validation can be checked with `DATAPADPLUSPLUS_DYNAMODB_CLOUD_VALIDATE=1 npm run fixtures:validate:dynamodb:cloud` after configuring environment, shared-profile, STS AssumeRole, web identity, ECS task, or EC2 metadata AWS credentials.
 
 See [Docker Fixtures](../tests/fixtures/README.md) for setup commands and connection details.
 

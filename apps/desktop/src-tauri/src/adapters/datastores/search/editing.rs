@@ -1,7 +1,7 @@
 use serde_json::{json, Map, Value};
 
 use super::super::super::*;
-use super::connection::{search_delete, search_post_json, search_put_json};
+use super::connection::{search_delete, search_get, search_post_json, search_put_json};
 use super::SearchEngine;
 
 pub(super) async fn execute_search_data_edit(
@@ -60,6 +60,7 @@ pub(super) async fn execute_search_data_edit(
         }
     };
 
+    let before_document = search_document_evidence(connection, &edit.evidence_path).await;
     let response = match edit.method.as_str() {
         "PUT" => search_put_json(connection, &edit.path, &edit.body).await?,
         "POST" => search_post_json(connection, &edit.path, &edit.body).await?,
@@ -72,6 +73,7 @@ pub(super) async fn execute_search_data_edit(
         }
     };
     let response_json = serde_json::from_str::<Value>(&response.body).unwrap_or_else(|_| json!({}));
+    let after_document = search_document_evidence(connection, &edit.evidence_path).await;
     messages.push(format!("{} {} completed.", engine.label, request.edit_kind));
 
     Ok(data_edit_response(
@@ -80,12 +82,12 @@ pub(super) async fn execute_search_data_edit(
         true,
         messages,
         warnings,
-        Some(json!({
-            "method": edit.method,
-            "path": edit.path,
-            "body": edit.body,
-            "response": response_json,
-        })),
+        Some(search_edit_metadata(
+            &edit,
+            before_document,
+            after_document,
+            response_json,
+        )),
     ))
 }
 
@@ -94,6 +96,7 @@ struct SearchEditRequest {
     method: String,
     path: String,
     body: String,
+    evidence_path: String,
 }
 
 fn search_edit_request(
@@ -127,6 +130,7 @@ fn index_document_request(
             path_segment(&document_id)
         ),
         body,
+        evidence_path: search_document_evidence_path(&index, &document_id),
     })
 }
 
@@ -147,6 +151,7 @@ fn update_document_request(
             path_segment(&document_id)
         ),
         body,
+        evidence_path: search_document_evidence_path(&index, &document_id),
     })
 }
 
@@ -164,6 +169,7 @@ fn delete_document_request(
             path_segment(&document_id)
         ),
         body: String::new(),
+        evidence_path: search_document_evidence_path(&index, &document_id),
     })
 }
 
@@ -251,6 +257,72 @@ fn path_segment(value: &str) -> String {
         .collect()
 }
 
+fn search_document_evidence_path(index: &str, document_id: &str) -> String {
+    format!(
+        "/{}/_doc/{}?realtime=true",
+        path_segment(index),
+        path_segment(document_id)
+    )
+}
+
+async fn search_document_evidence(connection: &ResolvedConnectionProfile, path: &str) -> Value {
+    match search_get(connection, path).await {
+        Ok(response) => serde_json::from_str::<Value>(&response.body)
+            .map(|body| {
+                json!({
+                    "ok": true,
+                    "request": {
+                        "method": "GET",
+                        "path": path,
+                    },
+                    "document": body,
+                })
+            })
+            .unwrap_or_else(|error| {
+                json!({
+                    "ok": false,
+                    "request": {
+                        "method": "GET",
+                        "path": path,
+                    },
+                    "error": format!("Search document evidence was not valid JSON: {error}"),
+                    "raw": response.body,
+                })
+            }),
+        Err(error) => json!({
+            "ok": false,
+            "request": {
+                "method": "GET",
+                "path": path,
+            },
+            "error": error.message,
+        }),
+    }
+}
+
+fn search_edit_metadata(
+    edit: &SearchEditRequest,
+    before_document: Value,
+    after_document: Value,
+    response: Value,
+) -> Value {
+    json!({
+        "method": edit.method,
+        "path": edit.path,
+        "body": edit.body,
+        "response": response,
+        "documentEvidence": {
+            "before": before_document,
+            "after": after_document,
+            "mutationRequest": {
+                "method": edit.method,
+                "path": edit.path,
+                "body": edit.body,
+            },
+        },
+    })
+}
+
 fn data_edit_response(
     request: &DataEditExecutionRequest,
     plan: DataEditPlanResponse,
@@ -310,6 +382,7 @@ mod tests {
         assert_eq!(edit.method, "POST");
         assert_eq!(edit.path, "/orders/_update/101?refresh=true");
         assert_eq!(edit.body, r#"{"doc":{"status":"fulfilled"}}"#);
+        assert_eq!(edit.evidence_path, "/orders/_doc/101?realtime=true");
     }
 
     #[test]
@@ -342,5 +415,13 @@ mod tests {
     #[test]
     fn path_segment_percent_encodes_reserved_characters() {
         assert_eq!(path_segment("orders 2026/05"), "orders%202026%2F05");
+    }
+
+    #[test]
+    fn search_document_evidence_path_uses_get_doc_shape() {
+        assert_eq!(
+            search_document_evidence_path("orders 2026/05", "customer/101"),
+            "/orders%202026%2F05/_doc/customer%2F101?realtime=true"
+        );
     }
 }

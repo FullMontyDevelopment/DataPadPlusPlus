@@ -4,7 +4,14 @@ use super::super::super::*;
 use super::connection::dynamodb_call;
 use super::DynamoDbAdapter;
 
-const READ_OPERATIONS: &[&str] = &["ListTables", "DescribeTable", "GetItem", "Query", "Scan"];
+const READ_OPERATIONS: &[&str] = &[
+    "ListTables",
+    "DescribeTable",
+    "GetItem",
+    "Query",
+    "Scan",
+    "ExecuteStatement",
+];
 
 pub(super) async fn execute_dynamodb_query(
     adapter: &DynamoDbAdapter,
@@ -43,6 +50,9 @@ pub(super) async fn execute_dynamodb_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let body = normalize_request_body(&operation, request_value, row_limit);
+    if operation == "ExecuteStatement" {
+        validate_partiql_statement(&body)?;
+    }
     let response = dynamodb_call(connection, &operation, &body).await?;
     let normalized = normalize_dynamodb_response_bounded(&operation, &response, row_limit);
     let columns = normalized.columns;
@@ -183,14 +193,15 @@ pub(crate) fn normalize_dynamodb_response_bounded(
                 truncated: false,
             }
         }
-        "Query" | "Scan" => {
+        "Query" | "Scan" | "ExecuteStatement" => {
             let items = response
                 .get("Items")
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
-            let truncated =
-                items.len() > row_limit as usize || response.get("LastEvaluatedKey").is_some();
+            let truncated = items.len() > row_limit as usize
+                || response.get("LastEvaluatedKey").is_some()
+                || response.get("NextToken").is_some();
             let (columns, rows) = item_rows(&items, row_limit);
             DynamoDbNormalizedResponse {
                 columns,
@@ -220,6 +231,7 @@ fn bounded_dynamodb_response(
         .get("LastEvaluatedTableName")
         .cloned()
         .unwrap_or(Value::Null);
+    let next_token = response.get("NextToken").cloned().unwrap_or(Value::Null);
 
     if let Some(object) = response.as_object_mut() {
         match operation {
@@ -231,7 +243,7 @@ fn bounded_dynamodb_response(
                     );
                 }
             }
-            "Query" | "Scan" => {
+            "Query" | "Scan" | "ExecuteStatement" => {
                 if let Some(items) = object.get("Items").and_then(Value::as_array).cloned() {
                     object.insert(
                         "Items".into(),
@@ -249,6 +261,7 @@ fn bounded_dynamodb_response(
                     "truncated": true,
                     "lastEvaluatedKey": last_evaluated_key,
                     "lastEvaluatedTableName": last_evaluated_table_name,
+                    "nextToken": next_token,
                 }),
             );
         }
@@ -271,12 +284,14 @@ fn dynamodb_profile_payload(operation: &str, response: &Value) -> Option<Value> 
         .get("LastEvaluatedTableName")
         .cloned()
         .unwrap_or(Value::Null);
+    let next_token = response.get("NextToken").cloned().unwrap_or(Value::Null);
 
     let has_signal = !consumed_capacity.is_null()
         || !count.is_null()
         || !scanned_count.is_null()
         || !last_evaluated_key.is_null()
-        || !last_evaluated_table_name.is_null();
+        || !last_evaluated_table_name.is_null()
+        || !next_token.is_null();
 
     has_signal.then(|| {
         payload_profile(
@@ -288,6 +303,7 @@ fn dynamodb_profile_payload(operation: &str, response: &Value) -> Option<Value> 
                 "scannedCount": scanned_count,
                 "lastEvaluatedKey": last_evaluated_key,
                 "lastEvaluatedTableName": last_evaluated_table_name,
+                "nextToken": next_token,
             }),
         )
     })
@@ -378,6 +394,7 @@ fn normalize_operation_name(value: &str) -> String {
         "getitem" => "GetItem",
         "query" => "Query",
         "scan" => "Scan",
+        "executestatement" | "partiql" => "ExecuteStatement",
         "putitem" => "PutItem",
         "updateitem" => "UpdateItem",
         "deleteitem" => "DeleteItem",
@@ -403,17 +420,78 @@ fn normalize_request_key(key: &str) -> String {
         "exclusiveStartKey" => "ExclusiveStartKey",
         "consistentRead" => "ConsistentRead",
         "returnConsumedCapacity" => "ReturnConsumedCapacity",
+        "statement" => "Statement",
+        "parameters" => "Parameters",
+        "nextToken" => "NextToken",
         _ => key,
     }
     .into()
 }
 
 fn operation_supports_limit(operation: &str) -> bool {
-    matches!(operation, "ListTables" | "Query" | "Scan")
+    matches!(
+        operation,
+        "ListTables" | "Query" | "Scan" | "ExecuteStatement"
+    )
 }
 
 fn operation_supports_consumed_capacity(operation: &str) -> bool {
-    matches!(operation, "GetItem" | "Query" | "Scan")
+    matches!(operation, "GetItem" | "Query" | "Scan" | "ExecuteStatement")
+}
+
+fn validate_partiql_statement(body: &Value) -> Result<(), CommandError> {
+    let statement = body
+        .get("Statement")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                "dynamodb-partiql-statement-missing",
+                "DynamoDB ExecuteStatement requests require a PartiQL `Statement`.",
+            )
+        })?;
+
+    if !dynamodb_partiql_is_read_only(statement) {
+        return Err(CommandError::new(
+            "dynamodb-partiql-write-preview-only",
+            "DynamoDB PartiQL execution is read-only in this adapter; write/admin statements stay in guarded previews.",
+        ));
+    }
+
+    Ok(())
+}
+
+pub(crate) fn dynamodb_partiql_is_read_only(statement: &str) -> bool {
+    first_partiql_token(statement)
+        .as_deref()
+        .is_some_and(|token| token == "select")
+}
+
+fn first_partiql_token(statement: &str) -> Option<String> {
+    let mut rest = statement.trim_start();
+
+    loop {
+        if let Some(after_comment) = rest.strip_prefix("--") {
+            rest = after_comment
+                .split_once('\n')
+                .map(|(_, tail)| tail.trim_start())
+                .unwrap_or("");
+            continue;
+        }
+        if let Some(after_comment) = rest.strip_prefix("/*") {
+            rest = after_comment
+                .split_once("*/")
+                .map(|(_, tail)| tail.trim_start())
+                .unwrap_or("");
+            continue;
+        }
+        break;
+    }
+
+    rest.split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+        .find(|part| !part.is_empty())
+        .map(|part| part.to_ascii_lowercase())
 }
 
 #[cfg(test)]
@@ -422,13 +500,19 @@ mod tests {
 
     use super::{
         attribute_or_json_to_string, bounded_dynamodb_response, dynamodb_operation,
-        dynamodb_profile_payload, normalize_dynamodb_response_bounded, normalize_request_body,
+        dynamodb_partiql_is_read_only, dynamodb_profile_payload,
+        normalize_dynamodb_response_bounded, normalize_request_body,
     };
 
     #[test]
     fn dynamodb_operation_reads_and_normalizes_action_field() {
         let mut value = json!({ "action": "list-tables" });
         assert_eq!(dynamodb_operation(&mut value).unwrap(), "ListTables");
+        let mut partiql = json!({ "operation": "partiql" });
+        assert_eq!(
+            dynamodb_operation(&mut partiql).unwrap(),
+            "ExecuteStatement"
+        );
     }
 
     #[test]
@@ -439,6 +523,24 @@ mod tests {
         assert_eq!(body["TableName"], "Orders");
         assert_eq!(body["KeyConditionExpression"], "pk = :pk");
         assert_eq!(body["Limit"], 26);
+        assert_eq!(body["ReturnConsumedCapacity"], "TOTAL");
+    }
+
+    #[test]
+    fn dynamodb_partiql_request_normalizes_statement_and_capacity() {
+        let body = normalize_request_body(
+            "ExecuteStatement",
+            json!({
+                "statement": "SELECT * FROM Orders WHERE pk = ?",
+                "parameters": [{ "S": "ORDER#1" }],
+                "limit": 25,
+            }),
+            10,
+        );
+
+        assert_eq!(body["Statement"], "SELECT * FROM Orders WHERE pk = ?");
+        assert_eq!(body["Parameters"][0]["S"], "ORDER#1");
+        assert_eq!(body["Limit"], 11);
         assert_eq!(body["ReturnConsumedCapacity"], "TOTAL");
     }
 
@@ -508,5 +610,43 @@ mod tests {
         assert_eq!(bounded["datapad"]["truncated"], true);
         assert_eq!(profile["renderer"], "profile");
         assert_eq!(profile["stages"]["scannedCount"], 30);
+    }
+
+    #[test]
+    fn dynamodb_execute_statement_response_reports_next_token_and_capacity() {
+        let value = json!({
+            "Items": [
+                { "pk": { "S": "order#1" } },
+                { "pk": { "S": "order#2" } }
+            ],
+            "NextToken": "token-2",
+            "ConsumedCapacity": { "TableName": "Orders", "CapacityUnits": 0.5 }
+        });
+
+        let result = normalize_dynamodb_response_bounded("ExecuteStatement", &value, 1);
+        let bounded = bounded_dynamodb_response("ExecuteStatement", value.clone(), 1, true);
+        let profile = dynamodb_profile_payload("ExecuteStatement", &value).unwrap();
+
+        assert!(result.truncated);
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(bounded["Items"].as_array().unwrap().len(), 1);
+        assert_eq!(bounded["datapad"]["nextToken"], "token-2");
+        assert_eq!(profile["stages"]["nextToken"], "token-2");
+    }
+
+    #[test]
+    fn dynamodb_partiql_read_guard_allows_only_select() {
+        assert!(dynamodb_partiql_is_read_only(
+            "-- report\nSELECT * FROM Orders WHERE pk = 'ORDER#1'"
+        ));
+        assert!(dynamodb_partiql_is_read_only(
+            "/* bounded lookup */\nselect * from Orders"
+        ));
+        assert!(!dynamodb_partiql_is_read_only(
+            "UPDATE Orders SET status = 'paid' WHERE pk = 'ORDER#1'"
+        ));
+        assert!(!dynamodb_partiql_is_read_only(
+            "DELETE FROM Orders WHERE pk = 'ORDER#1'"
+        ));
     }
 }

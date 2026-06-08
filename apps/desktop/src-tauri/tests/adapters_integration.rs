@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use datapadplusplus_desktop_lib::{
     adapters,
@@ -9,7 +11,7 @@ use datapadplusplus_desktop_lib::{
         models::{
             DataEditChange, DataEditExecutionRequest, DataEditPlanRequest, DataEditTarget,
             ExecutionRequest, ExplorerRequest, OperationExecutionRequest,
-            ResolvedConnectionProfile, ResultPageRequest,
+            ResolvedConnectionProfile, ResultPageRequest, WarehouseConnectionOptions,
         },
     },
 };
@@ -125,6 +127,57 @@ fn resolved_connection(engine: &str, family: &str) -> ResolvedConnectionProfile 
         time_series_options: None,
         graph_options: None,
         warehouse_options: None,
+        read_only: true,
+    }
+}
+
+fn temporary_duckdb_path(label: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    env::temp_dir().join(format!(
+        "datapadplusplus-{label}-{}-{nanos}.duckdb",
+        std::process::id()
+    ))
+}
+
+fn duckdb_fixture_connection(path: &Path) -> ResolvedConnectionProfile {
+    let extension_directory = path
+        .with_extension("duckdb-extensions")
+        .display()
+        .to_string();
+    let path = path.display().to_string();
+    ResolvedConnectionProfile {
+        id: "conn-duckdb-fixture".into(),
+        name: "Fixture DuckDB".into(),
+        engine: "duckdb".into(),
+        family: "embedded-olap".into(),
+        host: path.clone(),
+        port: None,
+        database: Some(path.clone()),
+        username: None,
+        password: None,
+        connection_string: None,
+        redis_options: None,
+        memcached_options: None,
+        sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: Some(WarehouseConnectionOptions {
+            file_path: Some(path),
+            temp_directory: Some(extension_directory),
+            extensions: vec!["parquet".into(), "json".into()],
+            ..WarehouseConnectionOptions::default()
+        }),
         read_only: true,
     }
 }
@@ -571,6 +624,820 @@ async fn beta_adapter_contract_surfaces_operations_permissions_and_diagnostics(
             .page_size,
         5_000
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn duckdb_local_file_fixture_validates_read_profile_catalog_and_guard_boundaries(
+) -> Result<(), CommandError> {
+    let db_path = temporary_duckdb_path("native-evidence");
+    {
+        let db = duckdb::Connection::open(&db_path)
+            .map_err(|error| CommandError::new("duckdb-fixture-open", error.to_string()))?;
+        db.execute_batch(
+            r#"
+            create table orders as
+            select
+              i::integer as id,
+              case when i % 3 = 0 then 'lighting' when i % 3 = 1 then 'furniture' else 'storage' end as category,
+              (i * 1.25)::double as amount,
+              date '2026-01-01' + (i % 90)::integer as order_date
+            from range(1, 5001) as rows(i);
+            create view order_rollup as
+            select category, count(*) as order_count, round(sum(amount), 2) as revenue
+            from orders
+            group by category;
+            "#,
+        )
+        .map_err(|error| CommandError::new("duckdb-fixture-seed", error.to_string()))?;
+    }
+
+    let connection = duckdb_fixture_connection(&db_path);
+    let db_path_string = db_path.display().to_string();
+    let connection_result = adapters::test_connection(&connection, Vec::new()).await?;
+    assert!(connection_result.ok);
+    assert_eq!(
+        connection_result.resolved_database.as_deref(),
+        Some(db_path_string.as_str())
+    );
+    assert!(connection_result
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Detected DuckDB version")));
+
+    let admin_plan = adapters::plan_operation(
+        &connection,
+        "duckdb.table.analyze",
+        Some("main.orders"),
+        None,
+    )
+    .await?;
+    let admin_plan_json: serde_json::Value = serde_json::from_str(&admin_plan.generated_request)
+        .map_err(|error| CommandError::new("duckdb-admin-plan-json", error.to_string()))?;
+    assert_eq!(
+        admin_plan_json["adminExecutionBoundary"]["executionPolicy"].as_str(),
+        Some("scoped-out")
+    );
+    assert_eq!(
+        admin_plan_json["adminExecutionBoundary"]["nativeClaim"].as_str(),
+        Some("admin-preview-only")
+    );
+    assert!(admin_plan_json["adminExecutionBoundary"]["blockedReasons"]
+        .as_array()
+        .is_some_and(|reasons| reasons
+            .iter()
+            .any(|reason| reason.as_str() == Some("duckdb-admin-execution-scoped-out"))));
+
+    let extension_plan = adapters::plan_operation(
+        &connection,
+        "duckdb.extension.load",
+        Some("json"),
+        Some(&BTreeMap::from([("extensionName".into(), json!("json"))])),
+    )
+    .await?;
+    let extension_plan_json: serde_json::Value =
+        serde_json::from_str(&extension_plan.generated_request)
+            .map_err(|error| CommandError::new("duckdb-extension-plan-json", error.to_string()))?;
+    assert_eq!(
+        extension_plan_json["extensionExecutionBoundary"]["executionPolicy"].as_str(),
+        Some("scoped-out")
+    );
+    assert_eq!(
+        extension_plan_json["extensionExecutionBoundary"]["nativeClaim"].as_str(),
+        Some("extension-preflight-only")
+    );
+    assert!(
+        extension_plan_json["extensionExecutionBoundary"]["blockedReasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons
+                .iter()
+                .any(|reason| reason.as_str() == Some("duckdb-extension-execution-scoped-out")))
+    );
+
+    let root = adapters::list_explorer_nodes(
+        &connection,
+        &ExplorerRequest {
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            limit: Some(50),
+            scope: None,
+        },
+    )
+    .await?;
+    let root_labels = root
+        .nodes
+        .iter()
+        .map(|node| node.label.as_str())
+        .collect::<Vec<_>>();
+    assert!(root_labels.contains(&"Extensions"));
+    assert!(root_labels.contains(&"Files"));
+    assert!(root_labels.contains(&"Diagnostics"));
+
+    let tables = adapters::list_explorer_nodes(
+        &connection,
+        &ExplorerRequest {
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            limit: Some(50),
+            scope: Some("tables:main".into()),
+        },
+    )
+    .await?;
+    assert!(tables
+        .nodes
+        .iter()
+        .any(|node| node.id == "table:main:orders" && node.detail.contains("BASE TABLE")));
+
+    let inspected = adapters::inspect_explorer_node(
+        &connection,
+        &datapadplusplus_desktop_lib::domain::models::ExplorerInspectRequest {
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            node_id: "table:main:orders".into(),
+        },
+    )
+    .await?;
+    let payload = inspected.payload.expect("DuckDB table inspection payload");
+    assert_eq!(payload["engine"], "duckdb");
+    assert_eq!(payload["tableName"], "main.orders");
+    assert!(payload["columns"]
+        .as_array()
+        .is_some_and(|columns| columns.len() >= 4));
+
+    let read_result = adapters::execute(
+        &connection,
+        &execution_request(
+            &connection.id,
+            "env-dev",
+            "sql",
+            "select category, count(*) as order_count from orders group by category order by category;",
+        ),
+        Vec::new(),
+    )
+    .await?;
+    assert_eq!(read_result.engine, "duckdb");
+    assert!(read_result.summary.contains("3 row(s)"));
+    assert!(read_result
+        .payloads
+        .iter()
+        .any(|payload| payload["renderer"] == "table"
+            && payload["rows"]
+                .as_array()
+                .is_some_and(|rows| rows.len() == 3)));
+
+    let mut explain_request = execution_request(
+        &connection.id,
+        "env-dev",
+        "sql",
+        "select * from orders where amount > 100 order by amount desc limit 25;",
+    );
+    explain_request.mode = Some("explain".into());
+    let explain_result = adapters::execute(&connection, &explain_request, Vec::new()).await?;
+    assert_eq!(explain_result.default_renderer, "plan");
+    assert!(explain_result.payloads.iter().any(|payload| {
+        payload["renderer"] == "plan"
+            && payload["value"]["plan"]
+                .as_array()
+                .is_some_and(|lines| !lines.is_empty())
+    }));
+
+    let mut profile_request = explain_request.clone();
+    profile_request.mode = Some("profile".into());
+    let profile_result = adapters::execute(&connection, &profile_request, Vec::new()).await?;
+    assert_eq!(profile_result.default_renderer, "plan");
+    assert!(profile_result.payloads.iter().any(|payload| {
+        payload["renderer"] == "plan"
+            && payload["value"]["statement"]
+                .as_str()
+                .is_some_and(|statement| statement.starts_with("EXPLAIN ANALYZE"))
+    }));
+
+    let diagnostics = adapters::collect_diagnostics(&connection, Some("duckdb:database")).await?;
+    assert_eq!(diagnostics.engine, "duckdb");
+    assert!(!diagnostics.metrics.is_empty());
+    assert!(diagnostics.query_history.iter().any(|payload| {
+        payload["renderer"] == "json"
+            && payload["value"]["templates"]
+                .as_array()
+                .is_some_and(|templates| {
+                    templates.iter().any(|template| {
+                        template
+                            .as_str()
+                            .is_some_and(|value| value.contains("read_parquet"))
+                    })
+                })
+    }));
+
+    let write_result = adapters::execute(
+        &connection,
+        &execution_request(
+            &connection.id,
+            "env-dev",
+            "sql",
+            "create table should_not_run(id integer);",
+        ),
+        Vec::new(),
+    )
+    .await;
+    let write_error = match write_result {
+        Ok(_) => panic!("DuckDB write SQL must remain operation-preview only"),
+        Err(error) => error,
+    };
+    assert_eq!(write_error.code, "duckdb-write-preview-only");
+
+    let operations = adapters::operation_manifests(&connection)?;
+    let file_import = operations
+        .iter()
+        .find(|operation| operation.id == "duckdb.file.import")
+        .expect("duckdb file import operation");
+    assert_eq!(file_import.execution_support, "plan-only");
+    assert_eq!(file_import.preview_only, Some(true));
+
+    let import_plan = adapters::plan_operation(
+        &connection,
+        "duckdb.file.import",
+        Some("fixture_import"),
+        Some(&BTreeMap::from([("sourceFormat".into(), json!("csv"))])),
+    )
+    .await?;
+    assert!(import_plan.generated_request.contains("read_csv_auto"));
+    assert!(import_plan.confirmation_text.is_some());
+
+    let import_export = operations
+        .iter()
+        .find(|operation| operation.id == "duckdb.data.import-export")
+        .expect("duckdb generic import-export operation");
+    assert_eq!(import_export.execution_support, "live");
+    assert_eq!(import_export.preview_only, Some(false));
+    let backup_restore = operations
+        .iter()
+        .find(|operation| operation.id == "duckdb.data.backup-restore")
+        .expect("duckdb backup operation");
+    assert_eq!(backup_restore.execution_support, "live");
+    assert_eq!(backup_restore.risk, "costly");
+
+    let mut live_connection = connection.clone();
+    live_connection.read_only = false;
+    let export_path = temporary_duckdb_path("orders-export").with_extension("csv");
+    let export_plan = adapters::plan_operation(
+        &live_connection,
+        "duckdb.data.import-export",
+        Some("\"main\".\"orders\""),
+        Some(&BTreeMap::from([
+            ("mode".into(), json!("export")),
+            ("format".into(), json!("csv")),
+            (
+                "targetPath".into(),
+                json!(export_path.display().to_string()),
+            ),
+            ("rowLimit".into(), json!(25)),
+            ("overwrite".into(), json!(true)),
+        ])),
+    )
+    .await?;
+    assert!(export_plan
+        .generated_request
+        .contains("\"workflow\": \"duckdb.table.export\""));
+    assert!(export_plan.generated_request.contains("bounded row export"));
+    assert!(export_plan
+        .generated_request
+        .contains("database file read/open preflight"));
+    let export_response = adapters::execute_operation(
+        &live_connection,
+        &OperationExecutionRequest {
+            connection_id: live_connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "duckdb.data.import-export".into(),
+            object_name: Some("\"main\".\"orders\"".into()),
+            parameters: Some(HashMap::from([
+                ("mode".into(), json!("export")),
+                ("format".into(), json!("csv")),
+                (
+                    "targetPath".into(),
+                    json!(export_path.display().to_string()),
+                ),
+                ("rowLimit".into(), json!(25)),
+                ("overwrite".into(), json!(true)),
+            ])),
+            confirmation_text: Some("CONFIRM DUCKDB".into()),
+            row_limit: Some(25),
+            tab_id: None,
+        },
+    )
+    .await?;
+    assert!(export_response.executed);
+    assert!(export_path.is_file());
+    assert_eq!(
+        export_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["exportedCount"].as_u64()),
+        Some(25)
+    );
+    assert_eq!(
+        export_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["kind"].as_str()),
+        Some("file")
+    );
+    assert_eq!(
+        export_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["readProbe"].as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        export_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["duckdbOpenProbe"].as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        export_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["lockBoundary"]
+                ["scopedFileWorkflowValidated"]
+                .as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        export_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["lockBoundary"]
+                ["crossProcessContentionValidated"]
+                .as_bool()),
+        Some(false)
+    );
+
+    let source_path = temporary_duckdb_path("orders-import").with_extension("csv");
+    fs::write(
+        &source_path,
+        "id,category,amount,order_date\n9001,lighting,42.5,2026-04-01\n9002,storage,9.5,2026-04-02\n",
+    )?;
+    let import_response = adapters::execute_operation(
+        &live_connection,
+        &OperationExecutionRequest {
+            connection_id: live_connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "duckdb.data.import-export".into(),
+            object_name: Some("\"main\".\"orders_imported\"".into()),
+            parameters: Some(HashMap::from([
+                ("mode".into(), json!("import")),
+                ("sourceFormat".into(), json!("csv")),
+                (
+                    "sourcePath".into(),
+                    json!(source_path.display().to_string()),
+                ),
+                ("targetTable".into(), json!("\"main\".\"orders_imported\"")),
+                ("rowLimit".into(), json!(10)),
+            ])),
+            confirmation_text: Some("CONFIRM DUCKDB".into()),
+            row_limit: Some(10),
+            tab_id: None,
+        },
+    )
+    .await?;
+    assert!(import_response.executed);
+    assert_eq!(
+        import_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["insertedCount"].as_u64()),
+        Some(2)
+    );
+    assert_eq!(
+        import_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["writeProbe"].as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        import_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["lockBoundary"]
+                ["filesystemWriteOpenValidated"]
+                .as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        import_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["fileReadOnly"].as_bool()),
+        Some(false)
+    );
+    let imported_count = adapters::execute(
+        &live_connection,
+        &execution_request(
+            &live_connection.id,
+            "env-dev",
+            "sql",
+            "select count(*) as imported_count from orders_imported;",
+        ),
+        Vec::new(),
+    )
+    .await?;
+    assert!(imported_count.payloads.iter().any(|payload| {
+        payload["renderer"] == "table"
+            && payload["rows"]
+                .as_array()
+                .is_some_and(|rows| rows.first().is_some_and(|row| row[0] == "2"))
+    }));
+
+    let json_source_path = temporary_duckdb_path("orders-json-import").with_extension("json");
+    fs::write(
+        &json_source_path,
+        "{\"id\":9101,\"category\":\"lighting\",\"amount\":12.5,\"order_date\":\"2026-05-01\"}\n{\"id\":9102,\"category\":\"storage\",\"amount\":21.5,\"order_date\":\"2026-05-02\"}\n",
+    )?;
+    let json_validate_response = adapters::execute_operation(
+        &live_connection,
+        &OperationExecutionRequest {
+            connection_id: live_connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "duckdb.data.import-export".into(),
+            object_name: Some("\"main\".\"orders_json_validated\"".into()),
+            parameters: Some(HashMap::from([
+                ("mode".into(), json!("validate")),
+                ("sourceFormat".into(), json!("json")),
+                (
+                    "sourcePath".into(),
+                    json!(json_source_path.display().to_string()),
+                ),
+                (
+                    "targetTable".into(),
+                    json!("\"main\".\"orders_json_validated\""),
+                ),
+                ("rowLimit".into(), json!(10)),
+            ])),
+            confirmation_text: Some("CONFIRM DUCKDB".into()),
+            row_limit: Some(10),
+            tab_id: None,
+        },
+    )
+    .await?;
+    assert!(!json_validate_response.executed);
+    assert!(json_validate_response
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("requires the `json` extension to be loaded")));
+    assert_eq!(
+        json_validate_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["formatPreflight"]["requiredExtension"].as_str()),
+        Some("json")
+    );
+    assert_eq!(
+        json_validate_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["formatPreflight"]["operationValidated"].as_bool()),
+        Some(false)
+    );
+    assert_eq!(
+        json_validate_response
+            .metadata
+            .as_ref()
+            .and_then(
+                |metadata| metadata["formatPreflight"]["extensionExecutionBoundary"]
+                    ["executionPolicy"]
+                    .as_str()
+            ),
+        Some("scoped-out-until-preloaded-extension")
+    );
+    assert_eq!(
+        json_validate_response
+            .metadata
+            .as_ref()
+            .and_then(
+                |metadata| metadata["formatPreflight"]["extensionExecutionBoundary"]
+                    ["loadedValidated"]
+                    .as_bool()
+            ),
+        Some(false)
+    );
+    assert!(json_validate_response
+        .metadata
+        .as_ref()
+        .and_then(
+            |metadata| metadata["formatPreflight"]["extensionExecutionBoundary"]["blockedReasons"]
+                .as_array()
+        )
+        .is_some_and(|reasons| reasons
+            .iter()
+            .any(|reason| reason.as_str() == Some("required-extension-not-loaded"))));
+
+    let parquet_path = temporary_duckdb_path("orders-export").with_extension("parquet");
+    let parquet_export_response = adapters::execute_operation(
+        &live_connection,
+        &OperationExecutionRequest {
+            connection_id: live_connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "duckdb.data.import-export".into(),
+            object_name: Some("\"main\".\"orders\"".into()),
+            parameters: Some(HashMap::from([
+                ("mode".into(), json!("export")),
+                ("format".into(), json!("parquet")),
+                (
+                    "targetPath".into(),
+                    json!(parquet_path.display().to_string()),
+                ),
+                ("rowLimit".into(), json!(5)),
+                ("overwrite".into(), json!(true)),
+            ])),
+            confirmation_text: Some("CONFIRM DUCKDB".into()),
+            row_limit: Some(5),
+            tab_id: None,
+        },
+    )
+    .await?;
+    assert!(!parquet_export_response.executed);
+    assert!(parquet_export_response
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("requires the `parquet` extension to be loaded")));
+    assert_eq!(
+        parquet_export_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["formatPreflight"]["requiredExtension"].as_str()),
+        Some("parquet")
+    );
+    assert_eq!(
+        parquet_export_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["formatPreflight"]["operationValidated"].as_bool()),
+        Some(false)
+    );
+    assert_eq!(
+        parquet_export_response
+            .metadata
+            .as_ref()
+            .and_then(
+                |metadata| metadata["formatPreflight"]["extensionExecutionBoundary"]
+                    ["executionPolicy"]
+                    .as_str()
+            ),
+        Some("scoped-out-until-preloaded-extension")
+    );
+    assert_eq!(
+        parquet_export_response
+            .metadata
+            .as_ref()
+            .and_then(
+                |metadata| metadata["formatPreflight"]["extensionExecutionBoundary"]
+                    ["requiredExtension"]
+                    .as_str()
+            ),
+        Some("parquet")
+    );
+    assert_eq!(
+        parquet_export_response
+            .metadata
+            .as_ref()
+            .and_then(
+                |metadata| metadata["formatPreflight"]["extensionExecutionBoundary"]
+                    ["networkAutoloadAllowed"]
+                    .as_bool()
+            ),
+        Some(false)
+    );
+
+    let backup_dir = temporary_duckdb_path("orders-backup").with_extension("backup");
+    let backup_response = adapters::execute_operation(
+        &live_connection,
+        &OperationExecutionRequest {
+            connection_id: live_connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "duckdb.data.backup-restore".into(),
+            object_name: Some("main".into()),
+            parameters: Some(HashMap::from([
+                ("mode".into(), json!("backup")),
+                ("format".into(), json!("csv")),
+                ("targetPath".into(), json!(backup_dir.display().to_string())),
+            ])),
+            confirmation_text: Some("CONFIRM DUCKDB".into()),
+            row_limit: None,
+            tab_id: None,
+        },
+    )
+    .await?;
+    assert!(backup_response.executed);
+    assert!(backup_dir.is_dir());
+    assert!(backup_response
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata["fileCount"].as_u64())
+        .is_some_and(|count| count > 0));
+    assert_eq!(
+        backup_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["readProbe"].as_bool()),
+        Some(true)
+    );
+
+    let restore_preview = adapters::execute_operation(
+        &live_connection,
+        &OperationExecutionRequest {
+            connection_id: live_connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "duckdb.data.backup-restore".into(),
+            object_name: Some("main".into()),
+            parameters: Some(HashMap::from([
+                ("mode".into(), json!("restore")),
+                ("sourcePath".into(), json!(backup_dir.display().to_string())),
+            ])),
+            confirmation_text: Some("CONFIRM DUCKDB".into()),
+            row_limit: None,
+            tab_id: None,
+        },
+    )
+    .await?;
+    assert!(!restore_preview.executed);
+    assert!(restore_preview
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("restore execution remains preview-first")));
+    assert_eq!(
+        restore_preview
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["kind"].as_str()),
+        Some("file")
+    );
+    assert_eq!(
+        restore_preview
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["writeProbe"].as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        restore_preview
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["duckdbOpenProbe"].as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        restore_preview
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["lockBoundary"]
+                ["exclusiveWriterLockValidated"]
+                .as_bool()),
+        Some(false)
+    );
+    assert!(restore_preview
+        .metadata
+        .as_ref()
+        .and_then(
+            |metadata| metadata["databasePreflight"]["lockBoundary"]["promotionRequires"]
+                .as_array()
+        )
+        .is_some_and(
+            |requirements| requirements.iter().any(|requirement| requirement
+                .as_str()
+                .is_some_and(|value| value.contains("exclusive DuckDB writer lock acquisition")))
+        ));
+    assert_eq!(
+        restore_preview
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["restorePreflight"]["hasSchemaSql"].as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        restore_preview
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["restorePreflight"]["hasLoadSql"].as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        restore_preview
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["restorePreflight"]["sourcePackageValidated"].as_bool()),
+        Some(true)
+    );
+    assert!(restore_preview
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata["restorePreflight"]["detectedFormats"].as_array())
+        .is_some_and(|formats| formats.iter().any(|format| format.as_str() == Some("csv"))));
+    assert!(restore_preview
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata["statement"].as_str())
+        .is_some_and(|statement| statement.contains("import database")));
+    assert_eq!(
+        restore_preview
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["restoreExecutionBoundary"]["executionPolicy"].as_str()),
+        Some("scoped-out")
+    );
+    assert_eq!(
+        restore_preview
+            .metadata
+            .as_ref()
+            .and_then(
+                |metadata| metadata["restoreExecutionBoundary"]["previewValidated"].as_bool()
+            ),
+        Some(true)
+    );
+    assert!(restore_preview
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata["restoreExecutionBoundary"]["promotionRequires"].as_array())
+        .is_some_and(
+            |requirements| requirements.iter().any(|requirement| requirement
+                .as_str()
+                .is_some_and(|value| value.contains("snapshot or rollback artifact")))
+        ));
+    assert!(restore_preview
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata["restoreExecutionBoundary"]["blockedReasons"].as_array())
+        .is_some_and(|reasons| reasons
+            .iter()
+            .any(|reason| reason.as_str() == Some("restore-execution-scoped-out"))));
+
+    let mut permissions = fs::metadata(&db_path)?.permissions();
+    let original_read_only = permissions.readonly();
+    permissions.set_readonly(true);
+    fs::set_permissions(&db_path, permissions)?;
+    let readonly_import_response = adapters::execute_operation(
+        &live_connection,
+        &OperationExecutionRequest {
+            connection_id: live_connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "duckdb.data.import-export".into(),
+            object_name: Some("\"main\".\"orders_blocked\"".into()),
+            parameters: Some(HashMap::from([
+                ("mode".into(), json!("import")),
+                ("sourceFormat".into(), json!("csv")),
+                (
+                    "sourcePath".into(),
+                    json!(source_path.display().to_string()),
+                ),
+                ("targetTable".into(), json!("\"main\".\"orders_blocked\"")),
+            ])),
+            confirmation_text: Some("CONFIRM DUCKDB".into()),
+            row_limit: Some(10),
+            tab_id: None,
+        },
+    )
+    .await?;
+    let mut permissions = fs::metadata(&db_path)?.permissions();
+    permissions.set_readonly(original_read_only);
+    fs::set_permissions(&db_path, permissions)?;
+    assert!(!readonly_import_response.executed);
+    assert!(readonly_import_response
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("read-only on disk")));
+    assert_eq!(
+        readonly_import_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["fileReadOnly"].as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        readonly_import_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["databasePreflight"]["writeProbe"].as_bool()),
+        Some(false)
+    );
+    assert!(readonly_import_response
+        .metadata
+        .as_ref()
+        .and_then(
+            |metadata| metadata["databasePreflight"]["lockBoundary"]["blockedReasons"].as_array()
+        )
+        .is_some_and(|reasons| reasons
+            .iter()
+            .any(|reason| reason.as_str() == Some("database-file-read-only"))));
+
+    let _ = fs::remove_file(&export_path);
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&json_source_path);
+    let _ = fs::remove_file(&parquet_path);
+    let _ = fs::remove_dir_all(&backup_dir);
+    let _ = fs::remove_dir_all(db_path.with_extension("duckdb-extensions"));
+    let _ = fs::remove_file(&db_path);
     Ok(())
 }
 

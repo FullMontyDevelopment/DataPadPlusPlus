@@ -1,6 +1,7 @@
 import type { ConnectionProfile, OperationManifestResponse } from '@datapadplusplus/shared-types'
 import { buildCockroachOperationManifests } from './browser-cockroach-operation-manifests'
 import { buildDocumentOperationManifests } from './browser-document-operation-manifests'
+import { buildDuckDbOperationManifests } from './browser-duckdb-operation-manifests'
 import { buildMemcachedOperationManifests } from './browser-memcached-operation-manifests'
 import { buildMysqlOperationManifests } from './browser-mysql-operation-manifests'
 import { buildPostgresOperationManifests } from './browser-postgres-operation-manifests'
@@ -217,45 +218,6 @@ function buildRedisOperationManifests(
   ]
 }
 
-function buildDuckDbOperationManifests(
-  connection: ConnectionProfile,
-  capabilities: ReadonlySet<string>,
-): OperationManifestResponse['operations'] {
-  if (connection.engine !== 'duckdb') return []
-
-  const operations: OperationManifestResponse['operations'] = []
-
-  if (capabilities.has('supports_admin_operations')) {
-    operations.push(
-      duckDbOperation(connection, 'duckdb.table.analyze', 'Analyze Table', 'table', 'costly', ['profile', 'metrics', 'raw'], 'Preview refreshing DuckDB statistics for a table or view.'),
-      duckDbOperation(connection, 'duckdb.database.analyze', 'Analyze Database', 'database', 'costly', ['profile', 'metrics', 'raw'], 'Preview refreshing DuckDB planner statistics for the local database.'),
-      duckDbOperation(connection, 'duckdb.database.checkpoint', 'Checkpoint', 'database', 'write', ['diff', 'raw'], 'Preview checkpointing the local DuckDB database file.'),
-      duckDbOperation(connection, 'duckdb.extension.install', 'Install Extension', 'extension', 'write', ['diff', 'raw'], 'Preview installing a DuckDB extension.'),
-      duckDbOperation(connection, 'duckdb.extension.load', 'Load Extension', 'extension', 'write', ['diff', 'raw'], 'Preview loading a DuckDB extension into the current session.'),
-    )
-  }
-
-  if (capabilities.has('supports_import_export')) {
-    operations.push({
-      id: 'duckdb.file.import',
-      engine: connection.engine,
-      family: connection.family,
-      label: 'Import File',
-      scope: 'table',
-      risk: 'write',
-      requiredCapabilities: ['supports_import_export'],
-      supportedRenderers: ['diff', 'table', 'raw'],
-      description: 'Preview creating a DuckDB table from a selected CSV, JSON, or Parquet file.',
-      requiresConfirmation: true,
-      executionSupport: 'plan-only',
-      disabledReason: 'DuckDB import execution is guarded and adapter-specific.',
-      previewOnly: true,
-    })
-  }
-
-  return operations
-}
-
 function buildClickHouseOperationManifests(
   connection: ConnectionProfile,
   capabilities: ReadonlySet<string>,
@@ -341,32 +303,6 @@ function clickHouseTableOperation(
     requiresConfirmation: true,
     executionSupport: 'plan-only',
     disabledReason: 'ClickHouse table maintenance execution is guarded and adapter-specific.',
-    previewOnly: true,
-  }
-}
-
-function duckDbOperation(
-  connection: ConnectionProfile,
-  id: string,
-  label: string,
-  scope: OperationManifestResponse['operations'][number]['scope'],
-  risk: OperationManifestResponse['operations'][number]['risk'],
-  supportedRenderers: OperationManifestResponse['operations'][number]['supportedRenderers'],
-  description: string,
-): OperationManifestResponse['operations'][number] {
-  return {
-    id,
-    engine: connection.engine,
-    family: connection.family,
-    label,
-    scope,
-    risk,
-    requiredCapabilities: ['supports_admin_operations'],
-    supportedRenderers,
-    description,
-    requiresConfirmation: true,
-    executionSupport: 'plan-only',
-    disabledReason: `${label} is guarded and adapter-specific.`,
     previewOnly: true,
   }
 }

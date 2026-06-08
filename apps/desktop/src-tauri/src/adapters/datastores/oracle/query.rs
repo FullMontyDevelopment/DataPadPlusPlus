@@ -1,7 +1,12 @@
+use std::process::Stdio;
+
 use serde_json::{json, Value};
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
+use tokio::time::{timeout, Duration};
 
 use super::super::super::*;
-use super::connection::oracle_service_name;
+use super::connection::{oracle_connect_descriptor, oracle_service_name, oracle_sqlplus_path};
 use super::OracleAdapter;
 
 pub(super) async fn execute_oracle_query(
@@ -31,16 +36,78 @@ pub(super) async fn execute_oracle_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let explain = matches!(execute_mode(request), "explain" | "profile" | "plan");
-    notices.push(QueryExecutionNotice {
-        code: "oracle-contract".into(),
-        level: "info".into(),
-        message:
-            "Oracle live execution is not configured in this adapter phase; DataPad++ built a safe read preview without exposing driver payloads."
-                .into(),
-    });
+    let live_outcome = if let Some(path) = oracle_sqlplus_path(connection) {
+        if oracle_statement_supports_sqlplus_live(statement) {
+            Some(
+                execute_oracle_sqlplus_query(connection, statement, row_limit, explain, &path)
+                    .await?,
+            )
+        } else {
+            notices.push(QueryExecutionNotice {
+                code: "oracle-sqlplus-preview-command".into(),
+                level: "info".into(),
+                message:
+                    "Oracle SQLPlus live execution is configured, but this SQL*Plus-style command is shown as a safe preview because it does not return CSV-tabular query rows."
+                        .into(),
+            });
+            None
+        }
+    } else {
+        None
+    };
 
-    let response = preview_oracle_response(connection, statement, row_limit, explain);
-    let (columns, rows) = normalize_oracle_response(&response, row_limit);
+    let (response, columns, rows, live_execution, plan_payload, summary_prefix) = if let Some(
+        outcome,
+    ) =
+        live_outcome
+    {
+        notices.push(QueryExecutionNotice {
+                code: "oracle-sqlplus-live".into(),
+                level: "info".into(),
+                message:
+                    "Oracle SQLPlus executed the guarded statement with password redaction and a bounded row envelope."
+                        .into(),
+            });
+        (
+            outcome.response,
+            outcome.columns,
+            outcome.rows,
+            true,
+            outcome.plan_payload,
+            "Oracle SQLPlus adapter returned",
+        )
+    } else {
+        notices.push(QueryExecutionNotice {
+                code: "oracle-contract".into(),
+                level: "info".into(),
+                message:
+                    "Oracle live execution is not configured for this request; DataPad++ built a safe read preview without exposing driver payloads."
+                        .into(),
+            });
+        let response = preview_oracle_response(connection, statement, row_limit, explain);
+        let (columns, rows) = normalize_oracle_response(&response, row_limit);
+        let plan_payload = json!({
+            "engine": "oracle",
+            "service": oracle_service_name(connection),
+            "mode": if explain { "Explain Plan" } else { "Read Query" },
+            "rowLimit": row_limit,
+            "liveExecution": false,
+            "status": "Native Oracle execution is not configured for this connection.",
+            "nextSteps": [
+                "Configure the Oracle SQLPlus runtime on the connection for guarded live SELECT execution.",
+                "Use object views for dictionary metadata that is available without live query execution.",
+                "Use guarded operation previews for DDL and admin work."
+            ]
+        });
+        (
+            response,
+            columns,
+            rows,
+            false,
+            plan_payload,
+            "Oracle contract adapter normalized",
+        )
+    };
     let row_count = rows.len() as u32;
     let profile = payload_profile(
         "Oracle DBMS_XPLAN and session profile readiness.",
@@ -48,22 +115,9 @@ pub(super) async fn execute_oracle_query(
             "service": oracle_service_name(connection),
             "explainPlan": explain,
             "metadata": ["Schema dictionary", "Optimizer plan", "Session diagnostics"],
-            "live": false
+            "live": live_execution
         }),
     );
-    let plan_payload = json!({
-        "engine": "oracle",
-        "service": oracle_service_name(connection),
-        "mode": if explain { "Explain Plan" } else { "Read Query" },
-        "rowLimit": row_limit,
-        "liveExecution": false,
-        "status": "Native Oracle execution is not configured for this connection.",
-        "nextSteps": [
-            "Configure an Oracle thin or OCI runtime path for live execution.",
-            "Use object views for dictionary metadata that is available without live query execution.",
-            "Use guarded operation previews for DDL and admin work."
-        ]
-    });
     let payloads = vec![
         payload_table(columns, rows),
         payload_json(response.clone()),
@@ -78,7 +132,10 @@ pub(super) async fn execute_oracle_query(
                 "name": "oracle.contract.ready",
                 "value": 1,
                 "unit": "flag",
-                "labels": { "service": oracle_service_name(connection) }
+                "labels": {
+                    "service": oracle_service_name(connection),
+                    "live": live_execution.to_string()
+                }
             }
         ])),
     ];
@@ -90,7 +147,7 @@ pub(super) async fn execute_oracle_query(
 
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: format!("Oracle contract adapter normalized {row_count} row(s)."),
+        summary: format!("{summary_prefix} {row_count} row(s)."),
         default_renderer: &default_renderer,
         renderer_modes,
         payloads,
@@ -100,6 +157,354 @@ pub(super) async fn execute_oracle_query(
         truncated: false,
         explain_payload: None,
     }))
+}
+
+struct OracleSqlPlusOutcome {
+    response: Value,
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+    plan_payload: Value,
+}
+
+async fn execute_oracle_sqlplus_query(
+    connection: &ResolvedConnectionProfile,
+    statement: &str,
+    row_limit: u32,
+    explain: bool,
+    sqlplus_path: &str,
+) -> Result<OracleSqlPlusOutcome, CommandError> {
+    let script = oracle_sqlplus_script(connection, statement, row_limit, explain)?;
+    let output = run_oracle_sqlplus_script(connection, sqlplus_path, &script).await?;
+    let (columns, rows) = parse_oracle_sqlplus_csv(&output, row_limit)?;
+    let mode = if explain {
+        "Explain Plan"
+    } else {
+        "Read Query"
+    };
+    let response = json!({
+        "engine": "oracle",
+        "runtime": "sqlplus",
+        "live": true,
+        "service": oracle_service_name(connection),
+        "descriptor": oracle_connect_descriptor(connection),
+        "mode": mode,
+        "rowLimit": row_limit,
+        "columns": columns.clone(),
+        "rows": rows.clone()
+    });
+    let plan_payload = json!({
+        "engine": "oracle",
+        "runtime": "sqlplus",
+        "service": oracle_service_name(connection),
+        "mode": mode,
+        "rowLimit": row_limit,
+        "liveExecution": true,
+        "status": if explain {
+            "Oracle SQLPlus executed EXPLAIN PLAN and returned DBMS_XPLAN rows."
+        } else {
+            "Oracle SQLPlus executed a guarded read-only query and returned CSV rows."
+        },
+        "guards": [
+            "single-statement read guard",
+            "bounded row wrapper",
+            "SQLPlus /nolog stdin credential flow",
+            "password redaction in adapter errors"
+        ]
+    });
+
+    Ok(OracleSqlPlusOutcome {
+        response,
+        columns,
+        rows,
+        plan_payload,
+    })
+}
+
+pub(super) async fn run_oracle_sqlplus_script(
+    connection: &ResolvedConnectionProfile,
+    sqlplus_path: &str,
+    script: &str,
+) -> Result<String, CommandError> {
+    let timeout_ms = oracle_request_timeout_ms(connection);
+    let mut command = Command::new(sqlplus_path);
+    command
+        .args(["-L", "-S", "/nolog"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    if let Some(wallet_path) = connection
+        .oracle_options
+        .as_ref()
+        .and_then(|options| options.wallet_path.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        command.env("TNS_ADMIN", wallet_path);
+    }
+
+    let mut child = command.spawn().map_err(|error| {
+        CommandError::new(
+            "oracle-sqlplus-unavailable",
+            format!(
+                "Oracle SQLPlus could not be launched from '{}'. Configure Oracle options with a valid SQLPlus path or switch the runtime to contract preview. Details: {}",
+                sqlplus_path, error
+            ),
+        )
+    })?;
+
+    let mut stdin = child.stdin.take().ok_or_else(|| {
+        CommandError::new(
+            "oracle-sqlplus-stdin-unavailable",
+            "Oracle SQLPlus did not expose stdin for the guarded /nolog credential flow.",
+        )
+    })?;
+    stdin.write_all(script.as_bytes()).await.map_err(|error| {
+        CommandError::new(
+            "oracle-sqlplus-stdin-failed",
+            format!(
+                "Oracle SQLPlus could not receive the guarded query script. Details: {}",
+                error
+            ),
+        )
+    })?;
+    drop(stdin);
+
+    let output = timeout(Duration::from_millis(timeout_ms), child.wait_with_output())
+        .await
+        .map_err(|_| {
+            CommandError::new(
+                "oracle-sqlplus-timeout",
+                format!(
+                    "Oracle SQLPlus did not finish within {} ms. Increase Oracle request timeout or narrow the query.",
+                    timeout_ms
+                ),
+            )
+        })?
+        .map_err(|error| {
+            CommandError::new(
+                "oracle-sqlplus-failed",
+                format!("Oracle SQLPlus failed while waiting for output. Details: {}", error),
+            )
+        })?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() {
+        let combined = redact_oracle_sqlplus_output(connection, &format!("{stdout}\n{stderr}"));
+        return Err(oracle_friendly_error(combined.trim()));
+    }
+
+    Ok(stdout)
+}
+
+pub(crate) fn oracle_sqlplus_script(
+    connection: &ResolvedConnectionProfile,
+    statement: &str,
+    row_limit: u32,
+    explain: bool,
+) -> Result<String, CommandError> {
+    let connect_clause = oracle_sqlplus_connect_clause(connection)?;
+    let live_statement = oracle_live_statement(statement, row_limit, explain)?;
+    let mut lines = vec![
+        "set echo off".to_string(),
+        "set feedback off".to_string(),
+        "set heading on".to_string(),
+        "set pagesize 50000".to_string(),
+        "set linesize 32767".to_string(),
+        "set long 1048576".to_string(),
+        "set longchunksize 1048576".to_string(),
+        "set trimspool on".to_string(),
+        "set tab off".to_string(),
+        "set verify off".to_string(),
+        "whenever oserror exit failure rollback".to_string(),
+        "whenever sqlerror exit sql.sqlcode rollback".to_string(),
+        format!("connect {connect_clause}"),
+        "alter session set nls_date_format = 'YYYY-MM-DD\"T\"HH24:MI:SS';".to_string(),
+        "alter session set nls_timestamp_format = 'YYYY-MM-DD\"T\"HH24:MI:SS.FF6';".to_string(),
+        "alter session set nls_timestamp_tz_format = 'YYYY-MM-DD\"T\"HH24:MI:SS.FF6 TZH:TZM';"
+            .to_string(),
+    ];
+    if !explain {
+        lines.push("set transaction read only;".to_string());
+    }
+    lines.push("set markup csv on quote on".to_string());
+    lines.push(live_statement);
+    lines.push("exit success".to_string());
+
+    Ok(lines.join("\n"))
+}
+
+pub(super) fn oracle_sqlplus_connect_clause(
+    connection: &ResolvedConnectionProfile,
+) -> Result<String, CommandError> {
+    let username = connection
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                "oracle-username-missing",
+                "Oracle SQLPlus live execution requires a username on the connection profile.",
+            )
+        })?;
+    let descriptor = oracle_connect_descriptor(connection);
+    let password = connection.password.as_deref().unwrap_or("");
+    let options = connection.oracle_options.as_ref();
+    let login = if let Some(proxy_user) = options
+        .and_then(|options| options.proxy_user.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        format!(
+            "{}[{}]",
+            oracle_sqlplus_identifier(proxy_user),
+            oracle_sqlplus_identifier(username)
+        )
+    } else {
+        oracle_sqlplus_identifier(username)
+    };
+    let role = options
+        .and_then(|options| options.connection_role.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("default"))
+        .map(|value| format!(" as {}", value.to_ascii_lowercase()))
+        .unwrap_or_default();
+
+    Ok(format!(
+        "{}/{}@{}{}",
+        login,
+        oracle_sqlplus_password(password),
+        descriptor,
+        role
+    ))
+}
+
+fn oracle_live_statement(
+    statement: &str,
+    row_limit: u32,
+    explain: bool,
+) -> Result<String, CommandError> {
+    let statement = strip_optional_final_semicolon(statement).trim();
+    if statement.is_empty() {
+        return Err(CommandError::new(
+            "oracle-query-missing",
+            "No Oracle SQL statement was provided.",
+        ));
+    }
+
+    if explain {
+        if statement
+            .trim_start()
+            .to_lowercase()
+            .starts_with("explain plan")
+        {
+            return Ok(format!(
+                "{statement};\nselect * from table(dbms_xplan.display);"
+            ));
+        }
+        return Ok(format!(
+            "explain plan for {statement};\nselect * from table(dbms_xplan.display);"
+        ));
+    }
+
+    Ok(format!(
+        "select * from (\n{statement}\n) where rownum <= {row_limit};"
+    ))
+}
+
+fn oracle_statement_supports_sqlplus_live(statement: &str) -> bool {
+    let normalized = strip_optional_final_semicolon(statement)
+        .trim_start()
+        .to_lowercase();
+    normalized.starts_with("select")
+        || normalized.starts_with("with")
+        || normalized.starts_with("explain plan")
+}
+
+pub(crate) fn parse_oracle_sqlplus_csv(
+    raw: &str,
+    row_limit: u32,
+) -> Result<(Vec<String>, Vec<Vec<String>>), CommandError> {
+    let mut records = raw
+        .lines()
+        .map(str::trim)
+        .filter(|line| oracle_sqlplus_output_line_is_csv(line))
+        .filter_map(parse_csv_line)
+        .collect::<Vec<_>>();
+    if records.is_empty() {
+        return Err(CommandError::new(
+            "oracle-sqlplus-empty-result",
+            "Oracle SQLPlus completed but did not return a CSV result set.",
+        ));
+    }
+
+    let columns = records.remove(0);
+    let width = columns.len();
+    let rows = records
+        .into_iter()
+        .take(row_limit as usize)
+        .map(|mut row| {
+            row.resize(width, String::new());
+            row.truncate(width);
+            row
+        })
+        .collect::<Vec<_>>();
+
+    Ok((columns, rows))
+}
+
+fn parse_csv_line(line: &str) -> Option<Vec<String>> {
+    let mut values = Vec::new();
+    let mut value = String::new();
+    let mut chars = line.chars().peekable();
+    let mut in_quotes = false;
+    let mut saw_character = false;
+
+    while let Some(character) = chars.next() {
+        saw_character = true;
+        match character {
+            '"' if in_quotes && chars.peek() == Some(&'"') => {
+                value.push('"');
+                chars.next();
+            }
+            '"' => in_quotes = !in_quotes,
+            ',' if !in_quotes => {
+                values.push(value.trim().to_string());
+                value.clear();
+            }
+            _ => value.push(character),
+        }
+    }
+
+    if saw_character {
+        values.push(value.trim().to_string());
+        Some(values)
+    } else {
+        None
+    }
+}
+
+fn oracle_sqlplus_output_line_is_csv(line: &str) -> bool {
+    if line.is_empty() {
+        return false;
+    }
+    let lower = line.to_lowercase();
+    if lower == "connected."
+        || lower == "disconnected from oracle database"
+        || lower == "no rows selected"
+        || lower == "session altered."
+        || lower == "transaction set."
+        || lower == "explained."
+        || lower.starts_with("sql>")
+        || lower.starts_with("error")
+    {
+        return false;
+    }
+
+    line.starts_with('"') || line.contains(',')
 }
 
 pub(crate) fn preview_oracle_response(
@@ -158,13 +563,95 @@ pub(crate) fn normalize_oracle_response(
 }
 
 pub(crate) fn is_read_only_oracle_statement(statement: &str) -> bool {
-    let normalized = statement.trim_start().to_lowercase();
+    if statement_has_internal_semicolon(statement) {
+        return false;
+    }
+
+    let normalized = strip_optional_final_semicolon(statement)
+        .trim_start()
+        .to_lowercase();
+    if normalized.contains(" for update")
+        || normalized.contains(" dbms_lock.")
+        || normalized.contains(" dbms_scheduler.")
+        || normalized.contains(" dbms_utility.exec_ddl_statement")
+    {
+        return false;
+    }
+
     normalized.starts_with("select")
         || normalized.starts_with("with")
         || normalized.starts_with("explain plan")
         || normalized.starts_with("desc")
         || normalized.starts_with("describe")
         || normalized.starts_with("show")
+}
+
+fn strip_optional_final_semicolon(statement: &str) -> &str {
+    let trimmed = statement.trim();
+    trimmed.strip_suffix(';').unwrap_or(trimmed).trim()
+}
+
+fn statement_has_internal_semicolon(statement: &str) -> bool {
+    let trimmed = statement.trim();
+    let without_final = trimmed.strip_suffix(';').unwrap_or(trimmed);
+    without_final.contains(';')
+}
+
+fn oracle_request_timeout_ms(connection: &ResolvedConnectionProfile) -> u64 {
+    connection
+        .oracle_options
+        .as_ref()
+        .and_then(|options| options.request_timeout_ms)
+        .unwrap_or(30_000)
+        .clamp(1_000, 600_000)
+}
+
+fn oracle_sqlplus_identifier(value: &str) -> String {
+    let trimmed = value.trim();
+    if oracle_identifier_can_be_unquoted(trimmed) {
+        trimmed.to_ascii_uppercase()
+    } else {
+        format!("\"{}\"", trimmed.replace('"', "\"\""))
+    }
+}
+
+fn oracle_identifier_can_be_unquoted(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_alphabetic() {
+        return false;
+    }
+    chars.all(|character| {
+        character.is_ascii_alphanumeric()
+            || character == '_'
+            || character == '$'
+            || character == '#'
+    })
+}
+
+fn oracle_sqlplus_password(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn redact_oracle_sqlplus_output(connection: &ResolvedConnectionProfile, raw: &str) -> String {
+    let mut redacted = raw.to_string();
+    if let Some(password) = connection
+        .password
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        redacted = redacted.replace(password, "[redacted]");
+    }
+    if let Some(connection_string) = connection
+        .connection_string
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        redacted = redacted.replace(connection_string, "[connection-string-redacted]");
+    }
+    redacted
 }
 
 #[allow(dead_code)]
@@ -244,9 +731,10 @@ mod tests {
 
     use super::{
         is_read_only_oracle_statement, normalize_oracle_response, oracle_friendly_error,
-        preview_oracle_response,
+        oracle_live_statement, oracle_sqlplus_script, parse_oracle_sqlplus_csv,
+        preview_oracle_response, redact_oracle_sqlplus_output,
     };
-    use crate::domain::models::ResolvedConnectionProfile;
+    use crate::domain::models::{OracleConnectionOptions, ResolvedConnectionProfile};
 
     fn connection() -> ResolvedConnectionProfile {
         ResolvedConnectionProfile {
@@ -258,7 +746,7 @@ mod tests {
             port: None,
             database: Some("FREEPDB1".into()),
             username: Some("APP".into()),
-            password: None,
+            password: Some("pa,ss".into()),
             connection_string: None,
             redis_options: None,
             memcached_options: None,
@@ -298,11 +786,79 @@ mod tests {
     #[test]
     fn oracle_read_only_guard_detects_mutations() {
         assert!(is_read_only_oracle_statement("select * from dual"));
+        assert!(is_read_only_oracle_statement("select * from dual;"));
         assert!(is_read_only_oracle_statement(
             "with q as (select 1 from dual) select * from q"
         ));
         assert!(!is_read_only_oracle_statement("insert into t values (1)"));
         assert!(!is_read_only_oracle_statement("begin delete from t; end;"));
+        assert!(!is_read_only_oracle_statement(
+            "select * from dual; delete from accounts"
+        ));
+        assert!(!is_read_only_oracle_statement(
+            "select * from accounts for update"
+        ));
+    }
+
+    #[test]
+    fn oracle_live_statement_wraps_selects_and_explain_plans() {
+        assert_eq!(
+            oracle_live_statement("select * from app.accounts;", 50, false).unwrap(),
+            "select * from (\nselect * from app.accounts\n) where rownum <= 50;"
+        );
+        assert_eq!(
+            oracle_live_statement("select * from app.accounts", 50, true).unwrap(),
+            "explain plan for select * from app.accounts;\nselect * from table(dbms_xplan.display);"
+        );
+    }
+
+    #[test]
+    fn oracle_sqlplus_script_uses_guarded_connect_and_read_transaction() {
+        let mut connection = connection();
+        connection.oracle_options = Some(OracleConnectionOptions {
+            execution_runtime: Some("sqlplus".into()),
+            request_timeout_ms: Some(10_000),
+            ..Default::default()
+        });
+
+        let script = oracle_sqlplus_script(&connection, "select * from dual", 25, false).unwrap();
+
+        assert!(script.contains("connect APP/\"pa,ss\"@dbhost:1521/FREEPDB1"));
+        assert!(script.contains("set transaction read only;"));
+        assert!(script.contains("set markup csv on quote on"));
+        assert!(script.contains("where rownum <= 25;"));
+    }
+
+    #[test]
+    fn oracle_sqlplus_csv_parser_handles_noise_and_quotes() {
+        let raw = r#"
+Connected.
+"ID","NAME","NOTE"
+"1","Ada, Inc.","He said ""hello"""
+"2","Bob",""
+Disconnected from Oracle Database
+"#;
+
+        let (columns, rows) = parse_oracle_sqlplus_csv(raw, 1).unwrap();
+
+        assert_eq!(columns, vec!["ID", "NAME", "NOTE"]);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0], vec!["1", "Ada, Inc.", "He said \"hello\""]);
+    }
+
+    #[test]
+    fn oracle_sqlplus_redaction_removes_password_and_connection_string() {
+        let mut connection = connection();
+        connection.connection_string = Some("APP/pa,ss@dbhost:1521/FREEPDB1".into());
+
+        let redacted = redact_oracle_sqlplus_output(
+            &connection,
+            "ORA-01017 for APP/pa,ss@dbhost:1521/FREEPDB1 using pa,ss",
+        );
+
+        assert!(!redacted.contains("pa,ss"));
+        assert!(!redacted.contains("APP/pa,ss@dbhost:1521/FREEPDB1"));
+        assert!(redacted.contains("[redacted]"));
     }
 
     #[test]

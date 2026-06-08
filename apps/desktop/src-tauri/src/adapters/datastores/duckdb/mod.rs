@@ -4,6 +4,7 @@ mod catalog;
 mod connection;
 mod diagnostics;
 mod explorer;
+mod import_export;
 mod query;
 mod query_request;
 mod query_results;
@@ -12,6 +13,7 @@ use catalog::*;
 use connection::test_duckdb_connection;
 use diagnostics::collect_duckdb_diagnostics;
 use explorer::{inspect_duckdb_explorer_node, list_duckdb_explorer_nodes};
+pub(crate) use import_export::execute_duckdb_file_operation;
 
 pub(crate) struct DuckDbAdapter;
 
@@ -23,6 +25,10 @@ impl DatastoreAdapter for DuckDbAdapter {
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         duckdb_execution_capabilities()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        duckdb_operation_manifests(&self.manifest())
     }
 
     async fn test_connection(

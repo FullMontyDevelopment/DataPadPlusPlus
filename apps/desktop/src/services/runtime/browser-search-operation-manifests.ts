@@ -1,4 +1,5 @@
 import type { ConnectionProfile, OperationManifestResponse } from '@datapadplusplus/shared-types'
+import { searchPreviewDisabledReason } from './search-runtime-support'
 
 type Operation = OperationManifestResponse['operations'][number]
 
@@ -34,7 +35,11 @@ export function buildSearchOperationManifests(
   }
 
   if (capabilities.has('supports_query_profile')) {
-    operations.push(searchOperation(connection, 'task.cancel', 'Cancel Task', 'query', 'write', ['supports_query_profile'], ['diff', 'raw'], 'Preview canceling a running search cluster task.'))
+    operations.push(
+      searchOperation(connection, 'task.cancel', 'Cancel Task', 'query', 'write', ['supports_query_profile'], ['diff', 'raw'], 'Preview canceling a running search cluster task.'),
+      searchOperation(connection, 'diagnostics.slow-log', 'Slow Log Plan', 'cluster', 'diagnostic', ['supports_query_profile'], ['metrics', 'table', 'json', 'raw'], 'Plan slow-log settings, search counters, and index-level query/indexing diagnostics.'),
+      searchOperation(connection, 'diagnostics.allocation', 'Allocation Explain', 'cluster', 'diagnostic', ['supports_query_profile'], ['table', 'json', 'raw'], 'Plan shard allocation explain and cat-shards requests with cluster-health context.'),
+    )
   }
 
   if (capabilities.has('supports_backup_restore')) {
@@ -66,7 +71,7 @@ function searchOperation(
     description,
     requiresConfirmation: risk !== 'diagnostic',
     executionSupport: 'plan-only',
-    disabledReason: `${label} is guarded and adapter-specific.`,
+    disabledReason: searchPreviewDisabledReason(connection, label),
     previewOnly: true,
   }
 }

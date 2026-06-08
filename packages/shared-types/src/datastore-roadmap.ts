@@ -428,7 +428,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     ],
     defaultPort: 1521,
     managementModel: 'Enterprise relational catalogs with CDB/PDB containers, schemas, tables, indexes, sequences, packages, procedures, functions, scheduler objects, queues, storage, security, dictionary views, users, roles, profiles, and grants.',
-    queryModel: 'SQL Query, PL/SQL Script, and Explain Plan modes with Oracle-native templates and guarded DDL/admin preview plans.',
+    queryModel: 'SQL Query, PL/SQL Script, and Explain Plan modes with Oracle-native templates, configurable SQLPlus live query execution, and guarded DDL/admin preview plans.',
     presentationModel: 'Tables, dictionary metadata, DBMS_XPLAN-style plans, SQL Monitor templates, session/wait metrics, storage/security diagnostics, and charts.',
     securityModel: 'Users, roles, object grants, system privileges, proxy users, wallets, TCPS, read-only profiles, and environment guardrails determine action availability.',
     resultRenderers: [...tableSchemaPlan],
@@ -442,7 +442,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_backup_restore',
     ],
     baselineFeatures: [
-      'Oracle connection options for service name, SID, TNS alias, Easy Connect, TCPS, wallet paths, proxy user, NLS, fetch, timeout, and pool settings',
+      'Oracle connection options for service name, SID, TNS alias, Easy Connect, TCPS, wallet paths, proxy user, SQLPlus runtime/path, NLS, fetch, timeout, and pool settings',
       'Container, schema, table, view, materialized view, synonym, sequence, function, procedure, package, type, scheduler, queue, storage, and security object browser',
       'SQL/PLSQL editor with Oracle templates, saved queries, object inspection, and export planning',
       'Object grants, role/profile, and permission-aware disabled action surfaces',
@@ -466,7 +466,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Session counts',
     ],
     roadmapNotes: [
-      'Oracle live runtime support is optional until driver/client prerequisites are configured.',
+      'Oracle SQLPlus live query support is optional per connection until driver/client prerequisites are configured.',
       'Use ALL_* and USER_* views by default; query DBA_*, V$, GV$, AWR/ASH, Data Guard, and RAC views only when permissions allow.',
       'Admin/destructive Oracle operations remain guarded previews until a later pass explicitly enables live execution.',
     ],
@@ -492,6 +492,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     capabilities: [
       ...SQL_CORE,
       ...SQL_ADMIN,
+      'supports_backup_restore',
       'supports_time_series_charting',
       'supports_visual_query_builder',
       'supports_query_cancellation',
@@ -592,7 +593,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     family: 'widecolumn',
     maturity: 'beta',
     defaultLanguage: 'json',
-    queryLanguages: ['json'],
+    queryLanguages: ['json', 'sql'],
     connectionModes: ['cloud-iam', 'cloud-sdk'],
     primaryConnectionMechanisms: [
       'AWS SDK with IAM credentials or role assumption',
@@ -600,7 +601,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     ],
     defaultPort: 8000,
     managementModel: 'Serverless tables with partition/sort keys, items, GSIs, LSIs, TTL, streams, capacity mode, and CloudWatch metrics.',
-    queryModel: 'Partition-key-first Query builder, Scan builder with warnings, PartiQL as a future editor mode, and raw AWS API JSON.',
+    queryModel: 'Partition-key-first Query builder, Scan builder with warnings, guarded read-only PartiQL ExecuteStatement requests, and raw AWS API JSON.',
     presentationModel: 'Items as key-value/document rows, table/index metadata, consumed capacity, CloudWatch metrics, and cost charts.',
     securityModel: 'AWS IAM policies, resource ARNs, temporary credentials, SigV4, read-only profiles, and production scan/write guardrails.',
     resultRenderers: ['keyvalue', 'document', 'table', 'metrics', 'costEstimate'],

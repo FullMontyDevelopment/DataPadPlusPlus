@@ -240,15 +240,146 @@ fn bounded_search_response(mut value: Value, row_limit: u32, truncated: bool) ->
 }
 
 fn search_profile_payload(index: &str, response: &Value) -> Option<Value> {
-    let profile = response.get("profile").cloned()?;
+    let profile = response.get("profile")?;
+    let stages = search_profile_stages(index, profile);
 
     Some(payload_profile(
         "Search profile returned by the engine.",
-        json!({
-            "index": index,
-            "profile": profile,
-        }),
+        Value::Array(stages),
     ))
+}
+
+fn search_profile_stages(index: &str, profile: &Value) -> Vec<Value> {
+    let mut stages = Vec::new();
+    for shard in profile
+        .get("shards")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let shard_id = shard
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown-shard");
+        for search in shard
+            .get("searches")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(rewrite_time) = search.get("rewrite_time").and_then(Value::as_u64) {
+                if rewrite_time > 0 {
+                    stages.push(profile_stage(
+                        format!("{shard_id} rewrite"),
+                        rewrite_time,
+                        json!({
+                            "index": index,
+                            "shard": shard_id,
+                            "phase": "rewrite",
+                        }),
+                    ));
+                }
+            }
+            for query in search
+                .get("query")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let query_type = query.get("type").and_then(Value::as_str).unwrap_or("query");
+                stages.push(profile_stage(
+                    format!("{shard_id} {query_type}"),
+                    query
+                        .get("time_in_nanos")
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default(),
+                    json!({
+                        "index": index,
+                        "shard": shard_id,
+                        "phase": "query",
+                        "description": query.get("description").and_then(Value::as_str),
+                        "breakdown": query.get("breakdown").cloned().unwrap_or_else(|| json!({})),
+                    }),
+                ));
+            }
+            for collector in search
+                .get("collector")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let collector_name = collector
+                    .get("name")
+                    .or_else(|| collector.get("reason"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("collector");
+                stages.push(profile_stage(
+                    format!("{shard_id} {collector_name}"),
+                    collector
+                        .get("time_in_nanos")
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default(),
+                    json!({
+                        "index": index,
+                        "shard": shard_id,
+                        "phase": "collector",
+                        "reason": collector.get("reason").and_then(Value::as_str),
+                        "children": collector.get("children").cloned().unwrap_or_else(|| json!([])),
+                    }),
+                ));
+            }
+            for aggregation in search
+                .get("aggregations")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let aggregation_type = aggregation
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("aggregation");
+                stages.push(profile_stage(
+                    format!("{shard_id} {aggregation_type}"),
+                    aggregation
+                        .get("time_in_nanos")
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default(),
+                    json!({
+                        "index": index,
+                        "shard": shard_id,
+                        "phase": "aggregation",
+                        "description": aggregation.get("description").and_then(Value::as_str),
+                        "breakdown": aggregation.get("breakdown").cloned().unwrap_or_else(|| json!({})),
+                    }),
+                ));
+            }
+            if stages.len() >= 50 {
+                return stages;
+            }
+        }
+    }
+
+    if stages.is_empty() {
+        stages.push(json!({
+            "name": "Search profile",
+            "durationMs": 0.0,
+            "details": {
+                "index": index,
+                "shardCount": profile.get("shards").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
+                "rawProfile": profile,
+            },
+        }));
+    }
+
+    stages
+}
+
+fn profile_stage(name: String, time_in_nanos: u64, details: Value) -> Value {
+    json!({
+        "name": name,
+        "durationMs": (time_in_nanos as f64) / 1_000_000.0,
+        "details": details,
+    })
 }
 
 fn search_index_path_segment(index: &str) -> Result<String, CommandError> {
@@ -272,7 +403,7 @@ mod tests {
 
     use super::{
         normalize_search_response_bounded, parse_search_query, search_index_path_segment,
-        search_profile_payload,
+        search_profile_payload, search_profile_stages,
     };
 
     #[test]
@@ -372,7 +503,28 @@ mod tests {
             &json!({
                 "profile": {
                     "shards": [
-                        { "id": "[logs][0]", "searches": [] }
+                        {
+                            "id": "[logs][0]",
+                            "searches": [{
+                                "rewrite_time": 250000,
+                                "query": [{
+                                    "type": "BooleanQuery",
+                                    "description": "status:active",
+                                    "time_in_nanos": 1500000,
+                                    "breakdown": { "match_count": 3 }
+                                }],
+                                "collector": [{
+                                    "name": "SimpleTopScoreDocCollector",
+                                    "reason": "search_top_hits",
+                                    "time_in_nanos": 500000
+                                }],
+                                "aggregations": [{
+                                    "type": "GlobalAggregator",
+                                    "description": "status terms",
+                                    "time_in_nanos": 750000
+                                }]
+                            }]
+                        }
                     ]
                 }
             }),
@@ -380,13 +532,21 @@ mod tests {
         .unwrap();
 
         assert_eq!(payload["renderer"], "profile");
-        assert_eq!(payload["stages"]["index"], "logs-*");
+        assert_eq!(payload["stages"][0]["name"], "[logs][0] rewrite");
+        assert_eq!(payload["stages"][1]["name"], "[logs][0] BooleanQuery");
+        assert_eq!(payload["stages"][1]["durationMs"], 1.5);
         assert_eq!(
-            payload["stages"]["profile"]["shards"]
-                .as_array()
-                .unwrap()
-                .len(),
-            1
+            payload["stages"][1]["details"]["description"],
+            "status:active"
         );
+        assert_eq!(payload["stages"].as_array().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn search_profile_stages_falls_back_when_profile_shape_is_empty() {
+        let stages = search_profile_stages("logs-*", &json!({ "shards": [] }));
+
+        assert_eq!(stages[0]["name"], "Search profile");
+        assert_eq!(stages[0]["details"]["index"], "logs-*");
     }
 }

@@ -99,9 +99,70 @@ describe('timeSeriesOperationActions', () => {
       }),
     })
   })
+
+  it('offers TimescaleDB policy, export, aggregate refresh, and job-control previews', () => {
+    const hypertableActions = timeSeriesOperationActions(
+      connection('timescaledb', 'metrics'),
+      objectViewTab('hypertable', 'public.order_metrics', {
+        queryTemplate: 'select * from "public"."order_metrics" limit 100;',
+      }),
+      'hypertable',
+      { schema: 'public', hypertableName: 'order_metrics' },
+    )
+
+    expect(hypertableActions.map((action) => action.label)).toEqual(['Profile', 'Compress', 'Retention', 'Export', 'Backup'])
+    expect(hypertableActions.find((action) => action.label === 'Export')).toMatchObject({
+      operationId: 'timescaledb.data.import-export',
+      objectName: '"public"."order_metrics"',
+      parameters: expect.objectContaining({
+        schema: 'public',
+        table: 'order_metrics',
+        format: 'csv',
+        timeColumn: 'time',
+      }),
+    })
+    expect(hypertableActions.find((action) => action.label === 'Backup')).toMatchObject({
+      operationId: 'timescaledb.data.backup-restore',
+      objectName: '"public"."order_metrics"',
+      parameters: expect.objectContaining({
+        mode: 'backup',
+        filePath: '<selected-file>.dump',
+      }),
+    })
+
+    const aggregateActions = timeSeriesOperationActions(
+      connection('timescaledb', 'metrics'),
+      objectViewTab('continuous-aggregate', 'observability.hourly_order_metrics'),
+      'continuous-aggregate',
+      { schema: 'observability', viewName: 'hourly_order_metrics' },
+    )
+    expect(aggregateActions.map((action) => action.label)).toEqual(['Profile', 'Refresh', 'Export', 'Backup'])
+    expect(aggregateActions.find((action) => action.label === 'Refresh')).toMatchObject({
+      operationId: 'timescaledb.timescale.refresh-continuous-aggregate',
+      parameters: expect.objectContaining({
+        table: 'hourly_order_metrics',
+        startOffset: '7 days',
+      }),
+    })
+
+    const jobActions = timeSeriesOperationActions(
+      connection('timescaledb', 'metrics'),
+      objectViewTab('jobs', 'Compression order_metrics'),
+      'jobs',
+      { jobId: 1001, schema: 'public', hypertableName: 'order_metrics' },
+    )
+    expect(jobActions.map((action) => action.label)).toEqual(['Job Control'])
+    expect(jobActions.find((action) => action.label === 'Job Control')).toMatchObject({
+      operationId: 'timescaledb.timescale.job-control',
+      parameters: expect.objectContaining({
+        jobId: 1001,
+        action: 'run',
+      }),
+    })
+  })
 })
 
-function connection(engine: 'prometheus' | 'influxdb' | 'opentsdb', database?: string): ConnectionProfile {
+function connection(engine: 'prometheus' | 'influxdb' | 'opentsdb' | 'timescaledb', database?: string): ConnectionProfile {
   return {
     id: `conn-${engine}`,
     name: engine,

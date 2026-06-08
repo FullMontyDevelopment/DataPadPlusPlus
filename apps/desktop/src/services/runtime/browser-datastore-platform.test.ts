@@ -18,7 +18,9 @@ describe('browser datastore platform contracts', () => {
     const postgres = experiences.find((item) => item.engine === 'postgresql')
     const redis = experiences.find((item) => item.engine === 'redis')
     const valkey = experiences.find((item) => item.engine === 'valkey')
+    const litedb = experiences.find((item) => item.engine === 'litedb')
     const timescale = experiences.find((item) => item.engine === 'timescaledb')
+    const oracle = experiences.find((item) => item.engine === 'oracle')
 
     expect(mongodb?.queryBuilders.map((item) => item.kind)).toEqual(
       expect.arrayContaining(['mongo-find', 'mongo-aggregation']),
@@ -51,6 +53,11 @@ describe('browser datastore platform contracts', () => {
       editKinds: ['insert-row', 'update-row', 'delete-row'],
       liveExecution: false,
     })
+    expect(oracle?.editableScopes[0]).toMatchObject({
+      scope: 'table',
+      editKinds: ['insert-row', 'update-row', 'delete-row'],
+      liveExecution: false,
+    })
     expect(redis?.editableScopes[0]?.editKinds).toContain('set-ttl')
     expect(redis?.editableScopes[0]?.editKinds).toContain('stream-add-entry')
     expect(redis?.editableScopes[0]?.editKinds).toContain('stream-delete-entry')
@@ -66,9 +73,14 @@ describe('browser datastore platform contracts', () => {
     expect(valkey?.editableScopes[0]?.editKinds).not.toContain('timeseries-add-sample')
     expect(valkey?.editableScopes[0]?.editKinds).not.toContain('json-set-path')
     expect(valkey?.editableScopes[0]?.editKinds).not.toContain('vector-add-member')
+    expect(litedb?.editableScopes[0]).toMatchObject({
+      scope: 'collection',
+      editKinds: ['insert-document', 'update-document', 'delete-document'],
+      liveExecution: false,
+    })
     expect(redis?.tree?.roots.map((item) => item.label)).toContain('Databases')
     expect(redis?.tree?.roots.map((item) => item.label)).toContain('ACL / Security')
-    for (const referenceExperience of [mongodb, redis, valkey]) {
+    for (const referenceExperience of [mongodb, redis, valkey, litedb]) {
       expect(referenceExperience?.editableScopes.every((scope) => !scope.liveExecution)).toBe(true)
     }
   })
@@ -90,6 +102,7 @@ describe('browser datastore platform contracts', () => {
       'opensearch',
       'dynamodb',
       'cassandra',
+      'oracle',
     ]) {
       const experience = experiences.find((item) => item.engine === engine)
 
@@ -257,6 +270,41 @@ describe('browser datastore platform contracts', () => {
     expect(plan.plan.warnings.join(' ')).not.toContain('stable document id')
   })
 
+  it('plans LiteDB document CRUD through sidecar-shaped JSON with confirmation', () => {
+    const connection = connectionProfile('litedb', 'document')
+    const request: DataEditPlanRequest = {
+      connectionId: connection.id,
+      environmentId: 'env-dev',
+      editKind: 'update-document',
+      target: {
+        objectKind: 'document',
+        path: ['products', '42'],
+        collection: 'products',
+        documentId: 42,
+      },
+      changes: [{ value: { _id: 42, sku: 'tea-042', category: 'pantry' } }],
+    }
+
+    const plan = planDataEditLocally(connection, request)
+    const generated = JSON.parse(plan.plan.generatedRequest)
+
+    expect(plan.executionSupport).toBe('plan-only')
+    expect(plan.plan.requestLanguage).toBe('json')
+    expect(plan.plan.confirmationText).toBe('CONFIRM LITEDB UPDATE-DOCUMENT')
+    expect(generated.operation).toBe('UpdateDocument')
+    expect(generated.collection).toBe('products')
+    expect(generated.evidenceRequests.before).toMatchObject({
+      operation: 'FindById',
+      collection: 'products',
+      id: 42,
+    })
+    expect(generated.evidenceRequests.after).toMatchObject({
+      operation: 'FindById',
+      collection: 'products',
+      id: 42,
+    })
+  })
+
   it('plans keyed SQL row updates with scan-impact guidance', () => {
     const connection = connectionProfile('postgresql', 'sql')
     const request: DataEditPlanRequest = {
@@ -329,8 +377,52 @@ describe('browser datastore platform contracts', () => {
     expect(plan.plan.requestLanguage).toBe('sql')
     expect(plan.plan.requiredPermissions).toContain('update-row on table')
     expect(plan.plan.generatedRequest).toContain('update "metrics"."conditions"')
+    expect(plan.plan.generatedRequest).toContain('select * from "metrics"."conditions" where "id" = $1 limit 2;')
+    expect(plan.plan.generatedRequest).toContain('where "id" = $2 returning *;')
     expect(plan.plan.warnings.join(' ')).toContain('Preview mode')
+    expect(plan.plan.warnings.join(' ')).toContain('RETURNING * before/after evidence')
     expect(plan.plan.warnings.join(' ')).not.toContain('Wide-column')
+  })
+
+  it('plans Oracle row edits with SQLPlus-shaped identity evidence', () => {
+    const updatePlan = planDataEditLocally(connectionProfile('oracle', 'sql'), {
+      connectionId: 'conn-oracle',
+      environmentId: 'env-dev',
+      editKind: 'update-row',
+      target: {
+        objectKind: 'row',
+        path: ['APP', 'ACCOUNTS', '1'],
+        schema: 'APP',
+        table: 'ACCOUNTS',
+        primaryKey: { ID: 1 },
+      },
+      changes: [{ field: 'STATUS', value: 'ACTIVE' }],
+    })
+    const insertPlan = planDataEditLocally(connectionProfile('oracle', 'sql'), {
+      connectionId: 'conn-oracle',
+      environmentId: 'env-dev',
+      editKind: 'insert-row',
+      target: {
+        objectKind: 'row',
+        path: ['APP', 'ACCOUNTS'],
+        schema: 'APP',
+        table: 'ACCOUNTS',
+      },
+      changes: [{ field: 'ACCOUNT_NAME', value: 'DataPad++ Labs' }],
+    })
+
+    expect(updatePlan.executionSupport).toBe('plan-only')
+    expect(updatePlan.plan.requestLanguage).toBe('sql')
+    expect(updatePlan.plan.generatedRequest).toContain(
+      '-- Before evidence (bounded primary-key or ROWID prefetch)',
+    )
+    expect(updatePlan.plan.generatedRequest).toContain(
+      'update "APP"."ACCOUNTS" set "STATUS" = :p1 where "ID" = :p2;',
+    )
+    expect(updatePlan.plan.generatedRequest).toContain('fetch first 2 rows only')
+    expect(insertPlan.plan.generatedRequest).toContain('variable datapad_rowid varchar2(32)')
+    expect(insertPlan.plan.generatedRequest).toContain('returning rowid into :datapad_rowid')
+    expect(insertPlan.plan.generatedRequest).toContain('chartorowid(:datapad_rowid)')
   })
 
   it('warns before unsafe or incomplete edit targets can be executed', () => {
@@ -554,10 +646,31 @@ describe('browser datastore platform contracts', () => {
       'VSETATTR embeddings:articles doc:1 {"category":"reference","year":2026}',
     )
     expect(JSON.parse(dynamoPlan.plan.generatedRequest)).toMatchObject({
+      Operation: 'UpdateItem',
       TableName: 'orders',
       Key: { pk: 'ORDER#1', sk: 'META' },
       UpdateExpression: 'SET #field = :value',
+      ConditionExpression: 'attribute_exists(#key0) AND attribute_exists(#key1)',
+      ExpressionAttributeNames: {
+        '#field': 'status',
+        '#key0': 'pk',
+        '#key1': 'sk',
+      },
+      ReturnConsumedCapacity: 'TOTAL',
+      EvidenceRequests: {
+        Before: {
+          Operation: 'GetItem',
+          ConsistentRead: true,
+          ReturnConsumedCapacity: 'TOTAL',
+        },
+        After: {
+          Operation: 'GetItem',
+          ConsistentRead: true,
+          ReturnConsumedCapacity: 'TOTAL',
+        },
+      },
     })
+    expect(dynamoPlan.plan.warnings.join(' ')).toContain('before/after evidence')
     expect(cassandraPlan.plan.generatedRequest).toContain(
       'update commerce.orders set status = ? where account_id = ? and order_id = ?;',
     )
@@ -742,6 +855,13 @@ describe('browser datastore platform contracts', () => {
     expect(redisPlan.plan.generatedRequest).toBe('HSET account:1 password ********')
     expect(JSON.parse(dynamoPlan.plan.generatedRequest).ExpressionAttributeValues).toEqual({
       ':value': '********',
+    })
+    expect(JSON.parse(dynamoPlan.plan.generatedRequest)).toMatchObject({
+      ConditionExpression: 'attribute_exists(#key0)',
+      ExpressionAttributeNames: {
+        '#field': 'accessToken',
+        '#key0': 'pk',
+      },
     })
   })
 

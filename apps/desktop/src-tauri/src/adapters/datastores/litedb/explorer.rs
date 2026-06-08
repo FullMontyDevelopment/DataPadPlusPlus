@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::catalog::litedb_execution_capabilities;
-use super::connection::litedb_file_path;
+use super::connection::{litedb_file_path, litedb_local_file_preflight};
 
 pub(super) async fn list_litedb_explorer_nodes(
     connection: &ResolvedConnectionProfile,
@@ -327,7 +327,10 @@ fn litedb_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &s
     let collection = collection_from_node_id(node_id);
     let file_path = litedb_file_path(connection);
     let file_size = file_size_label(&file_path);
-    let file_exists = fs::metadata(&file_path).is_ok();
+    let local_file_preflight = litedb_local_file_preflight(connection, false);
+    let file_exists = local_file_preflight["exists"].as_bool().unwrap_or(false);
+    let read_probe_status = local_file_preflight["readProbe"]["status"].clone();
+    let write_probe_status = local_file_preflight["writeProbe"]["status"].clone();
     let mut warnings = Vec::new();
 
     if !file_exists {
@@ -406,6 +409,8 @@ fn litedb_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &s
     ];
     let diagnostics = vec![
         json!({ "signal": "File Available", "value": file_exists, "status": if file_exists { "healthy" } else { "watch" }, "guidance": "Queries need the configured local file to exist and be accessible." }),
+        json!({ "signal": "Read Open Probe", "value": read_probe_status, "status": if local_file_preflight["readProbe"]["status"].as_str() == Some("ok") { "healthy" } else { "watch" }, "guidance": "Filesystem read-open evidence is non-mutating; LiteDB engine reads still need the sidecar." }),
+        json!({ "signal": "Write Open Probe", "value": write_probe_status, "status": if local_file_preflight["writeProbe"]["status"].as_str() == Some("ok") { "watch" } else { "blocked" }, "guidance": "Filesystem write-open evidence does not prove LiteDB exclusive writer-lock behavior." }),
         json!({ "signal": "Live Collection Enumeration", "value": "sidecar required", "status": "watch", "guidance": "DataPad++ no longer shows invented collection names when live metadata is unavailable." }),
         json!({ "signal": "Read Only", "value": connection.read_only, "status": if connection.read_only { "healthy" } else { "watch" }, "guidance": "Writable local file operations remain guarded by environment safety rules." }),
     ];
@@ -430,6 +435,8 @@ fn litedb_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &s
         "settings": settings,
         "maintenance": maintenance,
         "diagnostics": diagnostics,
+        "localFilePreflight": local_file_preflight,
+        "sidecarExecutionBoundary": local_file_preflight["sidecarExecutionBoundary"].clone(),
         "warnings": warnings,
     })
 }

@@ -383,11 +383,23 @@ export interface SearchDslSortRow {
   direction: 'asc' | 'desc'
 }
 
+export type SearchDslAggregationType =
+  | 'terms'
+  | 'date-histogram'
+  | 'histogram'
+  | 'avg'
+  | 'sum'
+  | 'min'
+  | 'max'
+  | 'cardinality'
+
 export interface SearchDslAggregationRow {
   id: string
   field: string
   name?: string
+  type?: SearchDslAggregationType
   size?: number
+  interval?: string
 }
 
 export interface SearchDslSourceField {
