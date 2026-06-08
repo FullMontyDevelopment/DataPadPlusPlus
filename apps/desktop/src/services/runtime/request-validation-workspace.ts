@@ -120,7 +120,7 @@ export function validateConnectionProfile(profile: ConnectionProfile): Connectio
 export function validateConnectionTestRequest(
   request: ConnectionTestRequest,
 ): ConnectionTestRequest {
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateOptionalId(request.environmentId || undefined, 'Environment id')
   const profile = validateConnectionProfile(request.profile)
   if (request.secret !== undefined && request.secret !== null) {
     validateQueryText(request.secret, 'Connection secret')

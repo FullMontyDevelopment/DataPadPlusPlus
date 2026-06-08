@@ -319,6 +319,7 @@ export function DiagnosticsBlade({
           <div className="details-grid details-grid--drawer settings-overview-grid">
             <DrawerDetailRow label="App version" value={diagnostics?.appVersion ?? 'Unknown'} />
             <DrawerDetailRow label="Platform" value={diagnostics?.platform ?? health.platform} />
+            <DrawerDetailRow label="Log file" value={diagnostics?.logPath ?? 'Not available'} />
             <DrawerDetailRow label="Connections" value={String(diagnostics?.counts.connections ?? 0)} />
             <DrawerDetailRow label="Library items" value={String(diagnostics?.counts.library ?? 0)} />
             <DrawerDetailRow label="Environments" value={String(diagnostics?.counts.environments ?? 0)} />

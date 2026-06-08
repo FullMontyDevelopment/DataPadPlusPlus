@@ -366,6 +366,7 @@ export function SettingsWorkspace({
             <div className="settings-metric-grid">
               <MetricCard label="Version" value={diagnostics?.appVersion ?? 'Unknown'} />
               <MetricCard label="Platform" value={diagnostics?.platform ?? health.platform} />
+              <MetricCard label="Log file" value={diagnostics?.logPath ?? 'Not available'} />
               <MetricCard label="Connections" value={String(diagnostics?.counts.connections ?? 0)} />
               <MetricCard label="Library" value={String(diagnostics?.counts.library ?? 0)} />
               <MetricCard label="Environments" value={String(diagnostics?.counts.environments ?? 0)} />

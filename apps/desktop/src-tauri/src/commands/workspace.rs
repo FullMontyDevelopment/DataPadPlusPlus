@@ -40,6 +40,7 @@ use crate::{
             WorkspaceBundleFileImportRequest,
         },
     },
+    infrastructure,
 };
 
 fn lock_state<'a, 'b>(
@@ -592,8 +593,64 @@ pub async fn test_connection(
     state: State<'_, SharedAppState>,
     request: ConnectionTestRequest,
 ) -> Result<ConnectionTestResult, CommandError> {
+    let started = std::time::Instant::now();
+    infrastructure::log_info(
+        "connection-test",
+        format!(
+            "Starting connection test id={} name={} engine={} environment={} host={} database={}",
+            request.profile.id,
+            request.profile.name,
+            request.profile.engine,
+            if request.environment_id.trim().is_empty() {
+                "<none>"
+            } else {
+                request.environment_id.as_str()
+            },
+            request.profile.host,
+            request.profile.database.as_deref().unwrap_or("")
+        ),
+    );
     let runtime = clone_runtime(&state)?;
-    runtime.test_connection(request).await
+    let response = runtime.test_connection(request).await;
+
+    match &response {
+        Ok(result) if result.ok => infrastructure::log_info(
+            "connection-test",
+            format!(
+                "Connection test succeeded engine={} host={} database={} durationMs={}",
+                result.engine,
+                result.resolved_host,
+                result.resolved_database.as_deref().unwrap_or(""),
+                result
+                    .duration_ms
+                    .unwrap_or_else(|| started.elapsed().as_millis() as u64)
+            ),
+        ),
+        Ok(result) => infrastructure::log_warning(
+            "connection-test",
+            format!(
+                "Connection test failed engine={} host={} database={} durationMs={} message={}",
+                result.engine,
+                result.resolved_host,
+                result.resolved_database.as_deref().unwrap_or(""),
+                result
+                    .duration_ms
+                    .unwrap_or_else(|| started.elapsed().as_millis() as u64),
+                result.message
+            ),
+        ),
+        Err(error) => infrastructure::log_error(
+            "connection-test",
+            format!(
+                "Connection test command errored code={} message={} durationMs={}",
+                error.code.as_str(),
+                error.message.as_str(),
+                started.elapsed().as_millis()
+            ),
+        ),
+    }
+
+    response
 }
 
 #[tauri::command]

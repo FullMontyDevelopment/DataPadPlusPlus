@@ -1109,6 +1109,7 @@ export interface DiagnosticsReport {
   runtime: string
   platform: string
   appVersion: string
+  logPath?: string
   counts: {
     connections: number
     environments: number

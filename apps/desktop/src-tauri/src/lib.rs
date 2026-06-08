@@ -81,13 +81,16 @@ fn configure_system_tray(app: &mut tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    infrastructure::initialize_app_logging();
     tauri::Builder::default()
         .setup(|app| {
+            infrastructure::log_info("app", "Tauri setup started.");
             app.manage(std::sync::Mutex::new(app::runtime::ManagedAppState::load(
                 app.handle().clone(),
             )));
             configure_main_window_icon(app)?;
             configure_system_tray(app)?;
+            infrastructure::log_info("app", "Tauri setup completed.");
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())

@@ -42,6 +42,15 @@ impl CommandError {
                 "mongodb-tls-error",
                 "MongoDB TLS negotiation failed. Check TLS settings, certificates, and whether the endpoint requires TLS.",
             )
+        } else if lower.contains("not authorized")
+            || lower.contains("unauthorized")
+            || lower.contains("permission denied")
+            || lower.contains("requires authentication")
+        {
+            (
+                "mongodb-permission-denied",
+                "MongoDB accepted the connection, but this login lacks permission for the requested command. Check the user role or use a database the account can access.",
+            )
         } else if lower.contains("timed out") || lower.contains("timeout") {
             (
                 "mongodb-timeout",
@@ -595,5 +604,15 @@ mod tests {
         assert_eq!(error.code, "mongodb-server-selection-timeout");
         assert!(error.message.contains("network or VPN"));
         assert!(!error.message.contains("password"));
+    }
+
+    #[test]
+    fn mongodb_permission_errors_are_actionable() {
+        let error = CommandError::from_mongodb_message(
+            "Command listDatabases failed: not authorized on admin to execute command",
+        );
+
+        assert_eq!(error.code, "mongodb-permission-denied");
+        assert!(error.message.contains("lacks permission"));
     }
 }

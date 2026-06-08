@@ -16,6 +16,16 @@ describe('resolveEnvironment', () => {
     expect(resolved.variables.DB_NAME).toBe('datapadplusplus_dev')
     expect(resolved.inheritedChain).toEqual(['Dev', 'Prod'])
   })
+
+  it('resolves no environment without inheriting fallback variables', () => {
+    const snapshot = createSeedSnapshot()
+    const resolved = resolveEnvironment(snapshot.environments, '')
+
+    expect(resolved.environmentId).toBe('')
+    expect(resolved.label).toBe('No environment')
+    expect(resolved.variables).toEqual({})
+    expect(resolved.inheritedChain).toEqual([])
+  })
 })
 
 describe('evaluateGuardrails', () => {

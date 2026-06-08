@@ -1570,7 +1570,11 @@ function DesktopWorkspace() {
   ) => {
     let nextProfile = profile
 
-    if (connectionDraft?.id === profile.id && profile.environmentIds.length === 0) {
+    if (
+      connectionDraft?.id === profile.id &&
+      profile.environmentIds.length === 0 &&
+      snapshot.environments.length === 0
+    ) {
       const environment = createEnvironmentProfile()
       const environmentSaved = await actions.saveEnvironment(environment)
 
@@ -2612,7 +2616,7 @@ function DesktopWorkspace() {
               onTestConnection={(profile, environmentId, secret) =>
                 void actions.testConnection(
                   profile,
-                  environmentId || activeEnvironment?.id || '',
+                  environmentId || '',
                   secret,
                 )
               }

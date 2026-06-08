@@ -28,7 +28,7 @@ use crate::{
             ExportBundle, LockState, ResolvedEnvironment, UiState, WorkspaceSnapshot,
         },
     },
-    persistence, security,
+    infrastructure, persistence, security,
 };
 
 const MAX_DECRYPTED_WORKSPACE_BYTES: usize = 50 * 1024 * 1024;
@@ -88,6 +88,7 @@ impl ManagedAppState {
             runtime: self.health().runtime,
             platform: self.health().platform,
             app_version: env!("CARGO_PKG_VERSION").into(),
+            log_path: Some(infrastructure::diagnostics_log_path().display().to_string()),
             counts: DiagnosticsCounts {
                 connections: self.snapshot.connections.len(),
                 environments: self.snapshot.environments.len(),

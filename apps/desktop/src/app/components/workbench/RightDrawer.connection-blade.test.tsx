@@ -75,6 +75,38 @@ describe('ConnectionBlade', () => {
     expect(credentialInput).toHaveValue('keep-this-secret')
   })
 
+  it('saves and tests without an environment when None is selected', async () => {
+    const onSaveConnection = vi.fn(async () => true)
+    const onTestConnection = vi.fn()
+
+    render(
+      <ConnectionBlade
+        activeConnection={connection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={onSaveConnection}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Environment'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: connection.id, environmentIds: [] }),
+      '',
+      '',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Connection' }))
+    expect(onSaveConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: connection.id, environmentIds: [] }),
+      '',
+    )
+  })
+
   it('keeps stored credentials write-only when editing an existing connection', () => {
     render(
       <ConnectionBlade

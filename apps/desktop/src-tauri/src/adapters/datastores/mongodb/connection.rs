@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use mongodb::{options::ClientOptions, Client as MongoClient, Database};
+use mongodb::{bson::doc, options::ClientOptions, Client as MongoClient, Database};
 use serde_json::Value;
 
 use super::super::super::*;
@@ -25,8 +25,11 @@ pub(super) async fn test_mongodb_connection(
 ) -> Result<ConnectionTestResult, CommandError> {
     let started = Instant::now();
     let client = mongodb_client(connection).await?;
-    let _ = client.list_database_names().await?;
     let database_name = mongodb_database_name(connection);
+    let _ = client
+        .database(&database_name)
+        .run_command(doc! {"ping": 1})
+        .await?;
 
     Ok(ConnectionTestResult {
         ok: true,

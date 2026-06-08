@@ -329,6 +329,18 @@ fn resolve_environment_internal(
     environment_id: &str,
     resolve_secrets: bool,
 ) -> ResolvedEnvironment {
+    if environment_id.trim().is_empty() {
+        return ResolvedEnvironment {
+            environment_id: String::new(),
+            label: "No environment".into(),
+            risk: "low".into(),
+            variables: HashMap::new(),
+            unresolved_keys: Vec::new(),
+            inherited_chain: Vec::new(),
+            sensitive_keys: Vec::new(),
+            variable_definitions: Vec::new(),
+        };
+    }
     let fallback = environments
         .first()
         .cloned()

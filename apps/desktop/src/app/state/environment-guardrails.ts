@@ -13,6 +13,19 @@ export function resolveEnvironment(
   environments: EnvironmentProfile[],
   environmentId: string,
 ): ResolvedEnvironment {
+  if (!environmentId.trim()) {
+    return {
+      environmentId: '',
+      label: 'No environment',
+      risk: 'low',
+      variables: {},
+      unresolvedKeys: [],
+      inheritedChain: [],
+      sensitiveKeys: [],
+      variableDefinitions: [],
+    }
+  }
+
   const fallback =
     environments[0] ??
     ({
@@ -160,6 +173,7 @@ export function buildDiagnosticsReport(
     runtime: health.runtime,
     platform: health.platform,
     appVersion: '0.1.0',
+    logPath: undefined,
     counts: {
       connections: snapshot.connections.length,
       environments: snapshot.environments.length,

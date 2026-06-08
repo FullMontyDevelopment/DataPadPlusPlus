@@ -335,6 +335,53 @@ describe('App', () => {
     expect(updatedTarget?.key).toContain('conn-revision::env-local')
   })
 
+  it('includes remote network connections during startup health checks', () => {
+    const payload = createBlankBootstrapPayload()
+    payload.snapshot.environments = [testEnvironment('env-local', 'Local')]
+    payload.snapshot.ui.activeEnvironmentId = 'env-local'
+    payload.snapshot.connections = [
+      startupConnection('conn-local', 'Local SQL'),
+      {
+        ...startupConnection('conn-remote-mongo', 'Remote Mongo'),
+        engine: 'mongodb',
+        family: 'document',
+        host: 'mongo.work.internal',
+        port: 27017,
+        database: 'catalog',
+        icon: 'MG',
+      },
+      {
+        ...startupConnection('conn-remote-uri', 'Remote URI Mongo'),
+        engine: 'mongodb',
+        family: 'document',
+        host: '',
+        port: undefined,
+        database: 'catalog',
+        connectionMode: 'connection-string',
+        connectionString: 'mongodb+srv://cluster.example.com/catalog',
+        icon: 'MG',
+      },
+      {
+        ...startupConnection('conn-local-uri', 'Local URI Mongo'),
+        engine: 'mongodb',
+        family: 'document',
+        host: '',
+        port: undefined,
+        database: 'catalog',
+        connectionMode: 'connection-string',
+        connectionString: 'mongodb://localhost:27017/catalog',
+        icon: 'MG',
+      },
+    ]
+
+    expect(startupConnectionHealthTargets(payload).map((target) => target.connection.id)).toEqual([
+      'conn-local',
+      'conn-remote-mongo',
+      'conn-remote-uri',
+      'conn-local-uri',
+    ])
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
     window.localStorage.clear()
@@ -658,6 +705,31 @@ describe('App', () => {
     expect(
       within(screen.getByLabelText('library sidebar')).queryByText('MongoDB connection'),
     ).not.toBeInTheDocument()
+  })
+
+  it('saves new connections without forcing an environment association', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    snapshot.environments = [testEnvironment('env-local', 'Local')]
+    snapshot.ui.activeEnvironmentId = 'env-local'
+    saveBrowserSnapshot(snapshot)
+    const upsertConnectionSpy = vi.spyOn(desktopClient, 'upsertConnection')
+    render(<App />)
+
+    const drawer = await openConnectionDraft()
+    fireEvent.change(within(drawer).getByLabelText('Environment'), {
+      target: { value: '' },
+    })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Save Connection' }))
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()
+    })
+    expect(upsertConnectionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'PostgreSQL connection',
+        environmentIds: [],
+      }),
+    )
   })
 
   it('lets connection-string capable datastores switch connection methods', async () => {

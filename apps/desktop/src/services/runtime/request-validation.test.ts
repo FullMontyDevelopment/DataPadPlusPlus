@@ -837,6 +837,13 @@ describe('runtime request validation', () => {
         secret: null,
       } as never).secret,
     ).toBeUndefined()
+
+    expect(
+      validateConnectionTestRequest({
+        environmentId: '',
+        profile,
+      }).environmentId,
+    ).toBe('')
   })
 
   it('normalizes DynamoDB connection options and rejects unsafe limits', () => {

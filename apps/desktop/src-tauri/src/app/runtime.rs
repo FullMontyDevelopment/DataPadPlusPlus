@@ -47,6 +47,8 @@ pub struct ManagedAppState {
 pub type SharedAppState = Mutex<ManagedAppState>;
 
 #[cfg(test)]
+mod environment_resolution_tests;
+#[cfg(test)]
 mod profile_tests;
 #[cfg(test)]
 mod query_tab_scoped_tests;

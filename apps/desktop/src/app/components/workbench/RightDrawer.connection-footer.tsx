@@ -52,7 +52,7 @@ export function ConnectionFooter({
         <button
           type="button"
           className="drawer-button"
-          title="Test this connection using the selected environment and stored credentials."
+          title="Test this connection using the selected environment, or no environment if none is selected."
           onClick={() =>
             onTestConnection(getConnectionForAction(), selectedEnvironmentId, secretDraft)
           }

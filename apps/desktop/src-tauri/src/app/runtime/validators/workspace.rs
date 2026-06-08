@@ -89,7 +89,10 @@ pub(in crate::app::runtime) fn validate_environment_id(
 pub(in crate::app::runtime) fn validate_connection_test_request(
     request: &ConnectionTestRequest,
 ) -> Result<(), CommandError> {
-    validate_environment_id(&request.environment_id)?;
+    validate_optional_id(
+        (!request.environment_id.trim().is_empty()).then_some(request.environment_id.as_str()),
+        "Environment id",
+    )?;
     validate_connection_profile(&request.profile)?;
     if let Some(secret) = request.secret.as_deref() {
         validate_query_text(secret, "Connection secret")?;
