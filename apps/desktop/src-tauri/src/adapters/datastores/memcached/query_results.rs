@@ -354,5 +354,5 @@ fn human_bytes(bytes: f64) -> String {
 }
 
 #[cfg(test)]
-#[path = "query_results_tests.rs"]
+#[path = "../../../../tests/unit/adapters/datastores/memcached/query_results_tests.rs"]
 mod tests;

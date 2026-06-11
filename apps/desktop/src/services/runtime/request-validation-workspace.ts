@@ -29,19 +29,19 @@ import {
   validateQueryText,
   validateRequiredId,
   validateRequiredText,
-} from './request-validation-core'
-import { validateCassandraConnectionOptions } from './request-validation-cassandra'
-import { validateCosmosDbConnectionOptions } from './request-validation-cosmosdb'
-import { validateDynamoDbConnectionOptions } from './request-validation-dynamodb'
-import { validateGraphConnectionOptions } from './request-validation-graph'
-import { validateMemcachedConnectionOptions } from './request-validation-memcached'
-import { validateMongoDbConnectionOptions } from './request-validation-mongodb'
-import { validateMySqlConnectionOptions } from './request-validation-mysql'
-import { validatePostgresConnectionOptions } from './request-validation-postgres'
-import { validateSearchConnectionOptions } from './request-validation-search'
-import { validateSqlServerConnectionOptions } from './request-validation-sqlserver'
-import { validateTimeSeriesConnectionOptions } from './request-validation-timeseries'
-import { validateWarehouseConnectionOptions } from './request-validation-warehouse'
+} from './datastores/common/request-validation-core'
+import { validateCassandraConnectionOptions } from './datastores/cassandra/request-validation-cassandra'
+import { validateCosmosDbConnectionOptions } from './datastores/cosmosdb/request-validation-cosmosdb'
+import { validateDynamoDbConnectionOptions } from './datastores/dynamodb/request-validation-dynamodb'
+import { validateGraphConnectionOptions } from './datastores/common/graph/request-validation-graph'
+import { validateMemcachedConnectionOptions } from './datastores/memcached/request-validation-memcached'
+import { validateMongoDbConnectionOptions } from './datastores/mongodb/request-validation-mongodb'
+import { validateMySqlConnectionOptions } from './datastores/common/sql/request-validation-mysql'
+import { validatePostgresConnectionOptions } from './datastores/common/sql/request-validation-postgres'
+import { validateSearchConnectionOptions } from './datastores/common/search/request-validation-search'
+import { validateSqlServerConnectionOptions } from './datastores/sqlserver/request-validation-sqlserver'
+import { validateTimeSeriesConnectionOptions } from './datastores/common/timeseries/request-validation-timeseries'
+import { validateWarehouseConnectionOptions } from './datastores/common/warehouse/request-validation-warehouse'
 
 const MAX_TAGS = 32
 const MAX_TAG_LENGTH = 80

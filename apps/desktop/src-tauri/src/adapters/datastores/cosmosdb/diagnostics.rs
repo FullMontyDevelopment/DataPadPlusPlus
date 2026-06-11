@@ -63,16 +63,5 @@ pub(crate) fn database_count(value: Option<&Value>) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::database_count;
-
-    #[test]
-    fn cosmosdb_database_count_reads_list_databases_shape() {
-        let value = json!({ "Databases": [{ "id": "app" }, { "id": "ops" }] });
-
-        assert_eq!(database_count(Some(&value)), 2);
-        assert_eq!(database_count(None), 0);
-    }
-}
+#[path = "../../../../tests/unit/adapters/datastores/cosmosdb/diagnostics_tests.rs"]
+mod tests;

@@ -18,10 +18,10 @@ import { DocumentResultsView } from './DocumentResultsView'
 import { GenericPlanPayloadView } from './GenericPlanPayloadView'
 import { JsonTreeView } from './JsonTreeView'
 import { KeyValueResultsView } from './KeyValueResultsView'
-import { MongoExplainPlanView } from './MongoExplainPlanView'
+import { MongoExplainPlanView } from '../datastores/mongodb/MongoExplainPlanView'
 import { ProfileResultsView } from './ProfileResultsView'
 import { RawResultView } from './RawResultView'
-import { SearchHitsResultsView } from './SearchHitsResultsView'
+import { SearchHitsResultsView } from '../datastores/common/search/SearchHitsResultsView'
 import { formatResultCellValue } from './result-cell-format'
 
 export function ResultPayloadView({

@@ -45,10 +45,10 @@ import {
   validateQueryText,
   validateRequiredId,
   validateRequiredText,
-} from './request-validation-core'
+} from './datastores/common/request-validation-core'
 export * from './request-validation-library'
 export * from './request-validation-workspace'
-export * from './request-validation-documents'
+export * from './datastores/common/document/request-validation-documents'
 
 export function validateExplorerRequest(request: ExplorerRequest): ExplorerRequest {
   validateRequiredId(request.connectionId, 'Connection id')

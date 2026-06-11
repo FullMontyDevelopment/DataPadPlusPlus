@@ -4,19 +4,9 @@ import { defaultQueryTextForConnection, languageForConnection, resolveEnvironmen
 import { redactSensitiveText } from '../../app/state/security-redaction'
 import { buildOperationManifestsForConnection } from './browser-operation-manifests'
 import { collectDiagnosticsLocally, inspectPermissionsLocally } from './browser-operation-inspection'
-import { cosmosOperationRequest } from './browser-cosmos-operations'
-import { mongoOperationRequest } from './browser-mongo-operations'
-import { liteDbOperationRequest } from './browser-litedb-operations'
-import { memcachedOperationRequest } from './browser-memcached-operations'
-import { redisOperationRequest } from './browser-redis-operations'
 import { redactOperationPlanForEnvironment, redactOperationResponseForEnvironment } from './browser-response-redaction'
-import { searchOperationRequest } from './browser-search-operations'
-import { sqlOperationRequest } from './browser-sql-operations'
 import { findConnection } from './browser-store'
-import { timeSeriesOperationRequest } from './browser-timeseries-operations'
-import { wideColumnOperationRequest } from './browser-widecolumn-operations'
-import { graphOperationRequest } from './browser-graph-operations'
-import { warehouseOperationRequest } from './browser-warehouse-operations'
+import { runtimeSliceForEngine } from './datastores/registry'
 
 export { buildOperationManifestsForConnection } from './browser-operation-manifests'
 export { collectDiagnosticsLocally, inspectPermissionsLocally } from './browser-operation-inspection'
@@ -164,51 +154,8 @@ function browserOperationRequest(
   connection: ConnectionProfile,
   request: OperationPlanRequest,
 ) {
-  if (connection.engine === 'mongodb') {
-    return mongoOperationRequest(request)
-  }
-
-  if (connection.engine === 'redis' || connection.engine === 'valkey') {
-    return redisOperationRequest(request)
-  }
-
-  if (connection.engine === 'cosmosdb') {
-    return cosmosOperationRequest(request)
-  }
-
-  if (connection.engine === 'litedb') {
-    return liteDbOperationRequest(request)
-  }
-
-  if (connection.engine === 'memcached') {
-    return memcachedOperationRequest(request)
-  }
-
-  if (connection.family === 'graph') {
-    return graphOperationRequest(connection, request)
-  }
-
-  if (connection.family === 'warehouse') {
-    return warehouseOperationRequest(connection, request)
-  }
-
-  if (connection.family === 'sql' || connection.family === 'embedded-olap') {
-    return sqlOperationRequest(connection, request)
-  }
-
-  if (connection.family === 'search') {
-    return searchOperationRequest(connection, request)
-  }
-
-  if (connection.family === 'timeseries') {
-    return timeSeriesOperationRequest(connection, request)
-  }
-
-  if (connection.family === 'widecolumn') {
-    return wideColumnOperationRequest(connection, request)
-  }
-
-  return defaultQueryTextForConnection(connection)
+  return runtimeSliceForEngine(connection.engine)?.operation?.buildRequest?.(connection, request)
+    ?? defaultQueryTextForConnection(connection)
 }
 
 export function executeOperationLocally(

@@ -35,48 +35,52 @@ const files = {
   browserOperationManifestGeneric: 'apps/desktop/src/services/runtime/browser-operation-manifest-generic.ts',
   browserOperationManifestSpecialized: 'apps/desktop/src/services/runtime/browser-operation-manifest-specialized.ts',
   browserDocumentOperationManifests: 'apps/desktop/src/services/runtime/browser-document-operation-manifests.ts',
-  browserDuckDbOperationManifests: 'apps/desktop/src/services/runtime/browser-duckdb-operation-manifests.ts',
-  browserMemcachedOperationManifests: 'apps/desktop/src/services/runtime/browser-memcached-operation-manifests.ts',
-  browserSearchOperationManifests: 'apps/desktop/src/services/runtime/browser-search-operation-manifests.ts',
+  browserDuckDbOperationManifests: 'apps/desktop/src/services/runtime/datastores/duckdb/browser-duckdb-operation-manifests.ts',
+  browserMemcachedOperationManifests: 'apps/desktop/src/services/runtime/datastores/memcached/browser-memcached-operation-manifests.ts',
+  browserSearchOperationManifests: 'apps/desktop/src/services/runtime/datastores/common/search/browser-search-operation-manifests.ts',
   browserWaveFiveOperationManifests: 'apps/desktop/src/services/runtime/browser-wave5-operation-manifests.ts',
-  browserWideColumnOperationManifests: 'apps/desktop/src/services/runtime/browser-widecolumn-operation-manifests.ts',
+  browserWideColumnOperationManifests: 'apps/desktop/src/services/runtime/datastores/common/widecolumn/browser-widecolumn-operation-manifests.ts',
   browserOperations: 'apps/desktop/src/services/runtime/browser-operations.ts',
-  browserDuckDbAdminOperations: 'apps/desktop/src/services/runtime/browser-duckdb-admin-operations.ts',
-  browserCosmosOperations: 'apps/desktop/src/services/runtime/browser-cosmos-operations.ts',
-  browserGraphOperations: 'apps/desktop/src/services/runtime/browser-graph-operations.ts',
-  browserLiteDbOperations: 'apps/desktop/src/services/runtime/browser-litedb-operations.ts',
-  browserMemcachedOperations: 'apps/desktop/src/services/runtime/browser-memcached-operations.ts',
-  browserSearchOperations: 'apps/desktop/src/services/runtime/browser-search-operations.ts',
+  browserDuckDbAdminOperations: 'apps/desktop/src/services/runtime/datastores/duckdb/browser-duckdb-admin-operations.ts',
+  browserCosmosOperations: 'apps/desktop/src/services/runtime/datastores/cosmosdb/browser-cosmos-operations.ts',
+  browserGraphOperations: 'apps/desktop/src/services/runtime/datastores/common/graph/browser-graph-operations.ts',
+  browserLiteDbOperations: 'apps/desktop/src/services/runtime/datastores/litedb/browser-litedb-operations.ts',
+  browserMemcachedOperations: 'apps/desktop/src/services/runtime/datastores/memcached/browser-memcached-operations.ts',
+  browserSearchOperations: 'apps/desktop/src/services/runtime/datastores/common/search/browser-search-operations.ts',
   browserSqlDialectOperations: 'apps/desktop/src/services/runtime/browser-sql-dialect-operations.ts',
-  browserSqlOperations: 'apps/desktop/src/services/runtime/browser-sql-operations.ts',
-  browserTimeSeriesOperations: 'apps/desktop/src/services/runtime/browser-timeseries-operations.ts',
-  browserWarehouseOperations: 'apps/desktop/src/services/runtime/browser-warehouse-operations.ts',
-  browserWideColumnOperations: 'apps/desktop/src/services/runtime/browser-widecolumn-operations.ts',
+  browserSqlOperations: 'apps/desktop/src/services/runtime/datastores/common/sql/browser-sql-operations.ts',
+  browserTimeSeriesOperations: 'apps/desktop/src/services/runtime/datastores/common/timeseries/browser-timeseries-operations.ts',
+  browserWarehouseOperations: 'apps/desktop/src/services/runtime/datastores/common/warehouse/browser-warehouse-operations.ts',
+  browserWideColumnOperations: 'apps/desktop/src/services/runtime/datastores/common/widecolumn/browser-widecolumn-operations.ts',
   browserOperationInspection: 'apps/desktop/src/services/runtime/browser-operation-inspection.ts',
   rustOperationManifest: 'apps/desktop/src-tauri/src/adapters/common/operations/manifest.rs',
   rustOperationPlanning: 'apps/desktop/src-tauri/src/adapters/common/operations/planning.rs',
-  cassandraOperationActions: 'apps/desktop/src/app/components/workbench/CassandraObjectViewOperations.helpers.ts',
-  cosmosOperationActions: 'apps/desktop/src/app/components/workbench/CosmosObjectViewOperations.helpers.ts',
-  dynamoOperationActions: 'apps/desktop/src/app/components/workbench/DynamoObjectViewOperations.helpers.ts',
-  graphOperationActions: 'apps/desktop/src/app/components/workbench/GraphObjectViewOperations.helpers.ts',
-  liteDbOperationActions: 'apps/desktop/src/app/components/workbench/LiteDbObjectViewOperations.helpers.ts',
-  memcachedOperationActions: 'apps/desktop/src/app/components/workbench/MemcachedObjectViewOperations.helpers.ts',
-  searchOperationActions: 'apps/desktop/src/app/components/workbench/SearchObjectViewOperations.helpers.ts',
-  timeSeriesOperationActions: 'apps/desktop/src/app/components/workbench/TimeSeriesObjectViewOperations.helpers.ts',
-  warehouseOperationActions: 'apps/desktop/src/app/components/workbench/WarehouseObjectViewOperations.helpers.ts',
-  cassandraObjectViewInsights: 'apps/desktop/src/app/components/workbench/CassandraObjectViewInsights.tsx',
-  clickHouseObjectViewInsights: 'apps/desktop/src/app/components/workbench/ClickHouseObjectViewInsights.tsx',
-  cloudWarehouseObjectViewInsights: 'apps/desktop/src/app/components/workbench/CloudWarehouseObjectViewInsights.tsx',
-  cosmosObjectViewInsights: 'apps/desktop/src/app/components/workbench/CosmosObjectViewInsights.tsx',
-  duckDbObjectViewInsights: 'apps/desktop/src/app/components/workbench/DuckDbObjectViewInsights.tsx',
-  dynamoObjectViewInsights: 'apps/desktop/src/app/components/workbench/DynamoObjectViewInsights.tsx',
-  graphObjectViewOperations: 'apps/desktop/src/app/components/workbench/GraphObjectViewOperations.helpers.ts',
-  graphObjectViewWorkspace: 'apps/desktop/src/app/components/workbench/GraphObjectViewWorkspace.tsx',
-  liteDbObjectViewInsights: 'apps/desktop/src/app/components/workbench/LiteDbObjectViewInsights.tsx',
-  memcachedObjectViewInsights: 'apps/desktop/src/app/components/workbench/MemcachedObjectViewInsights.tsx',
-  searchObjectViewInsights: 'apps/desktop/src/app/components/workbench/SearchObjectViewInsights.tsx',
-  timeSeriesObjectViewInsights: 'apps/desktop/src/app/components/workbench/TimeSeriesObjectViewInsights.tsx',
-  warehouseObjectViewInsights: 'apps/desktop/src/app/components/workbench/WarehouseObjectViewInsights.tsx',
+  rustOperationManifestTests: 'apps/desktop/src-tauri/tests/unit/adapters/common/operations/manifest_tests.rs',
+  rustOperationPlanningTests: 'apps/desktop/src-tauri/tests/unit/adapters/common/operations/planning_tests.rs',
+  workbenchRoot: 'apps/desktop/src/app/components/workbench',
+  workbenchTestRoot: 'apps/desktop/tests/app/components/workbench',
+  cassandraOperationActions: 'apps/desktop/src/app/components/workbench/datastores/cassandra/CassandraObjectViewOperations.helpers.ts',
+  cosmosOperationActions: 'apps/desktop/src/app/components/workbench/datastores/cosmosdb/CosmosObjectViewOperations.helpers.ts',
+  dynamoOperationActions: 'apps/desktop/src/app/components/workbench/datastores/dynamodb/DynamoObjectViewOperations.helpers.ts',
+  graphOperationActions: 'apps/desktop/src/app/components/workbench/datastores/common/graph/GraphObjectViewOperations.helpers.ts',
+  liteDbOperationActions: 'apps/desktop/src/app/components/workbench/datastores/litedb/LiteDbObjectViewOperations.helpers.ts',
+  memcachedOperationActions: 'apps/desktop/src/app/components/workbench/datastores/memcached/MemcachedObjectViewOperations.helpers.ts',
+  searchOperationActions: 'apps/desktop/src/app/components/workbench/datastores/common/search/SearchObjectViewOperations.helpers.ts',
+  timeSeriesOperationActions: 'apps/desktop/src/app/components/workbench/datastores/common/timeseries/TimeSeriesObjectViewOperations.helpers.ts',
+  warehouseOperationActions: 'apps/desktop/src/app/components/workbench/datastores/common/warehouse/WarehouseObjectViewOperations.helpers.ts',
+  cassandraObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/cassandra/CassandraObjectViewInsights.tsx',
+  clickHouseObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/clickhouse/ClickHouseObjectViewInsights.tsx',
+  cloudWarehouseObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/common/warehouse/CloudWarehouseObjectViewInsights.tsx',
+  cosmosObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/cosmosdb/CosmosObjectViewInsights.tsx',
+  duckDbObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/duckdb/DuckDbObjectViewInsights.tsx',
+  dynamoObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/dynamodb/DynamoObjectViewInsights.tsx',
+  graphObjectViewOperations: 'apps/desktop/src/app/components/workbench/datastores/common/graph/GraphObjectViewOperations.helpers.ts',
+  graphObjectViewWorkspace: 'apps/desktop/src/app/components/workbench/datastores/common/graph/GraphObjectViewWorkspace.tsx',
+  liteDbObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/litedb/LiteDbObjectViewInsights.tsx',
+  memcachedObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/memcached/MemcachedObjectViewInsights.tsx',
+  searchObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/common/search/SearchObjectViewInsights.tsx',
+  timeSeriesObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/common/timeseries/TimeSeriesObjectViewInsights.tsx',
+  warehouseObjectViewInsights: 'apps/desktop/src/app/components/workbench/datastores/common/warehouse/WarehouseObjectViewInsights.tsx',
 }
 
 const descriptorOwners = new Map([
@@ -157,6 +161,42 @@ function sorted(values) {
   return [...values].sort((left, right) => left.localeCompare(right))
 }
 
+async function sourceFiles(relativePath, extensions) {
+  const found = []
+
+  for (const entry of await readdir(absolutePath(relativePath), { withFileTypes: true })) {
+    const child = path.join(relativePath, entry.name)
+
+    if (entry.isDirectory()) {
+      found.push(...await sourceFiles(child, extensions))
+    } else if (extensions.includes(path.extname(entry.name))) {
+      found.push(child.split(path.sep).join('/'))
+    }
+  }
+
+  return found
+}
+
+async function findWorkbenchFile(fileName) {
+  const matches = (await Promise.all([
+    sourceFiles(files.workbenchRoot, ['.ts', '.tsx']),
+    sourceFiles(files.workbenchTestRoot, ['.ts', '.tsx']),
+  ]))
+    .flat()
+    .filter((file) => path.basename(file) === fileName)
+
+  assert.equal(matches.length, 1, `Expected one workbench file named ${fileName}, found ${matches.length}`)
+  return matches[0]
+}
+
+async function readWorkbenchFile(fileName) {
+  return read(await findWorkbenchFile(fileName))
+}
+
+function rustRegistryHasEngine(registrySource, engine) {
+  return new RegExp(`(?:case '${engine}'|"${engine}"\\s*=>|engine:\\s*"${engine}")`).test(registrySource)
+}
+
 function extractBacklogEngines(source) {
   return [...source.matchAll(/engine: '([^']+)'/g)].map((entry) => entry[1])
 }
@@ -217,7 +257,7 @@ test('datastore engine contracts stay synchronized across roadmap and object vie
     if (!new RegExp(`case '${engine}'`).test(treeManifestSource)) {
       failures.push(`${engine}: missing shared tree manifest case`)
     }
-    if (!new RegExp(`"${engine}"\\s*=>`).test(rustRegistrySource)) {
+    if (!rustRegistryHasEngine(rustRegistrySource, engine)) {
       failures.push(`${engine}: missing Rust registry dispatch branch`)
     }
   }
@@ -241,9 +281,17 @@ test('every declared datastore has production-readiness wiring', async () => {
   ])
 
   const engines = extractConstStringArray(connectionSource, 'DATASTORE_ENGINES')
-  const routerEngines = objectViewEngines(objectViewRouterSource)
-  const routerFamilies = objectViewFamilies(objectViewRouterSource)
+  const workbenchSliceSources = new Map(await Promise.all(
+    engines.map(async (engine) => [
+      engine,
+      await read(`apps/desktop/src/app/components/workbench/datastores/${engine}/index.ts`),
+    ]),
+  ))
   const failures = []
+
+  if (!objectViewRouterSource.includes('workbenchSliceForEngine')) {
+    failures.push('object-view workspace router should delegate through the workbench slice registry')
+  }
 
   for (const engine of engines) {
     const block = extractBacklogBlock(roadmapSource, engine)
@@ -272,10 +320,10 @@ test('every declared datastore has production-readiness wiring', async () => {
     if (!new RegExp(`case '${engine}'`).test(treeManifestSource)) {
       failures.push(`${engine}: missing datastore tree manifest branch`)
     }
-    if (!new RegExp(`"${engine}"\\s*=>`).test(rustRegistrySource)) {
+    if (!rustRegistryHasEngine(rustRegistrySource, engine)) {
       failures.push(`${engine}: missing Rust adapter registry branch`)
     }
-    if (!routerEngines.has(engine) && !routerFamilies.has(family)) {
+    if (!/objectViewWorkspace\s*:/.test(workbenchSliceSources.get(engine) ?? '')) {
       failures.push(`${engine}: missing object-view workspace route`)
     }
 
@@ -283,9 +331,8 @@ test('every declared datastore has production-readiness wiring', async () => {
     if (!descriptorFile) {
       failures.push(`${engine}: missing descriptor owner contract`)
     } else {
-      const descriptorPath = absolutePath(`apps/desktop/src/app/components/workbench/${descriptorFile}`)
       try {
-        await access(descriptorPath)
+        await findWorkbenchFile(descriptorFile)
       } catch {
         failures.push(`${engine}: descriptor file ${descriptorFile} does not exist`)
       }
@@ -425,27 +472,17 @@ test('secondary datastore object trees have shared Rust and browser routing pari
     ['janusgraph', ['Node Labels', 'Relationship Types', 'Diagnostics']],
     ['neptune', ['Node Labels', 'Loader Jobs', 'Diagnostics']],
   ])
-  const browserRouting = new Map([
-    ['elasticsearch', /connection\.engine === 'elasticsearch' \|\| connection\.engine === 'opensearch'/],
-    ['opensearch', /connection\.engine === 'elasticsearch' \|\| connection\.engine === 'opensearch'/],
-    ['dynamodb', /connection\.engine === 'dynamodb'/],
-    ['cassandra', /connection\.engine === 'cassandra'/],
-    ['cosmosdb', /connection\.engine === 'cosmosdb'/],
-    ['litedb', /connection\.engine === 'litedb'/],
-    ['memcached', /connection\.engine === 'memcached'/],
-    ['duckdb', /connection\.engine === 'duckdb'/],
-    ['clickhouse', /connection\.family === 'warehouse'/],
-    ['snowflake', /connection\.family === 'warehouse'/],
-    ['bigquery', /connection\.family === 'warehouse'/],
-    ['prometheus', /connection\.engine === 'prometheus'/],
-    ['influxdb', /connection\.engine === 'influxdb'/],
-    ['opentsdb', /connection\.engine === 'opentsdb'/],
-    ['neo4j', /connection\.family === 'graph'/],
-    ['arango', /connection\.family === 'graph'/],
-    ['janusgraph', /connection\.family === 'graph'/],
-    ['neptune', /connection\.family === 'graph'/],
-  ])
+  const browserSliceSources = new Map(await Promise.all(
+    [...expectedRoots.keys()].map(async (engine) => [
+      engine,
+      await read(`apps/desktop/src/services/runtime/datastores/${engine}/index.ts`),
+    ]),
+  ))
   const failures = []
+
+  if (!browserExplorerSource.includes('runtimeSliceForEngine')) {
+    failures.push('browser explorer should delegate object tree routing through the runtime slice registry')
+  }
 
   for (const [engine, labels] of expectedRoots) {
     if (!new RegExp(`case '${engine}'`).test(treeManifestSource)) {
@@ -454,8 +491,8 @@ test('secondary datastore object trees have shared Rust and browser routing pari
     if (!new RegExp(`"${engine}"`).test(rustTreeManifestSource)) {
       failures.push(`${engine}: missing Rust tree manifest branch`)
     }
-    if (!browserRouting.get(engine)?.test(browserExplorerSource)) {
-      failures.push(`${engine}: missing browser explorer routing branch`)
+    if (!/createNodes\s*:/.test(browserSliceSources.get(engine) ?? '')) {
+      failures.push(`${engine}: missing browser explorer slice hook`)
     }
 
     for (const label of labels) {
@@ -660,6 +697,8 @@ test('secondary datastore guarded operations have browser and Rust parity', asyn
     browserWideColumnOperationsSource,
     rustOperationManifestSource,
     rustOperationPlanningSource,
+    rustOperationManifestTestsSource,
+    rustOperationPlanningTestsSource,
     cassandraOperationActionsSource,
     cosmosOperationActionsSource,
     dynamoOperationActionsSource,
@@ -694,6 +733,8 @@ test('secondary datastore guarded operations have browser and Rust parity', asyn
     read(files.browserWideColumnOperations),
     read(files.rustOperationManifest),
     read(files.rustOperationPlanning),
+    read(files.rustOperationManifestTests),
+    read(files.rustOperationPlanningTests),
     read(files.cassandraOperationActions),
     read(files.cosmosOperationActions),
     read(files.dynamoOperationActions),
@@ -739,6 +780,12 @@ test('secondary datastore guarded operations have browser and Rust parity', asyn
     searchOperationActionsSource,
     timeSeriesOperationActionsSource,
     warehouseOperationActionsSource,
+  ].join('\n')
+  const rustOperationContractSource = [
+    rustOperationManifestSource,
+    rustOperationPlanningSource,
+    rustOperationManifestTestsSource,
+    rustOperationPlanningTestsSource,
   ].join('\n')
   const contracts = [
     {
@@ -819,7 +866,7 @@ test('secondary datastore guarded operations have browser and Rust parity', asyn
       }
     }
     for (const token of contract.rustTokens) {
-      if (!rustOperationManifestSource.includes(token) && !rustOperationPlanningSource.includes(token)) {
+      if (!rustOperationContractSource.includes(token)) {
         failures.push(`${contract.label}: Rust operation path missing ${token}`)
       }
     }
@@ -1138,19 +1185,19 @@ test('secondary datastore object-view contracts have descriptor, posture, and ac
 
     const descriptorSources = await Promise.all(
       contract.descriptorFiles.map((file) =>
-        read(`apps/desktop/src/app/components/workbench/${file}`),
+        readWorkbenchFile(file),
       ),
     )
     const descriptorTestSources = await Promise.all(
       contract.descriptorFiles.map((file) =>
-        read(`apps/desktop/src/app/components/workbench/${file.replace(/\.ts$/, '.test.ts')}`),
+        readWorkbenchFile(file.replace(/\.ts$/, '.test.ts')),
       ),
     )
     const workspaceSources = await Promise.all(
       contract.workspaceTokens.map(async (token) => {
         const fileName = token.endsWith('Operations') ? `${token}.tsx` : `${token}.tsx`
         try {
-          return await read(`apps/desktop/src/app/components/workbench/${fileName}`)
+          return await readWorkbenchFile(fileName)
         } catch {
           return objectViewRouterSource.includes(token) ? token : ''
         }
@@ -1158,7 +1205,7 @@ test('secondary datastore object-view contracts have descriptor, posture, and ac
     )
     const extraSources = await Promise.all(
       contract.extraFiles.map((file) =>
-        read(`apps/desktop/src/app/components/workbench/${file}`),
+        readWorkbenchFile(file),
       ),
     )
     const objectViewSource = [

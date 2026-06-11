@@ -23,28 +23,28 @@ import {
 } from '../results/field-drag'
 import { CqlPartitionBuilder } from './CqlPartitionBuilder'
 import { isCqlPartitionBuilderState } from './cql-partition'
-import { DynamoDbKeyConditionBuilder } from './DynamoDbKeyConditionBuilder'
+import { DynamoDbKeyConditionBuilder } from '../datastores/dynamodb/DynamoDbKeyConditionBuilder'
 import { isDynamoDbKeyConditionBuilderState } from './dynamodb-key-condition'
 import {
   buildMongoFindQueryText,
   isMongoFindBuilderState,
 } from './mongo-find'
-import { MongoAggregationBuilder } from './MongoAggregationBuilder'
+import { MongoAggregationBuilder } from '../datastores/mongodb/MongoAggregationBuilder'
 import { isMongoAggregationBuilderState } from './mongo-aggregation'
 import {
   MongoFilterBuilderSection,
   MongoProjectionBuilderSection,
   MongoSortBuilderSection,
-} from './MongoFindBuilderSections'
-import { rowId } from './MongoBuilderSection.types'
-import { MongoScopeSummary } from './MongoScopeSummary'
+} from '../datastores/mongodb/MongoFindBuilderSections'
+import { rowId } from '../datastores/mongodb/MongoBuilderSection.types'
+import { MongoScopeSummary } from '../datastores/mongodb/MongoScopeSummary'
 import { mongoFilterRowFromDroppedField } from './mongo-filter-row'
 import { mongoQueryScopeForTab } from './mongo-query-scope'
 import { isSqlSelectBuilderState } from './sql-select'
 import { SqlSelectBuilder } from './SqlSelectBuilder'
 import { isSearchDslBuilderState } from './search-dsl'
-import { SearchDslBuilder } from './SearchDslBuilder'
-import { RedisKeyBrowserPanel } from './RedisKeyBrowserPanel'
+import { SearchDslBuilder } from '../datastores/common/search/SearchDslBuilder'
+import { RedisKeyBrowserPanel } from '../datastores/common/keyvalue/RedisKeyBrowserPanel'
 import { isRedisKeyBrowserState } from './redis-key-browser'
 
 interface QueryBuilderPanelProps {

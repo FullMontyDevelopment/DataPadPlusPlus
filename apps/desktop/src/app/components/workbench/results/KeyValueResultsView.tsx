@@ -20,7 +20,7 @@ import {
 } from './KeyValueEditPanels'
 import { KeyValueEntryRows } from './KeyValueEntryRows'
 import { KeyValueContextMenu } from './KeyValueContextMenu'
-import { RedisKeyDetailHeader } from './RedisKeyDetailHeader'
+import { RedisKeyDetailHeader } from '../datastores/common/keyvalue/RedisKeyDetailHeader'
 import {
   buildRedisJsonPathEditRequest,
   buildKeyValueEditRequest,

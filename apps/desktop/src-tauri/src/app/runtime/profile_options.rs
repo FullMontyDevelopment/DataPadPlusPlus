@@ -288,4 +288,5 @@ pub(super) fn interpolate_oracle_options(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/app/runtime/profile_options_tests.rs"]
 mod tests;

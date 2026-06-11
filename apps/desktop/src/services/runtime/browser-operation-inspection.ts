@@ -8,7 +8,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { buildOperationManifestsForConnection } from './browser-operation-manifests'
 import { findConnection } from './browser-store'
-import { mysqlDiagnosticsPreview } from './browser-mysql-diagnostics'
+import { mysqlDiagnosticsPreview } from './datastores/common/sql/browser-mysql-diagnostics'
 
 export function inspectPermissionsLocally(
   snapshot: WorkspaceSnapshot,

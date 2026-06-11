@@ -4,6 +4,7 @@ mod execution;
 mod workspace;
 
 #[cfg(test)]
+#[path = "../../../tests/unit/app/runtime/validators_tests.rs"]
 mod tests;
 
 pub(super) use datastore::*;

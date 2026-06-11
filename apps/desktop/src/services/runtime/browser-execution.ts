@@ -9,7 +9,7 @@ import {
   fetchDocumentNodeChildrenFromResult,
   summarizeDocumentResultForEfficiencyMode,
 } from './browser-document-efficiency'
-import { mongoExplainPreview } from './browser-mongo-explain-preview'
+import { mongoExplainPreview } from './datastores/mongodb/browser-mongo-explain-preview'
 import { cloneSnapshot, confirmationGuardrailId, findConnection, findEnvironment, findTab } from './browser-store'
 
 export function applyExecutionRequestLocally(

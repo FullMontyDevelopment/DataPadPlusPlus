@@ -192,8 +192,8 @@ export const clientAdapters = {
       return invokeDesktop<ExplorerInspectResponse>('inspect_explorer_node', { request })
     }
 
-    const { inspectExplorerNodeLocally } = await import('./browser-explorer')
     const snapshot = loadBrowserSnapshot()
+    const { inspectExplorerNodeLocally } = await import('./browser-explorer')
     return redactExplorerInspectForEnvironment(
       inspectExplorerNodeLocally(snapshot, request),
       resolveEnvironment(snapshot.environments, request.environmentId),

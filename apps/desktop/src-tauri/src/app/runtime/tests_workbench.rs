@@ -459,4 +459,5 @@ fn build_run_result(suite: &Value, case_id: Option<&str>) -> Value {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/app/runtime/tests_workbench_tests.rs"]
 mod tests_workbench_tests;

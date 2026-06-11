@@ -540,6 +540,7 @@ test('LiteDB optional fixtures cover local-file preflight and sidecar boundary e
     dotnetValidatorSource,
     connectionSource,
     querySource,
+    queryTestsSource,
     browserPlannerSource,
     rustPlannerSource,
     sidecarProjectSource,
@@ -555,7 +556,8 @@ test('LiteDB optional fixtures cover local-file preflight and sidecar boundary e
     read('tests/fixtures/validate-litedb-dotnet-sidecar.mjs'),
     read('apps/desktop/src-tauri/src/adapters/datastores/litedb/connection.rs'),
     read('apps/desktop/src-tauri/src/adapters/datastores/litedb/query.rs'),
-    read('apps/desktop/src/services/runtime/browser-litedb-operations.ts'),
+    read('apps/desktop/src-tauri/tests/unit/adapters/datastores/litedb/query_tests.rs'),
+    read('apps/desktop/src/services/runtime/datastores/litedb/browser-litedb-operations.ts'),
     read('apps/desktop/src-tauri/src/adapters/common/operations/planning.rs'),
     read('apps/desktop/src-tauri/sidecars/litedb/DataPadPlusPlus.LiteDbSidecar.csproj'),
     read('apps/desktop/src-tauri/sidecars/litedb/Program.cs'),
@@ -591,13 +593,13 @@ test('LiteDB optional fixtures cover local-file preflight and sidecar boundary e
   assert.match(querySource, /live-mutation-dispatch/)
   assert.match(querySource, /litedb_sidecar_response_from_stdout/)
   assert.match(querySource, /datapad-fixture-sidecar/)
-  assert.match(querySource, /litedb_sidecar_read_dispatch_contract_returns_bounded_rows/)
-  assert.match(querySource, /LITEDB_PROCESS_SIDECAR_SOURCE/)
-  assert.match(querySource, /litedb_sidecar_local_process_dispatch_contract_returns_bounded_rows/)
-  assert.match(querySource, /litedb_sidecar_local_process_open_failure_redacts_error_output/)
   assert.match(querySource, /local-sidecar-process/)
   assert.match(querySource, /processDispatchValidated/)
   assert.match(querySource, /engineRuntimeValidated/)
+  assert.match(queryTestsSource, /litedb_sidecar_read_dispatch_contract_returns_bounded_rows/)
+  assert.match(queryTestsSource, /LITEDB_PROCESS_SIDECAR_SOURCE/)
+  assert.match(queryTestsSource, /litedb_sidecar_local_process_dispatch_contract_returns_bounded_rows/)
+  assert.match(queryTestsSource, /litedb_sidecar_local_process_open_failure_redacts_error_output/)
   assert.match(sidecarProjectSource, /<PackageReference Include="LiteDB" Version="5\.0\.21" \/>/)
   assert.match(sidecarProgramSource, /new LiteDatabase\(BuildConnectionString/)
   assert.match(sidecarProgramSource, /"ListCollections" => ListCollections/)

@@ -8,42 +8,42 @@ const defaultMaxLines = 400
 
 const documentedExceptions = new Map([
   [
-    'apps/desktop/src/app/components/workbench/CassandraObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/cassandra/CassandraObjectViewWorkspace.tsx',
     {
       maxLines: 460,
       reason: 'Cassandra object views share keyspace/table diagnostics, schema metadata, and permission-state rendering.',
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/CosmosObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/cosmosdb/CosmosObjectViewWorkspace.tsx',
     {
       maxLines: 500,
       reason: 'Cosmos DB object views keep database/container throughput, partitioning, indexing, and diagnostics in one adapter workspace.',
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/DynamoObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/dynamodb/DynamoObjectViewWorkspace.tsx',
     {
       maxLines: 560,
       reason: 'DynamoDB object views share table, index, capacity, TTL, stream, backup, and alarm rendering helpers.',
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/GraphObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/common/graph/GraphObjectViewWorkspace.tsx',
     {
       maxLines: 570,
       reason: 'Graph object views share label, relationship, property, index, constraint, procedure, and security summaries.',
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/InfluxObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/influxdb/InfluxObjectViewWorkspace.tsx',
     {
       maxLines: 535,
       reason: 'InfluxDB object views share bucket, measurement, tag, field, task, token, and diagnostics tables.',
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/LiteDbObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/litedb/LiteDbObjectViewWorkspace.tsx',
     {
       maxLines: 475,
       reason: 'LiteDB object views share local-file database, collection, index, file storage, and pragma-style helpers.',
@@ -78,21 +78,21 @@ const documentedExceptions = new Map([
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/OpenTsdbObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/opentsdb/OpenTsdbObjectViewWorkspace.tsx',
     {
       maxLines: 540,
       reason: 'OpenTSDB object views share metric, tag, UID, tree, storage, and diagnostics summaries.',
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/OracleObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/oracle/OracleObjectViewWorkspace.tsx',
     {
       maxLines: 520,
       reason: 'Oracle object-view pages remain together while row normalization and shared primitives are split out.',
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/PrometheusObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/prometheus/PrometheusObjectViewWorkspace.tsx',
     {
       maxLines: 550,
       reason: 'Prometheus object views share metric, label, series, target, rule, alert, and TSDB diagnostics rendering.',
@@ -106,14 +106,14 @@ const documentedExceptions = new Map([
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/query-builder/RedisKeyBrowserPanel.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/common/keyvalue/RedisKeyBrowserPanel.tsx',
     {
       maxLines: 470,
       reason: 'Redis scan controls, virtual key list, and key selection state need shared local request guards.',
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/SearchObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/common/search/SearchObjectViewWorkspace.tsx',
     {
       maxLines: 575,
       reason: 'Search object views share index, mapping, shard, segment, ingest, security, and diagnostics surfaces.',
@@ -197,7 +197,7 @@ const documentedExceptions = new Map([
     },
   ],
   [
-    'apps/desktop/src/app/components/workbench/WarehouseObjectViewWorkspace.tsx',
+    'apps/desktop/src/app/components/workbench/datastores/common/warehouse/WarehouseObjectViewWorkspace.tsx',
     {
       maxLines: 550,
       reason: 'Warehouse object views share schema, table, stage, compute, job, security, and diagnostics summaries across warehouse engines.',
@@ -267,7 +267,7 @@ const documentedExceptions = new Map([
     },
   ],
   [
-    'apps/desktop/src/services/runtime/browser-oracle-explorer.ts',
+    'apps/desktop/src/services/runtime/datastores/oracle/browser-oracle-explorer.ts',
     {
       maxLines: 500,
       reason: 'Oracle preview tree and object-view payloads remain together to avoid live Oracle CI dependency.',

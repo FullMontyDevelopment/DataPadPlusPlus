@@ -1,6 +1,6 @@
 import type { MongoBuilderValueType } from '@datapadplusplus/shared-types'
 import type { FieldDragPayload } from '../results/field-drag'
-import { rowId } from './MongoBuilderSection.types'
+import { rowId } from '../datastores/mongodb/MongoBuilderSection.types'
 
 export function mongoFilterRow(groupId: string | undefined, field = '') {
   return {

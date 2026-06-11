@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os'
 import {
   isValidReleaseVersion,
   validateReleaseVersion
-} from './validate-release-version.mjs'
-import { bumpReleaseVersion } from './bump-release-version.mjs'
-import { validateReleaseWorkflow } from './validate-release-workflow.mjs'
+} from './validate-release-version'
+import { bumpReleaseVersion } from './bump-release-version'
+import { validateReleaseWorkflow } from './validate-release-workflow'
 
 function makeRepo(version = '1.2.3') {
   const root = mkdtempSync(join(tmpdir(), 'datapadplusplus-release-'))

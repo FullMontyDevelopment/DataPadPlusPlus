@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { validateCiWorkflow } from './validate-ci-workflow.mjs'
+import { validateCiWorkflow } from './validate-ci-workflow'
 
 test('current CI workflow only runs dependency-free checks', () => {
   const result = validateCiWorkflow(process.cwd())

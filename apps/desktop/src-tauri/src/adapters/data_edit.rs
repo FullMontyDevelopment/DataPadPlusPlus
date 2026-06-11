@@ -6,6 +6,7 @@ use super::*;
 
 mod requests;
 #[cfg(test)]
+#[path = "../../tests/unit/adapters/data_edit_tests.rs"]
 mod tests;
 
 use requests::generated_edit_request;

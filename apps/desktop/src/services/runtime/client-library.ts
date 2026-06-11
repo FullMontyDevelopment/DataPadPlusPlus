@@ -30,7 +30,7 @@ import {
   validateSaveQueryTabToLocalFileRequest,
   validateSetLibraryNodeEnvironmentRequest,
 } from './request-validation'
-import { validateRequiredId } from './request-validation-core'
+import { validateRequiredId } from './datastores/common/request-validation-core'
 
 export const clientLibrary = {
   async createLibraryFolder(request: LibraryCreateFolderRequest): Promise<BootstrapPayload> {

@@ -21,7 +21,7 @@
     "rust:check": "cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "rust:test": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "rust:fmt": "cd apps/desktop/src-tauri && cargo fmt --check",
-    "rust:clippy": "cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings",
+    "rust:clippy": "cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings",
     "check:native": "npm run rust:fmt && npm run rust:check && npm run rust:test && npm run rust:clippy",
     "check:all": "npm run check && npm run quality:test && npm run check:native",
     "ci:workflow:test": "node --test tests/ci/*.test.mjs",

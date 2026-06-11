@@ -19,7 +19,7 @@ import {
   validateConnectionTestRequest,
   validateEnvironmentProfile,
 } from './request-validation'
-import { validateRequiredId } from './request-validation-core'
+import { validateRequiredId } from './datastores/common/request-validation-core'
 
 export const clientConnections = {
   async setActiveConnection(connectionId: string): Promise<BootstrapPayload> {

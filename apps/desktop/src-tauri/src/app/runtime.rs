@@ -48,16 +48,23 @@ pub struct ManagedAppState {
 pub type SharedAppState = Mutex<ManagedAppState>;
 
 #[cfg(test)]
+#[path = "../../tests/unit/app/runtime/environment_resolution_tests.rs"]
 mod environment_resolution_tests;
 #[cfg(test)]
+#[path = "../../tests/unit/app/runtime/profile_tests.rs"]
 mod profile_tests;
 #[cfg(test)]
+#[path = "../../tests/unit/app/runtime/query_tab_scoped_tests.rs"]
 mod query_tab_scoped_tests;
 #[cfg(test)]
+#[path = "../../tests/unit/app/runtime/query_tab_tests.rs"]
 mod query_tab_tests;
 #[cfg(test)]
+#[path = "../../tests/unit/app/runtime/response_redaction_tests.rs"]
 mod response_redaction_tests;
 #[cfg(test)]
+#[path = "../../tests/unit/app/runtime/sql_hint_tests.rs"]
 mod sql_hint_tests;
 #[cfg(test)]
+#[path = "../../tests/unit/app/runtime/workspace_tests.rs"]
 mod workspace_tests;

@@ -12,7 +12,7 @@ import {
   validateOptionalText,
   validateRequiredId,
   validateRequiredText,
-} from './request-validation-core'
+} from './datastores/common/request-validation-core'
 
 const MAX_LIBRARY_TAGS = 32
 const MAX_LIBRARY_TAG_LENGTH = 80

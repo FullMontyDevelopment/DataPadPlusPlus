@@ -14,7 +14,7 @@ import {
   validateUpdateQueryBuilderStateRequest,
   validateUpdateQueryTabRequest,
 } from './request-validation'
-import { validateOptionalId, validateRequiredId, validateRequiredText } from './request-validation-core'
+import { validateOptionalId, validateRequiredId, validateRequiredText } from './datastores/common/request-validation-core'
 
 export const clientTabs = {
   async setActiveTab(tabId: string): Promise<BootstrapPayload> {

@@ -22,6 +22,7 @@ playwright-report/
 .cache/
 .vite/
 .turbo/
+graphify-out/
 
 apps/desktop/dist/
 apps/desktop/coverage/

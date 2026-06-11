@@ -1,12 +1,12 @@
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
-export { duckDbOperationRequest } from './browser-duckdb-admin-operations'
-import { mysqlBackupRestoreRequest, mysqlImportExportRequest } from './browser-mysql-file-operations'
-import { mysqlManagementOperationRequest } from './browser-mysql-management-operations'
-import { postgresRoutineExecuteRequest } from './browser-postgres-routine-operations'
-import { postgresSessionOperationRequest } from './browser-postgres-session-operations'
+export { duckDbOperationRequest } from './datastores/duckdb/browser-duckdb-admin-operations'
+import { mysqlBackupRestoreRequest, mysqlImportExportRequest } from './datastores/common/sql/browser-mysql-file-operations'
+import { mysqlManagementOperationRequest } from './datastores/common/sql/browser-mysql-management-operations'
+import { postgresRoutineExecuteRequest } from './datastores/common/sql/browser-postgres-routine-operations'
+import { postgresSessionOperationRequest } from './datastores/common/sql/browser-postgres-session-operations'
 
-export { cockroachOperationRequest } from './browser-cockroach-operations'
-export { sqlServerOperationRequest } from './browser-sqlserver-operations'
+export { cockroachOperationRequest } from './datastores/cockroachdb/browser-cockroach-operations'
+export { sqlServerOperationRequest } from './datastores/sqlserver/browser-sqlserver-operations'
 
 export function mysqlOperationRequest(
   connection: ConnectionProfile,

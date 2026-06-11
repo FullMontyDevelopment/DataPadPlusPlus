@@ -25,7 +25,7 @@ import { DesktopCodeEditor } from './components/workbench/DesktopCodeEditor'
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
-import { RedisConsoleEditor } from './components/workbench/RedisConsoleEditor'
+import { RedisConsoleEditor } from './components/workbench/datastores/common/keyvalue/RedisConsoleEditor'
 import { StatusBar } from './components/workbench/StatusBar'
 import type { SettingsSection } from './components/workbench/SettingsWorkspace'
 import {

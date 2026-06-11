@@ -1,132 +1,184 @@
 use super::contract::DatastoreAdapter;
 use super::datastores::planned::{beta_adapter_for_engine, beta_manifests};
 use super::datastores::{
-    ArangoDbAdapter, BigQueryAdapter, CassandraAdapter, ClickHouseAdapter, CockroachAdapter,
-    CosmosDbAdapter, DuckDbAdapter, DynamoDbAdapter, ElasticsearchAdapter, InfluxDbAdapter,
-    JanusGraphAdapter, LiteDbAdapter, MemcachedAdapter, MongoDbAdapter, MysqlLikeAdapter,
-    Neo4jAdapter, NeptuneAdapter, OpenSearchAdapter, OpenTsdbAdapter, OracleAdapter,
-    PostgresAdapter, PrometheusAdapter, RedisAdapter, SnowflakeAdapter, SqlServerAdapter,
-    SqliteAdapter, TimescaleAdapter, ValkeyAdapter,
+    mariadb_adapter, ArangoDbAdapter, BigQueryAdapter, CassandraAdapter, ClickHouseAdapter,
+    CockroachAdapter, CosmosDbAdapter, DuckDbAdapter, DynamoDbAdapter, ElasticsearchAdapter,
+    InfluxDbAdapter, JanusGraphAdapter, LiteDbAdapter, MemcachedAdapter, MongoDbAdapter,
+    MysqlLikeAdapter, Neo4jAdapter, NeptuneAdapter, OpenSearchAdapter, OpenTsdbAdapter,
+    OracleAdapter, PostgresAdapter, PrometheusAdapter, RedisAdapter, SnowflakeAdapter,
+    SqlServerAdapter, SqliteAdapter, TimescaleAdapter, ValkeyAdapter,
 };
 use super::*;
 
+struct AdapterRegistration {
+    engine: &'static str,
+    adapter: fn() -> Box<dyn DatastoreAdapter>,
+}
+
+fn adapter_registrations() -> &'static [AdapterRegistration] {
+    &[
+        AdapterRegistration {
+            engine: "postgresql",
+            adapter: || Box::new(PostgresAdapter),
+        },
+        AdapterRegistration {
+            engine: "cockroachdb",
+            adapter: || Box::new(CockroachAdapter),
+        },
+        AdapterRegistration {
+            engine: "timescaledb",
+            adapter: || Box::new(TimescaleAdapter),
+        },
+        AdapterRegistration {
+            engine: "sqlserver",
+            adapter: || Box::new(SqlServerAdapter),
+        },
+        AdapterRegistration {
+            engine: "mysql",
+            adapter: || Box::new(MysqlLikeAdapter { engine: "mysql" }),
+        },
+        AdapterRegistration {
+            engine: "mariadb",
+            adapter: || Box::new(mariadb_adapter()),
+        },
+        AdapterRegistration {
+            engine: "sqlite",
+            adapter: || Box::new(SqliteAdapter),
+        },
+        AdapterRegistration {
+            engine: "oracle",
+            adapter: || Box::new(OracleAdapter),
+        },
+        AdapterRegistration {
+            engine: "bigquery",
+            adapter: || Box::new(BigQueryAdapter),
+        },
+        AdapterRegistration {
+            engine: "clickhouse",
+            adapter: || Box::new(ClickHouseAdapter),
+        },
+        AdapterRegistration {
+            engine: "cosmosdb",
+            adapter: || Box::new(CosmosDbAdapter),
+        },
+        AdapterRegistration {
+            engine: "cassandra",
+            adapter: || Box::new(CassandraAdapter),
+        },
+        AdapterRegistration {
+            engine: "duckdb",
+            adapter: || Box::new(DuckDbAdapter),
+        },
+        AdapterRegistration {
+            engine: "dynamodb",
+            adapter: || Box::new(DynamoDbAdapter),
+        },
+        AdapterRegistration {
+            engine: "snowflake",
+            adapter: || Box::new(SnowflakeAdapter),
+        },
+        AdapterRegistration {
+            engine: "elasticsearch",
+            adapter: || Box::new(ElasticsearchAdapter),
+        },
+        AdapterRegistration {
+            engine: "opensearch",
+            adapter: || Box::new(OpenSearchAdapter),
+        },
+        AdapterRegistration {
+            engine: "arango",
+            adapter: || Box::new(ArangoDbAdapter),
+        },
+        AdapterRegistration {
+            engine: "prometheus",
+            adapter: || Box::new(PrometheusAdapter),
+        },
+        AdapterRegistration {
+            engine: "opentsdb",
+            adapter: || Box::new(OpenTsdbAdapter),
+        },
+        AdapterRegistration {
+            engine: "influxdb",
+            adapter: || Box::new(InfluxDbAdapter),
+        },
+        AdapterRegistration {
+            engine: "neo4j",
+            adapter: || Box::new(Neo4jAdapter),
+        },
+        AdapterRegistration {
+            engine: "janusgraph",
+            adapter: || Box::new(JanusGraphAdapter),
+        },
+        AdapterRegistration {
+            engine: "neptune",
+            adapter: || Box::new(NeptuneAdapter),
+        },
+        AdapterRegistration {
+            engine: "litedb",
+            adapter: || Box::new(LiteDbAdapter),
+        },
+        AdapterRegistration {
+            engine: "mongodb",
+            adapter: || Box::new(MongoDbAdapter),
+        },
+        AdapterRegistration {
+            engine: "redis",
+            adapter: || Box::new(RedisAdapter),
+        },
+        AdapterRegistration {
+            engine: "valkey",
+            adapter: || Box::new(ValkeyAdapter),
+        },
+        AdapterRegistration {
+            engine: "memcached",
+            adapter: || Box::new(MemcachedAdapter),
+        },
+    ]
+}
+
+fn adapter_registration_for_engine(engine: &str) -> Option<&'static AdapterRegistration> {
+    adapter_registrations()
+        .iter()
+        .find(|registration| registration.engine == engine)
+}
+
 pub fn manifests() -> Vec<AdapterManifest> {
-    let mut manifests = vec![
-        PostgresAdapter.manifest(),
-        CockroachAdapter.manifest(),
-        TimescaleAdapter.manifest(),
-        SqlServerAdapter.manifest(),
-        MysqlLikeAdapter { engine: "mysql" }.manifest(),
-        MysqlLikeAdapter { engine: "mariadb" }.manifest(),
-        SqliteAdapter.manifest(),
-        OracleAdapter.manifest(),
-        BigQueryAdapter.manifest(),
-        ClickHouseAdapter.manifest(),
-        CosmosDbAdapter.manifest(),
-        CassandraAdapter.manifest(),
-        DuckDbAdapter.manifest(),
-        DynamoDbAdapter.manifest(),
-        SnowflakeAdapter.manifest(),
-        ElasticsearchAdapter.manifest(),
-        OpenSearchAdapter.manifest(),
-        ArangoDbAdapter.manifest(),
-        PrometheusAdapter.manifest(),
-        OpenTsdbAdapter.manifest(),
-        InfluxDbAdapter.manifest(),
-        Neo4jAdapter.manifest(),
-        JanusGraphAdapter.manifest(),
-        NeptuneAdapter.manifest(),
-        LiteDbAdapter.manifest(),
-        MongoDbAdapter.manifest(),
-        RedisAdapter.manifest(),
-        ValkeyAdapter.manifest(),
-        MemcachedAdapter.manifest(),
-    ];
+    let mut manifests = adapter_registrations()
+        .iter()
+        .map(|registration| (registration.adapter)().manifest())
+        .collect::<Vec<_>>();
     manifests.extend(beta_manifests());
     manifests
 }
 
 pub fn execution_capabilities(engine: &str) -> ExecutionCapabilities {
-    match engine {
-        "postgresql" => PostgresAdapter.execution_capabilities(),
-        "cockroachdb" => CockroachAdapter.execution_capabilities(),
-        "timescaledb" => TimescaleAdapter.execution_capabilities(),
-        "sqlserver" => SqlServerAdapter.execution_capabilities(),
-        "mysql" => MysqlLikeAdapter { engine: "mysql" }.execution_capabilities(),
-        "mariadb" => MysqlLikeAdapter { engine: "mariadb" }.execution_capabilities(),
-        "sqlite" => SqliteAdapter.execution_capabilities(),
-        "oracle" => OracleAdapter.execution_capabilities(),
-        "bigquery" => BigQueryAdapter.execution_capabilities(),
-        "clickhouse" => ClickHouseAdapter.execution_capabilities(),
-        "cosmosdb" => CosmosDbAdapter.execution_capabilities(),
-        "cassandra" => CassandraAdapter.execution_capabilities(),
-        "duckdb" => DuckDbAdapter.execution_capabilities(),
-        "dynamodb" => DynamoDbAdapter.execution_capabilities(),
-        "snowflake" => SnowflakeAdapter.execution_capabilities(),
-        "elasticsearch" => ElasticsearchAdapter.execution_capabilities(),
-        "opensearch" => OpenSearchAdapter.execution_capabilities(),
-        "arango" => ArangoDbAdapter.execution_capabilities(),
-        "prometheus" => PrometheusAdapter.execution_capabilities(),
-        "opentsdb" => OpenTsdbAdapter.execution_capabilities(),
-        "influxdb" => InfluxDbAdapter.execution_capabilities(),
-        "neo4j" => Neo4jAdapter.execution_capabilities(),
-        "janusgraph" => JanusGraphAdapter.execution_capabilities(),
-        "neptune" => NeptuneAdapter.execution_capabilities(),
-        "litedb" => LiteDbAdapter.execution_capabilities(),
-        "mongodb" => MongoDbAdapter.execution_capabilities(),
-        "redis" => RedisAdapter.execution_capabilities(),
-        "valkey" => ValkeyAdapter.execution_capabilities(),
-        "memcached" => MemcachedAdapter.execution_capabilities(),
-        _ => beta_adapter_for_engine(engine)
-            .map(|adapter| adapter.execution_capabilities())
-            .unwrap_or_else(|| ExecutionCapabilities {
-                can_cancel: false,
-                can_explain: false,
-                supports_live_metadata: false,
-                editor_language: "text".into(),
-                default_row_limit: 200,
-            }),
-    }
+    adapter_registration_for_engine(engine)
+        .map(|registration| (registration.adapter)().execution_capabilities())
+        .or_else(|| beta_adapter_for_engine(engine).map(|adapter| adapter.execution_capabilities()))
+        .unwrap_or_else(|| ExecutionCapabilities {
+            can_cancel: false,
+            can_explain: false,
+            supports_live_metadata: false,
+            editor_language: "text".into(),
+            default_row_limit: 200,
+        })
 }
 
 pub(crate) fn adapter_for_engine(engine: &str) -> Result<Box<dyn DatastoreAdapter>, CommandError> {
-    match engine {
-        "postgresql" => Ok(Box::new(PostgresAdapter)),
-        "cockroachdb" => Ok(Box::new(CockroachAdapter)),
-        "timescaledb" => Ok(Box::new(TimescaleAdapter)),
-        "sqlserver" => Ok(Box::new(SqlServerAdapter)),
-        "mysql" => Ok(Box::new(MysqlLikeAdapter { engine: "mysql" })),
-        "mariadb" => Ok(Box::new(MysqlLikeAdapter { engine: "mariadb" })),
-        "sqlite" => Ok(Box::new(SqliteAdapter)),
-        "oracle" => Ok(Box::new(OracleAdapter)),
-        "bigquery" => Ok(Box::new(BigQueryAdapter)),
-        "clickhouse" => Ok(Box::new(ClickHouseAdapter)),
-        "cosmosdb" => Ok(Box::new(CosmosDbAdapter)),
-        "cassandra" => Ok(Box::new(CassandraAdapter)),
-        "duckdb" => Ok(Box::new(DuckDbAdapter)),
-        "dynamodb" => Ok(Box::new(DynamoDbAdapter)),
-        "snowflake" => Ok(Box::new(SnowflakeAdapter)),
-        "elasticsearch" => Ok(Box::new(ElasticsearchAdapter)),
-        "opensearch" => Ok(Box::new(OpenSearchAdapter)),
-        "arango" => Ok(Box::new(ArangoDbAdapter)),
-        "prometheus" => Ok(Box::new(PrometheusAdapter)),
-        "opentsdb" => Ok(Box::new(OpenTsdbAdapter)),
-        "influxdb" => Ok(Box::new(InfluxDbAdapter)),
-        "neo4j" => Ok(Box::new(Neo4jAdapter)),
-        "janusgraph" => Ok(Box::new(JanusGraphAdapter)),
-        "neptune" => Ok(Box::new(NeptuneAdapter)),
-        "litedb" => Ok(Box::new(LiteDbAdapter)),
-        "mongodb" => Ok(Box::new(MongoDbAdapter)),
-        "redis" => Ok(Box::new(RedisAdapter)),
-        "valkey" => Ok(Box::new(ValkeyAdapter)),
-        "memcached" => Ok(Box::new(MemcachedAdapter)),
-        _ => beta_adapter_for_engine(engine)
-            .map(|adapter| Box::new(adapter) as Box<dyn DatastoreAdapter>)
-            .ok_or_else(|| {
-                CommandError::new(
-                    "adapter-unsupported",
-                    format!("No adapter is registered for engine `{engine}`."),
-                )
-            }),
-    }
+    adapter_registration_for_engine(engine)
+        .map(|registration| (registration.adapter)())
+        .or_else(|| {
+            beta_adapter_for_engine(engine)
+                .map(|adapter| Box::new(adapter) as Box<dyn DatastoreAdapter>)
+        })
+        .ok_or_else(|| {
+            CommandError::new(
+                "adapter-unsupported",
+                format!("No adapter is registered for engine `{engine}`."),
+            )
+        })
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/adapters/registry_tests.rs"]
+mod tests;

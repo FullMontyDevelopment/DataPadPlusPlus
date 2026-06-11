@@ -49,15 +49,5 @@ pub(super) async fn collect_bigquery_diagnostics(
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::Value;
-
-    #[test]
-    fn bigquery_metrics_payload_shape_is_json_object_friendly() {
-        let value = serde_json::json!({ "totalBytesProcessed": "0" });
-        assert_eq!(
-            value.get("totalBytesProcessed").and_then(Value::as_str),
-            Some("0")
-        );
-    }
-}
+#[path = "../../../../tests/unit/adapters/datastores/bigquery/diagnostics_tests.rs"]
+mod tests;

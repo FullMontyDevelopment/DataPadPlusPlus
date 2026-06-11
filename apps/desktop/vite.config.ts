@@ -33,110 +33,151 @@ function runtimeManualChunk(normalizedId: string) {
     return undefined
   }
 
-  if (normalizedId.includes('/browser-cassandra-explorer')) return 'browser-explorer-cassandra'
-  if (normalizedId.includes('/browser-cassandra-fixtures')) return 'browser-explorer-cassandra'
-  if (normalizedId.includes('/browser-cassandra-helpers')) return 'browser-explorer-cassandra'
-  if (normalizedId.includes('/browser-cassandra-payloads')) return 'browser-explorer-cassandra'
-  if (normalizedId.includes('/browser-cosmos-explorer')) return 'browser-explorer-cosmos'
-  if (normalizedId.includes('/browser-dynamo-explorer')) return 'browser-explorer-dynamo'
-  if (normalizedId.includes('/browser-duckdb-explorer')) return 'browser-explorer-duckdb'
-  if (normalizedId.includes('/browser-graph-explorer')) return 'browser-explorer-graph'
-  if (normalizedId.includes('/browser-influx-explorer')) return 'browser-explorer-influx'
-  if (normalizedId.includes('/browser-influx-fixtures')) return 'browser-explorer-influx'
-  if (normalizedId.includes('/browser-litedb-explorer')) return 'browser-explorer-litedb'
-  if (normalizedId.includes('/browser-memcached-explorer')) return 'browser-explorer-memcached'
-  if (normalizedId.includes('/browser-mysql-explorer')) return 'browser-explorer-mysql'
-  if (normalizedId.includes('/browser-mysql-fixtures')) return 'browser-explorer-mysql'
-  if (normalizedId.includes('/browser-mysql-helpers')) return 'browser-explorer-mysql'
-  if (normalizedId.includes('/browser-mysql-payloads')) return 'browser-explorer-mysql'
-  if (normalizedId.includes('/browser-mongo-explorer')) return 'browser-explorer-mongo'
-  if (normalizedId.includes('/browser-mongo-helpers')) return 'browser-explorer-mongo'
-  if (normalizedId.includes('/browser-mongo-payloads')) return 'browser-explorer-mongo'
-  if (normalizedId.includes('/browser-mongo-query-templates')) return 'browser-explorer-mongo'
-  if (normalizedId.includes('/browser-oracle-explorer')) return 'browser-explorer-oracle'
-  if (normalizedId.includes('/browser-opentsdb-explorer')) return 'browser-explorer-opentsdb'
-  if (normalizedId.includes('/browser-opentsdb-fixtures')) return 'browser-explorer-opentsdb'
-  if (normalizedId.includes('/browser-prometheus-explorer')) return 'browser-explorer-prometheus'
-  if (normalizedId.includes('/browser-prometheus-fixtures')) return 'browser-explorer-prometheus'
-  if (normalizedId.includes('/browser-postgres-family-explorer')) return 'browser-explorer-postgres-family'
-  if (normalizedId.includes('/browser-postgres-family-helpers')) return 'browser-explorer-postgres-family'
-  if (normalizedId.includes('/browser-postgres-family-payloads')) return 'browser-explorer-postgres-family'
-  if (normalizedId.includes('/browser-relational-source-payloads')) return 'browser-explorer-sql-payloads'
-  if (normalizedId.includes('/browser-redis-explorer')) return 'browser-explorer-redis'
-  if (normalizedId.includes('/browser-redis-helpers')) return 'browser-explorer-redis'
-  if (normalizedId.includes('/browser-redis-payloads')) return 'browser-explorer-redis'
-  if (normalizedId.includes('/browser-search-explorer')) return 'browser-explorer-search'
-  if (normalizedId.includes('/browser-search-fixtures')) return 'browser-explorer-search'
-  if (normalizedId.includes('/browser-search-payloads')) return 'browser-explorer-search'
-  if (normalizedId.includes('/browser-sqlite-explorer')) return 'browser-explorer-sqlite'
-  if (normalizedId.includes('/browser-sqlite-fixtures')) return 'browser-explorer-sqlite'
-  if (normalizedId.includes('/browser-sqlite-payloads')) return 'browser-explorer-sqlite'
-  if (normalizedId.includes('/browser-sqlserver-explorer')) return 'browser-explorer-sqlserver'
-  if (normalizedId.includes('/browser-sqlserver-helpers')) return 'browser-explorer-sqlserver'
-  if (normalizedId.includes('/browser-sqlserver-payloads')) return 'browser-explorer-sqlserver'
-  if (normalizedId.includes('/browser-warehouse-explorer')) return 'browser-explorer-warehouse'
+  if (isRuntimeDatastorePath(normalizedId, 'cassandra')) return 'browser-explorer-cassandra'
+  if (isRuntimeDatastorePath(normalizedId, 'cosmosdb')) return 'browser-explorer-cosmos'
+  if (isRuntimeDatastorePath(normalizedId, 'dynamodb')) return 'browser-explorer-dynamo'
+  if (isRuntimeDatastorePath(normalizedId, 'duckdb')) return 'browser-explorer-duckdb'
+  if (isRuntimeDatastorePath(normalizedId, 'influxdb')) return 'browser-explorer-influx'
+  if (isRuntimeDatastorePath(normalizedId, 'litedb')) return 'browser-explorer-litedb'
+  if (isRuntimeDatastorePath(normalizedId, 'memcached')) return 'browser-explorer-memcached'
+  if (isRuntimeDatastorePath(normalizedId, 'mongodb')) return 'browser-explorer-mongo'
+  if (isRuntimeDatastorePath(normalizedId, 'oracle')) return 'browser-explorer-oracle'
+  if (isRuntimeDatastorePath(normalizedId, 'opentsdb')) return 'browser-explorer-opentsdb'
+  if (isRuntimeDatastorePath(normalizedId, 'prometheus')) return 'browser-explorer-prometheus'
+  if (isRuntimeDatastorePath(normalizedId, 'sqlite')) return 'browser-explorer-sqlite'
+  if (isRuntimeDatastorePath(normalizedId, 'sqlserver')) return 'browser-explorer-sqlserver'
+
+  if (
+    isRuntimeDatastorePath(normalizedId, 'postgresql') ||
+    isRuntimeDatastorePath(normalizedId, 'cockroachdb') ||
+    isRuntimeDatastorePath(normalizedId, 'timescaledb')
+  ) {
+    return 'browser-explorer-postgres-family'
+  }
+
+  if (
+    isRuntimeDatastorePath(normalizedId, 'mysql') ||
+    isRuntimeDatastorePath(normalizedId, 'mariadb')
+  ) {
+    return 'browser-explorer-mysql'
+  }
+
+  if (
+    isRuntimeCommonPath(normalizedId, 'sql') ||
+    isRuntimeDatastorePath(normalizedId, 'snowflake') ||
+    isRuntimeDatastorePath(normalizedId, 'bigquery')
+  ) {
+    return 'browser-explorer-sql-payloads'
+  }
+
+  if (
+    isRuntimeCommonPath(normalizedId, 'keyvalue') ||
+    isRuntimeDatastorePath(normalizedId, 'redis') ||
+    isRuntimeDatastorePath(normalizedId, 'valkey')
+  ) {
+    return 'browser-explorer-redis'
+  }
+
+  if (
+    isRuntimeCommonPath(normalizedId, 'search') ||
+    isRuntimeDatastorePath(normalizedId, 'elasticsearch') ||
+    isRuntimeDatastorePath(normalizedId, 'opensearch')
+  ) {
+    return 'browser-explorer-search'
+  }
+
+  if (
+    isRuntimeCommonPath(normalizedId, 'graph') ||
+    isRuntimeDatastorePath(normalizedId, 'neo4j') ||
+    isRuntimeDatastorePath(normalizedId, 'neptune') ||
+    isRuntimeDatastorePath(normalizedId, 'arango') ||
+    isRuntimeDatastorePath(normalizedId, 'janusgraph')
+  ) {
+    return 'browser-explorer-graph'
+  }
+
+  if (
+    isRuntimeCommonPath(normalizedId, 'warehouse') ||
+    isRuntimeDatastorePath(normalizedId, 'clickhouse')
+  ) {
+    return 'browser-explorer-warehouse'
+  }
 
   return undefined
 }
 
 function objectViewManualChunk(normalizedId: string) {
-  if (!normalizedId.includes('ObjectView')) {
-    return undefined
-  }
-
-  if (normalizedId.includes('/Mongo')) {
+  if (isWorkbenchDatastorePath(normalizedId, 'mongodb')) {
     return 'object-view-mongo'
   }
 
-  if (normalizedId.includes('/Redis')) {
+  if (
+    isWorkbenchCommonPath(normalizedId, 'keyvalue') ||
+    isWorkbenchDatastorePath(normalizedId, 'redis') ||
+    isWorkbenchDatastorePath(normalizedId, 'valkey')
+  ) {
     return 'object-view-redis'
   }
 
-  if (normalizedId.includes('/Oracle')) {
+  if (isWorkbenchDatastorePath(normalizedId, 'oracle')) {
     return 'object-view-oracle'
   }
 
   if (
-    normalizedId.includes('/Relational') ||
-    normalizedId.includes('/Postgres') ||
-    normalizedId.includes('/Cockroach') ||
-    normalizedId.includes('/SqlServer') ||
-    normalizedId.includes('/Sqlite') ||
-    normalizedId.includes('/Mysql') ||
-    normalizedId.includes('/DuckDb')
+    isWorkbenchCommonPath(normalizedId, 'sql') ||
+    isWorkbenchDatastorePath(normalizedId, 'postgresql') ||
+    isWorkbenchDatastorePath(normalizedId, 'cockroachdb') ||
+    isWorkbenchDatastorePath(normalizedId, 'timescaledb') ||
+    isWorkbenchDatastorePath(normalizedId, 'sqlserver') ||
+    isWorkbenchDatastorePath(normalizedId, 'sqlite') ||
+    isWorkbenchDatastorePath(normalizedId, 'mysql') ||
+    isWorkbenchDatastorePath(normalizedId, 'mariadb') ||
+    isWorkbenchDatastorePath(normalizedId, 'duckdb')
   ) {
     return 'object-view-sql'
   }
 
   if (
-    normalizedId.includes('/Prometheus') ||
-    normalizedId.includes('/Influx') ||
-    normalizedId.includes('/OpenTsdb')
+    isWorkbenchCommonPath(normalizedId, 'timeseries') ||
+    isWorkbenchDatastorePath(normalizedId, 'prometheus') ||
+    isWorkbenchDatastorePath(normalizedId, 'influxdb') ||
+    isWorkbenchDatastorePath(normalizedId, 'opentsdb')
   ) {
     return 'object-view-timeseries'
   }
 
-  if (normalizedId.includes('/Search')) {
+  if (
+    isWorkbenchCommonPath(normalizedId, 'search') ||
+    isWorkbenchDatastorePath(normalizedId, 'elasticsearch') ||
+    isWorkbenchDatastorePath(normalizedId, 'opensearch')
+  ) {
     return 'object-view-search'
   }
 
-  if (normalizedId.includes('/Dynamo')) {
+  if (isWorkbenchDatastorePath(normalizedId, 'dynamodb')) {
     return 'object-view-dynamo'
   }
 
-  if (normalizedId.includes('/Cassandra')) {
+  if (isWorkbenchDatastorePath(normalizedId, 'cassandra')) {
     return 'object-view-cassandra'
   }
 
-  if (normalizedId.includes('/Cosmos')) {
+  if (isWorkbenchDatastorePath(normalizedId, 'cosmosdb')) {
     return 'object-view-cosmos'
   }
 
   if (
-    normalizedId.includes('/Graph') ||
-    normalizedId.includes('/Warehouse') ||
-    normalizedId.includes('/LiteDb') ||
-    normalizedId.includes('/Memcached')
+    isWorkbenchCommonPath(normalizedId, 'graph') ||
+    isWorkbenchCommonPath(normalizedId, 'warehouse') ||
+    isWorkbenchDatastorePath(normalizedId, 'neo4j') ||
+    isWorkbenchDatastorePath(normalizedId, 'neptune') ||
+    isWorkbenchDatastorePath(normalizedId, 'arango') ||
+    isWorkbenchDatastorePath(normalizedId, 'janusgraph') ||
+    isWorkbenchDatastorePath(normalizedId, 'clickhouse') ||
+    isWorkbenchDatastorePath(normalizedId, 'snowflake') ||
+    isWorkbenchDatastorePath(normalizedId, 'bigquery') ||
+    isWorkbenchDatastorePath(normalizedId, 'litedb') ||
+    isWorkbenchDatastorePath(normalizedId, 'memcached')
   ) {
     return 'object-view-secondary'
   }
@@ -150,6 +191,22 @@ function objectViewManualChunk(normalizedId: string) {
   }
 
   return undefined
+}
+
+function isRuntimeDatastorePath(normalizedId: string, engine: string) {
+  return normalizedId.includes(`/src/services/runtime/datastores/${engine}/`)
+}
+
+function isRuntimeCommonPath(normalizedId: string, family: string) {
+  return normalizedId.includes(`/src/services/runtime/datastores/common/${family}/`)
+}
+
+function isWorkbenchDatastorePath(normalizedId: string, engine: string) {
+  return normalizedId.includes(`/src/app/components/workbench/datastores/${engine}/`)
+}
+
+function isWorkbenchCommonPath(normalizedId: string, family: string) {
+  return normalizedId.includes(`/src/app/components/workbench/datastores/common/${family}/`)
 }
 
 export default defineConfig({
@@ -179,7 +236,7 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    setupFiles: './src/test/setup.ts',
+    setupFiles: './tests/setup.ts',
     css: true,
   },
 })

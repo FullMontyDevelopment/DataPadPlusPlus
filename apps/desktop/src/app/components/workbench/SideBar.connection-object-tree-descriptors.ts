@@ -2,84 +2,84 @@ import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import {
   cassandraObjectViewMenuLabel,
   isCassandraObjectViewKind,
-} from './CassandraObjectViewDescriptors'
+} from './datastores/cassandra/CassandraObjectViewDescriptors'
 import {
   cockroachObjectViewMenuLabel,
   isCockroachObjectViewKind,
-} from './CockroachObjectViewDescriptors'
+} from './datastores/cockroachdb/CockroachObjectViewDescriptors'
 import {
   cosmosObjectViewMenuLabel,
   isCosmosObjectViewKind,
-} from './CosmosObjectViewDescriptors'
+} from './datastores/cosmosdb/CosmosObjectViewDescriptors'
 import {
   duckDbObjectViewMenuLabel,
   isDuckDbObjectViewKind,
-} from './DuckDbObjectViewDescriptors'
+} from './datastores/duckdb/DuckDbObjectViewDescriptors'
 import {
   dynamoObjectViewMenuLabel,
   isDynamoObjectViewKind,
-} from './DynamoObjectViewDescriptors'
+} from './datastores/dynamodb/DynamoObjectViewDescriptors'
 import {
   graphObjectViewMenuLabel,
   isGraphObjectViewKind,
-} from './GraphObjectViewDescriptors'
+} from './datastores/common/graph/GraphObjectViewDescriptors'
 import {
   influxObjectViewMenuLabel,
   isInfluxObjectViewKind,
-} from './InfluxObjectViewDescriptors'
+} from './datastores/influxdb/InfluxObjectViewDescriptors'
 import {
   isLiteDbObjectViewKind,
   liteDbObjectViewMenuLabel,
-} from './LiteDbObjectViewDescriptors'
+} from './datastores/litedb/LiteDbObjectViewDescriptors'
 import {
   isMemcachedObjectViewKind,
   memcachedObjectViewMenuLabel,
-} from './MemcachedObjectViewDescriptors'
+} from './datastores/memcached/MemcachedObjectViewDescriptors'
 import {
   isMongoObjectViewKind,
   mongoObjectViewMenuLabel,
   mongoScopedQueryMenuLabel,
-} from './MongoObjectViewDescriptors'
+} from './datastores/mongodb/MongoObjectViewDescriptors'
 import {
   isMysqlObjectViewKind,
   mysqlObjectViewMenuLabel,
-} from './MysqlObjectViewDescriptors'
+} from './datastores/common/sql/MysqlObjectViewDescriptors'
 import {
   isOpenTsdbObjectViewKind,
   openTsdbObjectViewMenuLabel,
-} from './OpenTsdbObjectViewDescriptors'
+} from './datastores/opentsdb/OpenTsdbObjectViewDescriptors'
 import {
   isOracleObjectViewKind,
   oracleObjectViewMenuLabel,
-} from './OracleObjectViewDescriptors'
+} from './datastores/oracle/OracleObjectViewDescriptors'
 import {
   isPostgresObjectViewKind,
   postgresObjectViewMenuLabel,
-} from './PostgresObjectViewDescriptors'
+} from './datastores/common/sql/PostgresObjectViewDescriptors'
 import {
   isPrometheusObjectViewKind,
   prometheusObjectViewMenuLabel,
-} from './PrometheusObjectViewDescriptors'
+} from './datastores/prometheus/PrometheusObjectViewDescriptors'
 import {
   isRedisObjectViewKind,
   redisObjectViewMenuLabel,
-} from './RedisObjectViewDescriptors'
+} from './datastores/common/keyvalue/RedisObjectViewDescriptors'
 import {
   isSearchObjectViewKind,
   searchObjectViewMenuLabel,
-} from './SearchObjectViewDescriptors'
+} from './datastores/common/search/SearchObjectViewDescriptors'
 import {
   isSqliteObjectViewKind,
   sqliteObjectViewMenuLabel,
-} from './SqliteObjectViewDescriptors'
+} from './datastores/sqlite/SqliteObjectViewDescriptors'
 import {
   isSqlServerObjectViewKind,
   sqlServerObjectViewMenuLabel,
-} from './SqlServerObjectViewDescriptors'
+} from './datastores/sqlserver/SqlServerObjectViewDescriptors'
 import {
   isWarehouseObjectViewKind,
   warehouseObjectViewMenuLabel,
-} from './WarehouseObjectViewDescriptors'
+} from './datastores/common/warehouse/WarehouseObjectViewDescriptors'
 import type { ConnectionTreeNode } from './SideBar.helpers'
 
 export function isObjectViewNode(connection: ConnectionProfile, node: ConnectionTreeNode) {
