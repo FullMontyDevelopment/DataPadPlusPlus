@@ -1,16 +1,18 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, MutableRefObject } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
   ExecutionRequest,
   ExplorerNode,
+  AppShortcutId,
   LibraryItemKind,
   LibraryNode,
   QueryBuilderState,
   QueryTabState,
   QueryViewMode,
   ScopedQueryTarget,
+  WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import {
@@ -27,7 +29,7 @@ import { EditorToolbar } from './components/workbench/EditorToolbar'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
 import { RedisConsoleEditor } from './components/workbench/datastores/common/keyvalue/RedisConsoleEditor'
 import { StatusBar } from './components/workbench/StatusBar'
-import type { SettingsSection } from './components/workbench/SettingsWorkspace'
+import type { SettingsSection } from './components/workbench/SettingsWorkspace.constants'
 import {
   buildCqlPartitionQueryText,
   isCqlPartitionBuilderState,
@@ -67,6 +69,7 @@ import {
 import { useQueryIntellisenseCatalog } from './components/workbench/intellisense/useQueryIntellisenseCatalog'
 import { SavedWorkIcon } from './components/workbench/icons'
 import { AppStateProvider, useAppState } from './state/app-state'
+import type { Actions } from './state/app-state-types'
 import {
   explorerCacheKey,
   hasExplorerScope,
@@ -79,6 +82,10 @@ import {
 import { ConnectionHealthChip } from './components/workbench/ConnectionHealthBadge'
 import { connectionLibraryNodeId } from '../services/runtime/library-connection-helpers'
 import { createConnectionProfile, createEnvironmentProfile } from './state/app-state-factories'
+import {
+  resolveKeyboardShortcuts,
+  shortcutMatchesEvent,
+} from './keyboard-shortcuts'
 import { normalizeQueryWindowMode } from './query-window-mode'
 import {
   appendFieldToQueryText,
@@ -170,6 +177,151 @@ function SidebarFallback() {
   )
 }
 
+function GlobalShortcutHandler({
+  actions,
+  activeConnectionId,
+  activeTab,
+  activeTabIsEnvironment,
+  activeTabIsExplorer,
+  activeTabIsMetrics,
+  activeTabIsObjectView,
+  activeTabIsSettings,
+  activeTabIsTestSuite,
+  bottomPanelVisibleRef,
+  keyboardShortcuts,
+  openQueryTab,
+  requestCloseTab,
+  requestSaveQuery,
+  runCurrentTabQuery,
+  snapshot,
+}: {
+  actions: Pick<Actions, 'reopenClosedTab' | 'updateUiState'>
+  activeConnectionId?: string
+  activeTab?: QueryTabState
+  activeTabIsEnvironment: boolean
+  activeTabIsExplorer: boolean
+  activeTabIsMetrics: boolean
+  activeTabIsObjectView: boolean
+  activeTabIsSettings: boolean
+  activeTabIsTestSuite: boolean
+  bottomPanelVisibleRef: MutableRefObject<boolean>
+  keyboardShortcuts: Record<AppShortcutId, string>
+  openQueryTab(connectionId: string | undefined): void
+  requestCloseTab(tabId: string): void
+  requestSaveQuery(tabId: string): void
+  runCurrentTabQuery(mode?: ExecutionRequest['mode']): void
+  snapshot: WorkspaceSnapshot
+}) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (shortcutMatchesEvent(event, keyboardShortcuts.refresh)) {
+        event.preventDefault()
+
+        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings) {
+          runCurrentTabQuery()
+        }
+
+        return
+      }
+
+      if (!activeTab) {
+        return
+      }
+
+      if (shortcutMatchesEvent(event, keyboardShortcuts.saveQuery)) {
+        event.preventDefault()
+        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsSettings) {
+          requestSaveQuery(activeTab.id)
+        }
+        return
+      }
+
+      if (shortcutMatchesEvent(event, keyboardShortcuts.runQuery)) {
+        event.preventDefault()
+        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings) {
+          runCurrentTabQuery()
+        }
+        return
+      }
+
+      if (shortcutMatchesEvent(event, keyboardShortcuts.togglePanel)) {
+        event.preventDefault()
+        const bottomPanelVisible = !bottomPanelVisibleRef.current
+        bottomPanelVisibleRef.current = bottomPanelVisible
+        void actions.updateUiState({
+          bottomPanelVisible,
+        })
+        return
+      }
+
+      if (shortcutMatchesEvent(event, keyboardShortcuts.toggleSidebar)) {
+        event.preventDefault()
+        void actions.updateUiState({
+          sidebarCollapsed: !snapshot.ui.sidebarCollapsed,
+        })
+        return
+      }
+
+      if (shortcutMatchesEvent(event, keyboardShortcuts.newQuery)) {
+        event.preventDefault()
+        openQueryTab(activeConnectionId)
+        return
+      }
+
+      if (shortcutMatchesEvent(event, keyboardShortcuts.closeTab)) {
+        event.preventDefault()
+        requestCloseTab(activeTab.id)
+        return
+      }
+
+      if (shortcutMatchesEvent(event, keyboardShortcuts.reopenClosedTab)) {
+        event.preventDefault()
+        const closedTab = snapshot.closedTabs.at(-1)
+        if (closedTab) {
+          void actions.reopenClosedTab(closedTab.id)
+        }
+        return
+      }
+
+      if (shortcutMatchesEvent(event, keyboardShortcuts.explainQuery)) {
+        event.preventDefault()
+        if (
+          !activeTabIsExplorer &&
+          !activeTabIsMetrics &&
+          !activeTabIsObjectView &&
+          !activeTabIsTestSuite &&
+          !activeTabIsEnvironment &&
+          !activeTabIsSettings
+        ) {
+          runCurrentTabQuery('explain')
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [
+    actions,
+    activeConnectionId,
+    activeTab,
+    activeTabIsEnvironment,
+    activeTabIsExplorer,
+    activeTabIsMetrics,
+    activeTabIsObjectView,
+    activeTabIsSettings,
+    activeTabIsTestSuite,
+    bottomPanelVisibleRef,
+    keyboardShortcuts,
+    openQueryTab,
+    requestCloseTab,
+    requestSaveQuery,
+    runCurrentTabQuery,
+    snapshot,
+  ])
+
+  return null
+}
+
 function DesktopWorkspace() {
   const {
     status,
@@ -191,6 +343,12 @@ function DesktopWorkspace() {
     connectionHealthByKey,
     startupErrorMessage,
     workbenchMessages,
+    appUpdateCheckResult,
+    appUpdateDownload,
+    appUpdateError,
+    appUpdateInstallStatus,
+    appUpdateSettings,
+    appUpdateStatus,
     actions,
   } = useAppState()
   const [exportPassphrase, setExportPassphrase] = useState('')
@@ -317,6 +475,10 @@ function DesktopWorkspace() {
   const activeEnvironment =
     snapshot?.environments.find((item) => item.id === snapshot.ui.activeEnvironmentId) ??
     snapshot?.environments[0]
+  const keyboardShortcuts = useMemo(
+    () => resolveKeyboardShortcuts(snapshot?.preferences),
+    [snapshot?.preferences],
+  )
   const autoBackupEnabled = snapshot?.preferences.workspaceBackups?.enabled
   const autoBackupIntervalMinutes = snapshot?.preferences.workspaceBackups?.intervalMinutes
   const loadExplorer = actions.loadExplorer
@@ -1136,87 +1298,6 @@ function DesktopWorkspace() {
   ])
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      const key = event.key.toLowerCase()
-
-      if (event.key === 'F5') {
-        event.preventDefault()
-
-        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings) {
-          runCurrentTabQuery()
-        }
-
-        return
-      }
-
-      const hasPrimaryModifier = event.metaKey || event.ctrlKey
-
-      if (!hasPrimaryModifier || event.altKey) {
-        return
-      }
-
-      if (!snapshot || !activeTab) {
-        return
-      }
-
-      if (key === 's') {
-        event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsSettings) {
-          requestSaveQuery(activeTab.id)
-        }
-        return
-      }
-
-      if (key === 'enter') {
-        event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings) {
-          runCurrentTabQuery()
-        }
-        return
-      }
-
-      if (key === 'j') {
-        event.preventDefault()
-        const bottomPanelVisible = !bottomPanelVisibleRef.current
-        bottomPanelVisibleRef.current = bottomPanelVisible
-        void actions.updateUiState({
-          bottomPanelVisible,
-        })
-        return
-      }
-
-      if (key === 'e' && event.shiftKey) {
-        event.preventDefault()
-        if (
-          !activeTabIsExplorer &&
-          !activeTabIsMetrics &&
-          !activeTabIsObjectView &&
-          !activeTabIsTestSuite &&
-          !activeTabIsEnvironment &&
-          !activeTabIsSettings
-        ) {
-          runCurrentTabQuery('explain')
-        }
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [
-    actions,
-    activeTab,
-    activeTabIsExplorer,
-    activeTabIsEnvironment,
-    activeTabIsMetrics,
-    activeTabIsObjectView,
-    activeTabIsTestSuite,
-    activeTabIsSettings,
-    requestSaveQuery,
-    runCurrentTabQuery,
-    snapshot,
-  ])
-
-  useEffect(() => {
     const preventBrowserContextMenu = (event: MouseEvent) => {
       event.preventDefault()
     }
@@ -1872,6 +1953,24 @@ function DesktopWorkspace() {
 
   return (
     <div className="ads-shell">
+      <GlobalShortcutHandler
+        actions={actions}
+        activeConnectionId={activeConnection?.id}
+        activeTab={activeTab}
+        activeTabIsEnvironment={activeTabIsEnvironment}
+        activeTabIsExplorer={activeTabIsExplorer}
+        activeTabIsMetrics={activeTabIsMetrics}
+        activeTabIsObjectView={activeTabIsObjectView}
+        activeTabIsSettings={activeTabIsSettings}
+        activeTabIsTestSuite={activeTabIsTestSuite}
+        bottomPanelVisibleRef={bottomPanelVisibleRef}
+        keyboardShortcuts={keyboardShortcuts}
+        openQueryTab={openQueryTab}
+        requestCloseTab={requestCloseTab}
+        requestSaveQuery={requestSaveQuery}
+        runCurrentTabQuery={runCurrentTabQuery}
+        snapshot={snapshot}
+      />
       {pendingTabClose ? (
         <CloseSavedTabDialog
           tab={pendingTabClose.tab}
@@ -2137,12 +2236,21 @@ function DesktopWorkspace() {
                     health={payload.health}
                     initialSection={settingsInitialSectionRequest.section}
                     preferences={snapshot.preferences}
+                    updateCheckResult={appUpdateCheckResult}
+                    updateDownload={appUpdateDownload}
+                    updateError={appUpdateError}
+                    updateInstallStatus={appUpdateInstallStatus}
+                    updateSettings={appUpdateSettings}
+                    updateStatus={appUpdateStatus}
+                    onClearLogFile={actions.clearAppLogFile}
+                    onCheckForUpdates={() => void actions.checkAppUpdate()}
                     onCreateBackup={async (automatic = false) => {
-                      await actions.createWorkspaceBackupNow({ automatic })
+                      return actions.createWorkspaceBackupNow({ automatic })
                     }}
                     onDeleteBackup={(backupId) =>
                       actions.deleteWorkspaceBackup({ backupId })
                     }
+                    onDeleteLogFile={actions.deleteAppLogFile}
                     onExportWorkspaceFile={async (passphrase, includeSecrets) => {
                       const response = await actions.exportWorkspaceFile({
                         passphrase,
@@ -2153,13 +2261,17 @@ function DesktopWorkspace() {
                     onImportWorkspaceFile={(passphrase) =>
                       actions.importWorkspaceFile({ passphrase })
                     }
+                    onInstallUpdate={() => void actions.installAppUpdate()}
                     onListBackups={actions.listWorkspaceBackups}
-                    onRefreshDiagnostics={() => void actions.refreshDiagnostics()}
+                    onListLogFiles={actions.listAppLogFiles}
+                    onReadLogFile={actions.readAppLogFile}
                     onRestoreBackup={(backupId, passphrase) =>
                       actions.restoreWorkspaceBackup({ backupId, passphrase })
                     }
+                    onSetKeyboardShortcut={actions.setKeyboardShortcut}
                     onSetSafeMode={(enabled) => void actions.setSafeModeEnabled(enabled)}
                     onSetTheme={(theme) => void actions.setTheme(theme)}
+                    onSetUpdatePrereleases={(enabled) => void actions.setAppUpdateSettings(enabled)}
                     onUpdateBackupSettings={actions.updateWorkspaceBackupSettings}
                   />
                 ) : activeTabIsEnvironment && activeTab ? (

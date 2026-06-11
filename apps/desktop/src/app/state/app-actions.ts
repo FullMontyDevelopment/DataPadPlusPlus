@@ -7,6 +7,7 @@ import type { Actions, AppActionContext, AppContextValue } from './app-state-typ
 import { useConnectionActions } from './app-actions-connections'
 import { useQueryTabActions } from './app-actions-tabs'
 import { useRuntimeActions } from './app-actions-runtime'
+import { useUpdateActions } from './app-actions-updates'
 import { useWorkspaceActions } from './app-actions-workspace'
 
 type AppActionBindings = Pick<
@@ -18,6 +19,7 @@ export function useAppActions(context: AppActionContext): AppActionBindings {
   const connectionActions = useConnectionActions(context)
   const queryTabActions = useQueryTabActions(context)
   const runtimeActions = useRuntimeActions(context)
+  const updateActions = useUpdateActions(context)
   const workspaceActions = useWorkspaceActions(context)
 
   const snapshot = context.state.payload?.snapshot
@@ -35,9 +37,10 @@ export function useAppActions(context: AppActionContext): AppActionBindings {
       ...connectionActions,
       ...queryTabActions,
       ...runtimeActions,
+      ...updateActions,
       ...workspaceActions,
     }),
-    [connectionActions, queryTabActions, runtimeActions, workspaceActions],
+    [connectionActions, queryTabActions, runtimeActions, updateActions, workspaceActions],
   )
 
   return {

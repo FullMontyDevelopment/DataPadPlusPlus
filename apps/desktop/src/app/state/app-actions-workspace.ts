@@ -10,8 +10,13 @@ type WorkspaceActions = Pick<
   | 'clearWorkbenchMessages'
   | 'setTheme'
   | 'setSafeModeEnabled'
+  | 'setKeyboardShortcut'
   | 'updateUiState'
   | 'refreshDiagnostics'
+  | 'listAppLogFiles'
+  | 'readAppLogFile'
+  | 'clearAppLogFile'
+  | 'deleteAppLogFile'
   | 'exportResultFile'
   | 'exportWorkspace'
   | 'importWorkspace'
@@ -73,6 +78,17 @@ export function useWorkspaceActions({
     [applyPayload, handleError],
   )
 
+  const setKeyboardShortcut = useCallback<Actions['setKeyboardShortcut']>(
+    async (shortcutId, shortcut) => {
+      try {
+        applyPayload(await desktopClient.setKeyboardShortcut(shortcutId, shortcut))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
   const updateUiState = useCallback<Actions['updateUiState']>(
     async (patch) => {
       try {
@@ -94,6 +110,62 @@ export function useWorkspaceActions({
       }
     },
     [dispatch, handleError],
+  )
+
+  const listAppLogFiles = useCallback<Actions['listAppLogFiles']>(
+    async () => {
+      try {
+        return await desktopClient.listAppLogFiles()
+      } catch (error) {
+        if (!isMissingDesktopCommandError(error)) {
+          handleError(error)
+        }
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const readAppLogFile = useCallback<Actions['readAppLogFile']>(
+    async (fileName) => {
+      try {
+        return await desktopClient.readAppLogFile(fileName)
+      } catch (error) {
+        if (!isMissingDesktopCommandError(error)) {
+          handleError(error)
+        }
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const clearAppLogFile = useCallback<Actions['clearAppLogFile']>(
+    async (fileName) => {
+      try {
+        return await desktopClient.clearAppLogFile(fileName)
+      } catch (error) {
+        if (!isMissingDesktopCommandError(error)) {
+          handleError(error)
+        }
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const deleteAppLogFile = useCallback<Actions['deleteAppLogFile']>(
+    async (fileName) => {
+      try {
+        return await desktopClient.deleteAppLogFile(fileName)
+      } catch (error) {
+        if (!isMissingDesktopCommandError(error)) {
+          handleError(error)
+        }
+        return undefined
+      }
+    },
+    [handleError],
   )
 
   const exportResultFile = useCallback<Actions['exportResultFile']>(
@@ -165,8 +237,10 @@ export function useWorkspaceActions({
       try {
         ensureWorkspaceUnlocked(state.payload)
         applyPayload(await desktopClient.updateWorkspaceBackupSettings(request))
+        return true
       } catch (error) {
         handleError(error)
+        return false
       }
     },
     [applyPayload, handleError, state.payload],
@@ -229,8 +303,13 @@ export function useWorkspaceActions({
       clearWorkbenchMessages,
       setTheme,
       setSafeModeEnabled,
+      setKeyboardShortcut,
       updateUiState,
       refreshDiagnostics,
+      listAppLogFiles,
+      readAppLogFile,
+      clearAppLogFile,
+      deleteAppLogFile,
       exportResultFile,
       exportWorkspace,
       importWorkspace,
@@ -257,9 +336,24 @@ export function useWorkspaceActions({
       deleteWorkspaceBackup,
       openWorkbenchMessages,
       refreshDiagnostics,
+      listAppLogFiles,
+      readAppLogFile,
+      clearAppLogFile,
+      deleteAppLogFile,
       setSafeModeEnabled,
+      setKeyboardShortcut,
       setTheme,
       updateUiState,
     ],
   )
+}
+
+function isMissingDesktopCommandError(error: unknown) {
+  const message =
+    typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : ''
+  return /Command\s+["']?[\w-]+["']?\s+not found/i.test(message)
 }

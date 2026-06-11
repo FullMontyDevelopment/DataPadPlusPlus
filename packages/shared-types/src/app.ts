@@ -22,6 +22,19 @@ export interface AppHealth {
   telemetry: 'disabled' | 'opt-in'
 }
 
+export interface AppLogFileSummary {
+  id: string
+  fileName: string
+  path: string
+  sizeBytes: number
+  modifiedAt?: string
+}
+
+export interface AppLogFileContent {
+  file: AppLogFileSummary
+  content: string
+}
+
 export type UiActivity =
   | 'connections'
   | 'environments'

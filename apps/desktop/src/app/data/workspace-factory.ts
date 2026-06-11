@@ -8,6 +8,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { DATAPADPLUSPLUS_ADAPTER_MANIFESTS } from '@datapadplusplus/shared-types'
 import { buildDiagnosticsReport, resolveEnvironment } from '../state/helpers'
+import { defaultKeyboardShortcuts } from '../keyboard-shortcuts'
 
 export const EMPTY_WORKSPACE_SCHEMA_VERSION = 9
 
@@ -18,6 +19,7 @@ export const defaultPreferences: AppPreferences = {
   telemetry: 'opt-in',
   lockAfterMinutes: 15,
   safeModeEnabled: true,
+  keyboardShortcuts: defaultKeyboardShortcuts(),
   workspaceBackups: {
     enabled: false,
     intervalMinutes: 30,

@@ -28,6 +28,7 @@ The release workflow can create unsigned draft artifacts for internal smoke test
 
 Updater artifact signing:
 
+- `DATAPADPLUSPLUS_UPDATER_PUBKEY`: repository variable containing the public updater key embedded in the app.
 - `TAURI_SIGNING_PRIVATE_KEY`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 
@@ -62,8 +63,9 @@ Windows Authenticode signing is not configured yet. Before a public stable Windo
 4. Wait for all platform builds to finish.
 5. Open the draft GitHub Release named `DataPad++ v<version>`.
 6. Confirm release assets exist for Windows, Linux, and macOS Apple Silicon where each platform build succeeded. Windows should include both NSIS and MSI installer outputs.
-7. Download representative installers and smoke-test launch.
-8. Publish the draft release only after smoke tests pass.
+7. Confirm signed updater metadata exists when updater signing is configured: `latest.json` and `.sig` assets must be attached to the release.
+8. Download representative installers and smoke-test launch.
+9. Publish the draft release only after smoke tests pass.
 
 The release workflow owns version-file updates. Do not pre-edit every version file just to make a release unless you are intentionally preparing or repairing release metadata.
 

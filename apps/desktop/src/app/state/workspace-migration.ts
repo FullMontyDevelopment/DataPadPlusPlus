@@ -10,6 +10,7 @@ import {
   DATAPADPLUSPLUS_ADAPTER_MANIFESTS,
   datastoreBacklogByEngine,
 } from '@datapadplusplus/shared-types'
+import { defaultKeyboardShortcuts } from '../keyboard-shortcuts'
 import { sanitizeEnvironmentProfile } from './environment-variables'
 import { migrateLegacyVariableTokens } from './workspace-variable-migration'
 
@@ -267,6 +268,10 @@ function normalizePreferences(
     telemetry: preferences?.telemetry ?? 'opt-in',
     lockAfterMinutes: preferences?.lockAfterMinutes ?? 15,
     safeModeEnabled: preferences?.safeModeEnabled ?? true,
+    keyboardShortcuts: {
+      ...defaultKeyboardShortcuts(),
+      ...(preferences?.keyboardShortcuts ?? {}),
+    },
     workspaceBackups: {
       enabled: Boolean(preferences?.workspaceBackups?.enabled),
       intervalMinutes: clampNumber(preferences?.workspaceBackups?.intervalMinutes, 30, 5, 1440),

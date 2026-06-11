@@ -75,6 +75,21 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
+    /name:\s*Validate updater signing secrets/,
+    'release workflow must validate updater signing secrets before building'
+  )
+  requireMatch(
+    text,
+    /DATAPADPLUSPLUS_UPDATER_PUBKEY:\s*\$\{\{\s*vars\.DATAPADPLUSPLUS_UPDATER_PUBKEY\s*\}\}/,
+    'release workflow must pass the updater public key to Tauri builds'
+  )
+  requireMatch(
+    text,
+    /TAURI_SIGNING_PRIVATE_KEY_PASSWORD:\s*\$\{\{\s*secrets\.TAURI_SIGNING_PRIVATE_KEY_PASSWORD\s*\}\}/,
+    'release workflow must pass the Tauri updater signing key password'
+  )
+  requireMatch(
+    text,
     /Invalid macOS signing certificate/,
     'release workflow must fail early with a clear macOS certificate message'
   )
@@ -112,6 +127,21 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
     text,
     /name:\s*Upload Tauri bundle artifacts to draft release/,
     'release workflow must explicitly upload Tauri installer and bundle assets'
+  )
+  requireMatch(
+    text,
+    /"latest\.json"/,
+    'release workflow must preserve Tauri latest.json updater metadata'
+  )
+  requireMatch(
+    text,
+    /name:\s*Verify updater metadata assets/,
+    'release workflow must verify updater metadata when signing is configured'
+  )
+  requireMatch(
+    text,
+    /no \.sig files were produced/,
+    'release workflow must fail when signed updater artifacts are missing signatures'
   )
   requireMatch(
     text,

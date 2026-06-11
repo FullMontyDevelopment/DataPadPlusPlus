@@ -1084,6 +1084,16 @@ pub fn set_safe_mode_enabled(
 }
 
 #[tauri::command]
+pub fn set_keyboard_shortcut(
+    state: State<'_, SharedAppState>,
+    shortcut_id: String,
+    shortcut: String,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.set_keyboard_shortcut(&shortcut_id, &shortcut)
+}
+
+#[tauri::command]
 pub fn set_ui_state(
     state: State<'_, SharedAppState>,
     patch: UpdateUiStateRequest,

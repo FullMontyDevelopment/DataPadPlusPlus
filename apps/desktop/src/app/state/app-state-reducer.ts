@@ -14,6 +14,7 @@ import {
   openMessagesPayload,
 } from './app-state-reducer-helpers'
 import { reduceConnectionHealth } from './app-state-reducer-connection-health'
+import { reduceAppUpdateAction } from './app-state-reducer-updates'
 
 export const initialState: StateShape = {
   status: 'booting',
@@ -26,9 +27,16 @@ export const initialState: StateShape = {
   connectionTests: {},
   connectionHealthByKey: {},
   workbenchMessages: [],
+  appUpdateStatus: 'idle',
+  appUpdateInstallStatus: 'idle',
 }
 
 export function reducer(state: StateShape, action: AppAction): StateShape {
+  const appUpdateState = reduceAppUpdateAction(state, action)
+  if (appUpdateState) {
+    return appUpdateState
+  }
+
   switch (action.type) {
     case 'BOOTSTRAP_SUCCESS':
       return {

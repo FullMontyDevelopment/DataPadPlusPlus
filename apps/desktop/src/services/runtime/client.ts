@@ -7,6 +7,7 @@ import { clientSavedWork } from './client-saved-work'
 import { clientSettingsTab } from './client-settings-tab'
 import { clientTabs } from './client-tabs'
 import { clientTests } from './client-tests'
+import { clientUpdates } from './client-updates'
 import { clientWorkspace } from './client-workspace'
 
 export const desktopClient = {
@@ -20,4 +21,5 @@ export const desktopClient = {
   ...clientAdapters,
   ...clientExecution,
   ...clientTests,
+  ...clientUpdates,
 }

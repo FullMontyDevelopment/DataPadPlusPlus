@@ -16,6 +16,18 @@ export type ThemeMode =
 export type TelemetryMode = 'disabled' | 'opt-in'
 export type GuardrailAction = 'connect' | 'execute-query' | 'export'
 export type GuardrailStatus = 'allow' | 'confirm' | 'block'
+export type AppShortcutId =
+  | 'saveQuery'
+  | 'runQuery'
+  | 'explainQuery'
+  | 'togglePanel'
+  | 'toggleSidebar'
+  | 'newQuery'
+  | 'closeTab'
+  | 'reopenClosedTab'
+  | 'refresh'
+
+export type KeyboardShortcutPreferences = Partial<Record<AppShortcutId, string>>
 
 export interface WorkspaceBackupPreferences {
   enabled: boolean
@@ -57,6 +69,7 @@ export interface AppPreferences {
   telemetry: TelemetryMode
   lockAfterMinutes: number
   safeModeEnabled: boolean
+  keyboardShortcuts?: KeyboardShortcutPreferences
   workspaceBackups?: WorkspaceBackupPreferences
 }
 

@@ -1779,20 +1779,19 @@ describe('App', () => {
     await screen.findByLabelText('library sidebar')
     fireEvent.click(screen.getByLabelText('Open settings'))
     const settings = await screen.findByLabelText('Settings')
-    fireEvent.click(within(settings).getByRole('button', { name: 'Workspace' }))
+    fireEvent.click(within(settings).getByRole('button', { name: 'Workspace + Backups' }))
     const exportButton = within(settings).getByRole('button', { name: 'Export' })
     const importButton = within(settings).getByRole('button', { name: 'Import' })
 
-    expect(within(settings).getByRole('heading', { level: 2, name: 'Workspace' })).toBeInTheDocument()
-    expect(exportButton).toBeDisabled()
-    expect(importButton).toBeDisabled()
-
-    fireEvent.change(within(settings).getByLabelText('Passphrase'), {
-      target: { value: 'strong-backup-passphrase!' },
-    })
+    expect(within(settings).getByRole('heading', { level: 2, name: 'Workspace + Backups' })).toBeInTheDocument()
     expect(exportButton).toBeEnabled()
     expect(importButton).toBeEnabled()
+
     fireEvent.click(exportButton)
+    fireEvent.change(within(settings).getByLabelText('Export passphrase'), {
+      target: { value: 'strong-backup-passphrase!' },
+    })
+    fireEvent.click(within(settings).getByRole('button', { name: 'Export Workspace' }))
 
     await waitFor(() => {
       expect(exportSpy).toHaveBeenCalledWith({
@@ -1803,6 +1802,10 @@ describe('App', () => {
     expect(within(settings).getByText('Workspace exported.')).toBeInTheDocument()
 
     fireEvent.click(importButton)
+    fireEvent.change(within(settings).getByLabelText('Import passphrase'), {
+      target: { value: 'strong-backup-passphrase!' },
+    })
+    fireEvent.click(within(settings).getByRole('button', { name: 'Import Workspace' }))
     await waitFor(() => {
       expect(importSpy).toHaveBeenCalledWith({ passphrase: 'strong-backup-passphrase!' })
     })

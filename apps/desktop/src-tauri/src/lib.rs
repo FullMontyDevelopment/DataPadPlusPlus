@@ -88,16 +88,26 @@ pub fn run() {
             app.manage(std::sync::Mutex::new(app::runtime::ManagedAppState::load(
                 app.handle().clone(),
             )));
+            app.manage(app::runtime::app_updates::PendingAppUpdate::default());
             configure_main_window_icon(app)?;
             configure_system_tray(app)?;
             infrastructure::log_info("app", "Tauri setup completed.");
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
+        .plugin(app::runtime::app_updates::updater_plugin())
         .invoke_handler(tauri::generate_handler![
             commands::app::bootstrap_app,
+            commands::app::check_app_update,
+            commands::app::clear_app_log_file,
             commands::app::create_diagnostics_report,
+            commands::app::delete_app_log_file,
+            commands::app::get_app_update_settings,
             commands::app::get_app_health,
+            commands::app::install_app_update,
+            commands::app::list_app_log_files,
+            commands::app::read_app_log_file,
+            commands::app::set_app_update_settings,
             commands::app::store_secret,
             commands::workspace::cancel_execution_request,
             commands::workspace::cancel_test_run,
@@ -158,6 +168,7 @@ pub fn run() {
             commands::workspace::scan_redis_keys,
             commands::workspace::set_active_connection,
             commands::workspace::set_active_tab,
+            commands::workspace::set_keyboard_shortcut,
             commands::workspace::set_library_node_environment,
             commands::workspace::set_tab_environment,
             commands::workspace::set_safe_mode_enabled,

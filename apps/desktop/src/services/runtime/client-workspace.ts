@@ -13,6 +13,9 @@ import type {
   WorkspaceBundleFileImportRequest,
   UpdateUiStateRequest,
   WorkspaceSnapshot,
+  AppLogFileContent,
+  AppLogFileSummary,
+  AppShortcutId,
 } from '@datapadplusplus/shared-types'
 import { createBrowserPreviewHealth } from '../../app/data/workspace-factory'
 import { buildDiagnosticsReport, migrateWorkspaceSnapshot } from '../../app/state/helpers'
@@ -76,6 +79,27 @@ export const clientWorkspace = {
     return buildBrowserPayload(next)
   },
 
+  async setKeyboardShortcut(
+    shortcutId: AppShortcutId,
+    shortcut: string,
+  ): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('set_keyboard_shortcut', {
+        shortcutId,
+        shortcut,
+      })
+    }
+
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    next.preferences.keyboardShortcuts = {
+      ...(next.preferences.keyboardShortcuts ?? {}),
+      [shortcutId]: shortcut,
+    }
+    next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
   async createDiagnosticsReport(): Promise<DiagnosticsReport> {
     if (isTauriRuntime()) {
       return invokeDesktop<DiagnosticsReport>('create_diagnostics_report')
@@ -83,6 +107,38 @@ export const clientWorkspace = {
 
     const snapshot = loadBrowserSnapshot()
     return buildDiagnosticsReport(snapshot, createBrowserPreviewHealth())
+  },
+
+  async listAppLogFiles(): Promise<AppLogFileSummary[]> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<AppLogFileSummary[]>('list_app_log_files')
+    }
+
+    return []
+  },
+
+  async readAppLogFile(fileName: string): Promise<AppLogFileContent> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<AppLogFileContent>('read_app_log_file', { fileName })
+    }
+
+    throw new Error('Log files are available in the desktop app.')
+  },
+
+  async clearAppLogFile(fileName: string): Promise<AppLogFileContent> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<AppLogFileContent>('clear_app_log_file', { fileName })
+    }
+
+    throw new Error('Log files are available in the desktop app.')
+  },
+
+  async deleteAppLogFile(fileName: string): Promise<AppLogFileSummary[]> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<AppLogFileSummary[]>('delete_app_log_file', { fileName })
+    }
+
+    return []
   },
 
   async exportWorkspaceBundle(

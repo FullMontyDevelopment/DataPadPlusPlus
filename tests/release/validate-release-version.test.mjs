@@ -115,6 +115,17 @@ test('current release workflow matches the hardened release contract', () => {
   ])
 })
 
+test('current Tauri config has explicit updater plugin config', () => {
+  const config = JSON.parse(
+    readFileSync(join(process.cwd(), 'apps', 'desktop', 'src-tauri', 'tauri.conf.json'), 'utf8')
+  )
+
+  assert.equal(typeof config.plugins?.updater, 'object')
+  assert.notEqual(config.plugins.updater, null)
+  assert.equal(typeof config.plugins.updater.pubkey, 'string')
+  assert.deepEqual(config.plugins.updater.endpoints, [])
+})
+
 test('release scripts use Node-compatible explicit ESM import specifiers', () => {
   const releaseDir = join(process.cwd(), 'tests', 'release')
   const failures = []

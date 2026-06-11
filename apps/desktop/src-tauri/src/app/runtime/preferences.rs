@@ -28,6 +28,37 @@ impl ManagedAppState {
         Ok(self.bootstrap_payload())
     }
 
+    pub fn set_keyboard_shortcut(
+        &mut self,
+        shortcut_id: &str,
+        shortcut: &str,
+    ) -> Result<BootstrapPayload, CommandError> {
+        validate_shortcut_id(shortcut_id)?;
+        let shortcut = shortcut.trim();
+        if shortcut.len() > 40 {
+            return Err(CommandError::new(
+                "shortcut-too-long",
+                "Shortcut text is too long.",
+            ));
+        }
+
+        if shortcut.is_empty() {
+            self.snapshot
+                .preferences
+                .keyboard_shortcuts
+                .remove(shortcut_id);
+        } else {
+            self.snapshot
+                .preferences
+                .keyboard_shortcuts
+                .insert(shortcut_id.into(), shortcut.into());
+        }
+
+        self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
     pub fn set_ui_state(
         &mut self,
         patch: UpdateUiStateRequest,
@@ -130,6 +161,28 @@ impl ManagedAppState {
         self.persist()?;
         Ok(self.bootstrap_payload())
     }
+}
+
+fn validate_shortcut_id(shortcut_id: &str) -> Result<(), CommandError> {
+    if matches!(
+        shortcut_id,
+        "saveQuery"
+            | "runQuery"
+            | "explainQuery"
+            | "togglePanel"
+            | "toggleSidebar"
+            | "newQuery"
+            | "closeTab"
+            | "reopenClosedTab"
+            | "refresh"
+    ) {
+        return Ok(());
+    }
+
+    Err(CommandError::new(
+        "shortcut-unknown",
+        "Choose a supported keyboard shortcut.",
+    ))
 }
 
 fn normalize_primary_sidebar_value(value: String) -> String {

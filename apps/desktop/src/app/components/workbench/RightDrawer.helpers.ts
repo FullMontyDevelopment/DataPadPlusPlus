@@ -38,8 +38,12 @@ export const SHORTCUTS = [
   ['Save query', 'Ctrl S'],
   ['Run query', 'Ctrl Enter'],
   ['Explain query', 'Ctrl Shift E'],
+  ['Refresh active view', 'F5'],
   ['Toggle panel', 'Ctrl J'],
   ['Toggle sidebar', 'Ctrl B'],
+  ['New query tab', 'Ctrl N'],
+  ['Close tab', 'Ctrl W'],
+  ['Reopen closed tab', 'Ctrl Shift T'],
 ] as const
 
 export function engineFamily(engine: ConnectionProfile['engine']): ConnectionProfile['family'] {

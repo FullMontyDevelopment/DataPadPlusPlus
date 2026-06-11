@@ -31,6 +31,10 @@ pub fn diagnostics_breadcrumb_path() -> PathBuf {
     BREADCRUMB_PATH.get_or_init(default_breadcrumb_path).clone()
 }
 
+pub fn diagnostics_log_dir() -> PathBuf {
+    diagnostics_base_path().join("logs")
+}
+
 pub fn log_info(scope: &str, message: impl AsRef<str>) {
     append_line("INFO", scope, message.as_ref());
 }
@@ -135,15 +139,11 @@ fn timestamp_label() -> String {
 }
 
 fn default_log_path() -> PathBuf {
-    diagnostics_base_path()
-        .join("logs")
-        .join("datapadplusplus.log")
+    diagnostics_log_dir().join("datapadplusplus.log")
 }
 
 fn default_breadcrumb_path() -> PathBuf {
-    diagnostics_base_path()
-        .join("logs")
-        .join("datapadplusplus-breadcrumbs.log")
+    diagnostics_log_dir().join("datapadplusplus-breadcrumbs.log")
 }
 
 fn diagnostics_base_path() -> PathBuf {

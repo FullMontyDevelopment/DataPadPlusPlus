@@ -1523,6 +1523,8 @@ pub struct AppPreferences {
     pub lock_after_minutes: u32,
     pub safe_mode_enabled: bool,
     #[serde(default)]
+    pub keyboard_shortcuts: HashMap<String, String>,
+    #[serde(default)]
     pub workspace_backups: WorkspaceBackupPreferences,
 }
 

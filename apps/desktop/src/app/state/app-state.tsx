@@ -1,13 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import {
-  createContext,
-  startTransition,
-  useCallback,
-  useContext,
-  useEffect,
-  useReducer,
-  useRef,
-} from 'react'
+import { createContext, startTransition, useCallback, useContext, useEffect, useReducer, useRef } from 'react'
 import type { Dispatch, ReactNode } from 'react'
 import type { BootstrapPayload, ConnectionProfile } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
@@ -17,6 +9,7 @@ import { initialState, reducer } from './app-state-reducer'
 import { toUserMessage } from './app-state-selectors'
 import { buildConnectionTestFailure } from './connection-test-results'
 import { connectionHealthKey } from './connection-health'
+import { useStartupUpdateCheck } from './use-startup-update-check'
 import type { Actions, AppAction, AppContextValue, StateShape } from './app-state-types'
 
 export type { WorkbenchMessage, WorkbenchMessageSeverity } from './app-state-types'
@@ -89,18 +82,27 @@ const defaultActions: Actions = {
   clearWorkbenchMessages: () => undefined,
   setTheme: noop,
   setSafeModeEnabled: noop,
+  setKeyboardShortcut: noop,
   updateUiState: noop,
   refreshDiagnostics: noop,
+  listAppLogFiles: async () => undefined,
+  readAppLogFile: async () => undefined,
+  clearAppLogFile: async () => undefined,
+  deleteAppLogFile: async () => undefined,
   exportResultFile: async () => undefined,
   exportWorkspace: noop,
   importWorkspace: noop,
   exportWorkspaceFile: async () => undefined,
   importWorkspaceFile: noop,
-  updateWorkspaceBackupSettings: noop,
+  updateWorkspaceBackupSettings: noopFalse,
   listWorkspaceBackups: async () => undefined,
   createWorkspaceBackupNow: async () => undefined,
   restoreWorkspaceBackup: noop,
   deleteWorkspaceBackup: async () => undefined,
+  getAppUpdateSettings: async () => undefined,
+  setAppUpdateSettings: noop,
+  checkAppUpdate: async () => undefined,
+  installAppUpdate: noop,
 }
 
 const AppStateContext = createContext<AppContextValue>({
@@ -180,6 +182,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     dispatch,
     applyPayload,
     handleError,
+  })
+
+  useStartupUpdateCheck({
+    actions,
+    dispatch,
+    providerMountedRef,
+    runtime: state.payload?.health.runtime,
+    status: state.status,
   })
 
   useEffect(() => {

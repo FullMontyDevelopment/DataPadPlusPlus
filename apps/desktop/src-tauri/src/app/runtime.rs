@@ -2,6 +2,10 @@ use std::sync::Mutex;
 
 use tauri::AppHandle;
 
+pub mod app_logs;
+pub mod app_updates;
+mod app_updates_github;
+mod app_updates_settings;
 mod datastore_commands;
 mod datastore_tab_refresh;
 mod environment_guards;

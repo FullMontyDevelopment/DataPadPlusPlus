@@ -198,6 +198,40 @@ jobs:
       - name: Install workspace dependencies
         run: npm ci
 
+      - name: Validate updater signing secrets
+        id: updater_signing
+        shell: bash
+        env:
+          DATAPADPLUSPLUS_UPDATER_PUBKEY: ${{ vars.DATAPADPLUSPLUS_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          configured=()
+          missing=()
+          for name in DATAPADPLUSPLUS_UPDATER_PUBKEY TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            if [[ -n "${!name:-}" ]]; then
+              configured+=("${name}")
+            else
+              missing+=("${name}")
+            fi
+          done
+
+          if (( ${#configured[@]} == 0 )); then
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            echo "::notice title=Updater signing disabled::No updater signing values were configured, so this draft build will not be installable through the in-app updater."
+            exit 0
+          fi
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error title=Incomplete updater signing configuration::Missing required value(s): ${missing[*]}. Configure the public updater key plus both Tauri signing secrets, or leave all three unset for unsigned internal drafts."
+            exit 1
+          fi
+
+          echo "enabled=true" >> "${GITHUB_OUTPUT}"
+          echo "Updater signing configuration is complete."
+
       - name: Validate macOS signing secrets
         id: mac_signing
         if: runner.os == 'macOS'
@@ -309,6 +343,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATAPADPLUSPLUS_UPDATER_PUBKEY: ${{ vars.DATAPADPLUSPLUS_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
@@ -330,6 +365,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATAPADPLUSPLUS_UPDATER_PUBKEY: ${{ vars.DATAPADPLUSPLUS_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -379,7 +415,8 @@ jobs:
             "*.AppImage",
             "*.dmg",
             "*.tar.gz",
-            "*.sig"
+            "*.sig",
+            "latest.json"
           )
 
           $assets = Get-ChildItem -LiteralPath $bundleRoot -Recurse -File |
@@ -396,6 +433,33 @@ jobs:
           foreach ($asset in $assets) {
             gh release upload $env:TAG_NAME $asset --clobber
           }
+
+      - name: Verify updater metadata assets
+        if: steps.updater_signing.outputs.enabled == 'true'
+        shell: pwsh
+        env:
+          TAG_NAME: app-v${{ inputs.version }}
+          RUST_TARGET: ${{ matrix.rust-targets }}
+        run: |
+          $targetRoot = Join-Path "apps/desktop/src-tauri" "target"
+          if ($env:RUST_TARGET) {
+            $releaseDir = Join-Path $targetRoot (Join-Path $env:RUST_TARGET "release")
+          } else {
+            $releaseDir = Join-Path $targetRoot "release"
+          }
+
+          $bundleRoot = Join-Path $releaseDir "bundle"
+          $latestJson = Get-ChildItem -LiteralPath $bundleRoot -Recurse -File -Filter "latest.json" | Select-Object -First 1
+          if (-not $latestJson) {
+            throw "Updater signing is configured, but latest.json was not produced under $bundleRoot"
+          }
+
+          $signatures = Get-ChildItem -LiteralPath $bundleRoot -Recurse -File -Filter "*.sig"
+          if (-not $signatures -or $signatures.Count -eq 0) {
+            throw "Updater signing is configured, but no .sig files were produced under $bundleRoot"
+          }
+
+          Write-Host "Updater metadata OK for $env:TAG_NAME"
 
       - name: Package raw executable
         shell: pwsh

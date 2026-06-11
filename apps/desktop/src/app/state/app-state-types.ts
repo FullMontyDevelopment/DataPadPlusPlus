@@ -2,6 +2,12 @@ import type { Dispatch, MutableRefObject } from 'react'
 import type {
   BootstrapPayload,
   CancelTestRunRequest,
+  AppLogFileContent,
+  AppLogFileSummary,
+  AppShortcutId,
+  AppUpdateCheckResult,
+  AppUpdateDownloadEvent,
+  AppUpdateSettings,
   ConnectionProfile,
   ConnectionTestResult,
   CreateObjectViewTabRequest,
@@ -113,6 +119,15 @@ export interface StateShape {
   connectionHealthByKey: Record<string, ConnectionHealth>
   startupErrorMessage?: string
   workbenchMessages: WorkbenchMessage[]
+  appUpdateSettings?: AppUpdateSettings
+  appUpdateCheckResult?: AppUpdateCheckResult
+  appUpdateStatus: RemoteStatus
+  appUpdateInstallStatus: 'idle' | 'installing' | 'installed' | 'error'
+  appUpdateDownload?: {
+    downloadedBytes: number
+    contentLength?: number
+  }
+  appUpdateError?: string
 }
 
 export type AppAction =
@@ -180,6 +195,14 @@ export type AppAction =
   | { type: 'WORKBENCH_MESSAGES_OPENED' }
   | { type: 'WORKBENCH_MESSAGE_DISMISSED'; id: string }
   | { type: 'WORKBENCH_MESSAGES_CLEARED' }
+  | { type: 'APP_UPDATE_SETTINGS_READY'; settings: AppUpdateSettings }
+  | { type: 'APP_UPDATE_CHECKING' }
+  | { type: 'APP_UPDATE_CHECK_READY'; result: AppUpdateCheckResult }
+  | { type: 'APP_UPDATE_CHECK_ERROR'; message: string }
+  | { type: 'APP_UPDATE_INSTALLING' }
+  | { type: 'APP_UPDATE_DOWNLOAD_EVENT'; event: AppUpdateDownloadEvent }
+  | { type: 'APP_UPDATE_INSTALLED' }
+  | { type: 'APP_UPDATE_INSTALL_ERROR'; message: string }
 
 export interface Actions {
   selectConnection(connectionId: string): Promise<void>
@@ -279,8 +302,13 @@ export interface Actions {
   clearWorkbenchMessages(): void
   setTheme(theme: WorkspaceSnapshot['preferences']['theme']): Promise<void>
   setSafeModeEnabled(enabled: boolean): Promise<void>
+  setKeyboardShortcut(shortcutId: AppShortcutId, shortcut: string): Promise<void>
   updateUiState(patch: UpdateUiStateRequest): Promise<void>
   refreshDiagnostics(): Promise<void>
+  listAppLogFiles(): Promise<AppLogFileSummary[] | undefined>
+  readAppLogFile(fileName: string): Promise<AppLogFileContent | undefined>
+  clearAppLogFile(fileName: string): Promise<AppLogFileContent | undefined>
+  deleteAppLogFile(fileName: string): Promise<AppLogFileSummary[] | undefined>
   exportResultFile(
     request: ExportResultFileRequest,
   ): Promise<ExportResultFileResponse | undefined>
@@ -290,7 +318,7 @@ export interface Actions {
     request: WorkspaceBundleFileExportRequest,
   ): Promise<WorkspaceBundleFileExportResponse | undefined>
   importWorkspaceFile(request: WorkspaceBundleFileImportRequest): Promise<void>
-  updateWorkspaceBackupSettings(request: WorkspaceBackupSettingsRequest): Promise<void>
+  updateWorkspaceBackupSettings(request: WorkspaceBackupSettingsRequest): Promise<boolean>
   listWorkspaceBackups(): Promise<WorkspaceBackupSummary[] | undefined>
   createWorkspaceBackupNow(
     request: WorkspaceBackupRunRequest,
@@ -299,6 +327,10 @@ export interface Actions {
   deleteWorkspaceBackup(
     request: WorkspaceBackupDeleteRequest,
   ): Promise<WorkspaceBackupSummary[] | undefined>
+  getAppUpdateSettings(): Promise<AppUpdateSettings | undefined>
+  setAppUpdateSettings(includePrereleases: boolean): Promise<void>
+  checkAppUpdate(): Promise<AppUpdateCheckResult | undefined>
+  installAppUpdate(): Promise<void>
 }
 
 export interface AppContextValue extends StateShape {
