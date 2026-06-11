@@ -5,6 +5,7 @@ import type {
   QueryBuilderState,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
+import { useRef } from 'react'
 import { BuilderSection } from './BuilderSection'
 import { buildMongoAggregationQueryText } from './mongo-aggregation'
 import { mongoQueryScopeForTab } from './mongo-query-scope'
@@ -47,12 +48,15 @@ export function MongoAggregationBuilder({
     connection,
     tab,
   })
+  const stageIdCounter = useRef(draft.stages.length)
 
   const updateDraft = (patch: Partial<MongoAggregationBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
     onBuilderStateChange?.(tab.id, {
       ...nextDraft,
-      lastAppliedQueryText: buildMongoAggregationQueryText(nextDraft),
+      lastAppliedQueryText: buildMongoAggregationQueryText(nextDraft, {
+        database: scope?.database,
+      }),
     })
   }
 
@@ -85,11 +89,12 @@ export function MongoAggregationBuilder({
   }
 
   const addStage = () => {
+    stageIdCounter.current += 1
     updateDraft({
       stages: [
         ...draft.stages,
         {
-          id: `stage-${Date.now().toString(36)}`,
+          id: `stage-${stageIdCounter.current}`,
           enabled: true,
           stage: '$match',
           body: '{}',

@@ -557,6 +557,16 @@ pub struct WarehouseConnectionOptions {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct MongoDbConnectionOptions {
+    pub connection_scheme: Option<String>,
+    pub auth_source: Option<String>,
+    pub app_name: Option<String>,
+    pub tls: Option<bool>,
+    pub replica_set: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ConnectionProfile {
     pub id: String,
     pub name: String,
@@ -605,6 +615,8 @@ pub struct ConnectionProfile {
     pub time_series_options: Option<TimeSeriesConnectionOptions>,
     #[serde(default)]
     pub graph_options: Option<GraphConnectionOptions>,
+    #[serde(default)]
+    pub mongodb_options: Option<MongoDbConnectionOptions>,
     #[serde(default)]
     pub warehouse_options: Option<WarehouseConnectionOptions>,
     pub created_at: String,

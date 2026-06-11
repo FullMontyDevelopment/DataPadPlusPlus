@@ -37,62 +37,13 @@ fn tree_roots(engine: &str, family: &str) -> Vec<DatastoreTreeNodeManifest> {
 
 fn mongo_tree() -> Vec<DatastoreTreeNodeManifest> {
     vec![
-        node_with(
-            "selected-database",
-            "{{database}}",
-            "database",
-            "Selected MongoDB database",
-            vec![
-                node(
-                    "collections",
-                    "Collections",
-                    "collections",
-                    "Document collections",
-                ),
-                node("views", "Views", "views", "Read-only collection views"),
-                node_optional(
-                    "time-series-collections",
-                    "Time Series Collections",
-                    "time-series-collections",
-                    "Time-series optimized collections",
-                ),
-                node_optional(
-                    "capped-collections",
-                    "Capped Collections",
-                    "capped-collections",
-                    "Fixed-size collections",
-                ),
-                node("gridfs", "GridFS", "gridfs", "GridFS file buckets"),
-                node_optional(
-                    "search-indexes",
-                    "Search Indexes",
-                    "search-indexes",
-                    "Atlas Search indexes",
-                ),
-                node_optional(
-                    "vector-indexes",
-                    "Vector Indexes",
-                    "vector-indexes",
-                    "Vector search indexes",
-                ),
-                node("users", "Users", "users", "Database users"),
-                node("roles", "Roles", "roles", "Database roles"),
-                node(
-                    "database-statistics",
-                    "Database Statistics",
-                    "database-statistics",
-                    "Database storage and activity statistics",
-                ),
-            ],
-            NodeOptions::requires_database(),
-        ),
-        node_hidden(
+        node(
             "databases",
             "Databases",
             "databases",
             "User MongoDB database namespaces",
         ),
-        node_hidden(
+        node(
             "system-databases",
             "System Databases",
             "system-databases",
@@ -2281,17 +2232,6 @@ fn node(id: &str, label: &str, kind: &str, detail: &str) -> DatastoreTreeNodeMan
     node_with(id, label, kind, detail, Vec::new(), NodeOptions::default())
 }
 
-fn node_hidden(id: &str, label: &str, kind: &str, detail: &str) -> DatastoreTreeNodeManifest {
-    node_with(
-        id,
-        label,
-        kind,
-        detail,
-        Vec::new(),
-        NodeOptions::hidden_when_database_selected(),
-    )
-}
-
 fn node_optional(id: &str, label: &str, kind: &str, detail: &str) -> DatastoreTreeNodeManifest {
     node_with(
         id,
@@ -2367,33 +2307,17 @@ mod tests {
     use super::datastore_tree_manifest;
 
     #[test]
-    fn mongodb_tree_describes_native_database_children() {
+    fn mongodb_tree_describes_native_database_groups() {
         let tree = datastore_tree_manifest("mongodb", "document");
-        let selected_database = tree
+        let root_labels = tree
             .roots
-            .iter()
-            .find(|node| node.id == "selected-database")
-            .expect("selected database root");
-        let child_labels = selected_database
-            .children
             .iter()
             .map(|node| node.label.as_str())
             .collect::<Vec<_>>();
 
         assert_eq!(tree.empty_state, "structural-folders");
-        assert!(selected_database.requires_database);
-        assert!(child_labels.contains(&"Collections"));
-        assert!(child_labels.contains(&"Time Series Collections"));
-        assert!(child_labels.contains(&"Vector Indexes"));
-        assert!(
-            selected_database
-                .children
-                .iter()
-                .find(|node| node.label == "Time Series Collections")
-                .expect("time-series collections")
-                .optional_when_live_metadata
-        );
-        assert!(tree.roots.iter().any(|node| node.id == "system-databases"));
+        assert_eq!(root_labels, vec!["Databases", "System Databases"]);
+        assert!(tree.roots.iter().all(|node| node.children.is_empty()));
     }
 
     #[test]

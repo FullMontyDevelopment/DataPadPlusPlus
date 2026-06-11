@@ -283,6 +283,11 @@ async function createCatalogMongoWithBuilderTab() {
 
   let mongoTree = await expandConnectionObjects('Catalog Mongo')
   await waitFor(() => {
+    expect(within(getConnectionObjectTree('Catalog Mongo')).getByText('Databases')).toBeInTheDocument()
+  })
+  mongoTree = getConnectionObjectTree('Catalog Mongo')
+  expandObjectTreeItem(mongoTree, 'Databases')
+  await waitFor(() => {
     expect(within(getConnectionObjectTree('Catalog Mongo')).getByText('catalog')).toBeInTheDocument()
   })
   await waitFor(() => {
@@ -781,6 +786,98 @@ describe('App', () => {
     })
   })
 
+  it('accepts raw MongoDB Atlas connection strings with embedded credentials', async () => {
+    const atlasUri =
+      'mongodb+srv://garethmontgomeryrsa_db_user:plain-secret@datapadplusplus.kkravqn.mongodb.net/?appName=DataPadPlusPlus'
+    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValueOnce({
+      ok: true,
+      engine: 'mongodb',
+      message: 'MongoDB Atlas connection string accepted.',
+      warnings: [],
+      resolvedHost: '',
+      resolvedDatabase: undefined,
+      durationMs: 1,
+    })
+    render(<App />)
+
+    const drawer = await openConnectionDraft()
+    chooseDatabaseType(drawer, 'MongoDB')
+    const methods = within(drawer).getByRole('tablist', { name: 'Connection methods' })
+    fireEvent.click(within(methods).getByRole('tab', { name: /Connection String/i }))
+
+    fireEvent.change(within(drawer).getByLabelText('Connection string'), {
+      target: { value: atlasUri },
+    })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Test Connection' }))
+
+    await waitFor(() => {
+      expect(testConnectionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          profile: expect.objectContaining({
+            engine: 'mongodb',
+            connectionMode: 'connection-string',
+            connectionString: atlasUri,
+            host: '',
+            port: undefined,
+          }),
+        }),
+      )
+    })
+  })
+
+  it('supports MongoDB Atlas SRV native fields without a port', async () => {
+    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValueOnce({
+      ok: true,
+      engine: 'mongodb',
+      message: 'MongoDB Atlas fields accepted.',
+      warnings: [],
+      resolvedHost: 'datapadplusplus.kkravqn.mongodb.net',
+      resolvedDatabase: undefined,
+      durationMs: 1,
+    })
+    render(<App />)
+
+    const drawer = await openConnectionDraft()
+    chooseDatabaseType(drawer, 'MongoDB')
+
+    fireEvent.change(within(drawer).getByLabelText('MongoDB deployment'), {
+      target: { value: 'mongodb+srv' },
+    })
+    fireEvent.change(within(drawer).getByLabelText('MongoDB SRV host'), {
+      target: { value: 'datapadplusplus.kkravqn.mongodb.net' },
+    })
+    fireEvent.change(within(drawer).getByLabelText('User name'), {
+      target: { value: 'garethmontgomeryrsa_db_user' },
+    })
+    fireEvent.change(within(drawer).getByLabelText('Password / Credential'), {
+      target: { value: 'plain-secret' },
+    })
+
+    expect(within(drawer).queryByLabelText('Port')).not.toBeInTheDocument()
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Test Connection' }))
+
+    await waitFor(() => {
+      expect(testConnectionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          secret: 'plain-secret',
+          profile: expect.objectContaining({
+            engine: 'mongodb',
+            connectionMode: 'native',
+            host: 'datapadplusplus.kkravqn.mongodb.net',
+            port: undefined,
+            mongodbOptions: expect.objectContaining({
+              connectionScheme: 'mongodb+srv',
+              authSource: 'admin',
+              appName: 'DataPadPlusPlus',
+              tls: true,
+            }),
+          }),
+        }),
+      )
+    })
+  })
+
   it('shows local-file and cloud-specific connection method tabs where supported', async () => {
     render(<App />)
 
@@ -1214,6 +1311,11 @@ describe('App', () => {
 
     let mongoTree = await expandConnectionObjects('Catalog Mongo')
     expect(mongoTree).toBeInTheDocument()
+    await waitFor(() => {
+      expect(within(getConnectionObjectTree('Catalog Mongo')).getByText('Databases')).toBeInTheDocument()
+    })
+    mongoTree = getConnectionObjectTree('Catalog Mongo')
+    expandObjectTreeItem(mongoTree, 'Databases')
     await waitFor(() => {
       expect(within(getConnectionObjectTree('Catalog Mongo')).getByText('catalog')).toBeInTheDocument()
     })

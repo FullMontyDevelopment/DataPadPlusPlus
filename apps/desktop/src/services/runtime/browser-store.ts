@@ -2,7 +2,6 @@ import type { BootstrapPayload, ConnectionProfile, EnvironmentProfile, Execution
 import { createBlankBootstrapPayload, createBrowserPreviewHealth, createDiagnosticsReport } from '../../app/data/workspace-factory'
 import { sanitizeEnvironmentProfile } from '../../app/state/environment-variables'
 import { defaultRowLimitForConnection, editorLanguageForConnection, migrateWorkspaceSnapshot, resolveEnvironment } from '../../app/state/helpers'
-import { connectionStringContainsPlainSecret } from '../../app/state/security-redaction'
 
 const STORAGE_KEY = 'datapadplusplus.workspace.v2'
 
@@ -37,17 +36,6 @@ export function saveBrowserSnapshot(snapshot: WorkspaceSnapshot) {
 function sanitizeBrowserSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
   const sanitized = cloneSnapshot(snapshot)
   sanitized.environments = sanitized.environments.map(sanitizeEnvironmentProfile)
-  sanitized.connections = sanitized.connections.map((connection) => {
-    if (!connection.connectionString || !connectionStringContainsPlainSecret(connection.connectionString)) {
-      return connection
-    }
-
-    return {
-      ...connection,
-      connectionString: undefined,
-      connectionMode: 'native',
-    }
-  })
   return sanitized
 }
 

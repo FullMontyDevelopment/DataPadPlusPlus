@@ -74,39 +74,8 @@ function rootsForEngine(
 
 function mongoTree(): DatastoreTreeNodeManifest[] {
   return [
-    node('selected-database', '{{database}}', 'database', 'Selected MongoDB database', {
-      requiresDatabase: true,
-      children: mongoDatabaseChildren(),
-    }),
-    node('databases', 'Databases', 'databases', 'User MongoDB database namespaces', {
-      hiddenWhenDatabaseSelected: true,
-    }),
-    node('system-databases', 'System Databases', 'system-databases', 'admin, config, local', {
-      hiddenWhenDatabaseSelected: true,
-    }),
-  ]
-}
-
-function mongoDatabaseChildren(): DatastoreTreeNodeManifest[] {
-  return [
-    node('collections', 'Collections', 'collections', 'Document collections'),
-    node('views', 'Views', 'views', 'Read-only collection views'),
-    node('time-series-collections', 'Time Series Collections', 'time-series-collections', 'Time-series optimized collections', {
-      optionalWhenLiveMetadata: true,
-    }),
-    node('capped-collections', 'Capped Collections', 'capped-collections', 'Fixed-size collections', {
-      optionalWhenLiveMetadata: true,
-    }),
-    node('gridfs', 'GridFS', 'gridfs', 'GridFS file buckets'),
-    node('search-indexes', 'Search Indexes', 'search-indexes', 'Atlas Search indexes', {
-      optionalWhenLiveMetadata: true,
-    }),
-    node('vector-indexes', 'Vector Indexes', 'vector-indexes', 'Vector search indexes', {
-      optionalWhenLiveMetadata: true,
-    }),
-    node('users', 'Users', 'users', 'Database users'),
-    node('roles', 'Roles', 'roles', 'Database roles'),
-    node('database-statistics', 'Database Statistics', 'database-statistics', 'Database storage and activity statistics'),
+    node('databases', 'Databases', 'databases', 'User MongoDB database namespaces'),
+    node('system-databases', 'System Databases', 'system-databases', 'admin, config, local'),
   ]
 }
 

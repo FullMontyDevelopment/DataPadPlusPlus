@@ -63,6 +63,9 @@ export function manifestTreeNodeScope(
     return redisManifestNodeScope(connection, manifestNode.kind, label, parentPath)
   }
 
+  if (connection.engine === 'mongodb') {
+    return mongoManifestNodeScope(manifestNode.kind)
+  }
   if (connection.engine === 'memcached') return memcachedManifestNodeId(manifestNode.kind, label)
   if (connection.engine === 'litedb') return liteDbManifestNodeId(manifestNode.kind, label)
   if (connection.engine === 'cosmosdb') {
@@ -80,6 +83,15 @@ export function manifestTreeNodeScope(
   if (connection.family === 'warehouse') {
     return warehouseManifestNodeId(connection, manifestNode.kind, label)
   }
+
+  return undefined
+}
+
+function mongoManifestNodeScope(kind: string) {
+  const normalizedKind = normalizeKind(kind)
+
+  if (normalizedKind === 'databases') return 'databases'
+  if (normalizedKind === 'system-databases') return 'system-databases'
 
   return undefined
 }

@@ -1,17 +1,13 @@
 use std::collections::HashSet;
 
-use crate::{
-    domain::{
-        error::CommandError,
-        models::{
-            CancelTestRunRequest, ConnectionProfile, ConnectionTestRequest,
-            CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, EnvironmentProfile,
-            ExecuteTestSuiteRequest, OpenTestSuiteTemplateRequest, QueryTabReorderRequest,
-            ScopedQueryTarget, SecretRef, UpdateQueryBuilderStateRequest,
-            UpdateTestSuiteTabRequest,
-        },
+use crate::domain::{
+    error::CommandError,
+    models::{
+        CancelTestRunRequest, ConnectionProfile, ConnectionTestRequest,
+        CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, EnvironmentProfile,
+        ExecuteTestSuiteRequest, OpenTestSuiteTemplateRequest, QueryTabReorderRequest,
+        ScopedQueryTarget, SecretRef, UpdateQueryBuilderStateRequest, UpdateTestSuiteTabRequest,
     },
-    security,
 };
 
 use super::common::*;
@@ -63,12 +59,6 @@ pub(in crate::app::runtime) fn validate_connection_profile(
             "Connection string",
             MAX_SCOPE_LENGTH,
         )?;
-        if security::connection_string_contains_secret(connection_string) {
-            return Err(CommandError::new(
-                "connection-string-secret",
-                "Connection strings with embedded passwords, tokens, or keys are not saved. Put credentials in credential fields or environment secret variables.",
-            ));
-        }
     }
 
     Ok(())

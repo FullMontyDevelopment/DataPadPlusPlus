@@ -188,7 +188,6 @@ impl ManagedAppState {
 fn sanitize_snapshot(snapshot: &WorkspaceSnapshot) -> WorkspaceSnapshot {
     let mut sanitized = snapshot.clone();
 
-    strip_secret_bearing_connection_strings(&mut sanitized);
     for environment in &mut sanitized.environments {
         normalize_environment_profile(environment);
     }
@@ -232,7 +231,6 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     strip_demo_records(&mut snapshot);
     migrate_environment_variables(&mut snapshot);
     migrate_legacy_variable_tokens(&mut snapshot);
-    strip_secret_bearing_connection_strings(&mut snapshot);
     migrate_connection_modes(&mut snapshot);
     ensure_library_nodes(&mut snapshot);
 
@@ -291,18 +289,6 @@ fn migrate_legacy_variable_tokens(snapshot: &mut WorkspaceSnapshot) {
 
     for item in &mut snapshot.saved_work {
         item.query_text = item.query_text.as_deref().map(legacy_to_brace_tokens);
-    }
-}
-
-fn strip_secret_bearing_connection_strings(snapshot: &mut WorkspaceSnapshot) {
-    for connection in &mut snapshot.connections {
-        if connection
-            .connection_string
-            .as_deref()
-            .is_some_and(security::connection_string_contains_secret)
-        {
-            connection.connection_string = None;
-        }
     }
 }
 

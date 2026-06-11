@@ -52,7 +52,7 @@ describe('browser connection runtime', () => {
     expect(next.ui.activeTabId).toBe('tab-orders-audit')
   })
 
-  it('does not keep a dangling connection-string mode after stripping plaintext secrets', () => {
+  it('preserves raw connection-string mode with embedded credentials', () => {
     const snapshot = createSeedSnapshot()
     const sourceConnection = snapshot.connections[0]
     expect(sourceConnection).toBeDefined()
@@ -66,8 +66,8 @@ describe('browser connection runtime', () => {
     })
 
     const storedConnection = next.connections.find((item) => item.id === 'conn-unsafe-string')
-    expect(storedConnection?.connectionString).toBeUndefined()
-    expect(storedConnection?.connectionMode).toBe('native')
+    expect(storedConnection?.connectionString).toBe('mongodb://user:plain-secret@localhost/catalog')
+    expect(storedConnection?.connectionMode).toBe('connection-string')
   })
 
   it('deletes an environment and moves references to a fallback environment', () => {

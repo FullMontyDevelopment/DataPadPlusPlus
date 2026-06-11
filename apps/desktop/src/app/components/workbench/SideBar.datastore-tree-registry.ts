@@ -1273,49 +1273,52 @@ function mongoPlacement(
   normalizedPath: string[],
 ): string[] {
   if (kind === 'database') {
-    return normalizedPath[0] === 'System Databases' ? ['System Databases'] : []
-  }
+    if (normalizedPath[0] === 'Databases' || normalizedPath[0] === 'System Databases') {
+      return normalizedPath
+    }
 
+    return [mongoDatabaseGroup(node.label)]
+  }
   if (normalizedPath.length) {
-    return normalizedPath
-  }
+    if (normalizedPath[0] === 'Databases' || normalizedPath[0] === 'System Databases') {
+      return normalizedPath
+    }
 
+    return [mongoDatabaseGroup(normalizedPath[0]), ...normalizedPath]
+  }
   const database = databaseFromDocumentPath(connection, node, normalizedPath)
   const collection = collectionFromDocumentNode(connection, node, normalizedPath)
-
   if (kind === 'collection') {
     return [database, 'Collections'].filter(Boolean) as string[]
   }
-
   if (kind === 'view') {
     return [database, 'Views'].filter(Boolean) as string[]
   }
-
   if (kind === 'gridfs-collection') {
     return [database, 'GridFS'].filter(Boolean) as string[]
   }
-
   if (['documents', 'schema-preview', 'indexes', 'validation-rules', 'aggregations'].includes(kind)) {
     return [database, 'Collections', collection].filter(Boolean) as string[]
   }
-
   if (['pipeline', 'view-results', 'sample-results'].includes(kind)) {
     return [database, 'Views', collection].filter(Boolean) as string[]
   }
-
   if (kind === 'user' || kind === 'users') {
     return [database, 'Users'].filter(Boolean) as string[]
   }
-
   if (kind === 'role' || kind === 'roles') {
     return [database, 'Roles'].filter(Boolean) as string[]
   }
-
   if (kind === 'permission') {
     return normalizedPath.length ? normalizedPath : compactPath(database)
   }
-
   return compactPath(database ?? defaultDocumentDatabase(connection))
+}
+
+function mongoDatabaseGroup(database: string | undefined) {
+  return ['admin', 'config', 'local'].includes(database?.trim().toLowerCase() ?? '')
+    ? 'System Databases'
+    : 'Databases'
 }
 
 function compactPath(...segments: Array<string | undefined>) {

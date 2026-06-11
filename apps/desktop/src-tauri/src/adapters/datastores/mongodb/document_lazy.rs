@@ -192,7 +192,7 @@ async fn resolve_database_name(
         .unwrap_or_else(|| json!({ "collection": request.collection }));
     let resolution =
         mongodb_database_name_for_collection_query(client, connection, &input, &request.collection)
-            .await;
+            .await?;
     Ok(resolution.database_name)
 }
 

@@ -26,7 +26,7 @@ pub(crate) async fn fetch_mongodb_page(
         })?;
     let database_resolution =
         mongodb_database_name_for_collection_query(&client, connection, &input, collection_name)
-            .await;
+            .await?;
     let page_notices = database_resolution
         .notice
         .map(|notice| notice.message)

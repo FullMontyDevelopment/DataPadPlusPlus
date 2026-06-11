@@ -65,9 +65,11 @@ describe('QueryBuilderPanel', () => {
   })
 
   it('shows the Mongo database and collection for scoped query tabs', () => {
+    const onBuilderStateChange = vi.fn()
+
     render(
       <BuilderHarness
-        onBuilderStateChange={vi.fn()}
+        onBuilderStateChange={onBuilderStateChange}
         tab={mongoTab({
           scopedTarget: {
             kind: 'collection',
@@ -81,6 +83,17 @@ describe('QueryBuilderPanel', () => {
     const scope = screen.getByLabelText('Mongo query scope')
     expect(within(scope).getByText('catalog')).toBeInTheDocument()
     expect(within(scope).getByText('products')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Fetch size'), { target: { value: '25' } })
+
+    const nextState = onBuilderStateChange.mock.calls.at(-1)?.[1] as
+      | (QueryBuilderState & { lastAppliedQueryText?: string })
+      | undefined
+    expect(JSON.parse(nextState?.lastAppliedQueryText ?? '{}')).toMatchObject({
+      database: 'catalog',
+      collection: 'products',
+      limit: 25,
+    })
   })
 
   it('adds a Mongo filter from the Filters section header', () => {

@@ -8,7 +8,7 @@ use super::bson_extjson::{
     mongodb_json_to_array, mongodb_json_to_document,
 };
 use super::connection::{
-    mongodb_client, mongodb_database_name_for_collection_query, mongodb_database_name_from_query,
+    mongodb_client, mongodb_database_name_for_collection_query, mongodb_database_name_from_command,
 };
 use super::document_lazy::{can_use_efficiency_mode, mongodb_document_payload};
 use super::MongoDbAdapter;
@@ -135,7 +135,7 @@ async fn read_mongodb_documents(
     let collection_name = collection_name(input)?;
     let database_resolution =
         mongodb_database_name_for_collection_query(client, connection, input, &collection_name)
-            .await;
+            .await?;
     if let Some(notice) = database_resolution.notice {
         notices.push(notice);
     }
@@ -211,7 +211,7 @@ async fn execute_mongodb_count(
     let collection_name = collection_name(input)?;
     let database_resolution =
         mongodb_database_name_for_collection_query(client, connection, input, &collection_name)
-            .await;
+            .await?;
     let mut notices = notices;
     if let Some(notice) = database_resolution.notice {
         notices.push(notice);
@@ -276,7 +276,7 @@ async fn execute_mongodb_distinct(
         })?;
     let database_resolution =
         mongodb_database_name_for_collection_query(client, connection, input, &collection_name)
-            .await;
+            .await?;
     let mut notices = notices;
     if let Some(notice) = database_resolution.notice {
         notices.push(notice);
@@ -338,7 +338,7 @@ async fn execute_mongodb_command(
         ));
     }
 
-    let (database_name, _) = mongodb_database_name_from_query(input, connection);
+    let database_name = mongodb_database_name_from_command(input, connection);
     let response = client
         .database(&database_name)
         .run_command(command.clone())
@@ -385,7 +385,7 @@ async fn execute_mongodb_explain(
     let collection_name = collection_name(input)?;
     let database_resolution =
         mongodb_database_name_for_collection_query(client, connection, input, &collection_name)
-            .await;
+            .await?;
     let database = client.database(&database_resolution.database_name);
     let verbosity = input
         .get("verbosity")
@@ -463,7 +463,7 @@ async fn execute_mongodb_write(
     let collection_name = collection_name(input)?;
     let database_resolution =
         mongodb_database_name_for_collection_query(client, connection, input, &collection_name)
-            .await;
+            .await?;
     let mut notices = notices;
     if let Some(notice) = database_resolution.notice {
         notices.push(notice);

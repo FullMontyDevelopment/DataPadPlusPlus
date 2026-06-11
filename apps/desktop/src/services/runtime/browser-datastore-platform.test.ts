@@ -36,12 +36,10 @@ describe('browser datastore platform contracts', () => {
     expect(
       mongodb?.completeness?.criteria.find((item) => item.criterion === 'object-views')?.status,
     ).toBe('strong')
-    expect(mongodb?.tree?.roots.map((item) => item.label)).toContain('{{database}}')
-    expect(
-      mongodb?.tree?.roots
-        .find((item) => item.id === 'selected-database')
-        ?.children?.map((item) => item.label),
-    ).toContain('Time Series Collections')
+    expect(mongodb?.tree?.roots.map((item) => item.label)).toEqual([
+      'Databases',
+      'System Databases',
+    ])
     expect(postgres?.queryBuilders.map((item) => item.kind)).toContain('sql-select')
     expect(postgres?.queryBuilders.find((item) => item.kind === 'sql-select')?.defaultMode).toBe(
       'raw',

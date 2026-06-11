@@ -98,16 +98,17 @@ export function searchPreviewDisabledReason(
   return `${label} is preview-first. ${SEARCH_PREVIEW_EXECUTION_REASON} Current profile boundary: ${runtime.disabledReason ?? SEARCH_PLAIN_HTTP_RUNTIME_REASON}`
 }
 
-function normalized(value: string | undefined) {
-  return value?.trim().toLowerCase()
+function normalized(value: unknown) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : undefined
 }
 
-function hasText(value: string | undefined) {
-  return Boolean(value?.trim())
+function hasText(value: unknown) {
+  return typeof value === 'string' && Boolean(value.trim())
 }
 
-function firstText(...values: Array<string | undefined>) {
-  return values.find((value) => hasText(value))?.trim()
+function firstText(...values: unknown[]) {
+  const value = values.find((candidate) => hasText(candidate))
+  return typeof value === 'string' ? value.trim() : undefined
 }
 
 function authModeLabel(authMode: string) {

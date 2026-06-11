@@ -4,6 +4,10 @@ import type {
   QueryBuilderState,
 } from '@datapadplusplus/shared-types'
 
+interface MongoQueryTextContext {
+  database?: string
+}
+
 export function createDefaultMongoAggregationBuilderState(
   collection: string,
   limit = 20,
@@ -31,7 +35,9 @@ export function isMongoAggregationBuilderState(
 
 export function buildMongoAggregationQueryText(
   state: MongoAggregationBuilderState,
+  context: MongoQueryTextContext = {},
 ): string {
+  const database = context.database?.trim()
   const pipeline = state.stages
     .filter((stage) => stage.enabled ?? true)
     .map(stageToPipelineItem)
@@ -39,6 +45,7 @@ export function buildMongoAggregationQueryText(
 
   return JSON.stringify(
     {
+      ...(database ? { database } : {}),
       collection: state.collection.trim(),
       operation: 'aggregate',
       pipeline,

@@ -9,6 +9,10 @@ import type {
 export { defaultFilterGroup, normalizeFilterGroups } from './mongo-find-defaults'
 export { parseMongoFindQueryText } from './mongo-find-parser'
 
+interface MongoQueryTextContext {
+  database?: string
+}
+
 const OPERATOR_MAP: Record<Exclude<MongoFilterOperator, 'eq' | 'contains'>, string> = {
   ne: '$ne',
   gt: '$gt',
@@ -56,11 +60,17 @@ export function isMongoFindBuilderState(
   return state?.kind === 'mongo-find'
 }
 
-export function buildMongoFindQueryText(state: MongoFindBuilderState): string {
+export function buildMongoFindQueryText(
+  state: MongoFindBuilderState,
+  context: MongoQueryTextContext = {},
+): string {
+  const database = context.database?.trim()
   const query: Record<string, unknown> = {
+    ...(database ? { database } : {}),
     collection: state.collection.trim(),
     filter: buildMongoFilter(state),
   }
+
   const projection = buildMongoProjection(state)
   const sort = buildMongoSort(state)
 

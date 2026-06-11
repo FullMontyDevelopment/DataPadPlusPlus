@@ -201,13 +201,13 @@ function MongoFindBuilder({
     const nextDraft = { ...draft, ...patch }
     const next = {
       ...nextDraft,
-      lastAppliedQueryText: buildMongoFindQueryText(nextDraft),
+      lastAppliedQueryText: buildMongoFindQueryText(nextDraft, { database: scope?.database }),
     }
 
     if (onBuilderStateChange) {
       onBuilderStateChange(tab.id, next)
     }
-  }, [draft, onBuilderStateChange, tab.id])
+  }, [draft, onBuilderStateChange, scope?.database, tab.id])
 
   const addDroppedFilter = useCallback((payload: FieldDragPayload, groupId?: string) => {
     updateDraft({

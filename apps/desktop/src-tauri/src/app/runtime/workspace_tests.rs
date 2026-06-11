@@ -1,5 +1,3 @@
-use std::{fs, path::PathBuf, sync::Mutex as TestMutex};
-
 use super::{
     blank_workspace_snapshot,
     fixtures::{fixture_workspace_seed_for_profile, seed_fixture_secrets, workspace_is_empty},
@@ -13,6 +11,7 @@ use super::{
     },
 };
 use crate::domain::models::{ConnectionProfile, QueryTabState};
+use std::{fs, path::PathBuf, sync::Mutex as TestMutex};
 
 static ENV_LOCK: TestMutex<()> = TestMutex::new(());
 
@@ -132,7 +131,7 @@ fn migrated_workspace_is_unlocked_after_lock_ui_removal() {
 }
 
 #[test]
-fn migration_strips_connection_strings_with_plaintext_secrets() {
+fn migration_preserves_connection_strings_with_plaintext_secrets() {
     let mut snapshot = blank_workspace_snapshot();
     snapshot.connections.push(ConnectionProfile {
         id: "conn-secret-string".into(),
@@ -152,10 +151,13 @@ fn migration_strips_connection_strings_with_plaintext_secrets() {
 
     let migrated = migrate_snapshot(snapshot);
 
-    assert!(migrated.connections[0].connection_string.is_none());
+    assert_eq!(
+        migrated.connections[0].connection_string.as_deref(),
+        Some("mongodb://user:plain-secret@localhost:27017/catalog")
+    );
     assert_eq!(
         migrated.connections[0].connection_mode.as_deref(),
-        Some("native")
+        Some("connection-string")
     );
 }
 
@@ -346,7 +348,6 @@ fn fixture_secrets_are_written_to_file_secret_store() {
 #[test]
 fn tab_reorder_accepts_same_tab_set_and_preserves_requested_order() {
     let mut tabs = tabs_for_reorder_tests();
-
     reorder_query_tabs_in_place(
         &mut tabs,
         vec!["tab-three".into(), "tab-one".into(), "tab-two".into()],
@@ -367,7 +368,6 @@ fn tab_reorder_rejects_duplicate_missing_or_unknown_ids() {
         vec!["tab-one", "tab-two", "tab-unknown"],
     ] {
         let mut tabs = tabs_for_reorder_tests();
-
         assert!(reorder_query_tabs_in_place(
             &mut tabs,
             order.into_iter().map(String::from).collect(),

@@ -18,7 +18,6 @@ import {
   isValidVariableName,
   normalizeVariableName,
 } from '../../app/state/environment-variables'
-import { connectionStringContainsPlainSecret } from '../../app/state/security-redaction'
 import {
   assertJsonSize,
   MAX_ID_LENGTH,
@@ -36,6 +35,7 @@ import { validateCosmosDbConnectionOptions } from './request-validation-cosmosdb
 import { validateDynamoDbConnectionOptions } from './request-validation-dynamodb'
 import { validateGraphConnectionOptions } from './request-validation-graph'
 import { validateMemcachedConnectionOptions } from './request-validation-memcached'
+import { validateMongoDbConnectionOptions } from './request-validation-mongodb'
 import { validateMySqlConnectionOptions } from './request-validation-mysql'
 import { validatePostgresConnectionOptions } from './request-validation-postgres'
 import { validateSearchConnectionOptions } from './request-validation-search'
@@ -80,13 +80,6 @@ export function validateConnectionProfile(profile: ConnectionProfile): Connectio
     'Connection string',
     MAX_SCOPE_LENGTH,
   )?.trim()
-  if (connectionString) {
-    if (connectionStringContainsPlainSecret(connectionString)) {
-      throw new Error(
-        'Connection strings with embedded passwords, tokens, or keys are not saved. Use credential fields or environment secret variables.',
-      )
-    }
-  }
 
   const auth = validateConnectionAuth(profile.auth)
   return {
@@ -110,6 +103,7 @@ export function validateConnectionProfile(profile: ConnectionProfile): Connectio
     sqlServerOptions: validateSqlServerConnectionOptions(profile.sqlServerOptions),
     timeSeriesOptions: validateTimeSeriesConnectionOptions(profile.timeSeriesOptions),
     graphOptions: validateGraphConnectionOptions(profile.graphOptions),
+    mongodbOptions: validateMongoDbConnectionOptions(profile.mongodbOptions),
     warehouseOptions: validateWarehouseConnectionOptions(profile.warehouseOptions),
     connectionString,
     environmentIds: normalizeIds(profile.environmentIds, 'Connection environment id'),

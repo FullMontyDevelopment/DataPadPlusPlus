@@ -11,7 +11,7 @@ import {
 } from './browser-store'
 
 describe('browser workspace storage', () => {
-  it('does not persist plaintext secrets embedded in connection strings', () => {
+  it('persists raw connection strings with embedded credentials', () => {
     const snapshot = createBlankSnapshot()
     snapshot.connections = [
       {
@@ -56,23 +56,23 @@ describe('browser workspace storage', () => {
     saveBrowserSnapshot(snapshot)
 
     const stored = window.localStorage.getItem('datapadplusplus.workspace.v2') ?? ''
-    expect(stored).not.toContain('plain-secret')
+    expect(stored).toContain('plain-secret')
     const storedSnapshot = JSON.parse(stored) as typeof snapshot
     expect(storedSnapshot.connections.find((connection) => connection.id === 'conn-secret')?.connectionMode)
-      .toBe('native')
+      .toBe('connection-string')
 
     const loaded = loadBrowserSnapshot()
     expect(loaded.connections.find((connection) => connection.id === 'conn-secret')?.connectionString)
-      .toBeUndefined()
+      .toBe('mongodb://user:plain-secret@localhost:27017/catalog')
     expect(loaded.connections.find((connection) => connection.id === 'conn-secret')?.connectionMode)
-      .toBe('native')
+      .toBe('connection-string')
     expect(loaded.connections.find((connection) => connection.id === 'conn-placeholder')?.connectionString)
       .toBe('Server=localhost;Password={{DB_PASSWORD}};')
     expect(loaded.connections.find((connection) => connection.id === 'conn-placeholder')?.connectionMode)
       .toBe('connection-string')
   })
 
-  it('removes plaintext secrets from old browser snapshots when loaded', () => {
+  it('preserves plaintext secrets from old browser snapshots when loaded', () => {
     const snapshot = createBlankSnapshot()
     snapshot.connections = [
       {
@@ -99,8 +99,9 @@ describe('browser workspace storage', () => {
 
     const loaded = loadBrowserSnapshot()
 
-    expect(loaded.connections[0]?.connectionString).toBeUndefined()
-    expect(loaded.connections[0]?.connectionMode).toBe('native')
+    expect(loaded.connections[0]?.connectionString)
+      .toBe('mongodb://user:old-secret@localhost:27017/catalog')
+    expect(loaded.connections[0]?.connectionMode).toBe('connection-string')
   })
 
   it('does not persist plaintext environment secret variables in browser storage', () => {

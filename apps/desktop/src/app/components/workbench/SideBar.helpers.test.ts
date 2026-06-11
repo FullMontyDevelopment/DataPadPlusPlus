@@ -520,6 +520,10 @@ describe('sidebar connection tree helpers', () => {
 
     expect(tree).toHaveLength(1)
     expect(tree[0]).toMatchObject({
+      label: 'Databases',
+      kind: 'databases',
+    })
+    expect(tree[0]?.children?.[0]).toMatchObject({
       label: 'catalog',
       kind: 'database',
     })

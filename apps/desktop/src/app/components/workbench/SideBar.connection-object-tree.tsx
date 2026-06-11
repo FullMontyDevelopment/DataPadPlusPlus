@@ -66,6 +66,7 @@ export function ConnectionObjectTree({
     () => nodesOverride ?? buildConnectionObjectTree(connection, adapterManifest),
     [adapterManifest, connection, nodesOverride],
   )
+  const hasStructuralManifest = Boolean(nodesOverride || adapterManifest?.tree)
   const liveNodes = useMemo(
     () =>
       explorerNodes
@@ -79,12 +80,16 @@ export function ConnectionObjectTree({
       return structuralNodes
     }
 
-    if (shouldOverlayLiveExplorer(connection)) {
+    if (shouldOverlayLiveExplorer(connection, hasStructuralManifest)) {
+      if ((liveNodes ?? []).length === 0) {
+        return []
+      }
+
       return mergeConnectionTrees(connection, structuralNodes, liveNodes ?? [])
     }
 
     return liveNodes ?? []
-  }, [connection, liveNodes, structuralNodes, usingLiveExplorer])
+  }, [connection, hasStructuralManifest, liveNodes, structuralNodes, usingLiveExplorer])
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({})
   const [visibleChildCounts, setVisibleChildCounts] = useState<Record<string, number>>({})
   const [contextMenu, setContextMenu] = useState<ConnectionObjectContextMenuState>()
@@ -271,7 +276,14 @@ export function ConnectionObjectTree({
   )
 }
 
-function shouldOverlayLiveExplorer(connection: ConnectionProfile) {
+function shouldOverlayLiveExplorer(
+  connection: ConnectionProfile,
+  hasStructuralManifest: boolean,
+) {
+  if (connection.engine === 'mongodb') {
+    return hasStructuralManifest
+  }
+
   return (
     connection.engine === 'redis' ||
     connection.engine === 'valkey' ||

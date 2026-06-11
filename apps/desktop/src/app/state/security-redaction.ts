@@ -51,7 +51,11 @@ export function redactErrorMessage(error: unknown, fallback: string) {
   return fallback
 }
 
-export function connectionStringContainsPlainSecret(connectionString: string) {
+export function connectionStringContainsPlainSecret(connectionString: unknown) {
+  if (typeof connectionString !== 'string') {
+    return false
+  }
+
   return (
     urlConnectionStringContainsSecret(connectionString) ||
     keyValueConnectionStringContainsSecret(connectionString) ||
@@ -138,8 +142,8 @@ const secretAssignmentKeys = new Set([
   'token',
 ])
 
-function isPlainSecretLiteral(value: string | undefined) {
-  const trimmed = value?.trim()
+function isPlainSecretLiteral(value: unknown) {
+  const trimmed = typeof value === 'string' ? value.trim() : undefined
   return Boolean(
     trimmed &&
       !(trimmed.startsWith('${') && trimmed.endsWith('}')) &&

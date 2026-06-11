@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use mongodb::{bson::doc, options::ClientOptions, Client as MongoClient, Database};
+use mongodb::{bson::doc, options::ClientOptions, Client as MongoClient};
 use serde_json::Value;
 
 use super::super::super::*;
@@ -99,52 +99,32 @@ pub(super) struct MongoDatabaseResolution {
 }
 
 pub(super) async fn mongodb_database_name_for_collection_query(
-    client: &MongoClient,
+    _client: &MongoClient,
     connection: &ResolvedConnectionProfile,
     input: &Value,
     collection_name: &str,
-) -> MongoDatabaseResolution {
-    let (database_name, explicit_database) = mongodb_database_name_from_query(input, connection);
+) -> Result<MongoDatabaseResolution, CommandError> {
+    let Some((database_name, _explicit_database)) =
+        mongodb_database_name_from_query(input, connection)
+    else {
+        return Err(CommandError::new(
+            "mongodb-query-database-required",
+            format!(
+                "MongoDB collection query for `{collection_name}` needs a database. Select a database in the connection, open the query from a database-scoped object, or add a `database` field to the query."
+            ),
+        ));
+    };
 
-    if explicit_database || database_name != "admin" {
-        return MongoDatabaseResolution {
-            database_name,
-            notice: None,
-        };
-    }
-
-    if database_has_collection(&client.database(&database_name), collection_name).await {
-        return MongoDatabaseResolution {
-            database_name,
-            notice: None,
-        };
-    }
-
-    if let Some(discovered_database) =
-        discover_database_for_collection(client, collection_name).await
-    {
-        return MongoDatabaseResolution {
-            notice: Some(QueryExecutionNotice {
-                code: "mongodb-database-auto-selected".into(),
-                level: "info".into(),
-                message: format!(
-                    "MongoDB query used database `{discovered_database}` because collection `{collection_name}` was not found in `admin`. Set the connection database or add a `database` field to the query to make this explicit."
-                ),
-            }),
-            database_name: discovered_database,
-        };
-    }
-
-    MongoDatabaseResolution {
+    Ok(MongoDatabaseResolution {
         database_name,
         notice: None,
-    }
+    })
 }
 
 pub(super) fn mongodb_database_name_from_query(
     input: &Value,
     connection: &ResolvedConnectionProfile,
-) -> (String, bool) {
+) -> Option<(String, bool)> {
     input
         .get("database")
         .or_else(|| input.get("db"))
@@ -152,42 +132,28 @@ pub(super) fn mongodb_database_name_from_query(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| (value.to_string(), true))
-        .unwrap_or_else(|| (mongodb_database_name(connection), false))
+        .or_else(|| mongodb_selected_database_name(connection).map(|database| (database, false)))
 }
 
-async fn database_has_collection(database: &Database, collection_name: &str) -> bool {
-    database
-        .list_collection_names()
-        .await
-        .map(|collections| collections.iter().any(|name| name == collection_name))
-        .unwrap_or(false)
-}
-
-async fn discover_database_for_collection(
-    client: &MongoClient,
-    collection_name: &str,
-) -> Option<String> {
-    let database_names = client.list_database_names().await.ok()?;
-
-    for database_name in database_names {
-        if matches!(database_name.as_str(), "admin" | "config" | "local") {
-            continue;
-        }
-
-        if database_has_collection(&client.database(&database_name), collection_name).await {
-            return Some(database_name);
-        }
-    }
-
-    None
+pub(super) fn mongodb_database_name_from_command(
+    input: &Value,
+    connection: &ResolvedConnectionProfile,
+) -> String {
+    mongodb_database_name_from_query(input, connection)
+        .map(|(database, _)| database)
+        .unwrap_or_else(|| mongodb_database_name(connection))
 }
 
 fn mongodb_uri(connection: &ResolvedConnectionProfile) -> String {
     connection.connection_string.clone().unwrap_or_else(|| {
         let has_credentials = connection.username.is_some();
         let credentials = match (&connection.username, &connection.password) {
-            (Some(username), Some(password)) => format!("{username}:{password}@"),
-            (Some(username), None) => format!("{username}@"),
+            (Some(username), Some(password)) => format!(
+                "{}:{}@",
+                percent_encode_uri_component(username),
+                percent_encode_uri_component(password)
+            ),
+            (Some(username), None) => format!("{}@", percent_encode_uri_component(username)),
             _ => String::new(),
         };
 
@@ -205,6 +171,18 @@ fn mongodb_uri(connection: &ResolvedConnectionProfile) -> String {
             port = connection.port.unwrap_or(27017)
         )
     })
+}
+
+fn percent_encode_uri_component(value: &str) -> String {
+    value
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                vec![byte as char]
+            }
+            _ => format!("%{byte:02X}").chars().collect(),
+        })
+        .collect()
 }
 
 fn mongodb_database_name_from_uri(uri: &str) -> Option<String> {
@@ -297,7 +275,7 @@ mod tests {
 
         assert_eq!(
             mongodb_database_name_from_query(&input, &connection),
-            ("catalog".into(), true)
+            Some(("catalog".into(), true))
         );
     }
 
@@ -311,7 +289,34 @@ mod tests {
 
         assert_eq!(
             mongodb_database_name_from_query(&input, &connection),
-            ("catalog".into(), false)
+            Some(("catalog".into(), false))
+        );
+    }
+
+    #[test]
+    fn mongodb_database_name_from_query_does_not_fall_back_to_admin() {
+        let connection = resolved_connection(None);
+        let input = serde_json::json!({
+            "collection": "products",
+            "filter": {}
+        });
+
+        assert_eq!(mongodb_database_name_from_query(&input, &connection), None);
+        assert_eq!(
+            mongodb_database_name_from_command(&input, &connection),
+            "admin"
+        );
+    }
+
+    #[test]
+    fn mongodb_uri_percent_encodes_field_credentials() {
+        let mut connection = resolved_connection(Some("catalog"));
+        connection.username = Some("user@example.com".into());
+        connection.password = Some("p@ss word".into());
+
+        assert_eq!(
+            mongodb_uri(&connection),
+            "mongodb://user%40example.com:p%40ss%20word@localhost:27018/catalog?authSource=admin"
         );
     }
 

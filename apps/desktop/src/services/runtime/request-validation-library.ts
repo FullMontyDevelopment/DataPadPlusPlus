@@ -97,6 +97,10 @@ export function validateSaveQueryTabToLibraryRequest(
 }
 
 function normalizeLibraryItemKind(kind: SaveQueryTabToLibraryRequest['kind']) {
+  if (kind !== undefined && kind !== null && typeof kind !== 'string') {
+    throw new Error('Library item kind must be text.')
+  }
+
   const normalized = kind?.trim()
   if (!normalized) {
     return undefined
@@ -112,14 +116,25 @@ function normalizeTags(tags: string[]) {
     throw new Error(`Library items may include at most ${MAX_LIBRARY_TAGS} tags.`)
   }
   return tags.map((tag) => {
+    if (typeof tag !== 'string') {
+      throw new Error('Library tag must be text.')
+    }
+
     const normalized = tag.trim()
     validateOptionalText(normalized, 'Library tag', MAX_LIBRARY_TAG_LENGTH)
     return normalized
   }).filter(Boolean)
 }
 
-function normalizeOptionalId(value: string | undefined, label: string) {
-  const trimmed = value?.trim()
+function normalizeOptionalId(value: string | null | undefined, label: string) {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${label} must be text.`)
+  }
+
+  const trimmed = value.trim()
   if (!trimmed) {
     return undefined
   }

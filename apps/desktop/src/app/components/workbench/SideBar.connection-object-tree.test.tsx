@@ -16,13 +16,12 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expect(screen.getByText('catalog')).toBeInTheDocument()
-
-    expandTreeItem('catalog')
-
-    expect(screen.getByText('Collections')).toBeInTheDocument()
-    expect(screen.getByText('Views')).toBeInTheDocument()
-    expect(screen.getByText('GridFS')).toBeInTheDocument()
+    expect(screen.getByText('Databases')).toBeInTheDocument()
+    expect(screen.getByText('System Databases')).toBeInTheDocument()
+    expect(screen.queryByText('catalog')).not.toBeInTheDocument()
+    expect(screen.queryByText('Collections')).not.toBeInTheDocument()
+    expect(screen.queryByText('Views')).not.toBeInTheDocument()
+    expect(screen.queryByText('GridFS')).not.toBeInTheDocument()
     expect(screen.queryByText('Time Series Collections')).not.toBeInTheDocument()
     expect(screen.queryByText('Capped Collections')).not.toBeInTheDocument()
     expect(screen.queryByText('Search Indexes')).not.toBeInTheDocument()
@@ -796,7 +795,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('catalog')
+    expandMongoDatabase()
     expandTreeItem('Collections')
 
     const productsRow = treeItemForLabel('products')
@@ -829,7 +828,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('catalog')
+    expandMongoDatabase()
     expandTreeItem('Collections')
 
     fireEvent.contextMenu(treeItemForLabel('products'), { clientX: 24, clientY: 32 })
@@ -853,7 +852,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('catalog')
+    expandMongoDatabase()
     expandTreeItem('Collections')
     expandTreeItem('products')
 
@@ -879,7 +878,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('catalog')
+    expandMongoDatabase()
     expandTreeItem('Collections')
     expandTreeItem('products')
     fireEvent.click(treeItemForLabel('Schema Preview'))
@@ -909,7 +908,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('catalog')
+    expandMongoDatabase()
     expandTreeItem('Collections')
     expandTreeItem('products')
     fireEvent.click(treeItemForLabel('Documents'))
@@ -938,7 +937,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('catalog')
+    expandMongoDatabase()
     expandTreeItem('Collections')
     expandTreeItem('products')
     fireEvent.contextMenu(treeItemForLabel('Schema Preview'), { clientX: 24, clientY: 32 })
@@ -979,7 +978,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('catalog')
+    expandMongoDatabase()
     expandTreeItem('Collections')
 
     fireEvent.contextMenu(treeItemForLabel('products'), { clientX: 24, clientY: 32 })
@@ -2529,7 +2528,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('catalog')
+    expandMongoDatabase()
     expandTreeItem('Collections')
     expandTreeItem('products')
 
@@ -2672,6 +2671,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
+    expandTreeItem('Databases')
     const databasesRow = treeItemForLabel('catalog')
 
     expect(databasesRow).toHaveClass('has-environment-accent')
@@ -2918,7 +2918,7 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
-    expandTreeItem('catalog')
+    expandMongoDatabase()
     expandTreeItem('Collections')
 
     expect(screen.getByText('customers')).toBeInTheDocument()
@@ -2932,6 +2932,11 @@ describe('ConnectionObjectTree', () => {
 
 function expandTreeItem(label: string) {
   fireEvent.click(treeItemForLabel(label))
+}
+
+function expandMongoDatabase(database = 'catalog') {
+  expandTreeItem('Databases')
+  expandTreeItem(database)
 }
 
 function postgresConnection(): ConnectionProfile {

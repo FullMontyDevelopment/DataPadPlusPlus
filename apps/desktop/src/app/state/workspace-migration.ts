@@ -11,7 +11,6 @@ import {
   datastoreBacklogByEngine,
 } from '@datapadplusplus/shared-types'
 import { sanitizeEnvironmentProfile } from './environment-variables'
-import { connectionStringContainsPlainSecret } from './security-redaction'
 import { migrateLegacyVariableTokens } from './workspace-variable-migration'
 
 const MIN_BOTTOM_PANEL_HEIGHT = 120
@@ -237,7 +236,6 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   stripDemoRecords(next)
   next.environments = next.environments.map(sanitizeEnvironmentProfile)
   migrateLegacyVariableTokens(next)
-  stripSecretBearingConnectionStrings(next)
   migrateConnectionModes(next.connections)
   next.preferences = normalizePreferences(next.preferences)
   next.libraryNodes = migrateLibraryNodes(next.libraryNodes, next.savedWork)
@@ -285,17 +283,6 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.min(max, Math.max(min, Math.floor(value)))
     : fallback
-}
-
-function stripSecretBearingConnectionStrings(snapshot: WorkspaceSnapshot) {
-  for (const connection of snapshot.connections) {
-    if (
-      connection.connectionString &&
-      connectionStringContainsPlainSecret(connection.connectionString)
-    ) {
-      connection.connectionString = undefined
-    }
-  }
 }
 
 function normalizeActivity(value: string | undefined): UiState['activeActivity'] {

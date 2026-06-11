@@ -46,14 +46,18 @@ pub(super) async fn list_mongodb_explorer_nodes(
             let database_name = scoped_database(scope, "database:", &fallback_database);
             mongodb_database_children(connection, &database_name)
         }
-        Some("databases") => {
-            let database_names = client.list_database_names().await?;
-            mongodb_database_group_nodes(connection, database_names, limit, false)
-        }
-        Some("system-databases") => {
-            let database_names = client.list_database_names().await?;
-            mongodb_database_group_nodes(connection, database_names, limit, true)
-        }
+        Some("databases") => match client.list_database_names().await {
+            Ok(database_names) => {
+                mongodb_database_group_nodes(connection, database_names, limit, false)
+            }
+            Err(error) => mongodb_database_group_fallback_nodes(connection, false, &error),
+        },
+        Some("system-databases") => match client.list_database_names().await {
+            Ok(database_names) => {
+                mongodb_database_group_nodes(connection, database_names, limit, true)
+            }
+            Err(error) => mongodb_database_group_fallback_nodes(connection, true, &error),
+        },
         Some(scope) if scope.starts_with("collections:") => {
             let database_name = scoped_database(scope, "collections:", &fallback_database);
             let database = client.database(&database_name);
@@ -163,15 +167,7 @@ pub(super) async fn list_mongodb_explorer_nodes(
             list_role_nodes(&client.database(&database_name), &database_name, limit).await
         }
         Some(_) => Vec::new(),
-        None => {
-            let selected_database = mongodb_selected_database_name(connection);
-            match selected_database {
-                Some(database_name) => {
-                    vec![mongodb_database_node(connection, &database_name, None)]
-                }
-                None => mongodb_root_sections(),
-            }
-        }
+        None => mongodb_root_sections(),
     };
 
     Ok(ExplorerResponse {
@@ -636,6 +632,44 @@ fn mongodb_database_group_nodes(
             )
         })
         .collect()
+}
+
+fn mongodb_database_group_fallback_nodes(
+    connection: &ResolvedConnectionProfile,
+    system: bool,
+    error: &mongodb::error::Error,
+) -> Vec<ExplorerNode> {
+    let group = if system {
+        "System Databases"
+    } else {
+        "Databases"
+    };
+    let mut nodes = Vec::new();
+    if let Some(database_name) = mongodb_selected_database_name(connection) {
+        if SYSTEM_DATABASES.contains(&database_name.as_str()) == system {
+            nodes.push(mongodb_database_node(
+                connection,
+                &database_name,
+                Some(vec![group.into()]),
+            ));
+        }
+    }
+
+    nodes.push(ExplorerNode {
+        id: format!("permission-warning:{group}"),
+        family: "document".into(),
+        label: "Permission required".into(),
+        kind: "permission".into(),
+        detail: format!(
+            "MongoDB database list is unavailable: {}",
+            mongodb_error_summary(error)
+        ),
+        scope: None,
+        path: Some(vec![group.into()]),
+        query_template: None,
+        expandable: Some(false),
+    });
+    nodes
 }
 
 fn mongodb_database_children(

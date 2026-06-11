@@ -10,6 +10,10 @@ import { CosmosDbConnectionFields } from './RightDrawer.cosmosdb-connection-fiel
 import { DynamoDbConnectionFields } from './RightDrawer.dynamodb-connection-fields'
 import { GraphConnectionFields } from './RightDrawer.graph-connection-fields'
 import { MemcachedConnectionFields } from './RightDrawer.memcached-connection-fields'
+import {
+  MongoDbNativeAdvancedFields,
+  MongoDbNativeConnectionFields,
+} from './RightDrawer.mongodb-connection-fields'
 import { MySqlAdvancedFields } from './RightDrawer.mysql-connection-fields'
 import { OracleAdvancedFields } from './RightDrawer.oracle-connection-fields'
 import { PostgresAdvancedFields } from './RightDrawer.postgres-connection-fields'
@@ -351,25 +355,44 @@ function NativeConnectionFields({
   onSecretDraftChange(value: string): void
   onUpdateConnectionDraft: UpdateConnectionDraft
 }) {
+  const isMongoDb = connectionDraft.engine === 'mongodb'
+  const mongoScheme = connectionDraft.mongodbOptions?.connectionScheme ?? 'mongodb'
+  const mongoSrv = isMongoDb && mongoScheme === 'mongodb+srv'
+
   return (
     <>
+      {isMongoDb ? (
+        <MongoDbNativeConnectionFields
+          connectionDraft={connectionDraft}
+          onUpdateConnectionDraft={onUpdateConnectionDraft}
+        />
+      ) : null}
+
       <FormField label="Server">
         <input
+          aria-label={mongoSrv ? 'MongoDB SRV host' : 'Server'}
           value={connectionDraft.host}
           onChange={(event) => onUpdateConnectionDraft({ host: event.target.value })}
-        />
-      </FormField>
-
-      <FormField label="Port">
-        <input
-          value={connectionDraft.port ?? ''}
-          onChange={(event) =>
-            onUpdateConnectionDraft({
-              port: Number(event.target.value) || undefined,
-            })
+          placeholder={
+            mongoSrv
+              ? 'datapadplusplus.kkravqn.mongodb.net'
+              : 'localhost'
           }
         />
       </FormField>
+
+      {mongoSrv ? null : (
+        <FormField label="Port">
+          <input
+            value={connectionDraft.port ?? ''}
+            onChange={(event) =>
+              onUpdateConnectionDraft({
+                port: Number(event.target.value) || undefined,
+              })
+            }
+          />
+        </FormField>
+      )}
 
       <FormField label="Database">
         <input
@@ -405,7 +428,9 @@ function NativeConnectionFields({
         />
       </FormField>
 
-      {connectionDraft.engine === 'mysql' || connectionDraft.engine === 'mariadb' ? null : (
+      {connectionDraft.engine === 'mysql' ||
+      connectionDraft.engine === 'mariadb' ||
+      connectionDraft.engine === 'mongodb' ? null : (
         <FormField label="SSL mode">
           <input
             value={connectionDraft.auth.sslMode ?? ''}
@@ -420,6 +445,13 @@ function NativeConnectionFields({
           />
         </FormField>
       )}
+
+      {isMongoDb ? (
+        <MongoDbNativeAdvancedFields
+          connectionDraft={connectionDraft}
+          onUpdateConnectionDraft={onUpdateConnectionDraft}
+        />
+      ) : null}
 
       {connectionDraft.engine === 'sqlserver' ? (
         <SqlServerAdvancedFields

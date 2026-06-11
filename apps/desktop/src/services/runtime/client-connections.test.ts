@@ -16,17 +16,55 @@ describe('client connection command validation', () => {
     vi.resetModules()
   })
 
-  it('rejects connection strings with plaintext credentials before invoking desktop commands', async () => {
+  it('allows connection strings with plaintext credentials through desktop commands', async () => {
     window.__TAURI_INTERNALS__ = {}
+    invoke.mockResolvedValueOnce({ ok: true })
     const { clientConnections } = await import('./client-connections')
 
-    await expect(
-      clientConnections.upsertConnection({
-        ...connectionProfile(),
-        connectionString: 'mongodb://user:secret@localhost/catalog',
+    await expect(clientConnections.upsertConnection({
+      ...connectionProfile(),
+      connectionString: 'mongodb://user:secret@localhost/catalog',
+    })).resolves.toEqual({ ok: true })
+    expect(invoke).toHaveBeenCalledWith(
+      'upsert_connection_profile',
+      expect.objectContaining({
+        profile: expect.objectContaining({
+          connectionString: 'mongodb://user:secret@localhost/catalog',
+        }),
       }),
-    ).rejects.toThrow(/embedded passwords/)
-    expect(invoke).not.toHaveBeenCalled()
+    )
+  })
+
+  it('allows MongoDB Atlas native options with boolean TLS through desktop commands', async () => {
+    window.__TAURI_INTERNALS__ = {}
+    invoke.mockResolvedValueOnce({ ok: true })
+    const { clientConnections } = await import('./client-connections')
+
+    await expect(clientConnections.upsertConnection({
+      ...connectionProfile(),
+      host: ' datapadplusplus.kkravqn.mongodb.net ',
+      connectionMode: 'native',
+      mongodbOptions: {
+        connectionScheme: ' mongodb+srv ' as never,
+        authSource: ' admin ',
+        appName: ' DataPadPlusPlus ',
+        tls: true,
+      },
+    })).resolves.toEqual({ ok: true })
+    expect(invoke).toHaveBeenCalledWith(
+      'upsert_connection_profile',
+      expect.objectContaining({
+        profile: expect.objectContaining({
+          host: 'datapadplusplus.kkravqn.mongodb.net',
+          mongodbOptions: expect.objectContaining({
+            connectionScheme: 'mongodb+srv',
+            authSource: 'admin',
+            appName: 'DataPadPlusPlus',
+            tls: true,
+          }),
+        }),
+      }),
+    )
   })
 
   it('rejects plaintext secret environment variables before invoking desktop commands', async () => {

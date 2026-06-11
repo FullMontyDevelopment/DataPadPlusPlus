@@ -1,5 +1,18 @@
 import type { ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { createId, defaultQueryTextForConnection, defaultQueryViewModeForConnection, defaultScriptTextForConnection, editorLabelForConnection, languageForConnection } from '../../app/state/helpers'
+import {
+  cassandraPartitionKeyFromTarget,
+  cassandraTargetFromTarget,
+  dynamoTableNameFromTarget,
+  mongoAggregationQueryText,
+  mongoFindQueryText,
+  mongoScriptAggregationText,
+  mongoScriptFindText,
+  redisDatabaseIndexFromTarget,
+  redisKeyBrowserQueryText,
+  redisPatternFromTarget,
+  searchIndexFromTarget,
+} from './browser-tab-scoped-builders'
 import { cloneSnapshot, findTab } from './browser-store'
 import { effectiveConnectionEnvironmentId } from './library-connection-helpers'
 
@@ -360,7 +373,7 @@ export function createScopedQueryTabInSnapshot(
         : builderKind === 'dynamodb-key-condition'
           ? {
               kind: 'dynamodb-key-condition',
-              table: targetLabel,
+              table: dynamoTableNameFromTarget(request.target, targetLabel),
               partitionKey: {
                 id: 'pk',
                 enabled: true,
@@ -375,30 +388,33 @@ export function createScopedQueryTabInSnapshot(
               lastAppliedQueryText: queryText,
             }
         : builderKind === 'cql-partition'
-          ? {
-              kind: 'cql-partition',
-              keyspace: cassandraKeyspaceFromTarget(request.target, connection),
-              table: targetLabel,
-              projectionFields: [],
-              partitionKeys: [
-                {
-                  id: 'partition-key',
-                  enabled: true,
-                  field: cassandraPartitionKeyFromTarget(request.target),
-                  operator: 'eq',
-                  value: '',
-                  valueType: 'string',
-                },
-              ],
-              clusteringKeys: [],
-              filters: [],
-              limit: 20,
-              lastAppliedQueryText: queryText,
-            }
+          ? (() => {
+              const cqlTarget = cassandraTargetFromTarget(request.target, connection, targetLabel)
+              return {
+                kind: 'cql-partition' as const,
+                keyspace: cqlTarget.keyspace,
+                table: cqlTarget.table,
+                projectionFields: [],
+                partitionKeys: [
+                  {
+                    id: 'partition-key',
+                    enabled: true,
+                    field: cassandraPartitionKeyFromTarget(request.target),
+                    operator: 'eq',
+                    value: '',
+                    valueType: 'string',
+                  },
+                ],
+                clusteringKeys: [],
+                filters: [],
+                limit: 20,
+                lastAppliedQueryText: queryText,
+              }
+            })()
         : builderKind === 'search-dsl'
           ? {
               kind: 'search-dsl',
-              index: targetLabel,
+              index: searchIndexFromTarget(request.target, targetLabel),
               queryMode: 'match-all',
               field: '',
               value: '',
@@ -457,27 +473,6 @@ function scopedBuilderKind(
   }
 
   return undefined
-}
-
-function cassandraKeyspaceFromTarget(
-  target: ScopedQueryTarget,
-  connection: ConnectionProfile,
-) {
-  const scoped = target.scope?.replace('table:', '')
-  const scopedKeyspace = scoped?.includes('.') ? scoped.split('.')[0] : undefined
-  const pathKeyspace = target.path?.find(
-    (segment) =>
-      !['Keyspaces', 'Tables', 'Data', 'Materialized Views'].includes(segment) &&
-      segment !== target.label,
-  )
-
-  return scopedKeyspace || pathKeyspace || connection.database || ''
-}
-
-function cassandraPartitionKeyFromTarget(target: ScopedQueryTarget) {
-  const queryText = target.queryTemplate ?? ''
-  const match = /\bwhere\s+"?([A-Za-z_][\w]*)"?\s*=/i.exec(queryText)
-  return match?.[1] ?? ''
 }
 
 function uniqueObjectViewTabTitle(
@@ -572,7 +567,7 @@ function firstExistingIndex(values: string[], candidates: string[]) {
 }
 
 function normalizeOptionalObjectName(value: string | undefined) {
-  const trimmed = value?.trim()
+  const trimmed = typeof value === 'string' ? value.trim() : undefined
   return trimmed ? trimmed : undefined
 }
 
@@ -630,100 +625,6 @@ function scopedQueryTitleCandidate(
     return `${label}.aggregate.${extension}`
   }
   return hasBuilder ? `${label}.find.${extension}` : `${label}.${extension}`
-}
-
-export function mongoFindQueryText(collection: string, limit: number, database?: string) {
-  const trimmedDatabase = database?.trim()
-
-  return JSON.stringify(
-    {
-      ...(trimmedDatabase ? { database: trimmedDatabase } : {}),
-      collection,
-      filter: {},
-      limit,
-    },
-    null,
-    2,
-  )
-}
-
-function mongoScriptFindText(collection: string | undefined) {
-  return collection ? `db.${collection}.find({}).limit(20)` : ''
-}
-
-function mongoScriptAggregationText(collection: string | undefined) {
-  return collection
-    ? `db.${collection}.aggregate([{ $match: {} }, { $limit: 20 }])`
-    : ''
-}
-
-export function mongoAggregationQueryText(collection: string, limit: number, database?: string) {
-  const trimmedDatabase = database?.trim()
-
-  return JSON.stringify(
-    {
-      ...(trimmedDatabase ? { database: trimmedDatabase } : {}),
-      collection,
-      operation: 'aggregate',
-      pipeline: [{ $match: {} }, { $limit: limit }],
-      limit,
-    },
-    null,
-    2,
-  )
-}
-
-export function redisKeyBrowserQueryText(
-  pattern: string,
-  count = 100,
-  databaseIndex?: number,
-) {
-  return JSON.stringify(
-    {
-      mode: 'redis-key-browser',
-      ...(databaseIndex !== undefined ? { database: databaseIndex } : {}),
-      pattern,
-      type: 'all',
-      count,
-    },
-    null,
-    2,
-  )
-}
-
-function redisPatternFromTarget(target: ScopedQueryTarget) {
-  if (target.kind === 'database' || /^db:\d+(?::|$)/.test(target.scope ?? '')) {
-    return '*'
-  }
-
-  const scopedPrefix = target.scope?.startsWith('prefix:')
-    ? target.scope.replace('prefix:', '')
-    : undefined
-  const candidate = scopedPrefix || target.label || '*'
-
-  if (candidate.includes('*')) {
-    return candidate
-  }
-
-  if (candidate.endsWith(':')) {
-    return `${candidate}*`
-  }
-
-  return candidate
-}
-
-function redisDatabaseIndexFromTarget(target: ScopedQueryTarget) {
-  const scopedDatabase = /^db:(\d+)(?::|$)/.exec(target.scope ?? '')?.[1]
-  const labelDatabase = /^DB\s+(\d+)$/i.exec(target.label.trim())?.[1]
-  const pathDatabase = (target.path ?? [])
-    .map((part) => /^DB\s+(\d+)$/i.exec(part.trim())?.[1])
-    .find(Boolean)
-  const candidate = scopedDatabase ?? labelDatabase ?? pathDatabase
-
-  if (!candidate) return undefined
-
-  const parsed = Number.parseInt(candidate, 10)
-  return Number.isFinite(parsed) ? Math.max(0, parsed) : undefined
 }
 
 export function upsertTab(snapshot: WorkspaceSnapshot, tab: QueryTabState): WorkspaceSnapshot {

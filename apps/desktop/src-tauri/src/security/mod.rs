@@ -825,6 +825,7 @@ mod tests {
             favorite: false,
             redis_options: None,
             memcached_options: None,
+            mongodb_options: None,
             sqlite_options: None,
             postgres_options: None,
             mysql_options: None,

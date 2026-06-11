@@ -201,6 +201,12 @@ describe('runtime request validation', () => {
         path: '..\\orders.sql',
       }),
     ).toThrow(/absolute file path/)
+    expect(() =>
+      validateSaveQueryTabToLocalFileRequest({
+        tabId: 'tab-1',
+        path: { file: 'C:\\temp\\orders.sql' } as never,
+      }),
+    ).toThrow(/Local file path must be text/)
   })
 
   it('normalizes and validates library mutation requests', () => {
@@ -244,6 +250,24 @@ describe('runtime request validation', () => {
         tags: [],
       }),
     ).toThrow(/Unsupported Library item kind/)
+
+    expect(() =>
+      validateSaveQueryTabToLibraryRequest({
+        tabId: 'tab-1',
+        name: 'Report',
+        kind: { label: 'query' } as never,
+        tags: [],
+      }),
+    ).toThrow(/Library item kind must be text/)
+
+    expect(() =>
+      validateSaveQueryTabToLibraryRequest({
+        tabId: 'tab-1',
+        name: 'Report',
+        kind: 'query',
+        tags: [{ label: 'sql' } as never],
+      }),
+    ).toThrow(/Library tag must be text/)
   })
 
   it('clamps execution and result paging limits while rejecting null-byte text', () => {
@@ -316,7 +340,7 @@ describe('runtime request validation', () => {
       tags: ['finance'],
     })
 
-    expect(() =>
+    expect(
       validateConnectionProfile({
         id: 'conn-1',
         name: 'Reporting',
@@ -333,7 +357,57 @@ describe('runtime request validation', () => {
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
       }),
-    ).toThrow(/embedded passwords/)
+    ).toMatchObject({
+      connectionString: 'postgres://user:secret@localhost/catalog',
+    })
+  })
+
+  it('normalizes MongoDB Atlas SRV options without treating boolean TLS as text', () => {
+    const profile = validateConnectionProfile({
+      id: 'conn-mongo-atlas',
+      name: ' MongoDB Atlas ',
+      engine: 'mongodb',
+      family: 'document',
+      host: ' datapadplusplus.kkravqn.mongodb.net ',
+      connectionMode: 'native',
+      environmentIds: [],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'mongodb',
+      auth: {},
+      mongodbOptions: {
+        connectionScheme: ' mongodb+srv ' as never,
+        authSource: ' admin ',
+        appName: ' DataPadPlusPlus ',
+        tls: true,
+        replicaSet: ' atlas-10jff9-shard-0 ',
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(profile).toMatchObject({
+      name: 'MongoDB Atlas',
+      host: 'datapadplusplus.kkravqn.mongodb.net',
+      mongodbOptions: {
+        connectionScheme: 'mongodb+srv',
+        authSource: 'admin',
+        appName: 'DataPadPlusPlus',
+        tls: true,
+        replicaSet: 'atlas-10jff9-shard-0',
+      },
+    })
+
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        mongodbOptions: {
+          connectionScheme: 'mongodb+srv',
+          tls: 'true',
+        },
+      } as never),
+    ).toThrow(/MongoDB TLS/)
   })
 
   it('normalizes PostgreSQL-family and CockroachDB profile options', () => {

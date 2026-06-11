@@ -70,7 +70,7 @@ pub(super) async fn execute_mongodb_script(
                     &input,
                     &collection,
                 )
-                .await;
+                .await?;
                 if let Some(notice) = database_resolution.notice {
                     notices.push(notice);
                 }
@@ -141,7 +141,7 @@ pub(super) async fn execute_mongodb_script(
                     &input,
                     &collection,
                 )
-                .await;
+                .await?;
                 if let Some(notice) = database_resolution.notice {
                     notices.push(notice);
                 }

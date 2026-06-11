@@ -366,8 +366,11 @@ export function validateSaveQueryTabToLocalFileRequest(
   request: SaveQueryTabToLocalFileRequest,
 ): SaveQueryTabToLocalFileRequest {
   validateRequiredId(request.tabId, 'Tab id')
-  const path = request.path?.trim()
-  validateRequiredText(path, 'Local file path', MAX_LOCAL_SAVE_PATH_LENGTH)
+  const path = validateOptionalText(
+    request.path,
+    'Local file path',
+    MAX_LOCAL_SAVE_PATH_LENGTH,
+  )?.trim()
   if (!path || !isAbsolutePath(path)) {
     throw new Error('Local file saves require an absolute file path selected by the save dialog.')
   }

@@ -400,6 +400,64 @@ describe('browser tab runtime', () => {
     })
   })
 
+  it('seeds DynamoDB scoped builders from the request template table name', () => {
+    const snapshot = createSeedSnapshot()
+    snapshot.connections.push(dynamoDbConnection())
+
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-dynamodb',
+      target: {
+        kind: 'items',
+        label: 'Items',
+        path: ['DynamoDB', 'Tables', 'Orders'],
+        scope: 'table:Orders:items',
+        preferredBuilder: 'dynamodb-key-condition',
+        queryTemplate: '{ "operation": "Query", "tableName": "Orders", "limit": 20 }',
+      },
+    })
+    const dynamoTab = opened.tabs.find((tab) => tab.scopedTarget?.scope === 'table:Orders:items')
+
+    expect(dynamoTab).toMatchObject({
+      connectionId: 'conn-dynamodb',
+      queryViewMode: 'builder',
+      builderState: expect.objectContaining({
+        kind: 'dynamodb-key-condition',
+        table: 'Orders',
+      }),
+      queryText: expect.stringContaining('"tableName": "Orders"'),
+    })
+    expect(dynamoTab?.builderState).not.toMatchObject({ table: 'Items' })
+  })
+
+  it('seeds search scoped builders from the request template index', () => {
+    const snapshot = createSeedSnapshot()
+    snapshot.connections.push(searchConnection())
+
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-search',
+      target: {
+        kind: 'documents',
+        label: 'Documents',
+        path: ['Search', 'Indexes', 'products-v1'],
+        scope: 'index:products-v1:documents',
+        preferredBuilder: 'search-dsl',
+        queryTemplate: '{ "index": "products-v1", "body": { "query": { "match_all": {} }, "size": 20 } }',
+      },
+    })
+    const searchTab = opened.tabs.find((tab) => tab.scopedTarget?.scope === 'index:products-v1:documents')
+
+    expect(searchTab).toMatchObject({
+      connectionId: 'conn-search',
+      queryViewMode: 'builder',
+      builderState: expect.objectContaining({
+        kind: 'search-dsl',
+        index: 'products-v1',
+      }),
+      queryText: expect.stringContaining('"index": "products-v1"'),
+    })
+    expect(searchTab?.builderState).not.toMatchObject({ index: 'Documents' })
+  })
+
   it('matches scoped targets by object identity instead of generated query text', () => {
     const left = {
       kind: 'collection',
@@ -443,6 +501,56 @@ function cassandraConnection(): ConnectionProfile {
     group: undefined,
     notes: undefined,
     auth: { username: 'cassandra' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function dynamoDbConnection(): ConnectionProfile {
+  return {
+    id: 'conn-dynamodb',
+    name: 'DynamoDB',
+    engine: 'dynamodb',
+    family: 'widecolumn',
+    host: 'localhost',
+    port: 8000,
+    database: '',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-dev'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'dynamodb',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function searchConnection(): ConnectionProfile {
+  return {
+    id: 'conn-search',
+    name: 'Search',
+    engine: 'elasticsearch',
+    family: 'search',
+    host: 'localhost',
+    port: 9200,
+    database: '',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-dev'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'elasticsearch',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    auth: {},
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }

@@ -490,7 +490,7 @@ function DesktopWorkspace() {
     (activeTab &&
     activeBuilderState &&
     activeQueryWindowMode === 'builder'
-      ? buildQueryTextForBuilderState(activeBuilderState, activeConnection)
+      ? buildQueryTextForBuilderState(activeBuilderState, activeConnection, activeTab)
       : activeTabQueryText)
   const activeEditorResetKey =
     activeTabId && activeQueryWindowMode !== 'builder'
@@ -574,7 +574,7 @@ function DesktopWorkspace() {
       return undefined
     }
 
-    return buildQueryTextForBuilderState(builderState, activeConnection)
+    return buildQueryTextForBuilderState(builderState, activeConnection, tab)
   }, [activeConnection, activeQueryWindowMode])
   const resolveQueryText = useCallback((tab: QueryTabState): string => {
     const hasDraftText =
@@ -910,7 +910,11 @@ function DesktopWorkspace() {
       return
     }
 
-    const liveQueryText = buildQueryTextForBuilderState(builderState, activeConnection)
+    const liveQueryText = buildQueryTextForBuilderState(
+      builderState,
+      activeConnection,
+      targetTab,
+    )
     const nextBuilderState =
       liveQueryText
         ? {
@@ -983,7 +987,7 @@ function DesktopWorkspace() {
 
       if (builderState) {
         const generatedQueryText =
-          draftQueryText ?? buildQueryTextForBuilderState(builderState, connection)
+          draftQueryText ?? buildQueryTextForBuilderState(builderState, connection, tab)
 
         await actions.updateQueryBuilderState({
           tabId,
@@ -2668,13 +2672,18 @@ function DesktopWorkspace() {
 function buildQueryTextForBuilderState(
   builderState: QueryBuilderState,
   connection: ConnectionProfile | undefined,
+  tab?: QueryTabState,
 ) {
   if (isMongoFindBuilderState(builderState)) {
-    return buildMongoFindQueryText(builderState)
+    return buildMongoFindQueryText(builderState, {
+      database: mongoQueryScopeForTab({ builderState, connection, tab })?.database,
+    })
   }
 
   if (isMongoAggregationBuilderState(builderState)) {
-    return buildMongoAggregationQueryText(builderState)
+    return buildMongoAggregationQueryText(builderState, {
+      database: mongoQueryScopeForTab({ builderState, connection, tab })?.database,
+    })
   }
 
   if (connection && isSqlSelectBuilderState(builderState)) {

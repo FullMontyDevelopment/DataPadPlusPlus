@@ -98,21 +98,30 @@ export function fixtureWarningsForConnection(
     warnings.push(`Fixture user is "${endpoint.username}".`)
   }
 
-  if (endpoint.requiresSecret && !profile.auth.secretRef && !secret?.trim()) {
+  const trimmedSecret = typeof secret === 'string' ? secret.trim() : undefined
+  if (endpoint.requiresSecret && !profile.auth.secretRef && !trimmedSecret) {
     warnings.push('This fixture connection needs a password before it can be tested.')
   }
 
   return warnings
 }
 
-function isLocalHost(host: string) {
+function isLocalHost(host: string | null | undefined) {
+  if (typeof host !== 'string') {
+    return false
+  }
+
   const normalized = host.trim().toLowerCase()
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1'
 }
 
-function redactConnectionTestText(value: string, secret?: string) {
+function redactConnectionTestText(value: string | null | undefined, secret?: string) {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
   const redacted = redactSensitiveText(value)
-  const trimmedSecret = secret?.trim()
+  const trimmedSecret = typeof secret === 'string' ? secret.trim() : undefined
 
   if (!trimmedSecret || trimmedSecret.length < 3) {
     return redacted

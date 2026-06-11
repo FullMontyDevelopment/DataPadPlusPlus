@@ -176,9 +176,13 @@ describe('LibraryPane', () => {
       },
     })
 
+    const databasesRow = screen.getByText('Databases').closest('[role="treeitem"]')
+    expect(databasesRow).toHaveStyle({ '--tree-depth': '3' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Databases' }))
     const catalogRow = screen.getByText('catalog').closest('[role="treeitem"]')
 
-    expect(catalogRow).toHaveStyle({ '--tree-depth': '3' })
+    expect(catalogRow).toHaveStyle({ '--tree-depth': '4' })
   })
 
   it('renders live metadata for expanded connections even when another connection is active', () => {
@@ -210,6 +214,8 @@ describe('LibraryPane', () => {
       },
     })
 
+    expect(screen.getByText('Databases')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Databases' }))
     expect(screen.getByText('catalog')).toBeInTheDocument()
   })
 

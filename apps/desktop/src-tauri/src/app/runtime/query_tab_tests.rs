@@ -126,6 +126,7 @@ fn test_connection(id: &str, name: &str, engine: &str, family: &str) -> Connecti
         favorite: false,
         redis_options: None,
         memcached_options: None,
+        mongodb_options: None,
         sqlite_options: None,
         postgres_options: None,
         mysql_options: None,

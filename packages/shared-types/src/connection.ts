@@ -798,6 +798,16 @@ export interface WarehouseConnectionOptions {
   costLimitUsd?: number
 }
 
+export type MongoDbConnectionScheme = 'mongodb' | 'mongodb+srv'
+
+export interface MongoDbConnectionOptions {
+  connectionScheme?: MongoDbConnectionScheme
+  authSource?: string
+  appName?: string
+  tls?: boolean
+  replicaSet?: string
+}
+
 export interface ConnectionProfile {
   id: string
   name: string
@@ -830,6 +840,7 @@ export interface ConnectionProfile {
   searchOptions?: SearchConnectionOptions
   timeSeriesOptions?: TimeSeriesConnectionOptions
   graphOptions?: GraphConnectionOptions
+  mongodbOptions?: MongoDbConnectionOptions
   warehouseOptions?: WarehouseConnectionOptions
   createdAt: string
   updatedAt: string

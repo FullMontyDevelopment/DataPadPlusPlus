@@ -121,10 +121,11 @@ export function useRuntimeActions({
           source: 'manual-test',
           message: 'Testing connection',
         })
+        const trimmedSecret = typeof secret === 'string' ? secret.trim() : undefined
         const result = await desktopClient.testConnection({
           profile,
           environmentId,
-          secret: secret?.trim() || undefined,
+          secret: trimmedSecret || undefined,
         })
         dispatch({
           type: 'CONNECTION_TEST_READY',

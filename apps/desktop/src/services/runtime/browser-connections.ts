@@ -1,6 +1,5 @@
 import type { ConnectionProfile, EnvironmentProfile, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { sanitizeEnvironmentProfile } from '../../app/state/environment-variables'
-import { connectionStringContainsPlainSecret } from '../../app/state/security-redaction'
 import { cloneSnapshot } from './browser-store'
 import { createQueryTabForConnection } from './browser-tabs'
 import {
@@ -35,16 +34,12 @@ export function upsertConnection(
   profile: ConnectionProfile,
 ): WorkspaceSnapshot {
   const next = cloneSnapshot(snapshot)
-  const safeProfile =
-    profile.connectionString && connectionStringContainsPlainSecret(profile.connectionString)
-      ? { ...profile, connectionString: undefined, connectionMode: 'native' as const }
-      : profile
-  const index = next.connections.findIndex((item) => item.id === safeProfile.id)
+  const index = next.connections.findIndex((item) => item.id === profile.id)
 
   if (index >= 0) {
-    next.connections[index] = safeProfile
+    next.connections[index] = profile
   } else {
-    next.connections.push(safeProfile)
+    next.connections.push(profile)
   }
 
   ensureConnectionLibraryNodes(next)

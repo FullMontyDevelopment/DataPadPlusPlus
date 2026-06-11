@@ -143,9 +143,10 @@ export function useConnectionActions({
         ensureWorkspaceUnlocked(state.payload)
         let nextProfile = profile
 
-        if (secret?.trim()) {
+        const secretValue = typeof secret === 'string' ? secret : undefined
+        if (secretValue?.trim()) {
           const secretRef = profile.auth.secretRef ?? secretRefForConnection(profile)
-          await desktopClient.storeSecret(secretRef, secret)
+          await desktopClient.storeSecret(secretRef, secretValue)
           nextProfile = {
             ...profile,
             auth: {
@@ -199,15 +200,18 @@ export function useConnectionActions({
             continue
           }
 
-          const secret = secretDrafts[definition.key]?.trim()
-          if (!secret) {
+          const secretValue =
+            typeof secretDrafts[definition.key] === 'string'
+              ? secretDrafts[definition.key]
+              : undefined
+          if (!secretValue?.trim()) {
             continue
           }
 
           const secretRef =
             definition.secretRef ??
             secretRefForEnvironmentVariable(sanitizedProfile.id, definition.key)
-          await desktopClient.storeSecret(secretRef, secret)
+          await desktopClient.storeSecret(secretRef, secretValue)
         }
 
         applyPayload(await desktopClient.upsertEnvironment(sanitizedProfile))

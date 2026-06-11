@@ -15,6 +15,7 @@ use super::profile_options_cloud::{
     interpolate_search_options,
 };
 use super::profile_options_graph::interpolate_graph_options;
+use super::profile_options_mongodb::build_mongodb_native_connection_string;
 use super::profile_options_mysql::interpolate_mysql_options;
 use super::profile_options_timeseries::interpolate_timeseries_options;
 use super::profile_options_warehouse::interpolate_warehouse_options;
@@ -79,16 +80,6 @@ impl ManagedAppState {
         profile: ConnectionProfile,
     ) -> Result<BootstrapPayload, CommandError> {
         validators::validate_connection_profile(&profile)?;
-        if profile
-            .connection_string
-            .as_deref()
-            .is_some_and(security::connection_string_contains_secret)
-        {
-            return Err(CommandError::new(
-                "connection-string-secret",
-                "Connection strings with embedded passwords, tokens, or keys are not saved. Put credentials in the password or credential field so DataPad++ can store them in the encrypted secret store.",
-            ));
-        }
 
         if let Some(index) = self
             .snapshot
@@ -351,6 +342,22 @@ impl ManagedAppState {
                 None => None,
             });
 
+        let resolved_database = profile.database.as_deref().map(interpolate);
+        let resolved_username = profile.auth.username.as_deref().map(interpolate);
+        let resolved_connection_string = profile
+            .connection_string
+            .as_deref()
+            .map(interpolate)
+            .or_else(|| {
+                build_mongodb_native_connection_string(
+                    profile,
+                    resolved_database.as_deref(),
+                    resolved_username.as_deref(),
+                    password.as_deref(),
+                    &interpolate,
+                )
+            });
+
         let resolved = ResolvedConnectionProfile {
             id: profile.id.clone(),
             name: profile.name.clone(),
@@ -358,10 +365,10 @@ impl ManagedAppState {
             family: profile.family.clone(),
             host: interpolate(&profile.host),
             port: profile.port,
-            database: profile.database.as_deref().map(interpolate),
-            username: profile.auth.username.as_deref().map(interpolate),
+            database: resolved_database,
+            username: resolved_username,
             password,
-            connection_string: profile.connection_string.as_deref().map(interpolate),
+            connection_string: resolved_connection_string,
             redis_options: profile
                 .redis_options
                 .as_ref()

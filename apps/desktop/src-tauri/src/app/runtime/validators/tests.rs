@@ -97,14 +97,11 @@ fn validators_reject_unrecognized_data_edit_kinds() {
 }
 
 #[test]
-fn validators_reject_plaintext_connection_string_secrets() {
+fn validators_accept_plaintext_connection_string_secrets() {
     let mut profile = connection_profile();
     profile.connection_string = Some("postgres://user:secret@localhost/catalog".into());
 
-    let error = validate_connection_profile(&profile).unwrap_err();
-
-    assert_eq!(error.code, "connection-string-secret");
-    assert!(error.message.contains("embedded passwords"));
+    validate_connection_profile(&profile).expect("raw connection strings are allowed");
 }
 
 #[test]

@@ -41,6 +41,19 @@ describe('Mongo query builder', () => {
     })
   })
 
+  it('includes scoped database context in generated Mongo find JSON', () => {
+    const query = JSON.parse(
+      buildMongoFindQueryText(createDefaultMongoFindBuilderState('embedded_movies'), {
+        database: ' sample_mflix ',
+      }),
+    )
+
+    expect(query).toMatchObject({
+      database: 'sample_mflix',
+      collection: 'embedded_movies',
+    })
+  })
+
   it('generates filter operators with typed values', () => {
     const query = JSON.parse(
       buildMongoFindQueryText({
@@ -441,6 +454,20 @@ describe('Mongo aggregation builder', () => {
         { $group: { _id: '$customerId', total: { $sum: '$total' } } },
       ],
       limit: 50,
+    })
+  })
+
+  it('includes scoped database context in generated Mongo aggregation JSON', () => {
+    const query = JSON.parse(
+      buildMongoAggregationQueryText(createDefaultMongoAggregationBuilderState('orders', 20), {
+        database: ' catalog ',
+      }),
+    )
+
+    expect(query).toMatchObject({
+      database: 'catalog',
+      collection: 'orders',
+      operation: 'aggregate',
     })
   })
 

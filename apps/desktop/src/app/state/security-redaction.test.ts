@@ -83,4 +83,10 @@ describe('security redaction', () => {
       connectionStringContainsPlainSecret('Server=localhost;Password={{DB_PASSWORD}};'),
     ).toBe(false)
   })
+
+  it('ignores non-string values when checking connection string secrets', () => {
+    expect(connectionStringContainsPlainSecret(true)).toBe(false)
+    expect(connectionStringContainsPlainSecret({ password: 'plain-secret' })).toBe(false)
+    expect(connectionStringContainsPlainSecret(undefined)).toBe(false)
+  })
 })
