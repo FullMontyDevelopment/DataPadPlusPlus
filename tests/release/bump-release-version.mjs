@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import {
   isValidReleaseVersion,
   validateReleaseVersion
-} from './validate-release-version'
+} from './validate-release-version.mjs'
 
 function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)

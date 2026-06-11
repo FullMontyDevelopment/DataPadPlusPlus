@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { validateReleaseVersion } from './validate-release-version'
-import { validateReleaseWorkflow } from './validate-release-workflow'
+import { validateReleaseVersion } from './validate-release-version.mjs'
+import { validateReleaseWorkflow } from './validate-release-workflow.mjs'
 
 function run(command, args) {
   const result = spawnSync(command, args, {

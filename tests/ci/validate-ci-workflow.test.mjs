@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { validateCiWorkflow } from './validate-ci-workflow'
+import { validateCiWorkflow } from './validate-ci-workflow.mjs'
 
 test('current CI workflow only runs dependency-free checks', () => {
   const result = validateCiWorkflow(process.cwd())
@@ -38,4 +38,27 @@ test('CI workflow validator rejects fixture and E2E jobs', () => {
   )
 
   assert.throws(() => validateCiWorkflow(root), /Docker fixtures/)
+})
+
+test('CI scripts use Node-compatible explicit ESM import specifiers', () => {
+  const ciDir = join(process.cwd(), 'tests', 'ci')
+  const failures = []
+
+  for (const fileName of readdirSync(ciDir)) {
+    if (!fileName.endsWith('.mjs')) continue
+
+    const source = readFileSync(join(ciDir, fileName), 'utf8')
+    const imports = [
+      ...source.matchAll(/from\s+['"](\.\/[^'"]+)['"]/g),
+      ...source.matchAll(/import\(\s*['"](\.\/[^'"]+)['"]\s*\)/g)
+    ]
+
+    for (const match of imports) {
+      if (!/\.(?:mjs|js|json)$/.test(match[1])) {
+        failures.push(`${fileName}: ${match[1]}`)
+      }
+    }
+  }
+
+  assert.deepEqual(failures, [])
 })

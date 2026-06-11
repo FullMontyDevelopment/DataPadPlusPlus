@@ -1,14 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
   isValidReleaseVersion,
   validateReleaseVersion
-} from './validate-release-version'
-import { bumpReleaseVersion } from './bump-release-version'
-import { validateReleaseWorkflow } from './validate-release-workflow'
+} from './validate-release-version.mjs'
+import { bumpReleaseVersion } from './bump-release-version.mjs'
+import { validateReleaseWorkflow } from './validate-release-workflow.mjs'
 
 function makeRepo(version = '1.2.3') {
   const root = mkdtempSync(join(tmpdir(), 'datapadplusplus-release-'))
@@ -113,4 +113,27 @@ test('current release workflow matches the hardened release contract', () => {
     'windows-latest',
     'macos-latest'
   ])
+})
+
+test('release scripts use Node-compatible explicit ESM import specifiers', () => {
+  const releaseDir = join(process.cwd(), 'tests', 'release')
+  const failures = []
+
+  for (const fileName of readdirSync(releaseDir)) {
+    if (!fileName.endsWith('.mjs')) continue
+
+    const source = readFileSync(join(releaseDir, fileName), 'utf8')
+    const imports = [
+      ...source.matchAll(/from\s+['"](\.\/[^'"]+)['"]/g),
+      ...source.matchAll(/import\(\s*['"](\.\/[^'"]+)['"]\s*\)/g)
+    ]
+
+    for (const match of imports) {
+      if (!/\.(?:mjs|js|json)$/.test(match[1])) {
+        failures.push(`${fileName}: ${match[1]}`)
+      }
+    }
+  }
+
+  assert.deepEqual(failures, [])
 })
