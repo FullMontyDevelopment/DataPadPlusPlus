@@ -1,7 +1,7 @@
 {
   "name": "@datapadplusplus/shared-types",
   "private": true,
-  "version": "0.1.28",
+  "version": "0.1.29",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./src/index.ts",
