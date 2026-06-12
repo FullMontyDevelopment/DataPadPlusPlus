@@ -14,6 +14,12 @@ function requireMatch(text, pattern, message) {
   }
 }
 
+function rejectMatch(text, pattern, message) {
+  if (pattern.test(text)) {
+    throw new Error(message)
+  }
+}
+
 export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   const path = resolve(repoRoot, '.github/workflows/release.yml')
   const text = readFileSync(path, 'utf8')
@@ -215,8 +221,13 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
-    /gh\s+release\s+download\s+"\$TAG_NAME"\s+--dir\s+updater-manifest\s+--pattern\s+"\*\.sig"/,
-    'release workflow must download signed updater signatures before generating latest.json'
+    /node\s+tests\/release\/prepare-updater-manifest-inputs\.mjs\s+"\$\{GITHUB_REPOSITORY\}"\s+"\$TAG_NAME"\s+updater-manifest/,
+    'release workflow must prepare updater manifest inputs through the tested draft-release helper'
+  )
+  rejectMatch(
+    text,
+    /repos\/\$\{GITHUB_REPOSITORY\}\/releases\/tags\/\$\{TAG_NAME\}/,
+    'release workflow must not use the published-release-only releases/tags endpoint for draft releases'
   )
   requireMatch(
     text,

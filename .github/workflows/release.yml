@@ -596,10 +596,7 @@ jobs:
           TAG_NAME: app-v${{ inputs.version }}
         run: |
           set -euo pipefail
-          rm -rf updater-manifest
-          mkdir updater-manifest
-          gh release download "$TAG_NAME" --dir updater-manifest --pattern "*.sig"
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG_NAME}" > updater-manifest/release.json
+          node tests/release/prepare-updater-manifest-inputs.mjs "${GITHUB_REPOSITORY}" "$TAG_NAME" updater-manifest
 
       - name: Generate latest.json
         env:
