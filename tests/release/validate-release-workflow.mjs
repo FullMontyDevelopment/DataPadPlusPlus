@@ -85,6 +85,16 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
+    /node\s+tests\/release\/validate-updater-signing-env\.mjs/,
+    'release workflow must validate updater signing key formats before building'
+  )
+  requireMatch(
+    text,
+    /Use the printed public key for DATAPADPLUSPLUS_UPDATER_PUBKEY and the private key file content for TAURI_SIGNING_PRIVATE_KEY/,
+    'release workflow must explain the public/private updater key split'
+  )
+  requireMatch(
+    text,
     /Invalid Tauri updater private key/,
     'release workflow must fail early with a clear updater private key message'
   )

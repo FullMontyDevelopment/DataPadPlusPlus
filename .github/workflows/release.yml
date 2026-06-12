@@ -71,6 +71,12 @@ jobs:
             exit 1
           fi
 
+          if ! node tests/release/validate-updater-signing-env.mjs >/tmp/tauri-updater-env.out 2>/tmp/tauri-updater-env.err; then
+            echo "::error title=Invalid Tauri updater signing configuration::The configured updater signing values do not look like Tauri signer keys. Use the printed public key for DATAPADPLUSPLUS_UPDATER_PUBKEY and the private key file content for TAURI_SIGNING_PRIVATE_KEY."
+            cat /tmp/tauri-updater-env.err
+            exit 1
+          fi
+
           smoke_file="${RUNNER_TEMP}/datapadplusplus-updater-signing-smoke.txt"
           printf 'DataPad++ updater signing validation\n' > "${smoke_file}"
           if ! npm exec --workspace @datapadplusplus/desktop -- tauri signer sign "${smoke_file}" >/tmp/tauri-updater-signing.out 2>/tmp/tauri-updater-signing.err; then

@@ -38,10 +38,12 @@ Generate the updater key pair from the desktop workspace, then store the two val
 ```powershell
 cd apps/desktop
 npm run tauri -- signer generate -w "$env:USERPROFILE\.tauri\datapadplusplus-updater.key"
+Get-Content -Raw "$env:USERPROFILE\.tauri\datapadplusplus-updater.key.pub" | Set-Clipboard
 Get-Content -Raw "$env:USERPROFILE\.tauri\datapadplusplus-updater.key" | Set-Clipboard
 ```
 
-The command prints the public key to use for `DATAPADPLUSPLUS_UPDATER_PUBKEY`; the clipboard command copies the private key content for `TAURI_SIGNING_PRIVATE_KEY`.
+The `.key.pub` file content is the public key for `DATAPADPLUSPLUS_UPDATER_PUBKEY`; the `.key` file content is the private key for `TAURI_SIGNING_PRIVATE_KEY`.
+Both key values should be long base64 text beginning with `dW50...` after copying; password-looking strings with punctuation such as `*`, `)`, `%`, or `>` are not valid key values.
 
 macOS code signing and notarization:
 
