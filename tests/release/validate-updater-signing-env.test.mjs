@@ -47,4 +47,5 @@ test('rejects missing updater signing values', () => {
   assert.match(result.errors.join('\n'), /DATAPADPLUSPLUS_UPDATER_PUBKEY is required/)
   assert.match(result.errors.join('\n'), /TAURI_SIGNING_PRIVATE_KEY is required/)
   assert.match(result.errors.join('\n'), /TAURI_SIGNING_PRIVATE_KEY_PASSWORD is required/)
+  assert.doesNotMatch(result.errors.join('\n'), /must be the base64 text/)
 })

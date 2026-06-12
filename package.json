@@ -29,6 +29,7 @@
     "release:bump": "node tests/release/bump-release-version.mjs",
     "release:validate": "node tests/release/validate-release-version.mjs",
     "release:workflow:validate": "node tests/release/validate-release-workflow.mjs",
+    "release:updater-signing:validate": "node tests/release/validate-updater-signing-env.mjs",
     "release:test": "node --test tests/release/*.test.mjs",
     "release:dry-run": "node tests/release/release-dry-run.mjs",
     "quality:test": "node --test tests/quality/*.test.mjs",
