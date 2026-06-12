@@ -80,6 +80,16 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
+    /npm\s+exec\s+--workspace\s+@datapadplusplus\/desktop\s+--\s+tauri\s+signer\s+sign\s+"\$\{smoke_file\}"/,
+    'release workflow must smoke-test the Tauri updater private key before building'
+  )
+  requireMatch(
+    text,
+    /Invalid Tauri updater private key/,
+    'release workflow must fail early with a clear updater private key message'
+  )
+  requireMatch(
+    text,
     /DATAPADPLUSPLUS_UPDATER_PUBKEY:\s*\$\{\{\s*vars\.DATAPADPLUSPLUS_UPDATER_PUBKEY\s*\}\}/,
     'release workflow must pass the updater public key to Tauri builds'
   )
