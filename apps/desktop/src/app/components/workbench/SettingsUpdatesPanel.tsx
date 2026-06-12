@@ -49,7 +49,7 @@ export function SettingsUpdatesPanel({
     updateError ??
     updateCheckResult?.message ??
     updates.lastResult?.message ??
-    (updates.supported ? 'Ready.' : 'Unavailable in this build.')
+    (updates.supported ? 'Ready.' : updates.supportMessage ?? 'Unavailable in this build.')
   const updateProgress =
     updateDownload?.contentLength && updateDownload.contentLength > 0
       ? Math.min(100, Math.round((updateDownload.downloadedBytes / updateDownload.contentLength) * 100))

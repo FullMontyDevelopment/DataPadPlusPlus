@@ -25,6 +25,8 @@ pub struct AppUpdateSettings {
     pub include_prereleases: bool,
     pub supported: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub support_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_checked_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_result: Option<AppUpdateLastResult>,
@@ -50,10 +52,12 @@ pub(super) struct StoredAppUpdateSettings {
 pub(super) fn settings_response(
     settings: StoredAppUpdateSettings,
     supported: bool,
+    support_message: Option<&str>,
 ) -> AppUpdateSettings {
     AppUpdateSettings {
         include_prereleases: settings.include_prereleases,
         supported,
+        support_message: support_message.map(str::to_owned),
         last_checked_at: settings.last_checked_at,
         last_result: settings.last_result,
     }

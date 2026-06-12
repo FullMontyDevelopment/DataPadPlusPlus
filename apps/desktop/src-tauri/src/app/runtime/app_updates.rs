@@ -77,8 +77,36 @@ pub fn updater_public_key() -> Option<String> {
         .map(str::to_owned)
 }
 
-fn updater_supported() -> bool {
-    updater_public_key().is_some() && tauri_plugin_updater::target().is_some()
+#[derive(Clone, Copy)]
+struct UpdaterSupport {
+    supported: bool,
+    message: Option<&'static str>,
+}
+
+fn updater_support() -> UpdaterSupport {
+    if updater_public_key().is_none() {
+        return UpdaterSupport {
+            supported: false,
+            message: Some("Update signing public key is not configured for this build."),
+        };
+    }
+
+    if tauri_plugin_updater::target().is_none() {
+        return UpdaterSupport {
+            supported: false,
+            message: Some("This platform is not supported by the updater."),
+        };
+    }
+
+    UpdaterSupport {
+        supported: true,
+        message: None,
+    }
+}
+
+fn update_settings_response(settings: StoredAppUpdateSettings) -> AppUpdateSettings {
+    let support = updater_support();
+    settings_response(settings, support.supported, support.message)
 }
 
 pub fn updater_plugin<R: Runtime>() -> TauriPlugin<R, tauri_plugin_updater::Config> {
@@ -92,10 +120,7 @@ pub fn updater_plugin<R: Runtime>() -> TauriPlugin<R, tauri_plugin_updater::Conf
 pub fn get_app_update_settings<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<AppUpdateSettings, CommandError> {
-    Ok(settings_response(
-        read_stored_settings(app)?,
-        updater_supported(),
-    ))
+    Ok(update_settings_response(read_stored_settings(app)?))
 }
 
 pub fn set_app_update_settings<R: Runtime>(
@@ -105,7 +130,7 @@ pub fn set_app_update_settings<R: Runtime>(
     let mut settings = read_stored_settings(app)?;
     settings.include_prereleases = request.include_prereleases;
     save_stored_settings(app, &settings)?;
-    Ok(settings_response(settings, updater_supported()))
+    Ok(update_settings_response(settings))
 }
 
 pub async fn check_app_update<R: Runtime>(
@@ -178,29 +203,20 @@ async fn check_app_update_inner<R: Runtime>(
     let checked_at = timestamp_now();
     let channel = channel_for_settings(settings);
     let current_version = current_version()?;
+    let support = updater_support();
 
-    if updater_public_key().is_none() {
+    if !support.supported {
         clear_pending_update(pending_update)?;
         return Ok(AppUpdateCheckResult {
             status: "unsupported".into(),
             channel,
             current_version: current_version.to_string(),
             checked_at,
-            message: "Update signing public key is not configured for this build.".into(),
-            settings: settings_response(settings.clone(), updater_supported()),
-            candidate: None,
-        });
-    }
-
-    if tauri_plugin_updater::target().is_none() {
-        clear_pending_update(pending_update)?;
-        return Ok(AppUpdateCheckResult {
-            status: "unsupported".into(),
-            channel,
-            current_version: current_version.to_string(),
-            checked_at,
-            message: "This platform is not supported by the updater.".into(),
-            settings: settings_response(settings.clone(), updater_supported()),
+            message: support
+                .message
+                .unwrap_or("Updates are not available for this build.")
+                .into(),
+            settings: update_settings_response(settings.clone()),
             candidate: None,
         });
     }
@@ -216,7 +232,7 @@ async fn check_app_update_inner<R: Runtime>(
             current_version: current_version.to_string(),
             checked_at,
             message: "DataPad++ is up to date.".into(),
-            settings: settings_response(settings.clone(), updater_supported()),
+            settings: update_settings_response(settings.clone()),
             candidate: None,
         });
     };
@@ -264,7 +280,7 @@ async fn check_app_update_inner<R: Runtime>(
                 "GitHub release app-v{} exists, but no signed update is available for this platform.",
                 release.version
             ),
-            settings: settings_response(settings.clone(), updater_supported()),
+            settings: update_settings_response(settings.clone()),
             candidate: None,
         });
     };
@@ -303,7 +319,7 @@ async fn check_app_update_inner<R: Runtime>(
         current_version: current_version.to_string(),
         checked_at,
         message: format!("DataPad++ {} is available.", candidate.version),
-        settings: settings_response(settings.clone(), updater_supported()),
+        settings: update_settings_response(settings.clone()),
         candidate: Some(candidate),
     })
 }
@@ -325,7 +341,7 @@ fn error_update_result(settings: &StoredAppUpdateSettings, message: &str) -> App
         current_version: env!("CARGO_PKG_VERSION").into(),
         checked_at,
         message: message.into(),
-        settings: settings_response(settings.clone(), updater_supported()),
+        settings: update_settings_response(settings.clone()),
         candidate: None,
     }
 }
@@ -349,7 +365,7 @@ fn persist_check_result<R: Runtime>(
     save_stored_settings(app, &settings)?;
 
     Ok(AppUpdateCheckResult {
-        settings: settings_response(settings, updater_supported()),
+        settings: update_settings_response(settings),
         ..result
     })
 }

@@ -214,6 +214,21 @@ describe('SettingsWorkspace', () => {
     expect(props.onInstallUpdate).toHaveBeenCalled()
   })
 
+  it('shows the updater support reason when updates are unavailable', () => {
+    renderSettings({
+      updateSettings: {
+        includePrereleases: false,
+        supported: false,
+        supportMessage: 'Update signing public key is not configured for this build.',
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Updates' }))
+
+    expect(screen.getByText('Update signing public key is not configured for this build.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Check for Updates' })).toBeDisabled()
+  })
+
   it('edits shortcuts and opens logs as plain text', async () => {
     const props = renderSettings({
       onListLogFiles: vi.fn().mockResolvedValue([

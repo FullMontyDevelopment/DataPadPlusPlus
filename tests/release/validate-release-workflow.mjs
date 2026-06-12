@@ -85,8 +85,18 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
+    /DATAPADPLUSPLUS_REQUIRE_UPDATER_SIGNING:\s*["']true["']/,
+    'release workflow must fail Tauri builds that do not embed an updater public key'
+  )
+  requireMatch(
+    text,
     /TAURI_SIGNING_PRIVATE_KEY_PASSWORD:\s*\$\{\{\s*secrets\.TAURI_SIGNING_PRIVATE_KEY_PASSWORD\s*\}\}/,
     'release workflow must pass the Tauri updater signing key password'
+  )
+  requireMatch(
+    text,
+    /Configure the public updater key plus both Tauri signing secrets before building a release/,
+    'release workflow must require complete updater signing configuration'
   )
   requireMatch(
     text,

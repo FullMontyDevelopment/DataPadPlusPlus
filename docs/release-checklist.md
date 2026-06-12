@@ -22,9 +22,9 @@ GitHub also lists automatic source-code zip/tar archives on releases. Those arch
 - Confirm there is no existing published release for `app-v<version>`.
 - Confirm the repository remote points at `https://github.com/FullMontyDevelopment/DataPadPlusPlus.git` when releasing from the official repository.
 
-## Production Signing Secrets
+## Release Signing Secrets
 
-The release workflow can create unsigned draft artifacts for internal smoke testing. Public production releases should configure signing and notarization first.
+The release workflow requires updater signing for every desktop release. Without these values, the packaged app cannot verify updater artifacts and will show updates as unavailable for that build.
 
 Updater artifact signing:
 
@@ -44,7 +44,7 @@ macOS code signing and notarization:
 The release workflow has a `macos_signing` input:
 
 - `auto`: sign and notarize macOS artifacts when all Apple secrets are present and valid; otherwise build unsigned artifacts when no Apple secrets are configured.
-- `disabled`: never pass Apple signing secrets to Tauri. Use this for internal unsigned test builds.
+- `disabled`: never pass Apple signing secrets to Tauri. Updater signing is still required.
 - `required`: fail the release if signing/notarization secrets are missing or invalid. Use this for production release candidates.
 
 If macOS signing fails with `SecKeychainItemImport`, the `APPLE_CERTIFICATE` secret is usually not a base64 encoded `.p12` with a private key, or `APPLE_CERTIFICATE_PASSWORD` does not match. On Windows, create the secret value with:
@@ -58,12 +58,12 @@ Windows Authenticode signing is not configured yet. Before a public stable Windo
 ## Manual Release Steps
 
 1. Open the GitHub Actions `Release` workflow.
-2. Run the workflow manually with the exact semantic version, for example `0.1.0` or `0.2.0-beta.1`. Choose `macos_signing=disabled` for unsigned internal builds, or `macos_signing=required` when preparing a production release.
+2. Run the workflow manually with the exact semantic version, for example `0.1.0` or `0.2.0-beta.1`. Choose `macos_signing=disabled` only for macOS code-signing smoke tests, or `macos_signing=required` when preparing a production release.
 3. Wait for the workflow to commit `chore: release v<version>` and create `app-v<version>`.
 4. Wait for all platform builds to finish.
 5. Open the draft GitHub Release named `DataPad++ v<version>`.
 6. Confirm release assets exist for Windows, Linux, and macOS Apple Silicon where each platform build succeeded. Windows should include both NSIS and MSI installer outputs.
-7. Confirm signed updater metadata exists when updater signing is configured: `latest.json` and `.sig` assets must be attached to the release.
+7. Confirm signed updater metadata exists: `latest.json` and `.sig` assets must be attached to the release.
 8. Download representative installers and smoke-test launch.
 9. Publish the draft release only after smoke tests pass.
 
@@ -83,7 +83,7 @@ The release workflow owns version-file updates. Do not pre-edit every version fi
 
 - Releases are draft-first until install and launch checks are consistently reliable.
 - The release workflow may commit version bumps, but the tag must point at source files with the release version.
-- Add in-app updater configuration and updater UI in a later pass.
 - Add Windows code signing before broad public distribution.
-- Treat missing signing/notarization secrets as a release blocker for production channels, even if unsigned draft testing artifacts can still be useful.
+- Treat missing updater signing secrets as a release blocker. The workflow should fail before building a non-updatable release.
+- Treat missing macOS signing/notarization secrets as a release blocker for production channels, even if unsigned draft testing artifacts can still be useful.
 - Keep CI dependency-free by default. Docker fixtures, live cloud checks, and desktop WebDriver smoke tests are local/manual validation unless a separate opt-in workflow is added.

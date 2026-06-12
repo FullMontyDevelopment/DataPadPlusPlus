@@ -72,6 +72,7 @@ function browserUpdateSettings(): AppUpdateSettings {
   const fallback: AppUpdateSettings = {
     includePrereleases: false,
     supported: false,
+    supportMessage: 'Updates are only available in the installed desktop app.',
   }
 
   try {
@@ -83,6 +84,7 @@ function browserUpdateSettings(): AppUpdateSettings {
     return {
       includePrereleases: Boolean(parsed.includePrereleases),
       supported: false,
+      supportMessage: fallback.supportMessage,
       lastCheckedAt: parsed.lastCheckedAt,
       lastResult: parsed.lastResult,
     }
@@ -96,6 +98,7 @@ function saveBrowserUpdateSettings(settings: AppUpdateSettings) {
     BROWSER_UPDATE_SETTINGS_KEY,
     JSON.stringify({
       includePrereleases: settings.includePrereleases,
+      supportMessage: settings.supportMessage,
       lastCheckedAt: settings.lastCheckedAt,
       lastResult: settings.lastResult,
     }),

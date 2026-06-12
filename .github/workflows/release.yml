@@ -208,24 +208,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          configured=()
           missing=()
           for name in DATAPADPLUSPLUS_UPDATER_PUBKEY TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
             if [[ -n "${!name:-}" ]]; then
-              configured+=("${name}")
+              :
             else
               missing+=("${name}")
             fi
           done
 
-          if (( ${#configured[@]} == 0 )); then
-            echo "enabled=false" >> "${GITHUB_OUTPUT}"
-            echo "::notice title=Updater signing disabled::No updater signing values were configured, so this draft build will not be installable through the in-app updater."
-            exit 0
-          fi
-
           if (( ${#missing[@]} > 0 )); then
-            echo "::error title=Incomplete updater signing configuration::Missing required value(s): ${missing[*]}. Configure the public updater key plus both Tauri signing secrets, or leave all three unset for unsigned internal drafts."
+            echo "::error title=Incomplete updater signing configuration::Missing required value(s): ${missing[*]}. Configure the public updater key plus both Tauri signing secrets before building a release."
             exit 1
           fi
 
@@ -343,6 +336,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATAPADPLUSPLUS_REQUIRE_UPDATER_SIGNING: "true"
           DATAPADPLUSPLUS_UPDATER_PUBKEY: ${{ vars.DATAPADPLUSPLUS_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -365,6 +359,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATAPADPLUSPLUS_REQUIRE_UPDATER_SIGNING: "true"
           DATAPADPLUSPLUS_UPDATER_PUBKEY: ${{ vars.DATAPADPLUSPLUS_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

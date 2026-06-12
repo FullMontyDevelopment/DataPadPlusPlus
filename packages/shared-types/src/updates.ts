@@ -12,6 +12,7 @@ export interface AppUpdateLastResult {
 export interface AppUpdateSettings {
   includePrereleases: boolean
   supported: boolean
+  supportMessage?: string
   lastCheckedAt?: string
   lastResult?: AppUpdateLastResult
 }
