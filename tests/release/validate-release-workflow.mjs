@@ -140,18 +140,53 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
+    /"\*\.zip"/,
+    'release workflow must upload Windows updater zip artifacts to the draft release'
+  )
+  requireMatch(
+    text,
     /"latest\.json"/,
     'release workflow must preserve Tauri latest.json updater metadata'
   )
   requireMatch(
     text,
-    /name:\s*Verify updater metadata assets/,
-    'release workflow must verify updater metadata when signing is configured'
+    /name:\s*Verify updater signatures/,
+    'release workflow must verify updater signatures when signing is configured'
   )
   requireMatch(
     text,
     /no \.sig files were produced/,
     'release workflow must fail when signed updater artifacts are missing signatures'
+  )
+  requireMatch(
+    text,
+    /name:\s*Generate updater manifest/,
+    'release workflow must generate updater metadata after all platform builds finish'
+  )
+  requireMatch(
+    text,
+    /gh\s+release\s+download\s+"\$TAG_NAME"\s+--dir\s+updater-manifest\s+--pattern\s+"\*\.sig"/,
+    'release workflow must download signed updater signatures before generating latest.json'
+  )
+  requireMatch(
+    text,
+    /gh\s+release\s+upload\s+"\$TAG_NAME"\s+updater-manifest\/latest\.json\s+--clobber/,
+    'release workflow must upload generated latest.json to the draft release'
+  )
+  requireMatch(
+    text,
+    /'windows-x86_64'/,
+    'release workflow updater manifest must include Windows x64'
+  )
+  requireMatch(
+    text,
+    /'linux-x86_64'/,
+    'release workflow updater manifest must include Linux x64'
+  )
+  requireMatch(
+    text,
+    /'darwin-aarch64'/,
+    'release workflow updater manifest must include macOS Apple Silicon'
   )
   requireMatch(
     text,

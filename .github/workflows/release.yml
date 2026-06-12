@@ -410,6 +410,7 @@ jobs:
             "*.AppImage",
             "*.dmg",
             "*.tar.gz",
+            "*.zip",
             "*.sig",
             "latest.json"
           )
@@ -429,7 +430,7 @@ jobs:
             gh release upload $env:TAG_NAME $asset --clobber
           }
 
-      - name: Verify updater metadata assets
+      - name: Verify updater signatures
         if: steps.updater_signing.outputs.enabled == 'true'
         shell: pwsh
         env:
@@ -444,17 +445,12 @@ jobs:
           }
 
           $bundleRoot = Join-Path $releaseDir "bundle"
-          $latestJson = Get-ChildItem -LiteralPath $bundleRoot -Recurse -File -Filter "latest.json" | Select-Object -First 1
-          if (-not $latestJson) {
-            throw "Updater signing is configured, but latest.json was not produced under $bundleRoot"
-          }
-
           $signatures = Get-ChildItem -LiteralPath $bundleRoot -Recurse -File -Filter "*.sig"
           if (-not $signatures -or $signatures.Count -eq 0) {
             throw "Updater signing is configured, but no .sig files were produced under $bundleRoot"
           }
 
-          Write-Host "Updater metadata OK for $env:TAG_NAME"
+          Write-Host "Updater signatures OK for $env:TAG_NAME"
 
       - name: Package raw executable
         shell: pwsh
@@ -503,3 +499,110 @@ jobs:
           foreach ($asset in $assets) {
             gh release upload $env:TAG_NAME $asset --clobber
           }
+
+  updater-manifest:
+    name: Generate updater manifest
+    needs: [validate, publish]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release signatures
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: app-v${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          rm -rf updater-manifest
+          mkdir updater-manifest
+          gh release download "$TAG_NAME" --dir updater-manifest --pattern "*.sig"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG_NAME}" > updater-manifest/release.json
+
+      - name: Generate latest.json
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+
+          const release = JSON.parse(fs.readFileSync('updater-manifest/release.json', 'utf8'))
+          const assets = release.assets ?? []
+          const signatureDir = 'updater-manifest'
+
+          function signatureFor(asset) {
+            const signaturePath = path.join(signatureDir, `${asset.name}.sig`)
+            if (!fs.existsSync(signaturePath)) {
+              return undefined
+            }
+            const signature = fs.readFileSync(signaturePath, 'utf8').trim()
+            return signature.length > 0 ? signature : undefined
+          }
+
+          function findSignedAsset(patterns) {
+            for (const pattern of patterns) {
+              for (const asset of assets) {
+                if (!pattern.test(asset.name)) {
+                  continue
+                }
+                if (signatureFor(asset)) {
+                  return asset
+                }
+              }
+            }
+            return undefined
+          }
+
+          const requiredPlatforms = {
+            'windows-x86_64': [
+              /\.nsis\.zip$/i,
+              /\.msi\.zip$/i,
+              /\.exe\.zip$/i,
+              /\.msi$/i,
+              /\.exe$/i,
+            ],
+            'linux-x86_64': [
+              /\.AppImage\.tar\.gz$/i,
+              /\.AppImage$/i,
+            ],
+            'darwin-aarch64': [
+              /\.app\.tar\.gz$/i,
+            ],
+          }
+
+          const platforms = {}
+          const missing = []
+          for (const [platform, patterns] of Object.entries(requiredPlatforms)) {
+            const asset = findSignedAsset(patterns)
+            if (!asset) {
+              missing.push(platform)
+              continue
+            }
+
+            platforms[platform] = {
+              signature: signatureFor(asset),
+              url: asset.browser_download_url,
+            }
+          }
+
+          if (missing.length > 0) {
+            throw new Error(`Missing signed updater asset(s) for ${missing.join(', ')}.`)
+          }
+
+          const manifest = {
+            version: process.env.RELEASE_VERSION,
+            notes: release.body ?? '',
+            pub_date: release.published_at ?? release.created_at ?? new Date().toISOString(),
+            platforms,
+          }
+
+          fs.writeFileSync('updater-manifest/latest.json', `${JSON.stringify(manifest, null, 2)}\n`)
+          NODE
+
+      - name: Upload and verify latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: app-v${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG_NAME" updater-manifest/latest.json --clobber
+          gh release view "$TAG_NAME" --json assets --jq '.assets[].name' | grep -Fx latest.json

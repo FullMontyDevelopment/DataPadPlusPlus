@@ -63,7 +63,7 @@ Windows Authenticode signing is not configured yet. Before a public stable Windo
 4. Wait for all platform builds to finish.
 5. Open the draft GitHub Release named `DataPad++ v<version>`.
 6. Confirm release assets exist for Windows, Linux, and macOS Apple Silicon where each platform build succeeded. Windows should include both NSIS and MSI installer outputs.
-7. Confirm signed updater metadata exists: `latest.json` and `.sig` assets must be attached to the release.
+7. Confirm signed updater assets exist: platform updater archives, matching `.sig` files, and the generated `latest.json` must be attached to the release. The workflow generates `latest.json` after all platform builds finish, using the uploaded release assets and signature file contents.
 8. Download representative installers and smoke-test launch.
 9. Publish the draft release only after smoke tests pass.
 
