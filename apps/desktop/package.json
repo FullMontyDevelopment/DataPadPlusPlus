@@ -1,7 +1,7 @@
 {
   "name": "@datapadplusplus/desktop",
   "private": true,
-  "version": "0.1.29",
+  "version": "0.1.31",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {
