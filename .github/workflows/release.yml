@@ -267,6 +267,12 @@ jobs:
           echo "enabled=true" >> "${GITHUB_OUTPUT}"
           echo "Updater signing configuration is complete."
 
+      - name: Inject updater public key into Tauri config
+        shell: bash
+        env:
+          DATAPADPLUSPLUS_UPDATER_PUBKEY: ${{ vars.DATAPADPLUSPLUS_UPDATER_PUBKEY }}
+        run: node tests/release/inject-tauri-updater-pubkey.mjs apps/desktop/src-tauri/tauri.conf.json
+
       - name: Validate macOS signing secrets
         id: mac_signing
         if: runner.os == 'macOS'

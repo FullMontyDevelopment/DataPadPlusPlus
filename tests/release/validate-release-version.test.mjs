@@ -124,6 +124,7 @@ test('current Tauri config has explicit updater plugin config', () => {
   assert.equal(typeof config.plugins?.updater, 'object')
   assert.notEqual(config.plugins.updater, null)
   assert.equal(typeof config.plugins.updater.pubkey, 'string')
+  assert.equal(config.plugins.updater.pubkey, '')
   assert.deepEqual(config.plugins.updater.endpoints, [])
 })
 

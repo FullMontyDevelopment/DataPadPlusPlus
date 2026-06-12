@@ -105,6 +105,16 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
+    /name:\s*Inject updater public key into Tauri config/,
+    'release workflow must inject the updater public key into Tauri config before bundling'
+  )
+  requireMatch(
+    text,
+    /node\s+tests\/release\/inject-tauri-updater-pubkey\.mjs\s+apps\/desktop\/src-tauri\/tauri\.conf\.json/,
+    'release workflow must use the tested updater public key injection script'
+  )
+  requireMatch(
+    text,
     /DATAPADPLUSPLUS_REQUIRE_UPDATER_SIGNING:\s*["']true["']/,
     'release workflow must fail Tauri builds that do not embed an updater public key'
   )
