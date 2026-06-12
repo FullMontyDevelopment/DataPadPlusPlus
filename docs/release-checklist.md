@@ -21,6 +21,7 @@ GitHub also lists automatic source-code zip/tar archives on releases. Those arch
 - Confirm CI is green on the branch you will release from.
 - Confirm there is no existing published release for `app-v<version>`.
 - Confirm the repository remote points at `https://github.com/FullMontyDevelopment/DataPadPlusPlus.git` when releasing from the official repository.
+- Confirm `apps/desktop/src-tauri/tauri.conf.json` keeps `bundle.createUpdaterArtifacts` set to `true`; without it, Tauri builds installers but does not produce updater signatures.
 
 ## Release Signing Secrets
 

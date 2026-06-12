@@ -155,8 +155,28 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
-    /no \.sig files were produced/,
-    'release workflow must fail when signed updater artifacts are missing signatures'
+    /no \$platformName updater \.sig files were produced/,
+    'release workflow must fail when platform updater artifacts are missing signatures'
+  )
+  requireMatch(
+    text,
+    /\*\.AppImage\.sig/,
+    'release workflow must verify Linux AppImage updater signatures'
+  )
+  requireMatch(
+    text,
+    /\*\.app\.tar\.gz\.sig/,
+    'release workflow must verify macOS app updater signatures'
+  )
+  requireMatch(
+    text,
+    /\*\.exe\.sig/,
+    'release workflow must verify Windows installer updater signatures'
+  )
+  requireMatch(
+    text,
+    /bundle\.createUpdaterArtifacts is enabled/,
+    'release workflow must point missing updater signatures back to createUpdaterArtifacts'
   )
   requireMatch(
     text,
@@ -175,18 +195,8 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
-    /'windows-x86_64'/,
-    'release workflow updater manifest must include Windows x64'
-  )
-  requireMatch(
-    text,
-    /'linux-x86_64'/,
-    'release workflow updater manifest must include Linux x64'
-  )
-  requireMatch(
-    text,
-    /'darwin-aarch64'/,
-    'release workflow updater manifest must include macOS Apple Silicon'
+    /node\s+tests\/release\/generate-updater-manifest\.mjs\s+updater-manifest\/release\.json\s+updater-manifest\s+"\$RELEASE_VERSION"\s+updater-manifest\/latest\.json/,
+    'release workflow must use the tested updater manifest generator'
   )
   requireMatch(
     text,

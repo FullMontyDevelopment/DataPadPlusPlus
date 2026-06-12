@@ -120,6 +120,7 @@ test('current Tauri config has explicit updater plugin config', () => {
     readFileSync(join(process.cwd(), 'apps', 'desktop', 'src-tauri', 'tauri.conf.json'), 'utf8')
   )
 
+  assert.equal(config.bundle?.createUpdaterArtifacts, true)
   assert.equal(typeof config.plugins?.updater, 'object')
   assert.notEqual(config.plugins.updater, null)
   assert.equal(typeof config.plugins.updater.pubkey, 'string')
