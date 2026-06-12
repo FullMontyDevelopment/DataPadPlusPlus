@@ -6,7 +6,11 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { DeleteConfirmationPanel } from './results/DeleteConfirmationPanel'
 import { RefreshIcon, SettingsIcon, TrashIcon } from './icons'
-import { SettingsPanel } from './SettingsWorkspace.parts'
+import {
+  SettingsNotice,
+  type SettingsNoticeMessage,
+  SettingsPanel,
+} from './SettingsWorkspace.parts'
 
 export function SettingsLogsPanel({
   diagnostics,
@@ -24,20 +28,27 @@ export function SettingsLogsPanel({
   const [files, setFiles] = useState<AppLogFileSummary[]>([])
   const [selected, setSelected] = useState<AppLogFileContent>()
   const [deleteFileName, setDeleteFileName] = useState<string>()
-  const [message, setMessage] = useState('')
+  const [notice, setNotice] = useState<SettingsNoticeMessage>()
   const logPath = selected?.file.path ?? diagnostics?.logPath
   const logDirectory = logPath ? parentPath(logPath) : 'Not available'
 
-  const refreshLogs = useCallback(async () => {
+  const refreshLogs = useCallback(async (showNotice = false) => {
     const items = await onListLogFiles()
     if (items) {
       setFiles(items)
       if (!items.length) {
         setSelected(undefined)
       }
-      setMessage(items.length ? 'Logs refreshed.' : 'No log files found.')
+      if (showNotice && !items.length) {
+        setNotice({ text: 'No log files found.', tone: 'info' })
+      } else if (showNotice) {
+        setNotice(undefined)
+      }
     } else {
-      setMessage('Logs could not be loaded. Restart the desktop debug session if this app was already running.')
+      setNotice({
+        text: 'Logs could not be loaded. Restart the desktop debug session if this app was already running.',
+        tone: 'error',
+      })
     }
     return items
   }, [onListLogFiles])
@@ -46,9 +57,9 @@ export function SettingsLogsPanel({
     const content = await onReadLogFile(fileName)
     if (content) {
       setSelected(content)
-      setMessage(`Opened ${content.file.fileName}.`)
+      setNotice(undefined)
     } else {
-      setMessage('Log file could not be opened.')
+      setNotice({ text: 'Log file could not be opened.', tone: 'error' })
     }
   }, [onReadLogFile])
 
@@ -73,9 +84,9 @@ export function SettingsLogsPanel({
     if (content) {
       setSelected(content)
       setFiles((current) => current.map((file) => file.fileName === content.file.fileName ? content.file : file))
-      setMessage('Log file cleared.')
+      setNotice({ text: 'Log file cleared.', tone: 'success' })
     } else {
-      setMessage('Log file could not be cleared.')
+      setNotice({ text: 'Log file could not be cleared.', tone: 'error' })
     }
   }
 
@@ -85,9 +96,9 @@ export function SettingsLogsPanel({
       setFiles(items)
       setSelected((current) => current?.file.fileName === fileName ? undefined : current)
       setDeleteFileName(undefined)
-      setMessage('Log file deleted.')
+      setNotice({ text: 'Log file deleted.', tone: 'success' })
     } else {
-      setMessage('Log file could not be deleted.')
+      setNotice({ text: 'Log file could not be deleted.', tone: 'error' })
     }
   }
 
@@ -100,7 +111,7 @@ export function SettingsLogsPanel({
       <div className="settings-log-layout">
         <div className="settings-log-list" role="list" aria-label="Log files">
           <div className="settings-action-row">
-            <button type="button" className="drawer-button" onClick={() => void refreshLogs()}>
+            <button type="button" className="drawer-button" onClick={() => void refreshLogs(true)}>
               <RefreshIcon className="drawer-inline-icon" />
               Refresh
             </button>
@@ -147,7 +158,7 @@ export function SettingsLogsPanel({
           onConfirm={() => void deleteLog(deleteFileName)}
         />
       ) : null}
-      {message ? <div className="settings-inline-message" role="status">{message}</div> : null}
+      <SettingsNotice notice={notice} />
     </SettingsPanel>
   )
 }

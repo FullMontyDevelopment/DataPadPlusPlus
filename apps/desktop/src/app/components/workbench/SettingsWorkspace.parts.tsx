@@ -4,6 +4,13 @@ import { rateWorkspaceBundlePassphrase } from '../../security/workspace-passphra
 import { DeleteConfirmationPanel } from './results/DeleteConfirmationPanel'
 import { TrashIcon, UploadIcon } from './icons'
 
+export type SettingsNoticeTone = 'info' | 'success' | 'warning' | 'error'
+
+export interface SettingsNoticeMessage {
+  text: string
+  tone?: SettingsNoticeTone
+}
+
 export function SettingsPanel({
   children,
   icon,
@@ -21,6 +28,22 @@ export function SettingsPanel({
       </header>
       {children}
     </section>
+  )
+}
+
+export function SettingsNotice({ notice }: { notice?: SettingsNoticeMessage }) {
+  if (!notice?.text) {
+    return null
+  }
+
+  const tone = notice.tone ?? 'info'
+  return (
+    <div
+      className={`settings-inline-message settings-inline-message--${tone}`}
+      role={tone === 'error' ? 'alert' : 'status'}
+    >
+      {notice.text}
+    </div>
   )
 }
 

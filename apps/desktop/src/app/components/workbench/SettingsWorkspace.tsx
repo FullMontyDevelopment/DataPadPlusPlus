@@ -11,6 +11,7 @@ import type {
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { SettingsIcon, ThemeIcon } from './icons'
+import { SettingsAboutPanel } from './SettingsAboutPanel'
 import { SettingsLogsPanel } from './SettingsLogsPanel'
 import { SettingsSecurityPanel } from './SettingsSecurityPanel'
 import { SettingsShortcutsPanel } from './SettingsShortcutsPanel'
@@ -181,6 +182,13 @@ export function SettingsWorkspace({
             onDeleteLogFile={onDeleteLogFile}
             onListLogFiles={onListLogFiles}
             onReadLogFile={onReadLogFile}
+          />
+        ) : null}
+
+        {section === 'about' ? (
+          <SettingsAboutPanel
+            diagnostics={diagnostics}
+            health={health}
           />
         ) : null}
       </div>

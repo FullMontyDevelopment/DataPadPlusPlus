@@ -7,6 +7,7 @@ export type SettingsSection =
   | 'security'
   | 'shortcuts'
   | 'logs'
+  | 'about'
 
 export const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string }> = [
   { id: 'appearance', label: 'Appearance' },
@@ -15,6 +16,7 @@ export const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string }> = 
   { id: 'security', label: 'Security' },
   { id: 'shortcuts', label: 'Shortcuts' },
   { id: 'logs', label: 'Logs' },
+  { id: 'about', label: 'About' },
 ]
 
 export const THEMES: Array<{

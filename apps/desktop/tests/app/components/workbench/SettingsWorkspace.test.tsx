@@ -129,6 +129,7 @@ describe('SettingsWorkspace', () => {
       )
     })
     expect(screen.getByText('Workspace exported.')).toBeInTheDocument()
+    expect(screen.getByText('Workspace exported.')).toHaveClass('settings-inline-message--success')
 
     fireEvent.click(screen.getByRole('button', { name: 'Import' }))
     fireEvent.change(screen.getByLabelText('Import passphrase'), {
@@ -225,8 +226,34 @@ describe('SettingsWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Updates' }))
 
-    expect(screen.getByText('Update signing public key is not configured for this build.')).toBeInTheDocument()
+    expect(screen.getByText('Update signing public key is not configured for this build.')).toHaveClass(
+      'settings-inline-message--warning',
+    )
     expect(screen.getByRole('button', { name: 'Check for Updates' })).toBeDisabled()
+  })
+
+  it('shows DataPad++ about information and GitHub links', () => {
+    renderSettings()
+
+    fireEvent.click(screen.getByRole('button', { name: 'About' }))
+
+    expect(screen.getByRole('heading', { name: 'About' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'DataPad++' })).toBeInTheDocument()
+    expect(screen.getByText('0.1.14')).toBeInTheDocument()
+    expect(screen.getByText(/modular Tauri workstation/i)).toBeInTheDocument()
+
+    expect(screen.getByRole('link', { name: /GitHub repository/i })).toHaveAttribute(
+      'href',
+      'https://github.com/FullMontyDevelopment/DataPadPlusPlus',
+    )
+    expect(screen.getByRole('link', { name: /Releases/i })).toHaveAttribute(
+      'href',
+      'https://github.com/FullMontyDevelopment/DataPadPlusPlus/releases',
+    )
+    expect(screen.getByRole('link', { name: /Issues/i })).toHaveAttribute(
+      'href',
+      'https://github.com/FullMontyDevelopment/DataPadPlusPlus/issues',
+    )
   })
 
   it('edits shortcuts and opens logs as plain text', async () => {
@@ -254,6 +281,7 @@ describe('SettingsWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Logs' }))
     await screen.findByRole('button', { name: /datapadplusplus.log/i })
     expect(screen.getByLabelText('Log file contents')).toHaveValue('line one')
+    expect(screen.queryByText('Opened datapadplusplus.log.')).not.toBeInTheDocument()
   })
 
   it('explains when the desktop log command is unavailable', async () => {
@@ -267,6 +295,6 @@ describe('SettingsWorkspace', () => {
       await screen.findByText(
         'Logs could not be loaded. Restart the desktop debug session if this app was already running.',
       ),
-    ).toBeInTheDocument()
+    ).toHaveClass('settings-inline-message--error')
   })
 })

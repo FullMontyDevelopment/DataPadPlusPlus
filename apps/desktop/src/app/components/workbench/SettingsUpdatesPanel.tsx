@@ -5,7 +5,12 @@ import type {
   DiagnosticsReport,
 } from '@datapadplusplus/shared-types'
 import { DownloadIcon, RefreshIcon } from './icons'
-import { MetricCard, SettingsPanel } from './SettingsWorkspace.parts'
+import {
+  MetricCard,
+  SettingsNotice,
+  type SettingsNoticeMessage,
+  SettingsPanel,
+} from './SettingsWorkspace.parts'
 
 export interface SettingsUpdatesProps {
   diagnostics?: DiagnosticsReport
@@ -45,11 +50,12 @@ export function SettingsUpdatesPanel({
     ? updateCheckResult.candidate
     : undefined
   const updateBusy = updateStatus === 'loading' || updateInstallStatus === 'installing'
-  const updateMessage =
-    updateError ??
-    updateCheckResult?.message ??
-    updates.lastResult?.message ??
-    (updates.supported ? 'Ready.' : updates.supportMessage ?? 'Unavailable in this build.')
+  const updateNotice = updateNoticeForState({
+    available: Boolean(availableUpdate),
+    error: updateError,
+    result: updateCheckResult,
+    settings: updates,
+  })
   const updateProgress =
     updateDownload?.contentLength && updateDownload.contentLength > 0
       ? Math.min(100, Math.round((updateDownload.downloadedBytes / updateDownload.contentLength) * 100))
@@ -117,7 +123,44 @@ export function SettingsUpdatesPanel({
       {availableUpdate && health.platform.toLowerCase().includes('windows') ? (
         <div className="settings-empty">Installing updates closes DataPad++ on Windows.</div>
       ) : null}
-      <div className="settings-inline-message" role="status">{updateMessage}</div>
+      <SettingsNotice notice={updateNotice} />
     </SettingsPanel>
   )
+}
+
+function updateNoticeForState({
+  available,
+  error,
+  result,
+  settings,
+}: {
+  available: boolean
+  error?: string
+  result?: AppUpdateCheckResult
+  settings: AppUpdateSettings
+}): SettingsNoticeMessage | undefined {
+  if (error) {
+    return { text: error, tone: 'error' }
+  }
+  if (available) {
+    return undefined
+  }
+  if (result) {
+    if (result.status === 'error') {
+      return { text: result.message, tone: 'error' }
+    }
+    if (result.status === 'unsupported') {
+      return { text: result.message, tone: 'warning' }
+    }
+    if (result.status === 'current') {
+      return { text: result.message, tone: 'success' }
+    }
+  }
+  if (!settings.supported) {
+    return {
+      text: settings.supportMessage ?? 'Updates are unavailable in this build.',
+      tone: 'warning',
+    }
+  }
+  return undefined
 }

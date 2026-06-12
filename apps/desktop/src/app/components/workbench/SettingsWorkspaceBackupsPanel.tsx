@@ -12,6 +12,8 @@ import {
   BackupList,
   PassphraseStrength,
   RestoreBackupConfirmation,
+  SettingsNotice,
+  type SettingsNoticeMessage,
   SettingsPanel,
 } from './SettingsWorkspace.parts'
 
@@ -55,7 +57,7 @@ export function SettingsWorkspaceBackupsPanel({
   const [restoreBackupId, setRestoreBackupId] = useState<string>()
   const [deleteBackupId, setDeleteBackupId] = useState<string>()
   const [backups, setBackups] = useState<WorkspaceBackupSummary[]>([])
-  const [message, setMessage] = useState('')
+  const [notice, setNotice] = useState<SettingsNoticeMessage>()
   const canIncludeSecrets = health.runtime === 'tauri'
   const backupPreferences = preferences.workspaceBackups ?? {
     enabled: false,
@@ -73,7 +75,7 @@ export function SettingsWorkspaceBackupsPanel({
       if (items) {
         setBackups(items)
       } else {
-        setMessage('Backups could not be loaded.')
+        setNotice({ text: 'Backups could not be loaded.', tone: 'error' })
       }
     })
     return () => {
@@ -81,14 +83,17 @@ export function SettingsWorkspaceBackupsPanel({
     }
   }, [onListBackups])
 
-  const refreshBackups = async () => {
+  const refreshBackups = async (showNotice = false) => {
     const items = await onListBackups()
     if (items) {
       setBackups(items)
-      setMessage('Backups refreshed.')
+      if (showNotice) {
+        setNotice(undefined)
+      }
     } else {
-      setMessage('Backups could not be loaded.')
+      setNotice({ text: 'Backups could not be loaded.', tone: 'error' })
     }
+    return items
   }
 
   const finishBundleTask = async () => {
@@ -96,10 +101,12 @@ export function SettingsWorkspaceBackupsPanel({
 
     if (bundleTask === 'export') {
       const path = await onExportWorkspaceFile(bundlePassphrase, canIncludeSecrets && includeSecrets)
-      setMessage(path ? 'Workspace exported.' : 'Export canceled.')
+      setNotice(path
+        ? { text: 'Workspace exported.', tone: 'success' }
+        : { text: 'Export canceled.', tone: 'info' })
     } else {
       await onImportWorkspaceFile(bundlePassphrase)
-      setMessage('Workspace import finished.')
+      setNotice({ text: 'Workspace import finished.', tone: 'success' })
     }
     setBundleTask(undefined)
     setBundlePassphrase('')
@@ -115,18 +122,32 @@ export function SettingsWorkspaceBackupsPanel({
       includeSecrets: backupPreferences.includeSecrets,
     })
     if (!ok) {
-      setMessage('Backup settings were not changed.')
+      setNotice({ text: 'Backup settings were not changed.', tone: 'warning' })
       return
     }
     setBackupPromptOpen(false)
     setBackupPassphrase('')
-    setMessage(enabled ? 'Auto-backups enabled.' : 'Auto-backups disabled.')
-    await refreshBackups()
+    const items = await refreshBackups(false)
+    if (items) {
+      setNotice({
+        text: enabled ? 'Auto-backups enabled.' : 'Auto-backups disabled.',
+        tone: 'success',
+      })
+    } else {
+      setNotice({
+        text: enabled
+          ? 'Auto-backups enabled, but backups could not be reloaded.'
+          : 'Auto-backups disabled, but backups could not be reloaded.',
+        tone: 'warning',
+      })
+    }
   }
 
   const runBackupNow = async () => {
     const response = await onCreateBackup(false)
-    setMessage(response?.message ?? 'Backup could not be created.')
+    setNotice(response
+      ? { text: response.message, tone: response.created ? 'success' : 'info' }
+      : { text: 'Backup could not be created.', tone: 'error' })
     if (response?.backups) {
       setBackups(response.backups)
     }
@@ -165,7 +186,7 @@ export function SettingsWorkspaceBackupsPanel({
               <ClockIcon className="drawer-inline-icon" />
               Back Up Now
             </button>
-            <button type="button" className="drawer-button" onClick={() => void refreshBackups()}>
+            <button type="button" className="drawer-button" onClick={() => void refreshBackups(true)}>
               <RefreshIcon className="drawer-inline-icon" />
               Refresh
             </button>
@@ -182,7 +203,9 @@ export function SettingsWorkspaceBackupsPanel({
                   intervalMinutes: backupPreferences.intervalMinutes,
                   maxBackups: backupPreferences.maxBackups,
                   includeSecrets: canIncludeSecrets && event.target.checked,
-                }).then((ok) => setMessage(ok ? 'Backup settings saved.' : 'Backup settings were not changed.'))
+                }).then((ok) => setNotice(ok
+                  ? { text: 'Backup settings saved.', tone: 'success' }
+                  : { text: 'Backup settings were not changed.', tone: 'warning' }))
               }
             />
             <span>Include passwords in auto-backups</span>
@@ -262,6 +285,7 @@ export function SettingsWorkspaceBackupsPanel({
             void onRestoreBackup(backupId, passphrase).then(() => {
               setRestoreBackupId(undefined)
               setRestorePassphrase('')
+              setNotice({ text: 'Backup restored.', tone: 'success' })
             })
           }}
         />
@@ -274,13 +298,18 @@ export function SettingsWorkspaceBackupsPanel({
           onCancel={() => setDeleteBackupId(undefined)}
           onConfirm={() => {
             void onDeleteBackup(deleteBackupId).then((items) => {
-              if (items) setBackups(items)
+              if (items) {
+                setBackups(items)
+                setNotice({ text: 'Backup deleted.', tone: 'success' })
+              } else {
+                setNotice({ text: 'Backup could not be deleted.', tone: 'error' })
+              }
               setDeleteBackupId(undefined)
             })
           }}
         />
       ) : null}
-      {message ? <div className="settings-inline-message" role="status">{message}</div> : null}
+      <SettingsNotice notice={notice} />
     </SettingsPanel>
   )
 }

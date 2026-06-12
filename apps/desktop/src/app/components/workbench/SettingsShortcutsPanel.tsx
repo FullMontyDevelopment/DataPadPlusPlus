@@ -7,7 +7,11 @@ import {
   SHORTCUT_DEFINITIONS,
 } from '../../keyboard-shortcuts'
 import { RefreshIcon, SettingsIcon } from './icons'
-import { SettingsPanel } from './SettingsWorkspace.parts'
+import {
+  SettingsNotice,
+  type SettingsNoticeMessage,
+  SettingsPanel,
+} from './SettingsWorkspace.parts'
 
 export function SettingsShortcutsPanel({
   preferences,
@@ -18,17 +22,17 @@ export function SettingsShortcutsPanel({
 }) {
   const resolved = useMemo(() => resolveKeyboardShortcuts(preferences), [preferences])
   const [drafts, setDrafts] = useState<Record<AppShortcutId, string>>(resolved)
-  const [message, setMessage] = useState('')
+  const [notice, setNotice] = useState<SettingsNoticeMessage>()
   const duplicateShortcuts = useMemo(() => findDuplicateShortcuts(drafts), [drafts])
 
   const saveShortcut = async (shortcutId: AppShortcutId, shortcut: string) => {
     const normalized = normalizeShortcutText(shortcut)
     if (!normalized || duplicateShortcuts.has(normalized)) {
-      setMessage('Shortcut was not saved.')
+      setNotice({ text: 'Shortcut was not saved.', tone: 'warning' })
       return
     }
     await onSetKeyboardShortcut(shortcutId, normalized)
-    setMessage('Shortcut saved.')
+    setNotice({ text: 'Shortcut saved.', tone: 'success' })
   }
 
   return (
@@ -85,7 +89,7 @@ export function SettingsShortcutsPanel({
           )
         })}
       </div>
-      {message ? <div className="settings-inline-message" role="status">{message}</div> : null}
+      <SettingsNotice notice={notice} />
     </SettingsPanel>
   )
 }

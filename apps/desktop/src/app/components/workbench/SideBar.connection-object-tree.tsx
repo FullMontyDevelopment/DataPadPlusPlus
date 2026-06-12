@@ -215,16 +215,14 @@ export function ConnectionObjectTree({
   return (
     <>
       <div className="connection-object-tree" role="tree" aria-label={`${connection.name} objects`}>
-        {usingLiveExplorer && nodes.length === 0 ? (
+        {usingLiveExplorer && nodes.length === 0 && explorerStatus === 'ready' ? (
           <div
             className="connection-object-empty"
             role="treeitem"
             aria-level={1}
             style={{ '--tree-depth': 1 + visualDepthOffset } as CSSProperties}
           >
-            {explorerStatus === 'ready'
-              ? 'No live metadata objects found.'
-              : 'Loading live metadata...'}
+            No live metadata objects found.
           </div>
         ) : null}
         {nodes.map((node) => {
@@ -645,16 +643,6 @@ function ConnectionObjectTreeNode({
             )
           })
         : null}
-      {expanded && canLoadChildren && children.length === 0 && branchLoading ? (
-        <div
-          className="connection-object-empty"
-          role="treeitem"
-          aria-level={depth + 1}
-          style={{ '--tree-depth': visualDepth + 1, ...environmentStyle } as CSSProperties}
-        >
-          Loading live metadata...
-        </div>
-      ) : null}
       {expanded && canLoadChildren && children.length === 0 && !branchLoading && explorerStatus === 'ready' ? (
         <div
           className="connection-object-empty"
