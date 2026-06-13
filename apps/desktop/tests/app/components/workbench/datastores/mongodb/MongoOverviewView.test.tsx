@@ -5,6 +5,36 @@ import { getMongoObjectViewDescriptor } from '../../../../../../src/app/componen
 import { MongoOverviewView } from '../../../../../../src/app/components/workbench/datastores/mongodb/MongoOverviewView'
 
 describe('MongoOverviewView', () => {
+  it('plans database creation from the database root view', () => {
+    const onPlanOperation = vi.fn()
+
+    render(
+      <MongoOverviewView
+        kind="databases"
+        descriptor={getMongoObjectViewDescriptor('databases')}
+        payload={{
+          databases: [{ name: 'catalog', type: 'User' }],
+        }}
+        onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Database'), { target: { value: 'analytics' } })
+    fireEvent.change(screen.getByLabelText('First collection'), { target: { value: 'events' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Run Create Database' }))
+
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.database.create',
+      objectName: 'analytics',
+      parameters: {
+        database: 'analytics',
+        collection: 'events',
+        options: {},
+      },
+    }))
+  })
+
   it('renders database collections, specialized collection types, and view summaries', () => {
     render(
       <MongoOverviewView
@@ -32,6 +62,44 @@ describe('MongoOverviewView', () => {
     expect(screen.getByText('Capped')).toBeInTheDocument()
     expect(screen.getByText('active_products')).toBeInTheDocument()
     expect(screen.getByText('$match - Filters documents before later stages run.')).toBeInTheDocument()
+  })
+
+  it('plans database management operations from a database overview', () => {
+    const onPlanOperation = vi.fn()
+
+    render(
+      <MongoOverviewView
+        kind="database"
+        descriptor={getMongoObjectViewDescriptor('database')}
+        payload={{
+          database: 'catalog',
+          collections: [],
+          views: [],
+          statistics: {},
+        }}
+        onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('New collection'), { target: { value: 'events' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Run Create Collection' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.collection.create',
+      objectName: 'events',
+      parameters: expect.objectContaining({
+        database: 'catalog',
+        collection: 'events',
+        options: {},
+      }),
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run Drop Database' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.database.drop',
+      objectName: 'catalog',
+      parameters: { database: 'catalog' },
+    }))
   })
 
   it('plans collection import and export through guarded operation requests', () => {
@@ -77,6 +145,55 @@ describe('MongoOverviewView', () => {
       parameters: expect.objectContaining({
         mode: 'insertMany',
         validation: 'validate-before-write',
+      }),
+    }))
+  })
+
+  it('plans collection management operations', () => {
+    const onPlanOperation = vi.fn()
+
+    render(
+      <MongoOverviewView
+        kind="collection"
+        descriptor={getMongoObjectViewDescriptor('collection')}
+        payload={{
+          database: 'catalog',
+          collection: 'products',
+          indexes: [],
+          sampleDocuments: [],
+        }}
+        onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run Rename' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.collection.rename',
+      objectName: 'products',
+      parameters: expect.objectContaining({
+        database: 'catalog',
+        collection: 'products',
+        newCollection: 'products_renamed',
+      }),
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run Drop' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.collection.drop',
+      objectName: 'products',
+      parameters: expect.objectContaining({
+        database: 'catalog',
+        collection: 'products',
+      }),
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run Validate' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.collection.validate',
+      objectName: 'products',
+      parameters: expect.objectContaining({
+        full: false,
       }),
     }))
   })

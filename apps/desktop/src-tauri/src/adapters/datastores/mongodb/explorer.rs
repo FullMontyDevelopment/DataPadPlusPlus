@@ -192,6 +192,26 @@ pub(super) async fn inspect_mongodb_explorer_node(
     let fallback_database = mongodb_database_name(connection);
     let node_id = request.node_id.as_str();
 
+    if node_id == "mongodb-databases" || node_id == "databases" {
+        let database_names = client.list_database_names().await?;
+        return Ok(inspect_database_group(
+            request,
+            database_names,
+            false,
+            "MongoDB database list ready.",
+        ));
+    }
+
+    if node_id == "mongodb-system-databases" || node_id == "system-databases" {
+        let database_names = client.list_database_names().await?;
+        return Ok(inspect_database_group(
+            request,
+            database_names,
+            true,
+            "MongoDB system database list ready.",
+        ));
+    }
+
     if let Some(rest) = node_id.strip_prefix("schema-preview:") {
         let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
         let collection = client
@@ -670,6 +690,45 @@ fn mongodb_database_group_fallback_nodes(
         expandable: Some(false),
     });
     nodes
+}
+
+fn inspect_database_group(
+    request: &ExplorerInspectRequest,
+    database_names: Vec<String>,
+    system: bool,
+    summary: &str,
+) -> ExplorerInspectResponse {
+    let mut databases = database_names
+        .into_iter()
+        .filter(|database_name| SYSTEM_DATABASES.contains(&database_name.as_str()) == system)
+        .collect::<Vec<_>>();
+    databases.sort();
+    let rows = databases
+        .iter()
+        .map(|database_name| {
+            json!({
+                "name": database_name,
+                "type": if system { "System" } else { "User" },
+                "system": system,
+            })
+        })
+        .collect::<Vec<_>>();
+    let database_count = rows.len();
+
+    ExplorerInspectResponse {
+        node_id: request.node_id.clone(),
+        summary: summary.into(),
+        query_template: Some(mongodb_command_query_template(
+            "admin",
+            doc! { "listDatabases": 1, "nameOnly": true },
+        )),
+        payload: Some(json!({
+            "objectView": if system { "system-databases" } else { "databases" },
+            "databases": rows,
+            "databaseCount": database_count,
+            "system": system,
+        })),
+    }
 }
 
 fn mongodb_database_children(

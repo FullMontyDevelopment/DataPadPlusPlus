@@ -506,6 +506,126 @@ pub(crate) fn operation_manifests_for_manifest(
             "Preview a guarded MongoDB collection validator update.",
             true,
         ));
+
+        let mut mongo_management = vec![
+            operation_manifest(
+                manifest,
+                "database.create",
+                "Create Database",
+                "database",
+                "write",
+                &["supports_admin_operations"],
+                &["schema", "diff", "raw"],
+                "Create a MongoDB database by creating its first collection.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "database.drop",
+                "Drop Database",
+                "database",
+                "destructive",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Drop a MongoDB database after confirmation; system databases are blocked.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "collection.create",
+                "Create Collection",
+                "collection",
+                "write",
+                &["supports_admin_operations"],
+                &["schema", "diff", "raw"],
+                "Create a MongoDB collection with optional native collection options.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "collection.drop",
+                "Drop Collection",
+                "collection",
+                "destructive",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Drop a MongoDB collection after confirmation.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "collection.rename",
+                "Rename Collection",
+                "collection",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Rename a MongoDB collection within a database or to another database.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "collection.modify",
+                "Modify Collection",
+                "collection",
+                "write",
+                &["supports_admin_operations"],
+                &["schema", "diff", "raw"],
+                "Apply guarded MongoDB collMod collection options.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "collection.convert-to-capped",
+                "Convert To Capped",
+                "collection",
+                "destructive",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Convert a MongoDB collection to capped storage with a fixed byte size.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "collection.clone-as-capped",
+                "Clone As Capped",
+                "collection",
+                "write",
+                &["supports_admin_operations"],
+                &["diff", "raw"],
+                "Clone a MongoDB collection into a capped collection.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "collection.compact",
+                "Compact Collection",
+                "collection",
+                "write",
+                &["supports_admin_operations"],
+                &["profile", "metrics", "raw"],
+                "Run a guarded MongoDB compact command for a collection.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "collection.validate",
+                "Validate Collection",
+                "collection",
+                "costly",
+                &["supports_admin_operations"],
+                &["table", "json", "raw"],
+                "Run a guarded MongoDB validate command for a collection.",
+                true,
+            ),
+        ];
+
+        for operation in &mut mongo_management {
+            operation.execution_support = "live".into();
+            operation.disabled_reason = None;
+            operation.preview_only = Some(false);
+        }
+        operations.extend(mongo_management);
     }
 
     if manifest.engine == "mongodb" && manifest_has(manifest, "supports_user_role_browser") {
@@ -861,6 +981,39 @@ pub(crate) fn operation_manifests_for_manifest(
                 &["supports_admin_operations", "supports_index_management"],
                 &["diff", "metrics", "raw"],
                 "Preview rebuilding LiteDB collection indexes after file and lock checks.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "file-storage.import",
+                "Import Stored File",
+                "file",
+                "write",
+                &["supports_admin_operations", "supports_import_export"],
+                &["diff", "json", "raw"],
+                "Run a guarded LiteDB file-storage upload from a concrete local file through the configured sidecar.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "file-storage.export",
+                "Export Stored File",
+                "file",
+                "costly",
+                &["supports_import_export"],
+                &["json", "raw"],
+                "Run a guarded LiteDB file-storage download to a concrete local target through the configured sidecar.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "file-storage.delete",
+                "Delete Stored File",
+                "file",
+                "destructive",
+                &["supports_admin_operations"],
+                &["diff", "json", "raw"],
+                "Run a guarded LiteDB file-storage delete through the configured sidecar with before/after evidence.",
                 true,
             ),
         ]);
@@ -1370,7 +1523,7 @@ pub(crate) fn operation_manifests_for_manifest(
     }
 
     if manifest_has(manifest, "supports_import_export") {
-        operations.push(operation_manifest(
+        let mut import_export = operation_manifest(
             manifest,
             "data.import-export",
             "Import Or Export",
@@ -1380,7 +1533,18 @@ pub(crate) fn operation_manifests_for_manifest(
             &["raw", "metrics", "costEstimate"],
             "Plan bulk import/export requests with scan, cost, and permission warnings.",
             true,
-        ));
+        );
+
+        if manifest.engine == "litedb" {
+            import_export.execution_support = "live".into();
+            import_export.disabled_reason = None;
+            import_export.preview_only = Some(false);
+            import_export.description =
+                "Run guarded LiteDB JSON/NDJSON collection export or insert-only import through the configured sidecar file workflow."
+                    .into();
+        }
+
+        operations.push(import_export);
     }
 
     if manifest_has(manifest, "supports_backup_restore") {
@@ -1395,6 +1559,33 @@ pub(crate) fn operation_manifests_for_manifest(
             "Plan backup and restore workflows with environment and permission guardrails.",
             true,
         ));
+    }
+
+    if manifest.engine == "litedb" {
+        for operation in operations.iter_mut() {
+            if matches!(
+                operation.id.as_str(),
+                "litedb.index.create"
+                    | "litedb.index.drop"
+                    | "litedb.object.drop"
+                    | "litedb.file-storage.import"
+                    | "litedb.file-storage.export"
+                    | "litedb.file-storage.delete"
+            ) {
+                operation.execution_support = "live".into();
+                operation.disabled_reason = None;
+                operation.preview_only = Some(false);
+                if operation.id.contains("file-storage") {
+                    operation.description =
+                        "Run guarded LiteDB file-storage import, export, or delete through the configured sidecar with before/after evidence."
+                            .into();
+                } else {
+                    operation.description =
+                        "Run guarded LiteDB index or collection management through the configured sidecar with before/after evidence."
+                            .into();
+                }
+            }
+        }
     }
 
     operations

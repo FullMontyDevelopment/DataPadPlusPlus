@@ -46,6 +46,7 @@ export function WideColumnOperationStrip({
       return
     }
 
+    setFeedback(undefined)
     setPlanningOperationId(action.operationId)
     try {
       const response = await onPlanOperation({
@@ -74,7 +75,7 @@ export function WideColumnOperationStrip({
 
   return (
     <>
-      <section className="object-view-section object-view-workflow-section" aria-label="Guarded wide-column operation previews">
+      <section className="object-view-section object-view-workflow-section" aria-label="Guarded wide-column operations">
         <div className="object-view-action-chips">
           {actions.map((action) => (
             <button
@@ -86,7 +87,7 @@ export function WideColumnOperationStrip({
               disabled={Boolean(planningOperationId)}
             >
               <WideColumnOperationIcon icon={action.icon} />
-              <span>{planningOperationId === action.operationId ? 'Planning...' : action.label}</span>
+              <span>{planningOperationId === action.operationId ? 'Running...' : action.label}</span>
             </button>
           ))}
         </div>

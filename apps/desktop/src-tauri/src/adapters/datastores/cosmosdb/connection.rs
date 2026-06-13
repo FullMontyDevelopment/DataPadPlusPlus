@@ -1,10 +1,23 @@
+use std::time::SystemTime;
+
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use hmac::{Hmac, Mac};
 use serde_json::Value;
+use sha2::Sha256;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
 
 use super::super::super::*;
+
+type HmacSha256 = Hmac<Sha256>;
+
+const COSMOSDB_EMULATOR_MASTER_KEY: &str =
+    "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
+const COSMOSDB_REST_VERSION: &str = "2018-12-31";
+const COSMOSDB_DEFAULT_EMULATOR_PORT: u16 = 8081;
+const COSMOSDB_DEFAULT_ACCOUNT_PORT: u16 = 443;
 
 pub(super) struct CosmosDbResponse {
     pub(super) body: String,
@@ -74,11 +87,14 @@ async fn cosmosdb_request(
     extra_headers: &[(&str, &str)],
 ) -> Result<CosmosDbResponse, CommandError> {
     let endpoint = CosmosDbEndpoint::from_connection(connection)?;
-    let path = endpoint.path(path);
+    let logical_path = normalize_cosmosdb_path(path);
+    let path = endpoint.path(&logical_path);
     let body = body.unwrap_or("");
-    let auth_header = cosmosdb_auth_header(connection)?;
+    let request_date = httpdate::fmt_http_date(SystemTime::now());
+    let auth_header =
+        cosmosdb_auth_header(connection, method, &logical_path, &request_date, &endpoint)?;
     let mut headers = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\nx-ms-version: 2018-12-31\r\n{}",
+        "{method} {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\nx-ms-date: {request_date}\r\nx-ms-version: {COSMOSDB_REST_VERSION}\r\n{}",
         endpoint.host, endpoint.port, auth_header
     );
     for (key, value) in extra_headers {
@@ -88,7 +104,9 @@ async fn cosmosdb_request(
         headers.push_str(&format!("Content-Length: {}\r\n", body.len()));
     }
     let request = format!("{headers}Connection: close\r\n\r\n{body}");
-    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port)).await?;
+    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port))
+        .await
+        .map_err(|error| cosmosdb_connection_error(&endpoint, error))?;
     stream.write_all(request.as_bytes()).await?;
     let mut response = Vec::new();
     stream.read_to_end(&mut response).await?;
@@ -126,7 +144,7 @@ impl CosmosDbEndpoint {
         {
             return Self::from_url_or_host(
                 endpoint,
-                connection.port,
+                Some(cosmosdb_endpoint_fallback_port(connection)),
                 connection.database.as_deref(),
             );
         }
@@ -143,17 +161,11 @@ impl CosmosDbEndpoint {
             ));
         }
 
-        Ok(Self {
-            host: host.into(),
-            port: connection.port.unwrap_or(8081),
-            prefix: connection
-                .database
-                .as_deref()
-                .filter(|value| value.starts_with('/'))
-                .unwrap_or("")
-                .trim_end_matches('/')
-                .into(),
-        })
+        Self::from_url_or_host(
+            host,
+            Some(cosmosdb_endpoint_fallback_port(connection)),
+            connection.database.as_deref(),
+        )
     }
 
     fn from_url(url: &str) -> Result<Self, CommandError> {
@@ -165,41 +177,16 @@ impl CosmosDbEndpoint {
         fallback_port: Option<u16>,
         database_prefix: Option<&str>,
     ) -> Result<Self, CommandError> {
-        if !url.starts_with("http://") {
-            let host = url
-                .trim()
-                .trim_start_matches("https://")
-                .trim_end_matches('/');
-            if host.is_empty() {
-                return Err(CommandError::new(
-                    "cosmosdb-endpoint-missing",
-                    "Cosmos DB endpoint did not include a host.",
-                ));
-            }
-            return Ok(Self {
-                host: host.into(),
-                port: fallback_port.unwrap_or(443),
-                prefix: database_prefix
-                    .filter(|value| value.starts_with('/'))
-                    .unwrap_or("")
-                    .trim_end_matches('/')
-                    .into(),
-            });
-        }
-
-        let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
-            CommandError::new(
-                "cosmosdb-unsupported-url",
-                "Cosmos DB adapter currently supports plain http:// endpoints.",
-            )
-        })?;
+        let default_port = fallback_port.unwrap_or(COSMOSDB_DEFAULT_ACCOUNT_PORT);
+        let trimmed = url.trim().trim_end_matches('/');
+        let without_scheme = trimmed
+            .strip_prefix("http://")
+            .or_else(|| trimmed.strip_prefix("https://"))
+            .unwrap_or(trimmed);
         let (authority, path) = without_scheme
             .split_once('/')
             .unwrap_or((without_scheme, ""));
-        let (host, port) = authority
-            .rsplit_once(':')
-            .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
-            .unwrap_or((authority, 8081));
+        let (host, port) = parse_cosmosdb_authority(authority, default_port)?;
 
         if host.trim().is_empty() {
             return Err(CommandError::new(
@@ -209,10 +196,14 @@ impl CosmosDbEndpoint {
         }
 
         Ok(Self {
-            host: host.into(),
+            host,
             port,
             prefix: if path.is_empty() {
-                String::new()
+                database_prefix
+                    .filter(|value| value.starts_with('/'))
+                    .unwrap_or("")
+                    .trim_end_matches('/')
+                    .into()
             } else {
                 format!("/{}", path.trim_end_matches('/'))
             },
@@ -229,6 +220,81 @@ impl CosmosDbEndpoint {
                 format!("/{path}")
             }
         )
+    }
+
+    fn display_url(&self) -> String {
+        let host = if self.host.contains(':') && !self.host.starts_with('[') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        format!("http://{host}:{}", self.port)
+    }
+
+    fn is_local(&self) -> bool {
+        matches!(
+            self.host.trim().to_ascii_lowercase().as_str(),
+            "localhost" | "127.0.0.1" | "::1"
+        )
+    }
+}
+
+fn parse_cosmosdb_authority(
+    authority: &str,
+    default_port: u16,
+) -> Result<(String, u16), CommandError> {
+    let authority = authority.trim();
+    if authority.is_empty() {
+        return Err(CommandError::new(
+            "cosmosdb-endpoint-missing",
+            "Cosmos DB endpoint did not include a host.",
+        ));
+    }
+
+    if let Some(rest) = authority.strip_prefix('[') {
+        if let Some((host, remainder)) = rest.split_once(']') {
+            let port = remainder
+                .strip_prefix(':')
+                .and_then(|value| value.parse::<u16>().ok())
+                .unwrap_or(default_port);
+            return Ok((host.into(), port));
+        }
+    }
+
+    let (host, port) = authority
+        .rsplit_once(':')
+        .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
+        .unwrap_or((authority, default_port));
+
+    Ok((host.into(), port))
+}
+
+fn cosmosdb_endpoint_fallback_port(connection: &ResolvedConnectionProfile) -> u16 {
+    if connection
+        .cosmos_db_options
+        .as_ref()
+        .is_some_and(|options| {
+            options
+                .connect_mode
+                .as_deref()
+                .is_some_and(|value| value.eq_ignore_ascii_case("emulator"))
+                || options
+                    .auth_mode
+                    .as_deref()
+                    .is_some_and(|value| value.eq_ignore_ascii_case("emulator"))
+        })
+    {
+        return COSMOSDB_DEFAULT_EMULATOR_PORT;
+    }
+
+    connection.port.unwrap_or(COSMOSDB_DEFAULT_ACCOUNT_PORT)
+}
+
+fn normalize_cosmosdb_path(path: &str) -> String {
+    if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
     }
 }
 
@@ -252,7 +318,27 @@ pub(super) fn cosmosdb_default_database(connection: &ResolvedConnectionProfile) 
         .to_string()
 }
 
-fn cosmosdb_auth_header(connection: &ResolvedConnectionProfile) -> Result<String, CommandError> {
+fn cosmosdb_auth_header(
+    connection: &ResolvedConnectionProfile,
+    method: &str,
+    path: &str,
+    date: &str,
+    endpoint: &CosmosDbEndpoint,
+) -> Result<String, CommandError> {
+    let auth_mode = connection
+        .cosmos_db_options
+        .as_ref()
+        .and_then(|options| options.auth_mode.as_deref())
+        .unwrap_or("");
+
+    if auth_mode.eq_ignore_ascii_case("emulator") || auth_mode.eq_ignore_ascii_case("account-key") {
+        let key = cosmosdb_master_key(connection, auth_mode, endpoint)?;
+        let (resource_type, resource_link) = cosmosdb_resource_scope(method, path)?;
+        let token =
+            cosmosdb_master_key_authorization(method, &resource_type, &resource_link, date, &key)?;
+        return Ok(format!("Authorization: {token}\r\n"));
+    }
+
     let Some(value) = connection
         .password
         .as_deref()
@@ -269,6 +355,125 @@ fn cosmosdb_auth_header(connection: &ResolvedConnectionProfile) -> Result<String
     }
 
     Ok(format!("Authorization: {value}\r\n"))
+}
+
+fn cosmosdb_master_key(
+    connection: &ResolvedConnectionProfile,
+    auth_mode: &str,
+    endpoint: &CosmosDbEndpoint,
+) -> Result<String, CommandError> {
+    if let Some(value) = connection
+        .password
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(value.into());
+    }
+
+    if auth_mode.eq_ignore_ascii_case("emulator") && endpoint.is_local() {
+        return Ok(COSMOSDB_EMULATOR_MASTER_KEY.into());
+    }
+
+    Err(CommandError::new(
+        "cosmosdb-auth-missing",
+        "Cosmos DB account-key authentication requires an account key. Emulator mode can omit the key only for a local emulator endpoint.",
+    ))
+}
+
+fn cosmosdb_master_key_authorization(
+    method: &str,
+    resource_type: &str,
+    resource_link: &str,
+    date: &str,
+    key: &str,
+) -> Result<String, CommandError> {
+    let decoded_key = BASE64.decode(key.trim()).map_err(|_| {
+        CommandError::new(
+            "cosmosdb-account-key-invalid",
+            "Cosmos DB account key must be a valid base64 master key.",
+        )
+    })?;
+    let payload = format!(
+        "{}\n{}\n{}\n{}\n\n",
+        method.to_ascii_lowercase(),
+        resource_type.to_ascii_lowercase(),
+        resource_link,
+        date.to_ascii_lowercase()
+    );
+    let mut mac = HmacSha256::new_from_slice(&decoded_key).map_err(|_| {
+        CommandError::new(
+            "cosmosdb-account-key-invalid",
+            "Cosmos DB account key could not initialize request signing.",
+        )
+    })?;
+    mac.update(payload.as_bytes());
+    let signature = BASE64.encode(mac.finalize().into_bytes());
+    Ok(percent_encode_cosmosdb_auth(&format!(
+        "type=master&ver=1.0&sig={signature}"
+    )))
+}
+
+fn percent_encode_cosmosdb_auth(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+fn cosmosdb_resource_scope(method: &str, path: &str) -> Result<(String, String), CommandError> {
+    let normalized = normalize_cosmosdb_path(path);
+    let parts = normalized
+        .trim_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        return Err(CommandError::new(
+            "cosmosdb-resource-scope-invalid",
+            "Cosmos DB request path did not include a resource.",
+        ));
+    }
+
+    let last = parts.last().copied().unwrap_or_default();
+    let collection_request = matches!(
+        last,
+        "dbs"
+            | "colls"
+            | "docs"
+            | "sprocs"
+            | "triggers"
+            | "udfs"
+            | "users"
+            | "permissions"
+            | "offers"
+    );
+    let resource_type = if collection_request {
+        last
+    } else {
+        parts
+            .get(parts.len().saturating_sub(2))
+            .copied()
+            .unwrap_or(last)
+    };
+    let mut link_parts = if collection_request {
+        parts[..parts.len().saturating_sub(1)].to_vec()
+    } else {
+        parts.clone()
+    };
+
+    if resource_type == "docs" && method.eq_ignore_ascii_case("POST") && last == "docs" {
+        link_parts = parts[..parts.len().saturating_sub(1)].to_vec();
+    }
+
+    Ok((resource_type.into(), link_parts.join("/")))
+}
+
+fn cosmosdb_connection_error(endpoint: &CosmosDbEndpoint, error: std::io::Error) -> CommandError {
+    CommandError::new(
+        "cosmosdb-connection-refused",
+        format!(
+            "Could not reach Cosmos DB at {}. Start the Microsoft Cosmos DB emulator and use http://localhost:8081, or run `npm run fixtures:up:profile -- cosmosdb` and use http://localhost:8082. Original error: {error}",
+            endpoint.display_url()
+        ),
+    )
 }
 
 #[cfg(test)]

@@ -150,6 +150,16 @@ npm run fixtures:validate:oracle
 
 That validator checks Oracle seeded relational volume, dictionary/security/storage metadata, DBMS_XPLAN plan output, SQL Monitor visibility or permission-boundary evidence, PL/SQL package source and compile diagnostics, row identity and DML `RETURNING` primitives, bounded SQLPlus export/import evidence, restricted dictionary denial evidence, and Data Pump/RMAN preview boundary wording through transient `fixture_oracle_*` objects. Desktop Oracle SQLPlus query and primary-key/ROWID row-edit execution are now configurable per connection; Data Pump and RMAN execution remain outside the scoped claim until guarded executors are added.
 
+The Cosmos DB emulator optional fixture evidence path is:
+
+```powershell
+npm run fixtures:up:profile -- cosmosdb
+npm run fixtures:seed:all
+npm run fixtures:validate:cosmosdb
+```
+
+That validator checks the Microsoft Linux vNext Cosmos DB emulator health endpoint, seeded `datapadplusplus` database, `accounts`, `products`, `orders`, and `order_events` containers, and query evidence for seeded product/order documents. The emulator fixture is separate from the lightweight cloud-contract Cosmos DB mock so fast contract tests can keep using the mock while emulator-specific work can validate against the real local gateway and Data Explorer.
+
 The DynamoDB Local optional fixture evidence path is:
 
 ```powershell
@@ -205,7 +215,7 @@ $env:DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE='1'
 npm run fixtures:validate:litedb:dotnet
 ```
 
-It creates a temporary LiteDB database through the .NET sidecar, validates collection listing, bounded reads, index metadata, guarded full-document insert/update/delete, before/after reads, read-only mutation blocking, `_id` mismatch blocking, missing-file error mapping, and secret redaction. Encrypted-file validation, import/export execution, packaged sidecar distribution, collection/file-storage management execution, and exclusive writer-lock validation remain outside this checkpoint until later LiteDB slices promote them with explicit guardrails.
+It creates temporary LiteDB databases through the .NET sidecar, validates collection listing, bounded reads, index metadata, guarded full-document insert/update/delete, before/after reads, read-only mutation blocking, `_id` mismatch blocking, missing-file error mapping, encrypted-file correct-password open/read evidence, wrong-password failure evidence, JSON collection export/import execution, overwrite blocking, read-only import blocking, post-import reads, file-storage import/export/delete with list and post-delete checks, guarded index create/drop, `_id` index drop blocking, guarded collection drop, post-drop collection listing, and secret/path redaction. Packaged sidecar distribution and exclusive writer-lock validation remain outside this checkpoint until a later LiteDB slice promotes them with explicit guardrails.
 
 ## Coverage Expectations
 

@@ -289,7 +289,7 @@ describe('ObjectViewWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Order'), { target: { value: '-1' } })
     fireEvent.click(screen.getByLabelText('Unique'))
     fireEvent.change(screen.getByLabelText('TTL seconds'), { target: { value: '3600' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.index.create',
       objectName: 'products',
@@ -305,7 +305,7 @@ describe('ObjectViewWorkspace', () => {
       }),
     }))
     expect(await screen.findByText('Prepared')).toBeInTheDocument()
-    expect(screen.getByText('Request Preview')).toBeInTheDocument()
+    expect(screen.getByText('Show Request')).toBeInTheDocument()
   })
 
   it('builds compound Mongo indexes from multiple field rows', () => {
@@ -343,7 +343,7 @@ describe('ObjectViewWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add Field' }))
     fireEvent.change(screen.getByLabelText('Field 2'), { target: { value: 'category' } })
     fireEvent.change(screen.getByLabelText('Order 2'), { target: { value: '-1' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
 
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.index.create',
@@ -355,6 +355,44 @@ describe('ObjectViewWorkspace', () => {
         },
       }),
     }))
+  })
+
+  it('does not show Mongo operation feedback when a guarded run is canceled', async () => {
+    const onPlanOperation = vi.fn(async () => undefined)
+
+    render(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          title: 'products - Create Index',
+          objectViewState: {
+            connectionId: mongoConnection.id,
+            environmentId: environment.id,
+            nodeId: 'create-index:catalog:products',
+            label: 'Create Index',
+            kind: 'create-index',
+            path: ['catalog', 'Collections', 'products'],
+            warnings: [],
+            payload: {
+              database: 'catalog',
+              collection: 'products',
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+
+    await waitFor(() => expect(onPlanOperation).toHaveBeenCalled())
+    expect(screen.queryByText('Create index field_1')).not.toBeInTheDocument()
+    expect(screen.queryByText('Prepared')).not.toBeInTheDocument()
+    expect(screen.queryByText('DataPad++ could not prepare this change.')).not.toBeInTheDocument()
   })
 
   it('renders a dedicated Mongo add-document workspace', () => {
@@ -524,7 +562,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByLabelText('Validator rule')).not.toBeVisible()
     fireEvent.change(screen.getByLabelText('Field'), { target: { value: 'name' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Field' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Review Required Fields' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run Required Fields' }))
 
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.validation.update',
@@ -626,13 +664,132 @@ describe('ObjectViewWorkspace', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Open Results Preview' })[0] as HTMLElement)
 
-    expect(onOpenQuery).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'pipeline',
-        label: 'Pipeline',
-        preferredBuilder: 'mongo-aggregation',
-      }),
+    const openedTarget = onOpenQuery.mock.calls[0]?.[0]
+    expect(openedTarget).toMatchObject({
+      kind: 'pipeline',
+      label: 'Pipeline',
+      queryTemplate: '{ "database": "catalog", "collection": "active_products", "filter": {} }',
+    })
+    expect(openedTarget?.preferredBuilder).toBeUndefined()
+  })
+
+  it('opens generic Mongo object-view query templates in raw mode', () => {
+    const onOpenQuery = vi.fn()
+    const queryTemplate = '{ "database": "catalog", "command": { "listIndexes": "products" } }'
+
+    render(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          title: 'Indexes',
+          objectViewState: {
+            connectionId: mongoConnection.id,
+            environmentId: environment.id,
+            nodeId: 'indexes:catalog:products',
+            label: 'Indexes',
+            kind: 'indexes',
+            path: ['catalog', 'Collections', 'products'],
+            queryTemplate,
+            warnings: [],
+            payload: {
+              database: 'catalog',
+              collection: 'products',
+              indexes: [{ name: '_id_', key: { _id: 1 } }],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={onOpenQuery}
+      />,
     )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Query' }))
+
+    const openedTarget = onOpenQuery.mock.calls[0]?.[0]
+    expect(openedTarget).toMatchObject({
+      kind: 'indexes',
+      label: 'Indexes',
+      path: ['catalog', 'Collections', 'products'],
+      queryTemplate,
+    })
+    expect(openedTarget?.preferredBuilder).toBeUndefined()
+  })
+
+  it('keeps Mongo document and aggregation object-view handoffs builder-backed', () => {
+    const onOpenQuery = vi.fn()
+    const collectionQueryTemplate = '{ "database": "catalog", "collection": "products", "filter": {} }'
+    const aggregationQueryTemplate = '{ "database": "catalog", "collection": "products", "operation": "aggregate", "pipeline": [] }'
+    const collectionTab: QueryTabState = {
+      ...baseObjectViewTab,
+      title: 'products',
+      objectViewState: {
+        connectionId: mongoConnection.id,
+        environmentId: environment.id,
+        nodeId: 'collection:catalog:products',
+        label: 'products',
+        kind: 'collection',
+        path: ['catalog', 'Collections', 'products'],
+        queryTemplate: collectionQueryTemplate,
+        warnings: [],
+        payload: {
+          database: 'catalog',
+          collection: 'products',
+        },
+      },
+    }
+    const { rerender } = render(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={collectionTab}
+        onRefresh={vi.fn()}
+        onOpenQuery={onOpenQuery}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open Documents' })[0] as HTMLElement)
+    expect(onOpenQuery.mock.calls[0]?.[0]).toMatchObject({
+      kind: 'collection',
+      queryTemplate: collectionQueryTemplate,
+      preferredBuilder: 'mongo-find',
+    })
+
+    rerender(
+      <ObjectViewWorkspace
+        connection={mongoConnection}
+        environment={environment}
+        tab={{
+          ...baseObjectViewTab,
+          title: 'Aggregations',
+          objectViewState: {
+            connectionId: mongoConnection.id,
+            environmentId: environment.id,
+            nodeId: 'aggregations:catalog:products',
+            label: 'Aggregations',
+            kind: 'aggregations',
+            path: ['catalog', 'Collections', 'products'],
+            queryTemplate: aggregationQueryTemplate,
+            warnings: [],
+            payload: {
+              database: 'catalog',
+              collection: 'products',
+              scripts: [],
+            },
+          },
+        }}
+        onRefresh={vi.fn()}
+        onOpenQuery={onOpenQuery}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open Aggregation Builder' })[0] as HTMLElement)
+    expect(onOpenQuery.mock.calls[1]?.[0]).toMatchObject({
+      kind: 'aggregations',
+      queryTemplate: aggregationQueryTemplate,
+      preferredBuilder: 'mongo-aggregation',
+    })
   })
 
   it('renders Mongo script templates as launch cards and hides script text until requested', () => {
@@ -760,7 +917,7 @@ describe('ObjectViewWorkspace', () => {
     fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
       target: { value: '{{MONGO_USER_PASSWORD}}' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.user.create',
       objectName: 'analytics',
@@ -812,7 +969,7 @@ describe('ObjectViewWorkspace', () => {
     fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
       target: { value: 'plain-secret' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
 
     expect(screen.getByText('Use an environment secret variable such as {{MONGO_USER_PASSWORD}}.')).toBeInTheDocument()
     expect(onPlanOperation).not.toHaveBeenCalled()
@@ -855,7 +1012,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText(/"actions":/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Create Role' }))
     fireEvent.change(screen.getByPlaceholderText('analytics_reader'), { target: { value: 'inventory_reader' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.role.create',
       objectName: 'inventory_reader',

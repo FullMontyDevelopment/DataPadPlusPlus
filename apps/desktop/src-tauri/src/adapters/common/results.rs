@@ -7,6 +7,23 @@ use crate::{
 
 use super::*;
 
+pub(crate) struct BoundedItems<T> {
+    pub(crate) visible: Vec<T>,
+    pub(crate) truncated: bool,
+}
+
+pub(crate) fn bounded_items<T>(
+    items: impl IntoIterator<Item = T>,
+    row_limit: u32,
+) -> BoundedItems<T> {
+    let limit = row_limit as usize;
+    let mut items = items.into_iter();
+    let visible = items.by_ref().take(limit).collect::<Vec<T>>();
+    let truncated = items.next().is_some();
+
+    BoundedItems { visible, truncated }
+}
+
 pub(crate) struct ResultEnvelopeInput<'a> {
     pub(crate) engine: &'a str,
     pub(crate) summary: String,
@@ -19,6 +36,10 @@ pub(crate) struct ResultEnvelopeInput<'a> {
     pub(crate) truncated: bool,
     pub(crate) explain_payload: Option<Value>,
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/adapters/common/results_tests.rs"]
+mod tests;
 
 pub(crate) fn build_result(input: ResultEnvelopeInput<'_>) -> ExecutionResultEnvelope {
     let buffered_rows = input

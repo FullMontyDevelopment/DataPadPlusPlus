@@ -1,6 +1,13 @@
+import { useState } from 'react'
 import type { AppHealth, DiagnosticsReport } from '@datapadplusplus/shared-types'
+import { openExternalLink } from '../../../services/runtime/external-links'
 import { LogoMark } from './icons'
-import { MetricCard, SettingsPanel } from './SettingsWorkspace.parts'
+import {
+  MetricCard,
+  SettingsNotice,
+  type SettingsNoticeMessage,
+  SettingsPanel,
+} from './SettingsWorkspace.parts'
 
 const GITHUB_REPO_URL = 'https://github.com/FullMontyDevelopment/DataPadPlusPlus'
 
@@ -29,6 +36,20 @@ export function SettingsAboutPanel({
   diagnostics?: DiagnosticsReport
   health: AppHealth
 }) {
+  const [notice, setNotice] = useState<SettingsNoticeMessage>()
+
+  const handleOpenLink = async (href: string) => {
+    try {
+      await openExternalLink(href)
+      setNotice(undefined)
+    } catch (error) {
+      setNotice({
+        text: `The link could not be opened in your browser. ${externalLinkFailureMessage(error)}`,
+        tone: 'error',
+      })
+    }
+  }
+
   return (
     <SettingsPanel title="About" icon={<LogoMark className="panel-inline-icon" />}>
       <div className="settings-about-summary">
@@ -63,12 +84,27 @@ export function SettingsAboutPanel({
             href={link.href}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={(event) => {
+              event.preventDefault()
+              void handleOpenLink(link.href)
+            }}
           >
             <strong>{link.label}</strong>
             <span>{link.description}</span>
           </a>
         ))}
       </div>
+      <SettingsNotice notice={notice} />
     </SettingsPanel>
   )
+}
+
+function externalLinkFailureMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+  if (typeof error === 'string' && error) {
+    return error
+  }
+  return 'Check the desktop opener permissions and try again.'
 }

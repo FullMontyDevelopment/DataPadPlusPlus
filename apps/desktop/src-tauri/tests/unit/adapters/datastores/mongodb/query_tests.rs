@@ -80,6 +80,59 @@ fn cursor_limit_saturates_at_u32_max() {
 }
 
 #[test]
+fn effective_mongodb_row_limit_prefers_explicit_query_limit_without_exceeding_request() {
+    assert_eq!(
+        effective_mongodb_row_limit(&json!({ "collection": "products", "limit": 100 }), 500),
+        100
+    );
+    assert_eq!(
+        effective_mongodb_row_limit(&json!({ "collection": "products", "limit": 1000 }), 500),
+        500
+    );
+    assert_eq!(
+        effective_mongodb_row_limit(&json!({ "collection": "products" }), 500),
+        500
+    );
+}
+
+#[test]
+fn document_result_caps_overfetched_documents_for_all_renderers() {
+    let connection = resolved_connection();
+    let documents = (0..101)
+        .map(|index| doc! { "_id": index, "name": format!("product-{index}") })
+        .collect::<Vec<_>>();
+
+    let result = document_result(DocumentResultInput {
+        connection: &connection,
+        started: Instant::now(),
+        notices: Vec::new(),
+        documents,
+        database_name: "catalog",
+        collection_name: "products",
+        row_limit: 100,
+        label: "document(s)",
+        lazy_documents: false,
+    });
+
+    assert_eq!(result.truncated, Some(true));
+    assert_eq!(result.row_limit, Some(100));
+    assert_eq!(
+        result.page_info.as_ref().map(|page| page.buffered_rows),
+        Some(100)
+    );
+    assert_eq!(
+        result.payloads[0]["documents"].as_array().unwrap().len(),
+        100
+    );
+    assert_eq!(result.payloads[1]["value"].as_array().unwrap().len(), 100);
+    assert_eq!(result.payloads[2]["rows"].as_array().unwrap().len(), 100);
+
+    let raw_documents =
+        serde_json::from_str::<Value>(result.payloads[3]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(raw_documents.as_array().unwrap().len(), 100);
+}
+
+#[test]
 fn bson_document_reports_non_object_inputs() {
     let error = bson_document(&json!([1, 2, 3]), "filter").expect_err("array rejected");
 
@@ -106,4 +159,34 @@ fn bson_document_converts_extended_json_filter_values_to_native_bson() {
         Some(Bson::DateTime(_))
     ));
     assert!(matches!(filter.get("_id"), Some(Bson::ObjectId(_))));
+}
+
+fn resolved_connection() -> ResolvedConnectionProfile {
+    ResolvedConnectionProfile {
+        id: "conn-mongo".into(),
+        name: "Fixture MongoDB".into(),
+        engine: "mongodb".into(),
+        family: "document".into(),
+        host: "localhost".into(),
+        port: Some(27017),
+        database: Some("catalog".into()),
+        username: None,
+        password: None,
+        connection_string: None,
+        redis_options: None,
+        memcached_options: None,
+        sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
+        read_only: true,
+    }
 }

@@ -2390,11 +2390,28 @@ function mongoActions(
   const database = target.database
   const collection = target.collection ?? node.label
 
+  if (kind === 'databases') {
+    return [
+      objectViewAction(
+        'create-database',
+        'Create Database...',
+        'databases',
+        'databases',
+        [],
+      ),
+    ]
+  }
+
+  if (kind === 'database') {
+    return [
+      mongoDatabaseObjectViewAction('create-collection', 'Create Collection...', database),
+      mongoDatabaseObjectViewAction('drop-database', 'Drop Database...', database, true),
+    ]
+  }
+
   if (kind === 'collections') {
     return [
-      templateAction('create-collection', 'Create Collection...', mongoCommandTemplateForDatabase(database, {
-        create: 'new_collection',
-      })),
+      mongoDatabaseObjectViewAction('create-collection', 'Create Collection...', database),
     ]
   }
 
@@ -2416,9 +2433,14 @@ function mongoActions(
         `create-index:${database ?? ''}:${collection}`,
         mongoCollectionObjectViewPath(database, collection),
       ),
-      templateAction('update-validator', 'Update Validation Rules...', mongoCommandTemplateForDatabase(database, { collMod: collection, validator: {} })),
-      templateAction('rename-collection', 'Rename Collection...', mongoCommandTemplateForDatabase(database, { renameCollection: `${database}.${collection}`, to: `${database}.${collection}_new` })),
-      templateAction('drop-collection', 'Drop Collection...', mongoCommandTemplateForDatabase(database, { drop: collection }), true),
+      mongoValidationObjectViewAction('update-validator', 'Update Validation Rules...', database, collection),
+      mongoCollectionAdminObjectViewAction('rename-collection', 'Rename Collection...', database, collection),
+      mongoCollectionAdminObjectViewAction('modify-collection', 'Modify Collection...', database, collection),
+      mongoCollectionAdminObjectViewAction('convert-to-capped', 'Convert To Capped...', database, collection),
+      mongoCollectionAdminObjectViewAction('clone-as-capped', 'Clone As Capped...', database, collection),
+      mongoCollectionAdminObjectViewAction('compact-collection', 'Compact Collection...', database, collection),
+      mongoCollectionAdminObjectViewAction('validate-collection', 'Validate Collection...', database, collection),
+      mongoCollectionAdminObjectViewAction('drop-collection', 'Drop Collection...', database, collection, true),
     ]
   }
 
@@ -2446,7 +2468,14 @@ function mongoActions(
 
   if (kind === 'index') {
     return [
-      templateAction('drop-index', 'Drop Index...', mongoCommandTemplateForDatabase(database, { dropIndexes: collection, index: node.label }), true),
+      objectViewAction(
+        'drop-index',
+        'Drop Index...',
+        'indexes',
+        `indexes:${database ?? ''}:${collection}`,
+        mongoCollectionObjectViewPath(database, collection),
+        true,
+      ),
     ]
   }
 
@@ -2591,6 +2620,58 @@ function templateAction(
   separatorBefore = false,
 ): ConnectionTreeAction {
   return { id, label, command: 'open-template', queryTemplate, separatorBefore }
+}
+
+function mongoDatabaseObjectViewAction(
+  id: string,
+  label: string,
+  database: string | undefined,
+  separatorBefore = false,
+) {
+  const scopedDatabase = database?.trim()
+
+  return objectViewAction(
+    id,
+    label,
+    scopedDatabase ? 'database' : 'databases',
+    scopedDatabase ? `database:${scopedDatabase}` : 'databases',
+    scopedDatabase ? [scopedDatabase] : [],
+    separatorBefore,
+  )
+}
+
+function mongoCollectionAdminObjectViewAction(
+  id: string,
+  label: string,
+  database: string | undefined,
+  collection: string,
+  separatorBefore = false,
+) {
+  return objectViewAction(
+    id,
+    label,
+    'collection',
+    `collection:${database ?? ''}:${collection}`,
+    mongoCollectionObjectViewPath(database, collection),
+    separatorBefore,
+  )
+}
+
+function mongoValidationObjectViewAction(
+  id: string,
+  label: string,
+  database: string | undefined,
+  collection: string,
+  separatorBefore = false,
+) {
+  return objectViewAction(
+    id,
+    label,
+    'validation-rules',
+    `validation-rules:${database ?? ''}:${collection}`,
+    mongoCollectionObjectViewPath(database, collection),
+    separatorBefore,
+  )
 }
 
 function mongoCollectionObjectViewPath(database: string | undefined, collection: string) {

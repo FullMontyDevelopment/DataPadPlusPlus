@@ -404,6 +404,66 @@ test('DynamoDB Local optional fixtures cover local query, edit, and boundary evi
   assert.match(completenessSource, /conditional-write expression planning/)
 })
 
+test('Cosmos DB emulator optional fixtures cover setup, seed, and validation paths', async () => {
+  const [
+    packageSource,
+    composeSource,
+    composeRunnerSource,
+    seedSource,
+    initSource,
+    readmeSource,
+    connectionsSource,
+    strategySource,
+    validatorSource,
+  ] = await Promise.all([
+    read('package.json'),
+    read('tests/fixtures/docker-compose.yml'),
+    read('tests/fixtures/compose.mjs'),
+    read('tests/fixtures/seed.mjs'),
+    read('tests/fixtures/cosmosdb/init/001_seed.csh'),
+    read('tests/fixtures/README.md'),
+    read('tests/fixtures/CONNECTIONS.md'),
+    read('docs/testing/strategy.md'),
+    read('tests/fixtures/validate-cosmosdb-fixtures.mjs'),
+  ])
+
+  assert.match(packageSource, /"fixtures:validate:cosmosdb": "node tests\/fixtures\/validate-cosmosdb-fixtures\.mjs"/)
+  assert.match(composeSource, /mcr\.microsoft\.com\/cosmosdb\/linux\/azure-cosmos-emulator:vnext-latest/)
+  assert.match(composeSource, /profiles: \['cosmosdb'\]/)
+  assert.match(composeSource, /ENABLE_INIT_DATA: 'true'/)
+  assert.match(composeSource, /DATAPADPLUSPLUS_COSMOSDB_EMULATOR_PORT/)
+  assert.match(composeSource, /DATAPADPLUSPLUS_COSMOSDB_HEALTH_PORT/)
+  assert.match(composeSource, /DATAPADPLUSPLUS_COSMOSDB_EXPLORER_PORT/)
+  assert.match(composeSource, /\.\/cosmosdb\/init:\/init:ro/)
+  assert.match(composeRunnerSource, /'cosmosdb'/)
+  assert.match(composeRunnerSource, /DATAPADPLUSPLUS_COSMOSDB_EMULATOR_PORT/)
+  assert.match(composeRunnerSource, /DATAPADPLUSPLUS_COSMOSDB_HEALTH_PORT/)
+  assert.match(composeRunnerSource, /DATAPADPLUSPLUS_COSMOSDB_EXPLORER_PORT/)
+  assert.match(seedSource, /function seedCosmosDbEmulator\(\)/)
+  assert.match(seedSource, /datapadplusplus-cosmosdb/)
+  assert.match(seedSource, /SELECT VALUE COUNT\(1\) FROM c/)
+  assert.match(initSource, /mkdb datapadplusplus/)
+  assert.match(initSource, /mkcon accounts \/id/)
+  assert.match(initSource, /mkcon products \/sku/)
+  assert.match(initSource, /mkcon orders \/accountId/)
+  assert.match(initSource, /mkcon order_events \/pk/)
+  assert.match(initSource, /order-101/)
+  assert.match(initSource, /luna-lamp/)
+  assert.match(validatorSource, /Cosmos DB emulator: health endpoint ready/)
+  assert.match(validatorSource, /cosmoshell\.sh/)
+  assert.match(validatorSource, /DATAPADPLUSPLUS_COSMOSDB_HEALTH_PORT/)
+  assert.match(validatorSource, /order-101/)
+  assert.match(validatorSource, /luna-lamp/)
+  assert.match(readmeSource, /fixtures:up:profile -- cosmosdb/)
+  assert.match(readmeSource, /fixtures:validate:cosmosdb/)
+  assert.match(readmeSource, /Microsoft Linux vNext Cosmos DB emulator/)
+  assert.match(connectionsSource, /Cosmos DB emulator gateway/)
+  assert.match(connectionsSource, /DATAPADPLUSPLUS_COSMOSDB/)
+  assert.match(connectionsSource, /fixtures:validate:cosmosdb/)
+  assert.match(strategySource, /Cosmos DB emulator optional fixture evidence path/)
+  assert.match(strategySource, /lightweight cloud-contract Cosmos DB mock/)
+})
+
 test('Search optional fixtures cover profile, document evidence, diagnostics, and boundary primitives', async () => {
   const [
     packageSource,
@@ -540,9 +600,16 @@ test('LiteDB optional fixtures cover local-file preflight and sidecar boundary e
     dotnetValidatorSource,
     connectionSource,
     querySource,
+    importExportSource,
+    managementSource,
     queryTestsSource,
+    importExportTestsSource,
+    managementTestsSource,
     browserPlannerSource,
+    browserManifestSource,
     rustPlannerSource,
+    operationManifestSource,
+    contractSource,
     sidecarProjectSource,
     sidecarProgramSource,
     sidecarReadmeSource,
@@ -556,9 +623,16 @@ test('LiteDB optional fixtures cover local-file preflight and sidecar boundary e
     read('tests/fixtures/validate-litedb-dotnet-sidecar.mjs'),
     read('apps/desktop/src-tauri/src/adapters/datastores/litedb/connection.rs'),
     read('apps/desktop/src-tauri/src/adapters/datastores/litedb/query.rs'),
+    read('apps/desktop/src-tauri/src/adapters/datastores/litedb/import_export.rs'),
+    read('apps/desktop/src-tauri/src/adapters/datastores/litedb/management.rs'),
     read('apps/desktop/src-tauri/tests/unit/adapters/datastores/litedb/query_tests.rs'),
+    read('apps/desktop/src-tauri/tests/unit/adapters/datastores/litedb/import_export_tests.rs'),
+    read('apps/desktop/src-tauri/tests/unit/adapters/datastores/litedb/management_tests.rs'),
     read('apps/desktop/src/services/runtime/datastores/litedb/browser-litedb-operations.ts'),
+    read('apps/desktop/src/services/runtime/browser-operation-manifests.ts'),
     read('apps/desktop/src-tauri/src/adapters/common/operations/planning.rs'),
+    read('apps/desktop/src-tauri/src/adapters/common/operations/manifest.rs'),
+    read('apps/desktop/src-tauri/src/adapters/contract.rs'),
     read('apps/desktop/src-tauri/sidecars/litedb/DataPadPlusPlus.LiteDbSidecar.csproj'),
     read('apps/desktop/src-tauri/sidecars/litedb/Program.cs'),
     read('apps/desktop/src-tauri/sidecars/litedb/README.md'),
@@ -570,17 +644,38 @@ test('LiteDB optional fixtures cover local-file preflight and sidecar boundary e
   assert.match(validatorSource, /const testName = 'litedb_sidecar'/)
   assert.match(validatorSource, /LiteDB: local-file preflight plus fixture-token and local sidecar-process read dispatch, bounded response normalization, process open-failure mapping, timeout, and redaction evidence/)
   assert.match(validatorSource, /DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE=1 npm run fixtures:validate:litedb:dotnet/)
+  assert.match(validatorSource, /JSON collection import\/export execution/)
+  assert.match(validatorSource, /index\/collection management execution/)
+  assert.match(validatorSource, /file-storage import\/export\/delete/)
   assert.match(dotnetValidatorSource, /DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE/)
   assert.match(dotnetValidatorSource, /DATAPADPLUSPLUS_LITEDB_SIDECAR_ALLOW_FIXTURE_SEED/)
   assert.match(dotnetValidatorSource, /operation: 'SeedFixture'/)
   assert.match(dotnetValidatorSource, /operation: 'ListCollections'/)
   assert.match(dotnetValidatorSource, /operation: 'Find'/)
   assert.match(dotnetValidatorSource, /operation: 'ListIndexes'/)
+  assert.match(dotnetValidatorSource, /operation: 'ValidateEncryptedFile'/)
   assert.match(dotnetValidatorSource, /operation: 'InsertDocument'/)
   assert.match(dotnetValidatorSource, /operation: 'UpdateDocument'/)
   assert.match(dotnetValidatorSource, /operation: 'DeleteDocument'/)
+  assert.match(dotnetValidatorSource, /operation: 'ExportCollection'/)
+  assert.match(dotnetValidatorSource, /operation: 'ImportCollection'/)
+  assert.match(dotnetValidatorSource, /operation: 'EnsureIndex'/)
+  assert.match(dotnetValidatorSource, /operation: 'DropIndex'/)
+  assert.match(dotnetValidatorSource, /operation: 'DropCollection'/)
+  assert.match(dotnetValidatorSource, /operation: 'ImportFile'/)
+  assert.match(dotnetValidatorSource, /operation: 'ListFiles'/)
+  assert.match(dotnetValidatorSource, /operation: 'ExportFile'/)
+  assert.match(dotnetValidatorSource, /operation: 'DeleteFile'/)
   assert.match(dotnetValidatorSource, /litedb-id-mismatch/)
   assert.match(dotnetValidatorSource, /litedb-file-missing/)
+  assert.match(dotnetValidatorSource, /litedb-encrypted-open-failed/)
+  assert.match(dotnetValidatorSource, /litedb-export-target-exists/)
+  assert.match(dotnetValidatorSource, /litedb-file-export-target-exists/)
+  assert.match(dotnetValidatorSource, /litedb-index-drop-blocked/)
+  assert.match(dotnetValidatorSource, /fileStorageWorkflowValidated/)
+  assert.match(dotnetValidatorSource, /importedProducts/)
+  assert.match(dotnetValidatorSource, /files\/terms\.txt/)
+  assert.match(dotnetValidatorSource, /super-secret-encrypted-fixture-password/)
   assert.match(dotnetValidatorSource, /super-secret-fixture-password/)
   assert.match(connectionSource, /litedb_local_file_preflight/)
   assert.match(connectionSource, /filesystem-read-open/)
@@ -589,6 +684,18 @@ test('LiteDB optional fixtures cover local-file preflight and sidecar boundary e
   assert.match(connectionSource, /dotnet-litedb-sidecar/)
   assert.match(querySource, /execute_litedb_sidecar_operation/)
   assert.match(querySource, /litedb-sidecar-live-read/)
+  assert.match(querySource, /ValidateEncryptedFile/)
+  assert.match(querySource, /ExportCollection/)
+  assert.match(querySource, /ImportCollection/)
+  assert.match(querySource, /ListFiles/)
+  assert.match(querySource, /ExportFile/)
+  assert.match(querySource, /ImportFile/)
+  assert.match(querySource, /DeleteFile/)
+  assert.match(querySource, /fileStorageWorkflowValidated/)
+  assert.match(querySource, /EnsureIndex/)
+  assert.match(querySource, /DropIndex/)
+  assert.match(querySource, /DropCollection/)
+  assert.match(querySource, /managementExecutionValidated/)
   assert.match(querySource, /live-read-dispatch/)
   assert.match(querySource, /live-mutation-dispatch/)
   assert.match(querySource, /litedb_sidecar_response_from_stdout/)
@@ -596,29 +703,111 @@ test('LiteDB optional fixtures cover local-file preflight and sidecar boundary e
   assert.match(querySource, /local-sidecar-process/)
   assert.match(querySource, /processDispatchValidated/)
   assert.match(querySource, /engineRuntimeValidated/)
+  assert.match(importExportSource, /execute_litedb_file_operation/)
+  assert.match(importExportSource, /litedb\.data\.import-export/)
+  assert.match(importExportSource, /litedb\.file-storage\.import/)
+  assert.match(importExportSource, /litedb\.file-storage\.export/)
+  assert.match(importExportSource, /litedb\.file-storage\.delete/)
+  assert.match(importExportSource, /Live LiteDB collection import was blocked because this connection is read-only/)
+  assert.match(importExportSource, /Live LiteDB file-storage import was blocked because this connection is read-only/)
+  assert.match(importExportSource, /ExportCollection/)
+  assert.match(importExportSource, /ImportCollection/)
+  assert.match(importExportSource, /ExportFile/)
+  assert.match(importExportSource, /ImportFile/)
+  assert.match(importExportSource, /DeleteFile/)
+  assert.match(managementSource, /execute_litedb_management_operation/)
+  assert.match(managementSource, /litedb\.index\.create/)
+  assert.match(managementSource, /litedb\.index\.drop/)
+  assert.match(managementSource, /litedb\.object\.drop/)
+  assert.match(managementSource, /Live LiteDB management execution was blocked because this connection is read-only/)
+  assert.match(managementSource, /EnsureIndex/)
+  assert.match(managementSource, /DropIndex/)
+  assert.match(managementSource, /DropCollection/)
   assert.match(queryTestsSource, /litedb_sidecar_read_dispatch_contract_returns_bounded_rows/)
   assert.match(queryTestsSource, /LITEDB_PROCESS_SIDECAR_SOURCE/)
   assert.match(queryTestsSource, /litedb_sidecar_local_process_dispatch_contract_returns_bounded_rows/)
   assert.match(queryTestsSource, /litedb_sidecar_local_process_open_failure_redacts_error_output/)
+  assert.match(importExportTestsSource, /litedb_file_storage_export_uses_sidecar_boundary/)
+  assert.match(importExportTestsSource, /litedb_file_storage_import_uses_sidecar_boundary/)
+  assert.match(importExportTestsSource, /litedb_file_storage_import_blocks_read_only_connection/)
+  assert.match(importExportTestsSource, /litedb_file_storage_delete_uses_sidecar_boundary/)
+  assert.match(managementTestsSource, /litedb_index_create_uses_sidecar_management_boundary/)
+  assert.match(managementTestsSource, /litedb_index_drop_uses_sidecar_management_boundary/)
+  assert.match(managementTestsSource, /litedb_object_drop_blocks_read_only_connection/)
+  assert.match(browserManifestSource, /litedb\.index\.create/)
+  assert.match(browserManifestSource, /litedb\.index\.drop/)
+  assert.match(browserManifestSource, /litedb\.object\.drop/)
+  assert.match(browserManifestSource, /litedb\.file-storage\.import/)
+  assert.match(browserManifestSource, /litedb\.file-storage\.export/)
+  assert.match(browserManifestSource, /litedb\.file-storage\.delete/)
+  assert.match(browserManifestSource, /Run guarded LiteDB index or collection management/)
+  assert.match(browserManifestSource, /configured sidecar/)
+  assert.match(browserManifestSource, /Run guarded LiteDB file-storage import, export, or delete/)
+  assert.match(operationManifestSource, /litedb\.index\.create/)
+  assert.match(operationManifestSource, /litedb\.index\.drop/)
+  assert.match(operationManifestSource, /litedb\.object\.drop/)
+  assert.match(operationManifestSource, /litedb\.file-storage\.import/)
+  assert.match(operationManifestSource, /litedb\.file-storage\.export/)
+  assert.match(operationManifestSource, /litedb\.file-storage\.delete/)
+  assert.match(operationManifestSource, /Run guarded LiteDB index or collection management/)
+  assert.match(operationManifestSource, /configured sidecar/)
+  assert.match(operationManifestSource, /Run guarded LiteDB file-storage import, export, or delete/)
+  assert.match(contractSource, /execute_litedb_management_operation/)
+  assert.match(contractSource, /litedb\.file-storage\.import/)
   assert.match(sidecarProjectSource, /<PackageReference Include="LiteDB" Version="5\.0\.21" \/>/)
   assert.match(sidecarProgramSource, /new LiteDatabase\(BuildConnectionString/)
   assert.match(sidecarProgramSource, /"ListCollections" => ListCollections/)
   assert.match(sidecarProgramSource, /"Find" or "Query" => Find/)
   assert.match(sidecarProgramSource, /"FindById" => FindById/)
   assert.match(sidecarProgramSource, /"ListIndexes" => ListIndexes/)
+  assert.match(sidecarProgramSource, /"ValidateEncryptedFile" => ValidateEncryptedFile/)
+  assert.match(sidecarProgramSource, /"ExportCollection" => ExportCollection/)
+  assert.match(sidecarProgramSource, /"ImportCollection" => ImportCollection/)
+  assert.match(sidecarProgramSource, /"ListFiles" => ListFiles/)
+  assert.match(sidecarProgramSource, /"ExportFile" => ExportFile/)
+  assert.match(sidecarProgramSource, /"ImportFile" => ImportFile/)
+  assert.match(sidecarProgramSource, /"DeleteFile" => DeleteFile/)
   assert.match(sidecarProgramSource, /"InsertDocument" => InsertDocument/)
   assert.match(sidecarProgramSource, /"UpdateDocument" => UpdateDocument/)
   assert.match(sidecarProgramSource, /"DeleteDocument" => DeleteDocument/)
+  assert.match(sidecarProgramSource, /"EnsureIndex" => EnsureIndex/)
+  assert.match(sidecarProgramSource, /"DropIndex" => DropIndex/)
+  assert.match(sidecarProgramSource, /"DropCollection" => DropCollection/)
   assert.match(sidecarProgramSource, /litedb-id-mismatch/)
+  assert.match(sidecarProgramSource, /litedb-encrypted-open-failed/)
+  assert.match(sidecarProgramSource, /litedb-export-target-exists/)
+  assert.match(sidecarProgramSource, /litedb-import-source-missing/)
+  assert.match(sidecarProgramSource, /litedb-file-storage-target-exists/)
+  assert.match(sidecarProgramSource, /litedb-file-export-target-exists/)
+  assert.match(sidecarProgramSource, /litedb-index-drop-blocked/)
+  assert.match(sidecarProgramSource, /FileStorage\.Upload/)
+  assert.match(sidecarProgramSource, /FileStorage\.Download/)
+  assert.match(sidecarProgramSource, /RedactSidecarMessage/)
   assert.match(sidecarProgramSource, /SELECT \$ FROM \$indexes/)
   assert.match(sidecarProgramSource, /DATAPADPLUSPLUS_LITEDB_SIDECAR_ALLOW_FIXTURE_SEED/)
   assert.match(sidecarProgramSource, /litedb-file-missing/)
   assert.match(sidecarReadmeSource, /DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE/)
+  assert.match(sidecarReadmeSource, /ValidateEncryptedFile/)
+  assert.match(sidecarReadmeSource, /ExportCollection/)
+  assert.match(sidecarReadmeSource, /ImportCollection/)
+  assert.match(sidecarReadmeSource, /ListFiles/)
+  assert.match(sidecarReadmeSource, /ExportFile/)
+  assert.match(sidecarReadmeSource, /ImportFile/)
+  assert.match(sidecarReadmeSource, /DeleteFile/)
+  assert.match(sidecarReadmeSource, /EnsureIndex/)
+  assert.match(sidecarReadmeSource, /DropIndex/)
+  assert.match(sidecarReadmeSource, /DropCollection/)
   assert.match(browserPlannerSource, /localFilePreflight/)
   assert.match(browserPlannerSource, /sidecarExecutionBoundary/)
   assert.match(browserPlannerSource, /plan-only-until-sidecar/)
+  assert.match(browserPlannerSource, /file-storage-import/)
+  assert.match(browserPlannerSource, /file-storage-export/)
+  assert.match(browserPlannerSource, /file-storage-delete/)
   assert.match(rustPlannerSource, /litedb_local_file_preflight_plan/)
   assert.match(rustPlannerSource, /exclusive-writer-lock-not-validated/)
+  assert.match(rustPlannerSource, /file-storage-import/)
+  assert.match(rustPlannerSource, /file-storage-export/)
+  assert.match(rustPlannerSource, /file-storage-delete/)
   assert.match(readmeSource, /fixtures:validate:litedb/)
   assert.match(readmeSource, /fixtures:validate:litedb:dotnet/)
   assert.match(readmeSource, /local-file read\/write open preflight/)
@@ -629,13 +818,16 @@ test('LiteDB optional fixtures cover local-file preflight and sidecar boundary e
   assert.match(strategySource, /spawned local sidecar-process fixture/)
   assert.match(strategySource, /optional real LiteDB engine sidecar validator/)
   assert.match(strategySource, /collection listing, bounded reads, index metadata/)
+  assert.match(strategySource, /encrypted-file correct-password open\/read evidence/)
+  assert.match(strategySource, /file-storage import\/export\/delete/)
   assert.match(connectionsSource, /fixtures:validate:litedb/)
   assert.match(connectionsSource, /fixtures:validate:litedb:dotnet/)
   assert.match(connectionsSource, /local sidecar-process evidence/)
-  assert.match(connectionsSource, /opt-in \.NET sidecar collection\/find\/index validation/)
+  assert.match(connectionsSource, /opt-in \.NET sidecar collection\/find\/index\/document\/encryption\/import-export\/file-storage\/management validation/)
   assert.match(completenessSource, /optional real \.NET LiteDB sidecar validator/)
   assert.match(completenessSource, /local sidecar-process bounded response/)
-  assert.match(completenessSource, /packaged sidecar distribution/)
+  assert.match(completenessSource, /file-storage import\/export\/delete/)
+  assert.match(completenessSource, /packaged sidecar distribution and exclusive writer-lock validation remain residual risks/)
 })
 
 test('cloud contract mocks return realistic lists and row counts', async () => {

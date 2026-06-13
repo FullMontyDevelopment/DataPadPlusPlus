@@ -50,7 +50,7 @@ pub(crate) async fn fetch_mongodb_page(
             .map(|stage| mongodb_json_to_document(stage, "pipeline[]", "mongodb-paging-bson"))
             .collect::<Result<Vec<Document>, _>>()?;
         pipeline.push(doc! { "$skip": i64::try_from(skip).unwrap_or(i64::MAX) });
-        pipeline.push(doc! { "$limit": i64::from(effective_page_size + 1) });
+        pipeline.push(doc! { "$limit": i64::from(effective_page_size.saturating_add(1)) });
         collection
             .aggregate(pipeline)
             .await?
@@ -65,7 +65,7 @@ pub(crate) async fn fetch_mongodb_page(
                 "mongodb-paging-bson",
             )?)
             .skip(skip)
-            .limit(i64::from(effective_page_size + 1));
+            .limit(i64::from(effective_page_size.saturating_add(1)));
 
         if let Some(projection) = input.get("projection") {
             find = find.projection(mongodb_json_to_document(
@@ -85,11 +85,9 @@ pub(crate) async fn fetch_mongodb_page(
 
         find.await?.try_collect::<Vec<Document>>().await?
     };
-    let has_more = documents.len() > effective_page_size as usize;
-    let visible_documents = documents
-        .iter()
-        .take(effective_page_size as usize)
-        .collect::<Vec<&Document>>();
+    let bounded = bounded_mongodb_page_documents(&documents, effective_page_size);
+    let has_more = bounded.has_more;
+    let visible_documents = bounded.documents;
     let buffered_rows = visible_documents.len() as u32;
 
     Ok(page_response(
@@ -118,3 +116,24 @@ pub(crate) async fn fetch_mongodb_page(
         },
     ))
 }
+
+struct BoundedMongoPageDocuments<'a> {
+    documents: Vec<&'a Document>,
+    has_more: bool,
+}
+
+fn bounded_mongodb_page_documents(
+    documents: &[Document],
+    page_size: u32,
+) -> BoundedMongoPageDocuments<'_> {
+    let bounded = bounded_items(documents.iter(), page_size);
+
+    BoundedMongoPageDocuments {
+        documents: bounded.visible,
+        has_more: bounded.truncated,
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/adapters/datastores/mongodb/paging_tests.rs"]
+mod tests;

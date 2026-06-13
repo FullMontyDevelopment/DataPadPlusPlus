@@ -28,7 +28,7 @@ describe('MongoSecurityView', () => {
     fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
       target: { value: '{{MONGO_USER_PASSWORD}}' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.user.create',
       objectName: 'analytics',
@@ -61,7 +61,7 @@ describe('MongoSecurityView', () => {
     fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
       target: { value: 'plain-secret' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
 
     expect(screen.getByText('Use an environment secret variable such as {{MONGO_USER_PASSWORD}}.')).toBeInTheDocument()
     expect(onPlanOperation).not.toHaveBeenCalled()
@@ -90,7 +90,7 @@ describe('MongoSecurityView', () => {
     expect(screen.queryByText(/"actions":/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Create Role' }))
     fireEvent.change(screen.getByPlaceholderText('analytics_reader'), { target: { value: 'inventory_reader' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.role.create',
       objectName: 'inventory_reader',

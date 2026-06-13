@@ -43,21 +43,19 @@ function buildMongoOperationManifests(
   const operations: OperationManifestResponse['operations'] = []
 
   if (connection.engine === 'mongodb' && capabilities.has('supports_admin_operations')) {
-    operations.push({
-      id: 'mongodb.validation.update',
-      engine: connection.engine,
-      family: connection.family,
-      label: 'Update Validation Rules',
-      scope: 'schema',
-      risk: 'write',
-      requiredCapabilities: ['supports_admin_operations'],
-      supportedRenderers: ['schema', 'diff', 'raw'],
-      description: 'Preview a guarded MongoDB collection validator update.',
-      requiresConfirmation: true,
-      executionSupport: 'plan-only',
-      disabledReason: 'MongoDB validator updates are guarded operation previews.',
-      previewOnly: true,
-    })
+    operations.push(
+      mongoAdminOperation(connection, 'mongodb.validation.update', 'Update Validation Rules', 'schema', 'write', ['schema', 'diff', 'raw'], 'Preview a guarded MongoDB collection validator update.'),
+      mongoAdminOperation(connection, 'mongodb.database.create', 'Create Database', 'database', 'write', ['schema', 'diff', 'raw'], 'Create a MongoDB database by creating its first collection.'),
+      mongoAdminOperation(connection, 'mongodb.database.drop', 'Drop Database', 'database', 'destructive', ['diff', 'raw'], 'Drop a MongoDB database after confirmation; system databases are blocked.'),
+      mongoAdminOperation(connection, 'mongodb.collection.create', 'Create Collection', 'collection', 'write', ['schema', 'diff', 'raw'], 'Create a MongoDB collection with optional native collection options.'),
+      mongoAdminOperation(connection, 'mongodb.collection.drop', 'Drop Collection', 'collection', 'destructive', ['diff', 'raw'], 'Drop a MongoDB collection after confirmation.'),
+      mongoAdminOperation(connection, 'mongodb.collection.rename', 'Rename Collection', 'collection', 'write', ['diff', 'raw'], 'Rename a MongoDB collection.'),
+      mongoAdminOperation(connection, 'mongodb.collection.modify', 'Modify Collection', 'collection', 'write', ['schema', 'diff', 'raw'], 'Apply guarded MongoDB collMod collection options.'),
+      mongoAdminOperation(connection, 'mongodb.collection.convert-to-capped', 'Convert To Capped', 'collection', 'destructive', ['diff', 'raw'], 'Convert a MongoDB collection to capped storage.'),
+      mongoAdminOperation(connection, 'mongodb.collection.clone-as-capped', 'Clone As Capped', 'collection', 'write', ['diff', 'raw'], 'Clone a MongoDB collection into a capped collection.'),
+      mongoAdminOperation(connection, 'mongodb.collection.compact', 'Compact Collection', 'collection', 'write', ['profile', 'metrics', 'raw'], 'Preview a guarded MongoDB compact command.'),
+      mongoAdminOperation(connection, 'mongodb.collection.validate', 'Validate Collection', 'collection', 'costly', ['table', 'json', 'raw'], 'Preview a guarded MongoDB validate command.'),
+    )
   }
 
   if (connection.engine === 'mongodb' && capabilities.has('supports_import_export')) {
@@ -150,6 +148,32 @@ function buildMongoOperationManifests(
   }
 
   return operations
+}
+
+function mongoAdminOperation(
+  connection: ConnectionProfile,
+  id: string,
+  label: string,
+  scope: OperationManifestResponse['operations'][number]['scope'],
+  risk: OperationManifestResponse['operations'][number]['risk'],
+  supportedRenderers: OperationManifestResponse['operations'][number]['supportedRenderers'],
+  description: string,
+): OperationManifestResponse['operations'][number] {
+  return {
+    id,
+    engine: connection.engine,
+    family: connection.family,
+    label,
+    scope,
+    risk,
+    requiredCapabilities: ['supports_admin_operations'],
+    supportedRenderers,
+    description,
+    requiresConfirmation: true,
+    executionSupport: 'plan-only',
+    disabledReason: 'MongoDB management execution requires the desktop adapter.',
+    previewOnly: true,
+  }
 }
 
 function mongoUserRoleOperation(

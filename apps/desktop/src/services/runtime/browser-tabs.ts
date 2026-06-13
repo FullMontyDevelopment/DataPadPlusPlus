@@ -321,7 +321,7 @@ export function createScopedQueryTabInSnapshot(
     language: languageForConnection(connection),
     editorLabel: editorLabelForConnection(connection),
     queryText,
-    queryViewMode: builderKind ? 'builder' : defaultQueryViewModeForConnection(connection),
+    queryViewMode: builderKind ? 'builder' : 'raw',
     scriptText:
       connection.engine === 'mongodb' && builderKind === 'mongo-find'
         ? mongoScriptFindText(targetObjectName)

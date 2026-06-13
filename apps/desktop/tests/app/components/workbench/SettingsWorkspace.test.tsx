@@ -233,6 +233,7 @@ describe('SettingsWorkspace', () => {
   })
 
   it('shows DataPad++ about information and GitHub links', () => {
+    const openWindow = vi.spyOn(window, 'open').mockImplementation(() => null)
     renderSettings()
 
     fireEvent.click(screen.getByRole('button', { name: 'About' }))
@@ -254,6 +255,14 @@ describe('SettingsWorkspace', () => {
       'href',
       'https://github.com/FullMontyDevelopment/DataPadPlusPlus/issues',
     )
+
+    fireEvent.click(screen.getByRole('link', { name: /GitHub repository/i }))
+    expect(openWindow).toHaveBeenCalledWith(
+      'https://github.com/FullMontyDevelopment/DataPadPlusPlus',
+      '_blank',
+      'noopener,noreferrer',
+    )
+    openWindow.mockRestore()
   })
 
   it('edits shortcuts and opens logs as plain text', async () => {

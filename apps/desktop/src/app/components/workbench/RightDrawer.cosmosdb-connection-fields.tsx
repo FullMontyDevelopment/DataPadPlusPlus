@@ -1,4 +1,11 @@
 import type { ConnectionMode, ConnectionProfile, CosmosDbConnectionOptions } from '@datapadplusplus/shared-types'
+import {
+  COSMOS_FIXTURE_DATABASE,
+  COSMOS_FIXTURE_EMULATOR_ENDPOINT,
+  COSMOS_MICROSOFT_EMULATOR_ENDPOINT,
+  endpointValueForCosmosMode,
+  portFromCosmosEndpoint,
+} from './RightDrawer.cosmosdb-connection-config'
 import type { UpdateConnectionDraft } from './RightDrawer.connection-modes'
 import { FormField } from './RightDrawer.primitives'
 
@@ -18,6 +25,7 @@ export function CosmosDbConnectionFields({
   const options = connectionDraft.cosmosDbOptions ?? {}
   const connectMode = options.connectMode ?? (mode === 'cloud-sdk' ? 'emulator' : 'entra-id')
   const authMode = options.authMode ?? authModeForConnectMode(connectMode)
+  const endpointValue = endpointValueForCosmosMode(connectMode, options.accountEndpoint ?? connectionDraft.host)
   const showSecret = authMode === 'account-key' || authMode === 'resource-token' || authMode === 'emulator'
   const updateOptions = (patch: Partial<CosmosDbConnectionOptions>) =>
     onUpdateConnectionDraft({
@@ -28,6 +36,24 @@ export function CosmosDbConnectionFields({
         ...patch,
       },
     })
+  const applyEndpointPreset = (endpoint: string, database: string | undefined) => {
+    updateOptions({
+      connectMode: 'emulator',
+      api: 'nosql',
+      accountEndpoint: endpoint,
+      authMode: 'emulator',
+      databaseName: database || undefined,
+      allowSelfSignedEmulatorCertificate: true,
+    })
+    onUpdateConnectionDraft(
+      {
+        host: endpoint,
+        port: portFromCosmosEndpoint(endpoint),
+        database: database || undefined,
+      },
+      { preserveName: true },
+    )
+  }
 
   return (
     <div className="connection-advanced-section" aria-label="Cosmos DB connection options">
@@ -40,7 +66,24 @@ export function CosmosDbConnectionFields({
             value={connectMode}
             onChange={(event) => {
               const nextMode = event.target.value as CosmosDbConnectionOptions['connectMode']
-              updateOptions({ connectMode: nextMode, authMode: authModeForConnectMode(nextMode) })
+              const nextPatch: Partial<CosmosDbConnectionOptions> = {
+                connectMode: nextMode,
+                authMode: authModeForConnectMode(nextMode),
+              }
+              const connectionPatch: Partial<ConnectionProfile> = {}
+
+              if (nextMode === 'emulator') {
+                nextPatch.api = 'nosql'
+                nextPatch.accountEndpoint = endpointValueForCosmosMode(nextMode, endpointValue)
+                nextPatch.allowSelfSignedEmulatorCertificate = true
+                connectionPatch.host = nextPatch.accountEndpoint
+                connectionPatch.port = portFromCosmosEndpoint(nextPatch.accountEndpoint)
+              }
+
+              updateOptions(nextPatch)
+              if (Object.keys(connectionPatch).length > 0) {
+                onUpdateConnectionDraft(connectionPatch, { preserveName: true })
+              }
             }}
           >
             <option value="emulator">Emulator</option>
@@ -68,14 +111,45 @@ export function CosmosDbConnectionFields({
         </FormField>
       </div>
 
+      <div className="connection-quick-actions" aria-label="Cosmos DB emulator presets">
+        <div className="drawer-button-row drawer-button-row--compact">
+          <button
+            type="button"
+            className="drawer-button"
+            onClick={() =>
+              applyEndpointPreset(
+                COSMOS_MICROSOFT_EMULATOR_ENDPOINT,
+                options.databaseName ?? connectionDraft.database,
+              )
+            }
+          >
+            Microsoft emulator
+          </button>
+          <button
+            type="button"
+            className="drawer-button"
+            onClick={() => applyEndpointPreset(COSMOS_FIXTURE_EMULATOR_ENDPOINT, COSMOS_FIXTURE_DATABASE)}
+          >
+            DataPad++ fixture
+          </button>
+        </div>
+      </div>
+
       <FormField label="Endpoint">
         <input
           aria-label="Cosmos DB account endpoint"
-          value={options.accountEndpoint ?? connectionDraft.host ?? ''}
-          placeholder="https://account.documents.azure.com or http://localhost:8081"
+          value={endpointValue}
+          placeholder={connectMode === 'emulator' ? COSMOS_MICROSOFT_EMULATOR_ENDPOINT : 'https://account.documents.azure.com'}
           onChange={(event) => {
-            updateOptions({ accountEndpoint: event.target.value || undefined })
-            onUpdateConnectionDraft({ host: event.target.value || '' }, { preserveName: true })
+            const endpoint = event.target.value || undefined
+            updateOptions({ accountEndpoint: endpoint })
+            onUpdateConnectionDraft(
+              {
+                host: endpoint || '',
+                port: endpoint ? portFromCosmosEndpoint(endpoint) : connectionDraft.port,
+              },
+              { preserveName: true },
+            )
           }}
         />
       </FormField>

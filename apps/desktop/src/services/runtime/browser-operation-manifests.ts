@@ -317,6 +317,46 @@ function promoteScopedLiveWorkflows(
         previewOnly: false,
       }
     }
+    if (connection.engine === 'litedb' && operation.id === 'litedb.data.import-export') {
+      return {
+        ...operation,
+        description:
+          'Run guarded LiteDB JSON/NDJSON collection export or insert-only import through the configured sidecar file workflow.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (
+      connection.engine === 'litedb' &&
+      ['litedb.index.create', 'litedb.index.drop', 'litedb.object.drop'].includes(operation.id)
+    ) {
+      return {
+        ...operation,
+        description:
+          'Run guarded LiteDB index or collection management through the configured sidecar with before/after evidence.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
+    if (
+      connection.engine === 'litedb' &&
+      [
+        'litedb.file-storage.import',
+        'litedb.file-storage.export',
+        'litedb.file-storage.delete',
+      ].includes(operation.id)
+    ) {
+      return {
+        ...operation,
+        description:
+          'Run guarded LiteDB file-storage import, export, or delete through the configured sidecar with before/after evidence.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
     if (connection.engine === 'timescaledb' && operation.id === 'timescaledb.data.import-export') {
       return {
         ...operation,

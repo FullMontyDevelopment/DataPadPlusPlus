@@ -1034,7 +1034,7 @@ const WAVE4_DOCUMENT_PROFILE = profile({
   'connection-flow': strong(
     'Document connection flow is pinned across typed shared options, right-drawer fields, browser validation, Rust interpolation, timeout selection, local file handling, and redaction for Cosmos account/API/auth/region metadata and LiteDB local-file guardrails.',
     [
-      'Contract-only residual risk: promote Azure SDK, Entra identity, account-key, and LiteDB encrypted-file paths only after live fixture coverage exists.',
+      'Contract-only residual risk: promote Azure SDK, Entra identity, account-key, and broader LiteDB local-file paths only after live fixture coverage exists; LiteDB encrypted-file success/failure evidence is covered by the opt-in .NET sidecar validator.',
     ],
   ),
   'object-tree': strong(
@@ -1044,9 +1044,9 @@ const WAVE4_DOCUMENT_PROFILE = profile({
     ],
   ),
   'query-surface': partial(
-    'Cosmos SQL request previews and LiteDB collection/query/edit previews include native filters, metrics hooks, safe default payloads, LiteDB configured sidecar read-dispatch contracts with local sidecar-process fixture evidence, and optional real .NET LiteDB sidecar read/edit validation.',
+    'Cosmos SQL request previews and LiteDB collection/query/edit/file previews include native filters, metrics hooks, safe default payloads, LiteDB configured sidecar read-dispatch contracts with local sidecar-process fixture evidence, optional real .NET LiteDB sidecar read/edit validation, encrypted-file success/failure validation, sidecar-backed JSON/NDJSON collection import/export execution, sidecar-backed LiteDB file-storage list/import/export/delete execution, and sidecar-backed LiteDB index/collection management execution.',
     [
-      'Contract-only residual risk: add API-specific Cosmos Mongo/Cassandra/Gremlin/Table builders and promote LiteDB beyond optional real-engine read/edit validation into encrypted-file, import/export, and exclusive writer-lock safety.',
+      'Contract-only residual risk: add API-specific Cosmos Mongo/Cassandra/Gremlin/Table builders and promote LiteDB beyond optional real-engine read/edit/encryption/file/management workflow validation into exclusive writer-lock safety.',
     ],
   ),
   intellisense: strong(
@@ -1062,15 +1062,15 @@ const WAVE4_DOCUMENT_PROFILE = profile({
     ],
   ),
   'safe-editing': partial(
-    'Document and collection edits remain guarded by platform edit contracts and preview-first destructive/admin workflows; LiteDB scoped full-document insert/update/delete now use sidecar-only live execution with confirmation gates, `_id` validation, before/after evidence requests, and optional real .NET sidecar CRUD validation.',
+    'Document and collection edits remain guarded by platform edit contracts and preview-first destructive/admin workflows; LiteDB scoped full-document insert/update/delete plus file-storage import/delete and index create/drop plus collection drop now use sidecar-only live execution with confirmation gates, identity validation, before/after evidence requests, and optional real .NET sidecar validation.',
     [
-      'Contract-only residual risk: promote Cosmos document CRUD and broader LiteDB collection/file-storage edits only after identity, partition key, ETag, encrypted-file, and writer-lock validation are adapter-backed.',
+      'Contract-only residual risk: promote Cosmos document CRUD and broader LiteDB file/storage edits only after identity, partition key, ETag, and writer-lock validation are adapter-backed.',
     ],
   ),
   'guarded-operations': strong(
-    'Document guarded-operation parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, disabled reasons, confirmations, and Cosmos throughput/consistency/failover/access/metrics/import-export/drop plus LiteDB checkpoint/compact/rebuild/backup/import-export/index requests.',
+    'Document guarded-operation parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, disabled reasons, confirmations, and Cosmos throughput/consistency/failover/access/metrics/import-export/drop plus LiteDB checkpoint/compact/rebuild/backup/import-export/file-storage/index requests; LiteDB JSON/NDJSON collection import/export, file-storage import/export/delete, and index create/drop plus collection drop now have confirmed sidecar executors.',
     [
-      'Contract-only residual risk: keep execution plan-only until cloud/local permission and file-safety checks are live.',
+      'Contract-only residual risk: keep unsupported cloud/admin execution plan-only until cloud/local permission and writer-lock checks are live.',
     ],
   ),
   'diagnostics-performance': strong(
@@ -1080,15 +1080,15 @@ const WAVE4_DOCUMENT_PROFILE = profile({
     ],
   ),
   'import-export': strong(
-    'Document import/export parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, Cosmos partition/format/export plans, and LiteDB collection export/backup plans with bounded-file warnings.',
+    'Document import/export parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, Cosmos partition/format/export plans, and LiteDB collection/file-storage export/backup plans with bounded-file warnings; LiteDB JSON/NDJSON collection export/import and file-storage import/export now execute through the configured sidecar with concrete-path, overwrite, read-only import block, bounded row/file, and before/after evidence.',
     [
-      'Contract-only residual risk: add adapter-owned file workflows and optional live import/export fixtures before execution promotion.',
+      'Contract-only residual risk: add live Cosmos emulator/Azure file workflow evidence plus LiteDB writer-lock validation before broader execution promotion.',
     ],
   ),
   tests: strong(
-    'Wave 4 document engines have deterministic manifest, planner, browser-preview, object-view action, and LiteDB sidecar CRUD-contract coverage for the contract slice.',
+    'Wave 4 document engines have deterministic manifest, planner, browser-preview, object-view action, and LiteDB sidecar CRUD, encrypted-file, JSON collection import/export, file-storage import/export/delete, and index/collection management validator coverage for the contract slice.',
     [
-      'Contract-only residual risk: add live Cosmos emulator/Azure and LiteDB encrypted-file/import-export/writer-lock fixture tests outside default CI.',
+      'Contract-only residual risk: add live Cosmos emulator/Azure and LiteDB writer-lock fixture tests outside default CI.',
     ],
   ),
 })
@@ -1603,10 +1603,10 @@ const ENGINE_OVERRIDES: Partial<
   },
   litedb: {
     readiness: 'foundation',
-    nativeScore: 4.05,
+    nativeScore: 4.65,
     targetPhase: 4,
     summary:
-      'LiteDB has contract-complete native UX for local-file connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, collection/index/storage views, checkpoint/compact/rebuild, import/export, backup, collection/index operations, deterministic Wave 4 coverage, local-file read/write open preflight evidence, explicit encryption and lock-boundary metadata, configured sidecar read-dispatch contract with deterministic fixture-token and local sidecar-process bounded response, timeout, open-failure, process-dispatch, and redaction evidence, plus sidecar-only full-document insert/update/delete plans with confirmation gates and `_id` validation. The optional real .NET LiteDB sidecar validator creates a temporary database and validates collection, find, index, guarded document CRUD, read-only mutation blocking, `_id` mismatch blocking, open-failure, and redaction behavior; encrypted-file validation, collection/file-storage CRUD execution, import/export execution, packaged sidecar distribution, and exclusive writer-lock validation remain residual risk.',
+      'LiteDB has contract-complete native UX for local-file connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, collection/index/storage/file-storage views, checkpoint/compact/rebuild, import/export, backup, collection/index/file-storage operations, deterministic Wave 4 coverage, local-file read/write open preflight evidence, explicit encryption and lock-boundary metadata, configured sidecar read-dispatch contract with deterministic fixture-token and local sidecar-process bounded response, timeout, open-failure, process-dispatch, and redaction evidence, plus sidecar-only full-document insert/update/delete plans with confirmation gates and `_id` validation. The optional real .NET LiteDB sidecar validator creates temporary databases and validates collection, find, index, guarded document CRUD, read-only mutation blocking, `_id` mismatch blocking, open-failure, encrypted-file correct-password open/read evidence, wrong-password failure evidence, secret/path redaction, JSON collection export/import execution with overwrite, read-only import block, before/after count evidence, file-storage list/import/export/delete execution with concrete IDs, local path checks, overwrite blocking, and before/after metadata evidence, plus guarded index create/drop and collection drop management execution; packaged sidecar distribution and exclusive writer-lock validation remain residual risks.',
     profile: WAVE4_DOCUMENT_PROFILE,
   },
   memcached: {

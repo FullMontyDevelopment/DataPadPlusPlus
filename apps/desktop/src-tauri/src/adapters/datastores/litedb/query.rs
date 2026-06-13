@@ -22,6 +22,7 @@ const READ_OPERATIONS: &[&str] = &[
     "Pragmas",
     "Statistics",
     "Maintenance",
+    "ValidateEncryptedFile",
 ];
 
 pub(super) async fn execute_litedb_query(
@@ -254,6 +255,93 @@ pub(crate) fn preview_litedb_response(
                 { "name": "Compact Copy", "risk": "medium", "status": "guarded" },
                 { "name": "Rebuild Indexes", "risk": "medium", "status": "guarded" }
             ]
+        }),
+        "ValidateEncryptedFile" => json!({
+            "encryptedFile": {
+                "passwordConfigured": connection.password.as_ref().is_some_and(|value| !value.trim().is_empty()),
+                "passwordMaterial": "redacted",
+                "engineOpenValidated": false,
+                "readProbeValidated": false,
+                "databasePathMaterial": "redacted",
+                "evidence": "plan-only-until-sidecar"
+            }
+        }),
+        "ListFiles" => json!({
+            "operation": "ListFiles",
+            "files": [{
+                "id": "files/preview.txt",
+                "filename": "preview.txt",
+                "mimeType": "text/plain",
+                "length": 128,
+                "chunks": 1,
+                "uploadDate": "2026-01-01T00:00:00Z",
+                "metadata": { "source": "preview" }
+            }],
+            "count": 1,
+            "totalCount": 1,
+            "hasMore": false,
+            "evidence": {
+                "fileStorageWorkflowValidated": false,
+                "fixture": true
+            }
+        }),
+        "ExportFile" => json!({
+            "operation": "ExportFile",
+            "fileId": request.get("fileId").and_then(Value::as_str).unwrap_or("files/preview.txt"),
+            "targetPath": request.get("targetPath").and_then(Value::as_str).unwrap_or("preview-export.txt"),
+            "bytesWritten": 128,
+            "file": {
+                "id": request.get("fileId").and_then(Value::as_str).unwrap_or("files/preview.txt"),
+                "filename": "preview.txt",
+                "mimeType": "text/plain",
+                "length": 128,
+                "chunks": 1,
+                "metadata": { "source": "preview" }
+            },
+            "evidence": {
+                "fileStorageWorkflowValidated": false,
+                "fixture": true
+            }
+        }),
+        "ImportFile" => json!({
+            "operation": "ImportFile",
+            "fileId": request.get("fileId").and_then(Value::as_str).unwrap_or("files/preview.txt"),
+            "sourcePath": request.get("sourcePath").and_then(Value::as_str).unwrap_or("preview-import.txt"),
+            "filename": request.get("filename").and_then(Value::as_str).unwrap_or("preview.txt"),
+            "bytesRead": 128,
+            "replaced": false,
+            "beforeFile": null,
+            "afterFile": {
+                "id": request.get("fileId").and_then(Value::as_str).unwrap_or("files/preview.txt"),
+                "filename": request.get("filename").and_then(Value::as_str).unwrap_or("preview.txt"),
+                "mimeType": request.get("contentType").and_then(Value::as_str).unwrap_or("text/plain"),
+                "length": 128,
+                "chunks": 1,
+                "metadata": { "source": "preview" }
+            },
+            "evidence": {
+                "fileStorageWorkflowValidated": false,
+                "mutationExecutionValidated": false,
+                "fixture": true
+            }
+        }),
+        "DeleteFile" => json!({
+            "operation": "DeleteFile",
+            "fileId": request.get("fileId").and_then(Value::as_str).unwrap_or("files/preview.txt"),
+            "deleted": true,
+            "beforeFile": {
+                "id": request.get("fileId").and_then(Value::as_str).unwrap_or("files/preview.txt"),
+                "filename": "preview.txt",
+                "mimeType": "text/plain",
+                "length": 128,
+                "chunks": 1
+            },
+            "afterFile": null,
+            "evidence": {
+                "fileStorageWorkflowValidated": false,
+                "mutationExecutionValidated": false,
+                "fixture": true
+            }
         }),
         _ => json!({
             "documents": [{
@@ -546,7 +634,7 @@ pub(super) fn litedb_live_sidecar_boundary(
             } else {
                 "This read dispatch does not validate LiteDB write locks or mutation safety."
             },
-            "Encrypted-file success/failure evidence depends on the configured sidecar and fixture coverage."
+            "Encrypted-file success/failure evidence depends on the bundled or configured sidecar and fixture coverage."
         ]
     })
 }
@@ -652,6 +740,217 @@ fn litedb_fixture_sidecar_response(
                 }
             })
         }
+        "ExportCollection" => json!({
+            "collection": collection,
+            "operation": "ExportCollection",
+            "format": request.get("format").and_then(Value::as_str).unwrap_or("json"),
+            "targetPath": request.get("targetPath").and_then(Value::as_str).unwrap_or("fixture-export.json"),
+            "exportedCount": 2,
+            "totalCount": 2,
+            "truncated": false,
+            "bytesWritten": 128,
+            "evidence": {
+                "engineRuntimeValidated": true,
+                "fileWorkflowValidated": true,
+                "fixture": true
+            }
+        }),
+        "ImportCollection" => json!({
+            "collection": collection,
+            "operation": "ImportCollection",
+            "format": request.get("format").and_then(Value::as_str).unwrap_or("json"),
+            "sourcePath": request.get("sourcePath").and_then(Value::as_str).unwrap_or("fixture-import.json"),
+            "importedCount": 2,
+            "beforeCount": 0,
+            "afterCount": 2,
+            "bytesRead": 128,
+            "evidence": {
+                "engineRuntimeValidated": true,
+                "fileWorkflowValidated": true,
+                "mutationExecutionValidated": true,
+                "fixture": true
+            }
+        }),
+        "ListFiles" => json!({
+            "operation": "ListFiles",
+            "files": [
+                {
+                    "id": "files/terms.txt",
+                    "filename": "terms.txt",
+                    "mimeType": "text/plain",
+                    "length": 42,
+                    "chunks": 1,
+                    "uploadDate": "2026-01-01T00:00:00Z",
+                    "metadata": { "category": "fixture" }
+                }
+            ],
+            "count": 1,
+            "totalCount": 1,
+            "hasMore": false,
+            "evidence": {
+                "engineRuntimeValidated": true,
+                "fileStorageWorkflowValidated": true,
+                "readOnlyEnvelope": true,
+                "fixture": true
+            }
+        }),
+        "ExportFile" => {
+            let file_id = request
+                .get("fileId")
+                .and_then(Value::as_str)
+                .unwrap_or("files/terms.txt");
+            json!({
+                "operation": "ExportFile",
+                "fileId": file_id,
+                "targetPath": request.get("targetPath").and_then(Value::as_str).unwrap_or("fixture-export.txt"),
+                "bytesWritten": 42,
+                "file": {
+                    "id": file_id,
+                    "filename": "terms.txt",
+                    "mimeType": "text/plain",
+                    "length": 42,
+                    "chunks": 1,
+                    "metadata": { "category": "fixture" }
+                },
+                "evidence": {
+                    "engineRuntimeValidated": true,
+                    "fileStorageWorkflowValidated": true,
+                    "readOnlyEnvelope": true,
+                    "fixture": true
+                }
+            })
+        }
+        "ImportFile" => {
+            let file_id = request
+                .get("fileId")
+                .and_then(Value::as_str)
+                .unwrap_or("files/terms.txt");
+            let filename = request
+                .get("filename")
+                .and_then(Value::as_str)
+                .unwrap_or("terms.txt");
+            json!({
+                "operation": "ImportFile",
+                "fileId": file_id,
+                "sourcePath": request.get("sourcePath").and_then(Value::as_str).unwrap_or("fixture-import.txt"),
+                "filename": filename,
+                "bytesRead": 42,
+                "replaced": false,
+                "beforeFile": null,
+                "afterFile": {
+                    "id": file_id,
+                    "filename": filename,
+                    "mimeType": request.get("contentType").and_then(Value::as_str).unwrap_or("text/plain"),
+                    "length": 42,
+                    "chunks": 1,
+                    "metadata": { "category": "fixture" }
+                },
+                "evidence": {
+                    "engineRuntimeValidated": true,
+                    "fileStorageWorkflowValidated": true,
+                    "mutationExecutionValidated": true,
+                    "fixture": true
+                }
+            })
+        }
+        "DeleteFile" => {
+            let file_id = request
+                .get("fileId")
+                .and_then(Value::as_str)
+                .unwrap_or("files/terms.txt");
+            json!({
+                "operation": "DeleteFile",
+                "fileId": file_id,
+                "deleted": true,
+                "beforeFile": {
+                    "id": file_id,
+                    "filename": "terms.txt",
+                    "mimeType": "text/plain",
+                    "length": 42,
+                    "chunks": 1,
+                    "metadata": { "category": "fixture" }
+                },
+                "afterFile": null,
+                "evidence": {
+                    "engineRuntimeValidated": true,
+                    "fileStorageWorkflowValidated": true,
+                    "mutationExecutionValidated": true,
+                    "fixture": true
+                }
+            })
+        }
+        "EnsureIndex" => {
+            let index_name = request
+                .get("indexName")
+                .and_then(Value::as_str)
+                .or_else(|| request.get("name").and_then(Value::as_str))
+                .unwrap_or("idx_fixture");
+            let expression = request
+                .get("expression")
+                .and_then(Value::as_str)
+                .or_else(|| request.get("field").and_then(Value::as_str))
+                .unwrap_or("$.fixture");
+            let unique = request
+                .get("unique")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            json!({
+                "collection": collection,
+                "operation": "EnsureIndex",
+                "indexName": index_name,
+                "expression": expression,
+                "unique": unique,
+                "created": true,
+                "beforeIndexCount": 2,
+                "afterIndexCount": 3,
+                "indexes": [
+                    { "collection": collection, "name": "_id", "expression": "$._id", "unique": true },
+                    { "collection": collection, "name": "idx_status", "expression": "$.status", "unique": false },
+                    { "collection": collection, "name": index_name, "expression": expression, "unique": unique }
+                ],
+                "evidence": {
+                    "engineRuntimeValidated": true,
+                    "managementExecutionValidated": true,
+                    "fixture": true
+                }
+            })
+        }
+        "DropIndex" => {
+            let index_name = request
+                .get("indexName")
+                .and_then(Value::as_str)
+                .or_else(|| request.get("name").and_then(Value::as_str))
+                .unwrap_or("idx_status");
+            json!({
+                "collection": collection,
+                "operation": "DropIndex",
+                "indexName": index_name,
+                "dropped": true,
+                "beforeIndexCount": 2,
+                "afterIndexCount": 1,
+                "indexes": [
+                    { "collection": collection, "name": "_id", "expression": "$._id", "unique": true }
+                ],
+                "evidence": {
+                    "engineRuntimeValidated": true,
+                    "managementExecutionValidated": true,
+                    "fixture": true
+                }
+            })
+        }
+        "DropCollection" => json!({
+            "collection": collection,
+            "operation": "DropCollection",
+            "dropped": true,
+            "beforeCollectionCount": 3,
+            "afterCollectionCount": 2,
+            "collections": ["products", "orders"],
+            "evidence": {
+                "engineRuntimeValidated": true,
+                "managementExecutionValidated": true,
+                "fixture": true
+            }
+        }),
         _ => json!({
             "documents": [
                 { "_id": "fixture-1", "collection": collection, "status": "live-sidecar-fixture" },
@@ -689,26 +988,24 @@ pub(crate) fn normalize_litedb_response_bounded(
                 )
             }),
         "ListIndexes" => response.get("indexes").cloned(),
+        "ListFiles" => response.get("files").cloned(),
         _ => response.get("documents").cloned(),
     }
     .unwrap_or_else(|| json!([response.clone()]));
     let items = documents.as_array().cloned().unwrap_or_default();
-    let truncated = items.len() > row_limit as usize
+    let bounded = bounded_items(items, row_limit);
+    let truncated = bounded.truncated
         || response
             .get("hasMore")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-    let bounded_items = items
-        .iter()
-        .take(row_limit as usize)
-        .cloned()
-        .collect::<Vec<Value>>();
-    let (columns, rows) = document_rows(&bounded_items, row_limit);
+    let visible_items = bounded.visible;
+    let (columns, rows) = document_rows(&visible_items, row_limit);
 
     LiteDbNormalizedResponse {
         columns,
         rows,
-        documents: Value::Array(bounded_items),
+        documents: Value::Array(visible_items),
         truncated,
     }
 }
@@ -724,13 +1021,14 @@ fn bounded_litedb_response(
         let key = match operation {
             "ListCollections" => Some("collections"),
             "ListIndexes" => Some("indexes"),
+            "ListFiles" => Some("files"),
             _ => Some("documents"),
         };
         if let Some(key) = key {
             if let Some(items) = object.get(key).and_then(Value::as_array).cloned() {
                 object.insert(
                     key.into(),
-                    Value::Array(items.into_iter().take(row_limit as usize).collect()),
+                    Value::Array(bounded_items(items, row_limit).visible),
                 );
             }
         }
@@ -826,10 +1124,20 @@ fn normalize_operation_name(value: &str) -> String {
         "pragmas" | "pragma" => "Pragmas",
         "statistics" | "stats" => "Statistics",
         "maintenance" | "maintain" => "Maintenance",
+        "validateencryptedfile" | "validateencryption" | "encryptionprobe" => {
+            "ValidateEncryptedFile"
+        }
+        "exportcollection" | "collectionexport" => "ExportCollection",
+        "importcollection" | "collectionimport" => "ImportCollection",
+        "listfiles" | "listfile" => "ListFiles",
+        "exportfile" | "downloadfile" => "ExportFile",
+        "importfile" | "uploadfile" => "ImportFile",
+        "deletefile" | "dropfile" => "DeleteFile",
         "insert" | "insertdocument" => "InsertDocument",
         "update" | "updatedocument" => "UpdateDocument",
         "delete" | "deletedocument" => "DeleteDocument",
         "ensureindex" | "createindex" => "EnsureIndex",
+        "dropindex" => "DropIndex",
         "dropcollection" => "DropCollection",
         other => other,
     }
@@ -846,8 +1154,20 @@ fn normalize_request_key(key: &str) -> String {
         "OrderBy" => "orderBy",
         "Include" => "include",
         "Expression" => "expression",
+        "Field" => "field",
+        "IndexName" => "indexName",
         "Name" => "name",
         "Unique" => "unique",
+        "FileId" => "fileId",
+        "SourcePath" => "sourcePath",
+        "InputPath" => "inputPath",
+        "TargetPath" => "targetPath",
+        "OutputPath" => "outputPath",
+        "Filename" => "filename",
+        "ContentType" => "contentType",
+        "MimeType" => "mimeType",
+        "Overwrite" => "overwrite",
+        "Metadata" => "metadata",
         _ => key,
     }
     .into()
@@ -856,7 +1176,13 @@ fn normalize_request_key(key: &str) -> String {
 fn operation_supports_limit(operation: &str) -> bool {
     matches!(
         operation,
-        "Find" | "ListCollections" | "ListIndexes" | "SampleSchema"
+        "Find"
+            | "ListCollections"
+            | "ListIndexes"
+            | "SampleSchema"
+            | "ExportCollection"
+            | "ImportCollection"
+            | "ListFiles"
     )
 }
 

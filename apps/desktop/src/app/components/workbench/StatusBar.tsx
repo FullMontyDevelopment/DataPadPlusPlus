@@ -3,14 +3,18 @@ import type {
   EnvironmentProfile,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
-import { PanelIcon, SettingsIcon, WarningIcon } from './icons'
+import { DownloadIcon, PanelIcon, SettingsIcon, WarningIcon } from './icons'
 
 interface StatusBarProps {
   activeConnection?: ConnectionProfile
   activeEnvironment?: EnvironmentProfile
   activeTab?: QueryTabState
+  availableUpdateVersion?: string
   bottomPanelVisible: boolean
   messageCount: number
+  updateInstallStatus: 'idle' | 'installing' | 'installed' | 'error'
+  updateStatus: 'idle' | 'loading' | 'ready'
+  onInstallUpdate(): void
   onToggleBottomPanel(): void
   onOpenMessages(): void
   onOpenDiagnostics(): void
@@ -20,12 +24,20 @@ export function StatusBar({
   activeConnection,
   activeEnvironment,
   activeTab,
+  availableUpdateVersion,
   bottomPanelVisible,
   messageCount,
+  updateInstallStatus,
+  updateStatus,
+  onInstallUpdate,
   onToggleBottomPanel,
   onOpenMessages,
   onOpenDiagnostics,
 }: StatusBarProps) {
+  const updateInstalling = updateInstallStatus === 'installing'
+  const updateBusy = updateStatus === 'loading' || updateInstalling
+  const showUpdateButton = Boolean(availableUpdateVersion) && updateInstallStatus !== 'installed'
+
   return (
     <footer className="status-bar" aria-label="Status bar">
       <div className="status-bar-group">
@@ -36,6 +48,29 @@ export function StatusBar({
       </div>
 
       <div className="status-bar-group">
+        {showUpdateButton ? (
+          <button
+            type="button"
+            className="status-button status-button--update"
+            aria-label={
+              updateInstalling
+                ? `Installing DataPad++ ${availableUpdateVersion} update`
+                : `Install DataPad++ ${availableUpdateVersion} update`
+            }
+            title={
+              updateInstalling
+                ? `Installing DataPad++ ${availableUpdateVersion}.`
+                : updateStatus === 'loading'
+                  ? 'Checking for updates.'
+                : `Install DataPad++ ${availableUpdateVersion}.`
+            }
+            disabled={updateBusy}
+            onClick={onInstallUpdate}
+          >
+            <DownloadIcon className="status-icon" />
+            <span>{updateInstalling ? 'Updating...' : `Update: ${availableUpdateVersion}`}</span>
+          </button>
+        ) : null}
         {messageCount > 0 ? (
           <button
             type="button"

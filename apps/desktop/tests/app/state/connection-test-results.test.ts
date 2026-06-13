@@ -87,6 +87,30 @@ describe('connection test results', () => {
       ),
     ).toEqual([])
   })
+
+  it('adds Cosmos DB emulator fixture hints for URL-style localhost endpoints', () => {
+    const warnings = fixtureWarningsForConnection(
+      connectionProfile({
+        engine: 'cosmosdb',
+        family: 'document',
+        host: 'http://localhost:8081',
+        port: 8081,
+        database: 'catalog',
+        cosmosDbOptions: {
+          connectMode: 'emulator',
+          authMode: 'emulator',
+          accountEndpoint: 'http://localhost:8081',
+          databaseName: 'catalog',
+        },
+      }),
+    )
+
+    expect(warnings).toEqual([
+      'DataPad++ Docker fixtures expose Cosmos DB emulator on localhost:8082.',
+      'Fixture database is "datapadplusplus".',
+      'For Microsoft Cosmos DB emulator use http://localhost:8081. For DataPad++ fixtures run npm run fixtures:up:profile -- cosmosdb and use http://localhost:8082.',
+    ])
+  })
 })
 
 function connectionProfile(

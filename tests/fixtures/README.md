@@ -17,6 +17,7 @@ Connection strings, credentials, and seeded smoke queries are listed in
 - Validate Redis/Redis Stack/Valkey fixture evidence: `npm run fixtures:validate:redis`
 - Validate TimescaleDB fixture evidence: `npm run fixtures:validate:timescale`
 - Validate Oracle fixture evidence: `npm run fixtures:validate:oracle`
+- Validate Cosmos DB emulator evidence: `npm run fixtures:validate:cosmosdb`
 - Validate DynamoDB Local fixture evidence: `npm run fixtures:validate:dynamodb`
 - Validate opt-in DynamoDB AWS cloud evidence: `npm run fixtures:validate:dynamodb:cloud`
 - Validate Elasticsearch/OpenSearch fixture evidence: `npm run fixtures:validate:search`
@@ -85,6 +86,16 @@ npm run fixtures:validate:oracle
 
 The validator checks Oracle seeded relational volume, dictionary/security/storage metadata, DBMS_XPLAN output, SQL Monitor visibility or permission-boundary evidence, PL/SQL package source and compile diagnostics, row identity and DML `RETURNING` primitives, SQLPlus bounded CSV-style export/import evidence, restricted dictionary denial evidence, and Data Pump/RMAN preview boundary wording through transient `fixture_oracle_*` objects. Desktop Oracle SQLPlus query and primary-key/ROWID row-edit execution are now configurable per connection; Data Pump and RMAN execution remain outside the scoped claim until guarded executors are added.
 
+For Cosmos DB emulator optional evidence, start the `cosmosdb` profile, then run the Cosmos DB validator:
+
+```powershell
+npm run fixtures:up:profile -- cosmosdb
+npm run fixtures:seed:all
+npm run fixtures:validate:cosmosdb
+```
+
+The profile runs the Microsoft Linux vNext Cosmos DB emulator in HTTP gateway mode, publishes the gateway, health, and Data Explorer ports, and seeds `datapadplusplus` with `accounts`, `products`, `orders`, and `order_events` containers through the emulator's built-in `cosmoshell.sh` init flow. The validator checks the health probe, seeded database/container visibility, order/product query evidence, and seeded row volume. The existing cloud-contract Cosmos DB mock remains available for fast contract tests that do not need the full emulator.
+
 For DynamoDB Local optional evidence, start and seed the `cloud-contract` profile, then run the DynamoDB validator:
 
 ```powershell
@@ -130,7 +141,7 @@ For LiteDB local-file and sidecar dispatch evidence, run the LiteDB validator:
 npm run fixtures:validate:litedb
 ```
 
-The validator runs focused Rust unit tests against temporary `.db` files and checks local-file read/write open preflight, read-only write blocking, password/encryption posture, lock-boundary metadata, configured sidecar read-dispatch through both a deterministic fixture-sidecar token and a spawned local sidecar-process fixture, bounded response normalization, process open-failure mapping, timeout clamps, redacted failure output, and sidecar-shaped document CRUD planning. Docker and a real .NET LiteDB engine sidecar are not required for the default gate. The opt-in `.NET` sidecar validator, run with `DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE=1 npm run fixtures:validate:litedb:dotnet` after building the sidecar project, creates a temporary real LiteDB database and validates collection listing, bounded reads, index metadata, guarded full-document insert/update/delete, before/after reads, read-only mutation blocking, `_id` mismatch blocking, missing-file error mapping, and redaction. Encrypted-file validation, import/export execution, packaged sidecar distribution, collection/file-storage management execution, and exclusive writer-lock validation remain outside this checkpoint.
+The validator runs focused Rust unit tests against temporary `.db` files and checks local-file read/write open preflight, read-only write blocking, password/encryption posture, lock-boundary metadata, configured sidecar read-dispatch through both a deterministic fixture-sidecar token and a spawned local sidecar-process fixture, bounded response normalization, process open-failure mapping, timeout clamps, redacted failure output, and sidecar-shaped document CRUD planning. Docker and a real .NET LiteDB engine sidecar are not required for the default gate. The opt-in `.NET` sidecar validator, run with `DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE=1 npm run fixtures:validate:litedb:dotnet` after building the sidecar project, creates temporary real LiteDB databases and validates collection listing, bounded reads, index metadata, guarded full-document insert/update/delete, before/after reads, read-only mutation blocking, `_id` mismatch blocking, missing-file error mapping, encrypted-file correct-password open/read evidence, wrong-password failure evidence, JSON collection export/import execution, overwrite blocking, read-only import blocking, post-import reads, file-storage import/export/delete with list and post-delete checks, guarded index create/drop, `_id` index drop blocking, guarded collection drop, post-drop collection listing, and secret/path redaction. Packaged sidecar distribution and exclusive writer-lock validation remain outside this checkpoint.
 
 ## Profiles
 
@@ -145,6 +156,7 @@ The validator runs focused Rust unit tests against temporary `.db` files and che
 | `graph` | Neo4j, ArangoDB, JanusGraph | JanusGraph is heavier and may take longer to settle. |
 | `widecolumn` | Cassandra | Heavy JVM service. |
 | `oracle` | Oracle Free | Very heavy; start explicitly. |
+| `cosmosdb` | Cosmos DB emulator vNext | Optional Microsoft emulator with seeded NoSQL containers and Data Explorer. |
 | `cloud-contract` | DynamoDB Local, HTTP mocks for BigQuery/Snowflake/Cosmos DB/Neptune | Local substitutes for cloud-managed APIs. |
 
 ## Default Ports And Credentials
@@ -186,6 +198,7 @@ If an existing local fixture container was created before the current credential
 | Cassandra | 9043 | datapadplusplus | | |
 | JanusGraph | 8183 | | | |
 | Oracle Free | 1522 | FREEPDB1 | datapadplusplus | datapadplusplus |
+| Cosmos DB emulator | 8082 / 18082 / 1235 | datapadplusplus | emulator | well-known emulator key |
 | DynamoDB Local | 8001 | sharedDb | local | local |
 | BigQuery mock | 19050 | analytics | token in password field | fixture-token |
 | Snowflake mock | 19060 | DATAPADPLUSPLUS | token in password field | fixture-token |
@@ -215,6 +228,7 @@ The core fixtures also include deterministic high-volume data for paging, virtua
 | Search engines (`search`) | `products`, `orders`, transient `fixture-search-contract-*`, and transient `fixture-search-import-*` indexes | 5,000 / 10,000 documents plus profile, document-evidence, diagnostics, and bounded import/export primitive evidence |
 | Cassandra (`widecolumn`) | `accounts_by_id`, `products_by_sku`, `orders_by_account` | 500 / 1,000 / 10,000 rows |
 | Oracle (`oracle`) | `orders`, `order_items`, `support_tickets`, transient `fixture_oracle_*` validation objects | 25,000 / 75,000 / 5,000 rows plus DBMS_XPLAN, SQL Monitor boundary, PL/SQL compile diagnostics, row identity, bounded SQLPlus export/import, restricted dictionary, and Data Pump/RMAN preview-boundary primitives |
+| Cosmos DB emulator (`cosmosdb`) | `accounts`, `products`, `orders`, `order_events` | Seeded NoSQL containers with account/product/order documents plus Data Explorer and health probe evidence |
 | DynamoDB Local (`cloud-contract`) | `accounts`, `products`, `orders`, `order_events`, transient `fixture_dynamodb_contract` validation table | 500 / 1,000 / 5,000 / 10,000 items plus local Query/GetItem/PartiQL, conditional-write, capacity, metadata, and boundary evidence |
 | Cloud API mocks (`cloud-contract`) | BigQuery, Snowflake, Cosmos DB, Neptune responses | 50-100 rows/documents/nodes per query |
 | Neo4j (`graph`) | Account/order graph | 500 accounts / 2,500 orders |

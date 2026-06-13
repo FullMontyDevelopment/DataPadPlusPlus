@@ -267,6 +267,34 @@ describe('browser tab runtime', () => {
     expect(aggregationTab?.queryText).toContain('"operation": "aggregate"')
   })
 
+  it('creates Mongo command scoped tabs in raw mode when no builder is requested', () => {
+    const snapshot = createSeedSnapshot()
+    const queryTemplate = '{ "database": "catalog", "command": { "listIndexes": "products" } }'
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-catalog',
+      target: {
+        kind: 'indexes',
+        label: 'Indexes',
+        path: ['Catalog Mongo', 'catalog', 'Collections', 'products'],
+        scope: 'indexes:catalog:products',
+        queryTemplate,
+      },
+    })
+    const commandTab = opened.tabs.find(
+      (tab) => tab.scopedTarget?.scope === 'indexes:catalog:products',
+    )
+
+    expect(commandTab).toMatchObject({
+      queryText: queryTemplate,
+      queryViewMode: 'raw',
+      scopedTarget: expect.objectContaining({
+        kind: 'indexes',
+        queryTemplate,
+      }),
+    })
+    expect(commandTab?.builderState).toBeUndefined()
+  })
+
   it('does not invent a Mongo collection when scoped query target identity is incomplete', () => {
     const snapshot = createSeedSnapshot()
     const opened = createScopedQueryTabInSnapshot(snapshot, {

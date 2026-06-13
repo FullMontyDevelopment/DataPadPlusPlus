@@ -6,6 +6,7 @@ use super::library::{
     effective_connection_environment_id, ensure_connection_library_nodes,
     remove_connection_library_nodes,
 };
+pub(super) use super::profile_fixture_warnings::fixture_connection_warnings;
 use super::profile_options::{
     interpolate_memcached_options, interpolate_oracle_options, interpolate_postgres_options,
     interpolate_redis_options, interpolate_sqlite_options, interpolate_sqlserver_options,
@@ -625,99 +626,4 @@ fn connection_test_failure_result(
         resolved_database: connection.database.clone(),
         duration_ms: Some(started.elapsed().as_millis() as u64),
     }
-}
-
-pub(super) fn fixture_connection_warnings(connection: &ResolvedConnectionProfile) -> Vec<String> {
-    let Some(endpoint) = fixture_endpoint_for_engine(&connection.engine) else {
-        return Vec::new();
-    };
-    if !is_localhost(&connection.host) {
-        return Vec::new();
-    }
-    let mut warnings = Vec::new();
-    if connection.port != Some(endpoint.port) {
-        warnings.push(format!(
-            "DataPad++ Docker fixtures expose {} on localhost:{}.",
-            endpoint.label, endpoint.port
-        ));
-    }
-
-    if let Some(database) = endpoint.database {
-        if connection.database.as_deref() != Some(database) {
-            warnings.push(format!("Fixture database is \"{database}\"."));
-        }
-    }
-
-    if let Some(username) = endpoint.username {
-        if connection.username.as_deref() != Some(username) {
-            warnings.push(format!("Fixture user is \"{username}\"."));
-        }
-    }
-
-    if endpoint.requires_password
-        && connection
-            .password
-            .as_deref()
-            .is_none_or(|value| value.trim().is_empty())
-    {
-        warnings.push("This fixture connection needs a password before it can be tested.".into());
-    }
-
-    warnings
-}
-
-struct FixtureEndpoint {
-    label: &'static str,
-    port: u16,
-    database: Option<&'static str>,
-    username: Option<&'static str>,
-    requires_password: bool,
-}
-
-fn fixture_endpoint_for_engine(engine: &str) -> Option<FixtureEndpoint> {
-    match engine {
-        "postgresql" => Some(FixtureEndpoint {
-            label: "PostgreSQL",
-            port: 54329,
-            database: Some("datapadplusplus"),
-            username: Some("datapadplusplus"),
-            requires_password: true,
-        }),
-        "mysql" => Some(FixtureEndpoint {
-            label: "MySQL",
-            port: 33060,
-            database: Some("commerce"),
-            username: Some("datapadplusplus"),
-            requires_password: true,
-        }),
-        "sqlserver" => Some(FixtureEndpoint {
-            label: "SQL Server",
-            port: 14333,
-            database: Some("datapadplusplus"),
-            username: Some("sa"),
-            requires_password: true,
-        }),
-        "mongodb" => Some(FixtureEndpoint {
-            label: "MongoDB",
-            port: 27018,
-            database: Some("catalog"),
-            username: Some("datapadplusplus"),
-            requires_password: true,
-        }),
-        "redis" => Some(FixtureEndpoint {
-            label: "Redis",
-            port: 6380,
-            database: Some("0"),
-            username: None,
-            requires_password: false,
-        }),
-        _ => None,
-    }
-}
-
-fn is_localhost(host: &str) -> bool {
-    matches!(
-        host.trim().to_lowercase().as_str(),
-        "localhost" | "127.0.0.1" | "::1"
-    )
 }

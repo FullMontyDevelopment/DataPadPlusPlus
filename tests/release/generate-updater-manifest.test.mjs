@@ -78,6 +78,49 @@ test('supports v1-compatible updater archives when present', () => {
   assert.match(manifest.platforms['linux-x86_64'].url, /\.AppImage\.tar\.gz$/)
 })
 
+test('rewrites draft untagged GitHub asset URLs to the final release tag URL', () => {
+  const release = {
+    tag_name: 'app-v1.2.3',
+    assets: [
+      {
+        name: 'DataPad++_1.2.3_x64-setup.exe',
+        browser_download_url: 'https://github.com/example/project/releases/download/untagged-abc123/DataPad%2B%2B_1.2.3_x64-setup.exe'
+      },
+      {
+        name: 'DataPad++_1.2.3_amd64.AppImage',
+        browser_download_url: 'https://github.com/example/project/releases/download/untagged-abc123/DataPad%2B%2B_1.2.3_amd64.AppImage'
+      },
+      {
+        name: 'DataPad++.app.tar.gz',
+        browser_download_url: 'https://github.com/example/project/releases/download/untagged-abc123/DataPad%2B%2B.app.tar.gz'
+      }
+    ]
+  }
+
+  const manifest = generateUpdaterManifest({
+    release,
+    version: '1.2.3',
+    readSignature: signatureReader({
+      'DataPad++_1.2.3_x64-setup.exe': 'windows-signature',
+      'DataPad++_1.2.3_amd64.AppImage': 'linux-signature',
+      'DataPad++.app.tar.gz': 'mac-signature'
+    })
+  })
+
+  assert.equal(
+    manifest.platforms['windows-x86_64'].url,
+    'https://github.com/example/project/releases/download/app-v1.2.3/DataPad%2B%2B_1.2.3_x64-setup.exe'
+  )
+  assert.equal(
+    manifest.platforms['linux-x86_64'].url,
+    'https://github.com/example/project/releases/download/app-v1.2.3/DataPad%2B%2B_1.2.3_amd64.AppImage'
+  )
+  assert.equal(
+    manifest.platforms['darwin-aarch64'].url,
+    'https://github.com/example/project/releases/download/app-v1.2.3/DataPad%2B%2B.app.tar.gz'
+  )
+})
+
 test('does not select unsigned installers or non-updater raw executable archives', () => {
   const manifest = generateUpdaterManifest({
     release: {

@@ -54,7 +54,6 @@ describe('MongoScriptsView', () => {
       label: 'Scripts',
       path: ['catalog', 'Collections', 'products'],
       queryTemplate: 'db.products.find({}).limit(20)',
-      preferredBuilder: 'mongo-aggregation',
     }
 
     render(

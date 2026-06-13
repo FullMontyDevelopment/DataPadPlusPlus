@@ -11,6 +11,7 @@ interface FixtureEndpointHint {
   database?: string
   username?: string
   requiresSecret?: boolean
+  setupHint?: string
 }
 
 const FIXTURE_ENDPOINTS: Partial<Record<ConnectionProfile['engine'], FixtureEndpointHint>> = {
@@ -47,6 +48,13 @@ const FIXTURE_ENDPOINTS: Partial<Record<ConnectionProfile['engine'], FixtureEndp
     port: 6380,
     database: '0',
   },
+  cosmosdb: {
+    label: 'Cosmos DB emulator',
+    port: 8082,
+    database: 'datapadplusplus',
+    setupHint:
+      'For Microsoft Cosmos DB emulator use http://localhost:8081. For DataPad++ fixtures run npm run fixtures:up:profile -- cosmosdb and use http://localhost:8082.',
+  },
 }
 
 export function buildConnectionTestFailure(
@@ -78,19 +86,20 @@ export function fixtureWarningsForConnection(
 ): string[] {
   const endpoint = FIXTURE_ENDPOINTS[profile.engine]
 
-  if (!endpoint || !isLocalHost(profile.host)) {
+  if (!endpoint || !isLocalHost(profileEndpointValue(profile))) {
     return []
   }
 
   const warnings: string[] = []
+  const port = profilePort(profile)
 
-  if (profile.port !== endpoint.port) {
+  if (port !== endpoint.port) {
     warnings.push(
       `DataPad++ Docker fixtures expose ${endpoint.label} on localhost:${endpoint.port}.`,
     )
   }
 
-  if (endpoint.database && profile.database !== endpoint.database) {
+  if (endpoint.database && profileDatabase(profile) !== endpoint.database) {
     warnings.push(`Fixture database is "${endpoint.database}".`)
   }
 
@@ -103,6 +112,10 @@ export function fixtureWarningsForConnection(
     warnings.push('This fixture connection needs a password before it can be tested.')
   }
 
+  if (endpoint.setupHint) {
+    warnings.push(endpoint.setupHint)
+  }
+
   return warnings
 }
 
@@ -111,8 +124,64 @@ function isLocalHost(host: string | null | undefined) {
     return false
   }
 
-  const normalized = host.trim().toLowerCase()
+  const normalized = hostNameFromEndpoint(host).replace(/^\[|\]$/g, '').toLowerCase()
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1'
+}
+
+function profileEndpointValue(profile: ConnectionProfile) {
+  if (profile.engine === 'cosmosdb') {
+    return (
+      profile.cosmosDbOptions?.accountEndpoint ||
+      profile.connectionString ||
+      profile.host
+    )
+  }
+  return profile.host
+}
+
+function profileDatabase(profile: ConnectionProfile) {
+  if (profile.engine === 'cosmosdb') {
+    return profile.cosmosDbOptions?.databaseName ?? profile.database
+  }
+  return profile.database
+}
+
+function profilePort(profile: ConnectionProfile) {
+  return portFromEndpoint(profileEndpointValue(profile)) ?? profile.port
+}
+
+function hostNameFromEndpoint(endpoint: string) {
+  const trimmed = endpoint.trim()
+  if (trimmed === '::1') {
+    return '::1'
+  }
+  try {
+    return new URL(trimmed.includes('://') ? trimmed : `http://${trimmed}`).hostname
+  } catch {
+    const authority = trimmed.split('/')[0] ?? ''
+    if (authority.startsWith('[')) {
+      const closing = authority.indexOf(']')
+      return closing >= 0 ? authority.slice(1, closing) : authority
+    }
+    return authority.split(':')[0] ?? ''
+  }
+}
+
+function portFromEndpoint(endpoint: string | null | undefined) {
+  if (typeof endpoint !== 'string' || !endpoint.trim()) {
+    return undefined
+  }
+  const trimmed = endpoint.trim()
+  try {
+    const url = new URL(trimmed.includes('://') ? trimmed : `http://${trimmed}`)
+    return url.port ? Number(url.port) : undefined
+  } catch {
+    const authority = trimmed.split('/')[0] ?? ''
+    const colonIndex = authority.lastIndexOf(':')
+    const port = colonIndex >= 0 ? authority.slice(colonIndex + 1) : ''
+    const parsed = Number(port)
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+  }
 }
 
 function redactConnectionTestText(value: string | null | undefined, secret?: string) {

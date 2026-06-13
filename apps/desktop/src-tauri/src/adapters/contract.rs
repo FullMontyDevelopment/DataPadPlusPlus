@@ -142,6 +142,27 @@ pub trait DatastoreAdapter: Send + Sync {
             .await;
         }
 
+        if connection.engine == "mongodb"
+            && matches!(
+                request.operation_id.as_str(),
+                "mongodb.database.create"
+                    | "mongodb.database.drop"
+                    | "mongodb.collection.create"
+                    | "mongodb.collection.drop"
+                    | "mongodb.collection.rename"
+                    | "mongodb.collection.modify"
+                    | "mongodb.collection.convert-to-capped"
+                    | "mongodb.collection.clone-as-capped"
+                    | "mongodb.collection.compact"
+                    | "mongodb.collection.validate"
+            )
+        {
+            return super::datastores::mongodb::execute_mongodb_management_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+
         if operation.execution_support == "live"
             && matches!(connection.engine.as_str(), "redis" | "valkey")
             && matches!(
@@ -218,6 +239,35 @@ pub trait DatastoreAdapter: Send + Sync {
             )
         {
             return super::datastores::duckdb::execute_duckdb_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+
+        if operation.execution_support == "live"
+            && connection.engine == "litedb"
+            && matches!(
+                request.operation_id.as_str(),
+                "litedb.data.import-export"
+                    | "litedb.file-storage.import"
+                    | "litedb.file-storage.export"
+                    | "litedb.file-storage.delete"
+            )
+        {
+            return super::datastores::litedb::execute_litedb_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+
+        if operation.execution_support == "live"
+            && connection.engine == "litedb"
+            && matches!(
+                request.operation_id.as_str(),
+                "litedb.index.create" | "litedb.index.drop" | "litedb.object.drop"
+            )
+        {
+            return super::datastores::litedb::execute_litedb_management_operation(
                 connection, request, operation, plan, messages, warnings,
             )
             .await;

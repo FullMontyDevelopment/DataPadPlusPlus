@@ -250,6 +250,135 @@ fn document_operation_request(
         .unwrap_or_else(|_| "{}".into());
     }
 
+    if operation_id.ends_with("database.create") || operation_id.ends_with("collection.create") {
+        let target_database = parameter("database").and_then(Value::as_str).unwrap_or(
+            if operation_id.ends_with("database.create") {
+                object_name
+            } else {
+                database
+            },
+        );
+        let target_collection = parameter("collection").and_then(Value::as_str).unwrap_or(
+            if operation_id.ends_with("database.create") {
+                "<first_collection>"
+            } else {
+                collection
+            },
+        );
+        let mut command = serde_json::Map::new();
+        command.insert("database".into(), serde_json::json!(target_database));
+        command.insert("create".into(), serde_json::json!(target_collection));
+        merge_json_options(&mut command, parameter("options"));
+
+        return serde_json::to_string_pretty(&Value::Object(command))
+            .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("database.drop") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "database": database,
+            "dropDatabase": 1
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("collection.drop") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "database": database,
+            "drop": collection
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("collection.rename") {
+        let new_collection = parameter("newCollection")
+            .or_else(|| parameter("newName"))
+            .or_else(|| parameter("to"))
+            .and_then(Value::as_str)
+            .unwrap_or("<new_collection>");
+        let target_database = parameter("targetDatabase")
+            .and_then(Value::as_str)
+            .unwrap_or(database);
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "database": "admin",
+            "renameCollection": format!("{database}.{collection}"),
+            "to": format!("{target_database}.{new_collection}"),
+            "dropTarget": parameter("dropTarget").cloned().unwrap_or_else(|| serde_json::json!(false))
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("collection.modify") {
+        let mut command = serde_json::Map::new();
+        command.insert("database".into(), serde_json::json!(database));
+        command.insert("collMod".into(), serde_json::json!(collection));
+        merge_json_options(&mut command, parameter("modification"));
+        merge_json_options(&mut command, parameter("options"));
+        for key in [
+            "validator",
+            "validationLevel",
+            "validationAction",
+            "index",
+            "changeStreamPreAndPostImages",
+            "expireAfterSeconds",
+        ] {
+            if let Some(value) = parameter(key) {
+                command.insert(key.into(), value.clone());
+            }
+        }
+
+        return serde_json::to_string_pretty(&Value::Object(command))
+            .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("collection.convert-to-capped") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "database": database,
+            "convertToCapped": collection,
+            "size": parameter("size").cloned().unwrap_or_else(|| serde_json::json!("<bytes>"))
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("collection.clone-as-capped") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "database": database,
+            "cloneCollectionAsCapped": collection,
+            "toCollection": parameter("targetCollection")
+                .or_else(|| parameter("toCollection"))
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!("<target_collection>")),
+            "size": parameter("size").cloned().unwrap_or_else(|| serde_json::json!("<bytes>"))
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("collection.compact") {
+        let mut command = serde_json::Map::new();
+        command.insert("database".into(), serde_json::json!(database));
+        command.insert("compact".into(), serde_json::json!(collection));
+        if let Some(value) = parameter("force") {
+            command.insert("force".into(), value.clone());
+        }
+        merge_json_options(&mut command, parameter("options"));
+
+        return serde_json::to_string_pretty(&Value::Object(command))
+            .unwrap_or_else(|_| "{}".into());
+    }
+
+    if operation_id.ends_with("collection.validate") {
+        let mut command = serde_json::Map::new();
+        command.insert("database".into(), serde_json::json!(database));
+        command.insert("validate".into(), serde_json::json!(collection));
+        if let Some(value) = parameter("full") {
+            command.insert("full".into(), value.clone());
+        }
+        merge_json_options(&mut command, parameter("options"));
+
+        return serde_json::to_string_pretty(&Value::Object(command))
+            .unwrap_or_else(|_| "{}".into());
+    }
+
     if operation_id.ends_with("collection.export") {
         let format = parameter("format")
             .and_then(Value::as_str)
@@ -380,6 +509,14 @@ fn mongo_file_extension(format: &str) -> &'static str {
         "csv" => "csv",
         "bson" => "bson",
         _ => "json",
+    }
+}
+
+fn merge_json_options(command: &mut serde_json::Map<String, Value>, value: Option<&Value>) {
+    if let Some(Value::Object(options)) = value {
+        for (key, value) in options {
+            command.insert(key.clone(), value.clone());
+        }
     }
 }
 
@@ -855,6 +992,65 @@ fn litedb_operation_request(
             }),
             &database_file,
             "index-drop",
+            true,
+        );
+    }
+
+    if operation_id.ends_with("file-storage.import") {
+        let file_id = string_parameter(parameters, "fileId").unwrap_or_else(|| object_name.into());
+        let source_path = string_parameter(parameters, "sourcePath")
+            .or_else(|| string_parameter(parameters, "inputPath"))
+            .unwrap_or_else(|| "<selected-file>".into());
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": "LiteDB.ImportFile",
+                "databaseFile": database_file.clone(),
+                "fileId": file_id,
+                "sourcePath": source_path,
+                "filename": string_parameter(parameters, "filename").unwrap_or_else(|| "<source filename>".into()),
+                "overwrite": parameters.and_then(|values| values.get("overwrite")).and_then(Value::as_bool).unwrap_or(false),
+                "preflight": ["verify-source-file", "check-existing-file-id", "confirm-overwrite-policy"],
+                "validation": ["find-file-after-upload", "compare-byte-count"]
+            }),
+            &database_file,
+            "file-storage-import",
+            true,
+        );
+    }
+
+    if operation_id.ends_with("file-storage.export") {
+        let file_id = string_parameter(parameters, "fileId").unwrap_or_else(|| object_name.into());
+        let target_path = string_parameter(parameters, "targetPath")
+            .or_else(|| string_parameter(parameters, "outputPath"))
+            .unwrap_or_else(|| "<selected-file>".into());
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": "LiteDB.ExportFile",
+                "databaseFile": database_file.clone(),
+                "fileId": file_id,
+                "targetPath": target_path,
+                "overwrite": parameters.and_then(|values| values.get("overwrite")).and_then(Value::as_bool).unwrap_or(false),
+                "preflight": ["find-file", "verify-target-parent", "confirm-overwrite-policy"],
+                "validation": ["compare-byte-count", "verify-target-file"]
+            }),
+            &database_file,
+            "file-storage-export",
+            false,
+        );
+    }
+
+    if operation_id.ends_with("file-storage.delete") {
+        let file_id = string_parameter(parameters, "fileId").unwrap_or_else(|| object_name.into());
+        return litedb_operation_plan(
+            serde_json::json!({
+                "operation": "LiteDB.DeleteFile",
+                "databaseFile": database_file.clone(),
+                "fileId": file_id,
+                "preflight": ["find-file", "confirm-file-id"],
+                "validation": ["find-file-after-delete"]
+            }),
+            &database_file,
+            "file-storage-delete",
             true,
         );
     }
@@ -5730,6 +5926,7 @@ pub(crate) fn default_operation_plan(
 ) -> OperationPlan {
     let object_name = default_object_name(manifest, object_name);
     let destructive = operation_id.contains(".drop")
+        || operation_id.contains(".convert-to-capped")
         || operation_id.contains(".session.terminate")
         || operation_id.contains("backup-restore")
         || operation_id.contains(".backup.restore")
@@ -5763,6 +5960,8 @@ pub(crate) fn default_operation_plan(
         || operation_id.contains(".extension.")
         || operation_id.contains(".file.import")
         || operation_id.contains(".collection.import")
+        || operation_id.contains(".collection.modify")
+        || operation_id.contains(".collection.rename")
         || operation_id.contains(".event.")
         || (operation_id.contains(".security.") && !operation_id.ends_with("security.inspect"))
         || operation_id.contains("validation")
@@ -5792,6 +5991,7 @@ pub(crate) fn default_operation_plan(
     let costly = destructive
         || admin_write
         || operation_id.contains(".collection.export")
+        || operation_id.contains(".collection.validate")
         || operation_id.contains(".key.export")
         || operation_id.contains(".table.export")
         || operation_id.contains(".database.backup")

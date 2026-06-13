@@ -58,7 +58,7 @@ pub(super) async fn execute_mongodb_query(
             execute_mongodb_command(connection, &client, &input, notices, started).await
         }
         "findone" => {
-            let (documents, database_name, collection_name) =
+            let (documents, database_name, collection_name, row_limit) =
                 read_mongodb_documents(adapter, connection, &client, &input, &mut notices, Some(1))
                     .await?;
             Ok(document_result(DocumentResultInput {
@@ -68,7 +68,7 @@ pub(super) async fn execute_mongodb_query(
                 documents,
                 database_name: &database_name,
                 collection_name: &collection_name,
-                row_limit: 1,
+                row_limit,
                 label: "document(s)",
                 lazy_documents: can_use_efficiency_mode(
                     &input,
@@ -78,10 +78,12 @@ pub(super) async fn execute_mongodb_query(
             }))
         }
         "aggregate" | "find" => {
-            let requested_row_limit = request
-                .row_limit
-                .unwrap_or(adapter.execution_capabilities().default_row_limit);
-            let (documents, database_name, collection_name) = read_mongodb_documents(
+            let requested_row_limit = bounded_page_size(
+                request
+                    .row_limit
+                    .or(Some(adapter.execution_capabilities().default_row_limit)),
+            );
+            let (documents, database_name, collection_name, row_limit) = read_mongodb_documents(
                 adapter,
                 connection,
                 &client,
@@ -97,7 +99,7 @@ pub(super) async fn execute_mongodb_query(
                 documents,
                 database_name: &database_name,
                 collection_name: &collection_name,
-                row_limit: requested_row_limit,
+                row_limit,
                 label: "document(s)",
                 lazy_documents: can_use_efficiency_mode(
                     &input,
@@ -131,7 +133,7 @@ async fn read_mongodb_documents(
     input: &Value,
     notices: &mut Vec<QueryExecutionNotice>,
     override_limit: Option<u32>,
-) -> Result<(Vec<Document>, String, String), CommandError> {
+) -> Result<(Vec<Document>, String, String, u32), CommandError> {
     let collection_name = collection_name(input)?;
     let database_resolution =
         mongodb_database_name_for_collection_query(client, connection, input, &collection_name)
@@ -141,12 +143,10 @@ async fn read_mongodb_documents(
     }
     let database = client.database(&database_resolution.database_name);
     let collection = database.collection::<Document>(&collection_name);
-    let requested_row_limit =
-        override_limit.unwrap_or(adapter.execution_capabilities().default_row_limit);
-    let explicit_limit = positive_u32(input.get("limit"));
-    let row_limit = explicit_limit
-        .map(|limit| limit.min(requested_row_limit))
-        .unwrap_or(requested_row_limit);
+    let requested_row_limit = bounded_page_size(
+        override_limit.or(Some(adapter.execution_capabilities().default_row_limit)),
+    );
+    let row_limit = effective_mongodb_row_limit(input, requested_row_limit);
     let cursor_limit = cursor_limit_for_row_limit(row_limit);
 
     if let Some(pipeline) = input.get("pipeline").and_then(Value::as_array) {
@@ -162,6 +162,7 @@ async fn read_mongodb_documents(
             documents,
             database_resolution.database_name,
             collection_name,
+            row_limit,
         ));
     }
 
@@ -184,6 +185,7 @@ async fn read_mongodb_documents(
         find.await?.try_collect::<Vec<Document>>().await?,
         database_resolution.database_name,
         collection_name,
+        row_limit,
     ))
 }
 
@@ -583,11 +585,9 @@ fn document_result(input: DocumentResultInput<'_>) -> ExecutionResultEnvelope {
         label,
         lazy_documents,
     } = input;
-    let truncated = documents.len() > row_limit as usize;
-    let visible_documents = documents
-        .iter()
-        .take(row_limit as usize)
-        .collect::<Vec<&Document>>();
+    let bounded = bounded_items(documents.iter(), row_limit);
+    let truncated = bounded.truncated;
+    let visible_documents = bounded.visible;
     let documents_json = mongodb_documents_to_json(visible_documents.iter().copied());
     let document_payload = mongodb_document_payload(
         documents_json.clone(),
@@ -721,6 +721,12 @@ fn positive_u32(value: Option<&Value>) -> Option<u32> {
         .and_then(Value::as_u64)
         .and_then(|value| u32::try_from(value).ok())
         .filter(|value| *value > 0)
+}
+
+fn effective_mongodb_row_limit(input: &Value, requested_row_limit: u32) -> u32 {
+    positive_u32(input.get("limit"))
+        .map(|limit| limit.min(requested_row_limit))
+        .unwrap_or(requested_row_limit)
 }
 
 fn is_read_only_mongodb_command(command: &Document) -> bool {

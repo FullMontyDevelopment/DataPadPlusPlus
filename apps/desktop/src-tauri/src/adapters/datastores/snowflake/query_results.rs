@@ -33,10 +33,11 @@ pub(super) fn normalize_snowflake_response_bounded(
         .cloned()
         .unwrap_or_default();
     let total_rows = source_rows.len();
-    let truncated = total_rows > row_limit as usize;
-    let rows = source_rows
+    let bounded = bounded_items(source_rows, row_limit);
+    let truncated = bounded.truncated;
+    let rows = bounded
+        .visible
         .iter()
-        .take(row_limit as usize)
         .map(|row| {
             row.as_array()
                 .into_iter()
@@ -77,7 +78,7 @@ pub(super) fn bounded_snowflake_response(
         if let Some(object) = response.as_object_mut() {
             object.insert(
                 "data".into(),
-                Value::Array(rows.into_iter().take(row_limit as usize).collect()),
+                Value::Array(bounded_items(rows, row_limit).visible),
             );
             if truncated {
                 object.insert(

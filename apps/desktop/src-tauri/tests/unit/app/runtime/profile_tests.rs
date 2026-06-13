@@ -1,7 +1,7 @@
 use super::profiles::{connection_test_timeout_ms, fixture_connection_warnings};
 use crate::domain::models::{
-    MemcachedConnectionOptions, MySqlConnectionOptions, RedisConnectionOptions,
-    ResolvedConnectionProfile, SqlServerConnectionOptions,
+    CosmosDbConnectionOptions, MemcachedConnectionOptions, MySqlConnectionOptions,
+    RedisConnectionOptions, ResolvedConnectionProfile, SqlServerConnectionOptions,
 };
 
 #[test]
@@ -34,6 +34,30 @@ fn fixture_connection_warnings_respect_inline_test_secret() {
     assert_eq!(
         fixture_connection_warnings(&connection),
         vec!["DataPad++ Docker fixtures expose MongoDB on localhost:27018."]
+    );
+}
+
+#[test]
+fn fixture_connection_warnings_help_with_cosmosdb_emulator_urls() {
+    let mut connection = resolved_connection("cosmosdb", 8081, Some("catalog"), None, None);
+    connection.host = "http://localhost:8081".into();
+    connection.cosmos_db_options = Some(CosmosDbConnectionOptions {
+        connect_mode: Some("emulator".into()),
+        account_endpoint: Some("http://localhost:8081".into()),
+        database_name: Some("catalog".into()),
+        auth_mode: Some("emulator".into()),
+        ..CosmosDbConnectionOptions::default()
+    });
+
+    let warnings = fixture_connection_warnings(&connection);
+
+    assert_eq!(
+        warnings,
+        vec![
+            "DataPad++ Docker fixtures expose Cosmos DB emulator on localhost:8082.",
+            "Fixture database is \"datapadplusplus\".",
+            "For Microsoft Cosmos DB emulator use http://localhost:8081. For DataPad++ fixtures run npm run fixtures:up:profile -- cosmosdb and use http://localhost:8082.",
+        ]
     );
 }
 

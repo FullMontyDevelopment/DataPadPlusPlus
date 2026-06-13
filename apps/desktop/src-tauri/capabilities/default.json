@@ -3,5 +3,14 @@
   "identifier": "main-capability",
   "description": "Default capability for the DataPad++ desktop window.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus" },
+        { "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus/*" }
+      ]
+    }
+  ]
 }

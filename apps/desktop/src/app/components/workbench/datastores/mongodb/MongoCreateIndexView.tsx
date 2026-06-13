@@ -279,10 +279,10 @@ function MongoIndexCreatePanel({
           type="button"
           className="drawer-button drawer-button--primary"
           disabled={disabled}
-          title="Review the index change before it is applied."
+          title="Run the index change with confirmation."
           onClick={onPreviewCreate}
         >
-          Review
+          Run
         </button>
       </div>
     </div>

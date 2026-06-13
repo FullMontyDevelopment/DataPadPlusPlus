@@ -14,6 +14,7 @@ const profiles = [
   'graph',
   'widecolumn',
   'oracle',
+  'cosmosdb',
   'cloud-contract',
 ]
 
@@ -43,6 +44,9 @@ const fixturePorts = [
   { env: 'DATAPADPLUSPLUS_CASSANDRA_PORT', container: 'datapadplusplus-cassandra', containerPort: 9042, defaultPort: 9043, fallbackStart: 19043, profiles: ['widecolumn'] },
   { env: 'DATAPADPLUSPLUS_ORACLE_PORT', container: 'datapadplusplus-oracle', containerPort: 1521, defaultPort: 1522, fallbackStart: 11522, profiles: ['oracle'] },
   { env: 'DATAPADPLUSPLUS_DYNAMODB_PORT', container: 'datapadplusplus-dynamodb', containerPort: 8000, defaultPort: 8001, fallbackStart: 18001, profiles: ['cloud-contract'] },
+  { env: 'DATAPADPLUSPLUS_COSMOSDB_EMULATOR_PORT', container: 'datapadplusplus-cosmosdb', containerPort: 8081, defaultPort: 8082, fallbackStart: 18082, profiles: ['cosmosdb'] },
+  { env: 'DATAPADPLUSPLUS_COSMOSDB_HEALTH_PORT', container: 'datapadplusplus-cosmosdb', containerPort: 8080, defaultPort: 18082, fallbackStart: 18182, profiles: ['cosmosdb'] },
+  { env: 'DATAPADPLUSPLUS_COSMOSDB_EXPLORER_PORT', container: 'datapadplusplus-cosmosdb', containerPort: 1234, defaultPort: 1235, fallbackStart: 11235, profiles: ['cosmosdb'] },
   { env: 'DATAPADPLUSPLUS_BIGQUERY_MOCK_PORT', container: 'datapadplusplus-cloud-contract', containerPort: 19050, defaultPort: 19050, fallbackStart: 19150, profiles: ['cloud-contract'] },
   { env: 'DATAPADPLUSPLUS_SNOWFLAKE_MOCK_PORT', container: 'datapadplusplus-cloud-contract', containerPort: 19060, defaultPort: 19060, fallbackStart: 19160, profiles: ['cloud-contract'] },
   { env: 'DATAPADPLUSPLUS_COSMOSDB_MOCK_PORT', container: 'datapadplusplus-cloud-contract', containerPort: 19070, defaultPort: 19070, fallbackStart: 19170, profiles: ['cloud-contract'] },

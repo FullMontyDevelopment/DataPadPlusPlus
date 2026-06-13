@@ -186,7 +186,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useStartupUpdateCheck({
     actions,
-    dispatch,
     providerMountedRef,
     runtime: state.payload?.health.runtime,
     status: state.status,

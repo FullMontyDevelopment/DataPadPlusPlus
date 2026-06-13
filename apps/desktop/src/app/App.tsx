@@ -8,6 +8,9 @@ import type {
   AppShortcutId,
   LibraryItemKind,
   LibraryNode,
+  OperationPlan,
+  OperationPlanRequest,
+  OperationPlanResponse,
   QueryBuilderState,
   QueryTabState,
   QueryViewMode,
@@ -27,6 +30,7 @@ import { DesktopCodeEditor } from './components/workbench/DesktopCodeEditor'
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
+import { useReviewConfirmation } from './components/workbench/use-review-confirmation'
 import { RedisConsoleEditor } from './components/workbench/datastores/common/keyvalue/RedisConsoleEditor'
 import { StatusBar } from './components/workbench/StatusBar'
 import type { SettingsSection } from './components/workbench/SettingsWorkspace.constants'
@@ -175,6 +179,113 @@ function SidebarFallback() {
       </div>
     </aside>
   )
+}
+
+function operationReviewReasons(plan: OperationPlan) {
+  const reasons = [
+    ...plan.warnings.filter((warning) => !mentionsConfirmationText(warning, plan.confirmationText)),
+    plan.destructive ? 'This operation can make destructive changes.' : undefined,
+    plan.estimatedScanImpact,
+    plan.estimatedCost,
+    plan.requiredPermissions.length
+      ? `Required permissions: ${plan.requiredPermissions.join(', ')}`
+      : undefined,
+  ]
+
+  return uniqueStrings(reasons.filter((reason): reason is string => Boolean(reason))).slice(0, 4)
+}
+
+function operationPlanWithWarning(response: OperationPlanResponse, warning: string) {
+  return {
+    ...response,
+    plan: {
+      ...response.plan,
+      warnings: uniqueStrings([
+        ...response.plan.warnings.filter(
+          (item) => !mentionsConfirmationText(item, response.plan.confirmationText),
+        ),
+        warning,
+      ]),
+    },
+  }
+}
+
+function operationExecutionPlanResponse(
+  fallback: OperationPlanResponse,
+  execution: Awaited<ReturnType<Actions['executeDatastoreOperation']>>,
+) {
+  if (!execution) {
+    return operationPlanWithWarning(fallback, 'Operation execution did not return a response.')
+  }
+
+  const warnings = execution.warnings.filter(
+    (warning) => !mentionsConfirmationText(warning, execution.plan.confirmationText),
+  )
+  const summary = execution.executed
+    ? execution.messages.at(-1) ?? 'Operation executed successfully.'
+    : warnings.at(-1) ?? execution.messages.at(-1) ?? 'Operation was not applied.'
+
+  return {
+    connectionId: execution.connectionId,
+    environmentId: execution.environmentId,
+    plan: {
+      ...execution.plan,
+      summary,
+      warnings: uniqueStrings([
+        ...execution.plan.warnings.filter(
+          (warning) => !mentionsConfirmationText(warning, execution.plan.confirmationText),
+        ),
+        ...warnings,
+      ]),
+    },
+  }
+}
+
+function isMongoManagementOperation(operationId: string) {
+  return operationId === 'mongodb.database.create' ||
+    operationId === 'mongodb.database.drop' ||
+    operationId === 'mongodb.collection.create' ||
+    operationId === 'mongodb.collection.drop' ||
+    operationId === 'mongodb.collection.rename' ||
+    operationId === 'mongodb.collection.modify' ||
+    operationId === 'mongodb.collection.convert-to-capped' ||
+    operationId === 'mongodb.collection.clone-as-capped' ||
+    operationId === 'mongodb.collection.compact' ||
+    operationId === 'mongodb.collection.validate'
+}
+
+function mongoManagementRefreshScopes(request: OperationPlanRequest) {
+  const parameters = request.parameters ?? {}
+  const database = stringParameter(parameters.database)
+  const targetDatabase = stringParameter(parameters.targetDatabase)
+  const scopes = new Set<string>()
+  scopes.add('databases')
+  scopes.add('system-databases')
+
+  for (const name of [database, targetDatabase].filter(Boolean)) {
+    scopes.add(`database:${name}`)
+    scopes.add(`collections:${name}`)
+    scopes.add(`time-series-collections:${name}`)
+    scopes.add(`capped-collections:${name}`)
+    scopes.add(`views:${name}`)
+  }
+
+  return [...scopes]
+}
+
+function stringParameter(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function mentionsConfirmationText(message: string, confirmationText?: string) {
+  return Boolean(
+    confirmationText &&
+      (message.includes(`Type \`${confirmationText}\``) || message.includes(confirmationText)),
+  )
+}
+
+function uniqueStrings(values: string[]) {
+  return values.filter((value, index) => values.indexOf(value) === index)
 }
 
 function GlobalShortcutHandler({
@@ -409,6 +520,8 @@ function DesktopWorkspace() {
     EnvironmentProfile | undefined
   >()
   const bottomPanelVisibleRef = useRef(false)
+  const promptedGuardrailRef = useRef<string | undefined>(undefined)
+  const { confirmReview, reviewConfirmationDialog } = useReviewConfirmation()
   useEffect(() => {
     if (!payload) {
       return
@@ -1061,6 +1174,92 @@ function DesktopWorkspace() {
     resolveQueryText,
   ])
 
+  const confirmExecutionGuardrail = useCallback(async (
+    guardrailId: string,
+    mode: ExecutionRequest['mode'] = 'full',
+    reasons: string[] = [],
+    requiredConfirmationText?: string,
+  ) => {
+    const confirmed = await confirmReview({
+      title: 'Run this guarded query?',
+      action: requiredConfirmationText
+        ? `Confirm this query run for ${requiredConfirmationText}.`
+        : 'Confirm this query run.',
+      reasons: uniqueStrings(reasons).slice(0, 4),
+      confirmLabel: 'Run',
+    })
+
+    if (confirmed) {
+      runCurrentTabQuery(mode, guardrailId)
+    }
+  }, [confirmReview, runCurrentTabQuery])
+
+  useEffect(() => {
+    const executionId = lastExecution?.executionId
+    const guardrail = lastExecution?.guardrail
+    if (!executionId || guardrail?.status !== 'confirm' || !guardrail.id) {
+      return
+    }
+
+    const token = `${executionId}:${guardrail.id}`
+    if (promptedGuardrailRef.current === token) {
+      return
+    }
+
+    promptedGuardrailRef.current = token
+    void confirmExecutionGuardrail(
+      guardrail.id,
+      lastExecutionRequest?.mode ?? 'full',
+      guardrail.reasons,
+      guardrail.requiredConfirmationText,
+    )
+  }, [
+    confirmExecutionGuardrail,
+    lastExecution?.executionId,
+    lastExecution?.guardrail,
+    lastExecutionRequest?.mode,
+  ])
+
+  const planDatastoreOperationWithConfirmation = useCallback(
+    async (request: OperationPlanRequest) => {
+      const response = await actions.planDatastoreOperation(request)
+      const confirmationText = response?.plan.confirmationText
+
+      if (!response || !confirmationText) {
+        return response
+      }
+
+      const confirmed = await confirmReview({
+        title: 'Run this datastore operation?',
+        action: response.plan.summary,
+        reasons: operationReviewReasons(response.plan),
+        confirmLabel: 'Run',
+      })
+
+      if (!confirmed) {
+        return undefined
+      }
+
+      const execution = await actions.executeDatastoreOperation({
+        ...request,
+        confirmationText,
+      })
+      if (execution?.executed && isMongoManagementOperation(request.operationId)) {
+        for (const scope of mongoManagementRefreshScopes(request)) {
+          void actions.loadExplorer({
+            connectionId: request.connectionId,
+            environmentId: request.environmentId,
+            limit: 100,
+            scope,
+          })
+        }
+      }
+
+      return operationExecutionPlanResponse(response, execution)
+    },
+    [actions, confirmReview],
+  )
+
   const persistBuilderState = (tabId: string, builderState: QueryBuilderState) => {
     if (!snapshot) {
       return
@@ -1484,6 +1683,9 @@ function DesktopWorkspace() {
   const showingExplorerWorkspace = activeTabIsExplorer
   const showingMetricsWorkspace = activeTabIsMetrics
   const showingObjectViewWorkspace = activeTabIsObjectView
+  const availableAppUpdate = appUpdateCheckResult?.status === 'available'
+    ? appUpdateCheckResult.candidate
+    : undefined
   const hasWorkbenchMessages = workbenchMessages.length > 0
   const hasActivePanelContext = Boolean(activeTab && activeConnection && activeEnvironment)
   const hasActiveQueryContext = Boolean(
@@ -1971,6 +2173,7 @@ function DesktopWorkspace() {
         runCurrentTabQuery={runCurrentTabQuery}
         snapshot={snapshot}
       />
+      {reviewConfirmationDialog}
       {pendingTabClose ? (
         <CloseSavedTabDialog
           tab={pendingTabClose.tab}
@@ -2352,7 +2555,7 @@ function DesktopWorkspace() {
                     onRefresh={(tabId) => actions.refreshObjectViewTab(tabId)}
                     onOpenQuery={(target) => openScopedQuery(activeConnection.id, target)}
                     onOpenObjectView={openObjectView}
-                    onPlanOperation={actions.planDatastoreOperation}
+                    onPlanOperation={planDatastoreOperationWithConfirmation}
                     onExecuteDataEdit={actions.executeDataEdit}
                   />
                 ) : activeTabIsTestSuite && activeConnection && activeEnvironment && activeTab ? (
@@ -2688,7 +2891,12 @@ function DesktopWorkspace() {
                 }
                 onConfirmExecution={(guardrailId, mode) =>
                   activeTab
-                    ? runCurrentTabQuery(mode, guardrailId)
+                    ? void confirmExecutionGuardrail(
+                        guardrailId,
+                        mode,
+                        lastExecution?.guardrail.reasons,
+                        lastExecution?.guardrail.requiredConfirmationText,
+                      )
                     : undefined
                 }
                 onApplyInspectionTemplate={(queryTemplate) =>
@@ -2696,7 +2904,7 @@ function DesktopWorkspace() {
                 }
                 onRestoreHistory={replaceActiveRawQueryText}
                 onExecuteDataEdit={actions.executeDataEdit}
-                onPlanOperation={actions.planDatastoreOperation}
+                onPlanOperation={planDatastoreOperationWithConfirmation}
                 onDismissWorkbenchMessage={actions.dismissWorkbenchMessage}
                 onClearWorkbenchMessages={actions.clearWorkbenchMessages}
                 onOpenSecuritySettings={() => openDiagnosticsDrawer('security')}
@@ -2767,8 +2975,12 @@ function DesktopWorkspace() {
         activeConnection={activeConnection}
         activeEnvironment={activeEnvironment}
         activeTab={activeTab}
+        availableUpdateVersion={availableAppUpdate?.version}
         bottomPanelVisible={snapshot.ui.bottomPanelVisible}
         messageCount={workbenchMessages.length}
+        updateInstallStatus={appUpdateInstallStatus}
+        updateStatus={appUpdateStatus}
+        onInstallUpdate={() => void actions.installAppUpdate()}
         onToggleBottomPanel={() =>
           void actions.updateUiState({
             bottomPanelVisible: !snapshot.ui.bottomPanelVisible,

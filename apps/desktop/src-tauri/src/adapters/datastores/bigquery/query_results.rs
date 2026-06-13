@@ -33,15 +33,17 @@ pub(super) fn normalize_bigquery_response_bounded(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let source_row_count = source_rows.len();
     let total_rows = response
         .get("totalRows")
         .and_then(Value::as_str)
         .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(source_rows.len());
-    let truncated = source_rows.len() > row_limit as usize;
-    let rows = source_rows
+        .unwrap_or(source_row_count);
+    let bounded = bounded_items(source_rows, row_limit);
+    let truncated = bounded.truncated;
+    let rows = bounded
+        .visible
         .iter()
-        .take(row_limit as usize)
         .map(|row| {
             row.get("f")
                 .and_then(Value::as_array)
@@ -71,7 +73,7 @@ pub(super) fn normalize_bigquery_response_bounded(
         BigQueryNormalizedResult {
             columns,
             rows,
-            total_rows: total_rows.max(source_rows.len()),
+            total_rows: total_rows.max(source_row_count),
             truncated,
         }
     }
@@ -86,7 +88,7 @@ pub(super) fn bounded_bigquery_response(
         if let Some(object) = response.as_object_mut() {
             object.insert(
                 "rows".into(),
-                Value::Array(rows.into_iter().take(row_limit as usize).collect()),
+                Value::Array(bounded_items(rows, row_limit).visible),
             );
             if truncated {
                 object.insert(

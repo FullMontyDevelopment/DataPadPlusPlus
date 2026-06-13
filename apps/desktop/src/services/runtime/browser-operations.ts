@@ -23,6 +23,7 @@ export function planOperationLocally(
 
   const destructive =
     request.operationId.includes('.drop') ||
+    request.operationId.includes('.convert-to-capped') ||
     request.operationId.includes('.session.terminate') ||
     request.operationId.includes('retention-policy') ||
     request.operationId.includes('backup') ||
@@ -58,6 +59,8 @@ export function planOperationLocally(
     request.operationId.includes('.extension.') ||
     request.operationId.includes('.file.import') ||
     request.operationId.includes('.collection.import') ||
+    request.operationId.includes('.collection.modify') ||
+    request.operationId.includes('.collection.rename') ||
     request.operationId.includes('.gridfs.upload') ||
     request.operationId.includes('.key.import') ||
     request.operationId.includes('.table.import') ||
@@ -94,6 +97,7 @@ export function planOperationLocally(
     destructive ||
     adminWrite ||
     request.operationId.includes('.collection.export') ||
+    request.operationId.includes('.collection.validate') ||
     request.operationId.includes('.gridfs.export') ||
     request.operationId.includes('.gridfs.validate') ||
     request.operationId.includes('.key.export') ||

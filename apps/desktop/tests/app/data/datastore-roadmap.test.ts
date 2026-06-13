@@ -866,7 +866,7 @@ describe('datastore roadmap catalog', () => {
   it('tracks Wave 9 Wave 4 query and test hardening without promoting live mutations', () => {
     const documentAndCacheEngines = [
       ['cosmosdb', 3.2],
-      ['litedb', 4.05],
+      ['litedb', 4.65],
       ['memcached', 3.25],
     ] as const
 

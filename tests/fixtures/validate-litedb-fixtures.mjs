@@ -8,6 +8,7 @@ const result = spawnSync(
     'test',
     '--manifest-path',
     'apps/desktop/src-tauri/Cargo.toml',
+    '--lib',
     testName,
   ],
   {
@@ -30,5 +31,5 @@ if (result.status !== 0) {
   process.exitCode = result.status ?? 1
 } else {
   console.log('ok - LiteDB: local-file preflight plus fixture-token and local sidecar-process read dispatch, bounded response normalization, process open-failure mapping, timeout, and redaction evidence')
-  console.log('note - optional real .NET LiteDB engine sidecar validation is covered by DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE=1 npm run fixtures:validate:litedb:dotnet, including guarded document CRUD evidence; encrypted-file validation, import/export execution, packaged sidecar distribution, collection/file-storage management execution, and exclusive writer-lock validation remain outside this default checkpoint.')
+  console.log('note - optional real .NET LiteDB engine sidecar validation is covered by DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE=1 npm run fixtures:validate:litedb:dotnet, including guarded document CRUD, encrypted-file success/failure evidence, JSON collection import/export execution, file-storage import/export/delete, and index/collection management execution; packaged sidecar distribution and exclusive writer-lock validation remain outside this default checkpoint.')
 }

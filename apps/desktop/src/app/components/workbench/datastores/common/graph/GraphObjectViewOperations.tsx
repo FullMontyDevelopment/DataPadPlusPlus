@@ -52,6 +52,7 @@ export function GraphOperationStrip({
       return
     }
 
+    setFeedback(undefined)
     setPlanningOperationId(action.operationId)
     try {
       const response = await onPlanOperation({
@@ -80,7 +81,7 @@ export function GraphOperationStrip({
 
   return (
     <>
-      <section className="object-view-section object-view-workflow-section" aria-label="Guarded graph operation previews">
+      <section className="object-view-section object-view-workflow-section" aria-label="Guarded graph operations">
         <div className="object-view-action-chips">
           {actions.map((action) => (
             <button
@@ -92,7 +93,7 @@ export function GraphOperationStrip({
               disabled={Boolean(planningOperationId)}
             >
               <GraphOperationIcon icon={action.icon} />
-              <span>{planningOperationId === action.operationId ? 'Planning...' : action.label}</span>
+              <span>{planningOperationId === action.operationId ? 'Running...' : action.label}</span>
             </button>
           ))}
         </div>

@@ -218,18 +218,15 @@ pub(crate) fn normalize_cosmosdb_response_bounded(
     .cloned()
     .unwrap_or_else(|| json!([response.clone()]));
     let items = documents.as_array().cloned().unwrap_or_default();
-    let truncated = items.len() > row_limit as usize || cosmosdb_continuation(response).is_some();
-    let bounded_items = items
-        .iter()
-        .take(row_limit as usize)
-        .cloned()
-        .collect::<Vec<Value>>();
-    let (columns, rows) = document_rows(&bounded_items, row_limit);
+    let bounded = bounded_items(items, row_limit);
+    let truncated = bounded.truncated || cosmosdb_continuation(response).is_some();
+    let visible_items = bounded.visible;
+    let (columns, rows) = document_rows(&visible_items, row_limit);
 
     CosmosDbNormalizedResponse {
         columns,
         rows,
-        documents: Value::Array(bounded_items),
+        documents: Value::Array(visible_items),
         truncated,
     }
 }
@@ -254,7 +251,7 @@ fn bounded_cosmosdb_response(
             if let Some(items) = object.get(key).and_then(Value::as_array).cloned() {
                 object.insert(
                     key.into(),
-                    Value::Array(items.into_iter().take(row_limit as usize).collect()),
+                    Value::Array(bounded_items(items, row_limit).visible),
                 );
             }
         }

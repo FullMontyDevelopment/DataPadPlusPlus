@@ -130,7 +130,7 @@ export function MessagesView({
               onConfirmExecution(confirmationGuardrailId, lastExecutionRequest?.mode ?? 'full')
             }
           >
-            Confirm and run
+            Run
           </button>
         </div>
       ) : null}

@@ -347,6 +347,27 @@ services:
     ports:
       - '${DATAPADPLUSPLUS_DYNAMODB_PORT:-8001}:8000'
 
+  cosmosdb:
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-latest
+    container_name: datapadplusplus-cosmosdb
+    profiles: ['cosmosdb']
+    environment:
+      PROTOCOL: http
+      ENABLE_INIT_DATA: 'true'
+      QUERY_BUFFER_SIZE_KB: '16384'
+      LOG_LEVEL: warn
+    ports:
+      - '${DATAPADPLUSPLUS_COSMOSDB_EMULATOR_PORT:-8082}:8081'
+      - '${DATAPADPLUSPLUS_COSMOSDB_HEALTH_PORT:-18082}:8080'
+      - '${DATAPADPLUSPLUS_COSMOSDB_EXPLORER_PORT:-1235}:1234'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:8080/ready >/dev/null']
+      interval: 10s
+      timeout: 10s
+      retries: 60
+    volumes:
+      - ./cosmosdb/init:/init:ro
+
   cloud-contract:
     image: node:24-alpine
     container_name: datapadplusplus-cloud-contract

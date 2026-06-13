@@ -156,7 +156,7 @@ export function LiteDbObjectViewWorkspace({
 
         <ObjectViewOperationStrip
           actions={operationActions}
-          ariaLabel="Guarded LiteDB operation previews"
+          ariaLabel="Guarded LiteDB operations"
           connection={connection}
           environment={environment}
           onPlanOperation={onPlanOperation}

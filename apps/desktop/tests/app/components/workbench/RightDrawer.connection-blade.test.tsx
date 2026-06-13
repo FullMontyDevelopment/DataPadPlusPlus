@@ -754,6 +754,107 @@ describe('ConnectionBlade', () => {
     )
   })
 
+  it('prefills Cosmos DB emulator profiles with the official local endpoint', () => {
+    const onTestConnection = vi.fn()
+    const localCosmosConnection: ConnectionProfile = {
+      ...cosmosConnection,
+      host: 'localhost',
+      port: 443,
+      database: '',
+      cosmosDbOptions: {
+        connectMode: 'emulator',
+        authMode: 'emulator',
+      },
+    }
+
+    render(
+      <ConnectionBlade
+        activeConnection={localCosmosConnection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    expect(screen.getByLabelText('Cosmos DB account endpoint')).toHaveValue(
+      'http://localhost:8081',
+    )
+    expect(screen.getByLabelText('Cosmos DB API')).toHaveValue('nosql')
+    expect(screen.getByLabelText('Cosmos DB auth mode')).toHaveValue('emulator')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: 'http://localhost:8081',
+        port: 8081,
+        cosmosDbOptions: expect.objectContaining({
+          connectMode: 'emulator',
+          api: 'nosql',
+          accountEndpoint: 'http://localhost:8081',
+          authMode: 'emulator',
+          allowSelfSignedEmulatorCertificate: true,
+        }),
+      }),
+      environment.id,
+      '',
+    )
+  })
+
+  it('applies Cosmos DB emulator presets and normalizes bare host ports before testing', () => {
+    const onTestConnection = vi.fn()
+
+    render(
+      <ConnectionBlade
+        activeConnection={cosmosConnection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'DataPad++ fixture' }))
+
+    expect(screen.getByLabelText('Cosmos DB account endpoint')).toHaveValue(
+      'http://localhost:8082',
+    )
+    expect(screen.getByLabelText('Cosmos DB database name')).toHaveValue('datapadplusplus')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Microsoft emulator' }))
+
+    expect(screen.getByLabelText('Cosmos DB account endpoint')).toHaveValue(
+      'http://localhost:8081',
+    )
+
+    fireEvent.change(screen.getByLabelText('Cosmos DB account endpoint'), {
+      target: { value: 'localhost:8082' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: 'http://localhost:8082',
+        port: 8082,
+        database: 'datapadplusplus',
+        cosmosDbOptions: expect.objectContaining({
+          accountEndpoint: 'http://localhost:8082',
+          databaseName: 'datapadplusplus',
+          authMode: 'emulator',
+        }),
+      }),
+      environment.id,
+      '',
+    )
+  })
+
   it('shows Memcached-native server, protocol, SASL, and timeout options', () => {
     const onTestConnection = vi.fn()
 

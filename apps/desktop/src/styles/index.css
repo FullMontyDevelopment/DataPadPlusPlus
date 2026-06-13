@@ -9641,6 +9641,17 @@ td {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.status-button--update {
+  gap: 4px;
+  background: rgba(78, 201, 176, 0.16);
+}
+
+.status-button--update:hover,
+.status-button--update:disabled,
+.status-button--update:disabled:hover {
+  background: rgba(78, 201, 176, 0.24);
+}
+
 .status-button--error {
   gap: 4px;
   background: rgba(244, 135, 113, 0.16);

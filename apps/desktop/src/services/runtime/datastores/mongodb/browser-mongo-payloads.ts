@@ -7,6 +7,31 @@ import {
 export function mongoInspectPayload(connection: ConnectionProfile, nodeId: string) {
   const database = connection.database?.trim()
 
+  if (nodeId === 'databases' || nodeId === 'mongodb-databases') {
+    const databaseName = database || 'sample'
+    return {
+      objectView: 'databases',
+      databases: [
+        { name: databaseName, type: 'User', system: false },
+      ],
+      databaseCount: 1,
+      system: false,
+    }
+  }
+
+  if (nodeId === 'system-databases' || nodeId === 'mongodb-system-databases') {
+    return {
+      objectView: 'system-databases',
+      databases: [
+        { name: 'admin', type: 'System', system: true },
+        { name: 'config', type: 'System', system: true },
+        { name: 'local', type: 'System', system: true },
+      ],
+      databaseCount: 3,
+      system: true,
+    }
+  }
+
   if (nodeId.startsWith('database:')) {
     const databaseName = parseMongoDatabaseScope(nodeId, 'database:', database)
     if (!databaseName) {

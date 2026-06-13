@@ -92,6 +92,59 @@ export function liteDbOperationRequest(request: OperationPlanRequest) {
     )
   }
 
+  if (request.operationId.endsWith('file-storage.import')) {
+    const fileId = stringParameter(parameters, 'fileId') || request.objectName || '<file-id>'
+    return stringifyLiteDbPlan(
+      {
+        operation: 'LiteDB.ImportFile',
+        databaseFile,
+        fileId,
+        sourcePath: stringParameter(parameters, 'sourcePath') || stringParameter(parameters, 'inputPath') || '<selected-file>',
+        filename: stringParameter(parameters, 'filename') || '<source filename>',
+        overwrite: Boolean(parameters.overwrite),
+        preflight: ['verify-source-file', 'check-existing-file-id', 'confirm-overwrite-policy'],
+        validation: ['find-file-after-upload', 'compare-byte-count'],
+      },
+      databaseFile,
+      'file-storage-import',
+      true,
+    )
+  }
+
+  if (request.operationId.endsWith('file-storage.export')) {
+    const fileId = stringParameter(parameters, 'fileId') || request.objectName || '<file-id>'
+    return stringifyLiteDbPlan(
+      {
+        operation: 'LiteDB.ExportFile',
+        databaseFile,
+        fileId,
+        targetPath: stringParameter(parameters, 'targetPath') || stringParameter(parameters, 'outputPath') || '<selected-file>',
+        overwrite: Boolean(parameters.overwrite),
+        preflight: ['find-file', 'verify-target-parent', 'confirm-overwrite-policy'],
+        validation: ['compare-byte-count', 'verify-target-file'],
+      },
+      databaseFile,
+      'file-storage-export',
+      false,
+    )
+  }
+
+  if (request.operationId.endsWith('file-storage.delete')) {
+    const fileId = stringParameter(parameters, 'fileId') || request.objectName || '<file-id>'
+    return stringifyLiteDbPlan(
+      {
+        operation: 'LiteDB.DeleteFile',
+        databaseFile,
+        fileId,
+        preflight: ['find-file', 'confirm-file-id'],
+        validation: ['find-file-after-delete'],
+      },
+      databaseFile,
+      'file-storage-delete',
+      true,
+    )
+  }
+
   if (request.operationId.endsWith('data.import-export')) {
     const mode = stringParameter(parameters, 'mode') || 'export'
     const format = stringParameter(parameters, 'format') || 'json'
@@ -212,7 +265,7 @@ function liteDbSidecarExecutionBoundary(intent: string, writeIntent: boolean) {
       'encrypted-file-open-not-validated',
     ],
     promotionRequirements: [
-      'bundled or configured LiteDB sidecar executable',
+      'configured LiteDB sidecar executable',
       'sidecar read/open probe with bounded response',
       'exclusive writer-lock evidence for mutations and maintenance',
       'encrypted-file open failure/success evidence without leaking secrets',

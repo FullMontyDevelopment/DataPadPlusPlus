@@ -10,6 +10,24 @@ export type MongoObjectViewDescriptor = {
 }
 
 const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
+  databases: {
+    kind: 'databases',
+    menuLabel: 'Open Databases',
+    title: 'Databases',
+    purpose: 'Review MongoDB databases and prepare database creation from a first collection.',
+    primaryActions: ['Review databases', 'Create database'],
+    emptyTitle: 'No database metadata is loaded yet',
+    emptyDescription: 'Refresh the database list to inspect available MongoDB databases.',
+  },
+  'system-databases': {
+    kind: 'system-databases',
+    menuLabel: 'Open System Databases',
+    title: 'System Databases',
+    purpose: 'Review MongoDB system databases without exposing destructive database actions.',
+    primaryActions: ['Review system databases'],
+    emptyTitle: 'No system database metadata is loaded yet',
+    emptyDescription: 'Refresh the system database list to inspect admin, config, and local databases.',
+  },
   database: {
     kind: 'database',
     menuLabel: 'Open Database Overview',

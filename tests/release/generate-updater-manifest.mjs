@@ -53,6 +53,33 @@ function selectSignedAsset(assets, patterns, readSignature) {
   return undefined
 }
 
+function releaseAssetDownloadUrl(release, asset) {
+  const url = asset.browser_download_url
+  if (!release?.tag_name || !asset?.name) {
+    return url
+  }
+
+  let parsed
+  try {
+    parsed = new URL(url)
+  } catch {
+    return url
+  }
+
+  const path = parsed.pathname.split('/').filter(Boolean)
+  const isGitHubReleaseAsset =
+    parsed.hostname === 'github.com' &&
+    path.length >= 6 &&
+    path[2] === 'releases' &&
+    path[3] === 'download'
+
+  if (!isGitHubReleaseAsset || !path[4].startsWith('untagged-')) {
+    return url
+  }
+
+  return `${parsed.origin}/${path[0]}/${path[1]}/releases/download/${encodeURIComponent(release.tag_name)}/${encodeURIComponent(asset.name)}`
+}
+
 export function generateUpdaterManifest({ release, version, readSignature }) {
   const assets = Array.isArray(release.assets) ? release.assets : []
   const platforms = {}
@@ -67,7 +94,7 @@ export function generateUpdaterManifest({ release, version, readSignature }) {
 
     platforms[platform.key] = {
       signature: signedAsset.signature,
-      url: signedAsset.asset.browser_download_url
+      url: releaseAssetDownloadUrl(release, signedAsset.asset)
     }
   }
 

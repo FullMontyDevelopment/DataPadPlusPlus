@@ -30,6 +30,16 @@ fn mongodb_operation_manifest_exposes_native_management_previews() {
 
     assert!(operation_ids.contains(&"mongodb.index.hide"));
     assert!(operation_ids.contains(&"mongodb.validation.update"));
+    assert!(operation_ids.contains(&"mongodb.database.create"));
+    assert!(operation_ids.contains(&"mongodb.database.drop"));
+    assert!(operation_ids.contains(&"mongodb.collection.create"));
+    assert!(operation_ids.contains(&"mongodb.collection.drop"));
+    assert!(operation_ids.contains(&"mongodb.collection.rename"));
+    assert!(operation_ids.contains(&"mongodb.collection.modify"));
+    assert!(operation_ids.contains(&"mongodb.collection.convert-to-capped"));
+    assert!(operation_ids.contains(&"mongodb.collection.clone-as-capped"));
+    assert!(operation_ids.contains(&"mongodb.collection.compact"));
+    assert!(operation_ids.contains(&"mongodb.collection.validate"));
     assert!(operation_ids.contains(&"mongodb.user.create"));
     assert!(operation_ids.contains(&"mongodb.user.drop"));
     assert!(operation_ids.contains(&"mongodb.role.create"));
@@ -43,7 +53,27 @@ fn mongodb_operation_manifest_exposes_native_management_previews() {
             .map(|operation| operation.risk.as_str()),
         Some("destructive")
     );
-    for operation_id in ["mongodb.collection.export", "mongodb.collection.import"] {
+    assert_eq!(
+        operations
+            .iter()
+            .find(|operation| operation.id == "mongodb.collection.validate")
+            .map(|operation| operation.risk.as_str()),
+        Some("costly")
+    );
+    for operation_id in [
+        "mongodb.database.create",
+        "mongodb.database.drop",
+        "mongodb.collection.create",
+        "mongodb.collection.drop",
+        "mongodb.collection.rename",
+        "mongodb.collection.modify",
+        "mongodb.collection.convert-to-capped",
+        "mongodb.collection.clone-as-capped",
+        "mongodb.collection.compact",
+        "mongodb.collection.validate",
+        "mongodb.collection.export",
+        "mongodb.collection.import",
+    ] {
         let operation = operations
             .iter()
             .find(|operation| operation.id == operation_id)
@@ -227,6 +257,10 @@ fn wave_four_document_operation_manifests_expose_native_management_previews() {
     assert!(litedb_ids.contains(&"litedb.storage.checkpoint"));
     assert!(litedb_ids.contains(&"litedb.storage.compact"));
     assert!(litedb_ids.contains(&"litedb.storage.rebuild-indexes"));
+    assert!(litedb_ids.contains(&"litedb.data.import-export"));
+    assert!(litedb_ids.contains(&"litedb.file-storage.import"));
+    assert!(litedb_ids.contains(&"litedb.file-storage.export"));
+    assert!(litedb_ids.contains(&"litedb.file-storage.delete"));
     assert!(litedb_ids.contains(&"litedb.data.backup-restore"));
     assert_eq!(
         litedb_operations
@@ -235,6 +269,36 @@ fn wave_four_document_operation_manifests_expose_native_management_previews() {
             .map(|operation| operation.risk.as_str()),
         Some("costly")
     );
+    let litedb_import_export = litedb_operations
+        .iter()
+        .find(|operation| operation.id == "litedb.data.import-export")
+        .expect("LiteDB import/export operation");
+    assert_eq!(litedb_import_export.execution_support, "live");
+    assert_eq!(litedb_import_export.preview_only, Some(false));
+    assert!(litedb_import_export.disabled_reason.is_none());
+    for operation_id in [
+        "litedb.index.create",
+        "litedb.index.drop",
+        "litedb.object.drop",
+        "litedb.file-storage.import",
+        "litedb.file-storage.export",
+        "litedb.file-storage.delete",
+    ] {
+        let operation = litedb_operations
+            .iter()
+            .find(|operation| operation.id == operation_id)
+            .expect("LiteDB management operation");
+        assert_eq!(operation.execution_support, "live");
+        assert_eq!(operation.preview_only, Some(false));
+        assert!(operation.disabled_reason.is_none());
+        assert!(operation.description.contains("configured sidecar"));
+    }
+    let litedb_compact = litedb_operations
+        .iter()
+        .find(|operation| operation.id == "litedb.storage.compact")
+        .expect("LiteDB compact operation");
+    assert_eq!(litedb_compact.execution_support, "plan-only");
+    assert_eq!(litedb_compact.preview_only, Some(true));
 }
 
 #[test]

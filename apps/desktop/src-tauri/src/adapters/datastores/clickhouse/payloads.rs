@@ -19,7 +19,6 @@ pub(super) fn clickhouse_json_payloads_bounded(
     row_limit: Option<u32>,
 ) -> ClickHousePayloadResult {
     let parsed = serde_json::from_str::<Value>(raw).ok();
-    let row_limit = row_limit.map(|value| value as usize);
     let mut payloads = Vec::new();
     let mut row_count = 0_u32;
     let mut total_rows = 0_u32;
@@ -47,9 +46,14 @@ pub(super) fn clickhouse_json_payloads_bounded(
             .and_then(|value| u32::try_from(value).ok())
             .unwrap_or(items.len() as u32)
             .max(items.len() as u32);
-        let displayed_items = bounded_items(&items, row_limit);
+        let displayed_items = if let Some(limit) = row_limit {
+            let bounded = bounded_items(items, limit);
+            truncated = bounded.truncated;
+            bounded.visible
+        } else {
+            items
+        };
         row_count = displayed_items.len() as u32;
-        truncated = row_limit.is_some_and(|limit| items.len() > limit);
         let rows = displayed_items
             .iter()
             .map(|item| {
@@ -84,10 +88,15 @@ pub(super) fn clickhouse_json_payloads_bounded(
             .lines()
             .filter(|line| !line.trim().is_empty())
             .collect::<Vec<&str>>();
-        let displayed = bounded_lines(&lines, row_limit);
+        let displayed = if let Some(limit) = row_limit {
+            let bounded = bounded_items(lines.iter().copied(), limit);
+            truncated = bounded.truncated;
+            bounded.visible
+        } else {
+            lines.clone()
+        };
         row_count = displayed.len() as u32;
         total_rows = lines.len() as u32;
-        truncated = row_limit.is_some_and(|limit| lines.len() > limit);
         payloads.push(payload_raw(displayed.join("\n")));
     }
 
@@ -96,20 +105,6 @@ pub(super) fn clickhouse_json_payloads_bounded(
         row_count,
         total_rows,
         truncated,
-    }
-}
-
-fn bounded_items(items: &[Value], row_limit: Option<usize>) -> Vec<Value> {
-    match row_limit {
-        Some(limit) => items.iter().take(limit).cloned().collect(),
-        None => items.to_vec(),
-    }
-}
-
-fn bounded_lines<'a>(lines: &'a [&str], row_limit: Option<usize>) -> Vec<&'a str> {
-    match row_limit {
-        Some(limit) => lines.iter().take(limit).copied().collect(),
-        None => lines.to_vec(),
     }
 }
 

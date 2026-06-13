@@ -157,7 +157,7 @@ export function CosmosObjectViewWorkspace({
 
         <ObjectViewOperationStrip
           actions={operationActions}
-          ariaLabel="Guarded Cosmos DB operation previews"
+          ariaLabel="Guarded Cosmos DB operations"
           connection={connection}
           environment={environment}
           onPlanOperation={onPlanOperation}

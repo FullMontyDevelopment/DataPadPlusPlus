@@ -120,7 +120,7 @@ export function MemcachedObjectViewWorkspace({
 
         <ObjectViewOperationStrip
           actions={operationActions}
-          ariaLabel="Guarded Memcached operation previews"
+          ariaLabel="Guarded Memcached operations"
           connection={connection}
           environment={environment}
           onPlanOperation={onPlanOperation}

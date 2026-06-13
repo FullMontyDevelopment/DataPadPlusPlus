@@ -10,6 +10,11 @@ export function mongoInspectQueryTemplate(connection: ConnectionProfile, nodeId:
   const database = connection.database?.trim()
   const inspectFallback = () => JSON.stringify({ operation: 'inspect', target: nodeId }, null, 2)
 
+  if (nodeId === 'databases' || nodeId === 'mongodb-databases' ||
+    nodeId === 'system-databases' || nodeId === 'mongodb-system-databases') {
+    return mongoCommandTemplate('admin', { listDatabases: 1, nameOnly: true })
+  }
+
   if (nodeId.startsWith('database-statistics:')) {
     const scopedDatabase = parseMongoDatabaseScope(nodeId, 'database-statistics:', database)
     return scopedDatabase ? mongoCommandTemplate(scopedDatabase, { dbStats: 1 }) : inspectFallback()

@@ -108,6 +108,7 @@ export function MongoObjectViewWorkspace({
       })
       return
     }
+    setFeedback(undefined)
     const response = await onPlanOperation({
       connectionId: connection.id,
       environmentId: environment.id,
@@ -115,13 +116,20 @@ export function MongoObjectViewWorkspace({
       objectName,
       parameters,
     })
+    if (!response?.plan) {
+      setFeedback(undefined)
+      return
+    }
     setFeedback({
       title,
-      plan: response?.plan,
+      plan: response.plan,
       messages: [],
-      warnings: response?.plan?.warnings ?? ['DataPad++ could not prepare this change.'],
+      warnings: response.plan.warnings,
     })
-  }, [connection.id, environment.id, onPlanOperation, setFeedback])
+    if (isMongoManagementOperation(operationId)) {
+      void refresh()
+    }
+  }, [connection.id, environment.id, onPlanOperation, refresh, setFeedback])
   const uploadMongoDocument = useCallback(async (document: JsonRecord) => {
     if (!onExecuteDataEdit) {
       setFeedback({
@@ -258,6 +266,19 @@ export function MongoObjectViewWorkspace({
   )
 }
 
+function isMongoManagementOperation(operationId: string) {
+  return operationId === 'mongodb.database.create' ||
+    operationId === 'mongodb.database.drop' ||
+    operationId === 'mongodb.collection.create' ||
+    operationId === 'mongodb.collection.drop' ||
+    operationId === 'mongodb.collection.rename' ||
+    operationId === 'mongodb.collection.modify' ||
+    operationId === 'mongodb.collection.convert-to-capped' ||
+    operationId === 'mongodb.collection.clone-as-capped' ||
+    operationId === 'mongodb.collection.compact' ||
+    operationId === 'mongodb.collection.validate'
+}
+
 function renderMongoObjectView(
   kind: string,
   descriptor: MongoObjectViewDescriptor,
@@ -290,7 +311,7 @@ function renderMongoObjectView(
     )
   }
 
-  if (kind === 'database' || kind === 'collection' || kind === 'view') {
+  if (kind === 'databases' || kind === 'system-databases' || kind === 'database' || kind === 'collection' || kind === 'view') {
     return (
       <MongoOverviewView
         kind={kind}

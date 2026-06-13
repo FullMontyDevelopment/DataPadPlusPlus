@@ -266,7 +266,7 @@ export function MongoSecurityView({
             disabled={!onPlanOperation}
             onClick={previewCreate}
           >
-            Review
+            Run
           </button>
         </div>
       </div>

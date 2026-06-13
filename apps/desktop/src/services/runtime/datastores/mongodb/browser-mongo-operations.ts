@@ -47,6 +47,91 @@ export function mongoOperationRequest(request: OperationPlanRequest) {
     }, null, 2)
   }
 
+  if (request.operationId.endsWith('database.create') || request.operationId.endsWith('collection.create')) {
+    return JSON.stringify({
+      database: request.operationId.endsWith('database.create') ? String(parameters.database ?? request.objectName ?? '<database>') : database,
+      create: request.operationId.endsWith('database.create') ? String(parameters.collection ?? '<first_collection>') : collection,
+      ...asRecord(parameters.options),
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('database.drop')) {
+    return JSON.stringify({
+      database,
+      dropDatabase: 1,
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('collection.drop')) {
+    return JSON.stringify({
+      database,
+      drop: collection,
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('collection.rename')) {
+    const newCollection = String(parameters.newCollection ?? parameters.newName ?? parameters.to ?? '<new_collection>')
+    const targetDatabase = String(parameters.targetDatabase ?? database)
+    return JSON.stringify({
+      database: 'admin',
+      renameCollection: `${database}.${collection}`,
+      to: `${targetDatabase}.${newCollection}`,
+      dropTarget: parameters.dropTarget ?? false,
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('collection.modify')) {
+    return JSON.stringify({
+      database,
+      collMod: collection,
+      ...asRecord(parameters.modification),
+      ...asRecord(parameters.options),
+      ...pickDefined(parameters, [
+        'validator',
+        'validationLevel',
+        'validationAction',
+        'index',
+        'changeStreamPreAndPostImages',
+        'expireAfterSeconds',
+      ]),
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('collection.convert-to-capped')) {
+    return JSON.stringify({
+      database,
+      convertToCapped: collection,
+      size: parameters.size ?? '<bytes>',
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('collection.clone-as-capped')) {
+    return JSON.stringify({
+      database,
+      cloneCollectionAsCapped: collection,
+      toCollection: parameters.targetCollection ?? parameters.toCollection ?? '<target_collection>',
+      size: parameters.size ?? '<bytes>',
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('collection.compact')) {
+    return JSON.stringify({
+      database,
+      compact: collection,
+      ...(parameters.force === undefined ? {} : { force: parameters.force }),
+      ...asRecord(parameters.options),
+    }, null, 2)
+  }
+
+  if (request.operationId.endsWith('collection.validate')) {
+    return JSON.stringify({
+      database,
+      validate: collection,
+      ...(parameters.full === undefined ? {} : { full: parameters.full }),
+      ...asRecord(parameters.options),
+    }, null, 2)
+  }
+
   if (request.operationId.endsWith('collection.export')) {
     return JSON.stringify({
       database,
@@ -195,6 +280,12 @@ function asRecord(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
+}
+
+function pickDefined(source: Record<string, unknown>, keys: string[]) {
+  return Object.fromEntries(keys
+    .filter((key) => source[key] !== undefined)
+    .map((key) => [key, source[key]]))
 }
 
 function mongoExportExtension(format: string) {

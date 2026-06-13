@@ -15,6 +15,7 @@ mod fixtures;
 mod library;
 mod library_validation;
 mod preferences;
+mod profile_fixture_warnings;
 mod profile_options;
 mod profile_options_cloud;
 mod profile_options_graph;

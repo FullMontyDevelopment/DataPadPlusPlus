@@ -13,6 +13,7 @@ use super::RedisAdapter;
 struct RedisCommandOutcome {
     payloads: Vec<Value>,
     summary: String,
+    truncated: bool,
 }
 
 pub(super) async fn execute_redis_query(
@@ -41,18 +42,20 @@ pub(super) async fn execute_redis_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let mut redis = redis_connection(connection).await?;
-    let (payloads, summary) = if lines.len() == 1 {
+    let (payloads, summary, truncated) = if lines.len() == 1 {
         let outcome = execute_redis_single_command(&mut redis, &lines[0], row_limit).await?;
-        (outcome.payloads, outcome.summary)
+        (outcome.payloads, outcome.summary, outcome.truncated)
     } else {
         let mut rows = Vec::new();
         let mut raw_sections = Vec::new();
         let mut json_sections = Vec::new();
         let mut batch_sections = Vec::new();
+        let mut truncated = false;
 
         for (index, line) in lines.iter().enumerate() {
             let command_started = Instant::now();
             let outcome = execute_redis_single_command(&mut redis, line, row_limit).await?;
+            truncated |= outcome.truncated;
             let (default_renderer, renderer_modes) = renderer_modes_for_payloads(&outcome.payloads);
             let row_count = outcome
                 .payloads
@@ -122,6 +125,7 @@ pub(super) async fn execute_redis_query(
                 ),
             ],
             format!("Redis pipeline returned {} command result(s).", lines.len()),
+            truncated,
         )
     };
 
@@ -150,7 +154,7 @@ pub(super) async fn execute_redis_query(
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
-        truncated: false,
+        truncated,
         explain_payload: None,
     }))
 }
@@ -172,6 +176,7 @@ async fn execute_redis_single_command(
                     payload_json(json!({ "response": result })),
                 ],
                 summary: "Redis ping succeeded.".to_string(),
+                truncated: false,
             }
         }
         "SCAN" => {
@@ -194,20 +199,16 @@ async fn execute_redis_single_command(
                 .arg(count)
                 .query_async(&mut *redis)
                 .await?;
+            let scan = redis_scan_result(keys, count);
 
             RedisCommandOutcome {
-                payloads: vec![
-                    payload_table(
-                        vec!["key".into()],
-                        keys.iter().map(|key| vec![key.clone()]).collect(),
-                    ),
-                    payload_json(json!({ "keys": keys.clone() })),
-                    payload_raw(format_redis_list(&keys)),
-                    payload_resp(resp_array(
-                        keys.iter().map(|key| resp_bulk_string(key)).collect(),
-                    )),
-                ],
-                summary: format!("Redis scan returned {} key(s).", keys.len()),
+                payloads: scan.payloads,
+                summary: if scan.truncated {
+                    format!("Redis scan loaded the first {} key(s).", scan.visible_count)
+                } else {
+                    format!("Redis scan returned {} key(s).", scan.visible_count)
+                },
+                truncated: scan.truncated,
             }
         }
         "HGETALL" if parts.len() > 1 => {
@@ -238,6 +239,7 @@ async fn execute_redis_single_command(
                     )),
                 ],
                 summary: format!("Redis hash {} loaded successfully.", key),
+                truncated: false,
             }
         }
         "GET" if parts.len() > 1 => {
@@ -259,6 +261,7 @@ async fn execute_redis_single_command(
                     payload_resp(resp_value),
                 ],
                 summary: format!("Redis value {} loaded successfully.", key),
+                truncated: false,
             }
         }
         "TYPE" if parts.len() > 1 => {
@@ -275,6 +278,7 @@ async fn execute_redis_single_command(
                     payload_resp(resp_simple_string(&key_type)),
                 ],
                 summary: format!("Redis type for {} resolved successfully.", key),
+                truncated: false,
             }
         }
         "TTL" if parts.len() > 1 => {
@@ -291,6 +295,7 @@ async fn execute_redis_single_command(
                     payload_resp(resp_integer(ttl)),
                 ],
                 summary: format!("Redis TTL for {} resolved successfully.", key),
+                truncated: false,
             }
         }
         command => {
@@ -324,11 +329,41 @@ async fn execute_redis_single_command(
                 summary: command_metadata_count
                     .map(|count| format!("Redis COMMAND metadata returned {count} command(s)."))
                     .unwrap_or_else(|| format!("Redis command {command} returned successfully.")),
+                truncated: false,
             }
         }
     };
 
     Ok(outcome)
+}
+
+struct RedisScanPayloads {
+    payloads: Vec<Value>,
+    visible_count: usize,
+    truncated: bool,
+}
+
+fn redis_scan_result(keys: Vec<String>, row_limit: u32) -> RedisScanPayloads {
+    let bounded = bounded_items(keys, row_limit);
+    let keys = bounded.visible;
+    let visible_count = keys.len();
+    let payloads = vec![
+        payload_table(
+            vec!["key".into()],
+            keys.iter().map(|key| vec![key.clone()]).collect(),
+        ),
+        payload_json(json!({ "keys": keys.clone() })),
+        payload_raw(format_redis_list(&keys)),
+        payload_resp(resp_array(
+            keys.iter().map(|key| resp_bulk_string(key)).collect(),
+        )),
+    ];
+
+    RedisScanPayloads {
+        payloads,
+        visible_count,
+        truncated: bounded.truncated,
+    }
 }
 
 fn redis_command_metadata_count(payloads: &[Value]) -> Option<usize> {

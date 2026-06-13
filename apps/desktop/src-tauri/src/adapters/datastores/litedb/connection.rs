@@ -357,7 +357,7 @@ fn litedb_sidecar_execution_boundary(write_intent: bool) -> Value {
             "encrypted-file-open-not-validated"
         ],
         "promotionRequirements": [
-            "bundled or configured LiteDB sidecar executable",
+            "configured LiteDB sidecar executable",
             "sidecar read/open probe with bounded response",
             "exclusive writer-lock evidence for mutations and maintenance",
             "encrypted-file open failure/success evidence without leaking secrets",

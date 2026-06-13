@@ -13,6 +13,7 @@ import {
   isScopedQueryable,
   sidebarSectionId,
 } from '../../../../src/app/components/workbench/SideBar.helpers'
+import { connectionTreeNodeForAction } from '../../../../src/app/components/workbench/SideBar.connection-object-actions'
 import type { ConnectionTreeNode } from '../../../../src/app/components/workbench/SideBar.helpers'
 
 describe('sidebar connection tree helpers', () => {
@@ -516,6 +517,14 @@ describe('sidebar connection tree helpers', () => {
         family: 'document',
         path: ['catalog', 'Collections', 'products'],
       },
+      {
+        id: 'index:catalog:products:sku_1',
+        label: 'sku_1',
+        kind: 'index',
+        detail: '1 field',
+        family: 'document',
+        path: ['catalog', 'Collections', 'products', 'Indexes'],
+      },
     ])
 
     expect(tree).toHaveLength(1)
@@ -523,10 +532,62 @@ describe('sidebar connection tree helpers', () => {
       label: 'Databases',
       kind: 'databases',
     })
+    expect(tree[0]?.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'create-database',
+          command: 'open-object-view',
+          objectViewKind: 'databases',
+          objectViewNodeId: 'databases',
+          objectViewPath: [],
+        }),
+      ]),
+    )
+    const createDatabaseAction = tree[0]?.actions?.find((action) => action.id === 'create-database')
+    expect(createDatabaseAction).toBeDefined()
+    expect(connectionTreeNodeForAction(tree[0]!, createDatabaseAction!)).toMatchObject({
+      id: 'databases',
+      label: 'Create Database',
+      kind: 'databases',
+      path: [],
+      queryTemplate: undefined,
+      queryable: false,
+    })
     expect(tree[0]?.children?.[0]).toMatchObject({
       label: 'catalog',
       kind: 'database',
     })
+
+    const catalog = findNode(tree, 'database:catalog')
+    expect(catalog?.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'create-collection',
+          command: 'open-object-view',
+          objectViewKind: 'database',
+          objectViewNodeId: 'database:catalog',
+        }),
+        expect.objectContaining({
+          id: 'drop-database',
+          command: 'open-object-view',
+          objectViewKind: 'database',
+          objectViewNodeId: 'database:catalog',
+          separatorBefore: true,
+        }),
+      ]),
+    )
+
+    const collections = findNodeByLabel(tree, 'Collections')
+    expect(collections?.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'create-collection',
+          command: 'open-object-view',
+          objectViewKind: 'database',
+          objectViewNodeId: 'database:catalog',
+        }),
+      ]),
+    )
 
     const products = findNode(tree, 'collection:catalog:products')
     expect(products).toMatchObject({
@@ -536,10 +597,98 @@ describe('sidebar connection tree helpers', () => {
       queryable: true,
       expandable: true,
     })
-    expect(findNode(tree, 'indexes:catalog:products')).toMatchObject({
+    expect(products?.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'update-validator',
+          command: 'open-object-view',
+          objectViewKind: 'validation-rules',
+          objectViewNodeId: 'validation-rules:catalog:products',
+        }),
+        expect.objectContaining({
+          id: 'rename-collection',
+          command: 'open-object-view',
+          objectViewKind: 'collection',
+          objectViewNodeId: 'collection:catalog:products',
+        }),
+        expect.objectContaining({
+          id: 'modify-collection',
+          command: 'open-object-view',
+          objectViewKind: 'collection',
+          objectViewNodeId: 'collection:catalog:products',
+        }),
+        expect.objectContaining({
+          id: 'convert-to-capped',
+          command: 'open-object-view',
+          objectViewKind: 'collection',
+          objectViewNodeId: 'collection:catalog:products',
+        }),
+        expect.objectContaining({
+          id: 'clone-as-capped',
+          command: 'open-object-view',
+          objectViewKind: 'collection',
+          objectViewNodeId: 'collection:catalog:products',
+        }),
+        expect.objectContaining({
+          id: 'compact-collection',
+          command: 'open-object-view',
+          objectViewKind: 'collection',
+          objectViewNodeId: 'collection:catalog:products',
+        }),
+        expect.objectContaining({
+          id: 'validate-collection',
+          command: 'open-object-view',
+          objectViewKind: 'collection',
+          objectViewNodeId: 'collection:catalog:products',
+        }),
+        expect.objectContaining({
+          id: 'drop-collection',
+          command: 'open-object-view',
+          objectViewKind: 'collection',
+          objectViewNodeId: 'collection:catalog:products',
+          separatorBefore: true,
+        }),
+      ]),
+    )
+
+    const renameAction = products?.actions?.find((action) => action.id === 'rename-collection')
+    expect(renameAction).toBeDefined()
+    expect(connectionTreeNodeForAction(products!, renameAction!)).toMatchObject({
+      id: 'collection:catalog:products',
+      label: 'Rename Collection',
+      kind: 'collection',
+      queryTemplate: undefined,
+      queryable: false,
+    })
+
+    const indexes = findNode(tree, 'indexes:catalog:products')
+    expect(indexes).toMatchObject({
       id: 'indexes:catalog:products',
       label: 'Indexes',
     })
+    expect(indexes?.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'create-index',
+          command: 'open-object-view',
+          objectViewKind: 'create-index',
+          objectViewNodeId: 'create-index:catalog:products',
+        }),
+      ]),
+    )
+
+    const index = findNode(tree, 'index:catalog:products:sku_1')
+    expect(index?.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'drop-index',
+          command: 'open-object-view',
+          objectViewKind: 'indexes',
+          objectViewNodeId: 'indexes:catalog:products',
+          separatorBefore: true,
+        }),
+      ]),
+    )
   })
 
   it('keeps Redis stream drilldowns under the selected stream key', () => {

@@ -69,6 +69,7 @@ export function ObjectViewOperationStrip({
       return
     }
 
+    setFeedback(undefined)
     setPlanningOperationId(action.operationId)
     try {
       const response = await onPlanOperation({
@@ -109,7 +110,7 @@ export function ObjectViewOperationStrip({
               disabled={Boolean(planningOperationId)}
             >
               <ObjectViewOperationIcon icon={action.icon} />
-              <span>{planningOperationId === action.operationId ? 'Planning...' : action.label}</span>
+              <span>{planningOperationId === action.operationId ? 'Running...' : action.label}</span>
             </button>
           ))}
         </div>

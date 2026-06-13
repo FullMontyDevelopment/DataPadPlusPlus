@@ -12,6 +12,8 @@ import {
 describe('MongoObjectViewDescriptors', () => {
   it('covers Mongo object-view node kinds with specific labels', () => {
     expect(MONGO_OBJECT_VIEW_KINDS).toEqual(expect.arrayContaining([
+      'databases',
+      'system-databases',
       'database',
       'collection',
       'insert-document',
@@ -27,6 +29,8 @@ describe('MongoObjectViewDescriptors', () => {
       'pipeline',
     ]))
     expect(mongoObjectViewMenuLabel('users')).toBe('Manage Users')
+    expect(mongoObjectViewMenuLabel('databases')).toBe('Open Databases')
+    expect(mongoObjectViewMenuLabel('system-databases')).toBe('Open System Databases')
     expect(mongoObjectViewMenuLabel('indexes')).toBe('Manage Indexes')
     expect(mongoObjectViewMenuLabel('insert-document')).toBe('Add Document')
     expect(mongoObjectViewMenuLabel('create-index')).toBe('Create Index')

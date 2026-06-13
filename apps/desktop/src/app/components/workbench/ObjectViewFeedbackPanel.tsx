@@ -34,6 +34,7 @@ export function ObjectViewFeedbackPanel({ feedback }: { feedback?: ObjectViewFee
       {feedback.warnings.length ? <FeedbackWarningList warnings={feedback.warnings} /> : null}
       {feedback.plan ? (
         <>
+          <p>{feedback.plan.summary}</p>
           <div className="object-view-card-grid">
             <div className="object-view-card">
               <span>Status</span>
@@ -58,7 +59,7 @@ export function ObjectViewFeedbackPanel({ feedback }: { feedback?: ObjectViewFee
               className="drawer-button"
               onClick={() => setShowGeneratedRequest((current) => !current)}
             >
-              {showGeneratedRequest ? 'Hide Preview' : 'Request Preview'}
+              {showGeneratedRequest ? 'Hide Request' : 'Show Request'}
             </button>
             {showGeneratedRequest ? (
               <pre className="object-view-code">{feedback.plan.generatedRequest}</pre>

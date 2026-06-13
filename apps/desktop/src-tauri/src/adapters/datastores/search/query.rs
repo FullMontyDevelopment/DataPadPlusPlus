@@ -172,13 +172,9 @@ pub(crate) fn normalize_search_response_bounded(
         .cloned()
         .unwrap_or_else(|| json!([]));
     let source_hits = hits.as_array().cloned().unwrap_or_default();
-    let truncated = source_hits.len() > row_limit as usize;
-    let hits = Value::Array(
-        source_hits
-            .into_iter()
-            .take(row_limit as usize)
-            .collect::<Vec<Value>>(),
-    );
+    let bounded = bounded_items(source_hits, row_limit);
+    let truncated = bounded.truncated;
+    let hits = Value::Array(bounded.visible);
     let aggregations = value
         .get("aggregations")
         .cloned()
@@ -222,7 +218,7 @@ fn bounded_search_response(mut value: Value, row_limit: u32, truncated: bool) ->
             if let Some(hits_object) = root.get_mut("hits").and_then(Value::as_object_mut) {
                 hits_object.insert(
                     "hits".into(),
-                    Value::Array(hits.into_iter().take(row_limit as usize).collect()),
+                    Value::Array(bounded_items(hits, row_limit).visible),
                 );
             }
             if truncated {

@@ -30,14 +30,13 @@ describe('MongoPipelineView', () => {
     expect(screen.queryByText(/^\[\s*\{\s*"\$match"/)).not.toBeInTheDocument()
   })
 
-  it('opens a scoped aggregation query from the pipeline view', () => {
+  it('opens a raw scoped results query from the pipeline view', () => {
     const onOpenQuery = vi.fn()
     const queryTarget: ScopedQueryTarget = {
       kind: 'pipeline',
       label: 'Pipeline',
       path: ['catalog', 'Views', 'active_products'],
       queryTemplate: '{ "database": "catalog", "collection": "active_products", "filter": {} }',
-      preferredBuilder: 'mongo-aggregation',
     }
 
     render(

@@ -32,7 +32,7 @@ describe('MongoValidationView', () => {
     expect(screen.getByText('Document matches the validator fields DataPad++ can verify locally.')).toBeInTheDocument()
   })
 
-  it('reviews required-field changes without showing raw JSON first', () => {
+  it('runs required-field changes without showing raw JSON first', () => {
     const onPlanOperation = vi.fn()
 
     render(
@@ -50,7 +50,7 @@ describe('MongoValidationView', () => {
     expect(screen.getByText('Advanced JSON rule').closest('details')).not.toHaveAttribute('open')
     fireEvent.change(screen.getByPlaceholderText('sku'), { target: { value: 'name' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Field' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Review Required Fields' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run Required Fields' }))
 
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.validation.update',

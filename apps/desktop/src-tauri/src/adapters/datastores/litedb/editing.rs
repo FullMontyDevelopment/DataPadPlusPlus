@@ -17,18 +17,18 @@ pub(super) fn plan_litedb_data_edit(
     if litedb_data_edit_operation(&request.edit_kind).is_some() {
         plan.plan.confirmation_text = Some(litedb_confirmation_text(&request.edit_kind));
         plan.plan.warnings.push(
-            "LiteDB document edits require an explicit confirmation token and a configured local sidecar so before/after evidence can be captured."
+            "LiteDB document edits require an explicit confirmation token and a bundled or configured local sidecar so before/after evidence can be captured."
                 .into(),
         );
 
         if !connection.read_only && litedb_sidecar_path(connection).is_none() {
             plan.execution_support = "plan-only".into();
             plan.plan.summary = format!(
-                "{} LiteDB data edit plan prepared for {} (plan-only until SidecarPath is configured).",
+                "{} LiteDB data edit plan prepared for {} (plan-only until SidecarPath is available).",
                 request.edit_kind, connection.name
             );
             plan.plan.warnings.push(
-                "Live LiteDB document editing requires a SidecarPath connection-string option that points to the DataPad++ LiteDB sidecar executable."
+                "Live LiteDB document editing requires a SidecarPath connection-string option."
                     .into(),
             );
         }
@@ -74,7 +74,7 @@ pub(super) async fn execute_litedb_data_edit(
 
     if plan.execution_support != "live" {
         messages.push(
-            "Generated a safe LiteDB data-edit plan. Live execution is enabled only when SidecarPath is configured."
+            "Generated a safe LiteDB data-edit plan. Live execution is enabled only when SidecarPath is available."
                 .into(),
         );
         return Ok(data_edit_response(
@@ -83,7 +83,10 @@ pub(super) async fn execute_litedb_data_edit(
     }
 
     let Some(sidecar_path) = litedb_sidecar_path(connection) else {
-        warnings.push("LiteDB SidecarPath is required before live document edits can run.".into());
+        warnings.push(
+            "LiteDB needs SidecarPath before live document edits can run."
+                .into(),
+        );
         return Ok(data_edit_response(
             request, plan, false, messages, warnings, None,
         ));

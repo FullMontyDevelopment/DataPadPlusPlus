@@ -12,6 +12,7 @@ import type {
 import { ConnectionsIcon } from './icons'
 import { ConnectionFooter } from './RightDrawer.connection-footer'
 import { ConnectionForm } from './RightDrawer.connection-form'
+import { normalizeCosmosDbEmulatorProfile } from './RightDrawer.cosmosdb-connection-config'
 import {
   engineOption,
   environmentAccentVariables,
@@ -338,8 +339,10 @@ function normalizeConnectionForMode(profile: ConnectionProfile): ConnectionProfi
     }
   }
 
-  return {
+  const normalized = {
     ...profile,
     connectionString: undefined,
   }
+
+  return normalizeCosmosDbEmulatorProfile(normalized)
 }

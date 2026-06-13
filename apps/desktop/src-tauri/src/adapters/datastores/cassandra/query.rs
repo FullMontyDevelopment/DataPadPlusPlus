@@ -279,10 +279,11 @@ pub(crate) fn normalize_cassandra_response_bounded(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let truncated = source_rows.len() > row_limit as usize || response.get("pagingState").is_some();
-    let rows = source_rows
+    let bounded = bounded_items(source_rows, row_limit);
+    let truncated = bounded.truncated || response.get("pagingState").is_some();
+    let rows = bounded
+        .visible
         .iter()
-        .take(row_limit as usize)
         .map(|row| {
             row.as_array()
                 .into_iter()
@@ -312,7 +313,7 @@ fn bounded_cassandra_response(mut response: Value, row_limit: u32, truncated: bo
         if let Some(rows) = object.get("rows").and_then(Value::as_array).cloned() {
             object.insert(
                 "rows".into(),
-                Value::Array(rows.into_iter().take(row_limit as usize).collect()),
+                Value::Array(bounded_items(rows, row_limit).visible),
             );
         }
         if truncated {

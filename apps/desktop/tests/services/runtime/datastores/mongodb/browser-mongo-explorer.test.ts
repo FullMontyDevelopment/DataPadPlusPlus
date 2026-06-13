@@ -18,6 +18,11 @@ describe('browser Mongo explorer slice', () => {
       expect.objectContaining({ label: 'config', path: ['System Databases'] }),
       expect.objectContaining({ label: 'local', path: ['System Databases'] }),
     ])
+    expect(mongoInspectPayload(mongoConnection('catalog'), 'databases')).toMatchObject({
+      objectView: 'databases',
+      databases: [expect.objectContaining({ name: 'catalog', type: 'User' })],
+    })
+    expect(mongoInspectQueryTemplate(connection, 'databases')).toContain('"listDatabases": 1')
   })
 
   it('renders only available database sections and collection management children', () => {

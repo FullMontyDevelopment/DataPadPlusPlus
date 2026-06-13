@@ -194,6 +194,18 @@ fn litedb_operation_normalizes_action() {
         litedb_operation(&json!({ "action": "sample-schema" })).unwrap(),
         "SampleSchema"
     );
+    assert_eq!(
+        litedb_operation(&json!({ "action": "validate-encrypted-file" })).unwrap(),
+        "ValidateEncryptedFile"
+    );
+    assert_eq!(
+        litedb_operation(&json!({ "action": "collection-export" })).unwrap(),
+        "ExportCollection"
+    );
+    assert_eq!(
+        litedb_operation(&json!({ "action": "collection-import" })).unwrap(),
+        "ImportCollection"
+    );
 }
 
 #[test]

@@ -932,6 +932,20 @@ async function seedOracle() {
   }
 }
 
+async function seedCosmosDbEmulator() {
+  if (!shouldSeed('datapadplusplus-cosmosdb', 'cosmosdb')) {
+    return
+  }
+
+  docker([
+    'exec',
+    'datapadplusplus-cosmosdb',
+    'cosmoshell.sh',
+    '-c',
+    'query "SELECT VALUE COUNT(1) FROM c" --database=datapadplusplus --container=orders',
+  ])
+}
+
 async function seedCloudContract() {
   if (!shouldSeed('datapadplusplus-dynamodb', 'cloud-contract')) {
     return
@@ -1105,4 +1119,5 @@ await seedSearch()
 await seedGraph()
 await seedWideColumn()
 await seedOracle()
+await seedCosmosDbEmulator()
 await seedCloudContract()

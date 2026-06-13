@@ -144,7 +144,7 @@ export function MongoValidationView({
             disabled={!onPlanOperation || !collection}
             onClick={reviewRequiredFields}
           >
-            Review Required Fields
+            Run Required Fields
           </button>
         </div>
       </div>
@@ -166,7 +166,7 @@ export function MongoValidationView({
             disabled={!onPlanOperation || !collection}
             onClick={previewUpdate}
           >
-            Review JSON Rule
+            Run JSON Rule
           </button>
         </div>
       </details>

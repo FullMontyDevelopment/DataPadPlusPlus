@@ -16,10 +16,28 @@ export function queryTargetFromObjectView(tab: QueryTabState): ScopedQueryTarget
     label: state.label,
     path: state.path,
     queryTemplate: state.queryTemplate,
-    preferredBuilder: state.kind === 'pipeline' || state.kind === 'aggregations'
-      ? 'mongo-aggregation'
-      : 'mongo-find',
+    preferredBuilder: mongoObjectViewPreferredBuilder(state.kind),
   }
+}
+
+function mongoObjectViewPreferredBuilder(kind: string): ScopedQueryTarget['preferredBuilder'] {
+  if (kind === 'aggregations') {
+    return 'mongo-aggregation'
+  }
+
+  if (
+    [
+      'collection',
+      'documents',
+      'gridfs-collection',
+      'view-results',
+      'sample-results',
+    ].includes(kind)
+  ) {
+    return 'mongo-find'
+  }
+
+  return undefined
 }
 
 export function objectViewWarnings(tab: QueryTabState, payload: JsonRecord) {

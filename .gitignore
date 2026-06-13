@@ -23,6 +23,7 @@ playwright-report/
 .vite/
 .turbo/
 graphify-out/
+*.tsbuildinfo
 
 apps/desktop/dist/
 apps/desktop/coverage/

@@ -39,9 +39,11 @@ pub(super) async fn execute_mongodb_script(
     let mut notices = notices;
     let script = selected_query(request);
     let operations = parse_mongo_script(script)?;
-    let requested_row_limit = request
-        .row_limit
-        .unwrap_or(adapter.execution_capabilities().default_row_limit);
+    let requested_row_limit = bounded_page_size(
+        request
+            .row_limit
+            .or(Some(adapter.execution_capabilities().default_row_limit)),
+    );
     let mut remaining = requested_row_limit;
     let mut documents = Vec::<Document>::new();
     let mut statement_results = Vec::<Value>::new();
@@ -80,7 +82,7 @@ pub(super) async fn execute_mongodb_script(
                 let effective_limit = limit.unwrap_or(remaining).min(remaining);
                 let mut find = collection_handle
                     .find(value_to_document(&filter)?)
-                    .limit(i64::from(effective_limit + 1));
+                    .limit(i64::from(effective_limit.saturating_add(1)));
 
                 if let Some(projection) = projection {
                     find = find.projection(value_to_document(&projection)?);
@@ -94,11 +96,12 @@ pub(super) async fn execute_mongodb_script(
                     find = find.skip(skip);
                 }
 
-                let mut result_documents = find.await?.try_collect::<Vec<Document>>().await?;
-                if result_documents.len() > effective_limit as usize {
+                let result_documents = find.await?.try_collect::<Vec<Document>>().await?;
+                let bounded = bounded_items(result_documents, effective_limit);
+                if bounded.truncated {
                     truncated = true;
-                    result_documents.truncate(effective_limit as usize);
                 }
+                let result_documents = bounded.visible;
                 let section_documents = mongodb_documents_to_json(result_documents.iter());
                 let section_payloads = vec![
                     payload_document(section_documents.clone()),
@@ -152,16 +155,17 @@ pub(super) async fn execute_mongodb_script(
                     .iter()
                     .map(value_to_document)
                     .collect::<Result<Vec<Document>, _>>()?;
-                pipeline.push(doc! { "$limit": i64::from(remaining + 1) });
-                let mut result_documents = collection_handle
+                pipeline.push(doc! { "$limit": i64::from(remaining.saturating_add(1)) });
+                let result_documents = collection_handle
                     .aggregate(pipeline)
                     .await?
                     .try_collect::<Vec<Document>>()
                     .await?;
-                if result_documents.len() > remaining as usize {
+                let bounded = bounded_items(result_documents, remaining);
+                if bounded.truncated {
                     truncated = true;
-                    result_documents.truncate(remaining as usize);
                 }
+                let result_documents = bounded.visible;
                 let section_documents = mongodb_documents_to_json(result_documents.iter());
                 let section_payloads = vec![
                     payload_document(section_documents.clone()),

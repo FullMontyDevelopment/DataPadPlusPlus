@@ -45,6 +45,36 @@ describe('browser operation runtime', () => {
           executionSupport: 'plan-only',
         }),
         expect.objectContaining({
+          id: 'mongodb.database.create',
+          label: 'Create Database',
+          risk: 'write',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.database.drop',
+          label: 'Drop Database',
+          risk: 'destructive',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.collection.create',
+          label: 'Create Collection',
+          risk: 'write',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.collection.rename',
+          label: 'Rename Collection',
+          risk: 'write',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
+          id: 'mongodb.collection.validate',
+          label: 'Validate Collection',
+          risk: 'costly',
+          executionSupport: 'plan-only',
+        }),
+        expect.objectContaining({
           id: 'mongodb.user.create',
           label: 'Create User',
           risk: 'write',
@@ -280,6 +310,66 @@ describe('browser operation runtime', () => {
     })
     expect(userPlan.plan.generatedRequest).not.toContain('{{MONGO_USER_PASSWORD}}')
     expect(userPlan.plan.generatedRequest).not.toContain('password')
+  })
+
+  it('generates MongoDB database and collection management command previews', () => {
+    const snapshot = snapshotWith(mongoConnection)
+
+    const createDatabasePlan = planOperationLocally(snapshot, {
+      connectionId: mongoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mongodb.database.create',
+      objectName: 'analytics',
+      parameters: {
+        database: 'analytics',
+        collection: 'events',
+        options: { capped: true, size: 1024 },
+      },
+    })
+    expect(JSON.parse(createDatabasePlan.plan.generatedRequest)).toMatchObject({
+      database: 'analytics',
+      create: 'events',
+      capped: true,
+      size: 1024,
+    })
+
+    const renamePlan = planOperationLocally(snapshot, {
+      connectionId: mongoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mongodb.collection.rename',
+      objectName: 'products',
+      parameters: {
+        database: 'catalog',
+        collection: 'products',
+        newCollection: 'archived_products',
+        targetDatabase: 'archive',
+        dropTarget: true,
+      },
+    })
+    expect(JSON.parse(renamePlan.plan.generatedRequest)).toMatchObject({
+      database: 'admin',
+      renameCollection: 'catalog.products',
+      to: 'archive.archived_products',
+      dropTarget: true,
+    })
+
+    const validatePlan = planOperationLocally(snapshot, {
+      connectionId: mongoConnection.id,
+      environmentId: 'env-local',
+      operationId: 'mongodb.collection.validate',
+      objectName: 'products',
+      parameters: {
+        database: 'catalog',
+        collection: 'products',
+        full: true,
+      },
+    })
+    expect(JSON.parse(validatePlan.plan.generatedRequest)).toMatchObject({
+      database: 'catalog',
+      validate: 'products',
+      full: true,
+    })
+    expect(validatePlan.plan.requiredPermissions).toEqual(['read metadata/query privilege'])
   })
 
   it('generates MongoDB collection import and export previews', () => {
@@ -3595,6 +3685,52 @@ describe('browser operation runtime', () => {
           risk: 'costly',
         }),
         expect.objectContaining({
+          id: 'litedb.data.import-export',
+          label: 'Import / Export',
+          risk: 'costly',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'litedb.file-storage.import',
+          label: 'Import Stored File',
+          risk: 'write',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'litedb.file-storage.export',
+          label: 'Export Stored File',
+          risk: 'costly',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'litedb.file-storage.delete',
+          label: 'Delete Stored File',
+          risk: 'destructive',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'litedb.index.create',
+          risk: 'write',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'litedb.index.drop',
+          risk: 'destructive',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
+          id: 'litedb.object.drop',
+          risk: 'destructive',
+          executionSupport: 'live',
+          previewOnly: false,
+        }),
+        expect.objectContaining({
           id: 'litedb.data.backup-restore',
           label: 'Backup / Restore',
           risk: 'destructive',
@@ -3616,6 +3752,14 @@ describe('browser operation runtime', () => {
     })
     expect(liteDbIndex.plan.generatedRequest).toContain('EnsureIndex')
     expect(liteDbIndex.plan.generatedRequest).toContain('idx_products_sku')
+    expect(JSON.parse(liteDbIndex.plan.generatedRequest)).toMatchObject({
+      operation: 'LiteDB.EnsureIndex',
+      collection: 'products',
+      indexName: 'idx_products_sku',
+      sidecarExecutionBoundary: {
+        runtime: 'dotnet-litedb-sidecar',
+      },
+    })
 
     const liteDbCompact = planOperationLocally(liteDbSnapshot, {
       connectionId: liteDbConnection.id,
@@ -3658,6 +3802,105 @@ describe('browser operation runtime', () => {
       collection: 'products',
       localFilePreflight: {
         intent: 'storage-rebuild-indexes',
+      },
+    })
+
+    const liteDbExport = planOperationLocally(liteDbSnapshot, {
+      connectionId: liteDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'litedb.data.import-export',
+      objectName: 'products',
+      parameters: {
+        databaseFile: 'catalog.db',
+        collection: 'products',
+        mode: 'export',
+        format: 'json',
+      },
+    })
+    expect(JSON.parse(liteDbExport.plan.generatedRequest)).toMatchObject({
+      operation: 'LiteDB.ExportCollection',
+      databaseFile: 'catalog.db',
+      collection: 'products',
+      format: 'json',
+      localFilePreflight: {
+        intent: 'data-export',
+      },
+      sidecarExecutionBoundary: {
+        runtime: 'dotnet-litedb-sidecar',
+      },
+    })
+
+    const liteDbFileImport = planOperationLocally(liteDbSnapshot, {
+      connectionId: liteDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'litedb.file-storage.import',
+      objectName: 'files/terms.txt',
+      parameters: {
+        databaseFile: 'catalog.db',
+        fileId: 'files/terms.txt',
+        sourcePath: 'C:/fixtures/terms.txt',
+        filename: 'terms.txt',
+        overwrite: true,
+      },
+    })
+    expect(JSON.parse(liteDbFileImport.plan.generatedRequest)).toMatchObject({
+      operation: 'LiteDB.ImportFile',
+      databaseFile: 'catalog.db',
+      fileId: 'files/terms.txt',
+      sourcePath: 'C:/fixtures/terms.txt',
+      filename: 'terms.txt',
+      overwrite: true,
+      localFilePreflight: {
+        intent: 'file-storage-import',
+        lockBoundary: {
+          writeIntent: true,
+        },
+      },
+    })
+
+    const liteDbFileExport = planOperationLocally(liteDbSnapshot, {
+      connectionId: liteDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'litedb.file-storage.export',
+      objectName: 'files/terms.txt',
+      parameters: {
+        databaseFile: 'catalog.db',
+        fileId: 'files/terms.txt',
+        targetPath: 'C:/fixtures/exported-terms.txt',
+      },
+    })
+    expect(JSON.parse(liteDbFileExport.plan.generatedRequest)).toMatchObject({
+      operation: 'LiteDB.ExportFile',
+      databaseFile: 'catalog.db',
+      fileId: 'files/terms.txt',
+      targetPath: 'C:/fixtures/exported-terms.txt',
+      localFilePreflight: {
+        intent: 'file-storage-export',
+        lockBoundary: {
+          writeIntent: false,
+        },
+      },
+    })
+
+    const liteDbFileDelete = planOperationLocally(liteDbSnapshot, {
+      connectionId: liteDbConnection.id,
+      environmentId: 'env-local',
+      operationId: 'litedb.file-storage.delete',
+      objectName: 'files/terms.txt',
+      parameters: {
+        databaseFile: 'catalog.db',
+        fileId: 'files/terms.txt',
+      },
+    })
+    expect(JSON.parse(liteDbFileDelete.plan.generatedRequest)).toMatchObject({
+      operation: 'LiteDB.DeleteFile',
+      databaseFile: 'catalog.db',
+      fileId: 'files/terms.txt',
+      localFilePreflight: {
+        intent: 'file-storage-delete',
+        lockBoundary: {
+          writeIntent: true,
+        },
       },
     })
 

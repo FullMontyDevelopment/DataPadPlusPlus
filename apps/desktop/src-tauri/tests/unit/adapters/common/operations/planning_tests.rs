@@ -59,6 +59,74 @@ fn mongodb_collection_import_export_requests_are_database_scoped() {
 }
 
 #[test]
+fn mongodb_database_and_collection_management_requests_are_native_commands() {
+    let connection = connection();
+    let manifest = manifest();
+
+    let create_database_parameters = BTreeMap::from([
+        ("database".into(), json!("analytics")),
+        ("collection".into(), json!("events")),
+        ("options".into(), json!({ "capped": true, "size": 1024 })),
+    ]);
+    let create_database_request = generated_operation_request(
+        &connection,
+        &manifest,
+        "mongodb.database.create",
+        "analytics",
+        Some(&create_database_parameters),
+    );
+    let create_database_value =
+        serde_json::from_str::<serde_json::Value>(&create_database_request).unwrap();
+    assert_eq!(create_database_value["database"], "analytics");
+    assert_eq!(create_database_value["create"], "events");
+    assert_eq!(create_database_value["capped"], true);
+    assert_eq!(create_database_value["size"], 1024);
+
+    let rename_parameters = BTreeMap::from([
+        ("database".into(), json!("catalog")),
+        ("collection".into(), json!("products")),
+        ("newCollection".into(), json!("archived_products")),
+        ("targetDatabase".into(), json!("archive")),
+        ("dropTarget".into(), json!(true)),
+    ]);
+    let rename_request = generated_operation_request(
+        &connection,
+        &manifest,
+        "mongodb.collection.rename",
+        "products",
+        Some(&rename_parameters),
+    );
+    let rename_value = serde_json::from_str::<serde_json::Value>(&rename_request).unwrap();
+    assert_eq!(rename_value["database"], "admin");
+    assert_eq!(rename_value["renameCollection"], "catalog.products");
+    assert_eq!(rename_value["to"], "archive.archived_products");
+    assert_eq!(rename_value["dropTarget"], true);
+
+    let validate_parameters = BTreeMap::from([
+        ("database".into(), json!("catalog")),
+        ("collection".into(), json!("products")),
+        ("full".into(), json!(true)),
+    ]);
+    let validate_plan = default_operation_plan(
+        &connection,
+        &manifest,
+        "mongodb.collection.validate",
+        Some("products"),
+        Some(&validate_parameters),
+    );
+    let validate_value =
+        serde_json::from_str::<serde_json::Value>(&validate_plan.generated_request).unwrap();
+    assert_eq!(validate_value["database"], "catalog");
+    assert_eq!(validate_value["validate"], "products");
+    assert_eq!(validate_value["full"], true);
+    assert_eq!(
+        validate_plan.required_permissions,
+        vec!["read metadata/query privilege"]
+    );
+    assert!(validate_plan.confirmation_text.is_some());
+}
+
+#[test]
 fn mongodb_user_create_can_use_secret_variable_password_source() {
     let connection = connection();
     let manifest = manifest();

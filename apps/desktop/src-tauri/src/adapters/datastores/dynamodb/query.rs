@@ -163,11 +163,11 @@ pub(crate) fn normalize_dynamodb_response_bounded(
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
-            let truncated = table_names.len() > row_limit as usize
-                || response.get("LastEvaluatedTableName").is_some();
-            let rows = table_names
+            let bounded = bounded_items(table_names, row_limit);
+            let truncated = bounded.truncated || response.get("LastEvaluatedTableName").is_some();
+            let rows = bounded
+                .visible
                 .iter()
-                .take(row_limit as usize)
                 .map(|name| vec![attribute_or_json_to_string(name)])
                 .collect();
             DynamoDbNormalizedResponse {
@@ -199,10 +199,11 @@ pub(crate) fn normalize_dynamodb_response_bounded(
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
-            let truncated = items.len() > row_limit as usize
+            let bounded = bounded_items(items, row_limit);
+            let truncated = bounded.truncated
                 || response.get("LastEvaluatedKey").is_some()
                 || response.get("NextToken").is_some();
-            let (columns, rows) = item_rows(&items, row_limit);
+            let (columns, rows) = item_rows(&bounded.visible, row_limit);
             DynamoDbNormalizedResponse {
                 columns,
                 rows,
@@ -239,7 +240,7 @@ fn bounded_dynamodb_response(
                 if let Some(names) = object.get("TableNames").and_then(Value::as_array).cloned() {
                     object.insert(
                         "TableNames".into(),
-                        Value::Array(names.into_iter().take(row_limit as usize).collect()),
+                        Value::Array(bounded_items(names, row_limit).visible),
                     );
                 }
             }
@@ -247,7 +248,7 @@ fn bounded_dynamodb_response(
                 if let Some(items) = object.get("Items").and_then(Value::as_array).cloned() {
                     object.insert(
                         "Items".into(),
-                        Value::Array(items.into_iter().take(row_limit as usize).collect()),
+                        Value::Array(bounded_items(items, row_limit).visible),
                     );
                 }
             }

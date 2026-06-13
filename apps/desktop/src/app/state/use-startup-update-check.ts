@@ -1,20 +1,17 @@
 import { useEffect, useRef } from 'react'
-import type { MutableRefObject, Dispatch } from 'react'
+import type { MutableRefObject } from 'react'
 import type { BootstrapPayload } from '@datapadplusplus/shared-types'
-import { createWorkbenchMessage } from './app-state-reducer-helpers'
-import type { Actions, AppAction, StateShape } from './app-state-types'
+import type { Actions, StateShape } from './app-state-types'
 
 const STARTUP_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 export function useStartupUpdateCheck({
   actions,
-  dispatch,
   providerMountedRef,
   runtime,
   status,
 }: {
   actions: Actions
-  dispatch: Dispatch<AppAction>
   providerMountedRef: MutableRefObject<boolean>
   runtime: BootstrapPayload['health']['runtime'] | undefined
   status: StateShape['status']
@@ -36,23 +33,9 @@ export function useStartupUpdateCheck({
         return undefined
       }
 
-      return actions.checkAppUpdate().then((result) => {
-        if (!providerMountedRef.current || result?.status !== 'available' || !result.candidate) {
-          return
-        }
-
-        dispatch({
-          type: 'WORKBENCH_MESSAGE_ADDED',
-          message: createWorkbenchMessage(
-            `DataPad++ ${result.candidate.version} is available.`,
-            'Updates',
-            'info',
-            result.message,
-          ),
-        })
-      })
+      return actions.checkAppUpdate()
     })
-  }, [actions, dispatch, providerMountedRef, runtime, status])
+  }, [actions, providerMountedRef, runtime, status])
 }
 
 function shouldRunStartupUpdateCheck(lastCheckedAt?: string | null) {

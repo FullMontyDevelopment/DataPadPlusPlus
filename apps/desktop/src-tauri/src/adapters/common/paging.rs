@@ -94,7 +94,7 @@ pub(crate) fn paged_sql(
     Ok(format!(
         "select * from ({}) as datapadplusplus_page limit {} offset {}",
         strip_sql_semicolon(statement),
-        page_size + 1,
+        page_size.saturating_add(1),
         offset
     ))
 }

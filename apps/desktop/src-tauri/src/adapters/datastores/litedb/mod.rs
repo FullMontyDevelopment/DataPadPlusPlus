@@ -5,6 +5,8 @@ mod connection;
 mod diagnostics;
 mod editing;
 mod explorer;
+mod import_export;
+mod management;
 mod query;
 
 use catalog::*;
@@ -12,6 +14,8 @@ use connection::test_litedb_connection;
 use diagnostics::collect_litedb_diagnostics;
 use editing::{execute_litedb_data_edit, plan_litedb_data_edit};
 use explorer::{inspect_litedb_explorer_node, list_litedb_explorer_nodes};
+pub(crate) use import_export::execute_litedb_file_operation;
+pub(crate) use management::execute_litedb_management_operation;
 
 pub(crate) struct LiteDbAdapter;
 
