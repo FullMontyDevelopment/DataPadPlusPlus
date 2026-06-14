@@ -4,6 +4,7 @@ import type {
   AdapterManifest,
   ConnectionGroupMode,
   ConnectionProfile,
+  DatastoreApiServerInstanceStatus,
   EnvironmentProfile,
   ExplorerNode,
   LibraryNode,
@@ -28,6 +29,10 @@ interface SideBarProps {
   getConnectionHealth?(connectionId: string, environmentId?: string): ConnectionHealth | undefined
   explorerSummary?: string
   explorerStatus: 'idle' | 'loading' | 'ready'
+  apiServerEnabled?: boolean
+  activeApiServer?: boolean
+  activeApiServerId?: string
+  apiServers?: DatastoreApiServerInstanceStatus[]
   isExplorerScopeLoading?(connectionId: string, scope?: string, environmentId?: string): boolean
   activeConnectionId: string
   activeEnvironmentId: string
@@ -50,6 +55,10 @@ interface SideBarProps {
   onOpenObjectView(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onCreateTab(connectionId?: string): void
+  onOpenApiServer(serverId?: string): void
+  onStartApiServer?(serverId: string): void
+  onStopApiServer?(serverId: string): void
+  onDeleteApiServer?(serverId: string): void
   onCreateTestSuite(connectionId?: string): void
   onOpenTestSuiteTemplate(connectionId: string, templateId: string): void
   onCreateLibraryFolder(parentId: string | undefined, name: string): void
@@ -81,6 +90,10 @@ export function SideBar({
   getConnectionHealth,
   explorerSummary,
   explorerStatus,
+  apiServerEnabled = false,
+  activeApiServer = false,
+  activeApiServerId,
+  apiServers,
   isExplorerScopeLoading,
   activeConnectionId,
   activeEnvironmentId,
@@ -102,6 +115,10 @@ export function SideBar({
   onOpenObjectView,
   onOpenScopedQuery,
   onCreateTab,
+  onOpenApiServer,
+  onStartApiServer,
+  onStopApiServer,
+  onDeleteApiServer,
   onCreateTestSuite,
   onCreateLibraryFolder,
   onDeleteLibraryNode,
@@ -255,6 +272,10 @@ export function SideBar({
           connections={connections}
           environments={environments}
           explorerStatus={explorerStatus}
+          apiServerEnabled={apiServerEnabled}
+          activeApiServer={activeApiServer}
+          activeApiServerId={activeApiServerId}
+          apiServers={apiServers}
           isExplorerScopeLoading={isExplorerScopeLoading}
           libraryFilter={libraryFilter}
           libraryNodes={libraryNodes}
@@ -264,6 +285,10 @@ export function SideBar({
           onCreateEnvironment={onCreateEnvironment}
           onCreateFolder={onCreateLibraryFolder}
           onCreateTab={onCreateTab}
+          onOpenApiServer={onOpenApiServer}
+          onStartApiServer={onStartApiServer}
+          onStopApiServer={onStopApiServer}
+          onDeleteApiServer={onDeleteApiServer}
           onCreateTestSuite={onCreateTestSuite}
           onDeleteConnection={onDeleteConnection}
           onDeleteEnvironment={onDeleteEnvironment}

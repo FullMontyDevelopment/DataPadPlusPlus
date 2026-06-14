@@ -126,6 +126,43 @@ describe('migrateWorkspaceSnapshot', () => {
     expect(migrated.libraryNodes.some((node) => node.id === 'library-root-tests')).toBe(false)
   })
 
+  it('normalizes experimental API server preferences', () => {
+    const snapshot = createSeedSnapshot()
+    const migrated = migrateWorkspaceSnapshot({
+      ...snapshot,
+      preferences: {
+        ...snapshot.preferences,
+        datastoreApiServer: {
+          enabled: true,
+          host: '0.0.0.0',
+          port: 80,
+          autoStart: true,
+          connectionId: 123,
+          environmentId: 'env-dev',
+        },
+      },
+    } as unknown as typeof snapshot)
+
+    expect(migrated.preferences.datastoreApiServer).toEqual({
+      enabled: true,
+      host: '127.0.0.1',
+      port: 1024,
+      autoStart: true,
+      connectionId: undefined,
+      environmentId: 'env-dev',
+      activeServerId: 'api-server-default',
+      servers: [{
+        id: 'api-server-default',
+        name: 'Local API Server',
+        host: '127.0.0.1',
+        port: 1024,
+        autoStart: true,
+        connectionId: undefined,
+        environmentId: 'env-dev',
+      }],
+    })
+  })
+
   it('migrates legacy saved work into Library nodes and maps saved-work UI state', () => {
     const snapshot = createSeedSnapshot()
     const migrated = migrateWorkspaceSnapshot({

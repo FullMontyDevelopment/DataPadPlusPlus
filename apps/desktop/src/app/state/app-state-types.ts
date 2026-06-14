@@ -17,6 +17,14 @@ import type {
   DataEditExecutionResponse,
   DataEditPlanRequest,
   DataEditPlanResponse,
+  DatastoreApiServerLogs,
+  DatastoreApiServerLogsRequest,
+  DatastoreApiServerMetrics,
+  DatastoreApiServerDeleteRequest,
+  DatastoreApiServerSettingsRequest,
+  DatastoreApiServerStartRequest,
+  DatastoreApiServerStatus,
+  DatastoreApiServerStopRequest,
   DiagnosticsReport,
   DocumentNodeChildrenRequest,
   DocumentNodeChildrenResponse,
@@ -220,6 +228,7 @@ export interface Actions {
   createMetricsTab(connectionId: string, environmentId?: string): Promise<void>
   createEnvironmentTab(environmentId: string): Promise<void>
   createSettingsTab(): Promise<void>
+  createApiServerTab(serverId?: string): Promise<void>
   refreshMetricsTab(tabId: string): Promise<void>
   createObjectViewTab(request: CreateObjectViewTabRequest): Promise<void>
   refreshObjectViewTab(tabId: string): Promise<void>
@@ -319,6 +328,13 @@ export interface Actions {
   ): Promise<WorkspaceBundleFileExportResponse | undefined>
   importWorkspaceFile(request: WorkspaceBundleFileImportRequest): Promise<void>
   updateWorkspaceBackupSettings(request: WorkspaceBackupSettingsRequest): Promise<boolean>
+  getDatastoreApiServerStatus(): Promise<DatastoreApiServerStatus | undefined>
+  getDatastoreApiServerMetrics(): Promise<DatastoreApiServerMetrics | undefined>
+  getDatastoreApiServerLogs(request?: DatastoreApiServerLogsRequest): Promise<DatastoreApiServerLogs | undefined>
+  updateDatastoreApiServerSettings(request: DatastoreApiServerSettingsRequest): Promise<boolean>
+  startDatastoreApiServer(request: DatastoreApiServerStartRequest): Promise<DatastoreApiServerStatus | undefined>
+  stopDatastoreApiServer(request?: DatastoreApiServerStopRequest): Promise<DatastoreApiServerStatus | undefined>
+  deleteDatastoreApiServer(request: DatastoreApiServerDeleteRequest): Promise<boolean>
   listWorkspaceBackups(): Promise<WorkspaceBackupSummary[] | undefined>
   createWorkspaceBackupNow(
     request: WorkspaceBackupRunRequest,

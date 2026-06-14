@@ -10,7 +10,9 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::{
-    app::runtime::{generate_id, timestamp_now, ManagedAppState, SharedAppState},
+    app::runtime::{
+        datastore_api_server, generate_id, timestamp_now, ManagedAppState, SharedAppState,
+    },
     domain::{
         error::CommandError,
         models::{
@@ -19,20 +21,24 @@ use crate::{
             ConnectionTestRequest, ConnectionTestResult, CreateObjectViewTabRequest,
             CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, DataEditExecutionRequest,
             DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse,
-            DatastoreExperienceResponse, DocumentNodeChildrenRequest, DocumentNodeChildrenResponse,
-            EnvironmentProfile, ExecuteTestSuiteRequest, ExecuteTestSuiteResponse,
-            ExecutionRequest, ExecutionResponse, ExplorerInspectRequest, ExplorerInspectResponse,
-            ExplorerRequest, ExplorerResponse, ExportBundle, ExportResultFileRequest,
-            ExportResultFileResponse, LibraryCreateFolderRequest, LibraryDeleteNodeRequest,
-            LibraryMoveNodeRequest, LibraryRenameNodeRequest, LibrarySetEnvironmentRequest,
-            LocalDatabaseCreateRequest, LocalDatabaseCreateResult, LocalDatabasePickRequest,
-            LocalDatabasePickResult, OpenTestSuiteTemplateRequest, OperationExecutionRequest,
-            OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse,
-            OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest,
-            PermissionInspectionResponse, QueryTabActiveExecution, QueryTabReorderRequest,
-            RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest,
-            ResultPageResponse, SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest,
-            SavedWorkItem, StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
+            DatastoreApiServerDeleteRequest, DatastoreApiServerLogs, DatastoreApiServerLogsRequest,
+            DatastoreApiServerMetrics, DatastoreApiServerSettingsRequest,
+            DatastoreApiServerStartRequest, DatastoreApiServerStatus,
+            DatastoreApiServerStopRequest, DatastoreExperienceResponse,
+            DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, EnvironmentProfile,
+            ExecuteTestSuiteRequest, ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse,
+            ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse,
+            ExportBundle, ExportResultFileRequest, ExportResultFileResponse,
+            LibraryCreateFolderRequest, LibraryDeleteNodeRequest, LibraryMoveNodeRequest,
+            LibraryRenameNodeRequest, LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest,
+            LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult,
+            OpenTestSuiteTemplateRequest, OperationExecutionRequest, OperationExecutionResponse,
+            OperationManifestRequest, OperationManifestResponse, OperationPlanRequest,
+            OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse,
+            QueryTabActiveExecution, QueryTabReorderRequest, RedisKeyInspectRequest,
+            RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
+            SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
+            StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
             UpdateTestSuiteTabRequest, UpdateUiStateRequest, UserFacingError,
             WorkspaceBackupDeleteRequest, WorkspaceBackupRestoreRequest, WorkspaceBackupRunRequest,
             WorkspaceBackupRunResponse, WorkspaceBackupSettingsRequest, WorkspaceBackupSummary,
@@ -297,6 +303,14 @@ pub fn create_settings_tab(
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
     state.create_settings_tab()
+}
+
+#[tauri::command]
+pub fn create_api_server_tab(
+    state: State<'_, SharedAppState>,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.create_api_server_tab()
 }
 
 #[tauri::command]
@@ -792,6 +806,103 @@ pub fn list_datastore_experiences(
 ) -> Result<DatastoreExperienceResponse, CommandError> {
     let runtime = clone_runtime(&state)?;
     runtime.list_datastore_experiences()
+}
+
+#[tauri::command]
+pub fn get_datastore_api_server_status(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+) -> Result<DatastoreApiServerStatus, CommandError> {
+    let state = lock_state(&state)?;
+    datastore_api_server::status_for(
+        &api_server,
+        &state.snapshot.preferences.datastore_api_server,
+    )
+}
+
+#[tauri::command]
+pub fn get_datastore_api_server_metrics(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+) -> Result<DatastoreApiServerMetrics, CommandError> {
+    let state = lock_state(&state)?;
+    datastore_api_server::metrics_for(
+        &api_server,
+        &state.snapshot.preferences.datastore_api_server,
+    )
+}
+
+#[tauri::command]
+pub fn get_datastore_api_server_logs(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerLogsRequest,
+) -> Result<DatastoreApiServerLogs, CommandError> {
+    let state = lock_state(&state)?;
+    datastore_api_server::logs_for(
+        &api_server,
+        &state.snapshot.preferences.datastore_api_server,
+        request,
+    )
+}
+
+#[tauri::command]
+pub fn update_datastore_api_server_settings(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerSettingsRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.ensure_unlocked()?;
+    let should_stop = !request.enabled;
+    let payload = datastore_api_server::update_settings(&mut state, request)?;
+    if should_stop {
+        datastore_api_server::stop_server(
+            &api_server,
+            &state.snapshot.preferences.datastore_api_server,
+            DatastoreApiServerStopRequest {
+                server_id: None,
+                reason: Some("feature disabled".into()),
+            },
+        )?;
+    }
+    Ok(payload)
+}
+
+#[tauri::command]
+pub fn start_datastore_api_server(
+    app: AppHandle,
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerStartRequest,
+) -> Result<DatastoreApiServerStatus, CommandError> {
+    let mut state = lock_state(&state)?;
+    datastore_api_server::start_server(app, &api_server, &mut state, request)
+}
+
+#[tauri::command]
+pub fn stop_datastore_api_server(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerStopRequest,
+) -> Result<DatastoreApiServerStatus, CommandError> {
+    let state = lock_state(&state)?;
+    datastore_api_server::stop_server(
+        &api_server,
+        &state.snapshot.preferences.datastore_api_server,
+        request,
+    )
+}
+
+#[tauri::command]
+pub fn delete_datastore_api_server(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerDeleteRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.ensure_unlocked()?;
+    datastore_api_server::delete_server(&api_server, &mut state, request)
 }
 
 #[tauri::command]

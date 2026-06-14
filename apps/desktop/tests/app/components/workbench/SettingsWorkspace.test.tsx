@@ -78,6 +78,8 @@ function renderSettings(overrides: Partial<ComponentProps<typeof SettingsWorkspa
     onSetSafeMode: vi.fn(),
     onSetTheme: vi.fn(),
     onSetUpdatePrereleases: vi.fn(),
+    onOpenApiServer: vi.fn(),
+    onUpdateApiServerSettings: vi.fn().mockResolvedValue(true),
     onUpdateBackupSettings: vi.fn().mockResolvedValue(true),
     ...overrides,
   }
@@ -109,6 +111,111 @@ describe('SettingsWorkspace', () => {
     fireEvent.click(safeModeToggle)
 
     expect(props.onSetSafeMode).toHaveBeenCalledWith(false)
+  })
+
+  it('gates the API Server workspace behind Experimental settings', async () => {
+    const onUpdateApiServerSettings = vi.fn().mockResolvedValue(true)
+    const props = renderSettings({
+      initialSection: 'experimental',
+      onUpdateApiServerSettings,
+    })
+
+    expect(screen.getByRole('heading', { name: 'Experimental' })).toBeInTheDocument()
+    const apiServerGroup = screen.getByRole('region', { name: 'API Server' })
+    expect(within(apiServerGroup).getByText('Experimental')).toBeInTheDocument()
+    expect(within(apiServerGroup).getByLabelText('Datastore API server')).not.toBeChecked()
+    expect(within(apiServerGroup).getByLabelText('Server name')).toHaveValue('Local API Server')
+    expect(within(apiServerGroup).getByRole('button', { name: 'Open API Server' })).toBeDisabled()
+
+    fireEvent.click(within(apiServerGroup).getByLabelText('Datastore API server'))
+
+    await waitFor(() => {
+      expect(onUpdateApiServerSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: true,
+          host: '127.0.0.1',
+          name: 'Local API Server',
+          port: 17640,
+        }),
+      )
+    })
+    expect(props.onOpenApiServer).not.toHaveBeenCalled()
+  })
+
+  it('opens API Server settings controls when enabled', () => {
+    const preferences = {
+      ...createSeedSnapshot().preferences,
+      datastoreApiServer: {
+        enabled: true,
+        host: '127.0.0.1' as const,
+        port: 17641,
+        autoStart: false,
+        activeServerId: 'api-server-default',
+        servers: [{
+          id: 'api-server-default',
+          name: 'Orders API',
+          host: '127.0.0.1' as const,
+          port: 17641,
+          autoStart: false,
+        }],
+      },
+    }
+    const props = renderSettings({
+      initialSection: 'experimental',
+      preferences,
+    })
+
+    const apiServerGroup = screen.getByRole('region', { name: 'API Server' })
+    expect(within(apiServerGroup).getByLabelText('Datastore API server')).toBeChecked()
+    expect(within(apiServerGroup).getByLabelText('Server name')).toHaveValue('Orders API')
+    expect(within(apiServerGroup).getByLabelText('Local port')).toHaveValue(17641)
+
+    fireEvent.click(within(apiServerGroup).getByRole('button', { name: 'Open API Server' }))
+
+    expect(props.onOpenApiServer).toHaveBeenCalled()
+  })
+
+  it('saves a customised API Server name', async () => {
+    const onUpdateApiServerSettings = vi.fn().mockResolvedValue(true)
+    const preferences = {
+      ...createSeedSnapshot().preferences,
+      datastoreApiServer: {
+        enabled: true,
+        host: '127.0.0.1' as const,
+        port: 17640,
+        autoStart: false,
+        activeServerId: 'api-server-default',
+        servers: [{
+          id: 'api-server-default',
+          name: 'Local API Server',
+          host: '127.0.0.1' as const,
+          port: 17640,
+          autoStart: false,
+        }],
+      },
+    }
+    renderSettings({
+      initialSection: 'experimental',
+      onUpdateApiServerSettings,
+      preferences,
+    })
+
+    const apiServerGroup = screen.getByRole('region', { name: 'API Server' })
+    fireEvent.change(within(apiServerGroup).getByLabelText('Server name'), {
+      target: { value: 'Customer Data API' },
+    })
+    fireEvent.click(within(apiServerGroup).getByRole('button', { name: 'Save Details' }))
+
+    await waitFor(() => {
+      expect(onUpdateApiServerSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          activeServerId: 'api-server-default',
+          serverId: 'api-server-default',
+          name: 'Customer Data API',
+          port: 17640,
+        }),
+      )
+    })
   })
 
   it('exports and imports workspace files with the selected passphrase and secret option', async () => {

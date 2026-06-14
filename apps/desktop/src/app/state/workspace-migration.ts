@@ -281,7 +281,64 @@ function normalizePreferences(
       lastBackupAt: preferences?.workspaceBackups?.lastBackupAt,
       lastWorkspaceUpdatedAt: preferences?.workspaceBackups?.lastWorkspaceUpdatedAt,
     },
+    datastoreApiServer: {
+      enabled: Boolean(preferences?.datastoreApiServer?.enabled),
+      host: '127.0.0.1',
+      ...normalizeDatastoreApiServerPreferences(preferences?.datastoreApiServer),
+    },
   }
+}
+
+function normalizeDatastoreApiServerPreferences(
+  preferences: WorkspaceSnapshot['preferences']['datastoreApiServer'] | undefined,
+) {
+  const rawServers = Array.isArray(preferences?.servers) ? preferences.servers : []
+  const servers = (rawServers.length > 0
+    ? rawServers
+    : [{
+        id: preferences?.activeServerId || 'api-server-default',
+        name: 'Local API Server',
+        host: '127.0.0.1' as const,
+        port: preferences?.port,
+        autoStart: preferences?.autoStart,
+        connectionId: preferences?.connectionId,
+        environmentId: preferences?.environmentId,
+      }]
+  ).map((server, index) => {
+    const port = clampNumber(server.port, 17640, 1024, 65535)
+    return {
+      id: typeof server.id === 'string' && server.id ? server.id : `api-server-${index + 1}`,
+      name:
+        typeof server.name === 'string' && server.name.trim()
+          ? server.name.trim()
+          : defaultApiServerName(port),
+      host: '127.0.0.1' as const,
+      port,
+      autoStart: Boolean(server.autoStart),
+      connectionId: typeof server.connectionId === 'string' ? server.connectionId : undefined,
+      environmentId:
+        typeof server.environmentId === 'string' ? server.environmentId : undefined,
+    }
+  })
+  const activeServerId =
+    typeof preferences?.activeServerId === 'string' &&
+    servers.some((server) => server.id === preferences.activeServerId)
+      ? preferences.activeServerId
+      : servers[0]?.id
+  const active = servers.find((server) => server.id === activeServerId) ?? servers[0]
+
+  return {
+    port: active?.port ?? 17640,
+    autoStart: Boolean(active?.autoStart),
+    connectionId: active?.connectionId,
+    environmentId: active?.environmentId,
+    activeServerId,
+    servers,
+  }
+}
+
+function defaultApiServerName(port: number) {
+  return port === 17640 ? 'Local API Server' : `Local API Server ${port}`
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {

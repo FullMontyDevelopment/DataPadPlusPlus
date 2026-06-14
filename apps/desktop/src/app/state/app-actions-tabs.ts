@@ -15,6 +15,7 @@ type QueryTabActions = Pick<
   | 'createMetricsTab'
   | 'createEnvironmentTab'
   | 'createSettingsTab'
+  | 'createApiServerTab'
   | 'refreshMetricsTab'
   | 'createObjectViewTab'
   | 'refreshObjectViewTab'
@@ -163,6 +164,36 @@ export function useQueryTabActions({
       }
     },
     [applyPayload, handleError],
+  )
+
+  const createApiServerTab = useCallback<Actions['createApiServerTab']>(
+    async (serverId) => {
+      try {
+        const apiServer = state.payload?.snapshot.preferences.datastoreApiServer
+        const server = serverId
+          ? apiServer?.servers?.find((item) => item.id === serverId)
+          : undefined
+        if (apiServer?.enabled && server) {
+          applyPayload(
+            await desktopClient.updateDatastoreApiServerSettings({
+              enabled: true,
+              host: '127.0.0.1',
+              serverId,
+              activeServerId: serverId,
+              name: server.name,
+              port: server.port,
+              autoStart: server.autoStart,
+              connectionId: server.connectionId,
+              environmentId: server.environmentId,
+            }),
+          )
+        }
+        applyPayload(await desktopClient.createApiServerTab())
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError, state.payload],
   )
 
   const refreshMetricsTab = useCallback<Actions['refreshMetricsTab']>(
@@ -500,6 +531,7 @@ export function useQueryTabActions({
       createMetricsTab,
       createEnvironmentTab,
       createSettingsTab,
+      createApiServerTab,
       createObjectViewTab,
       refreshMetricsTab,
       refreshObjectViewTab,
@@ -527,6 +559,7 @@ export function useQueryTabActions({
     }),
     [
       closeTab,
+      createApiServerTab,
       createEnvironmentTab,
       createLibraryFolder,
       createExplorerTab,

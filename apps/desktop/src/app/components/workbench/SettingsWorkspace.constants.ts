@@ -5,6 +5,7 @@ export type SettingsSection =
   | 'workspace'
   | 'updates'
   | 'security'
+  | 'experimental'
   | 'shortcuts'
   | 'logs'
   | 'about'
@@ -14,6 +15,7 @@ export const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string }> = 
   { id: 'workspace', label: 'Workspace + Backups' },
   { id: 'updates', label: 'Updates' },
   { id: 'security', label: 'Security' },
+  { id: 'experimental', label: 'Experimental' },
   { id: 'shortcuts', label: 'Shortcuts' },
   { id: 'logs', label: 'Logs' },
   { id: 'about', label: 'About' },

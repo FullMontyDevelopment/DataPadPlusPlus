@@ -1,3 +1,4 @@
+import { clientApiServer } from './client-api-server'
 import { clientAdapters } from './client-adapters'
 import { clientConnections } from './client-connections'
 import { clientExecution } from './client-execution'
@@ -12,6 +13,7 @@ import { clientWorkspace } from './client-workspace'
 
 export const desktopClient = {
   ...clientWorkspace,
+  ...clientApiServer,
   ...clientConnections,
   ...clientTabs,
   ...clientLibrary,

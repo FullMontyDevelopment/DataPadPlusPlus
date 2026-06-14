@@ -8,6 +8,7 @@ import type {
   AdapterManifest,
   ClosedQueryTabSnapshot,
   ConnectionProfile,
+  DatastoreApiServerInstanceStatus,
   EnvironmentProfile,
   ExplorerNode,
   LibraryNode,
@@ -23,11 +24,13 @@ import {
   ExplorerIcon,
   ArrowLeftIcon,
   MoreIcon,
+  ObjectServerIcon,
   PlayIcon,
   PlusIcon,
   QueryIcon,
   RenameIcon,
   RefreshIcon,
+  StopIcon,
   TrashIcon,
 } from './icons'
 import {
@@ -53,6 +56,10 @@ interface LibraryPaneProps {
   connections?: ConnectionProfile[]
   environments: EnvironmentProfile[]
   explorerStatus?: 'idle' | 'loading' | 'ready'
+  apiServerEnabled?: boolean
+  activeApiServer?: boolean
+  activeApiServerId?: string
+  apiServers?: DatastoreApiServerInstanceStatus[]
   getConnectionExplorerItems?(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
   getConnectionExplorerStatus?(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
   getConnectionHealth?(connectionId: string, environmentId?: string): ConnectionHealth | undefined
@@ -81,6 +88,10 @@ interface LibraryPaneProps {
   onInspectExplorerNode?(node: ExplorerNode): void
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery?(connectionId: string, target: ScopedQueryTarget): void
+  onOpenApiServer?(serverId?: string): void
+  onStartApiServer?(serverId: string): void
+  onStopApiServer?(serverId: string): void
+  onDeleteApiServer?(serverId: string): void
   onOpenLibraryItem(nodeId: string): void
   onRenameNode(nodeId: string, name: string): void
   onReopenClosedTab(closedTabId: string): void
@@ -104,6 +115,12 @@ interface LibraryContextMenuState {
 
 interface EnvironmentContextMenuState {
   environment: EnvironmentProfile
+  x: number
+  y: number
+}
+
+interface ApiServerContextMenuState {
+  server: DatastoreApiServerInstanceStatus
   x: number
   y: number
 }
@@ -138,6 +155,7 @@ interface LibraryEnvironmentState {
 
 const POINTER_DRAG_THRESHOLD = 4
 const RECENTS_SECTION_ID = 'library:recents'
+const API_SERVER_SECTION_ID = 'library:api-server'
 const ENVIRONMENTS_SECTION_ID = 'library:environments'
 const DEFAULT_RECENTS_HEIGHT = 180
 const MIN_RECENTS_HEIGHT = 92
@@ -159,6 +177,10 @@ export function LibraryPane({
   connections = [],
   environments,
   explorerStatus = 'idle',
+  apiServerEnabled = false,
+  activeApiServer = false,
+  activeApiServerId,
+  apiServers = [],
   getConnectionExplorerItems = () => undefined,
   getConnectionExplorerStatus = () => 'idle',
   getConnectionHealth = () => undefined,
@@ -187,6 +209,10 @@ export function LibraryPane({
   onInspectExplorerNode = noop,
   onOpenObjectView = noop,
   onOpenScopedQuery = noop,
+  onOpenApiServer = noop,
+  onStartApiServer = noop,
+  onStopApiServer = noop,
+  onDeleteApiServer = noop,
   onOpenLibraryItem,
   onRenameNode,
   onReopenClosedTab,
@@ -199,6 +225,7 @@ export function LibraryPane({
   const [contextMenu, setContextMenu] = useState<LibraryContextMenuState>()
   const [createFolderDialog, setCreateFolderDialog] = useState<CreateFolderDialogState>()
   const [environmentMenu, setEnvironmentMenu] = useState<EnvironmentContextMenuState>()
+  const [apiServerMenu, setApiServerMenu] = useState<ApiServerContextMenuState>()
   const [moveNodeDialog, setMoveNodeDialog] = useState<MoveNodeDialogState>()
   const [renameNodeDialog, setRenameNodeDialog] = useState<LibraryNode>()
   const [draggedNodeId, setDraggedNodeId] = useState<string>()
@@ -218,20 +245,37 @@ export function LibraryPane({
   const recentLibraryItems = useMemo(() => recentLibraryNodes(libraryNodes), [libraryNodes])
   const recentsCount = recentLibraryItems.length + closedTabs.length
   const recentsExpanded = sectionStates[RECENTS_SECTION_ID] ?? true
+  const apiServerExpanded = sectionStates[API_SERVER_SECTION_ID] ?? true
   const environmentsExpanded = sectionStates[ENVIRONMENTS_SECTION_ID] ?? true
+  const displayedApiServers = useMemo(
+    () =>
+      apiServers.length > 0
+        ? apiServers
+        : [{
+            id: 'api-server-default',
+            name: 'Local API Server',
+            running: false,
+            host: '127.0.0.1' as const,
+            port: 17640,
+            message: 'Experimental datastore API server is stopped.',
+            warnings: [],
+          }],
+    [apiServers],
+  )
   const connectionById = useMemo(
     () => new Map(connections.map((connection) => [connection.id, connection])),
     [connections],
   )
 
   useEffect(() => {
-    if (!contextMenu && !environmentMenu) {
+    if (!contextMenu && !environmentMenu && !apiServerMenu) {
       return undefined
     }
 
     const close = () => {
       setContextMenu(undefined)
       setEnvironmentMenu(undefined)
+      setApiServerMenu(undefined)
     }
     window.addEventListener('pointerdown', close)
     window.addEventListener('keydown', close)
@@ -241,7 +285,7 @@ export function LibraryPane({
       window.removeEventListener('keydown', close)
       window.removeEventListener('resize', close)
     }
-  }, [contextMenu, environmentMenu])
+  }, [apiServerMenu, contextMenu, environmentMenu])
 
   const requestCreateFolder = (parentId?: string) => {
     setContextMenu(undefined)
@@ -639,6 +683,95 @@ export function LibraryPane({
           </section>
         ) : null}
 
+        {apiServerEnabled ? (
+          <section
+            className={`library-api-server-panel sidebar-section${
+              apiServerExpanded ? ' is-expanded' : ' is-collapsed'
+            }`}
+          >
+            <button
+              type="button"
+              className="sidebar-section-header sidebar-section-header--button"
+              aria-label={`${apiServerExpanded ? 'Collapse' : 'Expand'} API Server section`}
+              aria-expanded={apiServerExpanded}
+              aria-controls="library-api-server-body"
+              onClick={() =>
+                onSidebarSectionExpandedChange(API_SERVER_SECTION_ID, !apiServerExpanded)
+              }
+            >
+              <span className="sidebar-section-title">
+                {apiServerExpanded ? (
+                  <ChevronDownIcon className="sidebar-section-chevron" />
+                ) : (
+                  <ChevronRightIcon className="sidebar-section-chevron" />
+                )}
+              <span>API Server</span>
+              </span>
+              <span>{displayedApiServers.length}</span>
+            </button>
+
+            {apiServerExpanded ? (
+              <div id="library-api-server-body" className="library-api-server-body">
+                {displayedApiServers.map((server) => {
+                  const isActive =
+                    activeApiServer && (!activeApiServerId || activeApiServerId === server.id)
+                  return (
+                    <div
+                      key={server.id}
+                      className={`library-api-server-row${isActive ? ' is-active' : ''}${
+                        server.running ? ' is-running' : ''
+                      }`}
+                      onContextMenu={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        setContextMenu(undefined)
+                        setEnvironmentMenu(undefined)
+                        setApiServerMenu({ server, x: event.clientX, y: event.clientY })
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="library-api-server-main"
+                        aria-label={`Open API Server workspace for ${server.name}`}
+                        onClick={() => onOpenApiServer(server.id)}
+                      >
+                        <ObjectServerIcon className="tree-icon" />
+                        <span>
+                          <strong>{server.name}</strong>
+                          <small>
+                            <span
+                              className={`library-api-server-status-dot${
+                                server.running ? ' is-running' : ''
+                              }`}
+                              aria-hidden="true"
+                            />
+                            {server.running ? 'Running' : 'Stopped'} / {server.port}
+                          </small>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="sidebar-icon-button sidebar-icon-button--inline library-api-server-menu-button"
+                        aria-label={`API Server actions for ${server.name}`}
+                        title={`Manage ${server.name}.`}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setContextMenu(undefined)
+                          setEnvironmentMenu(undefined)
+                          setApiServerMenu({ server, x: event.clientX, y: event.clientY })
+                        }}
+                      >
+                        <MoreIcon className="sidebar-icon" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         <section
           className={`library-environments-panel sidebar-section${
             environmentsExpanded ? ' is-expanded' : ' is-collapsed'
@@ -766,6 +899,79 @@ export function LibraryPane({
             onClick={() => {
               deleteEnvironment(environmentMenu.environment)
               setEnvironmentMenu(undefined)
+            }}
+          >
+            <TrashIcon className="connection-context-menu-icon" />
+            <span>Delete</span>
+          </button>
+        </div>
+      ) : null}
+
+      {apiServerMenu ? (
+        <div
+          className="connection-context-menu"
+          role="menu"
+          aria-label={`API Server options for ${apiServerMenu.server.name}`}
+          style={{ left: apiServerMenu.x, top: apiServerMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="connection-context-menu-item"
+            role="menuitem"
+            aria-label={`Open API Server workspace for ${apiServerMenu.server.name}`}
+            onClick={() => {
+              onOpenApiServer(apiServerMenu.server.id)
+              setApiServerMenu(undefined)
+            }}
+          >
+            <ObjectServerIcon className="connection-context-menu-icon" />
+            <span>Open</span>
+          </button>
+          {apiServerMenu.server.running ? (
+            <button
+              type="button"
+              className="connection-context-menu-item"
+              role="menuitem"
+              aria-label={`Stop ${apiServerMenu.server.name}`}
+              onClick={() => {
+                onStopApiServer(apiServerMenu.server.id)
+                setApiServerMenu(undefined)
+              }}
+            >
+              <StopIcon className="connection-context-menu-icon" />
+              <span>Stop</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="connection-context-menu-item"
+              role="menuitem"
+              aria-label={`Start ${apiServerMenu.server.name}`}
+              disabled={!apiServerMenu.server.connectionId || !apiServerMenu.server.environmentId}
+              title={
+                !apiServerMenu.server.connectionId || !apiServerMenu.server.environmentId
+                  ? 'Choose a datastore and environment before starting this API server.'
+                  : `Start ${apiServerMenu.server.name}.`
+              }
+              onClick={() => {
+                onStartApiServer(apiServerMenu.server.id)
+                setApiServerMenu(undefined)
+              }}
+            >
+              <PlayIcon className="connection-context-menu-icon" />
+              <span>Start</span>
+            </button>
+          )}
+          <div className="connection-context-menu-separator" role="separator" />
+          <button
+            type="button"
+            className="connection-context-menu-item connection-context-menu-item--danger"
+            role="menuitem"
+            aria-label={`Delete ${apiServerMenu.server.name}`}
+            onClick={() => {
+              onDeleteApiServer(apiServerMenu.server.id)
+              setApiServerMenu(undefined)
             }}
           >
             <TrashIcon className="connection-context-menu-icon" />

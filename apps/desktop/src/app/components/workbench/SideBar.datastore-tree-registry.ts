@@ -2651,7 +2651,7 @@ function mongoCollectionAdminObjectViewAction(
     id,
     label,
     'collection',
-    `collection:${database ?? ''}:${collection}`,
+    `collection-admin:${id}:${database ?? ''}:${collection}`,
     mongoCollectionObjectViewPath(database, collection),
     separatorBefore,
   )

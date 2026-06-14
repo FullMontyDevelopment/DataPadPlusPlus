@@ -167,6 +167,8 @@ describe('MongoOverviewView', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+    expect(screen.getByRole('dialog', { name: 'Rename' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Run Rename' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.collection.rename',
@@ -178,6 +180,8 @@ describe('MongoOverviewView', () => {
       }),
     }))
 
+    fireEvent.click(screen.getByRole('button', { name: 'Drop' }))
+    expect(screen.getByRole('dialog', { name: 'Drop' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Run Drop' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.collection.drop',
@@ -188,12 +192,54 @@ describe('MongoOverviewView', () => {
       }),
     }))
 
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+    expect(screen.getByRole('dialog', { name: 'Validate' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Run Validate' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.collection.validate',
       objectName: 'products',
       parameters: expect.objectContaining({
         full: false,
+      }),
+    }))
+  })
+
+  it('opens a specific collection management modal from an admin node id', () => {
+    const onPlanOperation = vi.fn()
+
+    render(
+      <MongoOverviewView
+        kind="collection"
+        descriptor={getMongoObjectViewDescriptor('collection')}
+        payload={{
+          nodeId: 'collection-admin:clone-as-capped:catalog:products',
+          database: 'catalog',
+          collection: 'products',
+          indexes: [],
+          sampleDocuments: [],
+        }}
+        onOpenQuery={vi.fn()}
+        onPlanOperation={onPlanOperation}
+      />,
+    )
+
+    expect(screen.getByRole('dialog', { name: 'Clone As Capped' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Target collection'), {
+      target: { value: 'products_archive' },
+    })
+    fireEvent.change(screen.getByLabelText('Size bytes'), {
+      target: { value: '2048' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Run Clone' }))
+
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.collection.clone-as-capped',
+      objectName: 'products',
+      parameters: expect.objectContaining({
+        database: 'catalog',
+        collection: 'products',
+        targetCollection: 'products_archive',
+        size: 2048,
       }),
     }))
   })

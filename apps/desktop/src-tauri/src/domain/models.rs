@@ -1400,6 +1400,167 @@ pub struct DatastoreExperienceResponse {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerSettingsRequest {
+    pub enabled: bool,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub auto_start: Option<bool>,
+    pub connection_id: Option<String>,
+    pub environment_id: Option<String>,
+    pub server_id: Option<String>,
+    pub name: Option<String>,
+    pub active_server_id: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerStartRequest {
+    pub server_id: Option<String>,
+    pub connection_id: String,
+    pub environment_id: String,
+    pub port: Option<u16>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerStopRequest {
+    pub server_id: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerDeleteRequest {
+    pub server_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerInstanceStatus {
+    pub id: String,
+    pub name: String,
+    pub running: bool,
+    pub host: String,
+    pub port: u16,
+    pub base_url: Option<String>,
+    pub connection_id: Option<String>,
+    pub environment_id: Option<String>,
+    pub started_at: Option<String>,
+    pub message: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerStatus {
+    pub enabled: bool,
+    pub running: bool,
+    pub host: String,
+    pub port: u16,
+    pub base_url: Option<String>,
+    pub connection_id: Option<String>,
+    pub environment_id: Option<String>,
+    pub server_id: Option<String>,
+    pub name: Option<String>,
+    pub active_server_id: Option<String>,
+    pub started_at: Option<String>,
+    pub message: String,
+    pub warnings: Vec<String>,
+    pub servers: Vec<DatastoreApiServerInstanceStatus>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerRouteMetric {
+    pub route_id: String,
+    pub method: String,
+    pub route: String,
+    pub requests: u64,
+    pub successes: u64,
+    pub errors: u64,
+    pub status_counts: HashMap<String, u64>,
+    pub average_duration_ms: f64,
+    pub p50_duration_ms: f64,
+    pub p95_duration_ms: f64,
+    pub last_duration_ms: Option<f64>,
+    pub last_status: Option<u16>,
+    pub last_seen_at: Option<String>,
+    pub request_bytes: u64,
+    pub response_bytes: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerTelemetryRetention {
+    pub route_samples: usize,
+    pub logs: usize,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerMetrics {
+    pub running: bool,
+    pub generated_at: String,
+    pub started_at: Option<String>,
+    pub connection_id: Option<String>,
+    pub environment_id: Option<String>,
+    pub total_requests: u64,
+    pub total_errors: u64,
+    pub request_bytes: u64,
+    pub response_bytes: u64,
+    pub routes: Vec<DatastoreApiServerRouteMetric>,
+    pub retention: DatastoreApiServerTelemetryRetention,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerLogEntry {
+    pub id: u64,
+    pub timestamp: String,
+    pub method: String,
+    pub path: String,
+    pub route: String,
+    pub status: u16,
+    pub duration_ms: f64,
+    pub request_bytes: u64,
+    pub response_bytes: u64,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerLogsRequest {
+    pub limit: Option<usize>,
+    pub method: Option<String>,
+    pub route: Option<String>,
+    pub status: Option<u16>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerLogs {
+    pub running: bool,
+    pub generated_at: String,
+    pub total_retained: usize,
+    pub entries: Vec<DatastoreApiServerLogEntry>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CrudMutationBody {
+    #[serde(default)]
+    pub identity: Option<Value>,
+    #[serde(default)]
+    pub values: Option<HashMap<String, Value>>,
+    #[serde(default)]
+    pub changes: Option<Vec<DataEditChange>>,
+    #[serde(default)]
+    pub confirmation_text: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct DataEditTarget {
     pub object_kind: String,
     #[serde(default)]
@@ -1517,6 +1678,62 @@ impl Default for WorkspaceBackupPreferences {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct DatastoreApiServerConfig {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub auto_start: bool,
+    pub connection_id: Option<String>,
+    pub environment_id: Option<String>,
+}
+
+impl Default for DatastoreApiServerConfig {
+    fn default() -> Self {
+        Self {
+            id: "api-server-default".into(),
+            name: "Local API Server".into(),
+            host: "127.0.0.1".into(),
+            port: 17640,
+            auto_start: false,
+            connection_id: None,
+            environment_id: None,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct DatastoreApiServerPreferences {
+    pub enabled: bool,
+    pub host: String,
+    pub port: u16,
+    pub auto_start: bool,
+    pub connection_id: Option<String>,
+    pub environment_id: Option<String>,
+    pub active_server_id: Option<String>,
+    pub servers: Vec<DatastoreApiServerConfig>,
+}
+
+impl Default for DatastoreApiServerPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: "127.0.0.1".into(),
+            port: 17640,
+            auto_start: false,
+            connection_id: None,
+            environment_id: None,
+            active_server_id: Some("api-server-default".into()),
+            servers: vec![DatastoreApiServerConfig::default()],
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppPreferences {
     pub theme: String,
     pub telemetry: String,
@@ -1526,6 +1743,8 @@ pub struct AppPreferences {
     pub keyboard_shortcuts: HashMap<String, String>,
     #[serde(default)]
     pub workspace_backups: WorkspaceBackupPreferences,
+    #[serde(default)]
+    pub datastore_api_server: DatastoreApiServerPreferences,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

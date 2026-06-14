@@ -5,6 +5,7 @@ import type {
   AppLogFileContent,
   AppLogFileSummary,
   AppShortcutId,
+  DatastoreApiServerSettingsRequest,
   DiagnosticsReport,
   WorkspaceBackupRunResponse,
   WorkspaceBackupSummary,
@@ -12,6 +13,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { SettingsIcon, ThemeIcon } from './icons'
 import { SettingsAboutPanel } from './SettingsAboutPanel'
+import { SettingsExperimentalPanel } from './SettingsExperimentalPanel'
 import { SettingsLogsPanel } from './SettingsLogsPanel'
 import { SettingsSecurityPanel } from './SettingsSecurityPanel'
 import { SettingsShortcutsPanel } from './SettingsShortcutsPanel'
@@ -52,6 +54,8 @@ export function SettingsWorkspace({
   onSetSafeMode,
   onSetTheme,
   onSetUpdatePrereleases,
+  onOpenApiServer,
+  onUpdateApiServerSettings,
   onUpdateBackupSettings,
 }: {
   diagnostics?: DiagnosticsReport
@@ -78,6 +82,10 @@ export function SettingsWorkspace({
     maxBackups?: number
     includeSecrets?: boolean
   }): Promise<boolean>
+  onOpenApiServer(): void
+  onUpdateApiServerSettings(
+    request: DatastoreApiServerSettingsRequest,
+  ): Promise<boolean>
 } & SettingsUpdatesProps) {
   const [section, setSection] = useState<SettingsSection>(
     normalizeSettingsSection(initialSection),
@@ -165,6 +173,14 @@ export function SettingsWorkspace({
           <SettingsSecurityPanel
             preferences={preferences}
             onSetSafeMode={onSetSafeMode}
+          />
+        ) : null}
+
+        {section === 'experimental' ? (
+          <SettingsExperimentalPanel
+            preferences={preferences}
+            onOpenApiServer={onOpenApiServer}
+            onUpdateApiServerSettings={onUpdateApiServerSettings}
           />
         ) : null}
 

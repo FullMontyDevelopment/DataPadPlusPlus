@@ -10,7 +10,7 @@ import type {
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { DatastoreIcon } from '../DatastoreIcon'
-import { CloseIcon, DatabaseIcon, EnvironmentsIcon, RefreshIcon, SettingsIcon, WarningIcon } from '../icons'
+import { CloseIcon, DatabaseIcon, EnvironmentsIcon, ObjectServerIcon, RefreshIcon, SettingsIcon, WarningIcon } from '../icons'
 import { colorWithAlpha, normalizeTabDisplayTitle } from './tab-title'
 
 export interface EditorTabDropTarget {
@@ -76,12 +76,15 @@ export function EditorTabItem({
     tab.tabKind !== 'explorer' &&
     tab.tabKind !== 'metrics' &&
     tab.tabKind !== 'object-view' &&
-    tab.tabKind !== 'settings'
+    tab.tabKind !== 'settings' &&
+    tab.tabKind !== 'api-server'
   const tabRunning = Boolean(tab.activeExecution) || tab.status === 'queued' || tab.status === 'running'
   const showUnsavedChanges = tabCanBeSaved && tab.dirty && !tabRunning
   const connectionName =
     tab.tabKind === 'settings'
       ? 'Workspace settings'
+      : tab.tabKind === 'api-server'
+      ? 'API server'
       : tab.tabKind === 'environment'
       ? 'Workspace environment'
       : connection?.name ?? 'Unknown connection'
@@ -125,6 +128,11 @@ export function EditorTabItem({
         <SettingsIcon
           className="editor-tab-fallback-icon"
           aria-label="Settings icon"
+        />
+      ) : tab.tabKind === 'api-server' ? (
+        <ObjectServerIcon
+          className="editor-tab-fallback-icon"
+          aria-label="API Server icon"
         />
       ) : tab.tabKind === 'environment' ? (
         <EnvironmentsIcon

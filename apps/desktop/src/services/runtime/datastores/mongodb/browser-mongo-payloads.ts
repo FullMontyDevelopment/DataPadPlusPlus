@@ -1,5 +1,6 @@
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import {
+  parseMongoCollectionAdminScope,
   parseMongoDatabaseScope,
   parseMongoObjectScopeStrict,
 } from './browser-mongo-helpers'
@@ -59,14 +60,24 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
     }
   }
 
-  if (nodeId.startsWith('collection:') || nodeId.startsWith('documents:')) {
-    const prefix = nodeId.startsWith('documents:') ? 'documents:' : 'collection:'
-    const scope = parseMongoObjectScopeStrict(nodeId, prefix, database)
+  if (
+    nodeId.startsWith('collection:') ||
+    nodeId.startsWith('documents:') ||
+    nodeId.startsWith('collection-admin:')
+  ) {
+    const scope = nodeId.startsWith('collection-admin:')
+      ? parseMongoCollectionAdminScope(nodeId, database)
+      : parseMongoObjectScopeStrict(
+          nodeId,
+          nodeId.startsWith('documents:') ? 'documents:' : 'collection:',
+          database,
+        )
     if (!scope) {
       return emptyMongoPayload(database, nodeId, 'collection')
     }
     const { databaseName, objectName } = scope
     return {
+      nodeId,
       database: databaseName,
       collection: objectName,
       indexes: [

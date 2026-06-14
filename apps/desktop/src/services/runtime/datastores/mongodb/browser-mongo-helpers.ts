@@ -5,6 +5,10 @@ interface MongoObjectScope {
   objectName: string
 }
 
+interface MongoCollectionAdminScope extends MongoObjectScope {
+  operation: string
+}
+
 export function documentExplorerNode(node: Omit<ExplorerNode, 'family'>): ExplorerNode {
   return {
     family: 'document',
@@ -54,6 +58,42 @@ export function parseMongoObjectScopeStrict(
     return {
       databaseName: database,
       objectName: parts[0]!,
+    }
+  }
+
+  return undefined
+}
+
+export function parseMongoCollectionAdminScope(
+  scope: string,
+  fallbackDatabase?: string,
+): MongoCollectionAdminScope | undefined {
+  if (!scope.startsWith('collection-admin:')) return undefined
+
+  const parts = scope
+    .slice('collection-admin:'.length)
+    .split(':')
+    .map((part) => part.trim())
+  const operation = parts.shift()
+  const database = fallbackDatabase?.trim()
+
+  if (!operation) {
+    return undefined
+  }
+
+  if (parts.length >= 2) {
+    return {
+      operation,
+      databaseName: parts[0] || database,
+      objectName: parts.slice(1).join(':'),
+    }
+  }
+
+  if (parts.length === 1 && parts[0]) {
+    return {
+      operation,
+      databaseName: database,
+      objectName: parts[0],
     }
   }
 

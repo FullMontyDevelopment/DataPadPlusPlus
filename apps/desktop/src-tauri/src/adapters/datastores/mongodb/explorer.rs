@@ -505,11 +505,20 @@ pub(super) async fn inspect_mongodb_explorer_node(
         });
     }
 
-    if let Some(rest) = node_id
-        .strip_prefix("collection:")
-        .or_else(|| node_id.strip_prefix("documents:"))
+    if let Some((database_name, collection_name)) = node_id
+        .strip_prefix("collection-admin:")
+        .map(|rest| {
+            let (_, database_name, collection_name) =
+                split_collection_admin_scope(rest, &fallback_database);
+            (database_name, collection_name)
+        })
+        .or_else(|| {
+            node_id
+                .strip_prefix("collection:")
+                .or_else(|| node_id.strip_prefix("documents:"))
+                .map(|rest| split_database_collection(rest, &fallback_database))
+        })
     {
-        let (database_name, collection_name) = split_database_collection(rest, &fallback_database);
         let collection = client
             .database(&database_name)
             .collection::<Document>(&collection_name);
@@ -542,6 +551,7 @@ pub(super) async fn inspect_mongodb_explorer_node(
                 20,
             )),
             payload: Some(json!({
+                "nodeId": request.node_id.clone(),
                 "database": database_name,
                 "collection": collection_name,
                 "indexes": indexes
@@ -1548,6 +1558,19 @@ fn split_database_collection(rest: &str, fallback_database: &str) -> (String, St
         }
         None => (fallback_database.to_string(), rest.to_string()),
     }
+}
+
+fn split_collection_admin_scope(rest: &str, fallback_database: &str) -> (String, String, String) {
+    let mut parts = rest.splitn(3, ':');
+    let operation = parts.next().unwrap_or_default().to_string();
+    let database_name = parts
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_database)
+        .to_string();
+    let collection_name = parts.next().unwrap_or_default().to_string();
+
+    (operation, database_name, collection_name)
 }
 
 fn bson_type_name(value: &Bson) -> &'static str {

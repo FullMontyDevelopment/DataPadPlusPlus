@@ -83,10 +83,7 @@ pub(super) async fn execute_litedb_data_edit(
     }
 
     let Some(sidecar_path) = litedb_sidecar_path(connection) else {
-        warnings.push(
-            "LiteDB needs SidecarPath before live document edits can run."
-                .into(),
-        );
+        warnings.push("LiteDB needs SidecarPath before live document edits can run.".into());
         return Ok(data_edit_response(
             request, plan, false, messages, warnings, None,
         ));

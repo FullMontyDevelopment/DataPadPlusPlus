@@ -23,6 +23,13 @@ type WorkspaceActions = Pick<
   | 'exportWorkspaceFile'
   | 'importWorkspaceFile'
   | 'updateWorkspaceBackupSettings'
+  | 'getDatastoreApiServerStatus'
+  | 'getDatastoreApiServerMetrics'
+  | 'getDatastoreApiServerLogs'
+  | 'updateDatastoreApiServerSettings'
+  | 'startDatastoreApiServer'
+  | 'stopDatastoreApiServer'
+  | 'deleteDatastoreApiServer'
   | 'listWorkspaceBackups'
   | 'createWorkspaceBackupNow'
   | 'restoreWorkspaceBackup'
@@ -246,6 +253,95 @@ export function useWorkspaceActions({
     [applyPayload, handleError, state.payload],
   )
 
+  const getDatastoreApiServerStatus = useCallback<Actions['getDatastoreApiServerStatus']>(
+    async () => {
+      try {
+        return await desktopClient.getDatastoreApiServerStatus()
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const getDatastoreApiServerMetrics = useCallback<Actions['getDatastoreApiServerMetrics']>(
+    async () => {
+      try {
+        return await desktopClient.getDatastoreApiServerMetrics()
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const getDatastoreApiServerLogs = useCallback<Actions['getDatastoreApiServerLogs']>(
+    async (request) => {
+      try {
+        return await desktopClient.getDatastoreApiServerLogs(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const updateDatastoreApiServerSettings = useCallback<Actions['updateDatastoreApiServerSettings']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.updateDatastoreApiServerSettings(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const startDatastoreApiServer = useCallback<Actions['startDatastoreApiServer']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.startDatastoreApiServer(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
+  const stopDatastoreApiServer = useCallback<Actions['stopDatastoreApiServer']>(
+    async (request) => {
+      try {
+        return await desktopClient.stopDatastoreApiServer(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const deleteDatastoreApiServer = useCallback<Actions['deleteDatastoreApiServer']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.deleteDatastoreApiServer(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
   const listWorkspaceBackups = useCallback<Actions['listWorkspaceBackups']>(
     async () => {
       try {
@@ -316,6 +412,13 @@ export function useWorkspaceActions({
       exportWorkspaceFile,
       importWorkspaceFile,
       updateWorkspaceBackupSettings,
+      getDatastoreApiServerStatus,
+      getDatastoreApiServerMetrics,
+      getDatastoreApiServerLogs,
+      updateDatastoreApiServerSettings,
+      startDatastoreApiServer,
+      stopDatastoreApiServer,
+      deleteDatastoreApiServer,
       listWorkspaceBackups,
       createWorkspaceBackupNow,
       restoreWorkspaceBackup,
@@ -330,6 +433,13 @@ export function useWorkspaceActions({
       importWorkspace,
       importWorkspaceFile,
       updateWorkspaceBackupSettings,
+      getDatastoreApiServerStatus,
+      getDatastoreApiServerMetrics,
+      getDatastoreApiServerLogs,
+      updateDatastoreApiServerSettings,
+      startDatastoreApiServer,
+      stopDatastoreApiServer,
+      deleteDatastoreApiServer,
       listWorkspaceBackups,
       createWorkspaceBackupNow,
       restoreWorkspaceBackup,

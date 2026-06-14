@@ -22,6 +22,24 @@ impl ManagedAppState {
         focus_settings_tab(self, &tab)?;
         Ok(self.bootstrap_payload())
     }
+
+    pub fn create_api_server_tab(&mut self) -> Result<BootstrapPayload, CommandError> {
+        if let Some(existing_tab) = self
+            .snapshot
+            .tabs
+            .iter()
+            .find(|tab| tab.tab_kind.as_deref() == Some("api-server"))
+            .cloned()
+        {
+            focus_settings_tab(self, &existing_tab)?;
+            return Ok(self.bootstrap_payload());
+        }
+
+        let tab = build_api_server_tab(&self.snapshot);
+        self.snapshot.tabs.push(tab.clone());
+        focus_settings_tab(self, &tab)?;
+        Ok(self.bootstrap_payload())
+    }
 }
 
 fn focus_settings_tab(
@@ -66,6 +84,83 @@ fn build_settings_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
         save_target: None,
         saved_query_id: None,
         editor_label: "Settings".into(),
+        query_text: String::new(),
+        query_view_mode: None,
+        script_text: None,
+        scoped_target: None,
+        builder_state: None,
+        metrics_state: None,
+        object_view_state: None,
+        test_suite: None,
+        test_run: None,
+        status: "idle".into(),
+        active_execution: None,
+        dirty: false,
+        last_run_at: None,
+        result: None,
+        history: Vec::new(),
+        error: None,
+    }
+}
+
+fn build_api_server_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
+    let configured_connection_id = snapshot
+        .preferences
+        .datastore_api_server
+        .connection_id
+        .as_deref();
+    let configured_environment_id = snapshot
+        .preferences
+        .datastore_api_server
+        .environment_id
+        .as_deref();
+    let connection = configured_connection_id
+        .and_then(|id| {
+            snapshot
+                .connections
+                .iter()
+                .find(|connection| connection.id == id)
+        })
+        .or_else(|| {
+            snapshot
+                .connections
+                .iter()
+                .find(|connection| connection.id == snapshot.ui.active_connection_id)
+        })
+        .or_else(|| snapshot.connections.first());
+    let environment = configured_environment_id
+        .and_then(|id| {
+            snapshot
+                .environments
+                .iter()
+                .find(|environment| environment.id == id)
+        })
+        .or_else(|| {
+            snapshot
+                .environments
+                .iter()
+                .find(|environment| environment.id == snapshot.ui.active_environment_id)
+        })
+        .or_else(|| snapshot.environments.first());
+
+    QueryTabState {
+        id: generate_id("api-server-tab"),
+        title: "API Server".into(),
+        tab_kind: Some("api-server".into()),
+        connection_id: connection
+            .map(|connection| connection.id.clone())
+            .unwrap_or_default(),
+        environment_id: environment
+            .map(|environment| environment.id.clone())
+            .unwrap_or_default(),
+        family: connection
+            .map(|connection| connection.family.clone())
+            .unwrap_or_else(|| "sql".into()),
+        language: "json".into(),
+        pinned: None,
+        save_target: None,
+        saved_query_id: None,
+        editor_label: "API Server".into(),
         query_text: String::new(),
         query_view_mode: None,
         script_text: None,

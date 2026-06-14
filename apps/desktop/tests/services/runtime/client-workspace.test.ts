@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clientWorkspace } from '../../../src/services/runtime/client-workspace'
-import { encryptBrowserWorkspacePayload } from '../../../src/services/runtime/client-workspace-bundles'
+import {
+  decryptBrowserWorkspacePayload,
+  encryptBrowserWorkspacePayload,
+} from '../../../src/services/runtime/client-workspace-bundles'
 import { createBrowserWorkspaceBundlePayloadText } from '../../../src/services/runtime/client-workspace-integrity'
-import { loadBrowserSnapshot } from '../../../src/services/runtime/browser-store'
+import { loadBrowserSnapshot, saveBrowserSnapshot } from '../../../src/services/runtime/browser-store'
 
 const invoke = vi.fn()
 
@@ -144,6 +147,134 @@ describe('client workspace import validation', () => {
       snapshot: expect.objectContaining({
         schemaVersion: expect.any(Number),
       }),
+    })
+  })
+
+  it.runIf(globalThis.crypto?.subtle)('exports API server configs in browser-preview workspace bundles', async () => {
+    const snapshot = loadBrowserSnapshot()
+    snapshot.preferences.datastoreApiServer = {
+      enabled: true,
+      host: '127.0.0.1',
+      port: 17641,
+      autoStart: true,
+      connectionId: 'conn-users',
+      environmentId: 'env-dev',
+      activeServerId: 'api-server-users',
+      servers: [
+        {
+          id: 'api-server-default',
+          name: 'Local API Server',
+          host: '127.0.0.1',
+          port: 17640,
+          autoStart: false,
+          connectionId: undefined,
+          environmentId: undefined,
+        },
+        {
+          id: 'api-server-users',
+          name: 'Users API',
+          host: '127.0.0.1',
+          port: 17641,
+          autoStart: true,
+          connectionId: 'conn-users',
+          environmentId: 'env-dev',
+        },
+      ],
+    }
+    saveBrowserSnapshot(snapshot)
+
+    const bundle = await clientWorkspace.exportWorkspaceBundle('correct horse')
+    const exported = await decryptBrowserWorkspacePayload(
+      'correct horse',
+      bundle.encryptedPayload,
+    )
+
+    expect(exported.preferences.datastoreApiServer).toEqual({
+      enabled: true,
+      host: '127.0.0.1',
+      port: 17641,
+      autoStart: true,
+      connectionId: 'conn-users',
+      environmentId: 'env-dev',
+      activeServerId: 'api-server-users',
+      servers: [
+        {
+          id: 'api-server-default',
+          name: 'Local API Server',
+          host: '127.0.0.1',
+          port: 17640,
+          autoStart: false,
+          connectionId: undefined,
+          environmentId: undefined,
+        },
+        {
+          id: 'api-server-users',
+          name: 'Users API',
+          host: '127.0.0.1',
+          port: 17641,
+          autoStart: true,
+          connectionId: 'conn-users',
+          environmentId: 'env-dev',
+        },
+      ],
+    })
+  })
+
+  it.runIf(globalThis.crypto?.subtle)('imports API server configs from browser-preview workspace bundles', async () => {
+    const snapshot = loadBrowserSnapshot()
+    snapshot.preferences.datastoreApiServer = {
+      enabled: true,
+      host: '127.0.0.1',
+      port: 17642,
+      autoStart: false,
+      connectionId: 'conn-orders',
+      environmentId: 'env-prod',
+      activeServerId: 'api-server-orders',
+      servers: [
+        {
+          id: 'api-server-orders',
+          name: 'Orders API',
+          host: '127.0.0.1',
+          port: 17642,
+          autoStart: false,
+          connectionId: 'conn-orders',
+          environmentId: 'env-prod',
+        },
+      ],
+    }
+    const encryptedPayload = await encryptBrowserWorkspacePayload(
+      'correct horse',
+      await createBrowserWorkspaceBundlePayloadText(snapshot),
+    )
+
+    await expect(
+      clientWorkspace.importWorkspaceBundle('correct horse', encryptedPayload),
+    ).resolves.toMatchObject({
+      snapshot: {
+        preferences: {
+          datastoreApiServer: {
+            enabled: true,
+            port: 17642,
+            activeServerId: 'api-server-orders',
+            servers: [
+              expect.objectContaining({
+                id: 'api-server-orders',
+                name: 'Orders API',
+                port: 17642,
+                connectionId: 'conn-orders',
+                environmentId: 'env-prod',
+              }),
+            ],
+          },
+        },
+      },
+    })
+    expect(loadBrowserSnapshot().preferences.datastoreApiServer?.servers?.[0]).toMatchObject({
+      id: 'api-server-orders',
+      name: 'Orders API',
+      port: 17642,
+      connectionId: 'conn-orders',
+      environmentId: 'env-prod',
     })
   })
 

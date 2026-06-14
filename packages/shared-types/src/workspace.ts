@@ -87,7 +87,7 @@ export type QuerySaveTarget =
 export interface QueryTabDefinition {
   id: string
   title: string
-  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics' | 'object-view' | 'environment' | 'settings'
+  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics' | 'object-view' | 'environment' | 'settings' | 'api-server'
   connectionId: string
   environmentId: string
   family: DatastoreFamily

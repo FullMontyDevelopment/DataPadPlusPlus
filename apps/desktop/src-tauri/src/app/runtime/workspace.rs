@@ -24,14 +24,18 @@ use crate::{
     domain::{
         error::CommandError,
         models::{
-            AppHealth, AppPreferences, BootstrapPayload, DiagnosticsCounts, DiagnosticsReport,
-            ExportBundle, LockState, ResolvedEnvironment, UiState, WorkspaceSnapshot,
+            AppHealth, AppPreferences, BootstrapPayload, DatastoreApiServerConfig,
+            DatastoreApiServerPreferences, DiagnosticsCounts, DiagnosticsReport, ExportBundle,
+            LockState, ResolvedEnvironment, UiState, WorkspaceSnapshot,
         },
     },
     infrastructure, persistence, security,
 };
 
 const MAX_DECRYPTED_WORKSPACE_BYTES: usize = 50 * 1024 * 1024;
+const API_SERVER_HOST: &str = "127.0.0.1";
+const DEFAULT_API_SERVER_ID: &str = "api-server-default";
+const DEFAULT_API_SERVER_PORT: u16 = 17640;
 
 impl ManagedAppState {
     pub fn load(app: AppHandle) -> Self {
@@ -232,6 +236,7 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     migrate_environment_variables(&mut snapshot);
     migrate_legacy_variable_tokens(&mut snapshot);
     migrate_connection_modes(&mut snapshot);
+    normalize_datastore_api_server_preferences(&mut snapshot.preferences.datastore_api_server);
     ensure_library_nodes(&mut snapshot);
 
     for tab in &mut snapshot.tabs {
@@ -327,6 +332,109 @@ fn default_connection_mode(engine: &str) -> &'static str {
         "sqlite" | "litedb" | "duckdb" => "local-file",
         "dynamodb" | "bigquery" => "cloud-iam",
         _ => "native",
+    }
+}
+
+fn normalize_datastore_api_server_preferences(preferences: &mut DatastoreApiServerPreferences) {
+    let legacy_fields_are_custom = preferences.port != DEFAULT_API_SERVER_PORT
+        || preferences.auto_start
+        || preferences.connection_id.is_some()
+        || preferences.environment_id.is_some()
+        || preferences
+            .active_server_id
+            .as_deref()
+            .is_some_and(|id| id != DEFAULT_API_SERVER_ID);
+    let should_promote_legacy_server = preferences.servers.is_empty()
+        || (preferences.servers.len() == 1
+            && legacy_fields_are_custom
+            && is_default_api_server_placeholder(&preferences.servers[0]));
+
+    let mut servers = if should_promote_legacy_server {
+        vec![DatastoreApiServerConfig {
+            id: preferences
+                .active_server_id
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| DEFAULT_API_SERVER_ID.into()),
+            name: default_api_server_name(preferences.port),
+            host: API_SERVER_HOST.into(),
+            port: normalize_api_server_port(preferences.port),
+            auto_start: preferences.auto_start,
+            connection_id: preferences.connection_id.clone(),
+            environment_id: preferences.environment_id.clone(),
+        }]
+    } else {
+        preferences.servers.clone()
+    };
+
+    if servers.is_empty() {
+        servers.push(DatastoreApiServerConfig::default());
+    }
+
+    for (index, server) in servers.iter_mut().enumerate() {
+        if server.id.trim().is_empty() {
+            server.id = format!("api-server-{}", index + 1);
+        }
+        if server.name.trim().is_empty() {
+            server.name = default_api_server_name(server.port);
+        } else {
+            server.name = server.name.trim().into();
+        }
+        server.host = API_SERVER_HOST.into();
+        server.port = normalize_api_server_port(server.port);
+    }
+
+    preferences.active_server_id = preferences
+        .active_server_id
+        .clone()
+        .filter(|id| servers.iter().any(|server| server.id == *id))
+        .or_else(|| servers.first().map(|server| server.id.clone()));
+
+    if let Some(active) = preferences
+        .active_server_id
+        .as_ref()
+        .and_then(|id| servers.iter().find(|server| &server.id == id))
+        .or_else(|| servers.first())
+    {
+        preferences.host = API_SERVER_HOST.into();
+        preferences.port = active.port;
+        preferences.auto_start = active.auto_start;
+        preferences.connection_id = active.connection_id.clone();
+        preferences.environment_id = active.environment_id.clone();
+    } else {
+        preferences.host = API_SERVER_HOST.into();
+        preferences.port = DEFAULT_API_SERVER_PORT;
+        preferences.auto_start = false;
+        preferences.connection_id = None;
+        preferences.environment_id = None;
+    }
+
+    preferences.servers = servers;
+}
+
+fn is_default_api_server_placeholder(server: &DatastoreApiServerConfig) -> bool {
+    server.id == DEFAULT_API_SERVER_ID
+        && server.name == "Local API Server"
+        && server.port == DEFAULT_API_SERVER_PORT
+        && !server.auto_start
+        && server.connection_id.is_none()
+        && server.environment_id.is_none()
+}
+
+fn normalize_api_server_port(port: u16) -> u16 {
+    if port < 1024 {
+        DEFAULT_API_SERVER_PORT
+    } else {
+        port
+    }
+}
+
+fn default_api_server_name(port: u16) -> String {
+    let port = normalize_api_server_port(port);
+    if port == DEFAULT_API_SERVER_PORT {
+        "Local API Server".into()
+    } else {
+        format!("Local API Server {port}")
     }
 }
 
@@ -430,6 +538,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
                     safe_mode_enabled: true,
                     keyboard_shortcuts: HashMap::new(),
                     workspace_backups: Default::default(),
+                    datastore_api_server: Default::default(),
                 },
                 guardrails: Vec::new(),
                 lock_state: LockState {
@@ -471,6 +580,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
             safe_mode_enabled: true,
             keyboard_shortcuts: HashMap::new(),
             workspace_backups: Default::default(),
+            datastore_api_server: Default::default(),
         },
         guardrails: Vec::new(),
         lock_state: LockState {
@@ -498,5 +608,86 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
             right_drawer_width: 360,
         },
         updated_at: created_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrate_snapshot_promotes_legacy_api_server_preferences() {
+        let mut snapshot = blank_workspace_snapshot();
+        snapshot.preferences.datastore_api_server.enabled = true;
+        snapshot.preferences.datastore_api_server.port = 17655;
+        snapshot.preferences.datastore_api_server.auto_start = true;
+        snapshot.preferences.datastore_api_server.connection_id = Some("conn-users".into());
+        snapshot.preferences.datastore_api_server.environment_id = Some("env-dev".into());
+        snapshot.preferences.datastore_api_server.active_server_id =
+            Some("api-server-users".into());
+        snapshot.preferences.datastore_api_server.servers =
+            vec![DatastoreApiServerConfig::default()];
+
+        let migrated = migrate_snapshot(snapshot);
+        let preferences = migrated.preferences.datastore_api_server;
+
+        assert!(preferences.enabled);
+        assert_eq!(
+            preferences.active_server_id.as_deref(),
+            Some("api-server-users")
+        );
+        assert_eq!(preferences.port, 17655);
+        assert!(preferences.auto_start);
+        assert_eq!(preferences.connection_id.as_deref(), Some("conn-users"));
+        assert_eq!(preferences.environment_id.as_deref(), Some("env-dev"));
+        assert_eq!(preferences.servers.len(), 1);
+        assert_eq!(preferences.servers[0].id, "api-server-users");
+        assert_eq!(preferences.servers[0].name, "Local API Server 17655");
+        assert_eq!(preferences.servers[0].host, API_SERVER_HOST);
+        assert_eq!(preferences.servers[0].port, 17655);
+    }
+
+    #[test]
+    fn migrate_snapshot_keeps_multi_api_server_preferences() {
+        let mut snapshot = blank_workspace_snapshot();
+        snapshot.preferences.datastore_api_server.enabled = true;
+        snapshot.preferences.datastore_api_server.active_server_id =
+            Some("api-server-orders".into());
+        snapshot.preferences.datastore_api_server.servers = vec![
+            DatastoreApiServerConfig {
+                id: "api-server-users".into(),
+                name: "Users API".into(),
+                host: "0.0.0.0".into(),
+                port: 17640,
+                auto_start: false,
+                connection_id: Some("conn-users".into()),
+                environment_id: Some("env-dev".into()),
+            },
+            DatastoreApiServerConfig {
+                id: "api-server-orders".into(),
+                name: " Orders API ".into(),
+                host: "localhost".into(),
+                port: 17641,
+                auto_start: true,
+                connection_id: Some("conn-orders".into()),
+                environment_id: Some("env-prod".into()),
+            },
+        ];
+
+        let migrated = migrate_snapshot(snapshot);
+        let preferences = migrated.preferences.datastore_api_server;
+
+        assert_eq!(
+            preferences.active_server_id.as_deref(),
+            Some("api-server-orders")
+        );
+        assert_eq!(preferences.port, 17641);
+        assert!(preferences.auto_start);
+        assert_eq!(preferences.connection_id.as_deref(), Some("conn-orders"));
+        assert_eq!(preferences.environment_id.as_deref(), Some("env-prod"));
+        assert_eq!(preferences.servers.len(), 2);
+        assert_eq!(preferences.servers[0].host, API_SERVER_HOST);
+        assert_eq!(preferences.servers[1].host, API_SERVER_HOST);
+        assert_eq!(preferences.servers[1].name, "Orders API");
     }
 }

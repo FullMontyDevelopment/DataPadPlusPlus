@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ScopedQueryTarget } from '@datapadplusplus/shared-types'
 import {
   mongoScopedQueryMenuLabel,
   type MongoObjectViewDescriptor,
 } from './MongoObjectViewDescriptors'
-import { DownloadIcon, DatabaseIcon, ObjectCollectionIcon, PlayIcon, PlusIcon, TrashIcon } from '../../icons'
+import { DownloadIcon, DatabaseIcon, ObjectCollectionIcon, PlayIcon, PlusIcon, RefreshIcon, RenameIcon, SettingsIcon, TrashIcon } from '../../icons'
 import { mongoPipelineStageRows } from './MongoPipelineView.helpers'
 import {
   arrayOfRecords,
@@ -29,6 +29,73 @@ type MongoOperationPlanner = (request: {
   parameters?: Record<string, unknown>
   title: string
 }) => void
+
+type MongoCollectionAdminOperation =
+  | 'rename-collection'
+  | 'drop-collection'
+  | 'modify-collection'
+  | 'convert-to-capped'
+  | 'clone-as-capped'
+  | 'compact-collection'
+  | 'validate-collection'
+
+const mongoCollectionAdminActions: {
+  description: string
+  icon: typeof RenameIcon
+  id: MongoCollectionAdminOperation
+  label: string
+  runLabel: string
+}[] = [
+  {
+    id: 'rename-collection',
+    label: 'Rename',
+    runLabel: 'Run Rename',
+    description: 'Rename this collection, optionally moving it into another database.',
+    icon: RenameIcon,
+  },
+  {
+    id: 'modify-collection',
+    label: 'Modify',
+    runLabel: 'Run Modify',
+    description: 'Prepare a collMod operation for validation or collection options.',
+    icon: SettingsIcon,
+  },
+  {
+    id: 'convert-to-capped',
+    label: 'Convert To Capped',
+    runLabel: 'Run Convert',
+    description: 'Convert this collection to capped storage with a fixed byte size.',
+    icon: ObjectCollectionIcon,
+  },
+  {
+    id: 'clone-as-capped',
+    label: 'Clone As Capped',
+    runLabel: 'Run Clone',
+    description: 'Clone this collection into a new capped collection.',
+    icon: PlusIcon,
+  },
+  {
+    id: 'compact-collection',
+    label: 'Compact',
+    runLabel: 'Run Compact',
+    description: 'Prepare a compact operation for this collection.',
+    icon: RefreshIcon,
+  },
+  {
+    id: 'validate-collection',
+    label: 'Validate',
+    runLabel: 'Run Validate',
+    description: 'Validate collection metadata and documents.',
+    icon: PlayIcon,
+  },
+  {
+    id: 'drop-collection',
+    label: 'Drop',
+    runLabel: 'Run Drop',
+    description: 'Prepare a guarded drop operation for this collection.',
+    icon: TrashIcon,
+  },
+]
 
 export function MongoOverviewView({
   kind,
@@ -370,44 +437,45 @@ function MongoCollectionOverview({
 }) {
   const database = stringValue(payload.database)
   const collection = stringValue(payload.collection)
+  const initialAdminOperation = mongoCollectionAdminOperationFromNodeId(
+    stringValue(payload.nodeId),
+  )
   const indexes = normalizeIndexList(payload.indexes)
   const sampleDocuments = arrayOfRecords(payload.sampleDocuments)
   const validator = payload.validator ?? asRecord(payload.options)?.validator
   const statistics = asRecord(payload.statistics ?? payload.stats)
-  const [renameTarget, setRenameTarget] = useState(collection ? `${collection}_renamed` : '')
-  const [renameDatabase, setRenameDatabase] = useState(database)
-  const [dropTarget, setDropTarget] = useState(false)
-  const [modifyJson, setModifyJson] = useState('{}')
-  const [cappedSize, setCappedSize] = useState('1048576')
-  const [cloneTarget, setCloneTarget] = useState(collection ? `${collection}_capped` : '')
-  const [cloneSize, setCloneSize] = useState('1048576')
-  const [compactForce, setCompactForce] = useState(false)
-  const [validateFull, setValidateFull] = useState(false)
+  const [activeAdminOperation, setActiveAdminOperation] = useState<
+    MongoCollectionAdminOperation | undefined
+  >(initialAdminOperation)
   const [managementError, setManagementError] = useState('')
-  const requireCollection = () => {
+  useEffect(() => {
+    if (initialAdminOperation) {
+      setActiveAdminOperation(initialAdminOperation)
+    }
+  }, [initialAdminOperation])
+  const requireCollection = (setDialogError?: (message: string) => void) => {
     if (!database || !collection) {
-      setManagementError('A database and collection are required.')
+      const message = 'A database and collection are required.'
+      if (setDialogError) {
+        setDialogError(message)
+      } else {
+        setManagementError(message)
+      }
       return false
     }
     return true
-  }
-  const parsePositiveNumber = (value: string, label: string) => {
-    const parsed = Number(value)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      setManagementError(`${label} must be a positive number of bytes.`)
-      return undefined
-    }
-    return parsed
   }
   const planCollectionManagement = (
     title: string,
     operationId: string,
     extraParameters: Record<string, unknown> = {},
+    setDialogError?: (message: string) => void,
   ) => {
-    if (!requireCollection()) {
+    if (!requireCollection(setDialogError)) {
       return
     }
     setManagementError('')
+    setActiveAdminOperation(undefined)
     onPlanOperation?.({
       title,
       operationId,
@@ -417,54 +485,6 @@ function MongoCollectionOverview({
         collection,
         ...extraParameters,
       },
-    })
-  }
-  const planRename = () => {
-    const newCollection = renameTarget.trim()
-    if (!newCollection) {
-      setManagementError('New collection name is required.')
-      return
-    }
-    planCollectionManagement(`Rename ${collection}`, 'mongodb.collection.rename', {
-      newCollection,
-      targetDatabase: renameDatabase.trim() || database,
-      dropTarget,
-    })
-  }
-  const planModify = () => {
-    const options = parseJsonObject(modifyJson, 'Modification JSON')
-    if (!options.ok) {
-      setManagementError(options.error)
-      return
-    }
-    if (Object.keys(options.value).length === 0) {
-      setManagementError('Modification JSON needs at least one collMod field.')
-      return
-    }
-    planCollectionManagement(`Modify ${collection}`, 'mongodb.collection.modify', {
-      options: options.value,
-    })
-  }
-  const planConvertToCapped = () => {
-    const size = parsePositiveNumber(cappedSize, 'Capped size')
-    if (size === undefined) {
-      return
-    }
-    planCollectionManagement(`Convert ${collection} to capped`, 'mongodb.collection.convert-to-capped', { size })
-  }
-  const planCloneAsCapped = () => {
-    const targetCollection = cloneTarget.trim()
-    if (!targetCollection) {
-      setManagementError('Clone target collection is required.')
-      return
-    }
-    const size = parsePositiveNumber(cloneSize, 'Clone size')
-    if (size === undefined) {
-      return
-    }
-    planCollectionManagement(`Clone ${collection} as capped`, 'mongodb.collection.clone-as-capped', {
-      targetCollection,
-      size,
     })
   }
   const planExport = () => {
@@ -525,140 +545,38 @@ function MongoCollectionOverview({
       </div>
       <div className="object-view-management">
         <strong>Collection Management</strong>
-        <div className="object-view-form-grid">
-          <label className="object-view-field">
-            <span>New name</span>
-            <input value={renameTarget} onChange={(event) => setRenameTarget(event.target.value)} />
-          </label>
-          <label className="object-view-field">
-            <span>Target database</span>
-            <input value={renameDatabase} onChange={(event) => setRenameDatabase(event.target.value)} />
-          </label>
+        <div className="object-view-action-chips" aria-label="Collection management actions">
+          {mongoCollectionAdminActions.map((action) => {
+            const Icon = action.icon
+            return (
+              <button
+                type="button"
+                className="object-view-action-chip object-view-action-chip--button"
+                disabled={!onPlanOperation || !collection}
+                key={action.id}
+                title={action.description}
+                onClick={() => {
+                  setManagementError('')
+                  setActiveAdminOperation(action.id)
+                }}
+              >
+                <Icon className="panel-inline-icon" />
+                {action.label}
+              </button>
+            )
+          })}
         </div>
-        <div className="object-view-action-chips object-view-action-chips--controls">
-          <label>
-            <input checked={dropTarget} type="checkbox" onChange={(event) => setDropTarget(event.target.checked)} />
-            Drop target
-          </label>
-        </div>
-        <div className="object-view-button-row">
-          <button
-            type="button"
-            className="drawer-button drawer-button--primary"
-            disabled={!onPlanOperation || !collection}
-            onClick={planRename}
-          >
-            Run Rename
-          </button>
-          <button
-            type="button"
-            className="drawer-button"
-            disabled={!onPlanOperation || !collection}
-            onClick={() => planCollectionManagement(`Drop ${collection}`, 'mongodb.collection.drop')}
-          >
-            <TrashIcon className="panel-inline-icon" />
-            Run Drop
-          </button>
-        </div>
-        <details className="object-view-disclosure">
-          <summary>Modify collection</summary>
-          <label className="object-view-field">
-            <span>collMod JSON</span>
-            <textarea
-              className="object-view-textarea"
-              placeholder='{ "validationLevel": "moderate" }'
-              value={modifyJson}
-              onChange={(event) => setModifyJson(event.target.value)}
-              spellCheck={false}
-            />
-          </label>
-          <div className="object-view-button-row">
-            <button
-              type="button"
-              className="drawer-button drawer-button--primary"
-              disabled={!onPlanOperation || !collection}
-              onClick={planModify}
-            >
-              Run Modify
-            </button>
-          </div>
-        </details>
-        <details className="object-view-disclosure">
-          <summary>Capped collection</summary>
-          <div className="object-view-form-grid">
-            <label className="object-view-field">
-              <span>Convert size bytes</span>
-              <input
-                inputMode="numeric"
-                value={cappedSize}
-                onChange={(event) => setCappedSize(event.target.value)}
-              />
-            </label>
-            <label className="object-view-field">
-              <span>Clone target</span>
-              <input value={cloneTarget} onChange={(event) => setCloneTarget(event.target.value)} />
-            </label>
-            <label className="object-view-field">
-              <span>Clone size bytes</span>
-              <input
-                inputMode="numeric"
-                value={cloneSize}
-                onChange={(event) => setCloneSize(event.target.value)}
-              />
-            </label>
-          </div>
-          <div className="object-view-button-row">
-            <button
-              type="button"
-              className="drawer-button"
-              disabled={!onPlanOperation || !collection}
-              onClick={planConvertToCapped}
-            >
-              Run Convert To Capped
-            </button>
-            <button
-              type="button"
-              className="drawer-button"
-              disabled={!onPlanOperation || !collection}
-              onClick={planCloneAsCapped}
-            >
-              Run Clone As Capped
-            </button>
-          </div>
-        </details>
-        <details className="object-view-disclosure">
-          <summary>Maintenance</summary>
-          <div className="object-view-action-chips object-view-action-chips--controls">
-            <label>
-              <input checked={compactForce} type="checkbox" onChange={(event) => setCompactForce(event.target.checked)} />
-              Force compact
-            </label>
-            <label>
-              <input checked={validateFull} type="checkbox" onChange={(event) => setValidateFull(event.target.checked)} />
-              Full validate
-            </label>
-          </div>
-          <div className="object-view-button-row">
-            <button
-              type="button"
-              className="drawer-button"
-              disabled={!onPlanOperation || !collection}
-              onClick={() => planCollectionManagement(`Compact ${collection}`, 'mongodb.collection.compact', { force: compactForce })}
-            >
-              Run Compact
-            </button>
-            <button
-              type="button"
-              className="drawer-button"
-              disabled={!onPlanOperation || !collection}
-              onClick={() => planCollectionManagement(`Validate ${collection}`, 'mongodb.collection.validate', { full: validateFull })}
-            >
-              Run Validate
-            </button>
-          </div>
-        </details>
         {managementError ? <p className="object-view-status is-error">{managementError}</p> : null}
       </div>
+      {activeAdminOperation ? (
+        <MongoCollectionOperationDialog
+          collection={collection}
+          database={database}
+          operation={activeAdminOperation}
+          onCancel={() => setActiveAdminOperation(undefined)}
+          onPlan={planCollectionManagement}
+        />
+      ) : null}
       <div className="object-view-card-grid">
         <div className="object-view-card">
           <span>Sample size</span>
@@ -700,6 +618,239 @@ function MongoCollectionOverview({
         emptyText="No document sample metadata was returned for this collection."
       />
     </>
+  )
+}
+
+function MongoCollectionOperationDialog({
+  collection,
+  database,
+  operation,
+  onCancel,
+  onPlan,
+}: {
+  collection: string
+  database: string
+  operation: MongoCollectionAdminOperation
+  onCancel(): void
+  onPlan(
+    title: string,
+    operationId: string,
+    extraParameters?: Record<string, unknown>,
+    setDialogError?: (message: string) => void,
+  ): void
+}) {
+  const action = useMemo(
+    () => mongoCollectionAdminActions.find((item) => item.id === operation),
+    [operation],
+  )
+  const [renameTarget, setRenameTarget] = useState(collection ? `${collection}_renamed` : '')
+  const [renameDatabase, setRenameDatabase] = useState(database)
+  const [dropTarget, setDropTarget] = useState(false)
+  const [modifyJson, setModifyJson] = useState('{}')
+  const [cappedSize, setCappedSize] = useState('1048576')
+  const [cloneTarget, setCloneTarget] = useState(collection ? `${collection}_capped` : '')
+  const [cloneSize, setCloneSize] = useState('1048576')
+  const [compactForce, setCompactForce] = useState(false)
+  const [validateFull, setValidateFull] = useState(false)
+  const [dialogError, setDialogError] = useState('')
+
+  if (!action) {
+    return null
+  }
+
+  const planRename = () => {
+    const newCollection = renameTarget.trim()
+    if (!newCollection) {
+      setDialogError('New collection name is required.')
+      return
+    }
+    onPlan(`Rename ${collection}`, 'mongodb.collection.rename', {
+      newCollection,
+      targetDatabase: renameDatabase.trim() || database,
+      dropTarget,
+    }, setDialogError)
+  }
+  const planDrop = () => {
+    onPlan(`Drop ${collection}`, 'mongodb.collection.drop', {}, setDialogError)
+  }
+  const planModify = () => {
+    const options = parseJsonObject(modifyJson, 'Modification JSON')
+    if (!options.ok) {
+      setDialogError(options.error)
+      return
+    }
+    if (Object.keys(options.value).length === 0) {
+      setDialogError('Modification JSON needs at least one collMod field.')
+      return
+    }
+    onPlan(`Modify ${collection}`, 'mongodb.collection.modify', {
+      options: options.value,
+    }, setDialogError)
+  }
+  const planConvertToCapped = () => {
+    const size = parsePositiveNumber(cappedSize)
+    if (size === undefined) {
+      setDialogError('Capped size must be a positive number of bytes.')
+      return
+    }
+    onPlan(`Convert ${collection} to capped`, 'mongodb.collection.convert-to-capped', {
+      size,
+    }, setDialogError)
+  }
+  const planCloneAsCapped = () => {
+    const targetCollection = cloneTarget.trim()
+    if (!targetCollection) {
+      setDialogError('Clone target collection is required.')
+      return
+    }
+    const size = parsePositiveNumber(cloneSize)
+    if (size === undefined) {
+      setDialogError('Clone size must be a positive number of bytes.')
+      return
+    }
+    onPlan(`Clone ${collection} as capped`, 'mongodb.collection.clone-as-capped', {
+      targetCollection,
+      size,
+    }, setDialogError)
+  }
+  const planCompact = () => {
+    onPlan(`Compact ${collection}`, 'mongodb.collection.compact', {
+      force: compactForce,
+    }, setDialogError)
+  }
+  const planValidate = () => {
+    onPlan(`Validate ${collection}`, 'mongodb.collection.validate', {
+      full: validateFull,
+    }, setDialogError)
+  }
+  const submit = () => {
+    setDialogError('')
+    switch (operation) {
+      case 'rename-collection':
+        planRename()
+        break
+      case 'drop-collection':
+        planDrop()
+        break
+      case 'modify-collection':
+        planModify()
+        break
+      case 'convert-to-capped':
+        planConvertToCapped()
+        break
+      case 'clone-as-capped':
+        planCloneAsCapped()
+        break
+      case 'compact-collection':
+        planCompact()
+        break
+      case 'validate-collection':
+        planValidate()
+        break
+    }
+  }
+
+  return (
+    <div className="workbench-modal-overlay" role="presentation">
+      <section
+        className="workbench-dialog mongo-operation-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mongo-operation-dialog-title"
+      >
+        <p className="sidebar-eyebrow">MongoDB Collection</p>
+        <h2 id="mongo-operation-dialog-title">{action.label}</h2>
+        <p>{action.description}</p>
+        <dl className="object-view-key-values mongo-operation-target">
+          <div>
+            <dt>Database</dt>
+            <dd>{database || 'unknown'}</dd>
+          </div>
+          <div>
+            <dt>Collection</dt>
+            <dd>{collection || 'unknown'}</dd>
+          </div>
+        </dl>
+        <div className="mongo-operation-fields">
+          {operation === 'rename-collection' ? (
+            <>
+              <label className="object-view-field">
+                <span>New name</span>
+                <input value={renameTarget} onChange={(event) => setRenameTarget(event.target.value)} />
+              </label>
+              <label className="object-view-field">
+                <span>Target database</span>
+                <input value={renameDatabase} onChange={(event) => setRenameDatabase(event.target.value)} />
+              </label>
+              <label className="mongo-operation-check">
+                <input checked={dropTarget} type="checkbox" onChange={(event) => setDropTarget(event.target.checked)} />
+                Drop existing target
+              </label>
+            </>
+          ) : null}
+          {operation === 'modify-collection' ? (
+            <label className="object-view-field">
+              <span>collMod JSON</span>
+              <textarea
+                className="object-view-textarea"
+                placeholder='{ "validationLevel": "moderate" }'
+                value={modifyJson}
+                onChange={(event) => setModifyJson(event.target.value)}
+                spellCheck={false}
+              />
+            </label>
+          ) : null}
+          {operation === 'convert-to-capped' ? (
+            <label className="object-view-field">
+              <span>Size bytes</span>
+              <input inputMode="numeric" value={cappedSize} onChange={(event) => setCappedSize(event.target.value)} />
+            </label>
+          ) : null}
+          {operation === 'clone-as-capped' ? (
+            <>
+              <label className="object-view-field">
+                <span>Target collection</span>
+                <input value={cloneTarget} onChange={(event) => setCloneTarget(event.target.value)} />
+              </label>
+              <label className="object-view-field">
+                <span>Size bytes</span>
+                <input inputMode="numeric" value={cloneSize} onChange={(event) => setCloneSize(event.target.value)} />
+              </label>
+            </>
+          ) : null}
+          {operation === 'compact-collection' ? (
+            <label className="mongo-operation-check">
+              <input checked={compactForce} type="checkbox" onChange={(event) => setCompactForce(event.target.checked)} />
+              Force compact when supported
+            </label>
+          ) : null}
+          {operation === 'validate-collection' ? (
+            <label className="mongo-operation-check">
+              <input checked={validateFull} type="checkbox" onChange={(event) => setValidateFull(event.target.checked)} />
+              Run full validation
+            </label>
+          ) : null}
+          {operation === 'drop-collection' ? (
+            <p className="object-view-status is-error">
+              This prepares a guarded drop operation for the selected collection.
+            </p>
+          ) : null}
+        </div>
+        {dialogError ? <p className="dialog-error">{dialogError}</p> : null}
+        <div className="workbench-dialog-actions">
+          <button type="button" className="drawer-button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={`drawer-button ${operation === 'drop-collection' ? 'drawer-button--danger' : 'drawer-button--primary'}`}
+            onClick={submit}
+          >
+            {action.runLabel}
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -748,6 +899,23 @@ function parseJsonObject(
   } catch {
     return { ok: false, error: `${label} contains invalid JSON.` }
   }
+}
+
+function parsePositiveNumber(value: string) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+}
+
+function mongoCollectionAdminOperationFromNodeId(
+  nodeId: string,
+): MongoCollectionAdminOperation | undefined {
+  if (!nodeId.startsWith('collection-admin:')) {
+    return undefined
+  }
+  const operation = nodeId.slice('collection-admin:'.length).split(':')[0]
+  return mongoCollectionAdminActions.some((action) => action.id === operation)
+    ? operation as MongoCollectionAdminOperation
+    : undefined
 }
 
 function isMongoSystemDatabase(database: string) {

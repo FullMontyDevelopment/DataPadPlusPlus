@@ -2,6 +2,7 @@ import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import {
   documentFindTemplate,
   mongoCommandTemplate,
+  parseMongoCollectionAdminScope,
   parseMongoDatabaseScope,
   parseMongoObjectScopeStrict,
 } from './browser-mongo-helpers'
@@ -72,6 +73,11 @@ export function mongoInspectQueryTemplate(connection: ConnectionProfile, nodeId:
   if (nodeId.startsWith('roles:')) {
     const scopedDatabase = parseMongoDatabaseScope(nodeId, 'roles:', database)
     return scopedDatabase ? mongoCommandTemplate(scopedDatabase, { rolesInfo: 1 }) : inspectFallback()
+  }
+
+  if (nodeId.startsWith('collection-admin:')) {
+    const scope = parseMongoCollectionAdminScope(nodeId, database)
+    return scope ? documentFindTemplate(scope.databaseName, scope.objectName) : inspectFallback()
   }
 
   if (nodeId.startsWith('schema-preview:') || nodeId.startsWith('documents:') || nodeId.startsWith('collection:')) {

@@ -88,6 +88,41 @@ pub fn run() {
             app.manage(std::sync::Mutex::new(app::runtime::ManagedAppState::load(
                 app.handle().clone(),
             )));
+            app.manage(std::sync::Mutex::new(
+                app::runtime::datastore_api_server::DatastoreApiServerManager::default(),
+            ));
+            {
+                let app_handle = app.handle().clone();
+                let state = app.state::<app::runtime::SharedAppState>();
+                let api_server =
+                    app.state::<app::runtime::datastore_api_server::SharedDatastoreApiServer>();
+                match state.lock() {
+                    Ok(mut runtime) => {
+                        match app::runtime::datastore_api_server::auto_start_if_configured(
+                            app_handle,
+                            &api_server,
+                            &mut runtime,
+                        ) {
+                            Ok(Some(status)) => infrastructure::log_info(
+                                "api-server",
+                                format!(
+                                    "Auto-started experimental API server at {}.",
+                                    status.base_url.unwrap_or_else(|| "127.0.0.1".into())
+                                ),
+                            ),
+                            Ok(None) => {}
+                            Err(error) => infrastructure::log_warning(
+                                "api-server",
+                                format!("API server auto-start skipped: {}", error.message),
+                            ),
+                        }
+                    }
+                    Err(_) => infrastructure::log_warning(
+                        "api-server",
+                        "API server auto-start skipped because workspace state was unavailable.",
+                    ),
+                };
+            }
             app.manage(app::runtime::app_updates::PendingAppUpdate::default());
             configure_main_window_icon(app)?;
             configure_system_tray(app)?;
@@ -121,6 +156,7 @@ pub fn run() {
             commands::workspace::create_explorer_tab,
             commands::workspace::create_metrics_tab,
             commands::workspace::create_object_view_tab,
+            commands::workspace::create_api_server_tab,
             commands::workspace::create_query_tab,
             commands::workspace::create_scoped_query_tab,
             commands::workspace::create_settings_tab,
@@ -128,6 +164,7 @@ pub fn run() {
             commands::workspace::delete_connection_profile,
             commands::workspace::delete_environment_profile,
             commands::workspace::delete_library_node,
+            commands::workspace::delete_datastore_api_server,
             commands::workspace::delete_workspace_backup,
             commands::workspace::delete_saved_work_item,
             commands::workspace::execute_data_edit,
@@ -139,6 +176,9 @@ pub fn run() {
             commands::workspace::export_workspace_bundle_file,
             commands::workspace::fetch_document_node_children,
             commands::workspace::fetch_result_page,
+            commands::workspace::get_datastore_api_server_logs,
+            commands::workspace::get_datastore_api_server_metrics,
+            commands::workspace::get_datastore_api_server_status,
             commands::workspace::import_workspace_bundle,
             commands::workspace::import_workspace_bundle_file,
             commands::workspace::inspect_explorer_node,
@@ -175,8 +215,11 @@ pub fn run() {
             commands::workspace::set_safe_mode_enabled,
             commands::workspace::set_theme,
             commands::workspace::set_ui_state,
+            commands::workspace::start_datastore_api_server,
+            commands::workspace::stop_datastore_api_server,
             commands::workspace::test_connection,
             commands::workspace::unlock_app,
+            commands::workspace::update_datastore_api_server_settings,
             commands::workspace::update_query_builder_state,
             commands::workspace::update_query_tab,
             commands::workspace::update_test_suite_tab,

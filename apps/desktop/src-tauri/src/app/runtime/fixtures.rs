@@ -114,6 +114,7 @@ pub(super) fn fixture_workspace_seed_for_profile(
             safe_mode_enabled: true,
             keyboard_shortcuts: HashMap::new(),
             workspace_backups: Default::default(),
+            datastore_api_server: Default::default(),
         },
         guardrails: Vec::new(),
         lock_state: LockState {

@@ -39,6 +39,27 @@ export interface WorkspaceBackupPreferences {
   lastWorkspaceUpdatedAt?: string
 }
 
+export interface DatastoreApiServerPreferences {
+  enabled: boolean
+  host: '127.0.0.1'
+  port: number
+  autoStart: boolean
+  connectionId?: string
+  environmentId?: string
+  activeServerId?: string
+  servers?: DatastoreApiServerConfig[]
+}
+
+export interface DatastoreApiServerConfig {
+  id: string
+  name: string
+  host: '127.0.0.1'
+  port: number
+  autoStart: boolean
+  connectionId?: string
+  environmentId?: string
+}
+
 export interface GuardrailPolicy {
   id: string
   action: GuardrailAction
@@ -71,6 +92,7 @@ export interface AppPreferences {
   safeModeEnabled: boolean
   keyboardShortcuts?: KeyboardShortcutPreferences
   workspaceBackups?: WorkspaceBackupPreferences
+  datastoreApiServer?: DatastoreApiServerPreferences
 }
 
 export interface LockState {

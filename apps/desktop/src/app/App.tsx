@@ -2,6 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { CSSProperties, MutableRefObject } from 'react'
 import type {
   ConnectionProfile,
+  DatastoreApiServerInstanceStatus,
+  DatastoreApiServerStatus,
   EnvironmentProfile,
   ExecutionRequest,
   ExplorerNode,
@@ -110,6 +112,11 @@ const BottomPanel = lazy(() =>
 const EnvironmentWorkspace = lazy(() =>
   import('./components/workbench/EnvironmentWorkspace').then((module) => ({
     default: module.EnvironmentWorkspace,
+  })),
+)
+const ApiServerWorkspace = lazy(() =>
+  import('./components/workbench/ApiServerWorkspace').then((module) => ({
+    default: module.ApiServerWorkspace,
   })),
 )
 const MetricsWorkspace = lazy(() =>
@@ -502,6 +509,7 @@ function DesktopWorkspace() {
   const editorSelectionDraftRef = useRef<Record<string, string>>({})
   const [editorSelectionDrafts, setEditorSelectionDrafts] = useState<Record<string, string>>({})
   const [redisBrowserRefreshSignals, setRedisBrowserRefreshSignals] = useState<Record<string, number>>({})
+  const [apiServerStatus, setApiServerStatus] = useState<DatastoreApiServerStatus>()
   const [pendingTabClose, setPendingTabClose] = useState<
     | {
         tab: QueryTabState
@@ -563,6 +571,7 @@ function DesktopWorkspace() {
     (item) =>
       item.id === snapshot.ui.activeTabId &&
       (item.tabKind === 'environment' ||
+        item.tabKind === 'api-server' ||
         item.tabKind === 'settings' ||
         !activeConnection ||
         item.connectionId === activeConnection.id),
@@ -585,9 +594,91 @@ function DesktopWorkspace() {
   const activeTabIsTestSuite = activeTab?.tabKind === 'test-suite'
   const activeTabIsEnvironment = activeTab?.tabKind === 'environment'
   const activeTabIsSettings = activeTab?.tabKind === 'settings'
+  const activeTabIsApiServer = activeTab?.tabKind === 'api-server'
   const activeEnvironment =
     snapshot?.environments.find((item) => item.id === snapshot.ui.activeEnvironmentId) ??
     snapshot?.environments[0]
+  const apiServerPreferences = snapshot?.preferences.datastoreApiServer
+  const apiServerPreferenceKey = useMemo(
+    () =>
+      apiServerPreferences
+        ? JSON.stringify({
+            enabled: apiServerPreferences.enabled,
+            activeServerId: apiServerPreferences.activeServerId,
+            servers: apiServerPreferences.servers,
+            connectionId: apiServerPreferences.connectionId,
+            environmentId: apiServerPreferences.environmentId,
+            port: apiServerPreferences.port,
+          })
+        : '',
+    [apiServerPreferences],
+  )
+  const refreshApiServerStatus = useCallback(async () => {
+    if (!apiServerPreferences?.enabled) {
+      setApiServerStatus(undefined)
+      return undefined
+    }
+
+    const nextStatus = await actions.getDatastoreApiServerStatus()
+    if (nextStatus) {
+      setApiServerStatus(nextStatus)
+    }
+    return nextStatus
+  }, [actions, apiServerPreferences?.enabled])
+  useEffect(() => {
+    if (!apiServerPreferences?.enabled) {
+      setApiServerStatus(undefined)
+      return undefined
+    }
+
+    void refreshApiServerStatus()
+    const timer = window.setInterval(() => {
+      void refreshApiServerStatus()
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [apiServerPreferenceKey, apiServerPreferences?.enabled, refreshApiServerStatus])
+  const apiServerInstances = useMemo(
+    () => apiServerStatus?.servers ?? apiServerInstancesFromPreferences(apiServerPreferences),
+    [apiServerPreferences, apiServerStatus?.servers],
+  )
+  const activeApiServerId =
+    apiServerStatus?.activeServerId ??
+    apiServerPreferences?.activeServerId ??
+    apiServerInstances[0]?.id
+  const getApiServerStatus = useCallback(
+    async () => refreshApiServerStatus(),
+    [refreshApiServerStatus],
+  )
+  const updateApiServerSettings = useCallback(
+    async (request: Parameters<Actions['updateDatastoreApiServerSettings']>[0]) => {
+      const updated = await actions.updateDatastoreApiServerSettings(request)
+      if (updated) {
+        await refreshApiServerStatus()
+      }
+      return updated
+    },
+    [actions, refreshApiServerStatus],
+  )
+  const startApiServer = useCallback(
+    async (request: Parameters<Actions['startDatastoreApiServer']>[0]) => {
+      const nextStatus = await actions.startDatastoreApiServer(request)
+      if (nextStatus) {
+        setApiServerStatus(nextStatus)
+      }
+      return nextStatus
+    },
+    [actions],
+  )
+  const stopApiServer = useCallback(
+    async (request: Parameters<Actions['stopDatastoreApiServer']>[0] = {}) => {
+      const nextStatus = await actions.stopDatastoreApiServer(request)
+      if (nextStatus) {
+        setApiServerStatus(nextStatus)
+      }
+      return nextStatus
+    },
+    [actions],
+  )
   const keyboardShortcuts = useMemo(
     () => resolveKeyboardShortcuts(snapshot?.preferences),
     [snapshot?.preferences],
@@ -1683,6 +1774,7 @@ function DesktopWorkspace() {
   const showingExplorerWorkspace = activeTabIsExplorer
   const showingMetricsWorkspace = activeTabIsMetrics
   const showingObjectViewWorkspace = activeTabIsObjectView
+  const showingApiServerWorkspace = activeTabIsApiServer
   const availableAppUpdate = appUpdateCheckResult?.status === 'available'
     ? appUpdateCheckResult.candidate
     : undefined
@@ -1695,7 +1787,8 @@ function DesktopWorkspace() {
       !activeTabIsObjectView &&
       !activeTabIsTestSuite &&
       !activeTabIsEnvironment &&
-      !activeTabIsSettings,
+      !activeTabIsSettings &&
+      !activeTabIsApiServer,
   )
   const isMessagePanelRequested = snapshot.ui.activeBottomPanelTab === 'messages'
   const isExplorerDetailsRequested =
@@ -1708,6 +1801,7 @@ function DesktopWorkspace() {
       (!showingExplorerWorkspace &&
         !showingMetricsWorkspace &&
         !showingObjectViewWorkspace &&
+        !showingApiServerWorkspace &&
         hasActiveQueryContext))
   const resultsDock = snapshot.ui.resultsDock ?? 'bottom'
   const resultsDockRight = resultsDock === 'right'
@@ -2153,6 +2247,41 @@ function DesktopWorkspace() {
     })()
   }
 
+  const startApiServerFromSidebar = (serverId: string) => {
+    const server = apiServerInstances.find((item) => item.id === serverId)
+    if (!server?.connectionId || !server.environmentId) {
+      void actions.createApiServerTab(serverId)
+      return
+    }
+
+    void actions.startDatastoreApiServer({
+      serverId,
+      connectionId: server.connectionId,
+      environmentId: server.environmentId,
+      port: server.port,
+    }).then((nextStatus) => {
+      if (nextStatus) {
+        setApiServerStatus(nextStatus)
+      }
+    })
+  }
+
+  const stopApiServerFromSidebar = (serverId: string) => {
+    void actions.stopDatastoreApiServer({ serverId }).then((nextStatus) => {
+      if (nextStatus) {
+        setApiServerStatus(nextStatus)
+      }
+    })
+  }
+
+  const deleteApiServerFromSidebar = (serverId: string) => {
+    void actions.deleteDatastoreApiServer({ serverId }).then((deleted) => {
+      if (deleted) {
+        void refreshApiServerStatus()
+      }
+    })
+  }
+
   return (
     <div className="ads-shell">
       <GlobalShortcutHandler
@@ -2303,6 +2432,10 @@ function DesktopWorkspace() {
               getConnectionHealth={getConnectionHealth}
               explorerSummary={activeExplorerResponse?.summary ?? explorerError}
               explorerStatus={activeExplorerStatus}
+              apiServerEnabled={Boolean(snapshot.preferences.datastoreApiServer?.enabled)}
+              activeApiServer={activeTabIsApiServer}
+              activeApiServerId={activeApiServerId}
+              apiServers={apiServerInstances}
               isExplorerScopeLoading={isConnectionExplorerScopeLoading}
               activeConnectionId={activeConnection?.id ?? ''}
               activeEnvironmentId={activeEnvironment?.id ?? ''}
@@ -2354,6 +2487,10 @@ function DesktopWorkspace() {
               onOpenObjectView={openObjectView}
               onOpenScopedQuery={openScopedQuery}
               onCreateTab={(connectionId) => openQueryTab(connectionId ?? activeConnection?.id)}
+              onOpenApiServer={(serverId) => void actions.createApiServerTab(serverId)}
+              onStartApiServer={startApiServerFromSidebar}
+              onStopApiServer={stopApiServerFromSidebar}
+              onDeleteApiServer={deleteApiServerFromSidebar}
               onCreateTestSuite={(connectionId) => openTestSuite(connectionId)}
               onOpenTestSuiteTemplate={(connectionId, templateId) =>
                 openTestSuite(connectionId, templateId)
@@ -2475,7 +2612,25 @@ function DesktopWorkspace() {
                     onSetSafeMode={(enabled) => void actions.setSafeModeEnabled(enabled)}
                     onSetTheme={(theme) => void actions.setTheme(theme)}
                     onSetUpdatePrereleases={(enabled) => void actions.setAppUpdateSettings(enabled)}
+                    onOpenApiServer={() => void actions.createApiServerTab()}
+                    onUpdateApiServerSettings={actions.updateDatastoreApiServerSettings}
                     onUpdateBackupSettings={actions.updateWorkspaceBackupSettings}
+                  />
+                ) : activeTabIsApiServer && activeTab ? (
+                  <ApiServerWorkspace
+                    key={activeTab.id}
+                    activeConnection={activeConnection}
+                    activeEnvironment={activeEnvironment}
+                    connections={snapshot.connections}
+                    environments={snapshot.environments}
+                    preferences={snapshot.preferences}
+                    onOpenExperimentalSettings={() => openDiagnosticsDrawer('experimental')}
+                    onGetStatus={getApiServerStatus}
+                    onGetMetrics={actions.getDatastoreApiServerMetrics}
+                    onGetLogs={actions.getDatastoreApiServerLogs}
+                    onUpdateSettings={updateApiServerSettings}
+                    onStart={startApiServer}
+                    onStop={stopApiServer}
                   />
                 ) : activeTabIsEnvironment && activeTab ? (
                   <EnvironmentWorkspace
@@ -3031,6 +3186,48 @@ function buildQueryTextForBuilderState(
   }
 
   return undefined
+}
+
+function apiServerInstancesFromPreferences(
+  preferences: WorkspaceSnapshot['preferences']['datastoreApiServer'] | undefined,
+): DatastoreApiServerInstanceStatus[] {
+  const servers = preferences?.servers?.length
+    ? preferences.servers
+    : [{
+        id: preferences?.activeServerId || 'api-server-default',
+        name: 'Local API Server',
+        host: '127.0.0.1' as const,
+        port: preferences?.port ?? 17640,
+        autoStart: preferences?.autoStart ?? false,
+        connectionId: preferences?.connectionId,
+        environmentId: preferences?.environmentId,
+      }]
+  const enabled = Boolean(preferences?.enabled)
+
+  return servers.map((server, index) => {
+    const port = clampApiServerPort(server.port)
+    return {
+      id: server.id || `api-server-${index + 1}`,
+      name: server.name?.trim() || (port === 17640 ? 'Local API Server' : `Local API Server ${port}`),
+      running: false,
+      host: '127.0.0.1',
+      port,
+      baseUrl: enabled ? `http://127.0.0.1:${port}` : undefined,
+      connectionId: server.connectionId,
+      environmentId: server.environmentId,
+      message: enabled
+        ? 'Experimental datastore API server is stopped.'
+        : 'Experimental datastore API server is disabled.',
+      warnings: enabled ? ['Localhost only.'] : [],
+    }
+  })
+}
+
+function clampApiServerPort(value: number | undefined) {
+  if (!Number.isFinite(value)) {
+    return 17640
+  }
+  return Math.min(65535, Math.max(1024, Math.floor(value as number)))
 }
 
 function inferLibraryItemKindForTab(tab: QueryTabState): LibraryItemKind {

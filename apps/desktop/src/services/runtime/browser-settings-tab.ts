@@ -42,3 +42,48 @@ export function createSettingsTabInSnapshot(snapshot: WorkspaceSnapshot): Worksp
   focused.ui.rightDrawer = 'none'
   return focused
 }
+
+export function createApiServerTabInSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  const next = cloneSnapshot(snapshot)
+  const existingApiServerTab = next.tabs.find((tab) => tab.tabKind === 'api-server')
+
+  if (existingApiServerTab) {
+    const focused = upsertTab(next, existingApiServerTab)
+    focused.ui.activeActivity = 'library'
+    focused.ui.activeSidebarPane = 'library'
+    focused.ui.rightDrawer = 'none'
+    return focused
+  }
+
+  const configured = next.preferences.datastoreApiServer
+  const connection =
+    next.connections.find((item) => item.id === configured?.connectionId) ??
+    next.connections.find((item) => item.id === next.ui.activeConnectionId) ??
+    next.connections[0]
+  const environment =
+    next.environments.find((item) => item.id === configured?.environmentId) ??
+    next.environments.find((item) => item.id === next.ui.activeEnvironmentId) ??
+    next.environments[0]
+  const tab: QueryTabState = {
+    id: createId('api-server-tab'),
+    title: 'API Server',
+    tabKind: 'api-server',
+    connectionId: connection?.id ?? '',
+    environmentId: environment?.id ?? '',
+    family: connection?.family ?? 'sql',
+    language: 'json',
+    editorLabel: 'API Server',
+    queryText: '',
+    queryViewMode: undefined,
+    scriptText: undefined,
+    status: 'idle',
+    dirty: false,
+    history: [],
+  }
+
+  const focused = upsertTab(next, tab)
+  focused.ui.activeActivity = 'library'
+  focused.ui.activeSidebarPane = 'library'
+  focused.ui.rightDrawer = 'none'
+  return focused
+}

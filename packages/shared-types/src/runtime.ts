@@ -186,6 +186,144 @@ export interface DatastoreExperienceResponse {
   experiences: DatastoreExperienceManifest[]
 }
 
+export type CrudResourceKind =
+  | 'table'
+  | 'collection'
+  | 'key'
+  | 'item'
+  | 'index'
+
+export type CrudIdentity = Record<string, unknown> | string | number | boolean
+
+export interface CrudMutationBody {
+  identity?: CrudIdentity
+  values?: Record<string, unknown>
+  changes?: DataEditChange[]
+  confirmationText?: string
+}
+
+export interface DatastoreApiServerSettingsRequest {
+  enabled: boolean
+  host?: '127.0.0.1'
+  port?: number
+  autoStart?: boolean
+  connectionId?: string
+  environmentId?: string
+  serverId?: string
+  name?: string
+  activeServerId?: string
+}
+
+export interface DatastoreApiServerStartRequest {
+  serverId?: string
+  connectionId: string
+  environmentId: string
+  port?: number
+}
+
+export interface DatastoreApiServerStopRequest {
+  serverId?: string
+  reason?: string
+}
+
+export interface DatastoreApiServerDeleteRequest {
+  serverId: string
+}
+
+export interface DatastoreApiServerInstanceStatus {
+  id: string
+  name: string
+  running: boolean
+  host: '127.0.0.1'
+  port: number
+  baseUrl?: string
+  connectionId?: string
+  environmentId?: string
+  startedAt?: string
+  message: string
+  warnings: string[]
+}
+
+export interface DatastoreApiServerStatus {
+  enabled: boolean
+  running: boolean
+  host: '127.0.0.1'
+  port: number
+  baseUrl?: string
+  connectionId?: string
+  environmentId?: string
+  serverId?: string
+  name?: string
+  activeServerId?: string
+  startedAt?: string
+  message: string
+  warnings: string[]
+  servers: DatastoreApiServerInstanceStatus[]
+}
+
+export interface DatastoreApiServerRouteMetric {
+  routeId: string
+  method: string
+  route: string
+  requests: number
+  successes: number
+  errors: number
+  statusCounts: Record<string, number>
+  averageDurationMs: number
+  p50DurationMs: number
+  p95DurationMs: number
+  lastDurationMs?: number
+  lastStatus?: number
+  lastSeenAt?: string
+  requestBytes: number
+  responseBytes: number
+}
+
+export interface DatastoreApiServerMetrics {
+  running: boolean
+  generatedAt: string
+  startedAt?: string
+  connectionId?: string
+  environmentId?: string
+  totalRequests: number
+  totalErrors: number
+  requestBytes: number
+  responseBytes: number
+  routes: DatastoreApiServerRouteMetric[]
+  retention: {
+    routeSamples: number
+    logs: number
+  }
+}
+
+export interface DatastoreApiServerLogEntry {
+  id: number
+  timestamp: string
+  method: string
+  path: string
+  route: string
+  status: number
+  durationMs: number
+  requestBytes: number
+  responseBytes: number
+  errorCode?: string
+  errorMessage?: string
+}
+
+export interface DatastoreApiServerLogsRequest {
+  limit?: number
+  method?: string
+  route?: string
+  status?: number
+}
+
+export interface DatastoreApiServerLogs {
+  running: boolean
+  generatedAt: string
+  totalRetained: number
+  entries: DatastoreApiServerLogEntry[]
+}
+
 export type DataEditKind =
   | 'insert-row'
   | 'update-row'
