@@ -49,18 +49,21 @@ export function ApiServerWorkspace({
   ): Promise<DatastoreApiServerStatus | undefined>
   onStop(request?: DatastoreApiServerStopRequest): Promise<DatastoreApiServerStatus | undefined>
 }) {
-  const apiServer = preferences.datastoreApiServer ?? {
-    enabled: false,
-    host: '127.0.0.1' as const,
-    port: DEFAULT_API_PORT,
-    autoStart: false,
-  }
+  const apiServer = useMemo(
+    () => preferences.datastoreApiServer ?? {
+      enabled: false,
+      host: '127.0.0.1' as const,
+      port: DEFAULT_API_PORT,
+      autoStart: false,
+    },
+    [preferences.datastoreApiServer],
+  )
   const configuredServers = useMemo(
     () => normalizeApiServerConfigs(apiServer),
     [apiServer],
   )
   const initialServerId = apiServer.activeServerId || configuredServers[0]?.id || 'api-server-default'
-  const [selectedServerId, setSelectedServerId] = useState(initialServerId)
+  const [selectedServerId, setSelectedServerId] = useResettableState(initialServerId)
   const selectedServer =
     configuredServers.find((server) => server.id === selectedServerId) ??
     configuredServers[0]
@@ -68,31 +71,15 @@ export function ApiServerWorkspace({
     selectedServer?.connectionId || activeConnection?.id || connections[0]?.id || ''
   const initialEnvironmentId =
     selectedServer?.environmentId || activeEnvironment?.id || environments[0]?.id || ''
-  const [connectionId, setConnectionId] = useState(initialConnectionId)
-  const [environmentId, setEnvironmentId] = useState(initialEnvironmentId)
-  const [portDraft, setPortDraft] = useState(String(selectedServer?.port ?? DEFAULT_API_PORT))
+  const [connectionId, setConnectionId] = useResettableState(initialConnectionId)
+  const [environmentId, setEnvironmentId] = useResettableState(initialEnvironmentId)
+  const [portDraft, setPortDraft] = useResettableState(String(selectedServer?.port ?? DEFAULT_API_PORT))
   const [status, setStatus] = useState<DatastoreApiServerStatus>()
   const [metrics, setMetrics] = useState<DatastoreApiServerMetrics>()
   const [logs, setLogs] = useState<DatastoreApiServerLogs>()
   const [view, setView] = useState<ApiServerView>('overview')
   const [busy, setBusy] = useState<'refresh' | 'save' | 'start' | 'stop'>()
   const [observabilityBusy, setObservabilityBusy] = useState(false)
-
-  useEffect(() => {
-    setSelectedServerId(initialServerId)
-  }, [initialServerId])
-
-  useEffect(() => {
-    setConnectionId(initialConnectionId)
-  }, [initialConnectionId])
-
-  useEffect(() => {
-    setEnvironmentId(initialEnvironmentId)
-  }, [initialEnvironmentId])
-
-  useEffect(() => {
-    setPortDraft(String(selectedServer?.port ?? DEFAULT_API_PORT))
-  }, [selectedServer?.port])
 
   const refreshStatus = useCallback(async () => {
     setBusy('refresh')
@@ -113,14 +100,31 @@ export function ApiServerWorkspace({
   }, [onGetLogs, onGetMetrics])
 
   useEffect(() => {
-    void refreshStatus()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void refreshStatus()
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [refreshStatus, apiServer.enabled, selectedServerId])
 
   useEffect(() => {
     const serverStatus = status?.servers?.find((server) => server.id === selectedServerId)
     if (serverStatus?.running && (view === 'metrics' || view === 'logs')) {
-      void refreshObservability()
+      let cancelled = false
+      queueMicrotask(() => {
+        if (!cancelled) {
+          void refreshObservability()
+        }
+      })
+      return () => {
+        cancelled = true
+      }
     }
+    return undefined
   }, [refreshObservability, selectedServerId, status?.servers, view])
 
   const selectedConnection = connections.find((item) => item.id === connectionId)
@@ -609,6 +613,16 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   )
+}
+
+function useResettableState<T>(resetValue: T) {
+  const [state, setState] = useState(() => ({
+    resetValue,
+    value: resetValue,
+  }))
+  const value = Object.is(state.resetValue, resetValue) ? state.value : resetValue
+  const setValue = (nextValue: T) => setState({ resetValue, value: nextValue })
+  return [value, setValue] as const
 }
 
 function normalizeApiServerConfigs(preferences: ApiServerPreferences): ApiServerConfig[] {

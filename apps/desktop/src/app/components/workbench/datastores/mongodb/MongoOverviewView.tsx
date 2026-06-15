@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ScopedQueryTarget } from '@datapadplusplus/shared-types'
 import {
   mongoScopedQueryMenuLabel,
@@ -444,15 +444,9 @@ function MongoCollectionOverview({
   const sampleDocuments = arrayOfRecords(payload.sampleDocuments)
   const validator = payload.validator ?? asRecord(payload.options)?.validator
   const statistics = asRecord(payload.statistics ?? payload.stats)
-  const [activeAdminOperation, setActiveAdminOperation] = useState<
-    MongoCollectionAdminOperation | undefined
-  >(initialAdminOperation)
+  const [activeAdminOperation, setActiveAdminOperation] =
+    useResettableState<MongoCollectionAdminOperation | undefined>(initialAdminOperation)
   const [managementError, setManagementError] = useState('')
-  useEffect(() => {
-    if (initialAdminOperation) {
-      setActiveAdminOperation(initialAdminOperation)
-    }
-  }, [initialAdminOperation])
   const requireCollection = (setDialogError?: (message: string) => void) => {
     if (!database || !collection) {
       const message = 'A database and collection are required.'
@@ -916,6 +910,16 @@ function mongoCollectionAdminOperationFromNodeId(
   return mongoCollectionAdminActions.some((action) => action.id === operation)
     ? operation as MongoCollectionAdminOperation
     : undefined
+}
+
+function useResettableState<T>(resetValue: T) {
+  const [state, setState] = useState(() => ({
+    resetValue,
+    value: resetValue,
+  }))
+  const value = Object.is(state.resetValue, resetValue) ? state.value : resetValue
+  const setValue = (nextValue: T) => setState({ resetValue, value: nextValue })
+  return [value, setValue] as const
 }
 
 function isMongoSystemDatabase(database: string) {

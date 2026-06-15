@@ -615,7 +615,6 @@ function DesktopWorkspace() {
   )
   const refreshApiServerStatus = useCallback(async () => {
     if (!apiServerPreferences?.enabled) {
-      setApiServerStatus(undefined)
       return undefined
     }
 
@@ -627,22 +626,30 @@ function DesktopWorkspace() {
   }, [actions, apiServerPreferences?.enabled])
   useEffect(() => {
     if (!apiServerPreferences?.enabled) {
-      setApiServerStatus(undefined)
       return undefined
     }
 
-    void refreshApiServerStatus()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void refreshApiServerStatus()
+      }
+    })
     const timer = window.setInterval(() => {
       void refreshApiServerStatus()
     }, 5000)
-    return () => window.clearInterval(timer)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
   }, [apiServerPreferenceKey, apiServerPreferences?.enabled, refreshApiServerStatus])
+  const effectiveApiServerStatus = apiServerPreferences?.enabled ? apiServerStatus : undefined
   const apiServerInstances = useMemo(
-    () => apiServerStatus?.servers ?? apiServerInstancesFromPreferences(apiServerPreferences),
-    [apiServerPreferences, apiServerStatus?.servers],
+    () => effectiveApiServerStatus?.servers ?? apiServerInstancesFromPreferences(apiServerPreferences),
+    [apiServerPreferences, effectiveApiServerStatus?.servers],
   )
   const activeApiServerId =
-    apiServerStatus?.activeServerId ??
+    effectiveApiServerStatus?.activeServerId ??
     apiServerPreferences?.activeServerId ??
     apiServerInstances[0]?.id
   const getApiServerStatus = useCallback(

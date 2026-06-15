@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type {
   DatastoreApiServerSettingsRequest,
   WorkspaceSnapshot,
@@ -34,18 +34,10 @@ export function SettingsExperimentalPanel({
   const selectedServer = activeApiServerConfig(apiServer)
   const selectedPort = selectedServer.port
   const selectedName = selectedServer.name
-  const [nameDraft, setNameDraft] = useState(selectedName)
-  const [portDraft, setPortDraft] = useState(String(selectedPort))
+  const [nameDraft, setNameDraft] = useResettableState(selectedName)
+  const [portDraft, setPortDraft] = useResettableState(String(selectedPort))
   const [notice, setNotice] = useState<SettingsNoticeMessage>()
   const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    setNameDraft(selectedName)
-  }, [selectedName])
-
-  useEffect(() => {
-    setPortDraft(String(selectedPort))
-  }, [selectedPort])
 
   const saveSettings = async (
     patch: Partial<DatastoreApiServerSettingsRequest>,
@@ -186,6 +178,16 @@ export function SettingsExperimentalPanel({
       </div>
     </SettingsPanel>
   )
+}
+
+function useResettableState<T>(resetValue: T) {
+  const [state, setState] = useState(() => ({
+    resetValue,
+    value: resetValue,
+  }))
+  const value = Object.is(state.resetValue, resetValue) ? state.value : resetValue
+  const setValue = (nextValue: T) => setState({ resetValue, value: nextValue })
+  return [value, setValue] as const
 }
 
 function clampPort(value: number) {
