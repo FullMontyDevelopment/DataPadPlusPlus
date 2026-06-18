@@ -15,6 +15,8 @@ interface BuilderSectionProps {
   dropZone?: string
   onAdd(): void
   onDropField?(field: string, payload: FieldDragPayload): void
+  onInternalDragOver?(event: DragEvent<HTMLElement>): boolean
+  onInternalDrop?(event: DragEvent<HTMLElement>): boolean
   secondaryActionLabel?: string
   onSecondaryAdd?(): void
   title: string
@@ -28,6 +30,8 @@ export function BuilderSection({
   dropZone,
   onAdd,
   onDropField,
+  onInternalDragOver,
+  onInternalDrop,
   onSecondaryAdd,
   secondaryActionLabel,
   title,
@@ -36,6 +40,11 @@ export function BuilderSection({
   const isDragActive = forcedDragActive || dragActive
 
   const handleDragOver = (event: DragEvent<HTMLElement>) => {
+    if (onInternalDragOver?.(event)) {
+      setDragActive(false)
+      return
+    }
+
     if (!onDropField) {
       return
     }
@@ -60,6 +69,12 @@ export function BuilderSection({
   }
 
   const handleDrop = (event: DragEvent<HTMLElement>) => {
+    if (onInternalDrop?.(event)) {
+      event.stopPropagation()
+      setDragActive(false)
+      return
+    }
+
     if (!onDropField) {
       return
     }

@@ -63,7 +63,7 @@ function filterRowsFromQuery(filter: unknown): MongoFindBuilderState['filters'] 
         enabled: true,
         field,
         groupId: DEFAULT_FILTER_GROUP_ID,
-        operator: 'eq',
+        operator: value === null ? 'is-null' : 'eq',
         value: valueToBuilderInput(value),
         valueType: valueTypeForBuilder(value),
       },
@@ -81,24 +81,96 @@ function filterRowForOperator(field: string, operator: string, value: unknown) {
     $regex: 'regex',
     $exists: 'exists',
     $in: 'in',
+    $nin: 'not-in',
+    $type: 'type',
   }
-  const builderOperator = operatorMap[operator]
+  const builderOperator = operator === '$not'
+    ? negatedOperator(value)
+    : positiveOperator(operator, value, operatorMap)
 
   if (!builderOperator) {
     return undefined
   }
+
+  const operatorValue = operator === '$not' && isPlainObject(value)
+    ? Object.values(value)[0]
+    : value
+  const normalizedOperator = builderOperator === 'exists' && value === false
+    ? 'does-not-exist'
+    : builderOperator === 'ne' && value === null
+      ? 'is-not-null'
+      : builderOperator
 
   return {
     id: mongoBuilderRowId('filter'),
     enabled: true,
     field,
     groupId: DEFAULT_FILTER_GROUP_ID,
-    operator: builderOperator,
-    value: builderOperator === 'in' && Array.isArray(value)
-      ? value.map(valueToBuilderInput).join(', ')
-      : valueToBuilderInput(value),
-    valueType: valueTypeForBuilder(value),
+    operator: normalizedOperator,
+    value: (normalizedOperator === 'in' || normalizedOperator === 'not-in') && Array.isArray(operatorValue)
+      ? (operatorValue as unknown[]).map(valueToBuilderInput).join(', ')
+      : noValueOperator(normalizedOperator)
+        ? ''
+        : operatorValueToBuilderInput(normalizedOperator, operatorValue),
+    valueType: valueTypeForBuilder(operatorValue),
   }
+}
+
+function positiveOperator(
+  operator: string,
+  value: unknown,
+  operatorMap: Record<string, MongoFilterOperator>,
+) {
+  if (operator === '$regex' && typeof value === 'string') {
+    if (value.startsWith('^')) {
+      return 'starts-with'
+    }
+    if (value.endsWith('$')) {
+      return 'ends-with'
+    }
+  }
+
+  return operatorMap[operator]
+}
+
+function negatedOperator(value: unknown): MongoFilterOperator | undefined {
+  if (!isPlainObject(value)) {
+    return undefined
+  }
+
+  if (Object.prototype.hasOwnProperty.call(value, '$type')) {
+    return 'not-type'
+  }
+
+  if (typeof value.$regex === 'string') {
+    if (value.$regex.startsWith('^')) {
+      return 'not-starts-with'
+    }
+    if (value.$regex.endsWith('$')) {
+      return 'not-ends-with'
+    }
+    return 'not-contains'
+  }
+
+  return undefined
+}
+
+function noValueOperator(operator: MongoFilterOperator) {
+  return ['exists', 'does-not-exist', 'is-null', 'is-not-null'].includes(operator)
+}
+
+function operatorValueToBuilderInput(operator: MongoFilterOperator, value: unknown) {
+  const input = valueToBuilderInput(value)
+
+  if (operator === 'starts-with' || operator === 'not-starts-with') {
+    return input.replace(/^\^/, '')
+  }
+
+  if (operator === 'ends-with' || operator === 'not-ends-with') {
+    return input.replace(/\$$/, '')
+  }
+
+  return input
 }
 
 function projectionFromQuery(projection: unknown): {

@@ -556,6 +556,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_explain_plan',
       'supports_plan_visualization',
       'supports_query_profile',
+      'supports_query_cancellation',
       'supports_metrics_collection',
       'supports_import_export',
       'supports_backup_restore',

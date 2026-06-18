@@ -89,12 +89,15 @@ impl DatastoreAdapter for MongoDbAdapter {
     async fn cancel(
         &self,
         _connection: &ResolvedConnectionProfile,
-        _request: &CancelExecutionRequest,
+        request: &CancelExecutionRequest,
     ) -> Result<CancelExecutionResult, CommandError> {
         Ok(CancelExecutionResult {
             ok: false,
-            supported: false,
-            message: "Cancellation is not supported for mongodb in this milestone.".into(),
+            supported: true,
+            message: format!(
+                "No active MongoDB execution {} was found to cancel.",
+                request.execution_id
+            ),
         })
     }
 }

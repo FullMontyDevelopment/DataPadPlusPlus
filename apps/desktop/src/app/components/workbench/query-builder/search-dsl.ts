@@ -168,6 +168,35 @@ function filterQuery(row: SearchDslFilterRow) {
   if (row.operator === 'exists') {
     return { exists: { field } }
   }
+  if (row.operator === 'does-not-exist') {
+    return { bool: { must_not: [{ exists: { field } }] } }
+  }
+  if (row.operator === 'starts-with' || row.operator === 'not-starts-with') {
+    const query = { prefix: { [field]: scalarValue(row.value, row.valueType) } }
+    return row.operator === 'not-starts-with' ? { bool: { must_not: [query] } } : query
+  }
+  if (row.operator === 'ends-with' || row.operator === 'not-ends-with') {
+    const query = { wildcard: { [field]: `*${String(scalarValue(row.value, row.valueType))}` } }
+    return row.operator === 'not-ends-with' ? { bool: { must_not: [query] } } : query
+  }
+  if (row.operator === 'not-contains') {
+    return {
+      bool: {
+        must_not: [{
+          wildcard: { [field]: `*${String(scalarValue(row.value, row.valueType))}*` },
+        }],
+      },
+    }
+  }
+  if (row.operator === 'not-in') {
+    return {
+      bool: {
+        must_not: [{
+          terms: { [field]: csvSearchValues(row.value, row.valueType) },
+        }],
+      },
+    }
+  }
   if (row.operator === 'range-gte' || row.operator === 'range-lte') {
     return {
       range: {
@@ -178,6 +207,14 @@ function filterQuery(row: SearchDslFilterRow) {
     }
   }
   return { [row.operator]: { [field]: scalarValue(row.value, row.valueType) } }
+}
+
+function csvSearchValues(value: string, type: SearchDslValueType) {
+  return value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => scalarValue(part, type))
 }
 
 function scalarValue(value: string, type: SearchDslValueType) {
@@ -239,9 +276,37 @@ function parseFilter(value: unknown): SearchDslFilterRow | undefined {
     return undefined
   }
   const filter = value as Record<string, unknown>
+  const bool = objectField(filter, 'bool')
+  const mustNot = Array.isArray(bool?.must_not) ? bool.must_not[0] : undefined
+  const negated = parseNegatedFilter(mustNot)
+
+  if (negated) {
+    return negated
+  }
+
   const exists = objectField(filter, 'exists')
   if (exists) {
     return { ...newSearchFilter(stringField(exists, 'field') ?? '', 'exists'), value: '' }
+  }
+  const prefix = objectField(filter, 'prefix')
+  const prefixField = prefix ? Object.keys(prefix)[0] : undefined
+  if (prefix && prefixField) {
+    const raw = prefix[prefixField]
+    return {
+      ...newSearchFilter(prefixField, 'starts-with'),
+      value: String(raw ?? ''),
+      valueType: inferValueType(raw),
+    }
+  }
+  const wildcard = objectField(filter, 'wildcard')
+  const wildcardField = wildcard ? Object.keys(wildcard)[0] : undefined
+  if (wildcard && wildcardField) {
+    const raw = wildcard[wildcardField]
+    return {
+      ...newSearchFilter(wildcardField, 'ends-with'),
+      value: String(raw ?? '').replace(/^\*/, ''),
+      valueType: inferValueType(raw),
+    }
   }
   for (const operator of ['term', 'match'] as const) {
     const clause = objectField(filter, operator)
@@ -266,6 +331,64 @@ function parseFilter(value: unknown): SearchDslFilterRow | undefined {
       valueType: inferValueType(bounds[key]),
     }
   }
+  return undefined
+}
+
+function parseNegatedFilter(value: unknown): SearchDslFilterRow | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+
+  const filter = value as Record<string, unknown>
+  const exists = objectField(filter, 'exists')
+  if (exists) {
+    return { ...newSearchFilter(stringField(exists, 'field') ?? '', 'does-not-exist'), value: '' }
+  }
+
+  const prefix = objectField(filter, 'prefix')
+  const prefixField = prefix ? Object.keys(prefix)[0] : undefined
+  if (prefix && prefixField) {
+    const raw = prefix[prefixField]
+    return {
+      ...newSearchFilter(prefixField, 'not-starts-with'),
+      value: String(raw ?? ''),
+      valueType: inferValueType(raw),
+    }
+  }
+
+  const wildcard = objectField(filter, 'wildcard')
+  const wildcardField = wildcard ? Object.keys(wildcard)[0] : undefined
+  if (wildcard && wildcardField) {
+    const raw = wildcard[wildcardField]
+    const rawValue = String(raw ?? '')
+    const containsValue = rawValue.match(/^\*(.+)\*$/s)?.[1]
+
+    if (containsValue !== undefined) {
+      return {
+        ...newSearchFilter(wildcardField, 'not-contains'),
+        value: containsValue,
+        valueType: inferValueType(raw),
+      }
+    }
+
+    return {
+      ...newSearchFilter(wildcardField, 'not-ends-with'),
+      value: rawValue.replace(/^\*/, ''),
+      valueType: inferValueType(raw),
+    }
+  }
+
+  const terms = objectField(filter, 'terms')
+  const termsField = terms ? Object.keys(terms)[0] : undefined
+  const rawTerms = termsField ? terms?.[termsField] : undefined
+  if (termsField && Array.isArray(rawTerms)) {
+    return {
+      ...newSearchFilter(termsField, 'not-in'),
+      value: rawTerms.map((item) => String(item)).join(', '),
+      valueType: inferValueType(rawTerms[0]),
+    }
+  }
+
   return undefined
 }
 

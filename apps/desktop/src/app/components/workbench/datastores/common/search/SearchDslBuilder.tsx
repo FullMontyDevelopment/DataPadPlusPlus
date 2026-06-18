@@ -23,7 +23,20 @@ interface SearchDslBuilderProps {
 }
 
 const QUERY_MODES: SearchDslQueryMode[] = ['match-all', 'match', 'term', 'range', 'query-string']
-const FILTER_OPERATORS: SearchDslFilterOperator[] = ['term', 'match', 'exists', 'range-gte', 'range-lte']
+const FILTER_OPERATORS: Array<{ value: SearchDslFilterOperator; label: string }> = [
+  { value: 'term', label: 'Term' },
+  { value: 'match', label: 'Match' },
+  { value: 'exists', label: 'Exists' },
+  { value: 'does-not-exist', label: 'Does not exist' },
+  { value: 'starts-with', label: 'Starts with' },
+  { value: 'not-starts-with', label: 'Does not start with' },
+  { value: 'ends-with', label: 'Ends with' },
+  { value: 'not-ends-with', label: 'Does not end with' },
+  { value: 'not-contains', label: 'Not Contains' },
+  { value: 'range-gte', label: '>=' },
+  { value: 'range-lte', label: '<=' },
+  { value: 'not-in', label: 'Not in' },
+]
 const VALUE_TYPES: SearchDslValueType[] = ['string', 'number', 'boolean']
 
 export function SearchDslBuilder({
@@ -183,9 +196,11 @@ function FilterRow({
       <select
         aria-label="Filter operator"
         value={row.operator}
-        onChange={(event) => onChange({ operator: event.target.value as SearchDslFilterOperator })}
+        onChange={(event) => onChange(searchFilterWithOperator(row, event.target.value as SearchDslFilterOperator))}
       >
-        {FILTER_OPERATORS.map((operator) => <option key={operator} value={operator}>{operator}</option>)}
+        {FILTER_OPERATORS.map((operator) => (
+          <option key={operator.value} value={operator.value}>{operator.label}</option>
+        ))}
       </select>
       <select
         aria-label="Filter value type"
@@ -197,7 +212,7 @@ function FilterRow({
       <input
         aria-label="Filter value"
         value={row.value}
-        disabled={row.operator === 'exists'}
+        disabled={searchOperatorHasNoValue(row.operator)}
         onChange={(event) => onChange({ value: event.target.value })}
       />
       <button
@@ -210,6 +225,20 @@ function FilterRow({
       </button>
     </div>
   )
+}
+
+function searchFilterWithOperator(
+  row: SearchDslFilterRow,
+  operator: SearchDslFilterOperator,
+): Partial<SearchDslFilterRow> {
+  return {
+    operator,
+    value: searchOperatorHasNoValue(operator) ? '' : row.value,
+  }
+}
+
+function searchOperatorHasNoValue(operator: SearchDslFilterOperator) {
+  return operator === 'exists' || operator === 'does-not-exist'
 }
 
 function SearchSimpleFieldSection({

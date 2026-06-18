@@ -13,6 +13,7 @@ import { createDefaultCqlPartitionBuilderState } from '../../../../../src/app/co
 import { createDefaultDynamoDbKeyConditionBuilderState } from '../../../../../src/app/components/workbench/query-builder/dynamodb-key-condition'
 import { createDefaultMongoAggregationBuilderState } from '../../../../../src/app/components/workbench/query-builder/mongo-aggregation'
 import { createDefaultMongoFindBuilderState } from '../../../../../src/app/components/workbench/query-builder/mongo-find'
+import { clearMongoBuilderRowDrag } from '../../../../../src/app/components/workbench/datastores/mongodb/MongoBuilderRowDrag'
 import { QueryBuilderPanel } from '../../../../../src/app/components/workbench/query-builder/QueryBuilderPanel'
 import { createDefaultRedisKeyBrowserState } from '../../../../../src/app/components/workbench/query-builder/redis-key-browser'
 import { createDefaultSearchDslBuilderState } from '../../../../../src/app/components/workbench/query-builder/search-dsl'
@@ -21,6 +22,7 @@ import { createDefaultSqlSelectBuilderState } from '../../../../../src/app/compo
 describe('QueryBuilderPanel', () => {
   afterEach(() => {
     clearFieldDragData()
+    clearMongoBuilderRowDrag()
   })
 
   it('adds dragged result fields to filter, projection, and sort sections', () => {
@@ -112,9 +114,30 @@ describe('QueryBuilderPanel', () => {
     expect(within(screen.getByLabelText('Filter operator')).getByRole('option', {
       name: 'Contains',
     })).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Filter operator')).getByRole('option', {
+      name: 'Not Contains',
+    })).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Filter operator')).getByRole('option', {
+      name: 'Does not exist',
+    })).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Filter operator')).getByRole('option', {
+      name: 'Not in',
+    })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Filter operator'), {
+      target: { value: 'does-not-exist' },
+    })
+    expect(screen.getByLabelText('Filter value')).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Filter operator'), {
+      target: { value: 'not-contains' },
+    })
+    expect(screen.getByLabelText('Filter value')).not.toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Filter operator'), {
+      target: { value: 'starts-with' },
+    })
+    expect(screen.getByLabelText('Filter value')).not.toBeDisabled()
     expect(screen.getByLabelText(/^Apply filter/)).toBeChecked()
     expect(screen.queryByLabelText('Filter group logic Group 1')).not.toBeInTheDocument()
-    expect(onBuilderStateChange).toHaveBeenCalledOnce()
+    expect(onBuilderStateChange).toHaveBeenCalled()
   })
 
   it('clears the only Mongo filter group back to an empty filter section', () => {
@@ -185,6 +208,43 @@ describe('QueryBuilderPanel', () => {
     expect(within(firstGroup).queryByLabelText('Filter field')).not.toBeInTheDocument()
     expect(within(secondGroup).getByLabelText('Filter field')).toHaveValue('category')
     expect(onBuilderStateChange).toHaveBeenCalledTimes(3)
+  })
+
+  it('moves Mongo filter rows between groups and the ungrouped area with drag handles', async () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(<BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />)
+
+    fireEvent.click(within(section('Filters')).getAllByRole('button', { name: 'Add Filter' })[0] as HTMLElement)
+    fireEvent.change(screen.getByLabelText('Filter field'), { target: { value: 'status' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }))
+    const group = filterGroup('Group 1')
+    fireEvent.click(within(group).getByRole('button', { name: 'Add Filter' }))
+    fireEvent.change(within(group).getByLabelText('Filter field'), { target: { value: 'category' } })
+
+    dragBuilderRow(screen.getByRole('button', { name: 'Drag filter status' }), group)
+
+    let nextState = lastBuilderState(onBuilderStateChange) as Extract<QueryBuilderState, { kind: 'mongo-find' }>
+    const targetGroupId = nextState.filterGroups?.[0]?.id
+    await waitFor(() => {
+      nextState = lastBuilderState(onBuilderStateChange) as Extract<QueryBuilderState, { kind: 'mongo-find' }>
+      expect(nextState.filters.find((row) => row.field === 'status')?.groupId).toBe(targetGroupId)
+    })
+    expect(within(group).getAllByLabelText('Filter field').map((input) => (input as HTMLInputElement).value)).toEqual([
+      'category',
+      'status',
+    ])
+
+    dragBuilderRow(
+      screen.getByRole('button', { name: 'Drag filter status' }),
+      screen.getByLabelText('Ungrouped filters'),
+    )
+
+    nextState = lastBuilderState(onBuilderStateChange) as Extract<QueryBuilderState, { kind: 'mongo-find' }>
+    await waitFor(() => {
+      nextState = lastBuilderState(onBuilderStateChange) as Extract<QueryBuilderState, { kind: 'mongo-find' }>
+      expect(nextState.filters.find((row) => row.field === 'status')?.groupId).toBeUndefined()
+    })
   })
 
   it('treats the whole Mongo builder panel as a valid field drop target', () => {
@@ -264,6 +324,115 @@ describe('QueryBuilderPanel', () => {
     pointerDragDocumentFieldToTarget('createdAt', section('Sort'))
     expect(screen.getByLabelText('Sort field')).toHaveValue('createdAt')
     expect(onBuilderStateChange).toHaveBeenCalledTimes(3)
+  })
+
+  it('reorders Mongo projection and sort rows with drag handles', async () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(<BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />)
+
+    dropField(section('Projection'), 'profile.name')
+    dropField(section('Projection'), 'sku')
+    dragBuilderRow(
+      screen.getByRole('button', { name: 'Drag projection sku' }),
+      rowForInputValue('profile.name'),
+    )
+
+    let nextState = lastBuilderState(onBuilderStateChange) as Extract<QueryBuilderState, { kind: 'mongo-find' }>
+    await waitFor(() => {
+      nextState = lastBuilderState(onBuilderStateChange) as Extract<QueryBuilderState, { kind: 'mongo-find' }>
+      expect(nextState.projectionFields.map((field) => field.field)).toEqual(['sku', 'profile.name'])
+    })
+
+    dropField(section('Sort'), 'createdAt')
+    dropField(section('Sort'), 'status')
+    dragBuilderRow(
+      screen.getByRole('button', { name: 'Drag sort status' }),
+      rowForInputValue('createdAt'),
+    )
+
+    nextState = lastBuilderState(onBuilderStateChange) as Extract<QueryBuilderState, { kind: 'mongo-find' }>
+    await waitFor(() => {
+      nextState = lastBuilderState(onBuilderStateChange) as Extract<QueryBuilderState, { kind: 'mongo-find' }>
+      expect(nextState.sort.map((row) => row.field)).toEqual(['status', 'createdAt'])
+    })
+  })
+
+  it('shows Mongo row drag affordances while moving drag handles', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(<BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />)
+
+    dropField(section('Projection'), 'profile.name')
+    dropField(section('Projection'), 'sku')
+    dropField(section('Sort'), 'createdAt')
+
+    const sourceHandle = screen.getByRole('button', { name: 'Drag projection sku' })
+    const sourceRow = rowForInputValue('sku')
+    const targetRow = rowForInputValue('profile.name')
+    const incompatibleRow = rowForInputValue('createdAt')
+    const originalElementFromPoint = document.elementFromPoint
+    const elementFromPoint = vi.fn().mockReturnValue(targetRow)
+
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: elementFromPoint,
+    })
+
+    try {
+      fireEvent.pointerDown(sourceHandle, { button: 0, clientX: 1, clientY: 0, pointerId: 11 })
+      fireEvent.pointerMove(sourceHandle, { clientX: 1, clientY: 0, pointerId: 11 })
+
+      expect(document.body).toHaveClass('is-mongo-builder-row-dragging')
+      expect(sourceRow).toHaveClass('is-row-dragging')
+      expect(targetRow).toHaveClass('is-row-drop-target')
+      expect(targetRow).toHaveClass('is-row-drop-before')
+
+      elementFromPoint.mockReturnValue(incompatibleRow)
+      fireEvent.pointerMove(sourceHandle, { clientX: 1, clientY: 0, pointerId: 11 })
+
+      expect(targetRow).not.toHaveClass('is-row-drop-target')
+      expect(incompatibleRow).toHaveClass('is-row-drop-incompatible')
+    } finally {
+      fireEvent.pointerCancel(sourceHandle, { pointerId: 11 })
+      clearMongoBuilderRowDrag()
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', {
+          configurable: true,
+          value: originalElementFromPoint,
+        })
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint')
+      }
+    }
+
+    expect(document.body).not.toHaveClass('is-mongo-builder-row-dragging')
+    expect(sourceRow).not.toHaveClass('is-row-dragging')
+    expect(incompatibleRow).not.toHaveClass('is-row-drop-incompatible')
+  })
+
+  it('reorders Mongo aggregation stages with drag handles', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(
+      <BuilderHarness
+        initialBuilderState={createDefaultMongoAggregationBuilderState('orders', 20)}
+        onBuilderStateChange={onBuilderStateChange}
+        tab={mongoTab()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Stage' }))
+    fireEvent.change(screen.getAllByLabelText('Aggregation stage')[1] as HTMLElement, {
+      target: { value: '$sort' },
+    })
+    dragBuilderRow(
+      screen.getByRole('button', { name: 'Drag stage 2' }),
+      screen.getAllByLabelText('Aggregation stage')[0]?.closest('.query-builder-row') as HTMLElement,
+    )
+
+    const nextState = lastBuilderState(onBuilderStateChange) as Extract<QueryBuilderState, { kind: 'mongo-aggregation' }>
+    expect(nextState.stages.map((stage) => stage.stage)).toEqual(['$sort', '$match'])
   })
 
   it('keeps native Mongo document types when fields are dropped into filters', () => {
@@ -393,6 +562,83 @@ describe('QueryBuilderPanel', () => {
 
     expect(screen.queryByLabelText('Filter field')).not.toBeInTheDocument()
     expect(onBuilderStateChange).not.toHaveBeenCalled()
+  })
+
+  it('shows native condition operators for each query builder', () => {
+    const onBuilderStateChange = vi.fn()
+    let view = render(<BuilderHarness onBuilderStateChange={onBuilderStateChange} tab={mongoTab()} />)
+
+    fireEvent.click(within(section('Filters')).getAllByRole('button', { name: 'Add Filter' })[0] as HTMLElement)
+    let operator = screen.getByLabelText('Filter operator')
+    expect(within(operator).getByRole('option', { name: 'Not Contains' })).toBeInTheDocument()
+    fireEvent.change(operator, { target: { value: 'not-contains' } })
+    expect(screen.getByLabelText('Filter value')).not.toBeDisabled()
+    fireEvent.change(operator, { target: { value: 'does-not-exist' } })
+    expect(screen.getByLabelText('Filter value')).toBeDisabled()
+    view.unmount()
+
+    view = render(
+      <BuilderHarness
+        connectionEngine="postgresql"
+        initialBuilderState={createDefaultSqlSelectBuilderState('accounts', 'public', 20)}
+        onBuilderStateChange={onBuilderStateChange}
+        tab={sqlTab()}
+      />,
+    )
+    fireEvent.click(within(section('Filters')).getByRole('button', { name: 'Add Filter' }))
+    operator = screen.getByLabelText('Filter operator')
+    expect(within(operator).getByRole('option', { name: 'Not Contains' })).toBeInTheDocument()
+    fireEvent.change(operator, { target: { value: 'not-contains' } })
+    expect(screen.getByLabelText('Filter value')).not.toBeDisabled()
+    fireEvent.change(operator, { target: { value: 'is-null' } })
+    expect(screen.getByLabelText('Filter value')).toBeDisabled()
+    view.unmount()
+
+    view = render(
+      <BuilderHarness
+        connectionEngine="dynamodb"
+        initialBuilderState={createDefaultDynamoDbKeyConditionBuilderState('Orders', 20)}
+        onBuilderStateChange={onBuilderStateChange}
+        tab={dynamoDbTab()}
+      />,
+    )
+    fireEvent.click(within(section('Filters')).getByRole('button', { name: 'Add Filter' }))
+    operator = within(section('Filters')).getByLabelText('Filter operator')
+    expect(within(operator).getByRole('option', { name: 'NOT CONTAINS' })).toBeInTheDocument()
+    fireEvent.change(operator, { target: { value: 'not-contains' } })
+    expect(within(section('Filters')).getByLabelText('Filter value')).not.toBeDisabled()
+    fireEvent.change(operator, { target: { value: 'does-not-exist' } })
+    expect(within(section('Filters')).getByLabelText('Filter value')).toBeDisabled()
+    view.unmount()
+
+    view = render(
+      <BuilderHarness
+        connectionEngine="elasticsearch"
+        initialBuilderState={createDefaultSearchDslBuilderState('products', 20)}
+        onBuilderStateChange={onBuilderStateChange}
+        tab={searchTab()}
+      />,
+    )
+    fireEvent.click(within(section('Filters')).getByRole('button', { name: 'Add Filter' }))
+    operator = screen.getByLabelText('Filter operator')
+    expect(within(operator).getByRole('option', { name: 'Not Contains' })).toBeInTheDocument()
+    fireEvent.change(operator, { target: { value: 'not-contains' } })
+    expect(screen.getByLabelText('Filter value')).not.toBeDisabled()
+    fireEvent.change(operator, { target: { value: 'does-not-exist' } })
+    expect(screen.getByLabelText('Filter value')).toBeDisabled()
+    view.unmount()
+
+    render(
+      <BuilderHarness
+        connectionEngine="cassandra"
+        initialBuilderState={createDefaultCqlPartitionBuilderState('events_by_customer', 'app', 20)}
+        onBuilderStateChange={onBuilderStateChange}
+        tab={cassandraTab()}
+      />,
+    )
+    fireEvent.click(within(section('Filters')).getByRole('button', { name: 'Add Filter' }))
+    operator = within(section('Filters')).getByLabelText('Condition operator')
+    expect(within(operator).queryByRole('option', { name: /not contains/i })).not.toBeInTheDocument()
   })
 
   it('renders a SQL SELECT builder with drag targets and compact table controls', () => {
@@ -822,6 +1068,65 @@ function dropField(target: HTMLElement, field: string) {
 
   fireEvent.dragOver(target, { dataTransfer })
   fireEvent.drop(target, { dataTransfer })
+}
+
+function dragBuilderRow(source: HTMLElement, target: HTMLElement) {
+  const kind = source.dataset.mongoBuilderDragKind
+  const rowId = source.dataset.mongoBuilderDragRowId
+
+  if (!kind || !rowId) {
+    throw new Error(`Missing Mongo row drag metadata on ${source.outerHTML}`)
+  }
+
+  const originalElementFromPoint = document.elementFromPoint
+  const resolvedTarget = freshMongoDropTarget(target)
+
+  Object.defineProperty(document, 'elementFromPoint', {
+    configurable: true,
+    value: vi.fn().mockReturnValue(resolvedTarget),
+  })
+
+  try {
+    fireEvent.pointerDown(source, { button: 0, clientX: 1, clientY: 0, pointerId: 9 })
+    fireEvent.pointerUp(source, { button: 0, clientX: 1, clientY: 0, pointerId: 9 })
+  } finally {
+    clearMongoBuilderRowDrag()
+    if (originalElementFromPoint) {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: originalElementFromPoint,
+      })
+    } else {
+      Reflect.deleteProperty(document, 'elementFromPoint')
+    }
+  }
+}
+
+function freshMongoDropTarget(target: HTMLElement) {
+  const rowId = target.dataset.mongoBuilderRowId
+  const groupId = target.dataset.mongoBuilderGroupId
+
+  if (rowId) {
+    return document.querySelector<HTMLElement>(`[data-mongo-builder-row-id="${rowId}"]`) ?? target
+  }
+
+  if (groupId) {
+    return document.querySelector<HTMLElement>(`[data-mongo-builder-group-id="${groupId}"]`) ?? target
+  }
+
+  if (target.dataset.mongoBuilderFilterRoot === 'true') {
+    return document.querySelector<HTMLElement>('[data-mongo-builder-filter-root="true"]') ?? target
+  }
+
+  return target
+}
+
+function rowForInputValue(value: string) {
+  return screen.getByDisplayValue(value).closest('.query-builder-row') as HTMLElement
+}
+
+function lastBuilderState(onBuilderStateChange: ReturnType<typeof vi.fn>) {
+  return onBuilderStateChange.mock.calls.at(-1)?.[1] as QueryBuilderState
 }
 
 function pointerDragDocumentFieldToTarget(field: string, target: HTMLElement) {

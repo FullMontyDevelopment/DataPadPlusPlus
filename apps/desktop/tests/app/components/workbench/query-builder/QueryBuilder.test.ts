@@ -1,4 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import type {
+  CqlBuilderValueType,
+  CqlConditionOperator,
+  DynamoDbBuilderValueType,
+  DynamoDbConditionOperator,
+  MongoBuilderValueType,
+  MongoFilterOperator,
+  SearchDslFilterOperator,
+  SqlBuilderValueType,
+  SqlSelectFilterOperator,
+} from '@datapadplusplus/shared-types'
 import {
   buildCqlPartitionQueryText,
   createDefaultCqlPartitionBuilderState,
@@ -108,6 +119,236 @@ describe('Mongo query builder', () => {
       active: { $exists: true },
       name: { $regex: 'Lamp \\(warm\\)' },
       tags: { $in: ['featured', 'clearance'] },
+    })
+  })
+
+  it('generates requested Mongo operators and bare UTC date shorthand', () => {
+    const query = JSON.parse(
+      buildMongoFindQueryText({
+        kind: 'mongo-find',
+        collection: 'products',
+        filters: [
+          {
+            id: 'filter-null',
+            field: 'archivedAt',
+            operator: 'is-null',
+            value: 'ignored',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-not-null',
+            field: 'publishedAt',
+            operator: 'is-not-null',
+            value: '',
+            valueType: 'null',
+          },
+          {
+            id: 'filter-missing',
+            field: 'legacyCode',
+            operator: 'does-not-exist',
+            value: 'ignored',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-type',
+            field: 'metadata.kind',
+            operator: 'type',
+            value: 'object',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-not-type',
+            field: 'score',
+            operator: 'not-type',
+            value: '2',
+            valueType: 'number',
+          },
+          {
+            id: 'filter-starts',
+            field: 'sku',
+            operator: 'starts-with',
+            value: 'PRD-',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-not-starts',
+            field: 'slug',
+            operator: 'not-starts-with',
+            value: 'tmp-',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-ends',
+            field: 'filename',
+            operator: 'ends-with',
+            value: '.json',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-not-ends',
+            field: 'name',
+            operator: 'not-ends-with',
+            value: 'draft',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-not-in',
+            field: 'status',
+            operator: 'not-in',
+            value: 'archived, deleted',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-date',
+            field: 'createdAt',
+            operator: 'gte',
+            value: '2023-10-05',
+            valueType: 'date',
+          },
+        ],
+        projectionMode: 'all',
+        projectionFields: [],
+        sort: [],
+      }),
+    )
+
+    expect(query.filter).toEqual({
+      archivedAt: null,
+      publishedAt: { $ne: null },
+      legacyCode: { $exists: false },
+      'metadata.kind': { $type: 'object' },
+      score: { $not: { $type: 2 } },
+      sku: { $regex: '^PRD-' },
+      slug: { $not: { $regex: '^tmp-' } },
+      filename: { $regex: '\\.json$' },
+      name: { $not: { $regex: 'draft$' } },
+      status: { $nin: ['archived', 'deleted'] },
+      createdAt: { $gte: { $date: '2023-10-05T00:00:00.000Z' } },
+    })
+  })
+
+  it('serializes every Mongo filter condition operator', () => {
+    const cases = [
+      { operator: 'eq', value: 'SKU-001', expected: 'SKU-001' },
+      { operator: 'ne', value: 'draft', expected: { $ne: 'draft' } },
+      { operator: 'gt', value: '10', valueType: 'number', expected: { $gt: 10 } },
+      { operator: 'gte', value: '10.5', valueType: 'number', expected: { $gte: 10.5 } },
+      { operator: 'lt', value: '99', valueType: 'number', expected: { $lt: 99 } },
+      { operator: 'lte', value: '100', valueType: 'number', expected: { $lte: 100 } },
+      { operator: 'contains', value: 'Lamp (warm)', expected: { $regex: 'Lamp \\(warm\\)' } },
+      { operator: 'not-contains', value: 'Lamp (warm)', expected: { $not: { $regex: 'Lamp \\(warm\\)' } } },
+      { operator: 'regex', value: '^SKU-[0-9]+$', expected: { $regex: '^SKU-[0-9]+$' } },
+      { operator: 'exists', value: 'ignored', expected: { $exists: true } },
+      { operator: 'does-not-exist', value: 'ignored', expected: { $exists: false } },
+      { operator: 'in', value: 'featured, clearance', expected: { $in: ['featured', 'clearance'] } },
+      { operator: 'not-in', value: '1, 2', valueType: 'number', expected: { $nin: [1, 2] } },
+      { operator: 'is-null', value: 'ignored', expected: null },
+      { operator: 'is-not-null', value: 'ignored', expected: { $ne: null } },
+      { operator: 'type', value: 'object', expected: { $type: 'object' } },
+      { operator: 'not-type', value: '2', expected: { $not: { $type: 2 } } },
+      { operator: 'starts-with', value: 'PRD-', expected: { $regex: '^PRD-' } },
+      { operator: 'not-starts-with', value: 'tmp-', expected: { $not: { $regex: '^tmp-' } } },
+      { operator: 'ends-with', value: '.json', expected: { $regex: '\\.json$' } },
+      { operator: 'not-ends-with', value: 'draft', expected: { $not: { $regex: 'draft$' } } },
+      {
+        operator: 'eq',
+        field: 'createdAt',
+        value: '2023-10-05',
+        valueType: 'date',
+        expected: { $date: '2023-10-05T00:00:00.000Z' },
+      },
+      {
+        operator: 'eq',
+        field: '_id',
+        value: 'ObjectId("507f1f77bcf86cd799439011")',
+        valueType: 'objectId',
+        expected: { $oid: '507f1f77bcf86cd799439011' },
+      },
+    ] satisfies Array<{
+      field?: string
+      operator: MongoFilterOperator
+      value: string
+      valueType?: MongoBuilderValueType
+      expected: unknown
+    }>
+
+    expect(new Set(cases.map((entry) => entry.operator))).toEqual(new Set([
+      'eq',
+      'ne',
+      'gt',
+      'gte',
+      'lt',
+      'lte',
+      'contains',
+      'not-contains',
+      'regex',
+      'exists',
+      'does-not-exist',
+      'in',
+      'not-in',
+      'is-null',
+      'is-not-null',
+      'type',
+      'not-type',
+      'starts-with',
+      'not-starts-with',
+      'ends-with',
+      'not-ends-with',
+    ] satisfies MongoFilterOperator[]))
+
+    for (const testCase of cases) {
+      const field = testCase.field ?? 'field'
+      const query = JSON.parse(
+        buildMongoFindQueryText({
+          kind: 'mongo-find',
+          collection: 'products',
+          filters: [{
+            id: `filter-${testCase.operator}-${field}`,
+            field,
+            operator: testCase.operator,
+            value: testCase.value,
+            valueType: testCase.valueType ?? 'string',
+          }],
+          projectionMode: 'all',
+          projectionFields: [],
+          sort: [],
+        }),
+      )
+
+      expect(query.filter).toEqual({ [field]: testCase.expected })
+    }
+  })
+
+  it('parses new Mongo operators back into builder rows', () => {
+    expect(
+      parseMongoFindQueryText(`{
+        "collection": "products",
+        "filter": {
+          "archivedAt": null,
+          "publishedAt": { "$ne": null },
+          "legacyCode": { "$exists": false },
+          "metadata.kind": { "$type": "object" },
+          "score": { "$not": { "$type": 2 } },
+          "description": { "$not": { "$regex": "Lamp" } },
+          "sku": { "$regex": "^PRD-" },
+          "slug": { "$not": { "$regex": "^tmp-" } },
+          "filename": { "$regex": "\\\\.json$" },
+          "status": { "$nin": ["archived", "deleted"] }
+        }
+      }`),
+    ).toMatchObject({
+      filters: [
+        { field: 'archivedAt', operator: 'is-null', value: '', valueType: 'null' },
+        { field: 'publishedAt', operator: 'is-not-null', value: '' },
+        { field: 'legacyCode', operator: 'does-not-exist', value: '' },
+        { field: 'metadata.kind', operator: 'type', value: 'object' },
+        { field: 'score', operator: 'not-type', value: '2' },
+        { field: 'description', operator: 'not-contains', value: 'Lamp' },
+        { field: 'sku', operator: 'starts-with', value: 'PRD-' },
+        { field: 'slug', operator: 'not-starts-with', value: 'tmp-' },
+        { field: 'filename', operator: 'ends-with', value: '\\.json' },
+        { field: 'status', operator: 'not-in', value: 'archived, deleted' },
+      ],
     })
   })
 
@@ -554,6 +795,117 @@ describe('SQL SELECT query builder', () => {
     )
   })
 
+  it('generates SQL-compatible negated and anchored string filters', () => {
+    expect(
+      buildSqlSelectQueryText({
+        kind: 'sql-select',
+        schema: 'public',
+        table: 'accounts',
+        projectionFields: [],
+        filters: [
+          {
+            id: 'filter-domain',
+            enabled: true,
+            field: 'email',
+            operator: 'ends-with',
+            value: '@example.com',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-name',
+            enabled: true,
+            field: 'display_name',
+            operator: 'not-starts-with',
+            value: 'Test',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-status',
+            enabled: true,
+            field: 'status',
+            operator: 'not-in',
+            value: 'archived, deleted',
+            valueType: 'string',
+          },
+        ],
+        filterLogic: 'and',
+        sort: [],
+        limit: 20,
+      }),
+    ).toBe(
+      'select * from "public"."accounts" where "email" like \'%@example.com\' escape \'\\\' and "display_name" not like \'Test%\' escape \'\\\' and "status" not in (\'archived\', \'deleted\') limit 20;',
+    )
+  })
+
+  it('serializes every SQL filter condition operator', () => {
+    const cases = [
+      { operator: 'eq', value: 'active', expectedWhere: `"field" = 'active'` },
+      { operator: 'ne', value: 'archived', expectedWhere: `"field" <> 'archived'` },
+      { operator: 'gt', value: '10', valueType: 'number', expectedWhere: `"field" > 10` },
+      { operator: 'gte', value: '10.5', valueType: 'number', expectedWhere: `"field" >= 10.5` },
+      { operator: 'lt', value: '99', valueType: 'number', expectedWhere: `"field" < 99` },
+      { operator: 'lte', value: '100', valueType: 'number', expectedWhere: `"field" <= 100` },
+      { operator: 'contains', value: 'A_%', expectedWhere: `"field" like '%A\\_\\%%' escape '\\'` },
+      { operator: 'not-contains', value: 'A_%', expectedWhere: `"field" not like '%A\\_\\%%' escape '\\'` },
+      { operator: 'like', value: 'A%', expectedWhere: `"field" like 'A%'` },
+      { operator: 'in', value: 'open, paused', expectedWhere: `"field" in ('open', 'paused')` },
+      { operator: 'not-in', value: 'archived, deleted', expectedWhere: `"field" not in ('archived', 'deleted')` },
+      { operator: 'is-null', value: 'ignored', expectedWhere: `"field" is null` },
+      { operator: 'is-not-null', value: 'ignored', expectedWhere: `"field" is not null` },
+      { operator: 'starts-with', value: 'Test', expectedWhere: `"field" like 'Test%' escape '\\'` },
+      { operator: 'not-starts-with', value: 'Test', expectedWhere: `"field" not like 'Test%' escape '\\'` },
+      { operator: 'ends-with', value: '@example.com', expectedWhere: `"field" like '%@example.com' escape '\\'` },
+      { operator: 'not-ends-with', value: '@example.com', expectedWhere: `"field" not like '%@example.com' escape '\\'` },
+    ] satisfies Array<{
+      operator: SqlSelectFilterOperator
+      value: string
+      valueType?: CqlBuilderValueType
+      expectedWhere: string
+    }>
+
+    expect(new Set(cases.map((entry) => entry.operator))).toEqual(new Set([
+      'eq',
+      'ne',
+      'gt',
+      'gte',
+      'lt',
+      'lte',
+      'contains',
+      'not-contains',
+      'like',
+      'in',
+      'not-in',
+      'is-null',
+      'is-not-null',
+      'starts-with',
+      'not-starts-with',
+      'ends-with',
+      'not-ends-with',
+    ] satisfies SqlSelectFilterOperator[]))
+
+    for (const testCase of cases) {
+      expect(
+        buildSqlSelectQueryText({
+          kind: 'sql-select',
+          schema: 'public',
+          table: 'accounts',
+          projectionFields: [],
+          filters: [{
+            id: `filter-${testCase.operator}`,
+            enabled: true,
+            field: 'field',
+            operator: testCase.operator,
+            value: testCase.value,
+            valueType: testCase.valueType ?? 'string',
+          }],
+          filterLogic: 'and',
+          sort: [],
+          limit: 20,
+        }),
+      ).toBe(`select * from "public"."accounts" where ${testCase.expectedWhere} limit 20;`)
+    }
+  })
+
   it('uses SQL Server TOP syntax and bracket identifiers', () => {
     expect(
       buildSqlSelectQueryText(
@@ -692,6 +1044,157 @@ describe('DynamoDB key-condition query builder', () => {
     expect(query.limit).toBe(25)
   })
 
+  it('generates DynamoDB-native absence and negated contains filters', () => {
+    const query = JSON.parse(
+      buildDynamoDbKeyConditionQueryText({
+        kind: 'dynamodb-key-condition',
+        table: 'Orders',
+        partitionKey: {
+          id: 'pk',
+          field: 'pk',
+          operator: 'eq',
+          value: 'CUSTOMER#123',
+          valueType: 'string',
+        },
+        filters: [
+          {
+            id: 'filter-missing',
+            enabled: true,
+            field: 'legacyCode',
+            operator: 'does-not-exist',
+            value: '',
+            valueType: 'string',
+          },
+          {
+            id: 'filter-tags',
+            enabled: true,
+            field: 'tags',
+            operator: 'not-contains',
+            value: 'archived',
+            valueType: 'string',
+          },
+        ],
+        projectionFields: [],
+        limit: 25,
+      }),
+    )
+
+    expect(query.filterExpression).toBe('attribute_not_exists(#n1) and not contains(#n2, :v1)')
+  })
+
+  it('serializes every DynamoDB filter condition operator', () => {
+    const cases = [
+      { operator: 'eq', expected: '#n1 = :v1' },
+      { operator: 'ne', expected: '#n1 <> :v1' },
+      { operator: 'gt', value: '10', valueType: 'number', expected: '#n1 > :v1' },
+      { operator: 'gte', value: '10', valueType: 'number', expected: '#n1 >= :v1' },
+      { operator: 'lt', value: '20', valueType: 'number', expected: '#n1 < :v1' },
+      { operator: 'lte', value: '20', valueType: 'number', expected: '#n1 <= :v1' },
+      { operator: 'between', value: '10', secondValue: '20', valueType: 'number', expected: '#n1 between :v1 and :v2' },
+      { operator: 'begins-with', value: 'ORDER#', expected: 'begins_with(#n1, :v1)' },
+      { operator: 'contains', value: 'fragile', expected: 'contains(#n1, :v1)' },
+      { operator: 'not-contains', value: 'archived', expected: 'not contains(#n1, :v1)' },
+      { operator: 'exists', value: '', expected: 'attribute_exists(#n1)' },
+      { operator: 'does-not-exist', value: '', expected: 'attribute_not_exists(#n1)' },
+    ] satisfies Array<{
+      operator: DynamoDbConditionOperator
+      value?: string
+      secondValue?: string
+      valueType?: DynamoDbBuilderValueType
+      expected: string
+    }>
+
+    expect(new Set(cases.map((entry) => entry.operator))).toEqual(new Set([
+      'eq',
+      'ne',
+      'gt',
+      'gte',
+      'lt',
+      'lte',
+      'between',
+      'begins-with',
+      'contains',
+      'not-contains',
+      'exists',
+      'does-not-exist',
+    ] satisfies DynamoDbConditionOperator[]))
+
+    for (const testCase of cases) {
+      const query = JSON.parse(
+        buildDynamoDbKeyConditionQueryText({
+          kind: 'dynamodb-key-condition',
+          table: 'Orders',
+          partitionKey: {
+            id: 'pk',
+            field: 'pk',
+            operator: 'eq',
+            value: 'CUSTOMER#123',
+            valueType: 'string',
+          },
+          filters: [{
+            id: `filter-${testCase.operator}`,
+            enabled: true,
+            field: 'field',
+            operator: testCase.operator,
+            value: testCase.value ?? 'value',
+            secondValue: testCase.secondValue,
+            valueType: testCase.valueType ?? 'string',
+          }],
+          projectionFields: [],
+          limit: 25,
+        }),
+      )
+
+      expect(query.filterExpression).toBe(testCase.expected)
+    }
+  })
+
+  it('serializes DynamoDB condition value types as AttributeValue payloads', () => {
+    const query = JSON.parse(
+      buildDynamoDbKeyConditionQueryText({
+        kind: 'dynamodb-key-condition',
+        table: 'Orders',
+        partitionKey: {
+          id: 'pk',
+          field: 'pk',
+          operator: 'eq',
+          value: 'CUSTOMER#123',
+          valueType: 'string',
+        },
+        filters: [
+          { id: 'string', enabled: true, field: 'stringValue', operator: 'eq', value: 'open', valueType: 'string' },
+          { id: 'number', enabled: true, field: 'numberValue', operator: 'eq', value: '42.5', valueType: 'number' },
+          { id: 'boolean', enabled: true, field: 'booleanValue', operator: 'eq', value: 'yes', valueType: 'boolean' },
+          { id: 'null', enabled: true, field: 'nullValue', operator: 'eq', value: '', valueType: 'null' },
+          {
+            id: 'json',
+            enabled: true,
+            field: 'jsonValue',
+            operator: 'eq',
+            value: '{"tags":["new"],"count":2}',
+            valueType: 'json',
+          },
+        ],
+        projectionFields: [],
+        limit: 25,
+      }),
+    )
+
+    expect(query.expressionAttributeValues).toEqual({
+      ':v0': { S: 'CUSTOMER#123' },
+      ':v1': { S: 'open' },
+      ':v2': { N: '42.5' },
+      ':v3': { BOOL: true },
+      ':v4': { NULL: true },
+      ':v5': {
+        M: {
+          tags: { L: [{ S: 'new' }] },
+          count: { N: '2' },
+        },
+      },
+    })
+  })
+
   it('falls back to Scan until a partition key value is supplied', () => {
     const query = JSON.parse(
       buildDynamoDbKeyConditionQueryText(createDefaultDynamoDbKeyConditionBuilderState('Orders')),
@@ -773,6 +1276,61 @@ describe('CQL partition query builder', () => {
         'allow filtering;',
       ].join('\n'),
     )
+  })
+
+  it('serializes every currently supported CQL condition operator', () => {
+    const cases = [
+      { operator: 'eq', value: 'open', expected: "field = 'open'" },
+      { operator: 'gt', value: '10', valueType: 'number', expected: 'field > 10' },
+      { operator: 'gte', value: '10', valueType: 'number', expected: 'field >= 10' },
+      { operator: 'lt', value: '20', valueType: 'number', expected: 'field < 20' },
+      { operator: 'lte', value: '20', valueType: 'number', expected: 'field <= 20' },
+      { operator: 'in', value: 'open, paused', expected: "field IN ('open', 'paused')" },
+      { operator: 'contains', value: 'tagged', expected: "field CONTAINS 'tagged'" },
+    ] satisfies Array<{
+      operator: CqlConditionOperator
+      value: string
+      valueType?: SqlBuilderValueType
+      expected: string
+    }>
+
+    expect(new Set(cases.map((entry) => entry.operator))).toEqual(new Set([
+      'eq',
+      'gt',
+      'gte',
+      'lt',
+      'lte',
+      'in',
+      'contains',
+    ] satisfies CqlConditionOperator[]))
+
+    for (const testCase of cases) {
+      expect(
+        buildCqlPartitionQueryText({
+          kind: 'cql-partition',
+          keyspace: 'app',
+          table: 'events',
+          projectionFields: [],
+          partitionKeys: [],
+          clusteringKeys: [],
+          filters: [{
+            id: `filter-${testCase.operator}`,
+            enabled: true,
+            field: 'field',
+            operator: testCase.operator,
+            value: testCase.value,
+            valueType: testCase.valueType ?? 'string',
+          }],
+          allowFiltering: false,
+          limit: 20,
+        }),
+      ).toBe([
+        'select *',
+        'from app.events',
+        `where ${testCase.expected}`,
+        'limit 20;',
+      ].join('\n'))
+    }
   })
 
   it('parses simple CQL SELECTs into builder state', () => {
@@ -878,6 +1436,162 @@ describe('Search Query DSL builder', () => {
     })
   })
 
+  it('generates search-native negated and prefix filters', () => {
+    const query = JSON.parse(
+      buildSearchDslQueryText({
+        kind: 'search-dsl',
+        index: 'products',
+        queryMode: 'match-all',
+        field: '',
+        value: '',
+        valueType: 'string',
+        filters: [
+          {
+            id: 'missing',
+            enabled: true,
+            field: 'legacyCode',
+            operator: 'does-not-exist',
+            value: '',
+            valueType: 'string',
+          },
+          {
+            id: 'prefix',
+            enabled: true,
+            field: 'sku.keyword',
+            operator: 'starts-with',
+            value: 'PRD-',
+            valueType: 'string',
+          },
+          {
+            id: 'suffix',
+            enabled: true,
+            field: 'filename.keyword',
+            operator: 'not-ends-with',
+            value: '.tmp',
+            valueType: 'string',
+          },
+          {
+            id: 'status',
+            enabled: true,
+            field: 'status.keyword',
+            operator: 'not-in',
+            value: 'archived, deleted',
+            valueType: 'string',
+          },
+        ],
+        sourceFields: [],
+        sort: [],
+        aggregations: [],
+        size: 20,
+      }),
+    )
+
+    expect(query.body.query.bool.filter).toEqual([
+      { bool: { must_not: [{ exists: { field: 'legacyCode' } }] } },
+      { prefix: { 'sku.keyword': 'PRD-' } },
+      { bool: { must_not: [{ wildcard: { 'filename.keyword': '*.tmp' } }] } },
+      {
+        bool: {
+          must_not: [{ terms: { 'status.keyword': ['archived', 'deleted'] } }],
+        },
+      },
+    ])
+  })
+
+  it('serializes every Search Query DSL filter condition operator', () => {
+    const cases = [
+      { operator: 'term', value: 'active', expected: { term: { field: 'active' } } },
+      { operator: 'match', value: 'lamp', expected: { match: { field: 'lamp' } } },
+      { operator: 'exists', value: '', expected: { exists: { field: 'field' } } },
+      { operator: 'does-not-exist', value: '', expected: { bool: { must_not: [{ exists: { field: 'field' } }] } } },
+      { operator: 'starts-with', value: 'PRD-', expected: { prefix: { field: 'PRD-' } } },
+      { operator: 'not-starts-with', value: 'tmp-', expected: { bool: { must_not: [{ prefix: { field: 'tmp-' } }] } } },
+      { operator: 'ends-with', value: '.json', expected: { wildcard: { field: '*.json' } } },
+      { operator: 'not-ends-with', value: '.tmp', expected: { bool: { must_not: [{ wildcard: { field: '*.tmp' } }] } } },
+      { operator: 'not-contains', value: 'draft', expected: { bool: { must_not: [{ wildcard: { field: '*draft*' } }] } } },
+      {
+        operator: 'not-in',
+        value: 'archived, deleted',
+        expected: { bool: { must_not: [{ terms: { field: ['archived', 'deleted'] } }] } },
+      },
+      { operator: 'range-gte', value: '10', valueType: 'number', expected: { range: { field: { gte: 10 } } } },
+      { operator: 'range-lte', value: '20', valueType: 'number', expected: { range: { field: { lte: 20 } } } },
+    ] satisfies Array<{
+      operator: SearchDslFilterOperator
+      value: string
+      valueType?: 'string' | 'number' | 'boolean'
+      expected: unknown
+    }>
+
+    expect(new Set(cases.map((entry) => entry.operator))).toEqual(new Set([
+      'term',
+      'match',
+      'exists',
+      'does-not-exist',
+      'starts-with',
+      'not-starts-with',
+      'ends-with',
+      'not-ends-with',
+      'not-contains',
+      'not-in',
+      'range-gte',
+      'range-lte',
+    ] satisfies SearchDslFilterOperator[]))
+
+    for (const testCase of cases) {
+      const query = JSON.parse(
+        buildSearchDslQueryText({
+          kind: 'search-dsl',
+          index: 'products',
+          queryMode: 'match-all',
+          field: '',
+          value: '',
+          valueType: 'string',
+          filters: [{
+            id: `filter-${testCase.operator}`,
+            enabled: true,
+            field: 'field',
+            operator: testCase.operator,
+            value: testCase.value,
+            valueType: testCase.valueType ?? 'string',
+          }],
+          sourceFields: [],
+          sort: [],
+          aggregations: [],
+          size: 20,
+        }),
+      )
+
+      expect(query.body.query.bool.filter).toEqual([testCase.expected])
+    }
+  })
+
+  it('parses search negated contains and anchored filters back into builder rows', () => {
+    expect(
+      parseSearchDslQueryText(`{
+        "index": "products",
+        "body": {
+          "query": {
+            "bool": {
+              "must": [{ "match_all": {} }],
+              "filter": [
+                { "bool": { "must_not": [{ "wildcard": { "name.keyword": "*draft*" } }] } },
+                { "bool": { "must_not": [{ "prefix": { "sku.keyword": "tmp-" } }] } },
+                { "bool": { "must_not": [{ "wildcard": { "filename.keyword": "*.tmp" } }] } }
+              ]
+            }
+          }
+        }
+      }`),
+    ).toMatchObject({
+      filters: [
+        { field: 'name.keyword', operator: 'not-contains', value: 'draft' },
+        { field: 'sku.keyword', operator: 'not-starts-with', value: 'tmp-' },
+        { field: 'filename.keyword', operator: 'not-ends-with', value: '.tmp' },
+      ],
+    })
+  })
+
   it('parses wrapped Query DSL into builder state', () => {
     expect(
       parseSearchDslQueryText(`{
@@ -933,5 +1647,105 @@ describe('Search Query DSL builder', () => {
       queryMode: 'match-all',
       size: 20,
     })
+  })
+})
+
+describe('Query builder condition serialization guardrails', () => {
+  it('skips disabled and empty condition rows without malformed output', () => {
+    const mongo = JSON.parse(
+      buildMongoFindQueryText({
+        kind: 'mongo-find',
+        collection: 'products',
+        filters: [
+          { id: 'empty', field: '', operator: 'contains', value: 'ignored', valueType: 'string' },
+          { id: 'disabled', enabled: false, field: 'disabled', operator: 'contains', value: 'ignored', valueType: 'string' },
+          { id: 'active', field: 'name', operator: 'not-contains', value: 'draft', valueType: 'string' },
+        ],
+        projectionMode: 'all',
+        projectionFields: [],
+        sort: [],
+      }),
+    )
+    expect(mongo.filter).toEqual({ name: { $not: { $regex: 'draft' } } })
+
+    expect(
+      buildSqlSelectQueryText({
+        kind: 'sql-select',
+        schema: 'public',
+        table: 'accounts',
+        projectionFields: [],
+        filters: [
+          { id: 'empty', field: '', operator: 'contains', value: 'ignored', valueType: 'string' },
+          { id: 'disabled', enabled: false, field: 'disabled', operator: 'contains', value: 'ignored', valueType: 'string' },
+          { id: 'active', enabled: true, field: 'name', operator: 'not-contains', value: 'draft', valueType: 'string' },
+        ],
+        filterLogic: 'and',
+        sort: [],
+        limit: 20,
+      }),
+    ).toBe('select * from "public"."accounts" where "name" not like \'%draft%\' escape \'\\\' limit 20;')
+
+    const dynamo = JSON.parse(
+      buildDynamoDbKeyConditionQueryText({
+        kind: 'dynamodb-key-condition',
+        table: 'Orders',
+        partitionKey: { id: 'pk', field: 'pk', operator: 'eq', value: 'CUSTOMER#123', valueType: 'string' },
+        filters: [
+          { id: 'empty', field: '', operator: 'contains', value: 'ignored', valueType: 'string' },
+          { id: 'disabled', enabled: false, field: 'disabled', operator: 'contains', value: 'ignored', valueType: 'string' },
+          { id: 'active', enabled: true, field: 'tags', operator: 'not-contains', value: 'draft', valueType: 'string' },
+        ],
+        projectionFields: [],
+        limit: 20,
+      }),
+    )
+    expect(dynamo.filterExpression).toBe('not contains(#n1, :v1)')
+    expect(dynamo.expressionAttributeNames).toEqual({ '#n0': 'pk', '#n1': 'tags' })
+
+    expect(
+      buildCqlPartitionQueryText({
+        kind: 'cql-partition',
+        keyspace: 'app',
+        table: 'events',
+        projectionFields: [],
+        partitionKeys: [],
+        clusteringKeys: [],
+        filters: [
+          { id: 'empty', field: '', operator: 'contains', value: 'ignored', valueType: 'string' },
+          { id: 'disabled', enabled: false, field: 'disabled', operator: 'contains', value: 'ignored', valueType: 'string' },
+          { id: 'active', enabled: true, field: 'tags', operator: 'contains', value: 'draft', valueType: 'string' },
+        ],
+        allowFiltering: false,
+        limit: 20,
+      }),
+    ).toBe([
+      'select *',
+      'from app.events',
+      "where tags CONTAINS 'draft'",
+      'limit 20;',
+    ].join('\n'))
+
+    const search = JSON.parse(
+      buildSearchDslQueryText({
+        kind: 'search-dsl',
+        index: 'products',
+        queryMode: 'match-all',
+        field: '',
+        value: '',
+        valueType: 'string',
+        filters: [
+          { id: 'empty', field: '', operator: 'term', value: 'ignored', valueType: 'string' },
+          { id: 'disabled', enabled: false, field: 'disabled', operator: 'term', value: 'ignored', valueType: 'string' },
+          { id: 'active', enabled: true, field: 'name.keyword', operator: 'not-contains', value: 'draft', valueType: 'string' },
+        ],
+        sourceFields: [],
+        sort: [],
+        aggregations: [],
+        size: 20,
+      }),
+    )
+    expect(search.body.query.bool.filter).toEqual([
+      { bool: { must_not: [{ wildcard: { 'name.keyword': '*draft*' } }] } },
+    ])
   })
 })

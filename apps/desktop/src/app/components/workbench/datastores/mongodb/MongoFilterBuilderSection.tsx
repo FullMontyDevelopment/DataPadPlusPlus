@@ -1,10 +1,19 @@
 import type { MongoBuilderValueType, MongoFindFilterGroup, MongoFindFilterRow, MongoFilterOperator } from '@datapadplusplus/shared-types'
+import type { DragEvent, PointerEvent } from 'react'
 import { BuilderSection } from '../../query-builder/BuilderSection'
 import { TrashIcon } from '../../icons'
 import type { MongoFindSectionProps } from './MongoBuilderSection.types'
 import { rowId } from './MongoBuilderSection.types'
 import { defaultFilterGroup } from '../../query-builder/mongo-find-defaults'
 import { mongoFilterRow, mongoFilterRowFromDroppedField } from '../../query-builder/mongo-filter-row'
+import {
+  acceptMongoBuilderRowDrag,
+  acceptMongoBuilderRowPointerDrop,
+  clearMongoBuilderRowDrag,
+  mongoBuilderPointerTarget,
+  MongoBuilderDragHandle,
+  type MongoBuilderRowDragPayload,
+} from './MongoBuilderRowDrag'
 
 const FILTER_OPERATORS: Array<{ value: MongoFilterOperator; label: string }> = [
   { value: 'eq', label: '=' },
@@ -14,9 +23,20 @@ const FILTER_OPERATORS: Array<{ value: MongoFilterOperator; label: string }> = [
   { value: 'lt', label: '<' },
   { value: 'lte', label: '<=' },
   { value: 'contains', label: 'Contains' },
+  { value: 'not-contains', label: 'Not Contains' },
   { value: 'regex', label: 'Regex' },
+  { value: 'is-null', label: 'Is null' },
+  { value: 'is-not-null', label: 'Is not null' },
   { value: 'exists', label: 'Exists' },
+  { value: 'does-not-exist', label: 'Does not exist' },
+  { value: 'type', label: 'Is type' },
+  { value: 'not-type', label: 'Is not type' },
+  { value: 'starts-with', label: 'Starts with' },
+  { value: 'not-starts-with', label: 'Does not start with' },
+  { value: 'ends-with', label: 'Ends with' },
+  { value: 'not-ends-with', label: 'Does not end with' },
   { value: 'in', label: 'In' },
+  { value: 'not-in', label: 'Not in' },
 ]
 
 const VALUE_TYPES: Array<{ value: MongoBuilderValueType; label: string }> = [
@@ -38,6 +58,34 @@ export function MongoFilterBuilderSection({
 }: MongoFindSectionProps & { activeFilterGroupId?: string }) {
   const hasExplicitGroups = filterGroups.length > 0
   const standaloneRows = draft.filters.filter((row) => !row.groupId)
+  const moveFilter = (payload: MongoBuilderRowDragPayload, targetGroupId?: string, targetRowId?: string, placement: RowDropPlacement = 'after') => {
+    updateDraft({
+      filterGroups,
+      filters: moveMongoFilterRow(draft.filters, payload.rowId, targetGroupId, targetRowId, placement),
+    })
+  }
+  const handleFilterPointerDrop = (
+    event: PointerEvent<HTMLElement>,
+    fallbackGroupId?: string,
+    fallbackRowId?: string,
+  ) => {
+    const payload = acceptMongoBuilderRowPointerDrop(event, 'filter')
+
+    if (!payload) {
+      return
+    }
+
+    const target = filterPointerDropTarget(event, fallbackGroupId, fallbackRowId)
+
+    if (!target) {
+      clearMongoBuilderRowDrag()
+      return
+    }
+
+    event.stopPropagation()
+    moveFilter(payload, target.groupId, target.rowId, target.placement)
+    clearMongoBuilderRowDrag()
+  }
 
   return (
     <BuilderSection
@@ -46,6 +94,33 @@ export function MongoFilterBuilderSection({
       dropHint="Drop a result field to filter"
       dropZone="filters"
       dragActive={dragActive}
+      onInternalDragOver={(event) => Boolean(acceptMongoBuilderRowDrag(event, 'filter'))}
+      onInternalDrop={(event) => {
+        const payload = acceptMongoBuilderRowDrag(event, 'filter')
+
+        if (!payload) {
+          return false
+        }
+
+        const target = event.target instanceof HTMLElement ? event.target : undefined
+        const potentialTargetRow = target?.closest<HTMLElement>('[data-mongo-builder-row-id]')
+        const targetRow = potentialTargetRow?.dataset.mongoBuilderRowKind === 'filter'
+          ? potentialTargetRow
+          : undefined
+        const targetRowId = targetRow?.dataset.mongoBuilderRowId
+        const targetGroupId = targetRow
+          ? targetRow.dataset.mongoBuilderFilterGroupId || undefined
+          : target?.closest<HTMLElement>('[data-mongo-builder-group-id]')?.dataset.mongoBuilderGroupId
+
+        moveFilter(
+          payload,
+          targetGroupId,
+          targetRowId,
+          targetRow ? rowDropPlacement(event, targetRow) : 'after',
+        )
+        clearMongoBuilderRowDrag()
+        return true
+      }}
       secondaryActionLabel="Add Filter"
       onDropField={(field, payload) =>
         updateDraft({
@@ -81,21 +156,50 @@ export function MongoFilterBuilderSection({
       {draft.filters.length === 0 && !hasExplicitGroups ? (
         <p className="query-builder-empty">No filters.</p>
       ) : null}
-      {standaloneRows.length > 0 ? (
-        <FilterRows
-          draft={draft}
-          filterGroups={filterGroups}
-          rows={standaloneRows}
-          updateDraft={updateDraft}
-        />
+      {draft.filters.length > 0 || hasExplicitGroups ? (
+        <div
+          aria-label="Ungrouped filters"
+          className="query-builder-filter-root"
+          data-mongo-builder-filter-root="true"
+          onDragOverCapture={(event) => {
+            if (acceptMongoBuilderRowDrag(event, 'filter')) {
+              event.stopPropagation()
+            }
+          }}
+          onDropCapture={(event) => {
+            const payload = acceptMongoBuilderRowDrag(event, 'filter')
+
+            if (!payload) {
+              return
+            }
+
+            event.stopPropagation()
+            moveFilter(payload, undefined)
+            clearMongoBuilderRowDrag()
+          }}
+          onPointerUpCapture={(event) => {
+            handleFilterPointerDrop(event, undefined)
+          }}
+        >
+          <FilterRows
+            draft={draft}
+            filterGroups={filterGroups}
+            handleFilterPointerDrop={handleFilterPointerDrop}
+            moveFilter={moveFilter}
+            rows={standaloneRows}
+            updateDraft={updateDraft}
+          />
+        </div>
       ) : null}
       {filterGroups.map((group) => (
         <FilterGroup
           draft={draft}
           filterGroups={filterGroups}
           group={group}
+          handleFilterPointerDrop={handleFilterPointerDrop}
           key={group.id}
           dragActive={activeFilterGroupId === group.id}
+          moveFilter={moveFilter}
           updateDraft={updateDraft}
         />
       ))}
@@ -108,8 +212,15 @@ function FilterGroup({
   dragActive,
   filterGroups,
   group,
+  handleFilterPointerDrop,
+  moveFilter,
   updateDraft,
-}: MongoFindSectionProps & { dragActive?: boolean; group: MongoFindFilterGroup }) {
+}: MongoFindSectionProps & {
+  dragActive?: boolean
+  group: MongoFindFilterGroup
+  handleFilterPointerDrop(event: PointerEvent<HTMLElement>, fallbackGroupId?: string, fallbackRowId?: string): void
+  moveFilter(payload: MongoBuilderRowDragPayload, targetGroupId?: string, targetRowId?: string, placement?: RowDropPlacement): void
+}) {
   const rows = draft.filters.filter((row) => row.groupId === group.id)
 
   return (
@@ -118,7 +229,27 @@ function FilterGroup({
       className={`query-builder-filter-group${dragActive ? ' is-drag-over' : ''}${
         group.enabled === false ? ' is-disabled' : ''
       }`}
+      data-mongo-builder-group-id={group.id}
       data-query-builder-drop-zone={`filters:${group.id}`}
+      onDragOverCapture={(event) => {
+        if (acceptMongoBuilderRowDrag(event, 'filter')) {
+          event.stopPropagation()
+        }
+      }}
+      onDropCapture={(event) => {
+        const payload = acceptMongoBuilderRowDrag(event, 'filter')
+
+        if (!payload) {
+          return
+        }
+
+        event.stopPropagation()
+        moveFilter(payload, group.id)
+        clearMongoBuilderRowDrag()
+      }}
+      onPointerUpCapture={(event) => {
+        handleFilterPointerDrop(event, group.id)
+      }}
     >
       <div className="query-builder-filter-group-header">
         <label className="query-builder-toggle">
@@ -187,6 +318,8 @@ function FilterGroup({
       <FilterRows
         draft={draft}
         filterGroups={filterGroups}
+        moveFilter={moveFilter}
+        handleFilterPointerDrop={handleFilterPointerDrop}
         rows={rows}
         updateDraft={updateDraft}
       />
@@ -197,18 +330,52 @@ function FilterGroup({
 function FilterRows({
   draft,
   filterGroups,
+  handleFilterPointerDrop,
+  moveFilter,
   rows,
   updateDraft,
-}: MongoFindSectionProps & { rows: MongoFindFilterRow[] }) {
+}: MongoFindSectionProps & {
+  handleFilterPointerDrop(event: PointerEvent<HTMLElement>, fallbackGroupId?: string, fallbackRowId?: string): void
+  moveFilter(payload: MongoBuilderRowDragPayload, targetGroupId?: string, targetRowId?: string, placement?: RowDropPlacement): void
+  rows: MongoFindFilterRow[]
+}) {
   return (
     <>
       {rows.map((row) => (
         <div
-          className={`query-builder-row query-builder-row--filter${
+          className={`query-builder-row query-builder-row--filter query-builder-row--draggable${
             row.enabled === false ? ' is-disabled' : ''
           }`}
+          data-mongo-builder-filter-group-id={row.groupId}
+          data-mongo-builder-row-kind="filter"
+          data-mongo-builder-row-id={row.id}
           key={row.id}
+          onDragOverCapture={(event) => {
+            if (acceptMongoBuilderRowDrag(event, 'filter')) {
+              event.stopPropagation()
+            }
+          }}
+          onDropCapture={(event) => {
+            const payload = acceptMongoBuilderRowDrag(event, 'filter')
+
+            if (!payload) {
+              return
+            }
+
+            event.stopPropagation()
+            moveFilter(payload, row.groupId, row.id, rowDropPlacement(event))
+            clearMongoBuilderRowDrag()
+          }}
+          onPointerUpCapture={(event) => {
+            handleFilterPointerDrop(event, row.groupId, row.id)
+          }}
         >
+          <MongoBuilderDragHandle
+            groupId={row.groupId}
+            kind="filter"
+            label={`Drag filter ${row.field || row.id}`}
+            rowId={row.id}
+          />
           <label className="query-builder-toggle">
             <input
               aria-label={`Apply filter ${row.field || row.id}`}
@@ -246,7 +413,7 @@ function FilterRows({
                 filterGroups,
                 filters: draft.filters.map((item) =>
                   item.id === row.id
-                    ? { ...item, operator: event.target.value as MongoFilterOperator }
+                    ? mongoFilterWithOperator(item, event.target.value as MongoFilterOperator)
                     : item,
                 ),
               })
@@ -280,9 +447,9 @@ function FilterRows({
           </select>
           <input
             aria-label="Filter value"
-            placeholder={row.operator === 'exists' ? 'true' : 'value'}
+            placeholder={filterValuePlaceholder(row.operator)}
             value={row.value}
-            disabled={row.valueType === 'null'}
+            disabled={row.valueType === 'null' || mongoOperatorHasNoValue(row.operator)}
             onChange={(event) =>
               updateDraft({
                 filterGroups,
@@ -310,4 +477,154 @@ function FilterRows({
       ))}
     </>
   )
+}
+
+function mongoFilterWithOperator(row: MongoFindFilterRow, operator: MongoFilterOperator): MongoFindFilterRow {
+  const currentlyNoValue = mongoOperatorHasNoValue(row.operator) || row.valueType === 'null'
+  const nextHasNoValue = mongoOperatorHasNoValue(operator)
+
+  return {
+    ...row,
+    operator,
+    value: nextHasNoValue ? '' : row.value,
+    valueType: operator === 'is-null' || operator === 'is-not-null'
+      ? 'null'
+      : currentlyNoValue && !nextHasNoValue
+        ? 'string'
+        : row.valueType,
+  }
+}
+
+function mongoOperatorHasNoValue(operator: MongoFilterOperator) {
+  return ['exists', 'does-not-exist', 'is-null', 'is-not-null'].includes(operator)
+}
+
+function filterValuePlaceholder(operator: MongoFilterOperator) {
+  if (operator === 'type' || operator === 'not-type') {
+    return 'string, date, objectId, 2...'
+  }
+
+  return mongoOperatorHasNoValue(operator) ? '' : 'value'
+}
+
+type RowDropPlacement = 'before' | 'after'
+interface FilterPointerDropTarget {
+  groupId?: string
+  rowId?: string
+  placement: RowDropPlacement
+}
+
+function moveMongoFilterRow(
+  filters: MongoFindFilterRow[],
+  rowId: string,
+  targetGroupId?: string,
+  targetRowId?: string,
+  placement: RowDropPlacement = 'after',
+) {
+  const moving = filters.find((row) => row.id === rowId)
+
+  if (!moving) {
+    return filters
+  }
+
+  if (targetRowId === rowId && moving.groupId === targetGroupId) {
+    return filters
+  }
+
+  const withoutMoving = filters.filter((row) => row.id !== rowId)
+  const moved = { ...moving, groupId: targetGroupId }
+  const targetIndex = targetRowId
+    ? withoutMoving.findIndex((row) => row.id === targetRowId)
+    : -1
+
+  if (targetIndex >= 0) {
+    const next = [...withoutMoving]
+    next.splice(placement === 'after' ? targetIndex + 1 : targetIndex, 0, moved)
+    return next
+  }
+
+  const appendIndex = lastIndexForGroup(withoutMoving, targetGroupId) + 1
+  const next = [...withoutMoving]
+  next.splice(appendIndex, 0, moved)
+  return next
+}
+
+function lastIndexForGroup(filters: MongoFindFilterRow[], groupId?: string) {
+  for (let index = filters.length - 1; index >= 0; index -= 1) {
+    if (filters[index]?.groupId === groupId) {
+      return index
+    }
+  }
+
+  return -1
+}
+
+function rowDropPlacement(event: DragEvent<HTMLElement>, element = event.currentTarget): RowDropPlacement {
+  const rect = element.getBoundingClientRect()
+  return event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+}
+
+function rowPointerDropPlacement(event: PointerEvent<HTMLElement>, element = event.currentTarget): RowDropPlacement {
+  const rect = element.getBoundingClientRect()
+  return event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+}
+
+function filterPointerDropTarget(
+  event: PointerEvent<HTMLElement>,
+  fallbackGroupId?: string,
+  fallbackRowId?: string,
+): FilterPointerDropTarget | undefined {
+  const target = mongoBuilderPointerTarget(event)
+  const potentialTargetRow = target?.closest<HTMLElement>('[data-mongo-builder-row-id]')
+  const targetRow = potentialTargetRow?.dataset.mongoBuilderRowKind === 'filter'
+    ? potentialTargetRow
+    : undefined
+
+  if (targetRow) {
+    const targetRowId = targetRow.dataset.mongoBuilderRowId
+
+    if (targetRowId) {
+      return filterPointerDropResult(
+        targetRow.dataset.mongoBuilderFilterGroupId || undefined,
+        rowPointerDropPlacement(event, targetRow),
+        targetRowId,
+      )
+    }
+  }
+
+  const targetGroupId = target
+    ?.closest<HTMLElement>('[data-mongo-builder-group-id]')
+    ?.dataset.mongoBuilderGroupId
+
+  if (targetGroupId) {
+    return filterPointerDropResult(targetGroupId, 'after')
+  }
+
+  const isUngroupedRoot = target?.closest<HTMLElement>('[data-mongo-builder-filter-root]')
+
+  if (isUngroupedRoot) {
+    return filterPointerDropResult(undefined, 'after')
+  }
+
+  if (fallbackRowId) {
+    return filterPointerDropResult(fallbackGroupId, rowPointerDropPlacement(event), fallbackRowId)
+  }
+
+  if (fallbackGroupId !== undefined) {
+    return filterPointerDropResult(fallbackGroupId, 'after')
+  }
+
+  return undefined
+}
+
+function filterPointerDropResult(
+  groupId: string | undefined,
+  placement: RowDropPlacement,
+  rowId?: string,
+): FilterPointerDropTarget {
+  return {
+    ...(groupId !== undefined ? { groupId } : {}),
+    ...(rowId !== undefined ? { rowId } : {}),
+    placement,
+  }
 }

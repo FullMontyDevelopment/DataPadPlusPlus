@@ -5,13 +5,16 @@ use std::{
 };
 
 use duckdb::Connection as DuckDbConnection;
+use futures_util::future::{AbortHandle, Abortable};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::{
+    adapters,
     app::runtime::{
-        datastore_api_server, generate_id, timestamp_now, ManagedAppState, SharedAppState,
+        datastore_api_server, generate_id, timestamp_now, ActiveExecutionRegistry,
+        ManagedAppState, SharedAppState, SharedExecutionRegistry,
     },
     domain::{
         error::CommandError,
@@ -29,13 +32,14 @@ use crate::{
             ExecuteTestSuiteRequest, ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse,
             ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse,
             ExportBundle, ExportResultFileRequest, ExportResultFileResponse,
+            GuardrailDecision,
             LibraryCreateFolderRequest, LibraryDeleteNodeRequest, LibraryMoveNodeRequest,
             LibraryRenameNodeRequest, LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest,
             LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult,
             OpenTestSuiteTemplateRequest, OperationExecutionRequest, OperationExecutionResponse,
             OperationManifestRequest, OperationManifestResponse, OperationPlanRequest,
             OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse,
-            QueryTabActiveExecution, QueryTabReorderRequest, RedisKeyInspectRequest,
+            QueryHistoryEntry, QueryTabActiveExecution, QueryTabReorderRequest, RedisKeyInspectRequest,
             RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
             SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
             StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
@@ -56,6 +60,17 @@ fn lock_state<'a, 'b>(
         CommandError::new(
             "workspace-state-unavailable",
             "Workspace state is temporarily unavailable. Restart DataPad++ if this continues.",
+        )
+    })
+}
+
+fn lock_executions<'a, 'b>(
+    executions: &'a State<'b, SharedExecutionRegistry>,
+) -> Result<MutexGuard<'a, ActiveExecutionRegistry>, CommandError> {
+    executions.lock().map_err(|_| {
+        CommandError::new(
+            "execution-registry-unavailable",
+            "Execution cancellation state is temporarily unavailable. Restart DataPad++ if this continues.",
         )
     })
 }
@@ -139,6 +154,81 @@ fn clear_tab_execution_after_error(
     });
     state.snapshot.updated_at = timestamp_now();
     state.persist()
+}
+
+fn clear_tab_execution_after_cancel(
+    state: &State<'_, SharedAppState>,
+    request: &ExecutionRequest,
+    execution_id: &str,
+) -> Result<ExecutionResponse, CommandError> {
+    let mut state = lock_state(state)?;
+    let tab_id = request.tab_id.as_str();
+    let executed_at = timestamp_now();
+    let query_text = adapters::selected_query(request).to_string();
+    let tab_response = {
+        let Some(tab) = state.snapshot.tabs.iter_mut().find(|tab| tab.id == tab_id) else {
+            return Err(CommandError::new(
+                "tab-missing",
+                "Tab was not found for canceled execution.",
+            ));
+        };
+
+        if tab
+            .active_execution
+            .as_ref()
+            .is_some_and(|active| active.execution_id != execution_id)
+        {
+            return Err(CommandError::new(
+                "execution-stale",
+                "Canceled execution no longer belongs to this tab.",
+            ));
+        }
+
+        tab.query_text = request.query_text.clone();
+        if request.execution_input_mode.as_deref() == Some("script") {
+            tab.script_text = request.script_text.clone();
+        }
+        tab.query_view_mode = request.execution_input_mode.clone();
+        tab.status = "canceled".into();
+        tab.last_run_at = Some(executed_at.clone());
+        tab.history.insert(
+            0,
+            QueryHistoryEntry {
+                id: generate_id("history"),
+                query_text,
+                executed_at,
+                status: "canceled".into(),
+            },
+        );
+        tab.error = None;
+        tab.result = None;
+        tab.active_execution = None;
+        tab.clone()
+    };
+
+    state.snapshot.ui.active_tab_id = tab_response.id.clone();
+    state.snapshot.ui.active_connection_id = tab_response.connection_id.clone();
+    state.snapshot.ui.active_environment_id = tab_response.environment_id.clone();
+    state.snapshot.ui.bottom_panel_visible = true;
+    state.snapshot.ui.active_bottom_panel_tab = "messages".into();
+    let guardrail = GuardrailDecision {
+        id: None,
+        status: "allow".into(),
+        reasons: Vec::new(),
+        safe_mode_applied: false,
+        required_confirmation_text: None,
+    };
+    state.snapshot.guardrails = vec![guardrail.clone()];
+    state.snapshot.updated_at = timestamp_now();
+    state.persist()?;
+
+    Ok(ExecutionResponse {
+        execution_id: execution_id.to_string(),
+        tab: tab_response,
+        result: None,
+        guardrail,
+        diagnostics: vec!["Execution canceled by user.".into()],
+    })
 }
 
 fn merge_execution_response(
@@ -993,6 +1083,7 @@ pub async fn refresh_object_view_tab(
 #[tauri::command]
 pub async fn execute_query_request(
     state: State<'_, SharedAppState>,
+    executions: State<'_, SharedExecutionRegistry>,
     mut request: ExecutionRequest,
 ) -> Result<ExecutionResponse, CommandError> {
     let execution_id = request_execution_id(&mut request);
@@ -1010,15 +1101,32 @@ pub async fn execute_query_request(
     );
     mark_tab_execution_running(&state, &tab_id, &execution_id, None)?;
     let mut runtime = clone_runtime(&state)?;
-    match runtime.execute_query(request).await {
-        Ok(response) => {
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    {
+        let mut executions = lock_executions(&executions)?;
+        executions.register(execution_id.clone(), abort_handle);
+    }
+    let execution = Abortable::new(runtime.execute_query(request.clone()), abort_registration).await;
+    {
+        let mut executions = lock_executions(&executions)?;
+        executions.remove(&execution_id);
+    }
+    match execution {
+        Err(_) => {
+            infrastructure::log_breadcrumb(
+                "command",
+                format!("execute-query-complete execution={execution_id} canceled=true"),
+            );
+            clear_tab_execution_after_cancel(&state, &request, &execution_id)
+        }
+        Ok(Ok(response)) => {
             infrastructure::log_breadcrumb(
                 "command",
                 format!("execute-query-complete execution={execution_id} ok=true"),
             );
             merge_execution_response(&state, response)
         }
-        Err(error) => {
+        Ok(Err(error)) => {
             let message = error.message.clone();
             clear_tab_execution_after_error(&state, &tab_id, &execution_id, message)?;
             infrastructure::log_breadcrumb(
@@ -1051,8 +1159,23 @@ pub fn cancel_test_run(
 #[tauri::command]
 pub async fn cancel_execution_request(
     state: State<'_, SharedAppState>,
+    executions: State<'_, SharedExecutionRegistry>,
     request: CancelExecutionRequest,
 ) -> Result<CancelExecutionResult, CommandError> {
+    {
+        let mut executions = lock_executions(&executions)?;
+        if executions.abort(&request.execution_id) {
+            return Ok(CancelExecutionResult {
+                ok: true,
+                supported: true,
+                message: format!(
+                    "Cancellation requested for execution {}.",
+                    request.execution_id
+                ),
+            });
+        }
+    }
+
     let runtime = clone_runtime(&state)?;
     runtime.cancel_execution(request).await
 }

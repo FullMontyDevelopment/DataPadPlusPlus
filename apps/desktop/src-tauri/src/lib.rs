@@ -89,6 +89,9 @@ pub fn run() {
                 app.handle().clone(),
             )));
             app.manage(std::sync::Mutex::new(
+                app::runtime::ActiveExecutionRegistry::default(),
+            ));
+            app.manage(std::sync::Mutex::new(
                 app::runtime::datastore_api_server::DatastoreApiServerManager::default(),
             ));
             {

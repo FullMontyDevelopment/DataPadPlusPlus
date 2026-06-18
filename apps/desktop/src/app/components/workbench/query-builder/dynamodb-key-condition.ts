@@ -217,6 +217,9 @@ class DynamoExpressionBuilder {
     if (row.operator === 'exists') {
       return `attribute_exists(${name})`
     }
+    if (row.operator === 'does-not-exist') {
+      return `attribute_not_exists(${name})`
+    }
 
     const value = this.value(row.value, row.valueType)
     if (row.operator === 'begins-with') {
@@ -224,6 +227,9 @@ class DynamoExpressionBuilder {
     }
     if (row.operator === 'contains') {
       return `contains(${name}, ${value})`
+    }
+    if (row.operator === 'not-contains') {
+      return `not contains(${name}, ${value})`
     }
     if (row.operator === 'between') {
       const second = this.value(row.secondValue ?? '', row.valueType)

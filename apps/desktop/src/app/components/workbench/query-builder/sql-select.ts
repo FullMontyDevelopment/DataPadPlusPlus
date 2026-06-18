@@ -14,8 +14,14 @@ const SQL_OPERATORS: Record<Exclude<SqlSelectFilterOperator, 'is-null' | 'is-not
   lt: '<',
   lte: '<=',
   contains: 'like',
+  'not-contains': 'not like',
+  'starts-with': 'like',
+  'not-starts-with': 'not like',
+  'ends-with': 'like',
+  'not-ends-with': 'not like',
   like: 'like',
   in: 'in',
+  'not-in': 'not in',
 }
 
 export function createDefaultSqlSelectBuilderState(
@@ -156,6 +162,18 @@ function sqlPredicate(
     return `${identifier} like ${sqlStringLiteral(`%${escapeSqlLikeValue(row.value)}%`)} escape '\\'`
   }
 
+  if (row.operator === 'not-contains') {
+    return `${identifier} not like ${sqlStringLiteral(`%${escapeSqlLikeValue(row.value)}%`)} escape '\\'`
+  }
+
+  if (row.operator === 'starts-with' || row.operator === 'not-starts-with') {
+    return `${identifier} ${SQL_OPERATORS[row.operator]} ${sqlStringLiteral(`${escapeSqlLikeValue(row.value)}%`)} escape '\\'`
+  }
+
+  if (row.operator === 'ends-with' || row.operator === 'not-ends-with') {
+    return `${identifier} ${SQL_OPERATORS[row.operator]} ${sqlStringLiteral(`%${escapeSqlLikeValue(row.value)}`)} escape '\\'`
+  }
+
   const value = sqlLiteral(row.value, row.valueType, row.operator, engine)
   return `${identifier} ${SQL_OPERATORS[row.operator]} ${value}`
 }
@@ -219,7 +237,7 @@ function sqlLiteral(
   operator: SqlSelectFilterOperator,
   engine: ConnectionProfile['engine'],
 ): string {
-  if (operator === 'in') {
+  if (operator === 'in' || operator === 'not-in') {
     const values: string[] = value
       .split(',')
       .map((part) => part.trim())

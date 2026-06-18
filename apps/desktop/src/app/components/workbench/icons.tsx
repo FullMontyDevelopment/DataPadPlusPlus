@@ -36,6 +36,7 @@ import {
   FolderTree,
   Gauge,
   GitBranch,
+  GripVertical,
   Hash,
   History,
   HardDrive,
@@ -174,6 +175,7 @@ export const HistoryIcon = adapt(History)
 export const ClockIcon = adapt(Clock)
 export const ColorIcon = adapt(Palette)
 export const MoreIcon = adapt(MoreVertical)
+export const DragHandleIcon = adapt(GripVertical)
 export const TrashIcon = adapt(Trash2)
 export const ShowIcon = adapt(Eye)
 export const HideIcon = adapt(EyeOff)

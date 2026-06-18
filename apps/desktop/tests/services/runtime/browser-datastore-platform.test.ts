@@ -5,6 +5,7 @@ import type {
   DatastoreTreeNodeManifest,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
+import { DATAPADPLUSPLUS_ADAPTER_MANIFESTS } from '@datapadplusplus/shared-types'
 import {
   buildDatastoreExperiences,
   executeDataEditLocally,
@@ -15,6 +16,7 @@ describe('browser datastore platform contracts', () => {
   it('describes core-popular datastore experiences for builders and edits', () => {
     const experiences = buildDatastoreExperiences()
     const mongodb = experiences.find((item) => item.engine === 'mongodb')
+    const mongodbManifest = DATAPADPLUSPLUS_ADAPTER_MANIFESTS.find((item) => item.engine === 'mongodb')
     const postgres = experiences.find((item) => item.engine === 'postgresql')
     const redis = experiences.find((item) => item.engine === 'redis')
     const valkey = experiences.find((item) => item.engine === 'valkey')
@@ -40,6 +42,7 @@ describe('browser datastore platform contracts', () => {
       'Databases',
       'System Databases',
     ])
+    expect(mongodbManifest?.capabilities).toContain('supports_query_cancellation')
     expect(postgres?.queryBuilders.map((item) => item.kind)).toContain('sql-select')
     expect(postgres?.queryBuilders.find((item) => item.kind === 'sql-select')?.defaultMode).toBe(
       'raw',

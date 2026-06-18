@@ -34,7 +34,9 @@ const FILTER_OPERATORS: Array<{ value: DynamoDbConditionOperator; label: string 
   ...KEY_OPERATORS,
   { value: 'ne', label: '<>' },
   { value: 'contains', label: 'CONTAINS' },
+  { value: 'not-contains', label: 'NOT CONTAINS' },
   { value: 'exists', label: 'EXISTS' },
+  { value: 'does-not-exist', label: 'DOES NOT EXIST' },
 ]
 
 const VALUE_TYPES: DynamoDbBuilderValueType[] = ['string', 'number', 'boolean', 'null', 'json']
@@ -280,7 +282,7 @@ function ConditionRow({
       <input
         aria-label={`${label} value`}
         value={row.value}
-        disabled={row.operator === 'exists'}
+        disabled={row.operator === 'exists' || row.operator === 'does-not-exist'}
         onChange={(event) => onChange({ value: event.target.value })}
       />
       {row.operator === 'between' ? (

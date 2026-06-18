@@ -58,7 +58,7 @@ export const clientExecution = {
     const engine = tab
       ? findConnection(snapshot, tab.connectionId)?.engine
       : undefined
-    const supported = engine === 'postgresql' || engine === 'sqlserver'
+    const supported = engine === 'postgresql' || engine === 'sqlserver' || engine === 'mongodb'
 
     return {
       ok: supported,

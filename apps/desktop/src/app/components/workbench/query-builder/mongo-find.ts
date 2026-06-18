@@ -13,15 +13,15 @@ interface MongoQueryTextContext {
   database?: string
 }
 
-const OPERATOR_MAP: Record<Exclude<MongoFilterOperator, 'eq' | 'contains'>, string> = {
+const COMPARISON_OPERATOR_MAP: Partial<Record<MongoFilterOperator, string>> = {
   ne: '$ne',
   gt: '$gt',
   gte: '$gte',
   lt: '$lt',
   lte: '$lte',
   regex: '$regex',
-  exists: '$exists',
   in: '$in',
+  'not-in': '$nin',
 }
 
 export function createDefaultMongoFindBuilderState(
@@ -136,17 +136,40 @@ function buildMongoFilterExpression(row: MongoFindFilterRow): Record<string, unk
     return {}
   }
 
-  if (row.operator === 'contains') {
-    return { [field]: { $regex: escapeMongoRegex(row.value) } }
-  }
-
   const value = coerceMongoValue(row.value, row.valueType, row.operator)
 
-  if (row.operator === 'eq') {
-    return { [field]: value }
+  switch (row.operator) {
+    case 'eq':
+      return { [field]: value }
+    case 'contains':
+      return { [field]: { $regex: escapeMongoRegex(row.value) } }
+    case 'not-contains':
+      return { [field]: { $not: { $regex: escapeMongoRegex(row.value) } } }
+    case 'starts-with':
+      return { [field]: { $regex: `^${escapeMongoRegex(row.value)}` } }
+    case 'not-starts-with':
+      return { [field]: { $not: { $regex: `^${escapeMongoRegex(row.value)}` } } }
+    case 'ends-with':
+      return { [field]: { $regex: `${escapeMongoRegex(row.value)}$` } }
+    case 'not-ends-with':
+      return { [field]: { $not: { $regex: `${escapeMongoRegex(row.value)}$` } } }
+    case 'exists':
+      return { [field]: { $exists: true } }
+    case 'does-not-exist':
+      return { [field]: { $exists: false } }
+    case 'is-null':
+      return { [field]: null }
+    case 'is-not-null':
+      return { [field]: { $ne: null } }
+    case 'type':
+      return { [field]: { $type: mongoTypeValue(row.value) } }
+    case 'not-type':
+      return { [field]: { $not: { $type: mongoTypeValue(row.value) } } }
+    default: {
+      const operator = COMPARISON_OPERATOR_MAP[row.operator]
+      return operator ? { [field]: { [operator]: value } } : {}
+    }
   }
-
-  return { [field]: { [OPERATOR_MAP[row.operator]]: value } }
 }
 
 function combineFilterExpressions(
@@ -208,11 +231,7 @@ function coerceMongoValue(
   valueType: MongoBuilderValueType,
   operator: MongoFilterOperator,
 ): unknown {
-  if (operator === 'exists') {
-    return parseBoolean(value, true)
-  }
-
-  if (operator === 'in') {
+  if (operator === 'in' || operator === 'not-in') {
     return parseInValue(value, valueType)
   }
 
@@ -281,7 +300,10 @@ function parseBoolean(value: string, fallback: boolean) {
 function normalizeMongoDateInput(value: string) {
   const trimmed = value.trim()
   const isoDate = trimmed.match(/^ISODate\("([^"]+)"\)$/)
-  return isoDate?.[1] ?? trimmed
+  const normalized = isoDate?.[1] ?? trimmed
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? `${normalized}T00:00:00.000Z`
+    : normalized
 }
 
 function normalizeMongoObjectIdInput(value: string) {
@@ -292,6 +314,12 @@ function normalizeMongoObjectIdInput(value: string) {
 
 function escapeMongoRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function mongoTypeValue(value: string) {
+  const trimmed = value.trim()
+  const numeric = Number(trimmed)
+  return trimmed && Number.isInteger(numeric) ? numeric : trimmed
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

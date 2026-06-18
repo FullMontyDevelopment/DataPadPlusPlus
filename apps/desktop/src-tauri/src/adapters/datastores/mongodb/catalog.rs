@@ -18,6 +18,7 @@ pub(super) fn mongodb_manifest() -> AdapterManifest {
             "supports_explain_plan",
             "supports_plan_visualization",
             "supports_query_profile",
+            "supports_query_cancellation",
             "supports_result_snapshots",
             "supports_metrics_collection",
             "supports_structure_visualization",
@@ -29,7 +30,7 @@ pub(super) fn mongodb_manifest() -> AdapterManifest {
 
 pub(super) fn mongodb_execution_capabilities() -> ExecutionCapabilities {
     ExecutionCapabilities {
-        can_cancel: false,
+        can_cancel: true,
         can_explain: true,
         supports_live_metadata: true,
         editor_language: "json".into(),

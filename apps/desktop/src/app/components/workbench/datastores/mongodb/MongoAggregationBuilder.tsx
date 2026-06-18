@@ -5,11 +5,19 @@ import type {
   QueryBuilderState,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
+import type { DragEvent, PointerEvent } from 'react'
 import { useRef } from 'react'
 import { BuilderSection } from '../../query-builder/BuilderSection'
 import { buildMongoAggregationQueryText } from '../../query-builder/mongo-aggregation'
 import { mongoQueryScopeForTab } from '../../query-builder/mongo-query-scope'
 import { MongoScopeSummary } from './MongoScopeSummary'
+import {
+  acceptMongoBuilderRowDrag,
+  acceptMongoBuilderRowPointerDrop,
+  clearMongoBuilderRowDrag,
+  mongoBuilderPointerTarget,
+  MongoBuilderDragHandle,
+} from './MongoBuilderRowDrag'
 
 const STAGE_OPTIONS = [
   '$match',
@@ -84,6 +92,16 @@ export function MongoAggregationBuilder({
     }
   }
 
+  const moveStageTo = (
+    stageId: string,
+    targetStageId: string,
+    placement: RowDropPlacement,
+  ) => {
+    updateDraft({
+      stages: moveRow(draft.stages, stageId, targetStageId, placement),
+    })
+  }
+
   const removeStage = (stageId: string) => {
     updateDraft({ stages: draft.stages.filter((stage) => stage.id !== stageId) })
   }
@@ -147,7 +165,55 @@ export function MongoAggregationBuilder({
         ) : (
           <div className="query-builder-rows">
             {draft.stages.map((stage, index) => (
-              <div className="query-builder-row query-builder-row--wide" key={stage.id}>
+              <div
+                className="query-builder-row query-builder-row--wide query-builder-row--draggable"
+                data-mongo-builder-row-kind="stage"
+                data-mongo-builder-row-id={stage.id}
+                key={stage.id}
+                onDragOverCapture={(event) => {
+                  if (acceptMongoBuilderRowDrag(event, 'stage')) {
+                    event.stopPropagation()
+                  }
+                }}
+                onDropCapture={(event) => {
+                  const payload = acceptMongoBuilderRowDrag(event, 'stage')
+
+                  if (!payload) {
+                    return
+                  }
+
+                  event.stopPropagation()
+                  moveStageTo(payload.rowId, stage.id, rowDropPlacement(event))
+                  clearMongoBuilderRowDrag()
+                }}
+                onPointerUpCapture={(event) => {
+                  const payload = acceptMongoBuilderRowPointerDrop(event, 'stage')
+
+                  if (!payload) {
+                    return
+                  }
+
+                  const targetRow = mongoBuilderCompatibleRowElement(
+                    mongoBuilderPointerTarget(event),
+                    'stage',
+                  )
+                  const targetRowId = targetRow?.dataset.mongoBuilderRowId
+
+                  if (!targetRowId) {
+                    clearMongoBuilderRowDrag()
+                    return
+                  }
+
+                  event.stopPropagation()
+                  moveStageTo(payload.rowId, targetRowId, rowPointerDropPlacement(event, targetRow))
+                  clearMongoBuilderRowDrag()
+                }}
+              >
+                <MongoBuilderDragHandle
+                  kind="stage"
+                  label={`Drag stage ${index + 1}`}
+                  rowId={stage.id}
+                />
                 <label className="query-builder-toggle">
                   <input
                     aria-label={`Apply stage ${index + 1}`}
@@ -197,4 +263,45 @@ export function MongoAggregationBuilder({
 function positiveInteger(value: string, fallback: number) {
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
+}
+
+type RowDropPlacement = 'before' | 'after'
+
+function moveRow<T extends { id: string }>(
+  rows: T[],
+  rowId: string,
+  targetRowId: string,
+  placement: RowDropPlacement,
+) {
+  const moving = rows.find((row) => row.id === rowId)
+
+  if (!moving || rowId === targetRowId) {
+    return rows
+  }
+
+  const withoutMoving = rows.filter((row) => row.id !== rowId)
+  const targetIndex = withoutMoving.findIndex((row) => row.id === targetRowId)
+
+  if (targetIndex < 0) {
+    return [...withoutMoving, moving]
+  }
+
+  const next = [...withoutMoving]
+  next.splice(placement === 'after' ? targetIndex + 1 : targetIndex, 0, moving)
+  return next
+}
+
+function rowDropPlacement(event: DragEvent<HTMLElement>): RowDropPlacement {
+  const rect = event.currentTarget.getBoundingClientRect()
+  return event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+}
+
+function rowPointerDropPlacement(event: PointerEvent<HTMLElement>, element = event.currentTarget): RowDropPlacement {
+  const rect = element.getBoundingClientRect()
+  return event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+}
+
+function mongoBuilderCompatibleRowElement(target: HTMLElement | undefined, kind: string) {
+  const row = target?.closest<HTMLElement>('[data-mongo-builder-row-id]')
+  return row?.dataset.mongoBuilderRowKind === kind ? row : undefined
 }

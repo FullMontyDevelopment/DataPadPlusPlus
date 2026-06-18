@@ -79,6 +79,33 @@ describe('EditorToolbar', () => {
     expect(onAddDocument).toHaveBeenCalledTimes(1)
   })
 
+  it('enables cancellation while a cancellable Mongo query is running', () => {
+    const onCancel = vi.fn()
+
+    render(
+      <EditorToolbar
+        executionStatus="loading"
+        capabilities={{ ...baseCapabilities, canCancel: true, editorLanguage: 'mongodb' }}
+        canCancelExecution
+        bottomPanelVisible={false}
+        canToggleBuilderView
+        builderKind="mongo-find"
+        queryWindowMode="builder"
+        onExecute={vi.fn()}
+        onExplain={vi.fn()}
+        onCancel={onCancel}
+        onOpenConnectionDrawer={vi.fn()}
+        onToggleBottomPanel={vi.fn()}
+        onToggleQueryWindowMode={vi.fn()}
+      />,
+    )
+
+    const cancelButton = screen.getByRole('button', { name: 'Cancel query' })
+    expect(cancelButton).not.toBeDisabled()
+    fireEvent.click(cancelButton)
+    expect(onCancel).toHaveBeenCalledOnce()
+  })
+
   it('makes active document efficiency mode visually and semantically obvious', () => {
     const onToggleDocumentEfficiency = vi.fn()
     const { container } = render(
