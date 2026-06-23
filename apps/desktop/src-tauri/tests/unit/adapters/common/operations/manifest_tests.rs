@@ -289,7 +289,10 @@ fn wave_four_document_operation_manifests_expose_native_management_previews() {
             .find(|operation| operation.id == operation_id)
             .expect("LiteDB management operation");
         assert_eq!(operation.execution_support, "live");
-        assert_eq!(operation.preview_only, Some(false));
+        assert_eq!(
+            operation.preview_only,
+            Some(matches!(operation.risk.as_str(), "write" | "destructive"))
+        );
         assert!(operation.disabled_reason.is_none());
         assert!(operation.description.contains("configured sidecar"));
     }

@@ -15,7 +15,7 @@ pub(crate) async fn execute_mongodb_management_operation(
     operation: DatastoreOperationManifest,
     plan: OperationPlan,
     mut messages: Vec<String>,
-    mut warnings: Vec<String>,
+    warnings: Vec<String>,
 ) -> Result<OperationExecutionResponse, CommandError> {
     match request.operation_id.as_str() {
         "mongodb.database.create" => {
@@ -25,7 +25,7 @@ pub(crate) async fn execute_mongodb_management_operation(
                 &operation,
                 plan,
                 &mut messages,
-                &mut warnings,
+                &warnings,
             )
             .await
         }
@@ -36,7 +36,7 @@ pub(crate) async fn execute_mongodb_management_operation(
                 &operation,
                 plan,
                 &mut messages,
-                &mut warnings,
+                &warnings,
             )
             .await
         }
@@ -47,7 +47,7 @@ pub(crate) async fn execute_mongodb_management_operation(
                 &operation,
                 plan,
                 &mut messages,
-                &mut warnings,
+                &warnings,
             )
             .await
         }
@@ -57,10 +57,14 @@ pub(crate) async fn execute_mongodb_management_operation(
                 request,
                 &operation,
                 plan,
-                &mut messages,
-                &mut warnings,
-                "drop",
-                "MongoDB dropped collection",
+                MongoOperationBuffers {
+                    messages: &mut messages,
+                    warnings: &warnings,
+                },
+                MongoCollectionCommandLabels {
+                    action: "drop",
+                    success_prefix: "MongoDB dropped collection",
+                },
                 |collection_name| Ok(doc! { "drop": collection_name }),
             )
             .await
@@ -72,7 +76,7 @@ pub(crate) async fn execute_mongodb_management_operation(
                 &operation,
                 plan,
                 &mut messages,
-                &mut warnings,
+                &warnings,
             )
             .await
         }
@@ -83,7 +87,7 @@ pub(crate) async fn execute_mongodb_management_operation(
                 &operation,
                 plan,
                 &mut messages,
-                &mut warnings,
+                &warnings,
             )
             .await
         }
@@ -94,7 +98,7 @@ pub(crate) async fn execute_mongodb_management_operation(
                 &operation,
                 plan,
                 &mut messages,
-                &mut warnings,
+                &warnings,
             )
             .await
         }
@@ -105,7 +109,7 @@ pub(crate) async fn execute_mongodb_management_operation(
                 &operation,
                 plan,
                 &mut messages,
-                &mut warnings,
+                &warnings,
             )
             .await
         }
@@ -116,7 +120,7 @@ pub(crate) async fn execute_mongodb_management_operation(
                 &operation,
                 plan,
                 &mut messages,
-                &mut warnings,
+                &warnings,
             )
             .await
         }
@@ -127,7 +131,7 @@ pub(crate) async fn execute_mongodb_management_operation(
                 &operation,
                 plan,
                 &mut messages,
-                &mut warnings,
+                &warnings,
             )
             .await
         }
@@ -143,7 +147,7 @@ async fn execute_create_database(
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
     let Some(database_name) = string_parameter(request, "database")
         .or_else(|| clean_object_name(request.object_name.as_deref()))
@@ -153,7 +157,7 @@ async fn execute_create_database(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB database creation needs a database name.",
         ));
     };
@@ -163,7 +167,7 @@ async fn execute_create_database(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB database creation needs the first collection name.",
         ));
     };
@@ -189,7 +193,7 @@ async fn execute_create_database(
             &result,
         )),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_owned(),
     ))
 }
 
@@ -199,7 +203,7 @@ async fn execute_drop_database(
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
     let database_name = workflow_database_name(connection, request);
     if SYSTEM_DATABASES.contains(&database_name.as_str()) {
@@ -208,7 +212,7 @@ async fn execute_drop_database(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "DataPad++ blocks dropping MongoDB system databases: admin, config, and local.",
         ));
     }
@@ -227,7 +231,7 @@ async fn execute_drop_database(
         true,
         Some(command_metadata(&database_name, None, &command, &result)),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_owned(),
     ))
 }
 
@@ -237,7 +241,7 @@ async fn execute_create_collection(
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
     let database_name = workflow_database_name(connection, request);
     let Some(collection_name) = workflow_collection_name(request) else {
@@ -246,7 +250,7 @@ async fn execute_create_collection(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB collection creation needs a collection name.",
         ));
     };
@@ -272,7 +276,7 @@ async fn execute_create_collection(
             &result,
         )),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_owned(),
     ))
 }
 
@@ -282,7 +286,7 @@ async fn execute_rename_collection(
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
     let database_name = workflow_database_name(connection, request);
     let Some(collection_name) = workflow_collection_name(request) else {
@@ -291,7 +295,7 @@ async fn execute_rename_collection(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB collection rename needs a source collection name.",
         ));
     };
@@ -304,7 +308,7 @@ async fn execute_rename_collection(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB collection rename needs a new collection name.",
         ));
     };
@@ -337,7 +341,7 @@ async fn execute_rename_collection(
             &result,
         )),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_owned(),
     ))
 }
 
@@ -347,7 +351,7 @@ async fn execute_modify_collection(
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
     let database_name = workflow_database_name(connection, request);
     let Some(collection_name) = workflow_collection_name(request) else {
@@ -356,7 +360,7 @@ async fn execute_modify_collection(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB collection modification needs a collection name.",
         ));
     };
@@ -370,7 +374,7 @@ async fn execute_modify_collection(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB collMod needs at least one modification option.",
         ));
     }
@@ -395,7 +399,7 @@ async fn execute_modify_collection(
             &result,
         )),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_owned(),
     ))
 }
 
@@ -405,7 +409,7 @@ async fn execute_convert_to_capped(
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
     let database_name = workflow_database_name(connection, request);
     let Some(collection_name) = workflow_collection_name(request) else {
@@ -414,7 +418,7 @@ async fn execute_convert_to_capped(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB convert to capped needs a collection name.",
         ));
     };
@@ -424,7 +428,7 @@ async fn execute_convert_to_capped(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB convert to capped needs a size in bytes.",
         ));
     };
@@ -449,7 +453,7 @@ async fn execute_convert_to_capped(
             &result,
         )),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_owned(),
     ))
 }
 
@@ -459,7 +463,7 @@ async fn execute_clone_as_capped(
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
     let database_name = workflow_database_name(connection, request);
     let Some(collection_name) = workflow_collection_name(request) else {
@@ -468,7 +472,7 @@ async fn execute_clone_as_capped(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB clone as capped needs a source collection name.",
         ));
     };
@@ -480,7 +484,7 @@ async fn execute_clone_as_capped(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB clone as capped needs a target collection name.",
         ));
     };
@@ -490,7 +494,7 @@ async fn execute_clone_as_capped(
             operation,
             plan,
             messages.clone(),
-            warnings.clone(),
+            warnings.to_owned(),
             "MongoDB clone as capped needs a size in bytes.",
         ));
     };
@@ -519,7 +523,7 @@ async fn execute_clone_as_capped(
             &result,
         )),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_owned(),
     ))
 }
 
@@ -529,17 +533,18 @@ async fn execute_compact_collection(
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
     execute_collection_command(
         connection,
         request,
         operation,
         plan,
-        messages,
-        warnings,
-        "compact",
-        "MongoDB compacted collection",
+        MongoOperationBuffers { messages, warnings },
+        MongoCollectionCommandLabels {
+            action: "compact",
+            success_prefix: "MongoDB compacted collection",
+        },
         |collection_name| {
             let mut command = doc! { "compact": collection_name };
             if let Some(force) = bool_parameter(request, "force") {
@@ -558,17 +563,18 @@ async fn execute_validate_collection(
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
     execute_collection_command(
         connection,
         request,
         operation,
         plan,
-        messages,
-        warnings,
-        "validate",
-        "MongoDB validated collection",
+        MongoOperationBuffers { messages, warnings },
+        MongoCollectionCommandLabels {
+            action: "validate",
+            success_prefix: "MongoDB validated collection",
+        },
         |collection_name| {
             let mut command = doc! { "validate": collection_name };
             if let Some(full) = bool_parameter(request, "full") {
@@ -581,15 +587,23 @@ async fn execute_validate_collection(
     .await
 }
 
+struct MongoOperationBuffers<'a> {
+    messages: &'a mut Vec<String>,
+    warnings: &'a [String],
+}
+
+struct MongoCollectionCommandLabels {
+    action: &'static str,
+    success_prefix: &'static str,
+}
+
 async fn execute_collection_command<F>(
     connection: &ResolvedConnectionProfile,
     request: &OperationExecutionRequest,
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
-    messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
-    action: &str,
-    success_prefix: &str,
+    buffers: MongoOperationBuffers<'_>,
+    labels: MongoCollectionCommandLabels,
     command_builder: F,
 ) -> Result<OperationExecutionResponse, CommandError>
 where
@@ -601,9 +615,12 @@ where
             request,
             operation,
             plan,
-            messages.clone(),
-            warnings.clone(),
-            &format!("MongoDB collection {action} needs a collection name."),
+            buffers.messages.clone(),
+            buffers.warnings.to_owned(),
+            &format!(
+                "MongoDB collection {} needs a collection name.",
+                labels.action
+            ),
         ));
     };
     let command = command_builder(&collection_name)?;
@@ -612,8 +629,9 @@ where
         .database(&database_name)
         .run_command(command.clone())
         .await?;
-    messages.push(format!(
-        "{success_prefix} {database_name}.{collection_name}."
+    buffers.messages.push(format!(
+        "{} {database_name}.{collection_name}.",
+        labels.success_prefix
     ));
     Ok(operation_response(
         request,
@@ -626,8 +644,8 @@ where
             &command,
             &result,
         )),
-        messages.clone(),
-        warnings.clone(),
+        buffers.messages.clone(),
+        buffers.warnings.to_owned(),
     ))
 }
 

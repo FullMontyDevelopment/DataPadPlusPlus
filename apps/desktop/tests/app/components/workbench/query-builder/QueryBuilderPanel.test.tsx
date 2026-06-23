@@ -13,7 +13,7 @@ import { createDefaultCqlPartitionBuilderState } from '../../../../../src/app/co
 import { createDefaultDynamoDbKeyConditionBuilderState } from '../../../../../src/app/components/workbench/query-builder/dynamodb-key-condition'
 import { createDefaultMongoAggregationBuilderState } from '../../../../../src/app/components/workbench/query-builder/mongo-aggregation'
 import { createDefaultMongoFindBuilderState } from '../../../../../src/app/components/workbench/query-builder/mongo-find'
-import { clearMongoBuilderRowDrag } from '../../../../../src/app/components/workbench/datastores/mongodb/MongoBuilderRowDrag'
+import { clearMongoBuilderRowDrag } from '../../../../../src/app/components/workbench/datastores/mongodb/MongoBuilderRowDrag.helpers'
 import { QueryBuilderPanel } from '../../../../../src/app/components/workbench/query-builder/QueryBuilderPanel'
 import { createDefaultRedisKeyBrowserState } from '../../../../../src/app/components/workbench/query-builder/redis-key-browser'
 import { createDefaultSearchDslBuilderState } from '../../../../../src/app/components/workbench/query-builder/search-dsl'

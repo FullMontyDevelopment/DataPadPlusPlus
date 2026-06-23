@@ -181,14 +181,14 @@ export function RedisKeyBrowserPanel({
       return
     }
     inspectingKeysRef.current.add(inspectKey)
-    void onInspectRedisKey({
+    void Promise.resolve(onInspectRedisKey({
       tabId: tab.id,
       connectionId: tab.connectionId,
       environmentId: tab.environmentId,
       databaseIndex,
       key,
       sampleSize: builderState.pageSize ?? 100,
-    }).finally(() => {
+    })).finally(() => {
       inspectingKeysRef.current.delete(inspectKey)
     })
   }

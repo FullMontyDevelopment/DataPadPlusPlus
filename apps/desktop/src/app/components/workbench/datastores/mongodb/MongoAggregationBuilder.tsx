@@ -16,8 +16,8 @@ import {
   acceptMongoBuilderRowPointerDrop,
   clearMongoBuilderRowDrag,
   mongoBuilderPointerTarget,
-  MongoBuilderDragHandle,
-} from './MongoBuilderRowDrag'
+} from './MongoBuilderRowDrag.helpers'
+import { MongoBuilderDragHandle } from './MongoBuilderRowDrag'
 
 const STAGE_OPTIONS = [
   '$match',

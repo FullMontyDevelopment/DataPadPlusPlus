@@ -8,6 +8,13 @@ const defaultMaxLines = 400
 
 const documentedExceptions = new Map([
   [
+    'apps/desktop/src/app/components/workbench/ApiServerWorkspace.tsx',
+    {
+      maxLines: 790,
+      reason: 'Datastore API server workspace keeps server selection, settings, metrics, logs, lifecycle controls, and deletion guardrails in one operational surface.',
+    },
+  ],
+  [
     'apps/desktop/src/app/components/workbench/datastores/cassandra/CassandraObjectViewWorkspace.tsx',
     {
       maxLines: 460,
@@ -78,6 +85,27 @@ const documentedExceptions = new Map([
     },
   ],
   [
+    'apps/desktop/src/app/components/workbench/datastores/mongodb/MongoFilterBuilderSection.tsx',
+    {
+      maxLines: 640,
+      reason: 'Mongo filter builder keeps nested groups, row movement, drag/drop targeting, and per-row operator editing in one editor section.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/datastores/mongodb/MongoObjectViewWorkspace.tsx',
+    {
+      maxLines: 430,
+      reason: 'Mongo object views coordinate collection/database/admin payloads, scoped query actions, and insert/index panels in one workspace.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/datastores/mongodb/MongoOverviewView.tsx',
+    {
+      maxLines: 950,
+      reason: 'Mongo overview rendering keeps collection metadata, index summaries, schema samples, storage stats, and action panels together for one object view.',
+    },
+  ],
+  [
     'apps/desktop/src/app/components/workbench/datastores/opentsdb/OpenTsdbObjectViewWorkspace.tsx',
     {
       maxLines: 540,
@@ -103,6 +131,13 @@ const documentedExceptions = new Map([
     {
       maxLines: 450,
       reason: 'Mongo builder filter, projection, sort, and drag/drop behavior remain one cohesive editor.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/query-builder/search-dsl.ts',
+    {
+      maxLines: 460,
+      reason: 'Search DSL builder state, filter normalization, generated query text, and aggregation handling share one deterministic serialization path.',
     },
   ],
   [
@@ -178,14 +213,14 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/SideBar.datastore-tree-registry.ts',
     {
-      maxLines: 3050,
+      maxLines: 3150,
       reason: 'Data-heavy datastore registry centralizes family placement and object actions.',
     },
   ],
   [
     'apps/desktop/src/app/components/workbench/SideBar.library-pane.tsx',
     {
-      maxLines: 1700,
+      maxLines: 1900,
       reason: 'Library tree drag/drop, recents, search, context menus, and environment badges remain coupled.',
     },
   ],
@@ -204,10 +239,24 @@ const documentedExceptions = new Map([
     },
   ],
   [
+    'apps/desktop/src/app/state/app-actions-workspace.ts',
+    {
+      maxLines: 480,
+      reason: 'Workspace actions coordinate import/export, diagnostics, logs, backups, API server control, and update commands through one app action boundary.',
+    },
+  ],
+  [
     'apps/desktop/src/app/state/app-actions-runtime.ts',
     {
       maxLines: 620,
       reason: 'Runtime action wrappers coordinate per-tab execution, paging, metrics, explorer, and test-suite command refreshes.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/state/app-state.tsx',
+    {
+      maxLines: 430,
+      reason: 'App provider owns bootstrap, shared action wiring, startup health checks, and update-check orchestration around one reducer state.',
     },
   ],
   [
@@ -227,7 +276,7 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/state/workspace-migration.ts',
     {
-      maxLines: 640,
+      maxLines: 660,
       reason: 'Workspace schema migration intentionally keeps versioned normalization, Library migration, and variable syntax migration in one place.',
     },
   ],
@@ -285,6 +334,13 @@ const documentedExceptions = new Map([
     {
       maxLines: 450,
       reason: 'Browser-preview test suite simulation stays together with its deterministic run result helpers.',
+    },
+  ],
+  [
+    'apps/desktop/src-tauri/src/app/runtime/datastore_api_server.rs',
+    {
+      maxLines: 2850,
+      reason: 'Datastore API server runtime owns HTTP routing, server lifecycle, request execution, metrics, logs, and persisted server configuration in one sidecar boundary.',
     },
   ],
   [

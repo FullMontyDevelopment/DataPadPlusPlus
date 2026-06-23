@@ -397,9 +397,10 @@ pub fn delete_server(
             .push(DatastoreApiServerConfig::default());
     }
     if preferences.active_server_id.as_deref() == Some(&request.server_id)
-        || preferences.active_server_id.as_ref().map_or(true, |id| {
-            !preferences.servers.iter().any(|server| &server.id == id)
-        })
+        || preferences
+            .active_server_id
+            .as_ref()
+            .is_none_or(|id| !preferences.servers.iter().any(|server| &server.id == id))
     {
         preferences.active_server_id = preferences.servers.first().map(|server| server.id.clone());
     }
@@ -863,12 +864,12 @@ impl ApiServerTelemetry {
             .filter(|entry| {
                 method
                     .as_ref()
-                    .map_or(true, |method| entry.method.eq_ignore_ascii_case(method))
+                    .is_none_or(|method| entry.method.eq_ignore_ascii_case(method))
                     && request
                         .route
                         .as_ref()
-                        .map_or(true, |route| &entry.route == route)
-                    && request.status.map_or(true, |status| entry.status == status)
+                        .is_none_or(|route| &entry.route == route)
+                    && request.status.is_none_or(|status| entry.status == status)
             })
             .take(limit)
             .cloned()
@@ -1055,7 +1056,7 @@ async fn handle_request(request: HttpRequest, state: Arc<ApiServerRuntime>) -> H
             code,
             message,
             details,
-        }) => json_error_response(status, code, message, details),
+        }) => json_error_response(status, code, message, details.map(|value| *value)),
     }
 }
 
@@ -1569,7 +1570,7 @@ async fn execute_resource_mutation(
             status: 409,
             code: "crud-not-executed".into(),
             message: "The datastore adapter did not execute this CRUD mutation.".into(),
-            details: Some(json!(response)),
+            details: Some(Box::new(json!(response))),
         });
     }
 
@@ -1993,9 +1994,9 @@ fn parse_target(target: &str) -> (String, HashMap<String, String>) {
     let query = query
         .split('&')
         .filter(|item| !item.is_empty())
-        .filter_map(|item| {
+        .map(|item| {
             let (key, value) = item.split_once('=').unwrap_or((item, ""));
-            Some((percent_decode(key), percent_decode(value)))
+            (percent_decode(key), percent_decode(value))
         })
         .collect();
     (path.to_string(), query)
@@ -2727,9 +2728,15 @@ fn json_response<T: Serialize>(status: u16, body: T) -> HttpResponse {
 }
 
 fn html_response(status: u16, body: String) -> HttpResponse {
+    let reason = match status {
+        200 => "OK",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        _ => "OK",
+    };
     HttpResponse {
         status,
-        reason: if status == 200 { "OK" } else { "OK" },
+        reason,
         content_type: "text/html; charset=utf-8",
         body: body.into_bytes(),
         error_code: None,
@@ -2796,7 +2803,7 @@ struct ApiRouteError {
     status: u16,
     code: String,
     message: String,
-    details: Option<Value>,
+    details: Option<Box<Value>>,
 }
 
 impl ApiRouteError {

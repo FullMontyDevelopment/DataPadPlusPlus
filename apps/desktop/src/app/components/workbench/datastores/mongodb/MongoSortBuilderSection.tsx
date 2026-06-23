@@ -8,8 +8,8 @@ import {
   acceptMongoBuilderRowPointerDrop,
   clearMongoBuilderRowDrag,
   mongoBuilderPointerTarget,
-  MongoBuilderDragHandle,
-} from './MongoBuilderRowDrag'
+} from './MongoBuilderRowDrag.helpers'
+import { MongoBuilderDragHandle } from './MongoBuilderRowDrag'
 
 export function MongoSortBuilderSection({
   dragActive,

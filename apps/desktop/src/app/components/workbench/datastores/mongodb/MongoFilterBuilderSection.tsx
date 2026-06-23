@@ -11,9 +11,9 @@ import {
   acceptMongoBuilderRowPointerDrop,
   clearMongoBuilderRowDrag,
   mongoBuilderPointerTarget,
-  MongoBuilderDragHandle,
   type MongoBuilderRowDragPayload,
-} from './MongoBuilderRowDrag'
+} from './MongoBuilderRowDrag.helpers'
+import { MongoBuilderDragHandle } from './MongoBuilderRowDrag'
 
 const FILTER_OPERATORS: Array<{ value: MongoFilterOperator; label: string }> = [
   { value: 'eq', label: '=' },

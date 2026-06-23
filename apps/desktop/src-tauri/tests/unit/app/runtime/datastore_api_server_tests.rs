@@ -85,8 +85,7 @@ fn read_queries_honor_identity_when_supported() {
     assert!(dynamo.contains("\"pk\":{\"S\":\"order-1\"}"));
     assert!(dynamo.contains("\"sk\":{\"N\":\"42\"}"));
 
-    let dynamo_scan =
-        read_query_for("widecolumn", "dynamodb", "item", "Orders", 10, None).unwrap();
+    let dynamo_scan = read_query_for("widecolumn", "dynamodb", "item", "Orders", 10, None).unwrap();
     assert!(dynamo_scan.contains("\"operation\":\"Scan\""));
 }
 

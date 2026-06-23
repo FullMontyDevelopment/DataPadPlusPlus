@@ -1574,7 +1574,8 @@ pub(crate) fn operation_manifests_for_manifest(
             ) {
                 operation.execution_support = "live".into();
                 operation.disabled_reason = None;
-                operation.preview_only = Some(false);
+                operation.preview_only =
+                    Some(matches!(operation.risk.as_str(), "write" | "destructive"));
                 if operation.id.contains("file-storage") {
                     operation.description =
                         "Run guarded LiteDB file-storage import, export, or delete through the configured sidecar with before/after evidence."
