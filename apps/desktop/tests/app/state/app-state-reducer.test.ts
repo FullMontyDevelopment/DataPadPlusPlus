@@ -2,8 +2,39 @@ import type { ExecutionResponse, ExplorerResponse, QueryTabState } from '@datapa
 import { describe, expect, it } from 'vitest'
 import { createSeedBootstrapPayload } from '../../fixtures/seed-workspace'
 import { initialState, reducer } from '../../../src/app/state/app-state-reducer'
+import { shouldDispatchCommandError } from '../../../src/app/state/app-state'
 import type { StateShape } from '../../../src/app/state/app-state-types'
 import { connectionHealthKey } from '../../../src/app/state/connection-health'
+
+describe('app-state command error routing', () => {
+  it('lets scoped actions suppress generic Desktop command messages', () => {
+    expect(shouldDispatchCommandError({ suppressWorkbenchMessage: true })).toBe(false)
+    expect(shouldDispatchCommandError()).toBe(true)
+  })
+
+  it('still adds a workbench message for non-scoped command failures', () => {
+    const state = reducer(
+      {
+        ...initialState,
+        status: 'ready',
+        payload: createSeedBootstrapPayload(),
+      },
+      {
+        type: 'COMMAND_ERROR',
+        message: 'Unable to save workspace.',
+      },
+    )
+
+    expect(state.workbenchMessages[0]).toEqual(
+      expect.objectContaining({
+        message: 'Unable to save workspace.',
+        source: 'Desktop command',
+      }),
+    )
+    expect(state.payload?.snapshot.ui.bottomPanelVisible).toBe(true)
+    expect(state.payload?.snapshot.ui.activeBottomPanelTab).toBe('messages')
+  })
+})
 
 describe('app-state reducer connection health', () => {
   it('tracks health independently by connection and environment', () => {

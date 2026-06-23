@@ -270,7 +270,7 @@ export function useRuntimeActions({
           })
         }
         recordIssue(request.connectionId, request.environmentId, 'redis-browser', message)
-        handleError(error)
+        handleError(error, { suppressWorkbenchMessage: true })
         return undefined
       }
     },
@@ -338,7 +338,7 @@ export function useRuntimeActions({
           message,
         })
         recordIssue(request.connectionId, request.environmentId, 'redis-browser', message)
-        handleError(error)
+        handleError(error, { suppressWorkbenchMessage: true })
       }
     },
     [dispatch, handleError, recordConnected, recordIssue, state.payload, stateRef],
@@ -437,7 +437,7 @@ export function useRuntimeActions({
         if (latestTab) {
           recordIssue(latestTab.connectionId, latestTab.environmentId, 'query', message)
         }
-        handleError(error)
+        handleError(error, { suppressWorkbenchMessage: true })
       }
     },
     [dispatch, handleError, recordConnected, recordIssue, stateRef],
@@ -522,7 +522,7 @@ export function useRuntimeActions({
         if (latestTab) {
           recordIssue(latestTab.connectionId, latestTab.environmentId, 'query', message)
         }
-        handleError(error)
+        handleError(error, { suppressWorkbenchMessage: true })
       }
     },
     [dispatch, handleError, recordConnected, recordIssue, stateRef],
@@ -543,7 +543,7 @@ export function useRuntimeActions({
       } catch (error) {
         const message = toUserMessage(error, 'Unable to load document node.')
         recordIssue(request.connectionId, request.environmentId, 'query', message)
-        handleError(error)
+        handleError(error, { suppressWorkbenchMessage: true })
         return undefined
       }
     },

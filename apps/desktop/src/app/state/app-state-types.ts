@@ -97,6 +97,10 @@ export interface WorkbenchMessage {
   details?: string
 }
 
+export interface AppErrorOptions {
+  suppressWorkbenchMessage?: boolean
+}
+
 export interface ExplorerCacheEntry {
   connectionId: string
   environmentId: string
@@ -360,5 +364,5 @@ export interface AppActionContext {
   stateRef: MutableRefObject<StateShape>
   dispatch: Dispatch<AppAction>
   applyPayload(payload: BootstrapPayload): void
-  handleError(error: unknown): void
+  handleError(error: unknown, options?: AppErrorOptions): void
 }

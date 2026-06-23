@@ -1,5 +1,6 @@
 use std::{
     fs,
+    hash::{DefaultHasher, Hash, Hasher},
     path::{Path, PathBuf},
     sync::MutexGuard,
 };
@@ -13,8 +14,8 @@ use tauri_plugin_dialog::{DialogExt, FilePath};
 use crate::{
     adapters,
     app::runtime::{
-        datastore_api_server, generate_id, timestamp_now, ActiveExecutionRegistry,
-        ManagedAppState, SharedAppState, SharedExecutionRegistry,
+        datastore_api_server, generate_id, timestamp_now, ActiveExecutionRegistry, ManagedAppState,
+        SharedAppState, SharedExecutionRegistry,
     },
     domain::{
         error::CommandError,
@@ -31,18 +32,17 @@ use crate::{
             DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, EnvironmentProfile,
             ExecuteTestSuiteRequest, ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse,
             ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse,
-            ExportBundle, ExportResultFileRequest, ExportResultFileResponse,
-            GuardrailDecision,
+            ExportBundle, ExportResultFileRequest, ExportResultFileResponse, GuardrailDecision,
             LibraryCreateFolderRequest, LibraryDeleteNodeRequest, LibraryMoveNodeRequest,
             LibraryRenameNodeRequest, LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest,
             LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult,
             OpenTestSuiteTemplateRequest, OperationExecutionRequest, OperationExecutionResponse,
             OperationManifestRequest, OperationManifestResponse, OperationPlanRequest,
             OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse,
-            QueryHistoryEntry, QueryTabActiveExecution, QueryTabReorderRequest, RedisKeyInspectRequest,
-            RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
-            SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
-            StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
+            QueryHistoryEntry, QueryTabActiveExecution, QueryTabReorderRequest,
+            RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest,
+            ResultPageResponse, SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest,
+            SavedWorkItem, StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
             UpdateTestSuiteTabRequest, UpdateUiStateRequest, UserFacingError,
             WorkspaceBackupDeleteRequest, WorkspaceBackupRestoreRequest, WorkspaceBackupRunRequest,
             WorkspaceBackupRunResponse, WorkspaceBackupSettingsRequest, WorkspaceBackupSummary,
@@ -154,6 +154,23 @@ fn clear_tab_execution_after_error(
     });
     state.snapshot.updated_at = timestamp_now();
     state.persist()
+}
+
+fn clear_tab_execution_after_error_best_effort(
+    state: &State<'_, SharedAppState>,
+    tab_id: &str,
+    execution_id: &str,
+    message: String,
+) {
+    if let Err(error) = clear_tab_execution_after_error(state, tab_id, execution_id, message) {
+        infrastructure::log_warning(
+            "command",
+            format!(
+                "execution-error-cleanup-failed tab={} execution={} code={} message={}",
+                tab_id, execution_id, error.code, error.message
+            ),
+        );
+    }
 }
 
 fn clear_tab_execution_after_cancel(
@@ -282,7 +299,19 @@ fn merge_execution_response(
     }
 
     state.snapshot.updated_at = timestamp_now();
-    state.persist()?;
+    if let Err(error) = state.persist() {
+        infrastructure::log_warning(
+            "command",
+            format!(
+                "execution-result-persist-failed tab={} execution={} code={} message={}",
+                response.tab.id, response.execution_id, error.code, error.message
+            ),
+        );
+        response.diagnostics.push(
+            "Result loaded, but DataPad++ could not save this execution to workspace history."
+                .into(),
+        );
+    }
     Ok(response)
 }
 
@@ -863,8 +892,50 @@ pub async fn scan_redis_keys(
     state: State<'_, SharedAppState>,
     request: RedisKeyScanRequest,
 ) -> Result<RedisKeyScanResponse, CommandError> {
+    let connection_id = request.connection_id.clone();
+    let environment_id = request.environment_id.clone();
+    let database_index = request
+        .database_index
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "<default>".into());
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "redis-scan-start connection={} environment={} db={}",
+            connection_id,
+            breadcrumb_environment(&environment_id),
+            database_index
+        ),
+    );
     let runtime = clone_runtime(&state)?;
-    runtime.scan_redis_keys(request).await
+    let response = runtime.scan_redis_keys(request).await;
+    match &response {
+        Ok(response) => infrastructure::log_breadcrumb(
+            "command",
+            format!(
+                "redis-scan-complete connection={} environment={} db={} keys={} scanned={}",
+                response.connection_id,
+                breadcrumb_environment(&response.environment_id),
+                response
+                    .database_index
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "<default>".into()),
+                response.keys.len(),
+                response.scanned_count
+            ),
+        ),
+        Err(error) => infrastructure::log_breadcrumb(
+            "command",
+            format!(
+                "redis-scan-failed connection={} environment={} db={} code={}",
+                connection_id,
+                breadcrumb_environment(&environment_id),
+                database_index,
+                error.code
+            ),
+        ),
+    }
+    response
 }
 
 #[tauri::command]
@@ -878,16 +949,65 @@ pub async fn inspect_redis_key(
         .unwrap_or_else(|| generate_id("execution"));
     request.execution_id = Some(execution_id.clone());
     let tab_id = request.tab_id.clone();
+    let connection_id = request.connection_id.clone();
+    let environment_id = request.environment_id.clone();
+    let database_index = request
+        .database_index
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "<default>".into());
+    let key_len = request.key.chars().count();
+    let key_hash = breadcrumb_key_hash(&request.key);
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "redis-inspect-start execution={} connection={} environment={} db={} keyLen={} keyHash={:016x}",
+            execution_id,
+            connection_id,
+            breadcrumb_environment(&environment_id),
+            database_index,
+            key_len,
+            key_hash
+        ),
+    );
     mark_tab_execution_running(&state, &tab_id, &execution_id, None)?;
     let mut runtime = clone_runtime(&state)?;
-    match runtime.inspect_redis_key(request).await {
+    let response = match runtime.inspect_redis_key(request).await {
         Ok(response) => merge_execution_response(&state, response),
         Err(error) => {
             let message = error.message.clone();
-            clear_tab_execution_after_error(&state, &tab_id, &execution_id, message)?;
+            let error_code = error.code.clone();
+            clear_tab_execution_after_error_best_effort(&state, &tab_id, &execution_id, message);
+            infrastructure::log_breadcrumb(
+                "command",
+                format!(
+                    "redis-inspect-failed execution={} connection={} environment={} db={} keyLen={} keyHash={:016x} code={}",
+                    execution_id,
+                    connection_id,
+                    breadcrumb_environment(&environment_id),
+                    database_index,
+                    key_len,
+                    key_hash,
+                    error_code
+                ),
+            );
             Err(error)
         }
+    };
+    if response.is_ok() {
+        infrastructure::log_breadcrumb(
+            "command",
+            format!(
+                "redis-inspect-complete execution={} connection={} environment={} db={} keyLen={} keyHash={:016x}",
+                execution_id,
+                connection_id,
+                breadcrumb_environment(&environment_id),
+                database_index,
+                key_len,
+                key_hash
+            ),
+        );
     }
+    response
 }
 
 #[tauri::command]
@@ -1106,7 +1226,8 @@ pub async fn execute_query_request(
         let mut executions = lock_executions(&executions)?;
         executions.register(execution_id.clone(), abort_handle);
     }
-    let execution = Abortable::new(runtime.execute_query(request.clone()), abort_registration).await;
+    let execution =
+        Abortable::new(runtime.execute_query(request.clone()), abort_registration).await;
     {
         let mut executions = lock_executions(&executions)?;
         executions.remove(&execution_id);
@@ -1128,7 +1249,7 @@ pub async fn execute_query_request(
         }
         Ok(Err(error)) => {
             let message = error.message.clone();
-            clear_tab_execution_after_error(&state, &tab_id, &execution_id, message)?;
+            clear_tab_execution_after_error_best_effort(&state, &tab_id, &execution_id, message);
             infrastructure::log_breadcrumb(
                 "command",
                 format!("execute-query-complete execution={execution_id} ok=false"),
@@ -1502,6 +1623,12 @@ fn breadcrumb_environment(environment_id: &str) -> &str {
     } else {
         environment_id
     }
+}
+
+fn breadcrumb_key_hash(key: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn default_workspace_bundle_file_name() -> String {

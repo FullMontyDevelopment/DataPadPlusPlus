@@ -161,12 +161,95 @@ describe('RedisKeyBrowserPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'perf:1' }))
     await flushPromises()
 
+    expect(onInspectRedisKey).toHaveBeenCalledTimes(1)
     expect(onInspectRedisKey).toHaveBeenCalledWith(
       expect.objectContaining({
         databaseIndex: 1,
         key: 'perf:1',
       }),
     )
+  })
+
+  it('does not launch duplicate inspect requests while the same key is pending', async () => {
+    vi.useFakeTimers()
+    let resolveInspect: (() => void) | undefined
+    const pendingInspect = new Promise<void>((resolve) => {
+      resolveInspect = resolve
+    })
+    const onInspectRedisKey = vi.fn(() => pendingInspect)
+
+    render(
+      <RedisHarness
+        onBuilderStateChange={vi.fn()}
+        onInspectRedisKey={onInspectRedisKey}
+        onScanRedisKeys={vi.fn(async () => redisScanResponse())}
+      />,
+    )
+
+    await flushDebouncedScan()
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }))
+    const keyButton = screen.getByRole('button', { name: 'perf:1' })
+    fireEvent.click(keyButton)
+    fireEvent.click(keyButton)
+    await flushPromises()
+
+    expect(onInspectRedisKey).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveInspect?.()
+      await pendingInspect
+    })
+    fireEvent.click(keyButton)
+    await flushPromises()
+
+    expect(onInspectRedisKey).toHaveBeenCalledTimes(2)
+  })
+
+  it('passes JSON-looking Redis keys through exactly as selected', async () => {
+    vi.useFakeTimers()
+    const jsonLikeKey = '{"pin_SearchFor":"LOOKUP","pin_SearchWith":"KEY:FOUND"}'
+    const onInspectRedisKey = vi.fn(async () => {})
+
+    render(
+      <RedisHarness
+        onBuilderStateChange={vi.fn()}
+        onInspectRedisKey={onInspectRedisKey}
+        onScanRedisKeys={vi.fn(async () => redisScanResponse({ key: jsonLikeKey }))}
+      />,
+    )
+
+    await flushDebouncedScan()
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }))
+    fireEvent.click(screen.getByRole('button', { name: jsonLikeKey }))
+    await flushPromises()
+
+    expect(onInspectRedisKey).toHaveBeenCalledTimes(1)
+    expect(onInspectRedisKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: jsonLikeKey,
+      }),
+    )
+  })
+
+  it('toggles prefix rows without inspecting a Redis key', async () => {
+    vi.useFakeTimers()
+    const onInspectRedisKey = vi.fn(async () => {})
+
+    render(
+      <RedisHarness
+        onBuilderStateChange={vi.fn()}
+        onInspectRedisKey={onInspectRedisKey}
+        onScanRedisKeys={vi.fn(async () => redisScanResponse({ key: 'orders:recent:1' }))}
+      />,
+    )
+
+    await flushDebouncedScan()
+    const treegrid = screen.getByRole('treegrid')
+    fireEvent.click(within(treegrid).getByRole('button', { name: /orders/ }))
+    await flushPromises()
+
+    expect(within(treegrid).getByRole('button', { name: /recent/ })).toBeInTheDocument()
+    expect(onInspectRedisKey).not.toHaveBeenCalled()
   })
 
   it('sends key deletion straight to the guarded Redis edit flow', async () => {

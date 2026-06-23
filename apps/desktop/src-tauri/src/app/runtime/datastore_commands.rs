@@ -156,7 +156,6 @@ impl ManagedAppState {
         self.snapshot.ui.bottom_panel_visible = true;
         self.snapshot.ui.active_bottom_panel_tab = "results".into();
         self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
 
         Ok(crate::domain::models::ExecutionResponse {
             execution_id: request

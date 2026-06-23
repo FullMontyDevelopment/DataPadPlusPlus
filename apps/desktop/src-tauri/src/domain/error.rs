@@ -481,8 +481,8 @@ impl From<redis::RedisError> for CommandError {
             || lower.contains("no such file or directory")
         {
             (
-                "redis-unix-socket-missing",
-                "Redis tried to open a local socket/file path that does not exist. On Windows, use TCP host and port settings instead of Unix socket mode.",
+                "redis-connection-file-missing",
+                "Redis connection failed because a required local file or socket path was missing. Check Redis deployment mode, TLS/runtime settings, host, port, and file/socket paths.",
             )
         } else if lower.contains("noauth")
             || lower.contains("authentication")

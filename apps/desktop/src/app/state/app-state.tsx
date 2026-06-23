@@ -10,7 +10,7 @@ import { toUserMessage } from './app-state-selectors'
 import { buildConnectionTestFailure } from './connection-test-results'
 import { connectionHealthKey } from './connection-health'
 import { useStartupUpdateCheck } from './use-startup-update-check'
-import type { Actions, AppAction, AppContextValue, StateShape } from './app-state-types'
+import type { Actions, AppAction, AppContextValue, StateShape, AppErrorOptions } from './app-state-types'
 
 export type { WorkbenchMessage, WorkbenchMessageSeverity } from './app-state-types'
 
@@ -120,6 +120,10 @@ const AppStateContext = createContext<AppContextValue>({
 
 const STARTUP_CONNECTION_TEST_TIMEOUT_MS = 20_000
 
+export function shouldDispatchCommandError(options?: AppErrorOptions) {
+  return !options?.suppressWorkbenchMessage
+}
+
 interface StartupConnectionHealthTarget {
   connection: ConnectionProfile
   environmentId: string
@@ -177,7 +181,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const handleError = useCallback((error: unknown) => {
+  const handleError = useCallback((error: unknown, options?: AppErrorOptions) => {
+    if (!shouldDispatchCommandError(options)) {
+      return
+    }
     dispatch({
       type: 'COMMAND_ERROR',
       message: toUserMessage(error, 'Unexpected desktop command failure.'),

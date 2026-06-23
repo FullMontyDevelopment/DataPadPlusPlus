@@ -189,7 +189,7 @@ async function callRuntimeCommand<T>(
     ensureWorkspaceUnlocked(payload)
     return await command()
   } catch (error) {
-    handleError(error)
+    handleError(error, { suppressWorkbenchMessage: true })
     return undefined
   }
 }

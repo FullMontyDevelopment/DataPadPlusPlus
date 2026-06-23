@@ -1,4 +1,4 @@
-use super::{redis_uri_from_endpoint, redis_uri_from_parts};
+use super::{redis_connection_error, redis_uri_from_endpoint, redis_uri_from_parts};
 use crate::domain::models::{RedisConnectionOptions, ResolvedConnectionProfile};
 
 #[test]
@@ -41,6 +41,33 @@ fn builds_tls_and_unix_redis_uris() {
     );
 }
 
+#[test]
+fn classifies_os_error_2_as_unix_socket_only_for_unix_profiles() {
+    let unix = connection(Some(RedisConnectionOptions {
+        deployment_mode: Some("unix-socket".into()),
+        unix_socket_path: Some("/var/run/redis.sock".into()),
+        ..RedisConnectionOptions::default()
+    }));
+    let tcp = connection(None);
+    let tls = connection(Some(RedisConnectionOptions {
+        use_tls: Some(true),
+        ..RedisConnectionOptions::default()
+    }));
+
+    assert_eq!(
+        redis_connection_error(&unix, redis_os_error_2()).code,
+        "redis-unix-socket-missing"
+    );
+    assert_eq!(
+        redis_connection_error(&tcp, redis_os_error_2()).code,
+        "redis-connection-unavailable"
+    );
+    assert_eq!(
+        redis_connection_error(&tls, redis_os_error_2()).code,
+        "redis-tls-native-runtime"
+    );
+}
+
 fn connection(redis_options: Option<RedisConnectionOptions>) -> ResolvedConnectionProfile {
     ResolvedConnectionProfile {
         id: "redis".into(),
@@ -69,4 +96,11 @@ fn connection(redis_options: Option<RedisConnectionOptions>) -> ResolvedConnecti
         warehouse_options: None,
         read_only: false,
     }
+}
+
+fn redis_os_error_2() -> redis::RedisError {
+    redis::RedisError::from((
+        redis::ErrorKind::Io,
+        "The system cannot find the file specified. (os error 2)",
+    ))
 }

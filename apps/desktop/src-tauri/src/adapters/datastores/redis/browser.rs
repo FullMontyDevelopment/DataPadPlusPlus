@@ -126,7 +126,7 @@ pub(crate) async fn inspect_redis_key(
         .database_index
         .or_else(|| configured_database_index(connection));
     select_redis_database(&mut redis, database_index).await?;
-    let key = request.key.trim();
+    let key = request.key.as_str();
 
     if key.is_empty() || key.contains('*') {
         return Err(CommandError::new(

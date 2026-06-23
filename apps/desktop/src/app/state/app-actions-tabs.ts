@@ -75,7 +75,6 @@ export function useQueryTabActions({
     })
   }, [dispatch])
   const currentTabs = state.payload?.snapshot.tabs
-
   const selectTab = useCallback<Actions['selectTab']>(
     async (tabId) => {
       try {
@@ -86,7 +85,6 @@ export function useQueryTabActions({
     },
     [applyPayload, handleError],
   )
-
   const createTab = useCallback<Actions['createTab']>(
     async (connectionId) => {
       try {
@@ -97,7 +95,6 @@ export function useQueryTabActions({
     },
     [applyPayload, handleError],
   )
-
   const createExplorerTab = useCallback<Actions['createExplorerTab']>(
     async (connectionId) => {
       try {
@@ -108,7 +105,6 @@ export function useQueryTabActions({
     },
     [applyPayload, handleError],
   )
-
   const createMetricsTab = useCallback<Actions['createMetricsTab']>(
     async (connectionId, environmentId) => {
       let refreshTarget: QueryTabState | undefined
@@ -138,12 +134,11 @@ export function useQueryTabActions({
           'metrics',
           toUserMessage(error, 'Unable to refresh metrics.'),
         )
-        handleError(error)
+        handleError(error, { suppressWorkbenchMessage: Boolean(refreshTarget) })
       }
     },
     [applyPayload, dispatch, handleError, recordTabIssue],
   )
-
   const createEnvironmentTab = useCallback<Actions['createEnvironmentTab']>(
     async (environmentId) => {
       try {
@@ -212,7 +207,7 @@ export function useQueryTabActions({
         }
       } catch (error) {
         recordTabIssue(tab, 'metrics', toUserMessage(error, 'Unable to refresh metrics.'))
-        handleError(error)
+        handleError(error, { suppressWorkbenchMessage: true })
       }
     },
     [applyPayload, currentTabs, dispatch, handleError, recordTabIssue],
@@ -249,7 +244,7 @@ export function useQueryTabActions({
           'object-view',
           toUserMessage(error, 'Unable to refresh object view.'),
         )
-        handleError(error)
+        handleError(error, { suppressWorkbenchMessage: Boolean(refreshTarget) })
       }
     },
     [applyPayload, dispatch, handleError, recordTabIssue],
@@ -271,7 +266,7 @@ export function useQueryTabActions({
         }
       } catch (error) {
         recordTabIssue(tab, 'object-view', toUserMessage(error, 'Unable to refresh object view.'))
-        handleError(error)
+        handleError(error, { suppressWorkbenchMessage: true })
       }
     },
     [applyPayload, currentTabs, dispatch, handleError, recordTabIssue],

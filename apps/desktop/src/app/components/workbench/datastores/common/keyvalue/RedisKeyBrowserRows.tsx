@@ -149,7 +149,15 @@ function RedisKeyRow({
       }}
       onDoubleClick={() => onSelectKey(row.key.key)}
     >
-      <button type="button" className="redis-browser-key" onClick={() => onSelectKey(row.key.key)}>
+      <button
+        type="button"
+        className="redis-browser-key"
+        onClick={(event) => {
+          event.stopPropagation()
+          onSelectKey(row.key.key)
+        }}
+        onDoubleClick={(event) => event.stopPropagation()}
+      >
         {row.key.key}
       </button>
       <span className={`redis-type-badge is-${row.key.type}`}>{redisKeyTypeLabel(row.key.type)}</span>

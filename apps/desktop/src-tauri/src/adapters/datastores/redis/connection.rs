@@ -4,10 +4,51 @@ pub(super) async fn redis_connection(
     connection: &ResolvedConnectionProfile,
 ) -> Result<redis::aio::MultiplexedConnection, CommandError> {
     let uri = redis_connection_uri(connection).await?;
-    let client = redis::Client::open(uri)?;
-    let mut redis = client.get_multiplexed_async_connection().await?;
+    let client =
+        redis::Client::open(uri).map_err(|error| redis_connection_error(connection, error))?;
+    let mut redis = client
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|error| redis_connection_error(connection, error))?;
     apply_connection_session_options(connection, &mut redis).await?;
     Ok(redis)
+}
+
+pub(super) fn redis_connection_error(
+    connection: &ResolvedConnectionProfile,
+    error: redis::RedisError,
+) -> CommandError {
+    let raw = error.to_string();
+    let lower = raw.to_lowercase();
+
+    if redis_missing_local_path_error(&lower) {
+        if redis_uses_unix_socket(connection) {
+            return CommandError::new(
+                "redis-unix-socket-missing",
+                format!(
+                    "Redis tried to open the configured Unix socket path, but the file was not found. Check the socket path or use TCP host and port settings. Details: {raw}"
+                ),
+            );
+        }
+
+        if redis_uses_tls(connection) {
+            return CommandError::new(
+                "redis-tls-native-runtime",
+                format!(
+                    "Redis TLS connection failed before command execution. Check the host, port, TLS mode, Windows certificate/runtime configuration, and VPN/network access. Details: {raw}"
+                ),
+            );
+        }
+
+        return CommandError::new(
+            "redis-connection-unavailable",
+            format!(
+                "Redis connection failed before command execution. Check the host, port, deployment mode, VPN/network access, and whether this profile should use TLS. Details: {raw}"
+            ),
+        );
+    }
+
+    CommandError::from(error)
 }
 
 pub(super) async fn test_redis_connection(
@@ -146,8 +187,12 @@ async fn redis_sentinel_master_uri(
             || options.allow_invalid_hostnames.unwrap_or(false),
         options.resp_version.as_deref(),
     );
-    let sentinel_client = redis::Client::open(sentinel_uri)?;
-    let mut sentinel = sentinel_client.get_multiplexed_async_connection().await?;
+    let sentinel_client = redis::Client::open(sentinel_uri)
+        .map_err(|error| redis_connection_error(connection, error))?;
+    let mut sentinel = sentinel_client
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|error| redis_connection_error(connection, error))?;
     let master: Vec<String> = redis::cmd("SENTINEL")
         .arg("get-master-addr-by-name")
         .arg(master_name)
@@ -318,6 +363,36 @@ fn redis_connection_warnings(connection: &ResolvedConnectionProfile) -> Vec<Stri
         );
     }
     warnings
+}
+
+fn redis_missing_local_path_error(lower: &str) -> bool {
+    lower.contains("os error 2")
+        || lower.contains("cannot find the file specified")
+        || lower.contains("no such file or directory")
+}
+
+fn redis_uses_unix_socket(connection: &ResolvedConnectionProfile) -> bool {
+    connection
+        .connection_string
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| value.to_ascii_lowercase().starts_with("redis+unix"))
+        || connection.redis_options.as_ref().is_some_and(|options| {
+            matches!(options.deployment_mode.as_deref(), Some("unix-socket"))
+        })
+}
+
+fn redis_uses_tls(connection: &ResolvedConnectionProfile) -> bool {
+    connection
+        .connection_string
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| value.to_ascii_lowercase().starts_with("rediss://"))
+        || connection.redis_options.as_ref().is_some_and(|options| {
+            options.use_tls.unwrap_or(false)
+                || options.use_sentinel_tls.unwrap_or(false)
+                || matches!(options.deployment_mode.as_deref(), Some("tls"))
+        })
 }
 
 fn host_port(host: &str, port: u16) -> String {

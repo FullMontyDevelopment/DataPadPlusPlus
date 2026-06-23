@@ -113,7 +113,6 @@ impl ManagedAppState {
                 self.snapshot.ui.bottom_panel_visible = true;
                 self.snapshot.ui.active_bottom_panel_tab = "messages".into();
                 self.snapshot.updated_at = timestamp_now();
-                self.persist()?;
 
                 return Ok(ExecutionResponse {
                     execution_id: request
@@ -220,7 +219,6 @@ impl ManagedAppState {
         self.snapshot.ui.bottom_panel_visible = true;
         self.snapshot.ui.active_bottom_panel_tab = "results".into();
         self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
 
         Ok(ExecutionResponse {
             execution_id: request

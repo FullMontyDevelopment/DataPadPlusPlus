@@ -66,6 +66,7 @@ export function RedisKeyBrowserPanel({
   const [addKeyType, setAddKeyType] = useState('string')
   const [addKeyValue, setAddKeyValue] = useState('')
   const scanRequestIdRef = useRef(0)
+  const inspectingKeysRef = useRef<Set<string>>(new Set())
   const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const [expandedPrefixes, setExpandedPrefixes] = useState<Set<string>>(
     () => new Set(builderState.expandedPrefixes ?? []),
@@ -171,13 +172,24 @@ export function RedisKeyBrowserPanel({
 
   const selectKey = (key: string) => {
     updateBuilder({ selectedKey: key })
-    void onInspectRedisKey?.({
+    if (!onInspectRedisKey) {
+      return
+    }
+
+    const inspectKey = `${tab.id}\u0000${databaseIndex}\u0000${key}`
+    if (inspectingKeysRef.current.has(inspectKey)) {
+      return
+    }
+    inspectingKeysRef.current.add(inspectKey)
+    void onInspectRedisKey({
       tabId: tab.id,
       connectionId: tab.connectionId,
       environmentId: tab.environmentId,
       databaseIndex,
       key,
       sampleSize: builderState.pageSize ?? 100,
+    }).finally(() => {
+      inspectingKeysRef.current.delete(inspectKey)
     })
   }
 
