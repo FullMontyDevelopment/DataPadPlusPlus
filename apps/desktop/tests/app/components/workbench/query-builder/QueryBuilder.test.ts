@@ -117,7 +117,7 @@ describe('Mongo query builder', () => {
       sku: 'SKU-001',
       price: { $gte: 10.5 },
       active: { $exists: true },
-      name: { $regex: 'Lamp \\(warm\\)' },
+      name: { $regex: '.*Lamp \\(warm\\).*', $options: 'i' },
       tags: { $in: ['featured', 'clearance'] },
     })
   })
@@ -218,10 +218,10 @@ describe('Mongo query builder', () => {
       legacyCode: { $exists: false },
       'metadata.kind': { $type: 'object' },
       score: { $not: { $type: 2 } },
-      sku: { $regex: '^PRD-' },
-      slug: { $not: { $regex: '^tmp-' } },
-      filename: { $regex: '\\.json$' },
-      name: { $not: { $regex: 'draft$' } },
+      sku: { $regex: '^PRD-', $options: 'i' },
+      slug: { $not: { $regex: '^tmp-', $options: 'i' } },
+      filename: { $regex: '\\.json$', $options: 'i' },
+      name: { $not: { $regex: 'draft$', $options: 'i' } },
       status: { $nin: ['archived', 'deleted'] },
       createdAt: { $gte: { $date: '2023-10-05T00:00:00.000Z' } },
     })
@@ -235,8 +235,8 @@ describe('Mongo query builder', () => {
       { operator: 'gte', value: '10.5', valueType: 'number', expected: { $gte: 10.5 } },
       { operator: 'lt', value: '99', valueType: 'number', expected: { $lt: 99 } },
       { operator: 'lte', value: '100', valueType: 'number', expected: { $lte: 100 } },
-      { operator: 'contains', value: 'Lamp (warm)', expected: { $regex: 'Lamp \\(warm\\)' } },
-      { operator: 'not-contains', value: 'Lamp (warm)', expected: { $not: { $regex: 'Lamp \\(warm\\)' } } },
+      { operator: 'contains', value: 'Lamp (warm)', expected: { $regex: '.*Lamp \\(warm\\).*', $options: 'i' } },
+      { operator: 'not-contains', value: 'Lamp (warm)', expected: { $not: { $regex: '.*Lamp \\(warm\\).*', $options: 'i' } } },
       { operator: 'regex', value: '^SKU-[0-9]+$', expected: { $regex: '^SKU-[0-9]+$' } },
       { operator: 'exists', value: 'ignored', expected: { $exists: true } },
       { operator: 'does-not-exist', value: 'ignored', expected: { $exists: false } },
@@ -246,10 +246,10 @@ describe('Mongo query builder', () => {
       { operator: 'is-not-null', value: 'ignored', expected: { $ne: null } },
       { operator: 'type', value: 'object', expected: { $type: 'object' } },
       { operator: 'not-type', value: '2', expected: { $not: { $type: 2 } } },
-      { operator: 'starts-with', value: 'PRD-', expected: { $regex: '^PRD-' } },
-      { operator: 'not-starts-with', value: 'tmp-', expected: { $not: { $regex: '^tmp-' } } },
-      { operator: 'ends-with', value: '.json', expected: { $regex: '\\.json$' } },
-      { operator: 'not-ends-with', value: 'draft', expected: { $not: { $regex: 'draft$' } } },
+      { operator: 'starts-with', value: 'PRD-', expected: { $regex: '^PRD-', $options: 'i' } },
+      { operator: 'not-starts-with', value: 'tmp-', expected: { $not: { $regex: '^tmp-', $options: 'i' } } },
+      { operator: 'ends-with', value: '.json', expected: { $regex: '\\.json$', $options: 'i' } },
+      { operator: 'not-ends-with', value: 'draft', expected: { $not: { $regex: 'draft$', $options: 'i' } } },
       {
         operator: 'eq',
         field: 'createdAt',
@@ -329,10 +329,12 @@ describe('Mongo query builder', () => {
           "legacyCode": { "$exists": false },
           "metadata.kind": { "$type": "object" },
           "score": { "$not": { "$type": 2 } },
-          "description": { "$not": { "$regex": "Lamp" } },
-          "sku": { "$regex": "^PRD-" },
-          "slug": { "$not": { "$regex": "^tmp-" } },
-          "filename": { "$regex": "\\\\.json$" },
+          "name": { "$regex": ".*Lamp \\\\(warm\\\\).*", "$options": "i" },
+          "description": { "$not": { "$regex": ".*Lamp.*", "$options": "i" } },
+          "sku": { "$regex": "^PRD-", "$options": "i" },
+          "slug": { "$not": { "$regex": "^tmp-", "$options": "i" } },
+          "filename": { "$regex": "\\\\.json$", "$options": "i" },
+          "legacyFilename": { "$not": { "$regex": "\\\\.tmp$", "$options": "i" } },
           "status": { "$nin": ["archived", "deleted"] }
         }
       }`),
@@ -343,10 +345,12 @@ describe('Mongo query builder', () => {
         { field: 'legacyCode', operator: 'does-not-exist', value: '' },
         { field: 'metadata.kind', operator: 'type', value: 'object' },
         { field: 'score', operator: 'not-type', value: '2' },
+        { field: 'name', operator: 'contains', value: 'Lamp (warm)' },
         { field: 'description', operator: 'not-contains', value: 'Lamp' },
         { field: 'sku', operator: 'starts-with', value: 'PRD-' },
         { field: 'slug', operator: 'not-starts-with', value: 'tmp-' },
-        { field: 'filename', operator: 'ends-with', value: '\\.json' },
+        { field: 'filename', operator: 'ends-with', value: '.json' },
+        { field: 'legacyFilename', operator: 'not-ends-with', value: '.tmp' },
         { field: 'status', operator: 'not-in', value: 'archived, deleted' },
       ],
     })
@@ -1666,7 +1670,7 @@ describe('Query builder condition serialization guardrails', () => {
         sort: [],
       }),
     )
-    expect(mongo.filter).toEqual({ name: { $not: { $regex: 'draft' } } })
+    expect(mongo.filter).toEqual({ name: { $not: { $regex: '.*draft.*', $options: 'i' } } })
 
     expect(
       buildSqlSelectQueryText({

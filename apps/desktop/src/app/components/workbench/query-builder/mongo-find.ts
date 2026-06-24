@@ -142,17 +142,17 @@ function buildMongoFilterExpression(row: MongoFindFilterRow): Record<string, unk
     case 'eq':
       return { [field]: value }
     case 'contains':
-      return { [field]: { $regex: escapeMongoRegex(row.value) } }
+      return { [field]: mongoFriendlyRegex(`.*${escapeMongoRegex(row.value)}.*`) }
     case 'not-contains':
-      return { [field]: { $not: { $regex: escapeMongoRegex(row.value) } } }
+      return { [field]: { $not: mongoFriendlyRegex(`.*${escapeMongoRegex(row.value)}.*`) } }
     case 'starts-with':
-      return { [field]: { $regex: `^${escapeMongoRegex(row.value)}` } }
+      return { [field]: mongoFriendlyRegex(`^${escapeMongoRegex(row.value)}`) }
     case 'not-starts-with':
-      return { [field]: { $not: { $regex: `^${escapeMongoRegex(row.value)}` } } }
+      return { [field]: { $not: mongoFriendlyRegex(`^${escapeMongoRegex(row.value)}`) } }
     case 'ends-with':
-      return { [field]: { $regex: `${escapeMongoRegex(row.value)}$` } }
+      return { [field]: mongoFriendlyRegex(`${escapeMongoRegex(row.value)}$`) }
     case 'not-ends-with':
-      return { [field]: { $not: { $regex: `${escapeMongoRegex(row.value)}$` } } }
+      return { [field]: { $not: mongoFriendlyRegex(`${escapeMongoRegex(row.value)}$`) } }
     case 'exists':
       return { [field]: { $exists: true } }
     case 'does-not-exist':
@@ -314,6 +314,10 @@ function normalizeMongoObjectIdInput(value: string) {
 
 function escapeMongoRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function mongoFriendlyRegex(pattern: string) {
+  return { $regex: pattern, $options: 'i' }
 }
 
 function mongoTypeValue(value: string) {

@@ -92,9 +92,7 @@ function filterRowForOperator(field: string, operator: string, value: unknown) {
     return undefined
   }
 
-  const operatorValue = operator === '$not' && isPlainObject(value)
-    ? Object.values(value)[0]
-    : value
+  const operatorValue = operatorValueForBuilder(operator, value)
   const normalizedOperator = builderOperator === 'exists' && value === false
     ? 'does-not-exist'
     : builderOperator === 'ne' && value === null
@@ -122,12 +120,7 @@ function positiveOperator(
   operatorMap: Record<string, MongoFilterOperator>,
 ) {
   if (operator === '$regex' && typeof value === 'string') {
-    if (value.startsWith('^')) {
-      return 'starts-with'
-    }
-    if (value.endsWith('$')) {
-      return 'ends-with'
-    }
+    return positiveRegexOperator(value)
   }
 
   return operatorMap[operator]
@@ -143,16 +136,52 @@ function negatedOperator(value: unknown): MongoFilterOperator | undefined {
   }
 
   if (typeof value.$regex === 'string') {
-    if (value.$regex.startsWith('^')) {
+    const operator = positiveRegexOperator(value.$regex)
+
+    if (operator === 'starts-with') {
       return 'not-starts-with'
     }
-    if (value.$regex.endsWith('$')) {
+
+    if (operator === 'ends-with') {
       return 'not-ends-with'
     }
+
     return 'not-contains'
   }
 
   return undefined
+}
+
+function positiveRegexOperator(value: string): MongoFilterOperator {
+  if (isContainsRegexPattern(value)) {
+    return 'contains'
+  }
+
+  if (value.startsWith('^')) {
+    return 'starts-with'
+  }
+
+  if (value.endsWith('$')) {
+    return 'ends-with'
+  }
+
+  return 'regex'
+}
+
+function operatorValueForBuilder(operator: string, value: unknown) {
+  if (operator === '$not' && isPlainObject(value)) {
+    if (Object.prototype.hasOwnProperty.call(value, '$regex')) {
+      return value.$regex
+    }
+
+    if (Object.prototype.hasOwnProperty.call(value, '$type')) {
+      return value.$type
+    }
+
+    return Object.values(value)[0]
+  }
+
+  return value
 }
 
 function noValueOperator(operator: MongoFilterOperator) {
@@ -162,15 +191,31 @@ function noValueOperator(operator: MongoFilterOperator) {
 function operatorValueToBuilderInput(operator: MongoFilterOperator, value: unknown) {
   const input = valueToBuilderInput(value)
 
+  if (operator === 'contains' || operator === 'not-contains') {
+    return unescapeMongoRegexLiteral(stripContainsRegexPattern(input))
+  }
+
   if (operator === 'starts-with' || operator === 'not-starts-with') {
-    return input.replace(/^\^/, '')
+    return unescapeMongoRegexLiteral(input.replace(/^\^/, ''))
   }
 
   if (operator === 'ends-with' || operator === 'not-ends-with') {
-    return input.replace(/\$$/, '')
+    return unescapeMongoRegexLiteral(input.replace(/\$$/, ''))
   }
 
   return input
+}
+
+function isContainsRegexPattern(value: string) {
+  return value.startsWith('.*') && value.endsWith('.*') && value.length >= 4
+}
+
+function stripContainsRegexPattern(value: string) {
+  return isContainsRegexPattern(value) ? value.slice(2, -2) : value
+}
+
+function unescapeMongoRegexLiteral(value: string) {
+  return value.replace(/\\([.*+?^${}()|[\]\\])/g, '$1')
 }
 
 function projectionFromQuery(projection: unknown): {
