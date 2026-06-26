@@ -60,6 +60,10 @@ export interface DatastoreApiServerConfig {
   environmentId?: string
 }
 
+export interface WorkspaceSearchPreferences {
+  enabled: boolean
+}
+
 export interface GuardrailPolicy {
   id: string
   action: GuardrailAction
@@ -93,6 +97,7 @@ export interface AppPreferences {
   keyboardShortcuts?: KeyboardShortcutPreferences
   workspaceBackups?: WorkspaceBackupPreferences
   datastoreApiServer?: DatastoreApiServerPreferences
+  workspaceSearch?: WorkspaceSearchPreferences
 }
 
 export interface LockState {

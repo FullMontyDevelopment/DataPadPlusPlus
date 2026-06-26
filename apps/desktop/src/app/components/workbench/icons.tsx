@@ -14,6 +14,7 @@ import {
   Boxes,
   Braces,
   Brackets,
+  CaseSensitive,
   ChartLine,
   ChevronDown,
   ChevronRight,
@@ -75,6 +76,7 @@ import {
   View,
   Waypoints,
   Webhook,
+  WholeWord,
   Workflow,
   X,
 } from 'lucide-react'
@@ -96,6 +98,8 @@ export const ExplorerIcon = adapt(FolderTree)
 export const SavedWorkIcon = adapt(BookMarked)
 export const TestsIcon = adapt(FlaskConical)
 export const SearchIcon = adapt(Search)
+export const CaseSensitiveIcon = adapt(CaseSensitive)
+export const WholeWordIcon = adapt(WholeWord)
 export const SettingsIcon = adapt(Settings)
 export const ThemeIcon = adapt(Moon)
 export const ChevronRightIcon = adapt(ChevronRight)

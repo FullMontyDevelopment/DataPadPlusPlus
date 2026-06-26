@@ -286,6 +286,9 @@ function normalizePreferences(
       host: '127.0.0.1',
       ...normalizeDatastoreApiServerPreferences(preferences?.datastoreApiServer),
     },
+    workspaceSearch: {
+      enabled: Boolean(preferences?.workspaceSearch?.enabled),
+    },
   }
 }
 

@@ -47,7 +47,7 @@ use crate::{
             WorkspaceBackupDeleteRequest, WorkspaceBackupRestoreRequest, WorkspaceBackupRunRequest,
             WorkspaceBackupRunResponse, WorkspaceBackupSettingsRequest, WorkspaceBackupSummary,
             WorkspaceBundleFileExportRequest, WorkspaceBundleFileExportResponse,
-            WorkspaceBundleFileImportRequest,
+            WorkspaceBundleFileImportRequest, WorkspaceSearchSettingsRequest,
         },
     },
     infrastructure,
@@ -430,6 +430,14 @@ pub fn create_api_server_tab(
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
     state.create_api_server_tab()
+}
+
+#[tauri::command]
+pub fn create_workspace_search_tab(
+    state: State<'_, SharedAppState>,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.create_workspace_search_tab()
 }
 
 #[tauri::command]
@@ -1574,6 +1582,15 @@ pub fn update_workspace_backup_settings(
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
     state.update_workspace_backup_settings(request)
+}
+
+#[tauri::command]
+pub fn update_workspace_search_settings(
+    state: State<'_, SharedAppState>,
+    request: WorkspaceSearchSettingsRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.update_workspace_search_settings(request)
 }
 
 #[tauri::command]

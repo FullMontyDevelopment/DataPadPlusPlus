@@ -40,6 +40,24 @@ impl ManagedAppState {
         focus_settings_tab(self, &tab)?;
         Ok(self.bootstrap_payload())
     }
+
+    pub fn create_workspace_search_tab(&mut self) -> Result<BootstrapPayload, CommandError> {
+        if let Some(existing_tab) = self
+            .snapshot
+            .tabs
+            .iter()
+            .find(|tab| tab.tab_kind.as_deref() == Some("workspace-search"))
+            .cloned()
+        {
+            focus_settings_tab(self, &existing_tab)?;
+            return Ok(self.bootstrap_payload());
+        }
+
+        let tab = build_workspace_search_tab(&self.snapshot);
+        self.snapshot.tabs.push(tab.clone());
+        focus_settings_tab(self, &tab)?;
+        Ok(self.bootstrap_payload())
+    }
 }
 
 fn focus_settings_tab(
@@ -161,6 +179,55 @@ fn build_api_server_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
         save_target: None,
         saved_query_id: None,
         editor_label: "API Server".into(),
+        query_text: String::new(),
+        query_view_mode: None,
+        script_text: None,
+        scoped_target: None,
+        builder_state: None,
+        metrics_state: None,
+        object_view_state: None,
+        test_suite: None,
+        test_run: None,
+        status: "idle".into(),
+        active_execution: None,
+        dirty: false,
+        last_run_at: None,
+        result: None,
+        history: Vec::new(),
+        error: None,
+    }
+}
+
+fn build_workspace_search_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
+    let connection = snapshot
+        .connections
+        .iter()
+        .find(|connection| connection.id == snapshot.ui.active_connection_id)
+        .or_else(|| snapshot.connections.first());
+    let environment = snapshot
+        .environments
+        .iter()
+        .find(|environment| environment.id == snapshot.ui.active_environment_id)
+        .or_else(|| snapshot.environments.first());
+
+    QueryTabState {
+        id: generate_id("workspace-search-tab"),
+        title: "Search".into(),
+        tab_kind: Some("workspace-search".into()),
+        connection_id: connection
+            .map(|connection| connection.id.clone())
+            .unwrap_or_default(),
+        environment_id: environment
+            .map(|environment| environment.id.clone())
+            .unwrap_or_default(),
+        family: connection
+            .map(|connection| connection.family.clone())
+            .unwrap_or_else(|| "sql".into()),
+        language: "text".into(),
+        pinned: None,
+        save_target: None,
+        saved_query_id: None,
+        editor_label: "Search".into(),
         query_text: String::new(),
         query_view_mode: None,
         script_text: None,

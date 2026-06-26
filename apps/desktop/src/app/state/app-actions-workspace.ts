@@ -23,6 +23,7 @@ type WorkspaceActions = Pick<
   | 'exportWorkspaceFile'
   | 'importWorkspaceFile'
   | 'updateWorkspaceBackupSettings'
+  | 'updateWorkspaceSearchSettings'
   | 'getDatastoreApiServerStatus'
   | 'getDatastoreApiServerMetrics'
   | 'getDatastoreApiServerLogs'
@@ -253,6 +254,20 @@ export function useWorkspaceActions({
     [applyPayload, handleError, state.payload],
   )
 
+  const updateWorkspaceSearchSettings = useCallback<Actions['updateWorkspaceSearchSettings']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.updateWorkspaceSearchSettings(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
   const getDatastoreApiServerStatus = useCallback<Actions['getDatastoreApiServerStatus']>(
     async () => {
       try {
@@ -412,6 +427,7 @@ export function useWorkspaceActions({
       exportWorkspaceFile,
       importWorkspaceFile,
       updateWorkspaceBackupSettings,
+      updateWorkspaceSearchSettings,
       getDatastoreApiServerStatus,
       getDatastoreApiServerMetrics,
       getDatastoreApiServerLogs,
@@ -433,6 +449,7 @@ export function useWorkspaceActions({
       importWorkspace,
       importWorkspaceFile,
       updateWorkspaceBackupSettings,
+      updateWorkspaceSearchSettings,
       getDatastoreApiServerStatus,
       getDatastoreApiServerMetrics,
       getDatastoreApiServerLogs,

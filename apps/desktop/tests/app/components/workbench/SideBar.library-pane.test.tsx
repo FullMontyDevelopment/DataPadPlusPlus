@@ -346,6 +346,29 @@ describe('LibraryPane', () => {
     expect(body).toHaveStyle({ height: '210px' })
   })
 
+  it('hides Workspace Search until the experimental feature is enabled', () => {
+    renderLibraryPane(vi.fn())
+
+    expect(screen.queryByRole('button', { name: 'Open Workspace Search' })).not.toBeInTheDocument()
+  })
+
+  it('shows an active Workspace Search toolbar action and opens it', () => {
+    const onOpenWorkspaceSearch = vi.fn()
+
+    renderLibraryPane(vi.fn(), {
+      activeWorkspaceSearch: true,
+      workspaceSearchEnabled: true,
+      onOpenWorkspaceSearch,
+    })
+
+    const row = screen.getByRole('button', { name: 'Open Workspace Search' })
+    expect(row).toHaveClass('is-active')
+
+    fireEvent.click(row)
+
+    expect(onOpenWorkspaceSearch).toHaveBeenCalled()
+  })
+
   it('uses the closest assigned Library environment and styles inherited rows', () => {
     renderLibraryPane(vi.fn(), {
       environments,
@@ -487,11 +510,14 @@ function renderLibraryPane(
     onEditEnvironment: (environmentId: string) => void
     onLoadExplorerScope: (connectionId: string, scope?: string, environmentId?: string) => void
     onRenameNode: (nodeId: string, name: string) => void
+    onOpenWorkspaceSearch: () => void
     onSelectEnvironment: (environmentId: string) => void
     onSelectConnection: (connectionId: string) => void
     onSetEnvironment: (nodeId: string, environmentId?: string) => void
     onTestConnection: (connectionId: string, environmentId?: string) => void
     sectionStates: Record<string, boolean>
+    workspaceSearchEnabled: boolean
+    activeWorkspaceSearch: boolean
   }> = {},
 ) {
   return render(
@@ -511,6 +537,8 @@ function renderLibraryPane(
       connections={overrides.connections ?? []}
       environments={overrides.environments ?? []}
       explorerStatus={overrides.explorerStatus ?? 'idle'}
+      workspaceSearchEnabled={overrides.workspaceSearchEnabled ?? false}
+      activeWorkspaceSearch={overrides.activeWorkspaceSearch ?? false}
       libraryFilter=""
       libraryNodes={overrides.libraryNodes ?? nodes}
       sectionStates={overrides.sectionStates ?? {}}
@@ -523,6 +551,7 @@ function renderLibraryPane(
       onLibraryFilterChange={vi.fn()}
       onLoadExplorerScope={overrides.onLoadExplorerScope ?? vi.fn()}
       onMoveNode={onMoveNode}
+      onOpenWorkspaceSearch={overrides.onOpenWorkspaceSearch ?? vi.fn()}
       onOpenLibraryItem={vi.fn()}
       onRenameNode={overrides.onRenameNode ?? vi.fn()}
       onReopenClosedTab={vi.fn()}

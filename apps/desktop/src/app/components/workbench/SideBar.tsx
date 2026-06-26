@@ -33,6 +33,8 @@ interface SideBarProps {
   activeApiServer?: boolean
   activeApiServerId?: string
   apiServers?: DatastoreApiServerInstanceStatus[]
+  workspaceSearchEnabled?: boolean
+  activeWorkspaceSearch?: boolean
   isExplorerScopeLoading?(connectionId: string, scope?: string, environmentId?: string): boolean
   activeConnectionId: string
   activeEnvironmentId: string
@@ -56,6 +58,7 @@ interface SideBarProps {
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onCreateTab(connectionId?: string): void
   onOpenApiServer(serverId?: string): void
+  onOpenWorkspaceSearch(): void
   onStartApiServer?(serverId: string): void
   onStopApiServer?(serverId: string): void
   onDeleteApiServer?(serverId: string): void
@@ -94,6 +97,8 @@ export function SideBar({
   activeApiServer = false,
   activeApiServerId,
   apiServers,
+  workspaceSearchEnabled = false,
+  activeWorkspaceSearch = false,
   isExplorerScopeLoading,
   activeConnectionId,
   activeEnvironmentId,
@@ -116,6 +121,7 @@ export function SideBar({
   onOpenScopedQuery,
   onCreateTab,
   onOpenApiServer,
+  onOpenWorkspaceSearch,
   onStartApiServer,
   onStopApiServer,
   onDeleteApiServer,
@@ -276,6 +282,8 @@ export function SideBar({
           activeApiServer={activeApiServer}
           activeApiServerId={activeApiServerId}
           apiServers={apiServers}
+          workspaceSearchEnabled={workspaceSearchEnabled}
+          activeWorkspaceSearch={activeWorkspaceSearch}
           isExplorerScopeLoading={isExplorerScopeLoading}
           libraryFilter={libraryFilter}
           libraryNodes={libraryNodes}
@@ -286,6 +294,7 @@ export function SideBar({
           onCreateFolder={onCreateLibraryFolder}
           onCreateTab={onCreateTab}
           onOpenApiServer={onOpenApiServer}
+          onOpenWorkspaceSearch={onOpenWorkspaceSearch}
           onStartApiServer={onStartApiServer}
           onStopApiServer={onStopApiServer}
           onDeleteApiServer={onDeleteApiServer}

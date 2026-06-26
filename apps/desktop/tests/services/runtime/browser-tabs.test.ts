@@ -10,7 +10,10 @@ import {
   createScopedQueryTabInSnapshot,
   scopedTargetsMatch,
 } from '../../../src/services/runtime/browser-tabs'
-import { createSettingsTabInSnapshot } from '../../../src/services/runtime/browser-settings-tab'
+import {
+  createSettingsTabInSnapshot,
+  createWorkspaceSearchTabInSnapshot,
+} from '../../../src/services/runtime/browser-settings-tab'
 
 describe('browser tab runtime', () => {
   it('opens Explorer as one unsaveable tab per connection', () => {
@@ -103,6 +106,27 @@ describe('browser tab runtime', () => {
 
     expect(reopened.tabs.filter((tab) => tab.tabKind === 'settings')).toHaveLength(1)
     expect(reopened.ui.activeTabId).toBe(settingsTab?.id)
+  })
+
+  it('opens Workspace Search as one closeable unsaveable tab', () => {
+    const snapshot = createSeedSnapshot()
+    const opened = createWorkspaceSearchTabInSnapshot(snapshot)
+    const searchTab = opened.tabs.find((tab) => tab.tabKind === 'workspace-search')
+
+    expect(searchTab).toMatchObject({
+      dirty: false,
+      editorLabel: 'Search',
+      queryText: '',
+      title: 'Search',
+    })
+    expect(searchTab?.saveTarget).toBeUndefined()
+    expect(opened.ui.activeTabId).toBe(searchTab?.id)
+    expect(opened.ui.rightDrawer).toBe('none')
+
+    const reopened = createWorkspaceSearchTabInSnapshot(opened)
+
+    expect(reopened.tabs.filter((tab) => tab.tabKind === 'workspace-search')).toHaveLength(1)
+    expect(reopened.ui.activeTabId).toBe(searchTab?.id)
   })
 
   it('creates connection-level Mongo queries without invented collections', () => {

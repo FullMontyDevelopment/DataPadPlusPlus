@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import type {
   DatastoreApiServerSettingsRequest,
+  WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
-import { ObjectServerIcon } from './icons'
+import { ObjectServerIcon, SearchIcon } from './icons'
 import {
   SettingsNotice,
   SettingsPanel,
@@ -17,12 +18,18 @@ type ApiServerConfig = NonNullable<ApiServerPreferences['servers']>[number]
 export function SettingsExperimentalPanel({
   preferences,
   onOpenApiServer,
+  onOpenWorkspaceSearch,
   onUpdateApiServerSettings,
+  onUpdateWorkspaceSearchSettings,
 }: {
   preferences: WorkspaceSnapshot['preferences']
   onOpenApiServer(): void
+  onOpenWorkspaceSearch(): void
   onUpdateApiServerSettings(
     request: DatastoreApiServerSettingsRequest,
+  ): Promise<boolean>
+  onUpdateWorkspaceSearchSettings(
+    request: WorkspaceSearchSettingsRequest,
   ): Promise<boolean>
 }) {
   const apiServer = preferences.datastoreApiServer ?? {
@@ -31,13 +38,16 @@ export function SettingsExperimentalPanel({
     port: DEFAULT_API_PORT,
     autoStart: false,
   }
+  const workspaceSearch = preferences.workspaceSearch ?? { enabled: false }
   const selectedServer = activeApiServerConfig(apiServer)
   const selectedPort = selectedServer.port
   const selectedName = selectedServer.name
   const [nameDraft, setNameDraft] = useResettableState(selectedName)
   const [portDraft, setPortDraft] = useResettableState(String(selectedPort))
   const [notice, setNotice] = useState<SettingsNoticeMessage>()
+  const [searchNotice, setSearchNotice] = useState<SettingsNoticeMessage>()
   const [saving, setSaving] = useState(false)
+  const [searchSaving, setSearchSaving] = useState(false)
 
   const saveSettings = async (
     patch: Partial<DatastoreApiServerSettingsRequest>,
@@ -77,6 +87,23 @@ export function SettingsExperimentalPanel({
   const nameValue = normalizeApiServerName(nameDraft, portValue)
   const portChanged = portValue !== selectedPort
   const nameChanged = nameValue !== selectedName
+
+  const saveWorkspaceSearchSettings = async (enabled: boolean) => {
+    setSearchSaving(true)
+    setSearchNotice(undefined)
+    const ok = await onUpdateWorkspaceSearchSettings({ enabled })
+    setSearchSaving(false)
+    setSearchNotice(
+      ok
+        ? {
+            text: enabled
+              ? 'Workspace Search enabled.'
+              : 'Workspace Search disabled.',
+            tone: 'success',
+          }
+        : { text: 'Unable to save workspace search settings.', tone: 'error' },
+    )
+  }
 
   return (
     <SettingsPanel
@@ -173,6 +200,48 @@ export function SettingsExperimentalPanel({
             </div>
 
             <SettingsNotice notice={notice} />
+          </div>
+        </section>
+
+        <section
+          className="settings-experimental-feature"
+          aria-labelledby="settings-workspace-search-title"
+        >
+          <header className="settings-experimental-feature-header">
+            <h3 id="settings-workspace-search-title">Workspace Search</h3>
+            <span>Experimental</span>
+          </header>
+
+          <div className="settings-form-grid settings-form-grid--compact">
+            <label className="settings-check-row settings-check-row--card">
+              <input
+                type="checkbox"
+                checked={workspaceSearch.enabled}
+                disabled={searchSaving}
+                onChange={(event) =>
+                  void saveWorkspaceSearchSettings(event.target.checked)
+                }
+              />
+              <span>Workspace Search</span>
+            </label>
+
+            <p className="settings-inline-note">
+              Search connections, saved Library work, open tabs, and recently closed tabs without indexing result payloads or secrets.
+            </p>
+
+            <div className="settings-action-row">
+              <button
+                type="button"
+                className="drawer-button drawer-button--primary"
+                disabled={!workspaceSearch.enabled || searchSaving}
+                onClick={onOpenWorkspaceSearch}
+              >
+                <SearchIcon className="panel-inline-icon" />
+                Open Search
+              </button>
+            </div>
+
+            <SettingsNotice notice={searchNotice} />
           </div>
         </section>
       </div>

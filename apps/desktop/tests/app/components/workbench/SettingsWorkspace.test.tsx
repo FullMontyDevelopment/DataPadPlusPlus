@@ -79,8 +79,10 @@ function renderSettings(overrides: Partial<ComponentProps<typeof SettingsWorkspa
     onSetTheme: vi.fn(),
     onSetUpdatePrereleases: vi.fn(),
     onOpenApiServer: vi.fn(),
+    onOpenWorkspaceSearch: vi.fn(),
     onUpdateApiServerSettings: vi.fn().mockResolvedValue(true),
     onUpdateBackupSettings: vi.fn().mockResolvedValue(true),
+    onUpdateWorkspaceSearchSettings: vi.fn().mockResolvedValue(true),
     ...overrides,
   }
 
@@ -173,6 +175,46 @@ describe('SettingsWorkspace', () => {
     fireEvent.click(within(apiServerGroup).getByRole('button', { name: 'Open API Server' }))
 
     expect(props.onOpenApiServer).toHaveBeenCalled()
+  })
+
+  it('gates Workspace Search behind Experimental settings', async () => {
+    const onUpdateWorkspaceSearchSettings = vi.fn().mockResolvedValue(true)
+    const props = renderSettings({
+      initialSection: 'experimental',
+      onUpdateWorkspaceSearchSettings,
+    })
+
+    const searchGroup = screen.getByRole('region', { name: 'Workspace Search' })
+    expect(within(searchGroup).getByText('Experimental')).toBeInTheDocument()
+    expect(within(searchGroup).getByLabelText('Workspace Search')).not.toBeChecked()
+    expect(within(searchGroup).getByRole('button', { name: /Open Search/i })).toBeDisabled()
+
+    fireEvent.click(within(searchGroup).getByLabelText('Workspace Search'))
+
+    await waitFor(() => {
+      expect(onUpdateWorkspaceSearchSettings).toHaveBeenCalledWith({ enabled: true })
+    })
+    expect(props.onOpenWorkspaceSearch).not.toHaveBeenCalled()
+  })
+
+  it('opens Workspace Search when enabled', () => {
+    const preferences = {
+      ...createSeedSnapshot().preferences,
+      workspaceSearch: {
+        enabled: true,
+      },
+    }
+    const props = renderSettings({
+      initialSection: 'experimental',
+      preferences,
+    })
+
+    const searchGroup = screen.getByRole('region', { name: 'Workspace Search' })
+    expect(within(searchGroup).getByLabelText('Workspace Search')).toBeChecked()
+
+    fireEvent.click(within(searchGroup).getByRole('button', { name: /Open Search/i }))
+
+    expect(props.onOpenWorkspaceSearch).toHaveBeenCalled()
   })
 
   it('saves a customised API Server name', async () => {

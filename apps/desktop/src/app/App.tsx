@@ -119,6 +119,11 @@ const ApiServerWorkspace = lazy(() =>
     default: module.ApiServerWorkspace,
   })),
 )
+const WorkspaceSearchWorkspace = lazy(() =>
+  import('./components/workbench/WorkspaceSearchWorkspace').then((module) => ({
+    default: module.WorkspaceSearchWorkspace,
+  })),
+)
 const MetricsWorkspace = lazy(() =>
   import('./components/workbench/MetricsWorkspace').then((module) => ({
     default: module.MetricsWorkspace,
@@ -300,11 +305,13 @@ function GlobalShortcutHandler({
   activeConnectionId,
   activeTab,
   activeTabIsEnvironment,
+  activeTabIsApiServer,
   activeTabIsExplorer,
   activeTabIsMetrics,
   activeTabIsObjectView,
   activeTabIsSettings,
   activeTabIsTestSuite,
+  activeTabIsWorkspaceSearch,
   bottomPanelVisibleRef,
   keyboardShortcuts,
   openQueryTab,
@@ -317,11 +324,13 @@ function GlobalShortcutHandler({
   activeConnectionId?: string
   activeTab?: QueryTabState
   activeTabIsEnvironment: boolean
+  activeTabIsApiServer: boolean
   activeTabIsExplorer: boolean
   activeTabIsMetrics: boolean
   activeTabIsObjectView: boolean
   activeTabIsSettings: boolean
   activeTabIsTestSuite: boolean
+  activeTabIsWorkspaceSearch: boolean
   bottomPanelVisibleRef: MutableRefObject<boolean>
   keyboardShortcuts: Record<AppShortcutId, string>
   openQueryTab(connectionId: string | undefined): void
@@ -335,7 +344,7 @@ function GlobalShortcutHandler({
       if (shortcutMatchesEvent(event, keyboardShortcuts.refresh)) {
         event.preventDefault()
 
-        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings) {
+        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsWorkspaceSearch) {
           runCurrentTabQuery()
         }
 
@@ -348,7 +357,7 @@ function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.saveQuery)) {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsSettings) {
+        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsWorkspaceSearch) {
           requestSaveQuery(activeTab.id)
         }
         return
@@ -356,7 +365,7 @@ function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.runQuery)) {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings) {
+        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsWorkspaceSearch) {
           runCurrentTabQuery()
         }
         return
@@ -409,7 +418,9 @@ function GlobalShortcutHandler({
           !activeTabIsObjectView &&
           !activeTabIsTestSuite &&
           !activeTabIsEnvironment &&
-          !activeTabIsSettings
+          !activeTabIsSettings &&
+          !activeTabIsApiServer &&
+          !activeTabIsWorkspaceSearch
         ) {
           runCurrentTabQuery('explain')
         }
@@ -422,12 +433,14 @@ function GlobalShortcutHandler({
     actions,
     activeConnectionId,
     activeTab,
+    activeTabIsApiServer,
     activeTabIsEnvironment,
     activeTabIsExplorer,
     activeTabIsMetrics,
     activeTabIsObjectView,
     activeTabIsSettings,
     activeTabIsTestSuite,
+    activeTabIsWorkspaceSearch,
     bottomPanelVisibleRef,
     keyboardShortcuts,
     openQueryTab,
@@ -572,6 +585,7 @@ function DesktopWorkspace() {
       item.id === snapshot.ui.activeTabId &&
       (item.tabKind === 'environment' ||
         item.tabKind === 'api-server' ||
+        item.tabKind === 'workspace-search' ||
         item.tabKind === 'settings' ||
         !activeConnection ||
         item.connectionId === activeConnection.id),
@@ -595,6 +609,7 @@ function DesktopWorkspace() {
   const activeTabIsEnvironment = activeTab?.tabKind === 'environment'
   const activeTabIsSettings = activeTab?.tabKind === 'settings'
   const activeTabIsApiServer = activeTab?.tabKind === 'api-server'
+  const activeTabIsWorkspaceSearch = activeTab?.tabKind === 'workspace-search'
   const activeEnvironment =
     snapshot?.environments.find((item) => item.id === snapshot.ui.activeEnvironmentId) ??
     snapshot?.environments[0]
@@ -818,6 +833,8 @@ function DesktopWorkspace() {
     !activeTabIsTestSuite &&
     !activeTabIsEnvironment &&
     !activeTabIsSettings &&
+    !activeTabIsApiServer &&
+    !activeTabIsWorkspaceSearch &&
     activeConnection
       ? builderStateForTab(activeTab, activeConnection, builderStateDrafts)
       : undefined
@@ -905,7 +922,9 @@ function DesktopWorkspace() {
       activeTabIsObjectView ||
       activeTabIsTestSuite ||
       activeTabIsEnvironment ||
-      activeTabIsSettings
+      activeTabIsSettings ||
+      activeTabIsApiServer ||
+      activeTabIsWorkspaceSearch
     ) {
       return undefined
     }
@@ -928,7 +947,9 @@ function DesktopWorkspace() {
     activeTabIsObjectView,
     activeTabIsTestSuite,
     activeTabIsEnvironment,
+    activeTabIsApiServer,
     activeTabIsSettings,
+    activeTabIsWorkspaceSearch,
     intellisenseCatalog,
     runtimeCapabilities.editorLanguage,
   ])
@@ -1079,7 +1100,9 @@ function DesktopWorkspace() {
       activeTabIsObjectView ||
       activeTabIsTestSuite ||
       activeTabIsEnvironment ||
-      activeTabIsSettings
+      activeTabIsSettings ||
+      activeTabIsApiServer ||
+      activeTabIsWorkspaceSearch
     ) {
       return
     }
@@ -1091,8 +1114,10 @@ function DesktopWorkspace() {
     activeTabIsExplorer,
     activeTabIsMetrics,
     activeTabIsObjectView,
+    activeTabIsApiServer,
     activeTabIsSettings,
     activeTabIsTestSuite,
+    activeTabIsWorkspaceSearch,
     commitQueryTextDraft,
   ])
   const requestIntellisenseRefresh = useCallback(() => {
@@ -1418,7 +1443,10 @@ function DesktopWorkspace() {
         tab.tabKind === 'explorer' ||
         tab.tabKind === 'metrics' ||
         tab.tabKind === 'object-view' ||
-        tab.tabKind === 'environment'
+        tab.tabKind === 'environment' ||
+        tab.tabKind === 'settings' ||
+        tab.tabKind === 'api-server' ||
+        tab.tabKind === 'workspace-search'
       ) {
         return
       }
@@ -1562,7 +1590,9 @@ function DesktopWorkspace() {
       activeTabIsObjectView ||
       activeTabIsTestSuite ||
       activeTabIsEnvironment ||
-      activeTabIsSettings
+      activeTabIsSettings ||
+      activeTabIsApiServer ||
+      activeTabIsWorkspaceSearch
     ) {
       return
     }
@@ -1589,9 +1619,11 @@ function DesktopWorkspace() {
     activeTabIsExplorer,
     activeTabIsMetrics,
     activeTabIsObjectView,
+    activeTabIsApiServer,
     activeTabIsEnvironment,
     activeTabIsTestSuite,
     activeTabIsSettings,
+    activeTabIsWorkspaceSearch,
   ])
 
   useEffect(() => {
@@ -1782,6 +1814,7 @@ function DesktopWorkspace() {
   const showingMetricsWorkspace = activeTabIsMetrics
   const showingObjectViewWorkspace = activeTabIsObjectView
   const showingApiServerWorkspace = activeTabIsApiServer
+  const showingWorkspaceSearchWorkspace = activeTabIsWorkspaceSearch
   const availableAppUpdate = appUpdateCheckResult?.status === 'available'
     ? appUpdateCheckResult.candidate
     : undefined
@@ -1795,7 +1828,8 @@ function DesktopWorkspace() {
       !activeTabIsTestSuite &&
       !activeTabIsEnvironment &&
       !activeTabIsSettings &&
-      !activeTabIsApiServer,
+      !activeTabIsApiServer &&
+      !activeTabIsWorkspaceSearch,
   )
   const isMessagePanelRequested = snapshot.ui.activeBottomPanelTab === 'messages'
   const isExplorerDetailsRequested =
@@ -1809,6 +1843,7 @@ function DesktopWorkspace() {
         !showingMetricsWorkspace &&
         !showingObjectViewWorkspace &&
         !showingApiServerWorkspace &&
+        !showingWorkspaceSearchWorkspace &&
         hasActiveQueryContext))
   const resultsDock = snapshot.ui.resultsDock ?? 'bottom'
   const resultsDockRight = resultsDock === 'right'
@@ -2295,12 +2330,14 @@ function DesktopWorkspace() {
         actions={actions}
         activeConnectionId={activeConnection?.id}
         activeTab={activeTab}
+        activeTabIsApiServer={activeTabIsApiServer}
         activeTabIsEnvironment={activeTabIsEnvironment}
         activeTabIsExplorer={activeTabIsExplorer}
         activeTabIsMetrics={activeTabIsMetrics}
         activeTabIsObjectView={activeTabIsObjectView}
         activeTabIsSettings={activeTabIsSettings}
         activeTabIsTestSuite={activeTabIsTestSuite}
+        activeTabIsWorkspaceSearch={activeTabIsWorkspaceSearch}
         bottomPanelVisibleRef={bottomPanelVisibleRef}
         keyboardShortcuts={keyboardShortcuts}
         openQueryTab={openQueryTab}
@@ -2443,6 +2480,8 @@ function DesktopWorkspace() {
               activeApiServer={activeTabIsApiServer}
               activeApiServerId={activeApiServerId}
               apiServers={apiServerInstances}
+              workspaceSearchEnabled={Boolean(snapshot.preferences.workspaceSearch?.enabled)}
+              activeWorkspaceSearch={activeTabIsWorkspaceSearch}
               isExplorerScopeLoading={isConnectionExplorerScopeLoading}
               activeConnectionId={activeConnection?.id ?? ''}
               activeEnvironmentId={activeEnvironment?.id ?? ''}
@@ -2495,6 +2534,7 @@ function DesktopWorkspace() {
               onOpenScopedQuery={openScopedQuery}
               onCreateTab={(connectionId) => openQueryTab(connectionId ?? activeConnection?.id)}
               onOpenApiServer={(serverId) => void actions.createApiServerTab(serverId)}
+              onOpenWorkspaceSearch={() => void actions.createWorkspaceSearchTab()}
               onStartApiServer={startApiServerFromSidebar}
               onStopApiServer={stopApiServerFromSidebar}
               onDeleteApiServer={deleteApiServerFromSidebar}
@@ -2620,8 +2660,10 @@ function DesktopWorkspace() {
                     onSetTheme={(theme) => void actions.setTheme(theme)}
                     onSetUpdatePrereleases={(enabled) => void actions.setAppUpdateSettings(enabled)}
                     onOpenApiServer={() => void actions.createApiServerTab()}
+                    onOpenWorkspaceSearch={() => void actions.createWorkspaceSearchTab()}
                     onUpdateApiServerSettings={actions.updateDatastoreApiServerSettings}
                     onUpdateBackupSettings={actions.updateWorkspaceBackupSettings}
+                    onUpdateWorkspaceSearchSettings={actions.updateWorkspaceSearchSettings}
                   />
                 ) : activeTabIsApiServer && activeTab ? (
                   <ApiServerWorkspace
@@ -2638,6 +2680,20 @@ function DesktopWorkspace() {
                     onUpdateSettings={updateApiServerSettings}
                     onStart={startApiServer}
                     onStop={stopApiServer}
+                  />
+                ) : activeTabIsWorkspaceSearch && activeTab ? (
+                  <WorkspaceSearchWorkspace
+                    key={activeTab.id}
+                    snapshot={snapshot}
+                    enabled={Boolean(snapshot.preferences.workspaceSearch?.enabled)}
+                    onOpenExperimentalSettings={() => openDiagnosticsDrawer('experimental')}
+                    onOpenConnection={(connectionId) => {
+                      void actions.selectConnection(connectionId)
+                      openConnectionDrawerFor(connectionId)
+                    }}
+                    onOpenLibraryItem={(nodeId) => void actions.openLibraryItem(nodeId)}
+                    onSelectTab={(tabId) => void actions.selectTab(tabId)}
+                    onReopenClosedTab={(closedTabId) => void actions.reopenClosedTab(closedTabId)}
                   />
                 ) : activeTabIsEnvironment && activeTab ? (
                   <EnvironmentWorkspace

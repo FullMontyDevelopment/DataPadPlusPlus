@@ -16,6 +16,7 @@ type QueryTabActions = Pick<
   | 'createEnvironmentTab'
   | 'createSettingsTab'
   | 'createApiServerTab'
+  | 'createWorkspaceSearchTab'
   | 'refreshMetricsTab'
   | 'createObjectViewTab'
   | 'refreshObjectViewTab'
@@ -189,6 +190,17 @@ export function useQueryTabActions({
       }
     },
     [applyPayload, handleError, state.payload],
+  )
+
+  const createWorkspaceSearchTab = useCallback<Actions['createWorkspaceSearchTab']>(
+    async () => {
+      try {
+        applyPayload(await desktopClient.createWorkspaceSearchTab())
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
   )
 
   const refreshMetricsTab = useCallback<Actions['refreshMetricsTab']>(
@@ -527,6 +539,7 @@ export function useQueryTabActions({
       createEnvironmentTab,
       createSettingsTab,
       createApiServerTab,
+      createWorkspaceSearchTab,
       createObjectViewTab,
       refreshMetricsTab,
       refreshObjectViewTab,
@@ -556,6 +569,7 @@ export function useQueryTabActions({
       closeTab,
       createApiServerTab,
       createEnvironmentTab,
+      createWorkspaceSearchTab,
       createLibraryFolder,
       createExplorerTab,
       createMetricsTab,

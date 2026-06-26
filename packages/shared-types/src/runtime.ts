@@ -324,6 +324,10 @@ export interface DatastoreApiServerLogs {
   entries: DatastoreApiServerLogEntry[]
 }
 
+export interface WorkspaceSearchSettingsRequest {
+  enabled: boolean
+}
+
 export type DataEditKind =
   | 'insert-row'
   | 'update-row'

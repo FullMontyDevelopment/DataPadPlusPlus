@@ -1,5 +1,9 @@
 import type { BootstrapPayload } from '@datapadplusplus/shared-types'
-import { createApiServerTabInSnapshot, createSettingsTabInSnapshot } from './browser-settings-tab'
+import {
+  createApiServerTabInSnapshot,
+  createSettingsTabInSnapshot,
+  createWorkspaceSearchTabInSnapshot,
+} from './browser-settings-tab'
 import { buildBrowserPayload, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 
@@ -20,6 +24,16 @@ export const clientSettingsTab = {
     }
 
     const snapshot = createApiServerTabInSnapshot(loadBrowserSnapshot())
+    saveBrowserSnapshot(snapshot)
+    return buildBrowserPayload(snapshot)
+  },
+
+  async createWorkspaceSearchTab(): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('create_workspace_search_tab')
+    }
+
+    const snapshot = createWorkspaceSearchTabInSnapshot(loadBrowserSnapshot())
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
   },

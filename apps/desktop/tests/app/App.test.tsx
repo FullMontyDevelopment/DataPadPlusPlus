@@ -413,6 +413,20 @@ describe('App', () => {
     expect(screen.queryByText('Ops dashboard')).not.toBeInTheDocument()
   })
 
+  it('opens Workspace Search from the Library when the experiment is enabled', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    snapshot.preferences.workspaceSearch = { enabled: true }
+    saveBrowserSnapshot(snapshot)
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Workspace Search' }))
+
+    expect(await screen.findByRole('tab', { name: /^Search$/i })).toBeInTheDocument()
+    expect(screen.getByLabelText('Search workspace')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Bottom panel')).not.toBeInTheDocument()
+  })
+
   it('tests saved connections for their environments on startup', async () => {
     const snapshot = createBlankBootstrapPayload().snapshot
     snapshot.environments = [testEnvironment('env-local', 'Local'), testEnvironment('env-prod', 'Prod')]

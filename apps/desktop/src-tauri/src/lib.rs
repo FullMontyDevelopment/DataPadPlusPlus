@@ -164,6 +164,7 @@ pub fn run() {
             commands::workspace::create_scoped_query_tab,
             commands::workspace::create_settings_tab,
             commands::workspace::create_test_suite_tab,
+            commands::workspace::create_workspace_search_tab,
             commands::workspace::delete_connection_profile,
             commands::workspace::delete_environment_profile,
             commands::workspace::delete_library_node,
@@ -227,6 +228,7 @@ pub fn run() {
             commands::workspace::update_query_tab,
             commands::workspace::update_test_suite_tab,
             commands::workspace::update_workspace_backup_settings,
+            commands::workspace::update_workspace_search_settings,
             commands::workspace::upsert_connection_profile,
             commands::workspace::upsert_environment_profile,
             commands::workspace::upsert_saved_work_item

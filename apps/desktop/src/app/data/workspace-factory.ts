@@ -40,6 +40,9 @@ export const defaultPreferences: AppPreferences = {
       autoStart: false,
     }],
   },
+  workspaceSearch: {
+    enabled: false,
+  },
 }
 
 export function createBlankSnapshot(): WorkspaceSnapshot {

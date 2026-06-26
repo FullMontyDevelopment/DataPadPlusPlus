@@ -9,6 +9,7 @@ import type {
   DiagnosticsReport,
   WorkspaceBackupRunResponse,
   WorkspaceBackupSummary,
+  WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { SettingsIcon, ThemeIcon } from './icons'
@@ -55,8 +56,10 @@ export function SettingsWorkspace({
   onSetTheme,
   onSetUpdatePrereleases,
   onOpenApiServer,
+  onOpenWorkspaceSearch,
   onUpdateApiServerSettings,
   onUpdateBackupSettings,
+  onUpdateWorkspaceSearchSettings,
 }: {
   diagnostics?: DiagnosticsReport
   health: AppHealth
@@ -83,8 +86,12 @@ export function SettingsWorkspace({
     includeSecrets?: boolean
   }): Promise<boolean>
   onOpenApiServer(): void
+  onOpenWorkspaceSearch(): void
   onUpdateApiServerSettings(
     request: DatastoreApiServerSettingsRequest,
+  ): Promise<boolean>
+  onUpdateWorkspaceSearchSettings(
+    request: WorkspaceSearchSettingsRequest,
   ): Promise<boolean>
 } & SettingsUpdatesProps) {
   const [section, setSection] = useState<SettingsSection>(
@@ -180,7 +187,9 @@ export function SettingsWorkspace({
           <SettingsExperimentalPanel
             preferences={preferences}
             onOpenApiServer={onOpenApiServer}
+            onOpenWorkspaceSearch={onOpenWorkspaceSearch}
             onUpdateApiServerSettings={onUpdateApiServerSettings}
+            onUpdateWorkspaceSearchSettings={onUpdateWorkspaceSearchSettings}
           />
         ) : null}
 

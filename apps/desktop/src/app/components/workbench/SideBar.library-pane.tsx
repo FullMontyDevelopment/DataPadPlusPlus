@@ -30,6 +30,7 @@ import {
   QueryIcon,
   RenameIcon,
   RefreshIcon,
+  SearchIcon,
   StopIcon,
   TrashIcon,
 } from './icons'
@@ -60,6 +61,8 @@ interface LibraryPaneProps {
   activeApiServer?: boolean
   activeApiServerId?: string
   apiServers?: DatastoreApiServerInstanceStatus[]
+  workspaceSearchEnabled?: boolean
+  activeWorkspaceSearch?: boolean
   getConnectionExplorerItems?(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
   getConnectionExplorerStatus?(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
   getConnectionHealth?(connectionId: string, environmentId?: string): ConnectionHealth | undefined
@@ -89,6 +92,7 @@ interface LibraryPaneProps {
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery?(connectionId: string, target: ScopedQueryTarget): void
   onOpenApiServer?(serverId?: string): void
+  onOpenWorkspaceSearch?(): void
   onStartApiServer?(serverId: string): void
   onStopApiServer?(serverId: string): void
   onDeleteApiServer?(serverId: string): void
@@ -181,6 +185,8 @@ export function LibraryPane({
   activeApiServer = false,
   activeApiServerId,
   apiServers = [],
+  workspaceSearchEnabled = false,
+  activeWorkspaceSearch = false,
   getConnectionExplorerItems = () => undefined,
   getConnectionExplorerStatus = () => 'idle',
   getConnectionHealth = () => undefined,
@@ -210,6 +216,7 @@ export function LibraryPane({
   onOpenObjectView = noop,
   onOpenScopedQuery = noop,
   onOpenApiServer = noop,
+  onOpenWorkspaceSearch = noop,
   onStartApiServer = noop,
   onStopApiServer = noop,
   onDeleteApiServer = noop,
@@ -463,6 +470,17 @@ export function LibraryPane({
           >
             <ExplorerIcon className="sidebar-icon" />
           </button>
+          {workspaceSearchEnabled ? (
+            <button
+              type="button"
+              className={`sidebar-icon-button${activeWorkspaceSearch ? ' is-active' : ''}`}
+              aria-label="Open Workspace Search"
+              title="Open Workspace Search"
+              onClick={() => onOpenWorkspaceSearch()}
+            >
+              <SearchIcon className="sidebar-icon" />
+            </button>
+          ) : null}
         </div>
       </div>
 

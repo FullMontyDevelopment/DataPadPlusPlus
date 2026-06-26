@@ -12,6 +12,7 @@ import type {
   WorkspaceBundleFileExportResponse,
   WorkspaceBundleFileImportRequest,
   UpdateUiStateRequest,
+  WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
   AppLogFileContent,
   AppLogFileSummary,
@@ -297,6 +298,22 @@ export const clientWorkspace = {
         : undefined,
       lastBackupAt: next.preferences.workspaceBackups?.lastBackupAt,
       lastWorkspaceUpdatedAt: next.preferences.workspaceBackups?.lastWorkspaceUpdatedAt,
+    }
+    next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async updateWorkspaceSearchSettings(
+    request: WorkspaceSearchSettingsRequest,
+  ): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('update_workspace_search_settings', { request })
+    }
+
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    next.preferences.workspaceSearch = {
+      enabled: Boolean(request.enabled),
     }
     next.updatedAt = new Date().toISOString()
     saveBrowserSnapshot(next)

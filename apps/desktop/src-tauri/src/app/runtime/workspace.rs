@@ -26,7 +26,8 @@ use crate::{
         models::{
             AppHealth, AppPreferences, BootstrapPayload, DatastoreApiServerConfig,
             DatastoreApiServerPreferences, DiagnosticsCounts, DiagnosticsReport, ExportBundle,
-            LockState, ResolvedEnvironment, UiState, WorkspaceSnapshot,
+            LockState, ResolvedEnvironment, UiState, WorkspaceSearchSettingsRequest,
+            WorkspaceSnapshot,
         },
     },
     infrastructure, persistence, security,
@@ -184,6 +185,17 @@ impl ManagedAppState {
         }
         let snapshot = bundle_payload.snapshot;
         self.snapshot = migrate_snapshot(snapshot);
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
+    pub fn update_workspace_search_settings(
+        &mut self,
+        request: WorkspaceSearchSettingsRequest,
+    ) -> Result<BootstrapPayload, CommandError> {
+        self.ensure_unlocked()?;
+        self.snapshot.preferences.workspace_search.enabled = request.enabled;
+        self.snapshot.updated_at = timestamp_now();
         self.persist()?;
         Ok(self.bootstrap_payload())
     }
@@ -539,6 +551,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
                     keyboard_shortcuts: HashMap::new(),
                     workspace_backups: Default::default(),
                     datastore_api_server: Default::default(),
+                    workspace_search: Default::default(),
                 },
                 guardrails: Vec::new(),
                 lock_state: LockState {
@@ -581,6 +594,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
             keyboard_shortcuts: HashMap::new(),
             workspace_backups: Default::default(),
             datastore_api_server: Default::default(),
+            workspace_search: Default::default(),
         },
         guardrails: Vec::new(),
         lock_state: LockState {

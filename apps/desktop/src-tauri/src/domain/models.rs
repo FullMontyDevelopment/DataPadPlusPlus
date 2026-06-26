@@ -1732,6 +1732,19 @@ impl Default for DatastoreApiServerPreferences {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct WorkspaceSearchPreferences {
+    pub enabled: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSearchSettingsRequest {
+    pub enabled: bool,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppPreferences {
@@ -1745,6 +1758,8 @@ pub struct AppPreferences {
     pub workspace_backups: WorkspaceBackupPreferences,
     #[serde(default)]
     pub datastore_api_server: DatastoreApiServerPreferences,
+    #[serde(default)]
+    pub workspace_search: WorkspaceSearchPreferences,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
