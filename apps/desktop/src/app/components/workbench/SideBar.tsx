@@ -55,6 +55,9 @@ interface SideBarProps {
   onTestConnection(connectionId: string, environmentId?: string): void
   onLoadExplorerScope(connectionId: string, scope?: string, environmentId?: string): void
   onOpenObjectView(connectionId: string, node: ExplorerNode): void
+  onCreateApiServerFromNode?(connectionId: string, node: ExplorerNode): void
+  onCreateApiServer?(): void
+  onAddNodeToApiServer?(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onCreateTab(connectionId?: string): void
   onOpenApiServer(serverId?: string): void
@@ -118,6 +121,9 @@ export function SideBar({
   onTestConnection,
   onLoadExplorerScope,
   onOpenObjectView,
+  onCreateApiServerFromNode,
+  onCreateApiServer,
+  onAddNodeToApiServer,
   onOpenScopedQuery,
   onCreateTab,
   onOpenApiServer,
@@ -293,6 +299,7 @@ export function SideBar({
           onCreateEnvironment={onCreateEnvironment}
           onCreateFolder={onCreateLibraryFolder}
           onCreateTab={onCreateTab}
+          onCreateApiServer={onCreateApiServer}
           onOpenApiServer={onOpenApiServer}
           onOpenWorkspaceSearch={onOpenWorkspaceSearch}
           onStartApiServer={onStartApiServer}
@@ -310,6 +317,8 @@ export function SideBar({
           onOpenConnectionExplorer={onOpenConnectionExplorer}
           onOpenConnectionMetrics={onOpenConnectionMetrics}
           onInspectExplorerNode={onInspectExplorerNode}
+          onCreateApiServerFromNode={onCreateApiServerFromNode}
+          onAddNodeToApiServer={onAddNodeToApiServer}
           onOpenObjectView={onOpenObjectView}
           onOpenScopedQuery={onOpenScopedQuery}
           onOpenLibraryItem={onOpenLibraryItem}

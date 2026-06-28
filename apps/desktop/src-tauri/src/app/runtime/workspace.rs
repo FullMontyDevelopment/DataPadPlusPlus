@@ -356,7 +356,7 @@ fn normalize_datastore_api_server_preferences(preferences: &mut DatastoreApiServ
             .active_server_id
             .as_deref()
             .is_some_and(|id| id != DEFAULT_API_SERVER_ID);
-    let should_promote_legacy_server = preferences.servers.is_empty()
+    let should_promote_legacy_server = (preferences.servers.is_empty() && legacy_fields_are_custom)
         || (preferences.servers.len() == 1
             && legacy_fields_are_custom
             && is_default_api_server_placeholder(&preferences.servers[0]));
@@ -369,19 +369,20 @@ fn normalize_datastore_api_server_preferences(preferences: &mut DatastoreApiServ
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| DEFAULT_API_SERVER_ID.into()),
             name: default_api_server_name(preferences.port),
+            description: None,
             host: API_SERVER_HOST.into(),
             port: normalize_api_server_port(preferences.port),
             auto_start: preferences.auto_start,
+            protocol: "rest".into(),
+            base_path: String::new(),
             connection_id: preferences.connection_id.clone(),
             environment_id: preferences.environment_id.clone(),
+            resources: Vec::new(),
+            custom_endpoints: Vec::new(),
         }]
     } else {
         preferences.servers.clone()
     };
-
-    if servers.is_empty() {
-        servers.push(DatastoreApiServerConfig::default());
-    }
 
     for (index, server) in servers.iter_mut().enumerate() {
         if server.id.trim().is_empty() {
@@ -394,6 +395,10 @@ fn normalize_datastore_api_server_preferences(preferences: &mut DatastoreApiServ
         }
         server.host = API_SERVER_HOST.into();
         server.port = normalize_api_server_port(server.port);
+        server.protocol = normalize_api_server_protocol(&server.protocol);
+        server.base_path = normalize_api_server_base_path(&server.base_path);
+        normalize_api_server_resources(&mut server.resources);
+        normalize_api_server_custom_endpoints(&mut server.custom_endpoints, &server.resources);
     }
 
     preferences.active_server_id = preferences
@@ -431,6 +436,8 @@ fn is_default_api_server_placeholder(server: &DatastoreApiServerConfig) -> bool 
         && !server.auto_start
         && server.connection_id.is_none()
         && server.environment_id.is_none()
+        && server.resources.is_empty()
+        && server.custom_endpoints.is_empty()
 }
 
 fn normalize_api_server_port(port: u16) -> u16 {
@@ -438,6 +445,164 @@ fn normalize_api_server_port(port: u16) -> u16 {
         DEFAULT_API_SERVER_PORT
     } else {
         port
+    }
+}
+
+fn normalize_api_server_protocol(value: &str) -> String {
+    match value {
+        "graphql" | "grpc" => value.into(),
+        _ => "rest".into(),
+    }
+}
+
+fn normalize_api_server_base_path(value: &str) -> String {
+    let trimmed = value.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("/{trimmed}")
+    }
+}
+
+fn normalize_api_server_resources(
+    resources: &mut Vec<crate::domain::models::DatastoreApiServerResourceConfig>,
+) {
+    let mut slugs = HashMap::<String, usize>::new();
+    for (index, resource) in resources.iter_mut().enumerate() {
+        if resource.id.trim().is_empty() {
+            resource.id = format!("api-resource-{}", index + 1);
+        }
+        resource.kind = match resource.kind.as_str() {
+            "table" | "collection" | "key" | "item" | "index" => resource.kind.clone(),
+            _ => "table".into(),
+        };
+        if resource.label.trim().is_empty() {
+            resource.label = resource.node_id.clone();
+        } else {
+            resource.label = resource.label.trim().into();
+        }
+        if resource.endpoint_slug.trim().is_empty() {
+            resource.endpoint_slug = api_server_slug(&resource.label);
+        } else {
+            resource.endpoint_slug = api_server_slug(&resource.endpoint_slug);
+        }
+        let base_slug = resource.endpoint_slug.clone();
+        let count = slugs.entry(base_slug.clone()).or_insert(0);
+        *count += 1;
+        if *count > 1 {
+            resource.endpoint_slug = format!("{base_slug}-{count}");
+        }
+        resource.enabled = resource.enabled || !resource.id.is_empty();
+    }
+}
+
+fn normalize_api_server_custom_endpoints(
+    endpoints: &mut Vec<crate::domain::models::DatastoreApiServerCustomEndpointConfig>,
+    resources: &[crate::domain::models::DatastoreApiServerResourceConfig],
+) {
+    let mut slugs = resources
+        .iter()
+        .map(|resource| (resource.endpoint_slug.clone(), 1usize))
+        .collect::<HashMap<_, _>>();
+    for (index, endpoint) in endpoints.iter_mut().enumerate() {
+        if endpoint.id.trim().is_empty() {
+            endpoint.id = format!("api-endpoint-{}", index + 1);
+        }
+        endpoint.label = endpoint.label.trim().into();
+        if endpoint.label.is_empty() {
+            endpoint.label = endpoint.source_name.trim().into();
+        }
+        if endpoint.label.is_empty() {
+            endpoint.label = format!("Custom Endpoint {}", index + 1);
+        }
+        endpoint.description = endpoint
+            .description
+            .clone()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        endpoint.source_name = endpoint.source_name.trim().into();
+        if endpoint.source_name.is_empty() {
+            endpoint.source_name = endpoint.label.clone();
+        }
+        endpoint.method = match endpoint.method.trim().to_ascii_uppercase().as_str() {
+            "POST" => "POST".into(),
+            _ => "GET".into(),
+        };
+        endpoint.language = endpoint.language.trim().into();
+        if endpoint.language.is_empty() {
+            endpoint.language = "sql".into();
+        }
+        endpoint.query_view_mode = match endpoint.query_view_mode.as_deref() {
+            Some("builder" | "raw" | "script") => endpoint.query_view_mode.clone(),
+            _ => Some("raw".into()),
+        };
+        endpoint.row_limit = endpoint.row_limit.map(|limit| limit.clamp(1, 500));
+        if endpoint.endpoint_slug.trim().is_empty() {
+            endpoint.endpoint_slug = api_server_slug(&endpoint.label);
+        } else {
+            endpoint.endpoint_slug = api_server_slug(&endpoint.endpoint_slug);
+        }
+        let base_slug = endpoint.endpoint_slug.clone();
+        let count = slugs.entry(base_slug.clone()).or_insert(0);
+        *count += 1;
+        if *count > 1 {
+            endpoint.endpoint_slug = format!("{base_slug}-{count}");
+        }
+        normalize_api_server_custom_endpoint_parameters(&mut endpoint.parameters);
+    }
+}
+
+fn normalize_api_server_custom_endpoint_parameters(
+    parameters: &mut Vec<crate::domain::models::DatastoreApiServerCustomEndpointParameterConfig>,
+) {
+    let mut seen = HashMap::<String, usize>::new();
+    parameters.retain_mut(|parameter| {
+        let name = parameter.name.trim().to_string();
+        if name.is_empty() {
+            return false;
+        }
+        let count = seen.entry(name.clone()).or_insert(0);
+        *count += 1;
+        if *count > 1 {
+            return false;
+        }
+        parameter.name = name;
+        parameter.parameter_type = match parameter.parameter_type.as_str() {
+            "number" | "boolean" | "json" => parameter.parameter_type.clone(),
+            _ => "string".into(),
+        };
+        parameter.serialization = match parameter.serialization.as_str() {
+            "sql" | "json" | "raw" => parameter.serialization.clone(),
+            _ => "auto".into(),
+        };
+        parameter.description = parameter
+            .description
+            .clone()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        true
+    });
+}
+
+fn api_server_slug(value: &str) -> String {
+    let mut output = String::new();
+    let mut last_dash = false;
+    for character in value.trim().chars() {
+        if character.is_ascii_alphanumeric() {
+            output.push(character.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash && !output.is_empty() {
+            output.push('-');
+            last_dash = true;
+        }
+    }
+    while output.ends_with('-') {
+        output.pop();
+    }
+    if output.is_empty() {
+        "resource".into()
+    } else {
+        output
     }
 }
 

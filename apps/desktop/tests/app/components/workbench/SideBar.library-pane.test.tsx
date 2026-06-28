@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import type {
   ClosedQueryTabSnapshot,
   ConnectionProfile,
+  DatastoreApiServerInstanceStatus,
   EnvironmentProfile,
   ExplorerNode,
   LibraryNode,
@@ -487,6 +488,41 @@ describe('LibraryPane', () => {
 
     expect(onCreateConnection).toHaveBeenCalledTimes(1)
   })
+
+  it('creates API servers from the API Server section header', () => {
+    const onCreateApiServer = vi.fn()
+
+    renderLibraryPane(vi.fn(), {
+      apiServerEnabled: true,
+      apiServers: [{
+        id: 'api-server-1',
+        name: 'Orders API',
+        running: false,
+        host: '127.0.0.1',
+        port: 17640,
+        protocol: 'rest',
+        basePath: '',
+        message: 'Stopped',
+        warnings: [],
+        resources: [],
+      }],
+      onCreateApiServer,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create API server' }))
+
+    expect(onCreateApiServer).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not render a placeholder API server when none are configured', () => {
+    renderLibraryPane(vi.fn(), {
+      apiServerEnabled: true,
+      apiServers: [],
+    })
+
+    expect(screen.getByText('No API servers')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Open API Server workspace for Local API Server/i })).not.toBeInTheDocument()
+  })
 })
 
 function renderLibraryPane(
@@ -518,6 +554,9 @@ function renderLibraryPane(
     sectionStates: Record<string, boolean>
     workspaceSearchEnabled: boolean
     activeWorkspaceSearch: boolean
+    apiServerEnabled: boolean
+    apiServers: DatastoreApiServerInstanceStatus[]
+    onCreateApiServer: () => void
   }> = {},
 ) {
   return render(
@@ -537,12 +576,15 @@ function renderLibraryPane(
       connections={overrides.connections ?? []}
       environments={overrides.environments ?? []}
       explorerStatus={overrides.explorerStatus ?? 'idle'}
+      apiServerEnabled={overrides.apiServerEnabled ?? false}
+      apiServers={overrides.apiServers ?? []}
       workspaceSearchEnabled={overrides.workspaceSearchEnabled ?? false}
       activeWorkspaceSearch={overrides.activeWorkspaceSearch ?? false}
       libraryFilter=""
       libraryNodes={overrides.libraryNodes ?? nodes}
       sectionStates={overrides.sectionStates ?? {}}
       onCreateConnection={overrides.onCreateConnection ?? vi.fn()}
+      onCreateApiServer={overrides.onCreateApiServer ?? vi.fn()}
       onCloneEnvironment={overrides.onCloneEnvironment ?? vi.fn()}
       onCreateFolder={overrides.onCreateFolder ?? vi.fn()}
       onDeleteEnvironment={overrides.onDeleteEnvironment ?? vi.fn()}

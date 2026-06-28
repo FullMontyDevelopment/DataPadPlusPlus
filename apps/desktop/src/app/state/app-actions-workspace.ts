@@ -27,6 +27,15 @@ type WorkspaceActions = Pick<
   | 'getDatastoreApiServerStatus'
   | 'getDatastoreApiServerMetrics'
   | 'getDatastoreApiServerLogs'
+  | 'createDatastoreApiServer'
+  | 'updateDatastoreApiServer'
+  | 'discoverDatastoreApiServerResources'
+  | 'discoverDatastoreApiServerQuerySources'
+  | 'addDatastoreApiServerResources'
+  | 'removeDatastoreApiServerResource'
+  | 'addDatastoreApiServerCustomEndpoint'
+  | 'updateDatastoreApiServerCustomEndpoint'
+  | 'removeDatastoreApiServerCustomEndpoint'
   | 'updateDatastoreApiServerSettings'
   | 'startDatastoreApiServer'
   | 'stopDatastoreApiServer'
@@ -304,6 +313,128 @@ export function useWorkspaceActions({
     [handleError],
   )
 
+  const createDatastoreApiServer = useCallback<Actions['createDatastoreApiServer']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.createDatastoreApiServer(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const updateDatastoreApiServer = useCallback<Actions['updateDatastoreApiServer']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.updateDatastoreApiServer(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const discoverDatastoreApiServerResources = useCallback<Actions['discoverDatastoreApiServerResources']>(
+    async (request) => {
+      try {
+        return await desktopClient.discoverDatastoreApiServerResources(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const discoverDatastoreApiServerQuerySources = useCallback<Actions['discoverDatastoreApiServerQuerySources']>(
+    async (request) => {
+      try {
+        return await desktopClient.discoverDatastoreApiServerQuerySources(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const addDatastoreApiServerResources = useCallback<Actions['addDatastoreApiServerResources']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.addDatastoreApiServerResources(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const removeDatastoreApiServerResource = useCallback<Actions['removeDatastoreApiServerResource']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.removeDatastoreApiServerResource(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const addDatastoreApiServerCustomEndpoint = useCallback<Actions['addDatastoreApiServerCustomEndpoint']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.addDatastoreApiServerCustomEndpoint(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const updateDatastoreApiServerCustomEndpoint = useCallback<Actions['updateDatastoreApiServerCustomEndpoint']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.updateDatastoreApiServerCustomEndpoint(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const removeDatastoreApiServerCustomEndpoint = useCallback<Actions['removeDatastoreApiServerCustomEndpoint']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.removeDatastoreApiServerCustomEndpoint(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
   const updateDatastoreApiServerSettings = useCallback<Actions['updateDatastoreApiServerSettings']>(
     async (request) => {
       try {
@@ -431,6 +562,15 @@ export function useWorkspaceActions({
       getDatastoreApiServerStatus,
       getDatastoreApiServerMetrics,
       getDatastoreApiServerLogs,
+      createDatastoreApiServer,
+      updateDatastoreApiServer,
+      discoverDatastoreApiServerResources,
+      discoverDatastoreApiServerQuerySources,
+      addDatastoreApiServerResources,
+      removeDatastoreApiServerResource,
+      addDatastoreApiServerCustomEndpoint,
+      updateDatastoreApiServerCustomEndpoint,
+      removeDatastoreApiServerCustomEndpoint,
       updateDatastoreApiServerSettings,
       startDatastoreApiServer,
       stopDatastoreApiServer,
@@ -453,6 +593,15 @@ export function useWorkspaceActions({
       getDatastoreApiServerStatus,
       getDatastoreApiServerMetrics,
       getDatastoreApiServerLogs,
+      createDatastoreApiServer,
+      updateDatastoreApiServer,
+      discoverDatastoreApiServerResources,
+      discoverDatastoreApiServerQuerySources,
+      addDatastoreApiServerResources,
+      removeDatastoreApiServerResource,
+      addDatastoreApiServerCustomEndpoint,
+      updateDatastoreApiServerCustomEndpoint,
+      removeDatastoreApiServerCustomEndpoint,
       updateDatastoreApiServerSettings,
       startDatastoreApiServer,
       stopDatastoreApiServer,

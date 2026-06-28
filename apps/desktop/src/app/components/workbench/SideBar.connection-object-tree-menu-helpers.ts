@@ -13,6 +13,8 @@ export function hasAvailableObjectMenuItems(
     canInspectNode: boolean
     canOpenObjectView: boolean
     canRefreshNode: boolean
+    canCreateApiServer?: boolean
+    canAddToApiServer?: boolean
   },
 ) {
   const objectViewable = isObjectViewNode(connection, node)
@@ -22,6 +24,7 @@ export function hasAvailableObjectMenuItems(
       (objectViewable && options.canOpenObjectView) ||
       (options.canInspectNode && isInspectableTreeNode(node)) ||
       (options.canRefreshNode && canRefreshTreeNode(node)) ||
+      ((options.canCreateApiServer || options.canAddToApiServer) && isApiServerCandidateNode(node)) ||
       availableManagementActions(node.actions).length,
   )
 }
@@ -67,4 +70,12 @@ export function canRefreshTreeNode(node: ConnectionTreeNode) {
 
 export function isInspectableTreeNode(node: ConnectionTreeNode) {
   return Boolean(node.scope || node.queryTemplate || node.refreshScope)
+}
+
+export function isApiServerCandidateNode(node: ConnectionTreeNode) {
+  return Boolean(
+    node.scope ||
+      node.children?.length ||
+      ['table', 'collection', 'key', 'item', 'index'].includes(node.kind),
+  )
 }

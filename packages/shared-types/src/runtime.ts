@@ -211,13 +211,105 @@ export interface DatastoreApiServerSettingsRequest {
   environmentId?: string
   serverId?: string
   name?: string
+  description?: string
+  protocol?: 'rest' | 'graphql' | 'grpc'
+  basePath?: string
+  resources?: import('./security').DatastoreApiServerResourceConfig[]
+  customEndpoints?: import('./security').DatastoreApiServerCustomEndpointConfig[]
   activeServerId?: string
+}
+
+export interface DatastoreApiServerCreateRequest {
+  name?: string
+  description?: string
+  protocol?: 'rest' | 'graphql' | 'grpc'
+  basePath?: string
+  port?: number
+  autoStart?: boolean
+  connectionId?: string
+  environmentId?: string
+  resources?: import('./security').DatastoreApiServerResourceConfig[]
+  customEndpoints?: import('./security').DatastoreApiServerCustomEndpointConfig[]
+}
+
+export interface DatastoreApiServerUpdateRequest {
+  serverId: string
+  name?: string
+  description?: string
+  protocol?: 'rest' | 'graphql' | 'grpc'
+  basePath?: string
+  port?: number
+  autoStart?: boolean
+  connectionId?: string
+  environmentId?: string
+  resources?: import('./security').DatastoreApiServerResourceConfig[]
+  customEndpoints?: import('./security').DatastoreApiServerCustomEndpointConfig[]
+}
+
+export interface DatastoreApiServerResourceDiscoveryRequest {
+  connectionId: string
+  environmentId: string
+  scope?: string
+  limit?: number
+}
+
+export interface DatastoreApiServerResourceDiscoveryResponse {
+  connectionId: string
+  environmentId: string
+  scope?: string
+  resources: import('./security').DatastoreApiServerResourceConfig[]
+}
+
+export interface DatastoreApiServerAddResourcesRequest {
+  serverId: string
+  resources: import('./security').DatastoreApiServerResourceConfig[]
+}
+
+export interface DatastoreApiServerRemoveResourceRequest {
+  serverId: string
+  resourceId: string
+}
+
+export interface DatastoreApiServerQuerySource {
+  id: string
+  name: string
+  summary?: string
+  connectionId?: string
+  environmentId?: string
+  language?: import('./workspace').QueryLanguage
+  queryViewMode?: import('./workspace').QueryViewMode
+  queryText: string
+}
+
+export interface DatastoreApiServerQuerySourceDiscoveryRequest {
+  serverId: string
+}
+
+export interface DatastoreApiServerQuerySourceDiscoveryResponse {
+  serverId: string
+  sources: DatastoreApiServerQuerySource[]
+}
+
+export interface DatastoreApiServerAddCustomEndpointRequest {
+  serverId: string
+  endpoint: import('./security').DatastoreApiServerCustomEndpointConfig
+}
+
+export interface DatastoreApiServerUpdateCustomEndpointRequest {
+  serverId: string
+  endpointId: string
+  endpoint: import('./security').DatastoreApiServerCustomEndpointConfig
+}
+
+export interface DatastoreApiServerRemoveCustomEndpointRequest {
+  serverId: string
+  endpointId: string
 }
 
 export interface DatastoreApiServerStartRequest {
   serverId?: string
-  connectionId: string
-  environmentId: string
+  connectionId?: string
+  environmentId?: string
   port?: number
 }
 
@@ -233,15 +325,20 @@ export interface DatastoreApiServerDeleteRequest {
 export interface DatastoreApiServerInstanceStatus {
   id: string
   name: string
+  description?: string
   running: boolean
   host: '127.0.0.1'
   port: number
+  protocol?: 'rest' | 'graphql' | 'grpc'
+  basePath?: string
   baseUrl?: string
   connectionId?: string
   environmentId?: string
   startedAt?: string
   message: string
   warnings: string[]
+  resources?: import('./security').DatastoreApiServerResourceConfig[]
+  customEndpoints?: import('./security').DatastoreApiServerCustomEndpointConfig[]
 }
 
 export interface DatastoreApiServerStatus {
@@ -254,11 +351,16 @@ export interface DatastoreApiServerStatus {
   environmentId?: string
   serverId?: string
   name?: string
+  description?: string
+  protocol?: 'rest' | 'graphql' | 'grpc'
+  basePath?: string
   activeServerId?: string
   startedAt?: string
   message: string
   warnings: string[]
   servers: DatastoreApiServerInstanceStatus[]
+  resources?: import('./security').DatastoreApiServerResourceConfig[]
+  customEndpoints?: import('./security').DatastoreApiServerCustomEndpointConfig[]
 }
 
 export interface DatastoreApiServerRouteMetric {
@@ -282,6 +384,7 @@ export interface DatastoreApiServerRouteMetric {
 export interface DatastoreApiServerMetrics {
   running: boolean
   generatedAt: string
+  serverId?: string
   startedAt?: string
   connectionId?: string
   environmentId?: string
@@ -311,6 +414,7 @@ export interface DatastoreApiServerLogEntry {
 }
 
 export interface DatastoreApiServerLogsRequest {
+  serverId?: string
   limit?: number
   method?: string
   route?: string

@@ -18,12 +18,12 @@ export const clientSettingsTab = {
     return buildBrowserPayload(snapshot)
   },
 
-  async createApiServerTab(): Promise<BootstrapPayload> {
+  async createApiServerTab(serverId?: string): Promise<BootstrapPayload> {
     if (isTauriRuntime()) {
-      return invokeDesktop<BootstrapPayload>('create_api_server_tab')
+      return invokeDesktop<BootstrapPayload>('create_api_server_tab', { serverId })
     }
 
-    const snapshot = createApiServerTabInSnapshot(loadBrowserSnapshot())
+    const snapshot = createApiServerTabInSnapshot(loadBrowserSnapshot(), serverId)
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
   },

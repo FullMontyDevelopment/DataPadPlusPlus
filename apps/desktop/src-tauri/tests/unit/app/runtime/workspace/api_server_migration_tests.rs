@@ -44,6 +44,7 @@ fn migrate_snapshot_keeps_multi_api_server_preferences() {
             auto_start: false,
             connection_id: Some("conn-users".into()),
             environment_id: Some("env-dev".into()),
+            ..DatastoreApiServerConfig::default()
         },
         DatastoreApiServerConfig {
             id: "api-server-orders".into(),
@@ -53,6 +54,7 @@ fn migrate_snapshot_keeps_multi_api_server_preferences() {
             auto_start: true,
             connection_id: Some("conn-orders".into()),
             environment_id: Some("env-prod".into()),
+            ..DatastoreApiServerConfig::default()
         },
     ];
 

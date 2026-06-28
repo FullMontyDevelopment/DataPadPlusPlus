@@ -61,12 +61,16 @@ describe('clientApiServer browser preview', () => {
       activeServerId: 'api-server-default',
       servers: [{
         id: 'api-server-default',
-        name: 'Local API Server',
+        name: 'Local API Server 17641',
         host: '127.0.0.1',
         port: 17641,
         autoStart: true,
+        protocol: 'rest',
+        basePath: '',
         connectionId: 'conn-sqlite',
         environmentId: 'env-local',
+        resources: [],
+        customEndpoints: [],
       }],
     })
 
@@ -96,5 +100,15 @@ describe('clientApiServer browser preview', () => {
     const logs = await clientApiServer.getDatastoreApiServerLogs({ limit: 10 })
     expect(logs.running).toBe(false)
     expect(logs.entries).toEqual([])
+
+    await clientApiServer.deleteDatastoreApiServer({ serverId: 'api-server-default' })
+
+    const deletedSnapshot = loadBrowserSnapshot().preferences.datastoreApiServer
+    expect(deletedSnapshot?.activeServerId).toBeUndefined()
+    expect(deletedSnapshot?.servers).toEqual([])
+
+    const deletedStatus = await clientApiServer.getDatastoreApiServerStatus()
+    expect(deletedStatus.activeServerId).toBeUndefined()
+    expect(deletedStatus.servers).toEqual([])
   })
 })

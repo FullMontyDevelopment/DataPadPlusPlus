@@ -3,6 +3,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CopyIcon,
+  ObjectServerIcon,
   ObjectSearchIcon,
   PlayIcon,
   RefreshIcon,
@@ -17,6 +18,7 @@ import type { ConnectionTreeAction, ConnectionTreeNode } from './SideBar.helpers
 import {
   availableManagementActions,
   canRefreshTreeNode,
+  isApiServerCandidateNode,
   isDuplicatePrimaryMongoAction,
   isInspectableTreeNode,
 } from './SideBar.connection-object-tree-menu-helpers'
@@ -38,6 +40,8 @@ export function ConnectionObjectContextMenu({
   onInspectNode,
   onOpenObjectView,
   onOpenQuery,
+  onCreateApiServer,
+  onAddToApiServer,
   onRefresh,
   onRunAction,
   onToggleNode,
@@ -51,6 +55,8 @@ export function ConnectionObjectContextMenu({
   onInspectNode?(node: ConnectionTreeNode): void
   onOpenObjectView?(node: ConnectionTreeNode): void
   onOpenQuery(node: ConnectionTreeNode): void
+  onCreateApiServer?(node: ConnectionTreeNode): void
+  onAddToApiServer?(node: ConnectionTreeNode): void
   onRefresh(node: ConnectionTreeNode): void
   onRunAction(node: ConnectionTreeNode, action: ConnectionTreeAction): void
   onToggleNode(nodeKey: string): void
@@ -65,6 +71,7 @@ export function ConnectionObjectContextMenu({
     (!objectViewable || !onOpenObjectView) &&
     isInspectableTreeNode(node)
   const canRefresh = canRefreshNodes && canRefreshTreeNode(node)
+  const canUseApiServer = isApiServerCandidateNode(node)
   const managementActions = availableManagementActions(node.actions)
     .filter((action) => !isDuplicatePrimaryMongoAction(connection, node, queryable, action))
 
@@ -159,6 +166,36 @@ export function ConnectionObjectContextMenu({
         </button>
       ) : null}
 
+      {canUseApiServer && onCreateApiServer ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="connection-context-menu-item"
+          onClick={() => {
+            onCreateApiServer(node)
+            onClose()
+          }}
+        >
+          <ObjectServerIcon className="connection-context-menu-icon" />
+          <span>Create API Server</span>
+        </button>
+      ) : null}
+
+      {canUseApiServer && onAddToApiServer ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="connection-context-menu-item"
+          onClick={() => {
+            onAddToApiServer(node)
+            onClose()
+          }}
+        >
+          <ObjectServerIcon className="connection-context-menu-icon" />
+          <span>Add to API Server</span>
+        </button>
+      ) : null}
+
       {managementActions.map((action) => (
         <MenuActionButton
           key={action.id}
@@ -169,7 +206,7 @@ export function ConnectionObjectContextMenu({
         />
       ))}
 
-      {managementActions.length ? (
+      {managementActions.length || (canUseApiServer && (onCreateApiServer || onAddToApiServer)) ? (
         <div className="connection-context-menu-separator" role="separator" />
       ) : null}
 

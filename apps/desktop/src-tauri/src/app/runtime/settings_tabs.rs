@@ -1,7 +1,7 @@
 use super::{generate_id, timestamp_now, ui::focus_query_tab, ManagedAppState};
 use crate::domain::{
     error::CommandError,
-    models::{BootstrapPayload, QueryTabState, WorkspaceSnapshot},
+    models::{BootstrapPayload, QueryTabState, ScopedQueryTarget, WorkspaceSnapshot},
 };
 
 impl ManagedAppState {
@@ -23,19 +23,26 @@ impl ManagedAppState {
         Ok(self.bootstrap_payload())
     }
 
-    pub fn create_api_server_tab(&mut self) -> Result<BootstrapPayload, CommandError> {
+    pub fn create_api_server_tab(
+        &mut self,
+        server_id: Option<String>,
+    ) -> Result<BootstrapPayload, CommandError> {
+        let selected_server_id = selected_api_server_id(&self.snapshot, server_id);
         if let Some(existing_tab) = self
             .snapshot
             .tabs
             .iter()
-            .find(|tab| tab.tab_kind.as_deref() == Some("api-server"))
+            .find(|tab| {
+                tab.tab_kind.as_deref() == Some("api-server")
+                    && api_server_tab_server_id(tab) == selected_server_id.as_deref()
+            })
             .cloned()
         {
             focus_settings_tab(self, &existing_tab)?;
             return Ok(self.bootstrap_payload());
         }
 
-        let tab = build_api_server_tab(&self.snapshot);
+        let tab = build_api_server_tab(&self.snapshot, selected_server_id);
         self.snapshot.tabs.push(tab.clone());
         focus_settings_tab(self, &tab)?;
         Ok(self.bootstrap_payload())
@@ -121,7 +128,15 @@ fn build_settings_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
     }
 }
 
-fn build_api_server_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
+fn build_api_server_tab(snapshot: &WorkspaceSnapshot, server_id: Option<String>) -> QueryTabState {
+    let server = server_id.as_ref().and_then(|id| {
+        snapshot
+            .preferences
+            .datastore_api_server
+            .servers
+            .iter()
+            .find(|server| &server.id == id)
+    });
     let configured_connection_id = snapshot
         .preferences
         .datastore_api_server
@@ -132,12 +147,21 @@ fn build_api_server_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
         .datastore_api_server
         .environment_id
         .as_deref();
-    let connection = configured_connection_id
+    let connection = server
+        .and_then(|server| server.connection_id.as_deref())
         .and_then(|id| {
             snapshot
                 .connections
                 .iter()
                 .find(|connection| connection.id == id)
+        })
+        .or_else(|| {
+            configured_connection_id.and_then(|id| {
+                snapshot
+                    .connections
+                    .iter()
+                    .find(|connection| connection.id == id)
+            })
         })
         .or_else(|| {
             snapshot
@@ -146,12 +170,21 @@ fn build_api_server_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
                 .find(|connection| connection.id == snapshot.ui.active_connection_id)
         })
         .or_else(|| snapshot.connections.first());
-    let environment = configured_environment_id
+    let environment = server
+        .and_then(|server| server.environment_id.as_deref())
         .and_then(|id| {
             snapshot
                 .environments
                 .iter()
                 .find(|environment| environment.id == id)
+        })
+        .or_else(|| {
+            configured_environment_id.and_then(|id| {
+                snapshot
+                    .environments
+                    .iter()
+                    .find(|environment| environment.id == id)
+            })
         })
         .or_else(|| {
             snapshot
@@ -160,10 +193,14 @@ fn build_api_server_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
                 .find(|environment| environment.id == snapshot.ui.active_environment_id)
         })
         .or_else(|| snapshot.environments.first());
+    let title = server
+        .map(|server| server.name.trim())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("API Server");
 
     QueryTabState {
         id: generate_id("api-server-tab"),
-        title: "API Server".into(),
+        title: title.into(),
         tab_kind: Some("api-server".into()),
         connection_id: connection
             .map(|connection| connection.id.clone())
@@ -182,7 +219,14 @@ fn build_api_server_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
         query_text: String::new(),
         query_view_mode: None,
         script_text: None,
-        scoped_target: None,
+        scoped_target: server_id.map(|server_id| ScopedQueryTarget {
+            kind: "api-server".into(),
+            label: title.into(),
+            path: Vec::new(),
+            scope: Some(server_id),
+            query_template: None,
+            preferred_builder: None,
+        }),
         builder_state: None,
         metrics_state: None,
         object_view_state: None,
@@ -196,6 +240,29 @@ fn build_api_server_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
         history: Vec::new(),
         error: None,
     }
+}
+
+fn selected_api_server_id(
+    snapshot: &WorkspaceSnapshot,
+    requested: Option<String>,
+) -> Option<String> {
+    let preferences = &snapshot.preferences.datastore_api_server;
+    requested
+        .filter(|id| preferences.servers.iter().any(|server| server.id == *id))
+        .or_else(|| {
+            preferences
+                .active_server_id
+                .clone()
+                .filter(|id| preferences.servers.iter().any(|server| server.id == *id))
+        })
+        .or_else(|| preferences.servers.first().map(|server| server.id.clone()))
+}
+
+fn api_server_tab_server_id(tab: &QueryTabState) -> Option<&str> {
+    let target = tab.scoped_target.as_ref()?;
+    (target.kind == "api-server")
+        .then(|| target.scope.as_deref())
+        .flatten()
 }
 
 fn build_workspace_search_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {

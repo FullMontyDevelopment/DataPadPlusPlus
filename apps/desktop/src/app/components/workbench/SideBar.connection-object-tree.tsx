@@ -46,6 +46,8 @@ export function ConnectionObjectTree({
   visualDepthOffset = 0,
   onLoadExplorerScope,
   onInspectNode,
+  onCreateApiServer,
+  onAddToApiServer,
   onOpenObjectView,
   onOpenScopedQuery,
 }: {
@@ -59,6 +61,8 @@ export function ConnectionObjectTree({
   visualDepthOffset?: number
   onLoadExplorerScope?(connectionId: string, scope?: string): void
   onInspectNode?(node: ExplorerNode): void
+  onCreateApiServer?(connectionId: string, node: ExplorerNode): void
+  onAddToApiServer?(connectionId: string, node: ExplorerNode): void
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
 }) {
@@ -143,6 +147,8 @@ export function ConnectionObjectTree({
         canInspectNode: Boolean(onInspectNode),
         canOpenObjectView: Boolean(onOpenObjectView),
         canRefreshNode: Boolean(onLoadExplorerScope),
+        canCreateApiServer: Boolean(onCreateApiServer),
+        canAddToApiServer: Boolean(onAddToApiServer),
       })
     ) {
       return
@@ -184,6 +190,12 @@ export function ConnectionObjectTree({
   }
   const openObjectView = (node: ConnectionTreeNode) => {
     onOpenObjectView?.(connection.id, connectionTreeNodeToExplorerNode(connection, node))
+  }
+  const createApiServer = (node: ConnectionTreeNode) => {
+    onCreateApiServer?.(connection.id, connectionTreeNodeToExplorerNode(connection, node))
+  }
+  const addToApiServer = (node: ConnectionTreeNode) => {
+    onAddToApiServer?.(connection.id, connectionTreeNodeToExplorerNode(connection, node))
   }
 
   useEffect(() => {
@@ -238,6 +250,8 @@ export function ConnectionObjectTree({
               environment={environment}
               node={node}
               nodeKey={nodeKey}
+              canAddToApiServer={Boolean(onAddToApiServer)}
+              canCreateApiServer={Boolean(onCreateApiServer)}
               explorerStatus={explorerStatus}
               isExplorerScopeLoading={isExplorerScopeLoading}
               visibleChildCounts={visibleChildCounts}
@@ -261,6 +275,8 @@ export function ConnectionObjectTree({
           expanded={Boolean(expandedNodes[contextMenu.nodeKey])}
           menu={contextMenu}
           onClose={() => setContextMenu(undefined)}
+          onCreateApiServer={onCreateApiServer ? createApiServer : undefined}
+          onAddToApiServer={onAddToApiServer ? addToApiServer : undefined}
           onCopyName={copyNodeName}
           onInspectNode={onInspectNode ? inspectNode : undefined}
           onOpenObjectView={onOpenObjectView ? openObjectView : undefined}
@@ -416,6 +432,8 @@ function connectionTreeNodeKey(connection: ConnectionProfile, node: ConnectionTr
 
 function ConnectionObjectTreeNode({
   canInspectNode,
+  canCreateApiServer,
+  canAddToApiServer,
   connection,
   depth,
   visualDepth,
@@ -435,6 +453,8 @@ function ConnectionObjectTreeNode({
   onToggleNode,
 }: {
   canInspectNode: boolean
+  canCreateApiServer: boolean
+  canAddToApiServer: boolean
   connection: ConnectionProfile
   depth: number
   visualDepth: number
@@ -473,6 +493,8 @@ function ConnectionObjectTreeNode({
     canInspectNode,
     canOpenObjectView: Boolean(onOpenObjectView),
     canRefreshNode: Boolean(onLoadExplorerScope),
+    canCreateApiServer,
+    canAddToApiServer,
   })
   const shouldAutoLoadChildren =
     expanded && shouldLoadScopedChildren(connection, node, children, branchLoading)
@@ -632,6 +654,8 @@ function ConnectionObjectTreeNode({
                 nodeKey={childKey}
                 visibleChildCounts={visibleChildCounts}
                 canInspectNode={canInspectNode}
+                canCreateApiServer={canCreateApiServer}
+                canAddToApiServer={canAddToApiServer}
                 onContextMenu={onContextMenu}
                 onLoadExplorerScope={onLoadExplorerScope}
                 onLoadMoreChildren={onLoadMoreChildren}

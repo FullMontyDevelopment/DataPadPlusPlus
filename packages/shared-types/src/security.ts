@@ -50,14 +50,71 @@ export interface DatastoreApiServerPreferences {
   servers?: DatastoreApiServerConfig[]
 }
 
+export type DatastoreApiServerProtocol = 'rest' | 'graphql' | 'grpc'
+
+export interface DatastoreApiServerResourceConfig {
+  id: string
+  kind: 'table' | 'collection' | 'key' | 'item' | 'index'
+  label: string
+  nodeId: string
+  path?: string[]
+  scope?: string
+  endpointSlug: string
+  enabled: boolean
+  detail?: string
+  metadata?: Record<string, unknown>
+}
+
+export type DatastoreApiServerCustomEndpointMethod = 'GET' | 'POST'
+export type DatastoreApiServerCustomEndpointParameterType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'json'
+export type DatastoreApiServerCustomEndpointParameterSerialization =
+  | 'auto'
+  | 'sql'
+  | 'json'
+  | 'raw'
+
+export interface DatastoreApiServerCustomEndpointParameterConfig {
+  name: string
+  type: DatastoreApiServerCustomEndpointParameterType
+  required: boolean
+  defaultValue?: unknown
+  description?: string
+  serialization?: DatastoreApiServerCustomEndpointParameterSerialization
+}
+
+export interface DatastoreApiServerCustomEndpointConfig {
+  id: string
+  label: string
+  description?: string
+  endpointSlug: string
+  enabled: boolean
+  method: DatastoreApiServerCustomEndpointMethod
+  sourceLibraryNodeId: string
+  sourceName: string
+  queryText: string
+  language: import('./workspace').QueryLanguage
+  queryViewMode?: import('./workspace').QueryViewMode
+  rowLimit?: number
+  parameters?: DatastoreApiServerCustomEndpointParameterConfig[]
+}
+
 export interface DatastoreApiServerConfig {
   id: string
   name: string
+  description?: string
   host: '127.0.0.1'
   port: number
   autoStart: boolean
+  protocol?: DatastoreApiServerProtocol
+  basePath?: string
   connectionId?: string
   environmentId?: string
+  resources?: DatastoreApiServerResourceConfig[]
+  customEndpoints?: DatastoreApiServerCustomEndpointConfig[]
 }
 
 export interface WorkspaceSearchPreferences {

@@ -22,6 +22,7 @@ fn bundle_payload_round_trips_api_server_preferences() {
             auto_start: true,
             connection_id: Some("conn-users".into()),
             environment_id: Some("env-dev".into()),
+            ..DatastoreApiServerConfig::default()
         },
     ];
 

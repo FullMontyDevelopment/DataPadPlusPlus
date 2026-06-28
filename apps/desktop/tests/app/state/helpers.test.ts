@@ -154,11 +154,16 @@ describe('migrateWorkspaceSnapshot', () => {
       servers: [{
         id: 'api-server-default',
         name: 'Local API Server',
+        description: undefined,
         host: '127.0.0.1',
         port: 1024,
         autoStart: true,
+        protocol: 'rest',
+        basePath: '',
         connectionId: undefined,
         environmentId: 'env-dev',
+        resources: [],
+        customEndpoints: [],
       }],
     })
   })

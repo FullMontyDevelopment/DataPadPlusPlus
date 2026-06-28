@@ -3,6 +3,7 @@ import type { CSSProperties, MutableRefObject } from 'react'
 import type {
   ConnectionProfile,
   DatastoreApiServerInstanceStatus,
+  DatastoreApiServerResourceConfig,
   DatastoreApiServerStatus,
   EnvironmentProfile,
   ExecutionRequest,
@@ -663,7 +664,9 @@ function DesktopWorkspace() {
     () => effectiveApiServerStatus?.servers ?? apiServerInstancesFromPreferences(apiServerPreferences),
     [apiServerPreferences, effectiveApiServerStatus?.servers],
   )
+  const activeApiServerTabServerId = activeTabIsApiServer ? apiServerIdFromTab(activeTab) : undefined
   const activeApiServerId =
+    activeApiServerTabServerId ??
     effectiveApiServerStatus?.activeServerId ??
     apiServerPreferences?.activeServerId ??
     apiServerInstances[0]?.id
@@ -2189,6 +2192,92 @@ function DesktopWorkspace() {
     })()
   }
 
+  const createApiServerFromNode = (connectionId: string, node: ExplorerNode) => {
+    const environmentId =
+      activeEnvironment?.id ??
+      snapshot.connections.find((connection) => connection.id === connectionId)?.environmentIds[0]
+    const resource = apiServerResourceFromExplorerNode(node)
+    const name = resource ? `${resource.label} API` : `${node.label} API`
+
+    if (!environmentId) {
+      void actions.createApiServerTab()
+      return
+    }
+
+    void (async () => {
+      const created = await actions.createDatastoreApiServer({
+        connectionId,
+        environmentId,
+        name,
+        description: resource ? `CRUD API for ${resource.label}.` : undefined,
+        protocol: 'rest',
+        resources: resource ? [resource] : [],
+      })
+      let serverId: string | undefined
+      if (created) {
+        const nextStatus = await refreshApiServerStatus()
+        serverId = nextStatus?.activeServerId ?? nextStatus?.serverId
+      }
+      await actions.createApiServerTab(serverId)
+    })()
+  }
+
+  const createApiServerFromSidebar = () => {
+    const connectionId = activeConnection?.id ?? snapshot.connections[0]?.id
+    const environmentId =
+      activeEnvironment?.id ??
+      (connectionId
+        ? snapshot.connections.find((connection) => connection.id === connectionId)?.environmentIds[0]
+        : undefined) ??
+      snapshot.environments[0]?.id
+
+    void (async () => {
+      const created = await actions.createDatastoreApiServer({
+        connectionId,
+        environmentId,
+        protocol: 'rest',
+        resources: [],
+      })
+      let serverId: string | undefined
+      if (created) {
+        const nextStatus = await refreshApiServerStatus()
+        serverId = nextStatus?.activeServerId ?? nextStatus?.serverId
+      }
+      await actions.createApiServerTab(serverId)
+    })()
+  }
+
+  const addNodeToApiServer = (connectionId: string, node: ExplorerNode) => {
+    const environmentId =
+      activeEnvironment?.id ??
+      snapshot.connections.find((connection) => connection.id === connectionId)?.environmentIds[0]
+    const resource = apiServerResourceFromExplorerNode(node)
+    const matchingServer = apiServerInstances.find(
+      (server) => server.connectionId === connectionId && server.environmentId === environmentId,
+    )
+    const targetServerId = matchingServer?.id ?? apiServerPreferences?.activeServerId ?? apiServerInstances[0]?.id
+
+    if (!resource || !targetServerId) {
+      if (resource) {
+        createApiServerFromNode(connectionId, node)
+      } else {
+        void actions.createApiServerTab(targetServerId)
+      }
+      return
+    }
+
+    void (async () => {
+      const added = await actions.addDatastoreApiServerResources({
+        serverId: targetServerId,
+        resources: [resource],
+      })
+      if (added) {
+        await refreshApiServerStatus()
+      }
+      await actions.createApiServerTab(targetServerId)
+    })()
+  }
+
   const openActiveMongoAddDocumentView = () => {
     if (!activeConnection || activeConnection.engine !== 'mongodb') {
       return
@@ -2531,8 +2620,17 @@ function DesktopWorkspace() {
               }}
               onLoadExplorerScope={loadConnectionExplorerScope}
               onOpenObjectView={openObjectView}
+              onCreateApiServerFromNode={
+                snapshot.preferences.datastoreApiServer?.enabled ? createApiServerFromNode : undefined
+              }
+              onAddNodeToApiServer={
+                snapshot.preferences.datastoreApiServer?.enabled ? addNodeToApiServer : undefined
+              }
               onOpenScopedQuery={openScopedQuery}
               onCreateTab={(connectionId) => openQueryTab(connectionId ?? activeConnection?.id)}
+              onCreateApiServer={
+                snapshot.preferences.datastoreApiServer?.enabled ? createApiServerFromSidebar : undefined
+              }
               onOpenApiServer={(serverId) => void actions.createApiServerTab(serverId)}
               onOpenWorkspaceSearch={() => void actions.createWorkspaceSearchTab()}
               onStartApiServer={startApiServerFromSidebar}
@@ -2668,8 +2766,7 @@ function DesktopWorkspace() {
                 ) : activeTabIsApiServer && activeTab ? (
                   <ApiServerWorkspace
                     key={activeTab.id}
-                    activeConnection={activeConnection}
-                    activeEnvironment={activeEnvironment}
+                    serverId={activeApiServerId}
                     connections={snapshot.connections}
                     environments={snapshot.environments}
                     preferences={snapshot.preferences}
@@ -2677,6 +2774,15 @@ function DesktopWorkspace() {
                     onGetStatus={getApiServerStatus}
                     onGetMetrics={actions.getDatastoreApiServerMetrics}
                     onGetLogs={actions.getDatastoreApiServerLogs}
+                    onDeleteServer={actions.deleteDatastoreApiServer}
+                    onUpdateServer={actions.updateDatastoreApiServer}
+                    onDiscoverResources={actions.discoverDatastoreApiServerResources}
+                    onAddResources={actions.addDatastoreApiServerResources}
+                    onRemoveResource={actions.removeDatastoreApiServerResource}
+                    onDiscoverQuerySources={actions.discoverDatastoreApiServerQuerySources}
+                    onAddCustomEndpoint={actions.addDatastoreApiServerCustomEndpoint}
+                    onUpdateCustomEndpoint={actions.updateDatastoreApiServerCustomEndpoint}
+                    onRemoveCustomEndpoint={actions.removeDatastoreApiServerCustomEndpoint}
                     onUpdateSettings={updateApiServerSettings}
                     onStart={startApiServer}
                     onStop={stopApiServer}
@@ -3254,9 +3360,18 @@ function buildQueryTextForBuilderState(
 function apiServerInstancesFromPreferences(
   preferences: WorkspaceSnapshot['preferences']['datastoreApiServer'] | undefined,
 ): DatastoreApiServerInstanceStatus[] {
+  const hasLegacyServer = !preferences?.servers?.length && Boolean(preferences) && (
+    typeof preferences?.connectionId === 'string' ||
+    typeof preferences?.environmentId === 'string' ||
+    Boolean(preferences?.autoStart) ||
+    (typeof preferences?.port === 'number' && preferences.port !== 17640) ||
+    (typeof preferences?.activeServerId === 'string' &&
+      preferences.activeServerId !== 'api-server-default')
+  )
   const servers = preferences?.servers?.length
     ? preferences.servers
-    : [{
+    : hasLegacyServer
+      ? [{
         id: preferences?.activeServerId || 'api-server-default',
         name: 'Local API Server',
         host: '127.0.0.1' as const,
@@ -3264,7 +3379,12 @@ function apiServerInstancesFromPreferences(
         autoStart: preferences?.autoStart ?? false,
         connectionId: preferences?.connectionId,
         environmentId: preferences?.environmentId,
+        protocol: 'rest' as const,
+        basePath: '',
+        resources: [],
+        customEndpoints: [],
       }]
+      : []
   const enabled = Boolean(preferences?.enabled)
 
   return servers.map((server, index) => {
@@ -3272,9 +3392,12 @@ function apiServerInstancesFromPreferences(
     return {
       id: server.id || `api-server-${index + 1}`,
       name: server.name?.trim() || (port === 17640 ? 'Local API Server' : `Local API Server ${port}`),
+      description: server.description,
       running: false,
       host: '127.0.0.1',
       port,
+      protocol: server.protocol ?? 'rest',
+      basePath: server.basePath ?? '',
       baseUrl: enabled ? `http://127.0.0.1:${port}` : undefined,
       connectionId: server.connectionId,
       environmentId: server.environmentId,
@@ -3282,8 +3405,14 @@ function apiServerInstancesFromPreferences(
         ? 'Experimental datastore API server is stopped.'
         : 'Experimental datastore API server is disabled.',
       warnings: enabled ? ['Localhost only.'] : [],
+      resources: server.resources ?? [],
+      customEndpoints: server.customEndpoints ?? [],
     }
   })
+}
+
+function apiServerIdFromTab(tab: QueryTabState | undefined) {
+  return tab?.scopedTarget?.kind === 'api-server' ? tab.scopedTarget.scope : undefined
 }
 
 function clampApiServerPort(value: number | undefined) {
@@ -3291,6 +3420,60 @@ function clampApiServerPort(value: number | undefined) {
     return 17640
   }
   return Math.min(65535, Math.max(1024, Math.floor(value as number)))
+}
+
+function apiServerResourceFromExplorerNode(
+  node: ExplorerNode,
+): DatastoreApiServerResourceConfig | undefined {
+  const kind = apiServerResourceKind(node.kind)
+  if (!kind) {
+    return undefined
+  }
+
+  return {
+    id: `api-resource:${kind}:${node.id}`,
+    kind,
+    label: node.label,
+    nodeId: node.id,
+    path: Array.isArray(node.path) ? node.path : [],
+    scope: node.scope,
+    endpointSlug: apiServerSlug(node.label),
+    enabled: true,
+    detail: node.detail || undefined,
+    metadata: {
+      sourceKind: node.kind,
+    },
+  }
+}
+
+function apiServerResourceKind(
+  kind: string,
+): DatastoreApiServerResourceConfig['kind'] | undefined {
+  const normalized = kind.trim().toLowerCase()
+  if (normalized === 'table' || normalized.endsWith('-table')) {
+    return 'table'
+  }
+  if (normalized === 'collection' || normalized.endsWith('-collection')) {
+    return 'collection'
+  }
+  if (normalized === 'key' || normalized.endsWith('-key')) {
+    return 'key'
+  }
+  if (normalized === 'item' || normalized.endsWith('-item')) {
+    return 'item'
+  }
+  if (normalized === 'index' || normalized.endsWith('-index')) {
+    return 'index'
+  }
+  return undefined
+}
+
+function apiServerSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'resource'
 }
 
 function inferLibraryItemKindForTab(tab: QueryTabState): LibraryItemKind {

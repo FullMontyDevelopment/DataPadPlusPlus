@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     net::SocketAddr,
     sync::{Arc, Mutex},
     time::Instant,
@@ -26,20 +26,33 @@ use crate::{
         error::{redact_sensitive_text, CommandError},
         models::{
             CrudMutationBody, DataEditChange, DataEditExecutionRequest, DataEditTarget,
-            DatastoreApiServerConfig, DatastoreApiServerDeleteRequest,
+            DatastoreApiServerAddCustomEndpointRequest, DatastoreApiServerAddResourcesRequest,
+            DatastoreApiServerConfig, DatastoreApiServerCreateRequest,
+            DatastoreApiServerCustomEndpointConfig,
+            DatastoreApiServerCustomEndpointParameterConfig, DatastoreApiServerDeleteRequest,
             DatastoreApiServerInstanceStatus, DatastoreApiServerLogEntry, DatastoreApiServerLogs,
             DatastoreApiServerLogsRequest, DatastoreApiServerMetrics,
-            DatastoreApiServerPreferences, DatastoreApiServerRouteMetric,
+            DatastoreApiServerPreferences, DatastoreApiServerQuerySource,
+            DatastoreApiServerQuerySourceDiscoveryRequest,
+            DatastoreApiServerQuerySourceDiscoveryResponse,
+            DatastoreApiServerRemoveCustomEndpointRequest, DatastoreApiServerRemoveResourceRequest,
+            DatastoreApiServerResourceConfig, DatastoreApiServerResourceDiscoveryRequest,
+            DatastoreApiServerResourceDiscoveryResponse, DatastoreApiServerRouteMetric,
             DatastoreApiServerSettingsRequest, DatastoreApiServerStartRequest,
             DatastoreApiServerStatus, DatastoreApiServerStopRequest,
-            DatastoreApiServerTelemetryRetention, ExecutionRequest, ExplorerRequest,
-            QueryExecutionNotice,
+            DatastoreApiServerTelemetryRetention, DatastoreApiServerUpdateCustomEndpointRequest,
+            DatastoreApiServerUpdateRequest, ExecutionRequest, ExecutionResultEnvelope,
+            ExplorerNode, ExplorerRequest, QueryExecutionNotice,
         },
     },
     security,
 };
 
 const API_HOST: &str = "127.0.0.1";
+const RESOURCE_DISCOVERY_MAX_DEPTH: usize = 3;
+const RESOURCE_DISCOVERY_MAX_SCOPES: usize = 48;
+const RESOURCE_DISCOVERY_PAGE_LIMIT: u32 = 100;
+const RESOURCE_DISCOVERY_MAX_RESOURCES: usize = 500;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_TELEMETRY_LOGS: usize = 500;
 const MAX_ROUTE_SAMPLES: usize = 256;
@@ -57,9 +70,11 @@ struct RunningApiServer {
     id: String,
     name: String,
     port: u16,
+    protocol: String,
     connection_id: String,
     environment_id: String,
     started_at: String,
+    config: Arc<Mutex<DatastoreApiServerConfig>>,
     telemetry: Arc<Mutex<ApiServerTelemetry>>,
     handle: tauri::async_runtime::JoinHandle<()>,
 }
@@ -116,7 +131,16 @@ fn normalized_servers(
     preferences: &DatastoreApiServerPreferences,
 ) -> Vec<DatastoreApiServerConfig> {
     let mut servers = preferences.servers.clone();
-    if servers.is_empty() {
+    let has_legacy_server = servers.is_empty()
+        && (preferences.connection_id.is_some()
+            || preferences.environment_id.is_some()
+            || preferences.auto_start
+            || preferences.port != 17640
+            || preferences
+                .active_server_id
+                .as_deref()
+                .is_some_and(|value| value != "api-server-default"));
+    if has_legacy_server {
         servers.push(DatastoreApiServerConfig {
             id: preferences
                 .active_server_id
@@ -124,11 +148,16 @@ fn normalized_servers(
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "api-server-default".into()),
             name: "Local API Server".into(),
+            description: None,
             host: API_HOST.into(),
             port: preferences.port,
             auto_start: preferences.auto_start,
+            protocol: "rest".into(),
+            base_path: String::new(),
             connection_id: preferences.connection_id.clone(),
             environment_id: preferences.environment_id.clone(),
+            resources: Vec::new(),
+            custom_endpoints: Vec::new(),
         });
     }
     for (index, server) in servers.iter_mut().enumerate() {
@@ -142,6 +171,11 @@ fn normalized_servers(
         if server.port < 1024 {
             server.port = 17640;
         }
+        server.protocol = normalize_protocol(&server.protocol);
+        server.base_path = normalize_base_path(&server.base_path);
+        server.resources = normalize_resource_configs(server.resources.clone());
+        server.custom_endpoints =
+            normalize_custom_endpoint_configs(server.custom_endpoints.clone(), &server.resources);
     }
     servers
 }
@@ -167,16 +201,29 @@ fn active_server(preferences: &DatastoreApiServerPreferences) -> Option<Datastor
 
 fn sync_legacy_preferences_from_active(preferences: &mut DatastoreApiServerPreferences) {
     preferences.servers = normalized_servers(preferences);
-    if preferences.active_server_id.is_none() {
-        preferences.active_server_id = preferences.servers.first().map(|server| server.id.clone());
-    }
+    preferences.active_server_id = preferences
+        .active_server_id
+        .clone()
+        .filter(|id| preferences.servers.iter().any(|server| &server.id == id))
+        .or_else(|| preferences.servers.first().map(|server| server.id.clone()));
     if let Some(active) = active_server(preferences) {
         preferences.host = API_HOST.into();
         preferences.port = active.port;
         preferences.auto_start = active.auto_start;
         preferences.connection_id = active.connection_id;
         preferences.environment_id = active.environment_id;
+    } else {
+        clear_legacy_preferences(preferences);
     }
+}
+
+fn clear_legacy_preferences(preferences: &mut DatastoreApiServerPreferences) {
+    preferences.active_server_id = None;
+    preferences.host = API_HOST.into();
+    preferences.port = 17640;
+    preferences.auto_start = false;
+    preferences.connection_id = None;
+    preferences.environment_id = None;
 }
 
 fn default_server_name(port: u16) -> String {
@@ -215,6 +262,23 @@ pub fn update_settings(
         .clone()
         .or_else(|| request.server_id.clone())
         .filter(|value| !value.is_empty());
+    let updates_server = requested_active_id.is_some()
+        || request.name.is_some()
+        || request.description.is_some()
+        || request.port.is_some()
+        || request.auto_start.is_some()
+        || request.protocol.is_some()
+        || request.base_path.is_some()
+        || request.connection_id.is_some()
+        || request.environment_id.is_some()
+        || request.resources.is_some()
+        || request.custom_endpoints.is_some();
+    if !updates_server {
+        sync_legacy_preferences_from_active(preferences);
+        runtime.snapshot.updated_at = timestamp_now();
+        runtime.persist()?;
+        return Ok(runtime.bootstrap_payload());
+    }
     if let Some(active_id) = requested_active_id {
         preferences.active_server_id = Some(active_id);
     }
@@ -238,11 +302,38 @@ pub fn update_settings(
                 .clone()
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| default_server_name(request.port.unwrap_or(17640))),
+            description: request
+                .description
+                .clone()
+                .filter(|value| !value.trim().is_empty()),
             host: API_HOST.into(),
             port: request.port.unwrap_or(17640),
             auto_start: request.auto_start.unwrap_or(false),
+            protocol: request
+                .protocol
+                .as_deref()
+                .map(normalize_protocol)
+                .unwrap_or_else(|| "rest".into()),
+            base_path: request
+                .base_path
+                .as_deref()
+                .map(normalize_base_path)
+                .unwrap_or_default(),
             connection_id: None,
             environment_id: None,
+            resources: request
+                .resources
+                .clone()
+                .map(normalize_resource_configs)
+                .unwrap_or_default(),
+            custom_endpoints: normalize_custom_endpoint_configs(
+                request.custom_endpoints.clone().unwrap_or_default(),
+                &request
+                    .resources
+                    .clone()
+                    .map(normalize_resource_configs)
+                    .unwrap_or_default(),
+            ),
         });
         preferences.servers.len() - 1
     };
@@ -257,17 +348,753 @@ pub fn update_settings(
     if let Some(auto_start) = request.auto_start {
         server.auto_start = auto_start;
     }
+    if request.description.is_some() {
+        server.description = request
+            .description
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_string());
+    }
+    if let Some(protocol) = request.protocol {
+        server.protocol = normalize_protocol(&protocol);
+    }
+    if let Some(base_path) = request.base_path {
+        server.base_path = normalize_base_path(&base_path);
+    }
     if request.connection_id.is_some() {
         server.connection_id = request.connection_id.filter(|value| !value.is_empty());
     }
     if request.environment_id.is_some() {
         server.environment_id = request.environment_id.filter(|value| !value.is_empty());
     }
+    if let Some(resources) = request.resources {
+        server.resources = normalize_resource_configs(resources);
+    }
+    if let Some(custom_endpoints) = request.custom_endpoints {
+        server.custom_endpoints =
+            normalize_custom_endpoint_configs(custom_endpoints, &server.resources);
+    }
     preferences.active_server_id = Some(server.id.clone());
     sync_legacy_preferences_from_active(preferences);
     runtime.snapshot.updated_at = timestamp_now();
     runtime.persist()?;
     Ok(runtime.bootstrap_payload())
+}
+
+pub fn create_server_config(
+    runtime: &mut ManagedAppState,
+    request: DatastoreApiServerCreateRequest,
+) -> Result<crate::domain::models::BootstrapPayload, CommandError> {
+    runtime.ensure_unlocked()?;
+    if let Some(connection_id) = request.connection_id.as_deref() {
+        if !connection_id.is_empty() {
+            runtime.connection_by_id(connection_id)?;
+        }
+    }
+    if let Some(environment_id) = request.environment_id.as_deref() {
+        if !environment_id.is_empty() {
+            runtime.environment_by_id(environment_id)?;
+        }
+    }
+    if let Some(port) = request.port {
+        validate_port(port)?;
+    }
+
+    let preferences = &mut runtime.snapshot.preferences.datastore_api_server;
+    preferences.servers = normalized_servers(preferences);
+    let port = request
+        .port
+        .unwrap_or_else(|| next_available_port(&preferences.servers));
+    let server_id = generate_id("api-server");
+    let name = request
+        .name
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|| default_server_name(port));
+    let resources = normalize_resource_configs(request.resources);
+    let custom_endpoints = normalize_custom_endpoint_configs(request.custom_endpoints, &resources);
+    preferences.servers.push(DatastoreApiServerConfig {
+        id: server_id.clone(),
+        name,
+        description: request
+            .description
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_string()),
+        host: API_HOST.into(),
+        port,
+        auto_start: request.auto_start.unwrap_or(false),
+        protocol: request
+            .protocol
+            .as_deref()
+            .map(normalize_protocol)
+            .unwrap_or_else(|| "rest".into()),
+        base_path: request
+            .base_path
+            .as_deref()
+            .map(normalize_base_path)
+            .unwrap_or_default(),
+        connection_id: request.connection_id.filter(|value| !value.is_empty()),
+        environment_id: request.environment_id.filter(|value| !value.is_empty()),
+        resources,
+        custom_endpoints,
+    });
+    preferences.active_server_id = Some(server_id);
+    sync_legacy_preferences_from_active(preferences);
+    runtime.snapshot.updated_at = timestamp_now();
+    runtime.persist()?;
+    Ok(runtime.bootstrap_payload())
+}
+
+pub fn update_server_config(
+    manager: &SharedDatastoreApiServer,
+    runtime: &mut ManagedAppState,
+    request: DatastoreApiServerUpdateRequest,
+) -> Result<crate::domain::models::BootstrapPayload, CommandError> {
+    runtime.ensure_unlocked()?;
+    if let Some(port) = request.port {
+        validate_port(port)?;
+    }
+    if let Some(connection_id) = request.connection_id.as_deref() {
+        if !connection_id.is_empty() {
+            runtime.connection_by_id(connection_id)?;
+        }
+    }
+    if let Some(environment_id) = request.environment_id.as_deref() {
+        if !environment_id.is_empty() {
+            runtime.environment_by_id(environment_id)?;
+        }
+    }
+
+    let preferences = &mut runtime.snapshot.preferences.datastore_api_server;
+    preferences.servers = normalized_servers(preferences);
+    let server = preferences
+        .servers
+        .iter_mut()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-not-found",
+                "The requested API server configuration could not be found.",
+            )
+        })?;
+    if let Some(name) = request.name.filter(|value| !value.trim().is_empty()) {
+        server.name = name.trim().to_string();
+    }
+    if request.description.is_some() {
+        server.description = request
+            .description
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_string());
+    }
+    if let Some(port) = request.port {
+        server.port = port;
+    }
+    if let Some(auto_start) = request.auto_start {
+        server.auto_start = auto_start;
+    }
+    if let Some(protocol) = request.protocol {
+        server.protocol = normalize_protocol(&protocol);
+    }
+    if let Some(base_path) = request.base_path {
+        server.base_path = normalize_base_path(&base_path);
+    }
+    if request.connection_id.is_some() {
+        server.connection_id = request.connection_id.filter(|value| !value.is_empty());
+    }
+    if request.environment_id.is_some() {
+        server.environment_id = request.environment_id.filter(|value| !value.is_empty());
+    }
+    if let Some(resources) = request.resources {
+        server.resources = normalize_resource_configs(resources);
+    }
+    if let Some(custom_endpoints) = request.custom_endpoints {
+        server.custom_endpoints =
+            normalize_custom_endpoint_configs(custom_endpoints, &server.resources);
+    }
+    let updated_server = server.clone();
+    preferences.active_server_id = Some(updated_server.id.clone());
+    sync_legacy_preferences_from_active(preferences);
+    runtime.snapshot.updated_at = timestamp_now();
+    runtime.persist()?;
+
+    let mut manager = manager.lock().map_err(|_| {
+        CommandError::new(
+            "api-server-state-unavailable",
+            "API server state is temporarily unavailable.",
+        )
+    })?;
+    manager.hot_reload_config(updated_server)?;
+    Ok(runtime.bootstrap_payload())
+}
+
+pub async fn discover_resources(
+    runtime: &mut ManagedAppState,
+    request: DatastoreApiServerResourceDiscoveryRequest,
+) -> Result<DatastoreApiServerResourceDiscoveryResponse, CommandError> {
+    runtime.connection_by_id(&request.connection_id)?;
+    runtime.environment_by_id(&request.environment_id)?;
+    let limit = request.limit.unwrap_or(500).max(1);
+    let resources = discover_resource_configs(
+        runtime,
+        &request.connection_id,
+        &request.environment_id,
+        request.scope.clone(),
+        limit,
+    )
+    .await?;
+
+    Ok(DatastoreApiServerResourceDiscoveryResponse {
+        connection_id: request.connection_id,
+        environment_id: request.environment_id,
+        scope: request.scope,
+        resources,
+    })
+}
+
+async fn discover_resource_configs(
+    runtime: &mut ManagedAppState,
+    connection_id: &str,
+    environment_id: &str,
+    scope: Option<String>,
+    limit: u32,
+) -> Result<Vec<DatastoreApiServerResourceConfig>, CommandError> {
+    let page_limit = limit.clamp(1, RESOURCE_DISCOVERY_PAGE_LIMIT);
+    let resource_budget = (limit as usize).clamp(1, RESOURCE_DISCOVERY_MAX_RESOURCES);
+    let mut queue = VecDeque::from([(scope, 0usize)]);
+    let mut seen_scopes = HashSet::<String>::new();
+    let mut resources = Vec::new();
+
+    while let Some((scope, depth)) = queue.pop_front() {
+        if resources.len() >= resource_budget || seen_scopes.len() >= RESOURCE_DISCOVERY_MAX_SCOPES
+        {
+            break;
+        }
+
+        let scope_key = scope.clone().unwrap_or_else(|| "<root>".into());
+        if !seen_scopes.insert(scope_key) {
+            continue;
+        }
+
+        let response = runtime
+            .list_explorer_nodes(ExplorerRequest {
+                connection_id: connection_id.into(),
+                environment_id: environment_id.into(),
+                limit: Some(page_limit),
+                scope: scope.clone(),
+            })
+            .await?;
+
+        for node in response.nodes {
+            if let Some(resource) = resource_config_from_explorer_node(&node) {
+                resources.push(resource);
+                if resources.len() >= resource_budget {
+                    break;
+                }
+                continue;
+            }
+
+            if depth >= RESOURCE_DISCOVERY_MAX_DEPTH {
+                continue;
+            }
+
+            if let Some(child_scope) = node.scope.as_ref().filter(|value| !value.is_empty()) {
+                let queued_scope_count = seen_scopes.len() + queue.len();
+                if queued_scope_count < RESOURCE_DISCOVERY_MAX_SCOPES
+                    && should_expand_resource_discovery_node(&node)
+                {
+                    queue.push_back((Some(child_scope.clone()), depth + 1));
+                }
+            }
+        }
+    }
+
+    Ok(normalize_resource_configs(resources))
+}
+
+fn should_expand_resource_discovery_node(node: &ExplorerNode) -> bool {
+    if !node.expandable.unwrap_or(true) {
+        return false;
+    }
+
+    let Some(scope) = node
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    let scope = scope.to_ascii_lowercase();
+    let kind = node.kind.to_ascii_lowercase();
+
+    if resource_discovery_branch_is_blocked(&scope) || resource_discovery_branch_is_blocked(&kind) {
+        return false;
+    }
+
+    resource_discovery_scope_can_contain_resources(&scope)
+        || resource_discovery_kind_can_contain_resources(&kind)
+}
+
+fn resource_discovery_branch_is_blocked(value: &str) -> bool {
+    const BLOCKED_BRANCHES: &[&str] = &[
+        "acl",
+        "aliases",
+        "alarms",
+        "backups",
+        "capacity",
+        "clients",
+        "columns",
+        "commands",
+        "constraints",
+        "consumer-groups",
+        "diagnostic",
+        "field-capabilities",
+        "foreign-keys",
+        "functions",
+        "global-secondary-indexes",
+        "gridfs",
+        "health",
+        "hot-partitions",
+        "latency",
+        "lifecycle",
+        "local-secondary-indexes",
+        "locks",
+        "mappings",
+        "memory",
+        "permissions",
+        "persistence",
+        "pipelines",
+        "privilege",
+        "procedures",
+        "pubsub",
+        "replication",
+        "roles",
+        "security",
+        "sentinel",
+        "sessions",
+        "settings",
+        "shards",
+        "slow-log",
+        "slowlog",
+        "statistics",
+        "storage",
+        "system-databases",
+        "templates",
+        "triggers",
+        "users",
+    ];
+    let branch = value.split(':').next().unwrap_or(value);
+
+    value.starts_with("index:")
+        || value.starts_with("indexes:")
+        || value.contains(":indexes:")
+        || BLOCKED_BRANCHES.contains(&branch)
+}
+
+fn resource_discovery_scope_can_contain_resources(scope: &str) -> bool {
+    matches!(
+        scope,
+        "databases"
+            | "collections"
+            | "indexes"
+            | "indices"
+            | "tables"
+            | "views"
+            | "dynamodb:tables"
+            | "litedb:collections"
+    ) || scope.starts_with("arango:")
+        || scope.starts_with("bigquery:")
+        || scope.starts_with("database:")
+        || scope.starts_with("db:")
+        || scope.starts_with("schema:")
+        || scope.starts_with("tables:")
+        || scope.starts_with("views:")
+        || scope.starts_with("collections:")
+        || scope.starts_with("time-series-collections:")
+        || scope.starts_with("capped-collections:")
+        || scope.starts_with("cassandra:")
+        || scope.starts_with("clickhouse:")
+        || scope.starts_with("cosmos:")
+        || scope.starts_with("duckdb:")
+        || scope.starts_with("keyspace:")
+        || scope.starts_with("litedb:")
+        || scope.starts_with("mysql:")
+        || scope.starts_with("oracle:container:")
+        || scope.starts_with("oracle:schema:")
+        || scope.starts_with("search:")
+        || scope.starts_with("sqlserver:")
+        || scope.starts_with("snowflake:")
+        || scope.starts_with("warehouse:database:")
+}
+
+fn resource_discovery_kind_can_contain_resources(kind: &str) -> bool {
+    matches!(
+        kind,
+        "collection-folder"
+            | "collections"
+            | "database"
+            | "databases"
+            | "dataset"
+            | "index-folder"
+            | "indexes"
+            | "indices"
+            | "keyspace"
+            | "schema"
+            | "table-folder"
+            | "tables"
+            | "views"
+    )
+}
+
+fn resource_config_from_explorer_node(
+    node: &ExplorerNode,
+) -> Option<DatastoreApiServerResourceConfig> {
+    resource_config_for_node(
+        node.kind.clone(),
+        node.label.clone(),
+        node.id.clone(),
+        node.detail.clone(),
+        node.path.clone(),
+        node.scope.clone(),
+    )
+}
+
+pub fn add_resources(
+    manager: &SharedDatastoreApiServer,
+    runtime: &mut ManagedAppState,
+    request: DatastoreApiServerAddResourcesRequest,
+) -> Result<crate::domain::models::BootstrapPayload, CommandError> {
+    runtime.ensure_unlocked()?;
+    let preferences = &mut runtime.snapshot.preferences.datastore_api_server;
+    preferences.servers = normalized_servers(preferences);
+    let server = preferences
+        .servers
+        .iter_mut()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-not-found",
+                "The requested API server configuration could not be found.",
+            )
+        })?;
+    let mut resources = server.resources.clone();
+    for resource in request.resources {
+        if !resources.iter().any(|existing| existing.id == resource.id) {
+            resources.push(resource);
+        }
+    }
+    server.resources = normalize_resource_configs(resources);
+    let updated_server = server.clone();
+    sync_legacy_preferences_from_active(preferences);
+    runtime.snapshot.updated_at = timestamp_now();
+    runtime.persist()?;
+    let mut manager = manager.lock().map_err(|_| {
+        CommandError::new(
+            "api-server-state-unavailable",
+            "API server state is temporarily unavailable.",
+        )
+    })?;
+    manager.hot_reload_config(updated_server)?;
+    Ok(runtime.bootstrap_payload())
+}
+
+pub fn remove_resource(
+    manager: &SharedDatastoreApiServer,
+    runtime: &mut ManagedAppState,
+    request: DatastoreApiServerRemoveResourceRequest,
+) -> Result<crate::domain::models::BootstrapPayload, CommandError> {
+    runtime.ensure_unlocked()?;
+    let preferences = &mut runtime.snapshot.preferences.datastore_api_server;
+    preferences.servers = normalized_servers(preferences);
+    let server = preferences
+        .servers
+        .iter_mut()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-not-found",
+                "The requested API server configuration could not be found.",
+            )
+        })?;
+    server
+        .resources
+        .retain(|resource| resource.id != request.resource_id);
+    let updated_server = server.clone();
+    sync_legacy_preferences_from_active(preferences);
+    runtime.snapshot.updated_at = timestamp_now();
+    runtime.persist()?;
+    let mut manager = manager.lock().map_err(|_| {
+        CommandError::new(
+            "api-server-state-unavailable",
+            "API server state is temporarily unavailable.",
+        )
+    })?;
+    manager.hot_reload_config(updated_server)?;
+    Ok(runtime.bootstrap_payload())
+}
+
+pub fn discover_query_sources(
+    runtime: &ManagedAppState,
+    request: DatastoreApiServerQuerySourceDiscoveryRequest,
+) -> Result<DatastoreApiServerQuerySourceDiscoveryResponse, CommandError> {
+    runtime.ensure_unlocked()?;
+    let servers = normalized_servers(&runtime.snapshot.preferences.datastore_api_server);
+    let server = servers
+        .iter()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-not-found",
+                "The requested API server configuration could not be found.",
+            )
+        })?;
+    let connection_id = server.connection_id.as_deref().ok_or_else(|| {
+        CommandError::new(
+            "api-server-connection-required",
+            "Choose a datastore before discovering saved queries.",
+        )
+    })?;
+    let environment_id = server.environment_id.as_deref();
+    let mut sources = runtime
+        .snapshot
+        .library_nodes
+        .iter()
+        .filter(|node| {
+            node.kind == "query"
+                && node
+                    .query_text
+                    .as_deref()
+                    .is_some_and(|query_text| !query_text.trim().is_empty())
+                && node
+                    .connection_id
+                    .as_deref()
+                    .is_some_and(|node_connection_id| node_connection_id == connection_id)
+                && node
+                    .environment_id
+                    .as_deref()
+                    .is_none_or(|node_environment_id| {
+                        environment_id.is_none_or(|server_environment_id| {
+                            node_environment_id == server_environment_id
+                        })
+                    })
+        })
+        .map(|node| DatastoreApiServerQuerySource {
+            id: node.id.clone(),
+            name: node.name.clone(),
+            summary: node.summary.clone(),
+            connection_id: node.connection_id.clone(),
+            environment_id: node.environment_id.clone(),
+            language: node.language.clone(),
+            query_view_mode: node.query_view_mode.clone(),
+            query_text: node.query_text.clone().unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+    sources.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    Ok(DatastoreApiServerQuerySourceDiscoveryResponse {
+        server_id: request.server_id,
+        sources,
+    })
+}
+
+pub fn add_custom_endpoint(
+    manager: &SharedDatastoreApiServer,
+    runtime: &mut ManagedAppState,
+    request: DatastoreApiServerAddCustomEndpointRequest,
+) -> Result<crate::domain::models::BootstrapPayload, CommandError> {
+    runtime.ensure_unlocked()?;
+    let mut endpoint = request.endpoint;
+    let server_for_validation =
+        normalized_servers(&runtime.snapshot.preferences.datastore_api_server)
+            .into_iter()
+            .find(|server| server.id == request.server_id)
+            .ok_or_else(|| {
+                CommandError::new(
+                    "api-server-not-found",
+                    "The requested API server configuration could not be found.",
+                )
+            })?;
+    hydrate_custom_endpoint_from_library(runtime, &server_for_validation, &mut endpoint)?;
+
+    let preferences = &mut runtime.snapshot.preferences.datastore_api_server;
+    preferences.servers = normalized_servers(preferences);
+    let server = preferences
+        .servers
+        .iter_mut()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-not-found",
+                "The requested API server configuration could not be found.",
+            )
+        })?;
+    let mut endpoints = server.custom_endpoints.clone();
+    if !endpoints.iter().any(|existing| existing.id == endpoint.id) {
+        endpoints.push(endpoint);
+    }
+    server.custom_endpoints = normalize_custom_endpoint_configs(endpoints, &server.resources);
+    let updated_server = server.clone();
+    sync_legacy_preferences_from_active(preferences);
+    runtime.snapshot.updated_at = timestamp_now();
+    runtime.persist()?;
+    let mut manager = manager.lock().map_err(|_| {
+        CommandError::new(
+            "api-server-state-unavailable",
+            "API server state is temporarily unavailable.",
+        )
+    })?;
+    manager.hot_reload_config(updated_server)?;
+    Ok(runtime.bootstrap_payload())
+}
+
+pub fn update_custom_endpoint(
+    manager: &SharedDatastoreApiServer,
+    runtime: &mut ManagedAppState,
+    request: DatastoreApiServerUpdateCustomEndpointRequest,
+) -> Result<crate::domain::models::BootstrapPayload, CommandError> {
+    runtime.ensure_unlocked()?;
+    let preferences = &mut runtime.snapshot.preferences.datastore_api_server;
+    preferences.servers = normalized_servers(preferences);
+    let server = preferences
+        .servers
+        .iter_mut()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-not-found",
+                "The requested API server configuration could not be found.",
+            )
+        })?;
+    if request.endpoint.query_text.trim().is_empty() {
+        return Err(CommandError::new(
+            "api-server-query-required",
+            "Custom endpoints need a saved query snapshot.",
+        ));
+    }
+    let mut endpoints = server.custom_endpoints.clone();
+    let index = endpoints
+        .iter()
+        .position(|endpoint| endpoint.id == request.endpoint_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-endpoint-not-found",
+                "The requested custom endpoint could not be found.",
+            )
+        })?;
+    endpoints[index] = request.endpoint;
+    server.custom_endpoints = normalize_custom_endpoint_configs(endpoints, &server.resources);
+    let updated_server = server.clone();
+    sync_legacy_preferences_from_active(preferences);
+    runtime.snapshot.updated_at = timestamp_now();
+    runtime.persist()?;
+    let mut manager = manager.lock().map_err(|_| {
+        CommandError::new(
+            "api-server-state-unavailable",
+            "API server state is temporarily unavailable.",
+        )
+    })?;
+    manager.hot_reload_config(updated_server)?;
+    Ok(runtime.bootstrap_payload())
+}
+
+pub fn remove_custom_endpoint(
+    manager: &SharedDatastoreApiServer,
+    runtime: &mut ManagedAppState,
+    request: DatastoreApiServerRemoveCustomEndpointRequest,
+) -> Result<crate::domain::models::BootstrapPayload, CommandError> {
+    runtime.ensure_unlocked()?;
+    let preferences = &mut runtime.snapshot.preferences.datastore_api_server;
+    preferences.servers = normalized_servers(preferences);
+    let server = preferences
+        .servers
+        .iter_mut()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-not-found",
+                "The requested API server configuration could not be found.",
+            )
+        })?;
+    server
+        .custom_endpoints
+        .retain(|endpoint| endpoint.id != request.endpoint_id);
+    server.custom_endpoints =
+        normalize_custom_endpoint_configs(server.custom_endpoints.clone(), &server.resources);
+    let updated_server = server.clone();
+    sync_legacy_preferences_from_active(preferences);
+    runtime.snapshot.updated_at = timestamp_now();
+    runtime.persist()?;
+    let mut manager = manager.lock().map_err(|_| {
+        CommandError::new(
+            "api-server-state-unavailable",
+            "API server state is temporarily unavailable.",
+        )
+    })?;
+    manager.hot_reload_config(updated_server)?;
+    Ok(runtime.bootstrap_payload())
+}
+
+fn hydrate_custom_endpoint_from_library(
+    runtime: &ManagedAppState,
+    server: &DatastoreApiServerConfig,
+    endpoint: &mut DatastoreApiServerCustomEndpointConfig,
+) -> Result<(), CommandError> {
+    let source = runtime
+        .snapshot
+        .library_nodes
+        .iter()
+        .find(|node| node.id == endpoint.source_library_node_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-query-source-missing",
+                "Choose a saved Library query for this custom endpoint.",
+            )
+        })?;
+    if source.kind != "query" {
+        return Err(CommandError::new(
+            "api-server-query-source-invalid",
+            "Custom API endpoints can only use saved Library queries.",
+        ));
+    }
+    let server_connection_id = server.connection_id.as_deref().ok_or_else(|| {
+        CommandError::new(
+            "api-server-connection-required",
+            "Choose a datastore before adding custom endpoints.",
+        )
+    })?;
+    if source.connection_id.as_deref() != Some(server_connection_id) {
+        return Err(CommandError::new(
+            "api-server-query-source-connection-mismatch",
+            "Choose a saved query from the same datastore as this API server.",
+        ));
+    }
+    let query_text = source
+        .query_text
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-query-required",
+                "The selected Library query has no query text.",
+            )
+        })?;
+    endpoint.source_library_node_id = source.id.clone();
+    endpoint.source_name = source.name.clone();
+    endpoint.query_text = query_text;
+    endpoint.language = source
+        .language
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "sql".into());
+    endpoint.query_view_mode = source
+        .query_view_mode
+        .clone()
+        .or_else(|| Some("raw".into()));
+    if endpoint.label.trim().is_empty() {
+        endpoint.label = source.name.clone();
+    }
+    if endpoint.endpoint_slug.trim().is_empty() {
+        endpoint.endpoint_slug = api_server_slug(&endpoint.label);
+    }
+    Ok(())
 }
 
 pub fn start_server(
@@ -283,21 +1110,64 @@ pub fn start_server(
             "Turn on the experimental API server in Settings before starting it.",
         ));
     }
-    runtime.connection_by_id(&request.connection_id)?;
-    runtime.environment_by_id(&request.environment_id)?;
-    let port = request
-        .port
-        .unwrap_or(runtime.snapshot.preferences.datastore_api_server.port);
-    validate_port(port)?;
-
-    let preferences = &mut runtime.snapshot.preferences.datastore_api_server;
-    preferences.servers = normalized_servers(preferences);
+    let normalized = normalized_servers(&runtime.snapshot.preferences.datastore_api_server);
     let server_id = request
         .server_id
         .clone()
         .filter(|value| !value.is_empty())
-        .or_else(|| active_server_id(preferences))
+        .or_else(|| {
+            runtime
+                .snapshot
+                .preferences
+                .datastore_api_server
+                .active_server_id
+                .clone()
+                .filter(|id| normalized.iter().any(|server| server.id == *id))
+        })
+        .or_else(|| normalized.first().map(|server| server.id.clone()))
         .unwrap_or_else(|| generate_id("api-server"));
+    let existing_server = normalized
+        .iter()
+        .find(|server| server.id == server_id)
+        .cloned();
+    let connection_id = request
+        .connection_id
+        .clone()
+        .or_else(|| {
+            existing_server
+                .as_ref()
+                .and_then(|server| server.connection_id.clone())
+        })
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-connection-required",
+                "Choose a datastore before starting this API server.",
+            )
+        })?;
+    let environment_id = request
+        .environment_id
+        .clone()
+        .or_else(|| {
+            existing_server
+                .as_ref()
+                .and_then(|server| server.environment_id.clone())
+        })
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-environment-required",
+                "Choose an environment before starting this API server.",
+            )
+        })?;
+    runtime.connection_by_id(&connection_id)?;
+    runtime.environment_by_id(&environment_id)?;
+    let port = request
+        .port
+        .or_else(|| existing_server.as_ref().map(|server| server.port))
+        .unwrap_or(runtime.snapshot.preferences.datastore_api_server.port);
+    validate_port(port)?;
+
+    let preferences = &mut runtime.snapshot.preferences.datastore_api_server;
+    preferences.servers = normalized;
     if let Some(server) = preferences
         .servers
         .iter_mut()
@@ -305,8 +1175,8 @@ pub fn start_server(
     {
         server.host = API_HOST.into();
         server.port = port;
-        server.connection_id = Some(request.connection_id.clone());
-        server.environment_id = Some(request.environment_id.clone());
+        server.connection_id = Some(connection_id.clone());
+        server.environment_id = Some(environment_id.clone());
         if server.name.trim().is_empty() {
             server.name = default_server_name(port);
         }
@@ -314,11 +1184,16 @@ pub fn start_server(
         preferences.servers.push(DatastoreApiServerConfig {
             id: server_id.clone(),
             name: default_server_name(port),
+            description: None,
             host: API_HOST.into(),
             port,
             auto_start: false,
-            connection_id: Some(request.connection_id.clone()),
-            environment_id: Some(request.environment_id.clone()),
+            protocol: "rest".into(),
+            base_path: String::new(),
+            connection_id: Some(connection_id.clone()),
+            environment_id: Some(environment_id.clone()),
+            resources: Vec::new(),
+            custom_endpoints: Vec::new(),
         });
     }
     preferences.active_server_id = Some(server_id.clone());
@@ -392,11 +1267,8 @@ pub fn delete_server(
         .filter(|server| server.id != request.server_id)
         .collect();
     if preferences.servers.is_empty() {
-        preferences
-            .servers
-            .push(DatastoreApiServerConfig::default());
-    }
-    if preferences.active_server_id.as_deref() == Some(&request.server_id)
+        clear_legacy_preferences(preferences);
+    } else if preferences.active_server_id.as_deref() == Some(&request.server_id)
         || preferences
             .active_server_id
             .as_ref()
@@ -438,8 +1310,8 @@ pub fn auto_start_if_configured(
             runtime,
             DatastoreApiServerStartRequest {
                 server_id: Some(server.id),
-                connection_id,
-                environment_id,
+                connection_id: Some(connection_id),
+                environment_id: Some(environment_id),
                 port: Some(server.port),
             },
         )
@@ -477,39 +1349,51 @@ impl DatastoreApiServerManager {
                     environment_id: active_status.environment_id.clone(),
                     server_id: Some(active_status.id.clone()),
                     name: Some(active_status.name.clone()),
+                    description: active_status.description.clone(),
+                    protocol: Some(active_status.protocol.clone()),
+                    base_path: Some(active_status.base_path.clone()),
                     active_server_id: Some(active_status.id.clone()),
                     started_at: active_status.started_at.clone(),
                     message: active_status.message.clone(),
                     warnings: active_status.warnings.clone(),
+                    resources: active_status.resources.clone(),
+                    custom_endpoints: active_status.custom_endpoints.clone(),
                     servers: server_statuses,
                 };
             }
         }
 
+        let has_servers = !server_statuses.is_empty();
         DatastoreApiServerStatus {
             enabled: preferences.enabled,
             running: false,
             host: API_HOST.into(),
             port: preferences.port,
-            base_url: preferences
-                .enabled
+            base_url: (preferences.enabled && has_servers)
                 .then(|| format!("http://{API_HOST}:{}", preferences.port)),
             connection_id: preferences.connection_id.clone(),
             environment_id: preferences.environment_id.clone(),
             server_id: active_id.clone(),
             name: None,
+            description: None,
+            protocol: None,
+            base_path: None,
             active_server_id: active_id,
             started_at: None,
-            message: if preferences.enabled {
+            message: if preferences.enabled && !has_servers {
+                "No API servers are configured.".into()
+            } else if preferences.enabled {
                 "Experimental datastore API server is stopped.".into()
             } else {
                 "Experimental datastore API server is disabled.".into()
             },
-            warnings: if preferences.enabled {
+            warnings: if preferences.enabled && has_servers {
                 local_warnings()
             } else {
                 Vec::new()
             },
+            resources: Vec::new(),
+            custom_endpoints: Vec::new(),
             servers: server_statuses,
         }
     }
@@ -523,24 +1407,51 @@ impl DatastoreApiServerManager {
             return DatastoreApiServerInstanceStatus {
                 id: running.id.clone(),
                 name: running.name.clone(),
+                description: running
+                    .config
+                    .lock()
+                    .ok()
+                    .and_then(|config| config.description.clone()),
                 running: true,
                 host: API_HOST.into(),
                 port: running.port,
+                protocol: running.protocol.clone(),
+                base_path: running
+                    .config
+                    .lock()
+                    .ok()
+                    .map(|config| config.base_path.clone())
+                    .unwrap_or_default(),
                 base_url: Some(format!("http://{API_HOST}:{}", running.port)),
                 connection_id: Some(running.connection_id.clone()),
                 environment_id: Some(running.environment_id.clone()),
                 started_at: Some(running.started_at.clone()),
                 message: "Experimental datastore API server is running.".into(),
                 warnings: local_warnings(),
+                resources: running
+                    .config
+                    .lock()
+                    .ok()
+                    .map(|config| config.resources.clone())
+                    .unwrap_or_default(),
+                custom_endpoints: running
+                    .config
+                    .lock()
+                    .ok()
+                    .map(|config| config.custom_endpoints.clone())
+                    .unwrap_or_default(),
             };
         }
 
         DatastoreApiServerInstanceStatus {
             id: server.id.clone(),
             name: server.name.clone(),
+            description: server.description.clone(),
             running: false,
             host: API_HOST.into(),
             port: server.port,
+            protocol: server.protocol.clone(),
+            base_path: server.base_path.clone(),
             base_url: feature_enabled.then(|| format!("http://{API_HOST}:{}", server.port)),
             connection_id: server.connection_id.clone(),
             environment_id: server.environment_id.clone(),
@@ -555,6 +1466,8 @@ impl DatastoreApiServerManager {
             } else {
                 Vec::new()
             },
+            resources: server.resources.clone(),
+            custom_endpoints: server.custom_endpoints.clone(),
         }
     }
 
@@ -570,6 +1483,7 @@ impl DatastoreApiServerManager {
         };
         let mut metrics = telemetry.metrics_snapshot();
         metrics.running = true;
+        metrics.server_id = Some(running.id.clone());
         metrics.started_at = Some(running.started_at.clone());
         metrics.connection_id = Some(running.connection_id.clone());
         metrics.environment_id = Some(running.environment_id.clone());
@@ -581,7 +1495,11 @@ impl DatastoreApiServerManager {
         preferences: &DatastoreApiServerPreferences,
         request: &DatastoreApiServerLogsRequest,
     ) -> DatastoreApiServerLogs {
-        let Some(server_id) = active_server_id(preferences) else {
+        let Some(server_id) = request
+            .server_id
+            .clone()
+            .or_else(|| active_server_id(preferences))
+        else {
             return empty_logs();
         };
         let Some(running) = self.running.get(&server_id) else {
@@ -616,7 +1534,11 @@ impl DatastoreApiServerManager {
             if running.connection_id == connection_id
                 && running.environment_id == environment_id
                 && running.port == server.port
+                && running.protocol == server.protocol
             {
+                if let Ok(mut config) = running.config.lock() {
+                    *config = server.clone();
+                }
                 return Ok(());
             }
             self.stop(&server.id);
@@ -656,11 +1578,13 @@ impl DatastoreApiServerManager {
         })?;
         let started_at = timestamp_now();
         let telemetry = Arc::new(Mutex::new(ApiServerTelemetry::default()));
+        let config = Arc::new(Mutex::new(server.clone()));
         let server_state = Arc::new(ApiServerRuntime {
             app,
             connection_id: connection_id.clone(),
             environment_id: environment_id.clone(),
             port: server.port,
+            config: Arc::clone(&config),
             telemetry: Arc::clone(&telemetry),
         });
         let handle = tauri::async_runtime::spawn(async move {
@@ -679,13 +1603,48 @@ impl DatastoreApiServerManager {
                 id: server.id,
                 name: server.name,
                 port: server.port,
+                protocol: server.protocol,
                 connection_id,
                 environment_id,
                 started_at,
+                config,
                 telemetry,
                 handle,
             },
         );
+        Ok(())
+    }
+
+    fn hot_reload_config(&mut self, server: DatastoreApiServerConfig) -> Result<(), CommandError> {
+        let Some(running) = self.running.get_mut(&server.id) else {
+            return Ok(());
+        };
+        if running.protocol != server.protocol {
+            return Err(CommandError::new(
+                "api-server-restart-required",
+                "Stop this API server before changing its protocol.",
+            ));
+        }
+        if running.port != server.port {
+            return Err(CommandError::new(
+                "api-server-restart-required",
+                "Stop this API server before changing its port.",
+            ));
+        }
+        let next_connection_id = server.connection_id.clone().unwrap_or_default();
+        let next_environment_id = server.environment_id.clone().unwrap_or_default();
+        if running.connection_id != next_connection_id
+            || running.environment_id != next_environment_id
+        {
+            return Err(CommandError::new(
+                "api-server-restart-required",
+                "Stop this API server before changing its datastore or environment.",
+            ));
+        }
+        running.name = server.name.clone();
+        if let Ok(mut config) = running.config.lock() {
+            *config = server;
+        }
         Ok(())
     }
 
@@ -707,6 +1666,7 @@ struct ApiServerRuntime {
     connection_id: String,
     environment_id: String,
     port: u16,
+    config: Arc<Mutex<DatastoreApiServerConfig>>,
     telemetry: Arc<Mutex<ApiServerTelemetry>>,
 }
 
@@ -753,14 +1713,33 @@ struct CrudApiResource {
     scope: Option<String>,
 }
 
-struct DiscoveredCrudResources {
-    resources: Vec<CrudApiResource>,
-}
-
 struct ParsedResourcePath {
     kind: String,
     name: String,
+    scope: Option<String>,
+    path: Vec<String>,
+    metadata: HashMap<String, Value>,
     identity: Option<Value>,
+}
+
+struct ResourceRouteTarget {
+    kind: String,
+    name: String,
+    scope: Option<String>,
+    path: Vec<String>,
+    metadata: HashMap<String, Value>,
+}
+
+impl ResourceRouteTarget {
+    fn from_resource(resource: &DatastoreApiServerResourceConfig) -> Self {
+        Self {
+            kind: resource.kind.clone(),
+            name: resource.label.clone(),
+            scope: resource.scope.clone(),
+            path: resource.path.clone(),
+            metadata: resource.metadata.clone(),
+        }
+    }
 }
 
 impl ApiServerTelemetry {
@@ -839,6 +1818,7 @@ impl ApiServerTelemetry {
         DatastoreApiServerMetrics {
             running: false,
             generated_at: timestamp_now(),
+            server_id: None,
             started_at: None,
             connection_id: None,
             environment_id: None,
@@ -1046,7 +2026,15 @@ async fn handle_request(request: HttpRequest, state: Arc<ApiServerRuntime>) -> H
 
     let path = normalized_log_path(&request.path);
     if request.method == "GET" && matches!(path.as_str(), "/" | "/docs") {
-        return html_response(200, docs_html(&state));
+        return match current_server_config(&state) {
+            Ok(config) => html_response(200, docs_html(&state, &config)),
+            Err(ApiRouteError {
+                status,
+                code,
+                message,
+                details,
+            }) => json_error_response(status, code, message, details.map(|value| *value)),
+        };
     }
 
     match route_request(request, state).await {
@@ -1065,44 +2053,52 @@ async fn route_request(
     state: Arc<ApiServerRuntime>,
 ) -> Result<Value, ApiRouteError> {
     let path = normalized_log_path(&request.path);
-    match (request.method.as_str(), path.as_str()) {
-        ("GET", "/openapi.json") => openapi_document(&state).await,
-        _ => {
-            if let Some(resource) = parse_resource_path(&path)? {
-                api_resource(
-                    &state,
-                    &request,
-                    &resource.kind,
-                    &resource.name,
-                    resource.identity.as_ref(),
-                )
-                .await
-            } else {
-                Err(ApiRouteError::new(
-                    404,
-                    "not-found",
-                    "No API server route matched this request.",
-                ))
+    let config = current_server_config(&state)?;
+    match config.protocol.as_str() {
+        "graphql" => route_graphql_request(request, state, &config).await,
+        "grpc" => route_grpc_document_request(request, &config).await,
+        _ => match (request.method.as_str(), path.as_str()) {
+            ("GET", "/openapi.json") => openapi_document(&state, &config).await,
+            _ => {
+                if let Some(endpoint) =
+                    configured_custom_endpoint_for_path(&config, &request.method, &path)?
+                {
+                    execute_custom_endpoint(&state, &request, &endpoint).await
+                } else if let Some(resource) = configured_resource_for_path(&config, &path)? {
+                    let target = ResourceRouteTarget {
+                        kind: resource.kind,
+                        name: resource.name,
+                        scope: resource.scope,
+                        path: resource.path,
+                        metadata: resource.metadata,
+                    };
+                    api_resource(&state, &request, &target, resource.identity.as_ref()).await
+                } else {
+                    Err(ApiRouteError::new(
+                        404,
+                        "not-found",
+                        "No API server route matched this request.",
+                    ))
+                }
             }
-        }
+        },
     }
 }
 
-async fn openapi_document(state: &ApiServerRuntime) -> Result<Value, ApiRouteError> {
-    let mut runtime = clone_runtime(&state.app)?;
+async fn openapi_document(
+    state: &ApiServerRuntime,
+    config: &DatastoreApiServerConfig,
+) -> Result<Value, ApiRouteError> {
+    let runtime = clone_runtime(&state.app)?;
     let connection = runtime.connection_by_id(&state.connection_id)?;
     let resource_kinds = supported_resource_kinds(&connection.family, &connection.engine);
     let mut warnings = local_warnings();
-    let resources = match discover_crud_resources(&mut runtime, state, 250, None).await {
-        Ok(discovered) => discovered.resources,
-        Err(error) => {
-            warnings.push(format!(
-                "Resource discovery failed while building OpenAPI: {}",
-                error.message
-            ));
-            Vec::new()
-        }
-    };
+    let resources = configured_crud_resources(config);
+    let custom_endpoints = configured_custom_openapi_endpoints(config);
+    if resources.is_empty() && custom_endpoints.is_empty() {
+        warnings
+            .push("No CRUD resources or custom endpoints are configured for this server.".into());
+    }
     let mut paths = serde_json::Map::new();
     for resource in &resources {
         paths.insert(
@@ -1112,6 +2108,16 @@ async fn openapi_document(state: &ApiServerRuntime) -> Result<Value, ApiRouteErr
         paths.insert(
             format!("{}/{{identity}}", resource.endpoint),
             resource_identity_path_item(resource),
+        );
+    }
+    for endpoint in &custom_endpoints {
+        paths.insert(
+            endpoint
+                .get("endpoint")
+                .and_then(Value::as_str)
+                .unwrap_or("/")
+                .to_string(),
+            custom_endpoint_path_item(endpoint),
         );
     }
 
@@ -1140,6 +2146,7 @@ async fn openapi_document(state: &ApiServerRuntime) -> Result<Value, ApiRouteErr
             "supportedResourceKinds": resource_kinds,
             "resourceEndpointStyle": "concrete-crud",
             "resources": resources,
+            "customEndpoints": custom_endpoints,
             "warnings": warnings
         },
         "paths": paths,
@@ -1202,8 +2209,8 @@ fn resource_collection_path_item(resource: &CrudApiResource) -> Value {
             "parameters": search_parameters(),
             "x-datapad-resource": resource_extension.clone(),
             "responses": {
-                "200": { "description": "Search result" },
-                "409": { "description": "Unsupported resource capability" }
+                "200": crud_search_response(resource),
+                "409": error_response("Unsupported resource capability")
             }
         },
         "post": {
@@ -1214,11 +2221,11 @@ fn resource_collection_path_item(resource: &CrudApiResource) -> Value {
                 "Create one object in the {} resource named {}.",
                 resource.kind, resource.name
             ),
-            "requestBody": crud_mutation_request_body(),
+            "requestBody": crud_mutation_request_body("create"),
             "x-datapad-resource": resource_extension.clone(),
             "responses": {
-                "200": { "description": "Mutation result" },
-                "409": { "description": "Mutation not executed or unsupported" }
+                "200": crud_mutation_response("Created object"),
+                "409": error_response("Mutation not executed or unsupported")
             }
         }
     })
@@ -1246,8 +2253,8 @@ fn resource_identity_path_item(resource: &CrudApiResource) -> Value {
             "parameters": identity_path_parameters(),
             "x-datapad-resource": resource_extension.clone(),
             "responses": {
-                "200": { "description": "Read result" },
-                "409": { "description": "Unsupported resource capability" }
+                "200": crud_entity_response("Object returned from the resource"),
+                "409": error_response("Unsupported resource capability")
             }
         },
         "patch": {
@@ -1259,11 +2266,11 @@ fn resource_identity_path_item(resource: &CrudApiResource) -> Value {
                 resource.kind, resource.name
             ),
             "parameters": identity_path_parameters(),
-            "requestBody": crud_mutation_request_body(),
+            "requestBody": crud_mutation_request_body("update"),
             "x-datapad-resource": resource_extension.clone(),
             "responses": {
-                "200": { "description": "Mutation result" },
-                "409": { "description": "Mutation not executed or unsupported" }
+                "200": crud_mutation_response("Updated object"),
+                "409": error_response("Mutation not executed or unsupported")
             }
         },
         "delete": {
@@ -1277,11 +2284,196 @@ fn resource_identity_path_item(resource: &CrudApiResource) -> Value {
             "parameters": identity_path_parameters(),
             "x-datapad-resource": resource_extension,
             "responses": {
-                "200": { "description": "Mutation result" },
-                "409": { "description": "Mutation not executed or unsupported" }
+                "200": crud_mutation_response("Deleted object"),
+                "409": error_response("Mutation not executed or unsupported")
             }
         }
     })
+}
+
+fn custom_endpoint_path_item(endpoint: &Value) -> Value {
+    let method = endpoint
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or("GET")
+        .to_ascii_lowercase();
+    let mut operation = serde_json::Map::new();
+    operation.insert(
+        "tags".into(),
+        json!([endpoint
+            .get("label")
+            .and_then(Value::as_str)
+            .unwrap_or("Custom Query")]),
+    );
+    operation.insert(
+        "operationId".into(),
+        json!(format!(
+            "runCustom{}",
+            operation_name_fragment(
+                endpoint
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Query")
+            )
+        )),
+    );
+    operation.insert(
+        "summary".into(),
+        json!(format!(
+            "Run {}",
+            endpoint
+                .get("label")
+                .and_then(Value::as_str)
+                .unwrap_or("custom query")
+        )),
+    );
+    operation.insert(
+        "description".into(),
+        json!(endpoint
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("Run a saved DataPad++ query through this custom endpoint.")),
+    );
+    operation.insert("x-datapad-customEndpoint".into(), endpoint.clone());
+    operation.insert(
+        "responses".into(),
+        json!({
+            "200": {
+                "description": "Query result data",
+                "content": {
+                    "application/json": {
+                        "schema": {},
+                        "examples": {
+                            "data": {
+                                "summary": "Result data",
+                                "value": [{ "id": 1, "name": "Example" }]
+                            }
+                        }
+                    }
+                }
+            },
+            "400": error_response("Invalid or missing API parameter"),
+            "409": error_response("Custom query blocked by API server guardrails")
+        }),
+    );
+    if method == "post" {
+        operation.insert("requestBody".into(), custom_endpoint_request_body(endpoint));
+    } else {
+        operation.insert(
+            "parameters".into(),
+            custom_endpoint_query_parameters(endpoint),
+        );
+    }
+
+    let mut path_item = serde_json::Map::new();
+    path_item.insert(method, Value::Object(operation));
+    Value::Object(path_item)
+}
+
+fn custom_endpoint_query_parameters(endpoint: &Value) -> Value {
+    Value::Array(
+        endpoint
+            .get("parameters")
+            .and_then(Value::as_array)
+            .map(|parameters| {
+                parameters
+                    .iter()
+                    .filter_map(|parameter| {
+                        let name = parameter.get("name").and_then(Value::as_str)?;
+                        Some(json!({
+                            "name": name,
+                            "in": "query",
+                            "required": parameter.get("required").and_then(Value::as_bool).unwrap_or(false),
+                            "description": parameter.get("description").and_then(Value::as_str).unwrap_or("Custom query parameter."),
+                            "schema": custom_endpoint_parameter_schema(parameter),
+                            "example": custom_endpoint_parameter_example(parameter)
+                        }))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+    )
+}
+
+fn custom_endpoint_request_body(endpoint: &Value) -> Value {
+    let properties = endpoint
+        .get("parameters")
+        .and_then(Value::as_array)
+        .map(|parameters| {
+            parameters
+                .iter()
+                .filter_map(|parameter| {
+                    let name = parameter.get("name").and_then(Value::as_str)?;
+                    Some((
+                        name.to_string(),
+                        custom_endpoint_parameter_schema(parameter),
+                    ))
+                })
+                .collect::<serde_json::Map<_, _>>()
+        })
+        .unwrap_or_default();
+    let required = endpoint
+        .get("parameters")
+        .and_then(Value::as_array)
+        .map(|parameters| {
+            parameters
+                .iter()
+                .filter(|parameter| {
+                    parameter
+                        .get("required")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                })
+                .filter_map(|parameter| parameter.get("name").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    json!({
+        "required": true,
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required
+                },
+                "example": custom_endpoint_body_example(endpoint)
+            }
+        }
+    })
+}
+
+fn custom_endpoint_parameter_schema(parameter: &Value) -> Value {
+    match parameter.get("type").and_then(Value::as_str) {
+        Some("number") => json!({ "type": "number" }),
+        Some("boolean") => json!({ "type": "boolean" }),
+        Some("json") => json!({}),
+        _ => json!({ "type": "string" }),
+    }
+}
+
+fn custom_endpoint_parameter_example(parameter: &Value) -> Value {
+    if let Some(default_value) = parameter.get("defaultValue") {
+        return default_value.clone();
+    }
+    match parameter.get("type").and_then(Value::as_str) {
+        Some("number") => json!(123),
+        Some("boolean") => json!(true),
+        Some("json") => json!({ "value": "example" }),
+        _ => json!("example"),
+    }
+}
+
+fn custom_endpoint_body_example(endpoint: &Value) -> Value {
+    let mut object = serde_json::Map::new();
+    if let Some(parameters) = endpoint.get("parameters").and_then(Value::as_array) {
+        for parameter in parameters {
+            if let Some(name) = parameter.get("name").and_then(Value::as_str) {
+                object.insert(name.into(), custom_endpoint_parameter_example(parameter));
+            }
+        }
+    }
+    Value::Object(object)
 }
 
 fn resource_operation_id(action: &str, resource: &CrudApiResource) -> String {
@@ -1319,7 +2511,9 @@ fn search_parameters() -> Vec<Value> {
     vec![json!({
         "name": "limit",
         "in": "query",
-        "schema": { "type": "integer", "minimum": 1, "maximum": 500 }
+        "description": "Maximum number of objects to return.",
+        "schema": { "type": "integer", "minimum": 1, "maximum": 500 },
+        "example": 50
     })]
 }
 
@@ -1329,27 +2523,483 @@ fn identity_path_parameters() -> Vec<Value> {
         "in": "path",
         "required": true,
         "schema": { "type": "string" },
-        "description": "Scalar identity, or a URL-encoded JSON identity object for composite keys."
+        "description": "Scalar identity, or a URL-encoded JSON identity object for composite keys.",
+        "example": "1"
     })]
 }
 
-fn crud_mutation_request_body() -> Value {
+fn crud_mutation_request_body(action: &str) -> Value {
+    let example = match action {
+        "update" => json!({
+            "identity": { "id": 1 },
+            "changes": [{ "field": "name", "value": "Example" }]
+        }),
+        _ => json!({
+            "values": { "name": "Example" }
+        }),
+    };
+    let mut examples = serde_json::Map::new();
+    examples.insert(
+        action.into(),
+        json!({
+            "summary": format!("{} example", operation_name_fragment(action)),
+            "value": example
+        }),
+    );
     json!({
         "required": true,
+        "description": "JSON mutation payload. Safe mode, read-only profiles, and confirmation guardrails still apply.",
         "content": {
             "application/json": {
                 "schema": { "$ref": "#/components/schemas/CrudMutationBody" },
+                "examples": examples
+            }
+        }
+    })
+}
+
+fn crud_search_response(resource: &CrudApiResource) -> Value {
+    json!({
+        "description": format!("List of {} documents or rows.", resource.name),
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "array",
+                    "items": { "type": "object", "additionalProperties": true }
+                },
                 "examples": {
-                    "values": {
+                    "documents": {
+                        "summary": "Document list",
+                        "value": [{ "id": 1, "name": "Example" }]
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn crud_entity_response(description: &str) -> Value {
+    json!({
+        "description": description,
+        "content": {
+            "application/json": {
+                "schema": { "type": "object", "additionalProperties": true },
+                "examples": {
+                    "document": {
+                        "summary": "Document",
+                        "value": { "id": 1, "name": "Example" }
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn crud_mutation_response(description: &str) -> Value {
+    json!({
+        "description": description,
+        "content": {
+            "application/json": {
+                "schema": { "type": "object", "additionalProperties": true },
+                "examples": {
+                    "result": {
+                        "summary": "Mutation result",
+                        "value": { "ok": true, "id": 1 }
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn error_response(description: &str) -> Value {
+    json!({
+        "description": description,
+        "content": {
+            "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "examples": {
+                    "error": {
                         "value": {
-                            "identity": { "id": 1 },
-                            "values": { "name": "Example" }
+                            "error": {
+                                "code": "crud-mutation-unsupported",
+                                "message": description,
+                                "details": null
+                            }
                         }
                     }
                 }
             }
         }
     })
+}
+
+async fn route_graphql_request(
+    request: HttpRequest,
+    state: Arc<ApiServerRuntime>,
+    config: &DatastoreApiServerConfig,
+) -> Result<Value, ApiRouteError> {
+    let path = normalized_log_path(&request.path);
+    if request.method == "GET" && path == "/graphql" {
+        return Ok(json!({
+            "schema": graphql_schema(config),
+            "resources": graphql_resources(config)
+        }));
+    }
+    if request.method != "POST" || path != "/graphql" {
+        return Err(ApiRouteError::new(
+            404,
+            "not-found",
+            "GraphQL servers expose POST /graphql and GET /graphql.",
+        ));
+    }
+    let body = serde_json::from_slice::<Value>(&request.body).map_err(|error| {
+        ApiRouteError::new(
+            400,
+            "invalid-json",
+            format!("GraphQL request body is invalid: {error}"),
+        )
+    })?;
+    let query = body.get("query").and_then(Value::as_str).ok_or_else(|| {
+        ApiRouteError::new(400, "graphql-query-required", "GraphQL query is required.")
+    })?;
+    let variables = body
+        .get("variables")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for resource in config.resources.iter().filter(|resource| resource.enabled) {
+        let names = graphql_names(resource);
+        if graphql_mentions(query, &names.create) {
+            let response = execute_graphql_mutation(
+                Arc::clone(&state),
+                &request,
+                resource,
+                "POST",
+                &variables,
+            )
+            .await?;
+            return Ok(graphql_data_response(&names.create, response));
+        }
+        if graphql_mentions(query, &names.update) {
+            let response = execute_graphql_mutation(
+                Arc::clone(&state),
+                &request,
+                resource,
+                "PATCH",
+                &variables,
+            )
+            .await?;
+            return Ok(graphql_data_response(&names.update, response));
+        }
+        if graphql_mentions(query, &names.delete) {
+            let response = execute_graphql_mutation(
+                Arc::clone(&state),
+                &request,
+                resource,
+                "DELETE",
+                &variables,
+            )
+            .await?;
+            return Ok(graphql_data_response(&names.delete, response));
+        }
+        if graphql_mentions(query, &names.single) {
+            let response =
+                execute_graphql_read(Arc::clone(&state), &request, resource, &variables, true)
+                    .await?;
+            return Ok(graphql_data_response(&names.single, response));
+        }
+        if graphql_mentions(query, &names.list) {
+            let response =
+                execute_graphql_read(Arc::clone(&state), &request, resource, &variables, false)
+                    .await?;
+            return Ok(graphql_data_response(&names.list, response));
+        }
+    }
+    Err(ApiRouteError::new(
+        400,
+        "graphql-field-unsupported",
+        "The GraphQL query did not reference a configured CRUD resource field.",
+    ))
+}
+
+fn graphql_data_response(field: &str, value: Value) -> Value {
+    let mut data = serde_json::Map::new();
+    data.insert(field.into(), value);
+    json!({ "data": Value::Object(data) })
+}
+
+async fn execute_graphql_read(
+    state: Arc<ApiServerRuntime>,
+    request: &HttpRequest,
+    resource: &DatastoreApiServerResourceConfig,
+    variables: &serde_json::Map<String, Value>,
+    single: bool,
+) -> Result<Value, ApiRouteError> {
+    let mut query = request.query.clone();
+    if let Some(limit) = variables.get("limit").and_then(Value::as_u64) {
+        query.insert("limit".into(), limit.to_string());
+    }
+    let identity = variables
+        .get("identity")
+        .cloned()
+        .or_else(|| variables.get("id").cloned());
+    if let Some(identity) = identity.as_ref() {
+        query.insert("identity".into(), identity.to_string());
+    } else if single {
+        return Err(ApiRouteError::new(
+            400,
+            "graphql-identity-required",
+            "Single-resource GraphQL reads require an identity variable.",
+        ));
+    }
+    let synthetic = HttpRequest {
+        method: "GET".into(),
+        path: format!("/{}", resource.endpoint_slug),
+        query,
+        headers: request.headers.clone(),
+        body: Vec::new(),
+    };
+    let target = ResourceRouteTarget::from_resource(resource);
+    execute_resource_read(&state, &target, &synthetic, identity.as_ref()).await
+}
+
+async fn execute_graphql_mutation(
+    state: Arc<ApiServerRuntime>,
+    request: &HttpRequest,
+    resource: &DatastoreApiServerResourceConfig,
+    method: &str,
+    variables: &serde_json::Map<String, Value>,
+) -> Result<Value, ApiRouteError> {
+    let body = json!({
+        "identity": variables.get("identity").or_else(|| variables.get("id")),
+        "values": variables.get("values").or_else(|| variables.get("input")),
+        "changes": variables.get("changes"),
+        "confirmationText": variables.get("confirmationText")
+    });
+    let synthetic = HttpRequest {
+        method: method.into(),
+        path: format!("/{}", resource.endpoint_slug),
+        query: request.query.clone(),
+        headers: request.headers.clone(),
+        body: serde_json::to_vec(&body).unwrap_or_default(),
+    };
+    let identity = variables.get("identity").or_else(|| variables.get("id"));
+    let target = ResourceRouteTarget::from_resource(resource);
+    execute_resource_mutation(&state, &target, &synthetic, identity).await
+}
+
+fn graphql_schema(config: &DatastoreApiServerConfig) -> String {
+    let mut query_fields = Vec::new();
+    let mut mutation_fields = Vec::new();
+    for resource in config.resources.iter().filter(|resource| resource.enabled) {
+        let names = graphql_names(resource);
+        query_fields.push(format!("  {}(limit: Int = 100): JSON", names.list));
+        query_fields.push(format!("  {}(identity: JSON, id: ID): JSON", names.single));
+        mutation_fields.push(format!(
+            "  {}(input: JSON, values: JSON, confirmationText: String): JSON",
+            names.create
+        ));
+        mutation_fields.push(format!("  {}(identity: JSON, id: ID, changes: JSON, values: JSON, confirmationText: String): JSON", names.update));
+        mutation_fields.push(format!(
+            "  {}(identity: JSON, id: ID, confirmationText: String): JSON",
+            names.delete
+        ));
+    }
+    format!(
+        "scalar JSON\n\ntype Query {{\n{}\n}}\n\ntype Mutation {{\n{}\n}}\n",
+        query_fields.join("\n"),
+        mutation_fields.join("\n")
+    )
+}
+
+fn graphql_resources(config: &DatastoreApiServerConfig) -> Vec<Value> {
+    config
+        .resources
+        .iter()
+        .filter(|resource| resource.enabled)
+        .map(|resource| {
+            let names = graphql_names(resource);
+            json!({
+                "resourceId": resource.id,
+                "label": resource.label,
+                "kind": resource.kind,
+                "fields": {
+                    "search": names.list,
+                    "get": names.single,
+                    "create": names.create,
+                    "update": names.update,
+                    "delete": names.delete
+                }
+            })
+        })
+        .collect()
+}
+
+struct GraphqlNames {
+    list: String,
+    single: String,
+    create: String,
+    update: String,
+    delete: String,
+}
+
+fn graphql_names(resource: &DatastoreApiServerResourceConfig) -> GraphqlNames {
+    let list = graphql_identifier(&resource.endpoint_slug);
+    let single = singular_graphql_name(&list);
+    let pascal = pascal_fragment(&list);
+    GraphqlNames {
+        list,
+        single,
+        create: format!("create{pascal}"),
+        update: format!("update{pascal}"),
+        delete: format!("delete{pascal}"),
+    }
+}
+
+fn graphql_mentions(query: &str, field: &str) -> bool {
+    query.contains(&format!("{field}("))
+        || query.contains(&format!("{field} "))
+        || query.contains(&format!("{field}\n"))
+        || query.contains(&format!("{field}\r"))
+        || query.contains(&format!("{field}{{"))
+}
+
+fn graphql_identifier(value: &str) -> String {
+    let mut output = String::new();
+    let mut capitalize = false;
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            if output.is_empty() && character.is_ascii_digit() {
+                output.push('_');
+            }
+            output.push(if capitalize {
+                character.to_ascii_uppercase()
+            } else {
+                character.to_ascii_lowercase()
+            });
+            capitalize = false;
+        } else {
+            capitalize = true;
+        }
+    }
+    if output.is_empty() {
+        "resource".into()
+    } else {
+        output
+    }
+}
+
+fn singular_graphql_name(value: &str) -> String {
+    if value.ends_with("ies") && value.len() > 3 {
+        format!("{}y", &value[..value.len() - 3])
+    } else if value.ends_with('s') && value.len() > 1 {
+        value[..value.len() - 1].into()
+    } else {
+        format!("{value}Item")
+    }
+}
+
+fn pascal_fragment(value: &str) -> String {
+    let mut output = String::new();
+    let mut capitalize = true;
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            if capitalize {
+                output.push(character.to_ascii_uppercase());
+                capitalize = false;
+            } else {
+                output.push(character);
+            }
+        } else {
+            capitalize = true;
+        }
+    }
+    if output.is_empty() {
+        "Resource".into()
+    } else {
+        output
+    }
+}
+
+async fn route_grpc_document_request(
+    request: HttpRequest,
+    config: &DatastoreApiServerConfig,
+) -> Result<Value, ApiRouteError> {
+    let path = normalized_log_path(&request.path);
+    if request.method == "GET" && matches!(path.as_str(), "/proto" | "/datapad.proto") {
+        return Ok(json!({
+            "proto": grpc_proto_document(config),
+            "resources": grpc_resources(config),
+            "reflection": "generated-proto"
+        }));
+    }
+    Err(ApiRouteError::new(
+        501,
+        "grpc-runtime-unavailable",
+        "This build exposes generated gRPC proto metadata, but binary gRPC serving is not available yet.",
+    ))
+}
+
+fn grpc_proto_document(config: &DatastoreApiServerConfig) -> String {
+    let mut services = Vec::new();
+    for resource in config.resources.iter().filter(|resource| resource.enabled) {
+        let service = format!(
+            r#"service {name}Service {{
+  rpc Search (SearchRequest) returns (JsonResponse);
+  rpc Get (IdentityRequest) returns (JsonResponse);
+  rpc Create (MutationRequest) returns (JsonResponse);
+  rpc Update (MutationRequest) returns (JsonResponse);
+  rpc Delete (IdentityRequest) returns (JsonResponse);
+}}"#,
+            name = pascal_fragment(&graphql_identifier(&resource.endpoint_slug)),
+        );
+        services.push(service);
+    }
+    format!(
+        r#"syntax = "proto3";
+package datapad.api.v1;
+
+message SearchRequest {{
+  uint32 limit = 1;
+}}
+
+message IdentityRequest {{
+  string identity_json = 1;
+  string confirmation_text = 2;
+}}
+
+message MutationRequest {{
+  string identity_json = 1;
+  string values_json = 2;
+  string changes_json = 3;
+  string confirmation_text = 4;
+}}
+
+message JsonResponse {{
+  string json = 1;
+}}
+
+{}
+"#,
+        services.join("\n\n")
+    )
+}
+
+fn grpc_resources(config: &DatastoreApiServerConfig) -> Vec<Value> {
+    config
+        .resources
+        .iter()
+        .filter(|resource| resource.enabled)
+        .map(|resource| {
+            json!({
+                "resourceId": resource.id,
+                "label": resource.label,
+                "kind": resource.kind,
+                "service": format!("{}Service", pascal_fragment(&graphql_identifier(&resource.endpoint_slug)))
+            })
+        })
+        .collect()
 }
 
 fn supported_resource_kinds(family: &str, engine: &str) -> Vec<&'static str> {
@@ -1371,51 +3021,577 @@ fn supported_resource_kinds(family: &str, engine: &str) -> Vec<&'static str> {
     Vec::new()
 }
 
-async fn discover_crud_resources(
-    runtime: &mut ManagedAppState,
+fn current_server_config(
     state: &ApiServerRuntime,
-    limit: u32,
-    scope: Option<String>,
-) -> Result<DiscoveredCrudResources, ApiRouteError> {
-    let explorer = runtime
-        .list_explorer_nodes(ExplorerRequest {
-            connection_id: state.connection_id.clone(),
-            environment_id: state.environment_id.clone(),
-            limit: Some(limit),
-            scope,
+) -> Result<DatastoreApiServerConfig, ApiRouteError> {
+    state
+        .config
+        .lock()
+        .map(|config| config.clone())
+        .map_err(|_| {
+            ApiRouteError::new(
+                503,
+                "api-server-config-unavailable",
+                "API server configuration is temporarily unavailable.",
+            )
         })
-        .await?;
-    let resources = explorer
-        .nodes
-        .into_iter()
-        .filter_map(|node| {
-            let kind = crud_kind_for_node(&node.kind)?;
-            Some(CrudApiResource {
-                endpoint: resource_endpoint(&kind, &node.label),
-                kind,
-                name: node.label,
-                node_id: node.id,
-                detail: node.detail,
-                path: node.path,
-                scope: node.scope,
+}
+
+fn configured_crud_resources(config: &DatastoreApiServerConfig) -> Vec<CrudApiResource> {
+    config
+        .resources
+        .iter()
+        .filter(|resource| resource.enabled)
+        .map(|resource| CrudApiResource {
+            endpoint: configured_resource_endpoint(config, resource),
+            kind: resource.kind.clone(),
+            name: resource.label.clone(),
+            node_id: resource.node_id.clone(),
+            detail: resource.detail.clone().unwrap_or_default(),
+            path: if resource.path.is_empty() {
+                None
+            } else {
+                Some(resource.path.clone())
+            },
+            scope: resource.scope.clone(),
+        })
+        .collect()
+}
+
+fn configured_custom_openapi_endpoints(config: &DatastoreApiServerConfig) -> Vec<Value> {
+    config
+        .custom_endpoints
+        .iter()
+        .filter(|endpoint| endpoint.enabled)
+        .map(|endpoint| {
+            json!({
+                "id": endpoint.id,
+                "label": endpoint.label,
+                "description": endpoint.description,
+                "endpoint": configured_custom_endpoint_path(config, endpoint),
+                "endpointSlug": endpoint.endpoint_slug,
+                "method": endpoint.method,
+                "sourceLibraryNodeId": endpoint.source_library_node_id,
+                "sourceName": endpoint.source_name,
+                "language": endpoint.language,
+                "queryViewMode": endpoint.query_view_mode,
+                "rowLimit": endpoint.row_limit,
+                "parameters": endpoint.parameters.iter().map(|parameter| {
+                    json!({
+                        "name": parameter.name,
+                        "type": parameter.parameter_type,
+                        "required": parameter.required,
+                        "defaultValue": parameter.default_value,
+                        "description": parameter.description,
+                        "serialization": parameter.serialization
+                    })
+                }).collect::<Vec<_>>()
             })
         })
-        .collect();
+        .collect()
+}
 
-    Ok(DiscoveredCrudResources { resources })
+fn configured_resource_endpoint(
+    config: &DatastoreApiServerConfig,
+    resource: &DatastoreApiServerResourceConfig,
+) -> String {
+    let base_path = normalize_base_path(&config.base_path);
+    let slug = percent_encode_path_segment(&resource.endpoint_slug);
+    if base_path.is_empty() {
+        format!("/{slug}")
+    } else {
+        format!("{base_path}/{slug}")
+    }
+}
+
+fn configured_custom_endpoint_path(
+    config: &DatastoreApiServerConfig,
+    endpoint: &DatastoreApiServerCustomEndpointConfig,
+) -> String {
+    let base_path = normalize_base_path(&config.base_path);
+    let slug = percent_encode_path_segment(&endpoint.endpoint_slug);
+    if base_path.is_empty() {
+        format!("/{slug}")
+    } else {
+        format!("{base_path}/{slug}")
+    }
+}
+
+fn configured_resource_for_path(
+    config: &DatastoreApiServerConfig,
+    path: &str,
+) -> Result<Option<ParsedResourcePath>, ApiRouteError> {
+    let path = normalized_log_path(path);
+    let base_path = normalize_base_path(&config.base_path);
+    let relative = if base_path.is_empty() {
+        path.as_str()
+    } else if path == base_path {
+        "/"
+    } else if let Some(rest) = path.strip_prefix(&format!("{base_path}/")) {
+        rest
+    } else {
+        return Ok(None);
+    };
+    let trimmed = relative.trim_matches('/');
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let segments = trimmed.split('/').map(percent_decode).collect::<Vec<_>>();
+    if segments.len() > 2 {
+        return Err(ApiRouteError::new(
+            400,
+            "resource-path-invalid",
+            "Resource routes accept a resource slug and optional identity segment.",
+        ));
+    }
+    let slug = api_server_slug(&segments[0]);
+    let Some(resource) = config
+        .resources
+        .iter()
+        .find(|resource| resource.enabled && resource.endpoint_slug == slug)
+    else {
+        return Ok(None);
+    };
+    let identity = segments.get(1).and_then(|value| {
+        (!value.is_empty())
+            .then(|| serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.clone())))
+    });
+    Ok(Some(ParsedResourcePath {
+        kind: resource.kind.clone(),
+        name: resource.label.clone(),
+        scope: resource.scope.clone(),
+        path: resource.path.clone(),
+        metadata: resource.metadata.clone(),
+        identity,
+    }))
+}
+
+fn configured_custom_endpoint_for_path(
+    config: &DatastoreApiServerConfig,
+    method: &str,
+    path: &str,
+) -> Result<Option<DatastoreApiServerCustomEndpointConfig>, ApiRouteError> {
+    let path = normalized_log_path(path);
+    let base_path = normalize_base_path(&config.base_path);
+    let relative = if base_path.is_empty() {
+        path.as_str()
+    } else if path == base_path {
+        "/"
+    } else if let Some(rest) = path.strip_prefix(&format!("{base_path}/")) {
+        rest
+    } else {
+        return Ok(None);
+    };
+    let trimmed = relative.trim_matches('/');
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let segments = trimmed.split('/').map(percent_decode).collect::<Vec<_>>();
+    if segments.len() != 1 {
+        return Ok(None);
+    }
+    let slug = api_server_slug(&segments[0]);
+    let Some(endpoint) = config
+        .custom_endpoints
+        .iter()
+        .find(|endpoint| endpoint.enabled && endpoint.endpoint_slug == slug)
+    else {
+        return Ok(None);
+    };
+    if endpoint.method != method {
+        return Err(ApiRouteError::new(
+            405,
+            "method-not-allowed",
+            format!("This custom endpoint supports {}.", endpoint.method),
+        ));
+    }
+    Ok(Some(endpoint.clone()))
+}
+
+fn resource_config_for_node(
+    kind: String,
+    label: String,
+    node_id: String,
+    detail: String,
+    path: Option<Vec<String>>,
+    scope: Option<String>,
+) -> Option<DatastoreApiServerResourceConfig> {
+    let crud_kind = crud_kind_for_node(&kind)?;
+    let slug = api_server_slug(&label);
+    let id_slug = api_server_slug(&format!("{crud_kind} {node_id} {slug}"));
+    Some(DatastoreApiServerResourceConfig {
+        id: format!("api-resource-{id_slug}"),
+        kind: crud_kind,
+        label,
+        node_id,
+        path: path.unwrap_or_default(),
+        scope,
+        endpoint_slug: slug,
+        enabled: true,
+        detail: Some(detail),
+        metadata: HashMap::new(),
+    })
+}
+
+async fn execute_custom_endpoint(
+    state: &ApiServerRuntime,
+    request: &HttpRequest,
+    endpoint: &DatastoreApiServerCustomEndpointConfig,
+) -> Result<Value, ApiRouteError> {
+    let runtime = clone_runtime(&state.app)?;
+    runtime.ensure_unlocked()?;
+    let connection = runtime.connection_by_id(&state.connection_id)?;
+    let environment = runtime.environment_by_id(&state.environment_id)?;
+    let (resolved_connection, resolved_environment, _) =
+        runtime.resolve_connection_profile(&connection, &state.environment_id)?;
+    let parameters = custom_endpoint_parameter_values(endpoint, request)?;
+    let query_template =
+        render_custom_endpoint_query(endpoint, &parameters, &resolved_environment.variables)?;
+
+    if security::query_looks_write(&query_template) {
+        return Err(ApiRouteError {
+            status: 409,
+            code: "custom-query-write-blocked".into(),
+            message: "Custom query endpoints are read-only in this experimental version.".into(),
+            details: Some(Box::new(json!({
+                "endpointId": endpoint.id,
+                "source": endpoint.source_name
+            }))),
+        });
+    }
+
+    let guardrail = security::evaluate_guardrails(
+        &connection,
+        &environment,
+        &resolved_environment,
+        &query_template,
+        runtime.snapshot.preferences.safe_mode_enabled,
+    );
+    if guardrail.status != "allow" {
+        return Err(ApiRouteError {
+            status: 409,
+            code: "custom-query-blocked".into(),
+            message: guardrail.reasons.join(" "),
+            details: Some(Box::new(json!({ "guardrail": guardrail }))),
+        });
+    }
+
+    let mut execution_notices = vec![QueryExecutionNotice {
+        code: "api-server-custom-query".into(),
+        level: "info".into(),
+        message: "Executed by a custom local API server endpoint.".into(),
+    }];
+    if let Some(message) = sql_dialect_hint_message(&resolved_connection, &query_template) {
+        if !message.is_empty() {
+            execution_notices.push(QueryExecutionNotice {
+                code: "sql-syntax-hint".into(),
+                level: "info".into(),
+                message,
+            });
+        }
+    }
+
+    let execution_request = ExecutionRequest {
+        execution_id: Some(generate_id("api-execution")),
+        tab_id: format!("api-server-{}", endpoint.id),
+        connection_id: state.connection_id.clone(),
+        environment_id: state.environment_id.clone(),
+        language: endpoint.language.clone(),
+        query_text: query_template.clone(),
+        execution_input_mode: endpoint
+            .query_view_mode
+            .clone()
+            .or_else(|| Some("raw".into())),
+        script_text: None,
+        selected_text: None,
+        mode: Some("full".into()),
+        row_limit: endpoint.row_limit.or(Some(100)).map(|limit| limit.min(500)),
+        document_efficiency_mode: None,
+        confirmed_guardrail_id: None,
+    };
+    let result = match adapters::execute(
+        &resolved_connection,
+        &execution_request,
+        execution_notices,
+    )
+    .await
+    {
+        Ok(result) => redact_execution_result_for_environment(result, &resolved_environment),
+        Err(error) => {
+            return Err(
+                enrich_sql_execution_error(&resolved_connection, &query_template, error).into(),
+            )
+        }
+    };
+    Ok(api_custom_query_payload(&result))
+}
+
+fn custom_endpoint_parameter_values(
+    endpoint: &DatastoreApiServerCustomEndpointConfig,
+    request: &HttpRequest,
+) -> Result<HashMap<String, Value>, ApiRouteError> {
+    let parameter_names = endpoint
+        .parameters
+        .iter()
+        .map(|parameter| parameter.name.clone())
+        .collect::<HashSet<_>>();
+    let mut values = HashMap::<String, Value>::new();
+
+    if endpoint.method == "POST" {
+        if !request.body.is_empty() {
+            let body = serde_json::from_slice::<Value>(&request.body).map_err(|error| {
+                ApiRouteError::new(
+                    400,
+                    "invalid-json",
+                    format!("Request body is not valid JSON: {error}"),
+                )
+            })?;
+            let object = body.as_object().ok_or_else(|| {
+                ApiRouteError::new(
+                    400,
+                    "custom-query-body-invalid",
+                    "POST custom endpoint bodies must be JSON objects.",
+                )
+            })?;
+            for (name, value) in object {
+                if !parameter_names.contains(name) {
+                    return Err(ApiRouteError::new(
+                        400,
+                        "custom-query-parameter-unknown",
+                        format!("Parameter `{name}` is not defined for this endpoint."),
+                    ));
+                }
+                values.insert(name.clone(), value.clone());
+            }
+        }
+    } else {
+        for (name, raw_value) in &request.query {
+            if !parameter_names.contains(name) {
+                return Err(ApiRouteError::new(
+                    400,
+                    "custom-query-parameter-unknown",
+                    format!("Parameter `{name}` is not defined for this endpoint."),
+                ));
+            }
+            let parameter = endpoint
+                .parameters
+                .iter()
+                .find(|parameter| &parameter.name == name)
+                .ok_or_else(|| {
+                    ApiRouteError::new(
+                        400,
+                        "custom-query-parameter-unknown",
+                        format!("Parameter `{name}` is not defined for this endpoint."),
+                    )
+                })?;
+            values.insert(
+                name.clone(),
+                parse_custom_query_parameter_value(parameter, raw_value)?,
+            );
+        }
+    }
+
+    for parameter in &endpoint.parameters {
+        if !values.contains_key(&parameter.name) {
+            if let Some(default_value) = &parameter.default_value {
+                values.insert(parameter.name.clone(), default_value.clone());
+            } else if parameter.required {
+                return Err(ApiRouteError::new(
+                    400,
+                    "custom-query-parameter-required",
+                    format!("Parameter `{}` is required.", parameter.name),
+                ));
+            } else {
+                values.insert(parameter.name.clone(), Value::Null);
+            }
+        }
+    }
+
+    Ok(values)
+}
+
+fn parse_custom_query_parameter_value(
+    parameter: &DatastoreApiServerCustomEndpointParameterConfig,
+    raw_value: &str,
+) -> Result<Value, ApiRouteError> {
+    match parameter.parameter_type.as_str() {
+        "number" => serde_json::from_str::<Value>(raw_value)
+            .ok()
+            .filter(Value::is_number)
+            .ok_or_else(|| {
+                ApiRouteError::new(
+                    400,
+                    "custom-query-parameter-invalid",
+                    format!("Parameter `{}` must be a number.", parameter.name),
+                )
+            }),
+        "boolean" => match raw_value.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" => Ok(Value::Bool(true)),
+            "false" | "0" => Ok(Value::Bool(false)),
+            _ => Err(ApiRouteError::new(
+                400,
+                "custom-query-parameter-invalid",
+                format!("Parameter `{}` must be a boolean.", parameter.name),
+            )),
+        },
+        "json" => serde_json::from_str::<Value>(raw_value).map_err(|error| {
+            ApiRouteError::new(
+                400,
+                "custom-query-parameter-invalid",
+                format!("Parameter `{}` must be valid JSON: {error}", parameter.name),
+            )
+        }),
+        _ => Ok(Value::String(raw_value.into())),
+    }
+}
+
+fn render_custom_endpoint_query(
+    endpoint: &DatastoreApiServerCustomEndpointConfig,
+    values: &HashMap<String, Value>,
+    environment_variables: &HashMap<String, String>,
+) -> Result<String, ApiRouteError> {
+    let (masked_query, tokens) = mask_api_parameter_tokens(&endpoint.query_text);
+    let mut rendered = resolve_string_template(&masked_query, environment_variables)?;
+    for token in tokens {
+        let parameter = endpoint
+            .parameters
+            .iter()
+            .find(|parameter| parameter.name == token.name)
+            .ok_or_else(|| {
+                ApiRouteError::new(
+                    400,
+                    "custom-query-parameter-undefined",
+                    format!("Query references undefined API parameter `{}`.", token.name),
+                )
+            })?;
+        let value = values.get(&token.name).unwrap_or(&Value::Null);
+        let rendered_value = render_custom_query_parameter(parameter, value, &endpoint.language)?;
+        rendered = rendered.replace(&token.placeholder, &rendered_value);
+    }
+    if rendered.contains("{{api.") {
+        return Err(ApiRouteError::new(
+            400,
+            "custom-query-parameter-invalid",
+            "Query contains an invalid API parameter token.",
+        ));
+    }
+    Ok(rendered)
+}
+
+#[derive(Clone)]
+struct MaskedApiParameterToken {
+    name: String,
+    placeholder: String,
+}
+
+fn mask_api_parameter_tokens(query_text: &str) -> (String, Vec<MaskedApiParameterToken>) {
+    let mut output = String::new();
+    let mut tokens = Vec::new();
+    let mut offset = 0usize;
+    while let Some(start) = query_text[offset..].find("{{api.") {
+        let absolute_start = offset + start;
+        let token_start = absolute_start + "{{api.".len();
+        let Some(end) = query_text[token_start..].find("}}") else {
+            break;
+        };
+        output.push_str(&query_text[offset..absolute_start]);
+        let raw_name = &query_text[token_start..token_start + end];
+        if let Some(name) = normalize_api_parameter_name(raw_name) {
+            let placeholder = format!("__DATAPAD_API_PARAM_{}__", tokens.len());
+            output.push_str(&placeholder);
+            tokens.push(MaskedApiParameterToken { name, placeholder });
+        } else {
+            output.push_str(&query_text[absolute_start..token_start + end + "}}".len()]);
+        }
+        offset = token_start + end + "}}".len();
+    }
+    output.push_str(&query_text[offset..]);
+    (output, tokens)
+}
+
+fn render_custom_query_parameter(
+    parameter: &DatastoreApiServerCustomEndpointParameterConfig,
+    value: &Value,
+    language: &str,
+) -> Result<String, ApiRouteError> {
+    let serialization = match parameter.serialization.as_str() {
+        "sql" | "json" | "raw" => parameter.serialization.as_str(),
+        _ if custom_query_language_prefers_json(language) => "json",
+        _ if custom_query_language_prefers_raw(language) => "raw",
+        _ => "sql",
+    };
+    match serialization {
+        "json" => serde_json::to_string(value).map_err(|error| {
+            ApiRouteError::new(
+                400,
+                "custom-query-parameter-invalid",
+                format!(
+                    "Parameter `{}` could not be rendered as JSON: {error}",
+                    parameter.name
+                ),
+            )
+        }),
+        "raw" => render_raw_custom_query_parameter(parameter, value),
+        _ => Ok(sql_literal(value)),
+    }
+}
+
+fn custom_query_language_prefers_json(language: &str) -> bool {
+    matches!(
+        language,
+        "json" | "mongodb" | "query-dsl" | "graphql" | "aql" | "document"
+    )
+}
+
+fn custom_query_language_prefers_raw(language: &str) -> bool {
+    matches!(language, "redis" | "text")
+}
+
+fn render_raw_custom_query_parameter(
+    parameter: &DatastoreApiServerCustomEndpointParameterConfig,
+    value: &Value,
+) -> Result<String, ApiRouteError> {
+    let rendered = match value {
+        Value::Null => String::new(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::String(value) => value.clone(),
+        _ => {
+            return Err(ApiRouteError::new(
+                400,
+                "custom-query-parameter-invalid",
+                format!(
+                    "Parameter `{}` cannot be rendered raw because it is not a scalar.",
+                    parameter.name
+                ),
+            ))
+        }
+    };
+    if rendered.chars().any(|character| {
+        character == '\n' || character == '\r' || (character.is_control() && character != '\t')
+    }) {
+        return Err(ApiRouteError::new(
+            400,
+            "custom-query-parameter-invalid",
+            format!(
+                "Parameter `{}` contains control characters.",
+                parameter.name
+            ),
+        ));
+    }
+    Ok(rendered)
 }
 
 async fn api_resource(
     state: &ApiServerRuntime,
     request: &HttpRequest,
-    kind: &str,
-    name: &str,
+    resource: &ResourceRouteTarget,
     path_identity: Option<&Value>,
 ) -> Result<Value, ApiRouteError> {
     match request.method.as_str() {
-        "GET" => execute_resource_read(state, kind, name, request, path_identity).await,
+        "GET" => execute_resource_read(state, resource, request, path_identity).await,
         "POST" | "PATCH" | "DELETE" => {
-            execute_resource_mutation(state, kind, name, request, path_identity).await
+            execute_resource_mutation(state, resource, request, path_identity).await
         }
         _ => Err(ApiRouteError::new(
             405,
@@ -1427,8 +3603,7 @@ async fn api_resource(
 
 async fn execute_resource_read(
     state: &ApiServerRuntime,
-    kind: &str,
-    name: &str,
+    resource: &ResourceRouteTarget,
     request: &HttpRequest,
     path_identity: Option<&Value>,
 ) -> Result<Value, ApiRouteError> {
@@ -1447,8 +3622,7 @@ async fn execute_resource_read(
     let query_template = read_query_for(
         &connection.family,
         &connection.engine,
-        kind,
-        name,
+        resource,
         row_limit,
         identity.as_ref(),
     )?;
@@ -1460,71 +3634,210 @@ async fn execute_resource_read(
         &query_text,
         runtime.snapshot.preferences.safe_mode_enabled,
     );
-    let mut diagnostics = Vec::new();
-    let result = if guardrail.status == "block" || guardrail.status == "confirm" {
-        diagnostics.push(guardrail.reasons.join(" "));
-        None
-    } else {
-        let mut execution_notices = vec![QueryExecutionNotice {
-            code: "api-server-read".into(),
-            level: "info".into(),
-            message: "Executed by the experimental local API server.".into(),
-        }];
-        if let Some(message) = sql_dialect_hint_message(&resolved_connection, &query_text) {
-            if !message.is_empty() {
-                execution_notices.push(QueryExecutionNotice {
-                    code: "sql-syntax-hint".into(),
-                    level: "info".into(),
-                    message,
-                });
-            }
+    if guardrail.status == "block" || guardrail.status == "confirm" {
+        return Err(ApiRouteError {
+            status: 409,
+            code: "crud-read-blocked".into(),
+            message: guardrail.reasons.join(" "),
+            details: Some(Box::new(json!({ "guardrail": guardrail }))),
+        });
+    }
+
+    let mut execution_notices = vec![QueryExecutionNotice {
+        code: "api-server-read".into(),
+        level: "info".into(),
+        message: "Executed by the experimental local API server.".into(),
+    }];
+    if let Some(message) = sql_dialect_hint_message(&resolved_connection, &query_text) {
+        if !message.is_empty() {
+            execution_notices.push(QueryExecutionNotice {
+                code: "sql-syntax-hint".into(),
+                level: "info".into(),
+                message,
+            });
         }
-        diagnostics = execution_notices
-            .iter()
-            .map(|notice| notice.message.clone())
-            .collect();
-        let execution_request = ExecutionRequest {
-            execution_id: Some(generate_id("api-execution")),
-            tab_id: "api-server".into(),
-            connection_id: state.connection_id.clone(),
-            environment_id: state.environment_id.clone(),
-            language: language_for(&connection),
-            query_text: query_text.clone(),
-            execution_input_mode: Some("raw".into()),
-            script_text: None,
-            selected_text: None,
-            mode: Some("full".into()),
-            row_limit: Some(row_limit),
-            document_efficiency_mode: None,
-            confirmed_guardrail_id: None,
-        };
-        match adapters::execute(&resolved_connection, &execution_request, execution_notices).await {
-            Ok(result) => Some(redact_execution_result_for_environment(
-                result,
-                &resolved_environment,
-            )),
-            Err(error) => {
-                return Err(
-                    enrich_sql_execution_error(&resolved_connection, &query_text, error).into(),
-                )
-            }
+    }
+    let execution_request = ExecutionRequest {
+        execution_id: Some(generate_id("api-execution")),
+        tab_id: "api-server".into(),
+        connection_id: state.connection_id.clone(),
+        environment_id: state.environment_id.clone(),
+        language: language_for(&connection),
+        query_text: query_text.clone(),
+        execution_input_mode: Some("raw".into()),
+        script_text: None,
+        selected_text: None,
+        mode: Some("full".into()),
+        row_limit: Some(row_limit),
+        document_efficiency_mode: None,
+        confirmed_guardrail_id: None,
+    };
+    let result = match adapters::execute(
+        &resolved_connection,
+        &execution_request,
+        execution_notices,
+    )
+    .await
+    {
+        Ok(result) => redact_execution_result_for_environment(result, &resolved_environment),
+        Err(error) => {
+            return Err(enrich_sql_execution_error(&resolved_connection, &query_text, error).into())
         }
     };
+    Ok(api_read_payload(&result, identity.is_some()))
+}
 
-    Ok(json!({
-        "connectionId": state.connection_id,
-        "environmentId": state.environment_id,
-        "resource": { "kind": kind, "name": name },
-        "guardrail": guardrail,
-        "diagnostics": diagnostics,
-        "result": result
-    }))
+fn api_read_payload(result: &ExecutionResultEnvelope, single: bool) -> Value {
+    for payload in &result.payloads {
+        if let Some(documents) = payload.get("documents") {
+            return maybe_single_resource(documents.clone(), single);
+        }
+    }
+
+    for payload in &result.payloads {
+        match payload.get("renderer").and_then(Value::as_str) {
+            Some("searchHits") => {
+                let documents = payload
+                    .get("hits")
+                    .and_then(Value::as_array)
+                    .map(|hits| {
+                        hits.iter()
+                            .map(|hit| hit.get("_source").cloned().unwrap_or_else(|| hit.clone()))
+                            .collect::<Vec<_>>()
+                    })
+                    .map(Value::Array)
+                    .unwrap_or_else(|| json!([]));
+                return maybe_single_resource(documents, single);
+            }
+            Some("keyvalue") => {
+                return payload.get("entries").cloned().unwrap_or_else(|| json!({}));
+            }
+            Some("table") => {
+                return maybe_single_resource(table_payload_to_objects(payload), single);
+            }
+            Some("json") => {
+                if let Some(value) = payload.get("value") {
+                    if let Some(items) = value.get("Items").or_else(|| value.get("items")) {
+                        return maybe_single_resource(items.clone(), single);
+                    }
+                    if let Some(item) = value.get("Item").or_else(|| value.get("item")) {
+                        return if single {
+                            item.clone()
+                        } else {
+                            Value::Array(vec![item.clone()])
+                        };
+                    }
+                    if let Some(keys) = value.get("keys") {
+                        return maybe_single_resource(keys.clone(), single);
+                    }
+                    if let Some(response) = value.get("response") {
+                        return response.clone();
+                    }
+                    return value.clone();
+                }
+            }
+            Some("raw") => {
+                return payload
+                    .get("text")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String(String::new()));
+            }
+            _ => {}
+        }
+    }
+
+    result.payloads.first().cloned().unwrap_or(Value::Null)
+}
+
+fn api_custom_query_payload(result: &ExecutionResultEnvelope) -> Value {
+    let mut values = result
+        .payloads
+        .iter()
+        .filter_map(api_payload_data)
+        .collect::<Vec<_>>();
+    match values.len() {
+        0 => Value::Null,
+        1 => values.pop().unwrap_or(Value::Null),
+        _ => Value::Array(values),
+    }
+}
+
+fn api_payload_data(payload: &Value) -> Option<Value> {
+    if let Some(documents) = payload.get("documents") {
+        return Some(documents.clone());
+    }
+
+    match payload.get("renderer").and_then(Value::as_str) {
+        Some("searchHits") => payload.get("hits").and_then(Value::as_array).map(|hits| {
+            Value::Array(
+                hits.iter()
+                    .map(|hit| hit.get("_source").cloned().unwrap_or_else(|| hit.clone()))
+                    .collect(),
+            )
+        }),
+        Some("keyvalue") => payload.get("entries").cloned(),
+        Some("table") => Some(table_payload_to_objects(payload)),
+        Some("json") => payload.get("value").cloned(),
+        Some("raw") => payload.get("text").cloned(),
+        Some("resp") => payload.get("text").cloned(),
+        _ => Some(payload.clone()),
+    }
+}
+
+fn maybe_single_resource(value: Value, single: bool) -> Value {
+    if !single {
+        return value;
+    }
+    match value {
+        Value::Array(items) => items.into_iter().next().unwrap_or(Value::Null),
+        other => other,
+    }
+}
+
+fn table_payload_to_objects(payload: &Value) -> Value {
+    let columns = payload
+        .get("columns")
+        .and_then(Value::as_array)
+        .map(|columns| {
+            columns
+                .iter()
+                .map(|column| {
+                    column
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| column.to_string())
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let rows = payload
+        .get("rows")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Value::Array(
+        rows.into_iter()
+            .map(|row| {
+                let values = row.as_array().cloned().unwrap_or_else(|| vec![row]);
+                let object = columns
+                    .iter()
+                    .enumerate()
+                    .map(|(index, column)| {
+                        (
+                            column.clone(),
+                            values.get(index).cloned().unwrap_or(Value::Null),
+                        )
+                    })
+                    .collect::<serde_json::Map<_, _>>();
+                Value::Object(object)
+            })
+            .collect(),
+    )
 }
 
 async fn execute_resource_mutation(
     state: &ApiServerRuntime,
-    kind: &str,
-    name: &str,
+    resource: &ResourceRouteTarget,
     request: &HttpRequest,
     path_identity: Option<&Value>,
 ) -> Result<Value, ApiRouteError> {
@@ -1549,10 +3862,10 @@ async fn execute_resource_mutation(
     let edit_kind = edit_kind_for(
         &connection.family,
         &connection.engine,
-        kind,
+        &resource.kind,
         &request.method,
     )?;
-    let target = data_edit_target_for(&connection, kind, name, identity);
+    let target = data_edit_target_for(&connection, resource, identity);
     let changes = mutation_changes(&request.method, &body);
     let response = runtime
         .execute_data_edit(DataEditExecutionRequest {
@@ -1577,7 +3890,7 @@ async fn execute_resource_mutation(
     Ok(json!({
         "connectionId": state.connection_id,
         "environmentId": state.environment_id,
-        "resource": { "kind": kind, "name": name },
+        "resource": { "kind": resource.kind, "name": resource.name },
         "response": response
     }))
 }
@@ -1585,11 +3898,12 @@ async fn execute_resource_mutation(
 fn read_query_for(
     family: &str,
     engine: &str,
-    kind: &str,
-    name: &str,
+    resource: &ResourceRouteTarget,
     limit: u32,
     identity: Option<&Value>,
 ) -> Result<String, ApiRouteError> {
+    let kind = resource.kind.as_str();
+    let name = resource.name.as_str();
     if kind == "key" && matches!(engine, "redis" | "valkey") {
         let key = identity
             .cloned()
@@ -1598,13 +3912,18 @@ fn read_query_for(
         return Ok(format!("GET {}", quote_redis_key(&key)));
     }
     if kind == "collection" && matches!(engine, "mongodb" | "litedb") {
-        return Ok(json!({
+        let mut query = json!({
             "operation": "find",
             "collection": name,
             "filter": mongo_identity_filter(identity),
             "limit": limit
-        })
-        .to_string());
+        });
+        if engine == "mongodb" {
+            if let Some(database) = database_for_resource(resource) {
+                query["database"] = json!(database);
+            }
+        }
+        return Ok(query.to_string());
     }
     if (kind == "item" || kind == "table") && engine == "dynamodb" {
         if let Some(identity) = identity {
@@ -1655,6 +3974,38 @@ fn read_query_for(
     ))
 }
 
+fn database_for_resource(resource: &ResourceRouteTarget) -> Option<String> {
+    resource
+        .metadata
+        .get("database")
+        .or_else(|| resource.metadata.get("db"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| collection_database_from_scope(resource.scope.as_deref()))
+        .or_else(|| {
+            (resource.kind == "collection")
+                .then(|| resource.path.first())
+                .flatten()
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+}
+
+fn collection_database_from_scope(scope: Option<&str>) -> Option<String> {
+    let rest = scope?.trim().strip_prefix("collection:")?;
+    let (database, _) = rest.split_once(':')?;
+    let database = database.trim();
+    if database.is_empty() {
+        None
+    } else {
+        Some(database.to_string())
+    }
+}
+
 fn edit_kind_for(
     family: &str,
     engine: &str,
@@ -1689,14 +4040,15 @@ fn edit_kind_for(
 
 fn data_edit_target_for(
     connection: &crate::domain::models::ConnectionProfile,
-    kind: &str,
-    name: &str,
+    resource: &ResourceRouteTarget,
     identity: Option<Value>,
 ) -> DataEditTarget {
+    let kind = resource.kind.as_str();
+    let name = resource.name.as_str();
     let mut target = DataEditTarget {
         object_kind: kind.into(),
         path: vec![name.into()],
-        database: connection.database.clone(),
+        database: database_for_resource(resource).or_else(|| connection.database.clone()),
         schema: None,
         table: None,
         collection: None,
@@ -1919,6 +4271,239 @@ fn validate_port(port: u16) -> Result<(), CommandError> {
     }
 }
 
+fn next_available_port(servers: &[DatastoreApiServerConfig]) -> u16 {
+    let used_ports = servers
+        .iter()
+        .map(|server| server.port)
+        .collect::<std::collections::HashSet<_>>();
+    let mut port = 17640_u16;
+    while port < u16::MAX {
+        if !used_ports.contains(&port) && std::net::TcpListener::bind((API_HOST, port)).is_ok() {
+            return port;
+        }
+        port = port.saturating_add(1);
+    }
+    17640
+}
+
+fn normalize_protocol(value: &str) -> String {
+    match value {
+        "graphql" | "grpc" => value.into(),
+        _ => "rest".into(),
+    }
+}
+
+fn normalize_base_path(value: &str) -> String {
+    let trimmed = value.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("/{trimmed}")
+    }
+}
+
+fn normalize_resource_configs(
+    resources: Vec<DatastoreApiServerResourceConfig>,
+) -> Vec<DatastoreApiServerResourceConfig> {
+    let mut seen = HashMap::<String, usize>::new();
+    resources
+        .into_iter()
+        .enumerate()
+        .map(|(index, mut resource)| {
+            if resource.id.trim().is_empty() {
+                resource.id = format!("api-resource-{}", index + 1);
+            }
+            resource.kind = match resource.kind.as_str() {
+                "collection" | "key" | "item" | "index" => resource.kind.clone(),
+                _ => "table".into(),
+            };
+            if resource.label.trim().is_empty() {
+                resource.label = resource.node_id.clone();
+            }
+            if resource.node_id.trim().is_empty() {
+                resource.node_id = resource.label.clone();
+            }
+            let slug = if resource.endpoint_slug.trim().is_empty() {
+                api_server_slug(&resource.label)
+            } else {
+                api_server_slug(&resource.endpoint_slug)
+            };
+            let count = seen.entry(slug.clone()).or_insert(0);
+            *count += 1;
+            resource.endpoint_slug = if *count > 1 {
+                format!("{slug}-{count}")
+            } else {
+                slug
+            };
+            resource.enabled = resource.enabled || !resource.id.is_empty();
+            resource
+        })
+        .collect()
+}
+
+fn normalize_custom_endpoint_configs(
+    endpoints: Vec<DatastoreApiServerCustomEndpointConfig>,
+    resources: &[DatastoreApiServerResourceConfig],
+) -> Vec<DatastoreApiServerCustomEndpointConfig> {
+    let mut seen = resources
+        .iter()
+        .map(|resource| (resource.endpoint_slug.clone(), 1usize))
+        .collect::<HashMap<_, _>>();
+    endpoints
+        .into_iter()
+        .enumerate()
+        .map(|(index, mut endpoint)| {
+            if endpoint.id.trim().is_empty() {
+                endpoint.id = format!("api-endpoint-{}", index + 1);
+            }
+            endpoint.label = endpoint.label.trim().to_string();
+            if endpoint.label.is_empty() {
+                endpoint.label = endpoint.source_name.trim().to_string();
+            }
+            if endpoint.label.is_empty() {
+                endpoint.label = format!("Custom Endpoint {}", index + 1);
+            }
+            endpoint.source_name = endpoint.source_name.trim().to_string();
+            if endpoint.source_name.is_empty() {
+                endpoint.source_name = endpoint.label.clone();
+            }
+            endpoint.description = endpoint
+                .description
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+            endpoint.method = match endpoint.method.trim().to_ascii_uppercase().as_str() {
+                "POST" => "POST".into(),
+                _ => "GET".into(),
+            };
+            endpoint.language = endpoint.language.trim().to_string();
+            if endpoint.language.is_empty() {
+                endpoint.language = "sql".into();
+            }
+            endpoint.query_view_mode = match endpoint.query_view_mode.as_deref() {
+                Some("builder" | "raw" | "script") => endpoint.query_view_mode.clone(),
+                _ => Some("raw".into()),
+            };
+            endpoint.row_limit = endpoint.row_limit.map(|limit| limit.clamp(1, 500));
+            let slug = if endpoint.endpoint_slug.trim().is_empty() {
+                api_server_slug(&endpoint.label)
+            } else {
+                api_server_slug(&endpoint.endpoint_slug)
+            };
+            let count = seen.entry(slug.clone()).or_insert(0);
+            *count += 1;
+            endpoint.endpoint_slug = if *count > 1 {
+                format!("{slug}-{count}")
+            } else {
+                slug
+            };
+            endpoint.parameters =
+                normalize_custom_endpoint_parameters(endpoint.parameters, &endpoint.query_text);
+            endpoint
+        })
+        .collect()
+}
+
+fn normalize_custom_endpoint_parameters(
+    parameters: Vec<DatastoreApiServerCustomEndpointParameterConfig>,
+    query_text: &str,
+) -> Vec<DatastoreApiServerCustomEndpointParameterConfig> {
+    let mut seen = HashSet::<String>::new();
+    let mut normalized = Vec::new();
+    for (index, mut parameter) in parameters.into_iter().enumerate() {
+        let name = normalize_api_parameter_name(&parameter.name)
+            .unwrap_or_else(|| format!("param{}", index + 1));
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        parameter.name = name;
+        parameter.parameter_type = match parameter.parameter_type.as_str() {
+            "number" | "boolean" | "json" => parameter.parameter_type,
+            _ => "string".into(),
+        };
+        parameter.serialization = match parameter.serialization.as_str() {
+            "sql" | "json" | "raw" => parameter.serialization,
+            _ => "auto".into(),
+        };
+        parameter.description = parameter
+            .description
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        normalized.push(parameter);
+    }
+
+    for name in api_parameter_names(query_text) {
+        if seen.insert(name.clone()) {
+            normalized.push(DatastoreApiServerCustomEndpointParameterConfig {
+                name,
+                parameter_type: "string".into(),
+                required: true,
+                default_value: None,
+                description: None,
+                serialization: "auto".into(),
+            });
+        }
+    }
+
+    normalized
+}
+
+fn api_parameter_names(query_text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut offset = 0usize;
+    while let Some(start) = query_text[offset..].find("{{api.") {
+        let token_start = offset + start + "{{api.".len();
+        let Some(end) = query_text[token_start..].find("}}") else {
+            break;
+        };
+        let raw_name = &query_text[token_start..token_start + end];
+        if let Some(name) = normalize_api_parameter_name(raw_name) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        offset = token_start + end + "}}".len();
+    }
+    names
+}
+
+fn normalize_api_parameter_name(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    let mut characters = value.chars();
+    let first = characters.next()?;
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return None;
+    }
+    if !characters.all(|character| character.is_ascii_alphanumeric() || character == '_') {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+fn api_server_slug(value: &str) -> String {
+    let mut output = String::new();
+    let mut last_dash = false;
+    for character in value.trim().chars() {
+        if character.is_ascii_alphanumeric() {
+            output.push(character.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash && !output.is_empty() {
+            output.push('-');
+            last_dash = true;
+        }
+    }
+    while output.ends_with('-') {
+        output.pop();
+    }
+    if output.is_empty() {
+        "resource".into()
+    } else {
+        output
+    }
+}
+
 fn local_warnings() -> Vec<String> {
     vec![
         "Experimental local API; bind address is fixed to 127.0.0.1.".into(),
@@ -2041,6 +4626,9 @@ fn parse_resource_path(path: &str) -> Result<Option<ParsedResourcePath>, ApiRout
     Ok(Some(ParsedResourcePath {
         kind: kind.into(),
         name: name.clone(),
+        scope: None,
+        path: Vec::new(),
+        metadata: HashMap::new(),
         identity,
     }))
 }
@@ -2067,6 +4655,7 @@ fn resource_group_for_kind(kind: &str) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn resource_endpoint(kind: &str, name: &str) -> String {
     format!(
         "/v1/{}/{}",
@@ -2178,7 +4767,11 @@ fn telemetry_context_for_request(
 }
 
 fn should_record_telemetry(path: &str) -> bool {
-    parse_resource_path(path).ok().flatten().is_some()
+    let path = normalized_log_path(path);
+    !matches!(
+        path.as_str(),
+        "/" | "/docs" | "/openapi.json" | "/proto" | "/datapad.proto"
+    )
 }
 
 fn normalized_log_path(path: &str) -> String {
@@ -2196,6 +4789,8 @@ fn route_template(method: &str, path: &str) -> String {
         ("GET", "/") => "/".into(),
         ("GET", "/docs") => "/docs".into(),
         ("GET", "/openapi.json") => "/openapi.json".into(),
+        ("GET", "/proto") | ("GET", "/datapad.proto") => "/proto".into(),
+        (_, "/graphql") => "/graphql".into(),
         (_, value) => {
             if let Ok(Some(resource)) = parse_resource_path(value) {
                 if resource.identity.is_some() {
@@ -2207,7 +4802,12 @@ fn route_template(method: &str, path: &str) -> String {
                 }
                 value.into()
             } else {
-                value.into()
+                let segments = value.trim_matches('/').split('/').collect::<Vec<_>>();
+                if segments.len() == 2 {
+                    format!("/{}/{{identity}}", segments[0])
+                } else {
+                    value.into()
+                }
             }
         }
     }
@@ -2217,6 +4817,7 @@ fn empty_metrics(preferences: &DatastoreApiServerPreferences) -> DatastoreApiSer
     DatastoreApiServerMetrics {
         running: false,
         generated_at: timestamp_now(),
+        server_id: None,
         started_at: None,
         connection_id: preferences.connection_id.clone(),
         environment_id: preferences.environment_id.clone(),
@@ -2259,421 +4860,1048 @@ fn percentile_duration(values: &VecDeque<f64>, percentile: f64) -> f64 {
     round_duration(sorted[index.min(sorted.len() - 1)])
 }
 
-fn docs_html(state: &ApiServerRuntime) -> String {
-    let base_url = format!("http://{API_HOST}:{}", state.port);
+fn docs_html(state: &ApiServerRuntime, config: &DatastoreApiServerConfig) -> String {
+    docs_html_for(
+        state.port,
+        &state.connection_id,
+        &state.environment_id,
+        config,
+    )
+}
+
+fn docs_html_for(
+    port: u16,
+    connection_id: &str,
+    environment_id: &str,
+    config: &DatastoreApiServerConfig,
+) -> String {
+    let base_url = format!("http://{API_HOST}:{port}");
+    if config.protocol != "rest" {
+        return protocol_docs_html(&base_url, connection_id, environment_id, config);
+    }
+    rest_docs_html(&base_url, connection_id, environment_id, config)
+}
+
+fn rest_docs_html(
+    base_url: &str,
+    connection_id: &str,
+    environment_id: &str,
+    config: &DatastoreApiServerConfig,
+) -> String {
+    let description = config
+        .description
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("Runnable OpenAPI docs for the configured datastore resources.");
     let template = r###"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DataPad++ API Server Docs</title>
-  <style>
-    :root {
-      color-scheme: light dark;
-      --bg: #f7f8fb;
-      --panel: #ffffff;
-      --panel-alt: #f1f4f8;
-      --text: #18202c;
-      --muted: #667085;
-      --border: #d8dee8;
-      --accent: #2563eb;
-      --accent-soft: rgba(37, 99, 235, 0.12);
-      --success: #16845b;
-      --danger: #c2410c;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0d1117;
-        --panel: #141a23;
-        --panel-alt: #10151d;
-        --text: #e7edf6;
-        --muted: #9aa7b8;
-        --border: #263244;
-        --accent: #6ea8ff;
-        --accent-soft: rgba(110, 168, 255, 0.16);
-        --success: #63d297;
-        --danger: #ff9c66;
-      }
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: 260px minmax(0, 1fr) 380px;
-      background: var(--bg);
-      color: var(--text);
-    }
-    aside, main { min-width: 0; }
-    .nav {
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      padding: 18px;
-      border-right: 1px solid var(--border);
-      background: var(--panel);
-      overflow: auto;
-    }
-    .brand {
-      display: grid;
-      gap: 5px;
-      margin-bottom: 22px;
-    }
-    .brand strong { font-size: 18px; letter-spacing: 0; }
-    .brand span, .eyebrow {
-      color: var(--muted);
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-    .nav a, .endpoint button, .action {
-      width: 100%;
-      min-height: 34px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 7px 10px;
-      border: 1px solid var(--border);
-      background: var(--panel-alt);
-      color: var(--text);
-      text-decoration: none;
-      font: inherit;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    .nav a {
-      justify-content: flex-start;
-      margin-bottom: 7px;
-      border-color: transparent;
-      background: transparent;
-      color: var(--muted);
-    }
-    .nav a:hover, .endpoint button:hover, .action:hover {
-      border-color: var(--accent);
-      color: var(--text);
-    }
-    .content {
-      padding: 22px;
-      display: grid;
-      gap: 16px;
-      align-content: start;
-    }
-    .hero, .section, .try {
-      border: 1px solid var(--border);
-      background: var(--panel);
-    }
-    .hero {
-      padding: 20px;
-      display: grid;
-      gap: 12px;
-    }
-    h1, h2, h3, p { margin: 0; }
-    h1 { font-size: 24px; font-weight: 650; letter-spacing: 0; }
-    h2 { font-size: 15px; font-weight: 650; letter-spacing: 0; }
-    h3 { font-size: 13px; font-weight: 650; letter-spacing: 0; }
-    p, td, th { font-size: 13px; }
-    .hero p, .muted { color: var(--muted); }
-    .pill-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      min-height: 24px;
-      padding: 3px 8px;
-      border: 1px solid var(--border);
-      background: var(--panel-alt);
-      color: var(--muted);
-      font-size: 12px;
-    }
-    .section {
-      padding: 14px;
-      display: grid;
-      gap: 12px;
-    }
-    .endpoint {
-      display: grid;
-      gap: 9px;
-      padding: 12px;
-      border: 1px solid var(--border);
-      background: var(--panel-alt);
-    }
-    .endpoint-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    code, pre, textarea, input, select {
-      font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
-      letter-spacing: 0;
-    }
-    code {
-      color: var(--accent);
-      overflow-wrap: anywhere;
-    }
-    .method {
-      min-width: 56px;
-      display: inline-flex;
-      justify-content: center;
-      padding: 3px 6px;
-      border: 1px solid var(--border);
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-size: 12px;
-      font-weight: 700;
-    }
-    .try {
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      padding: 16px;
-      border-left: 1px solid var(--border);
-      border-top: 0;
-      border-right: 0;
-      border-bottom: 0;
-      overflow: auto;
-      display: grid;
-      gap: 12px;
-      align-content: start;
-    }
-    .try-grid {
-      display: grid;
-      grid-template-columns: 110px minmax(0, 1fr);
-      gap: 8px;
-    }
-    label {
-      display: grid;
-      gap: 5px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    input, select, textarea {
-      width: 100%;
-      min-width: 0;
-      min-height: 34px;
-      padding: 7px 8px;
-      border: 1px solid var(--border);
-      background: var(--panel-alt);
-      color: var(--text);
-      font-size: 13px;
-    }
-    textarea {
-      min-height: 160px;
-      resize: vertical;
-    }
-    pre {
-      min-height: 160px;
-      max-height: 360px;
-      margin: 0;
-      padding: 10px;
-      overflow: auto;
-      border: 1px solid var(--border);
-      background: var(--panel-alt);
-      color: var(--text);
-      font-size: 12px;
-      white-space: pre-wrap;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      overflow-wrap: anywhere;
-    }
-    th, td {
-      padding: 7px 8px;
-      border-bottom: 1px solid var(--border);
-      text-align: left;
-      vertical-align: top;
-    }
-    th {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 600;
-    }
-    .status-ok { color: var(--success); }
-    .status-error { color: var(--danger); }
-    .button-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .button-row .action { width: auto; }
-    @media (max-width: 1100px) {
-      body { grid-template-columns: 220px minmax(0, 1fr); }
-      .try {
-        position: static;
-        height: auto;
-        grid-column: 1 / -1;
-        border-left: 0;
-        border-top: 1px solid var(--border);
-      }
-    }
-    @media (max-width: 760px) {
-      body { display: block; }
-      .nav {
-        position: static;
-        height: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--border);
-      }
-      .content { padding: 14px; }
-    }
-  </style>
+  <title>__SERVER_NAME__ OpenAPI Docs</title>
+  <style>__DOCS_CSS__</style>
 </head>
-<body>
-  <aside class="nav">
-    <div class="brand">
+<body data-docs-protocol="rest">
+  <aside class="scalar-sidebar" aria-label="API Reference navigation">
+    <div class="docs-brand">
       <span>Experimental</span>
-      <strong>DataPad++ API</strong>
-      <small class="muted">__BASE_URL__</small>
+      <strong>__SERVER_NAME__</strong>
+      <small>__BASE_URL__</small>
     </div>
-    <a href="#endpoints">Endpoints</a>
-    <a href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI JSON</a>
+    <label class="search-shell" for="operationSearch">
+      <span aria-hidden="true">Search</span>
+      <input id="operationSearch" type="search" placeholder="Search operations">
+      <kbd>^ K</kbd>
+    </label>
+    <nav id="resourceNav" class="resource-nav" aria-label="Resources"></nav>
+    <div class="sidebar-footer">
+      <a href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI JSON</a>
+    </div>
   </aside>
-  <main class="content">
-    <section class="hero">
-      <p class="eyebrow">OpenAPI 3.1</p>
-      <h1>Selected Datastore API</h1>
-      <p>Connection <code>__CONNECTION_ID__</code> and environment <code>__ENVIRONMENT_ID__</code>.</p>
-      <div class="pill-row">
-        <span class="pill">Local only</span>
-        <span class="pill">JSON mutations</span>
-        <span class="pill">CORS disabled</span>
+
+  <main class="scalar-main">
+    <section class="intro-panel">
+      <div class="badge-row">
+        <span class="badge">OpenAPI 3.1</span>
+        <span class="badge">Local only</span>
+        <span class="badge">JSON mutations</span>
       </div>
+      <h1>__SERVER_NAME__</h1>
+      <p>__SERVER_DESCRIPTION__</p>
+      <dl class="metadata-grid">
+        <div><dt>Server</dt><dd><code>__BASE_URL__</code></dd></div>
+        <div><dt>Connection</dt><dd><code>__CONNECTION_ID__</code></dd></div>
+        <div><dt>Environment</dt><dd><code>__ENVIRONMENT_ID__</code></dd></div>
+      </dl>
     </section>
-    <section class="section" id="endpoints">
-      <div class="endpoint-head">
-        <h2>Endpoints</h2>
-        <button class="action" id="reloadSpec" type="button">Refresh</button>
+
+    <section class="content-section" id="resources">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Resources</span>
+          <h2>Configured CRUD endpoints</h2>
+        </div>
+        <button class="ghost-button" id="reloadSpec" type="button">Refresh</button>
       </div>
-      <div id="endpointList" class="section" style="padding:0;border:0;background:transparent"></div>
+      <div id="resourceOverview" class="resource-grid"></div>
+    </section>
+
+    <section class="content-section" id="operationDetails" aria-live="polite">
+      <div class="empty-state">Select an operation from the sidebar.</div>
     </section>
   </main>
-  <aside class="try">
-    <p class="eyebrow">Try It</p>
-    <h2>Request</h2>
-    <div class="try-grid">
-      <label>Method
-        <select id="tryMethod">
-          <option>GET</option>
-          <option>POST</option>
-          <option>PATCH</option>
-          <option>DELETE</option>
-        </select>
-      </label>
-      <label>Path
-        <input id="tryPath" placeholder="Select an endpoint">
-      </label>
+
+  <aside id="requestPanel" class="request-panel" aria-label="Request runner">
+    <div class="panel-tabs" aria-hidden="true">
+      <span class="is-active"></span>
     </div>
-    <label>JSON body
-      <textarea id="tryBody" spellcheck="false"></textarea>
-    </label>
-    <div class="button-row">
-      <button class="action" id="sendRequest" type="button">Send Request</button>
-      <button class="action" id="clearBody" type="button">Clear Body</button>
-    </div>
-    <h2>Response</h2>
-    <pre id="tryOutput">Ready.</pre>
+    <section class="panel-block">
+      <span class="eyebrow">Server</span>
+      <select id="serverSelect" aria-label="Server">
+        <option value="__BASE_URL__">__BASE_URL__</option>
+      </select>
+    </section>
+
+    <section class="panel-block">
+      <div class="request-line">
+        <span id="methodBadge" class="method-badge get">GET</span>
+        <input id="requestPath" aria-label="Request path" spellcheck="false">
+        <button id="sendRequest" class="send-button" type="button">Send</button>
+      </div>
+      <small class="muted">Use Ctrl+Enter to send the selected request.</small>
+    </section>
+
+    <section class="panel-block">
+      <button class="collapse-header" type="button" data-toggle="paramsPanel">Parameters</button>
+      <div id="paramsPanel" class="field-stack"></div>
+    </section>
+
+    <section class="panel-block">
+      <button class="collapse-header" type="button" data-toggle="bodyPanel">Request Body</button>
+      <div id="bodyPanel">
+        <textarea id="requestBody" aria-label="JSON request body" spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <section class="panel-block">
+      <button class="collapse-header" type="button" data-toggle="snippetPanel">Code Snippet</button>
+      <pre id="snippetPanel" class="code-block"></pre>
+    </section>
+
+    <section class="panel-block response-block">
+      <div class="section-heading section-heading--compact">
+        <div>
+          <span class="eyebrow">Response</span>
+          <h2 id="responseStatus">Ready</h2>
+        </div>
+        <span id="responseTime" class="muted"></span>
+      </div>
+      <pre id="responseOutput" class="code-block">Select an operation, then send a request.</pre>
+    </section>
   </aside>
-  <script>
-    const endpointList = document.getElementById('endpointList');
-    const tryMethod = document.getElementById('tryMethod');
-    const tryPath = document.getElementById('tryPath');
-    const tryBody = document.getElementById('tryBody');
-    const tryOutput = document.getElementById('tryOutput');
 
-    function asJson(value) {
-      return JSON.stringify(value, null, 2);
-    }
-
-    function setTry(method, path) {
-      tryMethod.value = method;
-      tryPath.value = path.replace('{identity}', encodeURIComponent('1'));
-      if (method === 'POST' || method === 'PATCH') {
-        tryBody.value = asJson(method === 'PATCH'
-          ? { changes: [{ field: 'name', value: 'Example' }] }
-          : { values: { name: 'Example' } });
-      } else {
-        tryBody.value = '';
-      }
-      tryOutput.textContent = 'Ready.';
-    }
-
-    function renderEndpoints(spec) {
-      const entries = [];
-      for (const [path, operations] of Object.entries(spec.paths || {})) {
-        for (const [method, operation] of Object.entries(operations)) {
-          entries.push({
-            method: method.toUpperCase(),
-            path,
-            summary: operation.summary || operation.operationId || path,
-          });
-        }
-      }
-      endpointList.innerHTML = entries.map((entry) => `
-        <article class="endpoint">
-          <div class="endpoint-head">
-            <h3><span class="method">${entry.method}</span> <code>${entry.path}</code></h3>
-            <button type="button" data-method="${entry.method}" data-path="${entry.path}">Use</button>
-          </div>
-          <p class="muted">${entry.summary}</p>
-        </article>
-      `).join('');
-      endpointList.querySelectorAll('button[data-method]').forEach((button) => {
-        button.addEventListener('click', () => setTry(button.dataset.method, button.dataset.path));
-      });
-      if (entries.length > 0 && !tryPath.value) {
-        setTry(entries[0].method, entries[0].path);
-      }
-    }
-
-    async function loadSpec() {
-      const response = await fetch('/openapi.json');
-      renderEndpoints(await response.json());
-    }
-
-    async function sendRequest() {
-      const method = tryMethod.value;
-      const path = tryPath.value;
-      if (!path) {
-        tryOutput.textContent = 'Select an endpoint first.';
-        return;
-      }
-      const headers = {};
-      const options = { method, headers };
-      if ((method === 'POST' || method === 'PATCH') && tryBody.value.trim()) {
-        headers['Content-Type'] = 'application/json';
-        options.body = tryBody.value;
-      }
-      const started = performance.now();
-      try {
-        const response = await fetch(path, options);
-        const text = await response.text();
-        const elapsed = Math.round((performance.now() - started) * 100) / 100;
-        let parsed = text;
-        try { parsed = JSON.parse(text); } catch {}
-        tryOutput.textContent = `${response.status} ${response.statusText} in ${elapsed} ms\n\n${typeof parsed === 'string' ? parsed : asJson(parsed)}`;
-      } catch (error) {
-        tryOutput.textContent = String(error);
-      }
-    }
-
-    document.getElementById('reloadSpec').addEventListener('click', loadSpec);
-    document.getElementById('sendRequest').addEventListener('click', sendRequest);
-    document.getElementById('clearBody').addEventListener('click', () => { tryBody.value = ''; });
-
-    loadSpec();
-  </script>
+  <script>__DOCS_SCRIPT__</script>
 </body>
 </html>"###;
     template
-        .replace("__BASE_URL__", &html_escape(&base_url))
-        .replace("__CONNECTION_ID__", &html_escape(&state.connection_id))
-        .replace("__ENVIRONMENT_ID__", &html_escape(&state.environment_id))
+        .replace("__DOCS_CSS__", docs_css())
+        .replace("__DOCS_SCRIPT__", docs_script())
+        .replace("__SERVER_NAME__", &html_escape(&config.name))
+        .replace("__SERVER_DESCRIPTION__", &html_escape(description))
+        .replace("__BASE_URL__", &html_escape(base_url))
+        .replace("__CONNECTION_ID__", &html_escape(connection_id))
+        .replace("__ENVIRONMENT_ID__", &html_escape(environment_id))
+}
+
+fn protocol_docs_html(
+    base_url: &str,
+    connection_id: &str,
+    environment_id: &str,
+    config: &DatastoreApiServerConfig,
+) -> String {
+    let protocol = config.protocol.as_str();
+    let title = match protocol {
+        "graphql" => "GraphQL API",
+        "grpc" => "gRPC API",
+        _ => "API Server",
+    };
+    let body = match protocol {
+        "graphql" => {
+            r###"
+      <div class="operation-card">
+        <span class="method-badge get">GET</span>
+        <code>/graphql</code>
+        <p>Returns the generated schema and configured resource metadata.</p>
+      </div>
+      <div class="operation-card">
+        <span class="method-badge post">POST</span>
+        <code>/graphql</code>
+        <p>Runs GraphQL queries and mutations for configured resources.</p>
+      </div>
+      <pre class="code-block">{
+  "query": "query { users(limit: 10) }"
+}</pre>
+"###
+        }
+        "grpc" => {
+            r###"
+      <div class="operation-card">
+        <span class="method-badge get">GET</span>
+        <code>/proto</code>
+        <p>Returns generated proto metadata and resource services.</p>
+      </div>
+      <div class="operation-card">
+        <span class="method-badge get">GET</span>
+        <code>/datapad.proto</code>
+        <p>Returns the generated proto document for grpcurl or native clients.</p>
+      </div>
+      <pre class="code-block">grpcurl -plaintext 127.0.0.1:PORT list</pre>
+"###
+        }
+        _ => {
+            r###"
+      <p>This protocol does not expose an OpenAPI document.</p>
+"###
+        }
+    };
+    let template = r###"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>__SERVER_NAME__ Docs</title>
+  <style>__DOCS_CSS__</style>
+</head>
+<body data-docs-protocol="__PROTOCOL__">
+  <main class="protocol-docs">
+    <section class="intro-panel">
+      <div class="badge-row">
+        <span class="badge">Experimental</span>
+        <span class="badge">__PROTOCOL_LABEL__</span>
+        <span class="badge">Local only</span>
+      </div>
+      <h1>__SERVER_NAME__</h1>
+      <p>__PROTOCOL_LABEL__ servers do not expose an OpenAPI document. Use the protocol endpoint metadata below.</p>
+      <dl class="metadata-grid">
+        <div><dt>Server</dt><dd><code>__BASE_URL__</code></dd></div>
+        <div><dt>Connection</dt><dd><code>__CONNECTION_ID__</code></dd></div>
+        <div><dt>Environment</dt><dd><code>__ENVIRONMENT_ID__</code></dd></div>
+      </dl>
+    </section>
+    <section class="content-section">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Protocol</span>
+          <h2>__PROTOCOL_TITLE__</h2>
+        </div>
+      </div>
+      __PROTOCOL_BODY__
+    </section>
+  </main>
+</body>
+</html>"###;
+    template
+        .replace("__DOCS_CSS__", docs_css())
+        .replace("__SERVER_NAME__", &html_escape(&config.name))
+        .replace("__BASE_URL__", &html_escape(base_url))
+        .replace("__CONNECTION_ID__", &html_escape(connection_id))
+        .replace("__ENVIRONMENT_ID__", &html_escape(environment_id))
+        .replace("__PROTOCOL__", &html_escape(protocol))
+        .replace("__PROTOCOL_LABEL__", title)
+        .replace("__PROTOCOL_TITLE__", title)
+        .replace("__PROTOCOL_BODY__", body)
+}
+
+fn docs_css() -> &'static str {
+    r###"
+:root {
+  color-scheme: dark;
+  --bg: #08090b;
+  --panel: #111214;
+  --panel-raised: #18191c;
+  --panel-soft: #0d0e10;
+  --text: #f4f4f5;
+  --muted: #9ca3af;
+  --faint: #686f7d;
+  --border: #2a2c31;
+  --border-strong: #3b3d44;
+  --accent: #8ab4ff;
+  --get: #16a3ff;
+  --post: #22c55e;
+  --patch: #f59e0b;
+  --delete: #f87171;
+  --shadow: rgba(0, 0, 0, 0.36);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 280px minmax(420px, 1fr) 430px;
+  background: var(--bg);
+  color: var(--text);
+}
+button, input, select, textarea {
+  font: inherit;
+}
+code, pre, textarea, input {
+  font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+  letter-spacing: 0;
+}
+button {
+  cursor: pointer;
+}
+a { color: inherit; }
+.scalar-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 18px 12px;
+  border-right: 1px solid var(--border);
+  background: #0b0c0e;
+  overflow: hidden;
+}
+.docs-brand {
+  display: grid;
+  gap: 4px;
+  padding: 0 8px;
+}
+.docs-brand span, .eyebrow {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.docs-brand strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.docs-brand small,
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+.search-shell {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--faint);
+}
+.search-shell input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+.resource-nav {
+  min-width: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+.nav-group {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.nav-group-title {
+  padding: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.nav-operation {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+.nav-operation:hover,
+.nav-operation.is-active {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--text);
+}
+.nav-operation span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-footer {
+  padding: 10px 8px 0;
+  border-top: 1px solid var(--border);
+}
+.sidebar-footer a {
+  color: var(--muted);
+  font-size: 12px;
+}
+.scalar-main {
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  padding: 90px 60px 80px;
+}
+.protocol-docs {
+  max-width: 980px;
+  min-height: 100vh;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  padding: 80px 48px;
+  margin: 0 auto;
+}
+.intro-panel,
+.content-section,
+.request-panel,
+.operation-card {
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.intro-panel {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.badge {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-raised);
+  color: var(--muted);
+  font-size: 12px;
+}
+h1, h2, h3, p, dl, dd {
+  margin: 0;
+}
+h1 {
+  font-size: 28px;
+  line-height: 1.15;
+}
+h2 {
+  font-size: 16px;
+}
+h3 {
+  font-size: 14px;
+}
+p {
+  color: #d5d7dc;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.metadata-grid,
+.resource-grid,
+.operation-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.metadata-grid div,
+.resource-card,
+.param-row {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+}
+dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+dd,
+code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+}
+.content-section {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.section-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.section-heading--compact {
+  align-items: start;
+}
+.resource-card strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resource-card small {
+  color: var(--muted);
+}
+.operation-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+.operation-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.operation-title code {
+  font-size: 15px;
+}
+.method-badge {
+  min-width: 44px;
+  display: inline-flex;
+  justify-content: center;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-raised);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.method-badge.get { color: var(--get); }
+.method-badge.post { color: var(--post); }
+.method-badge.patch { color: var(--patch); }
+.method-badge.delete { color: var(--delete); }
+.field-stack {
+  display: grid;
+  gap: 8px;
+}
+.field-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.field-row label {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+input,
+select,
+textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  background: #0c0d10;
+  color: var(--text);
+}
+textarea {
+  min-height: 170px;
+  resize: vertical;
+}
+.ghost-button,
+.send-button,
+.collapse-header {
+  min-height: 32px;
+  border: 1px solid var(--border);
+  background: var(--panel-raised);
+  color: var(--text);
+}
+.ghost-button {
+  padding: 5px 10px;
+}
+.collapse-header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 10px;
+  text-align: left;
+}
+.collapse-header::after {
+  content: "All";
+  color: var(--muted);
+  font-size: 11px;
+}
+.request-panel {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  overflow: auto;
+  box-shadow: -18px 0 44px var(--shadow);
+}
+.panel-tabs {
+  display: flex;
+  justify-content: center;
+  min-height: 6px;
+}
+.panel-tabs span {
+  width: 72px;
+  border-top: 1px solid var(--text);
+}
+.panel-block {
+  display: grid;
+  gap: 8px;
+}
+.request-line {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.send-button {
+  padding: 5px 11px;
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 700;
+}
+.code-block {
+  min-height: 120px;
+  max-height: 360px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: #090a0c;
+  color: #dfe3ea;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.response-block .code-block {
+  min-height: 220px;
+}
+.empty-state {
+  padding: 24px;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+}
+.is-hidden {
+  display: none !important;
+}
+@media (max-width: 1180px) {
+  body {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+  .request-panel {
+    position: static;
+    height: auto;
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+    box-shadow: none;
+  }
+  .scalar-main {
+    padding: 40px 28px;
+  }
+}
+@media (max-width: 760px) {
+  body {
+    display: block;
+  }
+  .scalar-sidebar {
+    position: static;
+    height: auto;
+  }
+  .scalar-main,
+  .protocol-docs {
+    padding: 18px;
+  }
+}
+"###
+}
+
+fn docs_script() -> &'static str {
+    r###"
+const docsState = {
+  spec: null,
+  operations: [],
+  selectedId: null
+};
+
+const methodOrder = { GET: 1, POST: 2, PATCH: 3, DELETE: 4 };
+const operationSearch = document.getElementById('operationSearch');
+const resourceNav = document.getElementById('resourceNav');
+const resourceOverview = document.getElementById('resourceOverview');
+const operationDetails = document.getElementById('operationDetails');
+const serverSelect = document.getElementById('serverSelect');
+const methodBadge = document.getElementById('methodBadge');
+const requestPath = document.getElementById('requestPath');
+const paramsPanel = document.getElementById('paramsPanel');
+const requestBody = document.getElementById('requestBody');
+const snippetPanel = document.getElementById('snippetPanel');
+const responseStatus = document.getElementById('responseStatus');
+const responseTime = document.getElementById('responseTime');
+const responseOutput = document.getElementById('responseOutput');
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function asJson(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function slug(value) {
+  return String(value || 'operation')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'operation';
+}
+
+function methodClass(method) {
+  return method.toLowerCase();
+}
+
+function firstExample(requestBodySpec) {
+  const content = requestBodySpec?.content?.['application/json'];
+  const examples = content?.examples || {};
+  const first = Object.values(examples)[0];
+  if (first && Object.prototype.hasOwnProperty.call(first, 'value')) {
+    return first.value;
+  }
+  return undefined;
+}
+
+function collectOperations(spec) {
+  const operations = [];
+  for (const [path, pathItem] of Object.entries(spec.paths || {})) {
+    for (const [methodName, operation] of Object.entries(pathItem || {})) {
+      const method = methodName.toUpperCase();
+      if (!methodOrder[method]) continue;
+      const resource = operation['x-datapad-resource'] || {};
+      const id = operation.operationId || `${method}-${path}`;
+      operations.push({
+        id,
+        domId: slug(`${method}-${id}-${path}`),
+        method,
+        path,
+        tag: (operation.tags && operation.tags[0]) || resource.name || 'Resources',
+        summary: operation.summary || id,
+        description: operation.description || '',
+        operation,
+        resource
+      });
+    }
+  }
+  operations.sort((left, right) => {
+    const tag = left.tag.localeCompare(right.tag);
+    if (tag !== 0) return tag;
+    return (methodOrder[left.method] || 99) - (methodOrder[right.method] || 99);
+  });
+  return operations;
+}
+
+function operationMatches(operation, filter) {
+  if (!filter) return true;
+  const haystack = [
+    operation.method,
+    operation.path,
+    operation.summary,
+    operation.description,
+    operation.id,
+    operation.tag,
+    operation.resource.kind,
+    operation.resource.detail
+  ].join(' ').toLowerCase();
+  return haystack.includes(filter);
+}
+
+function renderNavigation() {
+  const filter = operationSearch.value.trim().toLowerCase();
+  const groups = new Map();
+  docsState.operations
+    .filter((operation) => operationMatches(operation, filter))
+    .forEach((operation) => {
+      if (!groups.has(operation.tag)) groups.set(operation.tag, []);
+      groups.get(operation.tag).push(operation);
+    });
+  if (!groups.size) {
+    resourceNav.innerHTML = '<div class="empty-state">No operations match this search.</div>';
+    return;
+  }
+  resourceNav.innerHTML = Array.from(groups.entries()).map(([tag, operations]) => `
+    <section class="nav-group">
+      <div class="nav-group-title">${escapeHtml(tag)}</div>
+      ${operations.map((operation) => `
+        <button class="nav-operation${operation.id === docsState.selectedId ? ' is-active' : ''}" type="button" data-operation-id="${escapeHtml(operation.id)}">
+          <span class="method-badge ${methodClass(operation.method)}">${escapeHtml(operation.method)}</span>
+          <span>${escapeHtml(operation.summary)}</span>
+        </button>
+      `).join('')}
+    </section>
+  `).join('');
+  resourceNav.querySelectorAll('button[data-operation-id]').forEach((button) => {
+    button.addEventListener('click', () => selectOperation(button.dataset.operationId, true));
+  });
+}
+
+function renderOverview() {
+  const resources = docsState.spec?.['x-datapad']?.resources || [];
+  if (!resources.length) {
+    resourceOverview.innerHTML = '<div class="empty-state">No CRUD resources are configured for this API server.</div>';
+    return;
+  }
+  resourceOverview.innerHTML = resources.map((resource) => `
+    <article class="resource-card">
+      <strong>${escapeHtml(resource.name || resource.label || resource.endpoint)}</strong>
+      <small>${escapeHtml(resource.kind || 'resource')}${resource.detail ? ` / ${escapeHtml(resource.detail)}` : ''}</small>
+      <code>${escapeHtml(resource.endpoint || '')}</code>
+    </article>
+  `).join('');
+}
+
+function renderOperationDetails(operation) {
+  const parameters = operation.operation.parameters || [];
+  const requestExample = firstExample(operation.operation.requestBody);
+  const responses = operation.operation.responses || {};
+  operationDetails.innerHTML = `
+    <article class="operation-card" id="${escapeHtml(operation.domId)}">
+      <div class="operation-title">
+        <span class="method-badge ${methodClass(operation.method)}">${escapeHtml(operation.method)}</span>
+        <code>${escapeHtml(operation.path)}</code>
+      </div>
+      <div>
+        <span class="eyebrow">${escapeHtml(operation.tag)}</span>
+        <h2>${escapeHtml(operation.summary)}</h2>
+      </div>
+      <p>${escapeHtml(operation.description || 'No description provided.')}</p>
+      <div class="operation-meta">
+        <div class="resource-card"><dt>Resource kind</dt><dd>${escapeHtml(operation.resource.kind || 'resource')}</dd></div>
+        <div class="resource-card"><dt>Operation id</dt><dd><code>${escapeHtml(operation.id)}</code></dd></div>
+      </div>
+      <h3>Parameters</h3>
+      ${parameters.length ? parameters.map((parameter) => `
+        <div class="param-row">
+          <dt>${escapeHtml(parameter.name)} <span class="muted">${escapeHtml(parameter.in)}</span></dt>
+          <dd>${escapeHtml(parameter.description || parameter.schema?.type || 'value')}</dd>
+        </div>
+      `).join('') : '<p class="muted">No parameters.</p>'}
+      <h3>Request body</h3>
+      ${requestExample === undefined ? '<p class="muted">No JSON body is required.</p>' : `<pre class="code-block">${escapeHtml(asJson(requestExample))}</pre>`}
+      <h3>Responses</h3>
+      ${Object.entries(responses).map(([status, response]) => `
+        <div class="param-row">
+          <dt>${escapeHtml(status)}</dt>
+          <dd>${escapeHtml(response.description || 'Response')}</dd>
+        </div>
+      `).join('')}
+    </article>
+  `;
+}
+
+function renderParameterInputs(operation) {
+  const parameters = operation.operation.parameters || [];
+  if (!parameters.length) {
+    paramsPanel.innerHTML = '<p class="muted">No parameters.</p>';
+    return;
+  }
+  paramsPanel.innerHTML = parameters.map((parameter) => {
+    const value = parameter.example ?? (parameter.name === 'limit' ? 50 : '1');
+    return `
+      <div class="field-row">
+        <label for="param-${escapeHtml(parameter.name)}">${escapeHtml(parameter.name)} <span class="muted">${escapeHtml(parameter.in)}</span></label>
+        <input id="param-${escapeHtml(parameter.name)}" data-param-name="${escapeHtml(parameter.name)}" data-param-in="${escapeHtml(parameter.in)}" value="${escapeHtml(value)}" spellcheck="false">
+      </div>
+    `;
+  }).join('');
+  paramsPanel.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', updateSnippet);
+  });
+}
+
+function selectedOperation() {
+  return docsState.operations.find((operation) => operation.id === docsState.selectedId);
+}
+
+function buildRequestPath() {
+  const operation = selectedOperation();
+  if (!operation) return requestPath.value || '/';
+  let path = operation.path;
+  const query = new URLSearchParams();
+  paramsPanel.querySelectorAll('input[data-param-name]').forEach((input) => {
+    const name = input.dataset.paramName;
+    const value = input.value.trim();
+    if (!value) return;
+    if (input.dataset.paramIn === 'path') {
+      path = path.replace(`{${name}}`, encodeURIComponent(value));
+    } else if (input.dataset.paramIn === 'query') {
+      query.set(name, value);
+    }
+  });
+  const queryText = query.toString();
+  return queryText ? `${path}?${queryText}` : path;
+}
+
+function updateSnippet() {
+  const operation = selectedOperation();
+  if (!operation) return;
+  const path = buildRequestPath();
+  requestPath.value = path;
+  const lines = [`curl -X ${operation.method} "${serverSelect.value}${path}"`];
+  const body = requestBody.value.trim();
+  if (body && (operation.method === 'POST' || operation.method === 'PATCH')) {
+    lines.push('  -H "Content-Type: application/json"');
+    lines.push(`  -d '${body.replaceAll("'", "'\\''")}'`);
+  }
+  snippetPanel.textContent = lines.join(' \\\n');
+}
+
+function selectOperation(operationId, pushHash) {
+  const operation = docsState.operations.find((candidate) => candidate.id === operationId) || docsState.operations[0];
+  if (!operation) return;
+  docsState.selectedId = operation.id;
+  methodBadge.textContent = operation.method;
+  methodBadge.className = `method-badge ${methodClass(operation.method)}`;
+  renderNavigation();
+  renderOperationDetails(operation);
+  renderParameterInputs(operation);
+  const example = firstExample(operation.operation.requestBody);
+  requestBody.value = example === undefined ? '' : asJson(example);
+  responseStatus.textContent = 'Ready';
+  responseTime.textContent = '';
+  responseOutput.textContent = 'Ready.';
+  updateSnippet();
+  if (pushHash) {
+    history.replaceState(null, '', `#${operation.domId}`);
+  }
+}
+
+async function loadSpec() {
+  resourceNav.innerHTML = '<div class="empty-state">Loading OpenAPI document.</div>';
+  const response = await fetch('/openapi.json');
+  docsState.spec = await response.json();
+  docsState.operations = collectOperations(docsState.spec);
+  renderOverview();
+  const hash = location.hash.replace(/^#/, '');
+  const hashOperation = docsState.operations.find((operation) => operation.domId === hash);
+  selectOperation(hashOperation?.id || docsState.operations[0]?.id, false);
+}
+
+async function sendRequest() {
+  const operation = selectedOperation();
+  if (!operation) {
+    responseOutput.textContent = 'Select an operation first.';
+    return;
+  }
+  const path = buildRequestPath();
+  const headers = {};
+  const options = { method: operation.method, headers };
+  const body = requestBody.value.trim();
+  if (body && (operation.method === 'POST' || operation.method === 'PATCH')) {
+    headers['Content-Type'] = 'application/json';
+    options.body = body;
+  }
+  responseStatus.textContent = 'Sending';
+  responseTime.textContent = '';
+  responseOutput.textContent = '';
+  const started = performance.now();
+  try {
+    const response = await fetch(path, options);
+    const elapsed = Math.round((performance.now() - started) * 100) / 100;
+    const text = await response.text();
+    let output = text;
+    try {
+      output = asJson(JSON.parse(text));
+    } catch {}
+    responseStatus.textContent = `${response.status} ${response.statusText}`;
+    responseTime.textContent = `${elapsed} ms`;
+    responseOutput.textContent = output || '(empty response)';
+  } catch (error) {
+    responseStatus.textContent = 'Request failed';
+    responseOutput.textContent = String(error);
+  }
+}
+
+document.getElementById('reloadSpec').addEventListener('click', loadSpec);
+document.getElementById('sendRequest').addEventListener('click', sendRequest);
+operationSearch.addEventListener('input', renderNavigation);
+serverSelect.addEventListener('change', updateSnippet);
+requestBody.addEventListener('input', updateSnippet);
+requestPath.addEventListener('input', updateSnippet);
+document.querySelectorAll('[data-toggle]').forEach((button) => {
+  button.addEventListener('click', () => {
+    document.getElementById(button.dataset.toggle).classList.toggle('is-hidden');
+  });
+});
+window.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    operationSearch.focus();
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+    event.preventDefault();
+    sendRequest();
+  }
+});
+window.addEventListener('hashchange', () => {
+  const hash = location.hash.replace(/^#/, '');
+  const operation = docsState.operations.find((candidate) => candidate.domId === hash);
+  if (operation) selectOperation(operation.id, false);
+});
+
+loadSpec().catch((error) => {
+  resourceNav.innerHTML = `<div class="empty-state">${escapeHtml(error.message || error)}</div>`;
+  operationDetails.innerHTML = '<div class="empty-state">Unable to load /openapi.json.</div>';
+});
+"###
 }
 
 fn html_escape(value: &str) -> String {

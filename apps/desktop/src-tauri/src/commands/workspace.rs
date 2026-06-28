@@ -25,10 +25,17 @@ use crate::{
             ConnectionTestRequest, ConnectionTestResult, CreateObjectViewTabRequest,
             CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, DataEditExecutionRequest,
             DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse,
-            DatastoreApiServerDeleteRequest, DatastoreApiServerLogs, DatastoreApiServerLogsRequest,
-            DatastoreApiServerMetrics, DatastoreApiServerSettingsRequest,
+            DatastoreApiServerAddCustomEndpointRequest, DatastoreApiServerAddResourcesRequest,
+            DatastoreApiServerCreateRequest, DatastoreApiServerDeleteRequest,
+            DatastoreApiServerLogs, DatastoreApiServerLogsRequest, DatastoreApiServerMetrics,
+            DatastoreApiServerQuerySourceDiscoveryRequest,
+            DatastoreApiServerQuerySourceDiscoveryResponse,
+            DatastoreApiServerRemoveCustomEndpointRequest, DatastoreApiServerRemoveResourceRequest,
+            DatastoreApiServerResourceDiscoveryRequest,
+            DatastoreApiServerResourceDiscoveryResponse, DatastoreApiServerSettingsRequest,
             DatastoreApiServerStartRequest, DatastoreApiServerStatus,
-            DatastoreApiServerStopRequest, DatastoreExperienceResponse,
+            DatastoreApiServerStopRequest, DatastoreApiServerUpdateCustomEndpointRequest,
+            DatastoreApiServerUpdateRequest, DatastoreExperienceResponse,
             DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, EnvironmentProfile,
             ExecuteTestSuiteRequest, ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse,
             ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse,
@@ -427,9 +434,10 @@ pub fn create_settings_tab(
 #[tauri::command]
 pub fn create_api_server_tab(
     state: State<'_, SharedAppState>,
+    server_id: Option<String>,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
-    state.create_api_server_tab()
+    state.create_api_server_tab(server_id)
 }
 
 #[tauri::command]
@@ -1062,6 +1070,93 @@ pub fn get_datastore_api_server_logs(
         &state.snapshot.preferences.datastore_api_server,
         request,
     )
+}
+
+#[tauri::command]
+pub fn create_datastore_api_server(
+    state: State<'_, SharedAppState>,
+    request: DatastoreApiServerCreateRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    datastore_api_server::create_server_config(&mut state, request)
+}
+
+#[tauri::command]
+pub fn update_datastore_api_server(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerUpdateRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    datastore_api_server::update_server_config(&api_server, &mut state, request)
+}
+
+#[tauri::command]
+pub async fn discover_datastore_api_server_resources(
+    state: State<'_, SharedAppState>,
+    request: DatastoreApiServerResourceDiscoveryRequest,
+) -> Result<DatastoreApiServerResourceDiscoveryResponse, CommandError> {
+    let mut runtime = clone_runtime(&state)?;
+    datastore_api_server::discover_resources(&mut runtime, request).await
+}
+
+#[tauri::command]
+pub fn discover_datastore_api_server_query_sources(
+    state: State<'_, SharedAppState>,
+    request: DatastoreApiServerQuerySourceDiscoveryRequest,
+) -> Result<DatastoreApiServerQuerySourceDiscoveryResponse, CommandError> {
+    let state = lock_state(&state)?;
+    datastore_api_server::discover_query_sources(&state, request)
+}
+
+#[tauri::command]
+pub fn add_datastore_api_server_resources(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerAddResourcesRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    datastore_api_server::add_resources(&api_server, &mut state, request)
+}
+
+#[tauri::command]
+pub fn remove_datastore_api_server_resource(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerRemoveResourceRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    datastore_api_server::remove_resource(&api_server, &mut state, request)
+}
+
+#[tauri::command]
+pub fn add_datastore_api_server_custom_endpoint(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerAddCustomEndpointRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    datastore_api_server::add_custom_endpoint(&api_server, &mut state, request)
+}
+
+#[tauri::command]
+pub fn update_datastore_api_server_custom_endpoint(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerUpdateCustomEndpointRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    datastore_api_server::update_custom_endpoint(&api_server, &mut state, request)
+}
+
+#[tauri::command]
+pub fn remove_datastore_api_server_custom_endpoint(
+    state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    request: DatastoreApiServerRemoveCustomEndpointRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    datastore_api_server::remove_custom_endpoint(&api_server, &mut state, request)
 }
 
 #[tauri::command]

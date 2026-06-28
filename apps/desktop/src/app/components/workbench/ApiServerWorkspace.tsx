@@ -1,32 +1,92 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
+  DatastoreApiServerAddCustomEndpointRequest,
   ConnectionProfile,
-  CrudResourceKind,
+  DatastoreApiServerAddResourcesRequest,
+  DatastoreApiServerCustomEndpointConfig,
+  DatastoreApiServerCustomEndpointParameterConfig,
+  DatastoreApiServerDeleteRequest,
   DatastoreApiServerLogs,
   DatastoreApiServerLogsRequest,
   DatastoreApiServerMetrics,
+  DatastoreApiServerQuerySource,
+  DatastoreApiServerQuerySourceDiscoveryRequest,
+  DatastoreApiServerQuerySourceDiscoveryResponse,
+  DatastoreApiServerRemoveCustomEndpointRequest,
+  DatastoreApiServerRemoveResourceRequest,
+  DatastoreApiServerResourceConfig,
+  DatastoreApiServerResourceDiscoveryRequest,
+  DatastoreApiServerResourceDiscoveryResponse,
   DatastoreApiServerSettingsRequest,
   DatastoreApiServerStartRequest,
   DatastoreApiServerStatus,
   DatastoreApiServerStopRequest,
+  DatastoreApiServerUpdateCustomEndpointRequest,
+  DatastoreApiServerUpdateRequest,
   EnvironmentProfile,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
-import { ObjectServerIcon, PlayIcon, RefreshIcon, StopIcon } from './icons'
+import {
+  ObjectServerIcon,
+  PlayIcon,
+  PlusIcon,
+  QueryIcon,
+  RefreshIcon,
+  StopIcon,
+  TrashIcon,
+} from './icons'
 
 const DEFAULT_API_PORT = 17640
+const RESOURCE_DISCOVERY_TIMEOUT_MS = 15000
 
-type ApiServerView = 'overview' | 'openapi' | 'metrics' | 'logs'
-type ApiServerPreferences = NonNullable<WorkspaceSnapshot['preferences']['datastoreApiServer']>
-type ApiServerConfig = NonNullable<ApiServerPreferences['servers']>[number]
+type ApiServerView = 'overview' | 'docs' | 'metrics' | 'logs'
+type ApiServerPreferences = NonNullable<
+  WorkspaceSnapshot['preferences']['datastoreApiServer']
+>
+type PersistedApiServerConfig = NonNullable<
+  ApiServerPreferences['servers']
+>[number]
+type ApiServerProtocol = NonNullable<PersistedApiServerConfig['protocol']>
+type ApiServerTextField = 'name' | 'description' | 'basePath'
+type ApiServerConfig = Omit<
+  PersistedApiServerConfig,
+  | 'host'
+  | 'port'
+  | 'autoStart'
+  | 'protocol'
+  | 'basePath'
+  | 'resources'
+  | 'customEndpoints'
+> & {
+  host: '127.0.0.1'
+  port: number
+  autoStart: boolean
+  protocol: ApiServerProtocol
+  basePath: string
+  resources: DatastoreApiServerResourceConfig[]
+  customEndpoints: DatastoreApiServerCustomEndpointConfig[]
+}
+
+interface CustomEndpointEditorState {
+  mode: 'create' | 'edit'
+  endpoint: DatastoreApiServerCustomEndpointConfig
+}
 
 export function ApiServerWorkspace({
-  activeConnection,
-  activeEnvironment,
+  serverId,
   connections,
   environments,
   preferences,
   onOpenExperimentalSettings,
+  onDeleteServer = async () => false,
+  onUpdateServer,
+  onDiscoverResources = async () => undefined,
+  onAddResources = async () => false,
+  onRemoveResource = async () => false,
+  onDiscoverQuerySources = async () => undefined,
+  onAddCustomEndpoint = async () => false,
+  onUpdateCustomEndpoint = async () => false,
+  onRemoveCustomEndpoint = async () => false,
   onStart,
   onStop,
   onUpdateSettings,
@@ -34,70 +94,170 @@ export function ApiServerWorkspace({
   onGetMetrics,
   onGetLogs,
 }: {
-  activeConnection?: ConnectionProfile
-  activeEnvironment?: EnvironmentProfile
+  serverId?: string
   connections: ConnectionProfile[]
   environments: EnvironmentProfile[]
   preferences: WorkspaceSnapshot['preferences']
   onOpenExperimentalSettings(): void
+  onDeleteServer?(request: DatastoreApiServerDeleteRequest): Promise<boolean>
+  onUpdateServer?(request: DatastoreApiServerUpdateRequest): Promise<boolean>
+  onDiscoverResources(
+    request: DatastoreApiServerResourceDiscoveryRequest,
+  ): Promise<DatastoreApiServerResourceDiscoveryResponse | undefined>
+  onAddResources?(
+    request: DatastoreApiServerAddResourcesRequest,
+  ): Promise<boolean>
+  onRemoveResource?(
+    request: DatastoreApiServerRemoveResourceRequest,
+  ): Promise<boolean>
+  onDiscoverQuerySources(
+    request: DatastoreApiServerQuerySourceDiscoveryRequest,
+  ): Promise<DatastoreApiServerQuerySourceDiscoveryResponse | undefined>
+  onAddCustomEndpoint?(
+    request: DatastoreApiServerAddCustomEndpointRequest,
+  ): Promise<boolean>
+  onUpdateCustomEndpoint?(
+    request: DatastoreApiServerUpdateCustomEndpointRequest,
+  ): Promise<boolean>
+  onRemoveCustomEndpoint?(
+    request: DatastoreApiServerRemoveCustomEndpointRequest,
+  ): Promise<boolean>
   onGetStatus(): Promise<DatastoreApiServerStatus | undefined>
   onGetMetrics(): Promise<DatastoreApiServerMetrics | undefined>
-  onGetLogs(request?: DatastoreApiServerLogsRequest): Promise<DatastoreApiServerLogs | undefined>
+  onGetLogs(
+    request?: DatastoreApiServerLogsRequest,
+  ): Promise<DatastoreApiServerLogs | undefined>
   onUpdateSettings(request: DatastoreApiServerSettingsRequest): Promise<boolean>
   onStart(
     request: DatastoreApiServerStartRequest,
   ): Promise<DatastoreApiServerStatus | undefined>
-  onStop(request?: DatastoreApiServerStopRequest): Promise<DatastoreApiServerStatus | undefined>
+  onStop(
+    request?: DatastoreApiServerStopRequest,
+  ): Promise<DatastoreApiServerStatus | undefined>
 }) {
   const apiServer = useMemo(
-    () => preferences.datastoreApiServer ?? {
-      enabled: false,
-      host: '127.0.0.1' as const,
-      port: DEFAULT_API_PORT,
-      autoStart: false,
-    },
+    () =>
+      preferences.datastoreApiServer ?? {
+        enabled: false,
+        host: '127.0.0.1' as const,
+        port: DEFAULT_API_PORT,
+        autoStart: false,
+      },
     [preferences.datastoreApiServer],
   )
   const configuredServers = useMemo(
     () => normalizeApiServerConfigs(apiServer),
     [apiServer],
   )
-  const initialServerId = apiServer.activeServerId || configuredServers[0]?.id || 'api-server-default'
-  const [selectedServerId, setSelectedServerId] = useResettableState(initialServerId)
+  const initialServerId =
+    serverId || apiServer.activeServerId || configuredServers[0]?.id || ''
+  const [selectedServerId, setSelectedServerId] =
+    useResettableState(initialServerId)
   const selectedServer =
     configuredServers.find((server) => server.id === selectedServerId) ??
     configuredServers[0]
-  const initialConnectionId =
-    selectedServer?.connectionId || activeConnection?.id || connections[0]?.id || ''
-  const initialEnvironmentId =
-    selectedServer?.environmentId || activeEnvironment?.id || environments[0]?.id || ''
-  const [connectionId, setConnectionId] = useResettableState(initialConnectionId)
-  const [environmentId, setEnvironmentId] = useResettableState(initialEnvironmentId)
-  const [portDraft, setPortDraft] = useResettableState(String(selectedServer?.port ?? DEFAULT_API_PORT))
   const [status, setStatus] = useState<DatastoreApiServerStatus>()
   const [metrics, setMetrics] = useState<DatastoreApiServerMetrics>()
   const [logs, setLogs] = useState<DatastoreApiServerLogs>()
   const [view, setView] = useState<ApiServerView>('overview')
-  const [busy, setBusy] = useState<'refresh' | 'save' | 'start' | 'stop'>()
+  const [busy, setBusy] = useState<
+    | 'refresh'
+    | 'save'
+    | 'create'
+    | 'delete'
+    | 'start'
+    | 'stop'
+    | 'discover'
+    | 'resource'
+    | 'query-source'
+    | 'custom-endpoint'
+  >()
   const [observabilityBusy, setObservabilityBusy] = useState(false)
+  const [resourcePicker, setResourcePicker] =
+    useState<DatastoreApiServerResourceConfig[]>()
+  const [selectedResourceIds, setSelectedResourceIds] = useState<Set<string>>(
+    new Set(),
+  )
+  const [querySources, setQuerySources] = useState<DatastoreApiServerQuerySource[]>()
+  const [endpointEditor, setEndpointEditor] =
+    useState<CustomEndpointEditorState>()
+  const [endpointEditorError, setEndpointEditorError] = useState<string>()
+  const [serverDrafts, setServerDrafts] = useState<
+    Record<string, Partial<Record<ApiServerTextField, string>>>
+  >({})
+  const discoveringResources = busy === 'discover'
+
+  const selectedStatus =
+    status?.servers?.find((server) => server.id === selectedServerId) ??
+    (status?.serverId === selectedServerId
+      ? statusToInstance(status)
+      : undefined)
+  const serverRunning = Boolean(selectedStatus?.running)
+  const server = selectedStatus
+    ? mergeStatusIntoServer(selectedServer, selectedStatus)
+    : selectedServer
+  const selectedConnection = connections.find(
+    (item) => item.id === server?.connectionId,
+  )
+  const selectedEnvironment = environments.find(
+    (item) => item.id === server?.environmentId,
+  )
+  const baseUrl =
+    selectedStatus?.baseUrl ??
+    (apiServer.enabled && server
+      ? `http://127.0.0.1:${server.port}`
+      : undefined)
+  const docsUrl = serverRunning && baseUrl ? `${baseUrl}/docs` : undefined
+  const openApiUrl =
+    serverRunning && baseUrl && server?.protocol === 'rest'
+      ? `${baseUrl}/openapi.json`
+      : undefined
+  const graphqlUrl =
+    serverRunning && baseUrl && server?.protocol === 'graphql'
+      ? `${baseUrl}/graphql`
+      : undefined
+  const protoUrl =
+    serverRunning && baseUrl && server?.protocol === 'grpc'
+      ? `${baseUrl}/proto`
+      : undefined
+  const startDisabledReason = serverStartDisabledReason(server)
+  const serverNameValue = server
+    ? (serverDrafts[server.id]?.name ?? server.name)
+    : ''
+  const serverDescriptionValue = server
+    ? (serverDrafts[server.id]?.description ?? server.description ?? '')
+    : ''
+  const serverBasePathValue = server
+    ? (serverDrafts[server.id]?.basePath ?? server.basePath ?? '')
+    : ''
+  const serverActionDisabled = Boolean(busy && busy !== 'refresh')
+  const serverResourceCount = server?.resources.length ?? 0
+  const serverCustomEndpointCount = server?.customEndpoints.length ?? 0
+  const serverProtocolLabel = protocolDisplayName(server?.protocol)
 
   const refreshStatus = useCallback(async () => {
     setBusy('refresh')
-    const nextStatus = await onGetStatus()
-    setStatus(nextStatus)
-    setBusy(undefined)
+    try {
+      const nextStatus = await onGetStatus()
+      setStatus(nextStatus)
+    } finally {
+      setBusy(undefined)
+    }
   }, [onGetStatus])
 
   const refreshObservability = useCallback(async () => {
     setObservabilityBusy(true)
-    const [nextMetrics, nextLogs] = await Promise.all([
-      onGetMetrics(),
-      onGetLogs({ limit: 80 }),
-    ])
-    setMetrics(nextMetrics)
-    setLogs(nextLogs)
-    setObservabilityBusy(false)
-  }, [onGetLogs, onGetMetrics])
+    try {
+      const [nextMetrics, nextLogs] = await Promise.all([
+        onGetMetrics(),
+        onGetLogs({ serverId: selectedServerId, limit: 80 }),
+      ])
+      setMetrics(nextMetrics)
+      setLogs(nextLogs)
+    } finally {
+      setObservabilityBusy(false)
+    }
+  }, [onGetLogs, onGetMetrics, selectedServerId])
 
   useEffect(() => {
     let cancelled = false
@@ -112,128 +272,332 @@ export function ApiServerWorkspace({
   }, [refreshStatus, apiServer.enabled, selectedServerId])
 
   useEffect(() => {
-    const serverStatus = status?.servers?.find((server) => server.id === selectedServerId)
-    if (serverStatus?.running && (view === 'metrics' || view === 'logs')) {
-      let cancelled = false
+    let cancelled = false
+    if (serverRunning && (view === 'metrics' || view === 'logs')) {
       queueMicrotask(() => {
         if (!cancelled) {
           void refreshObservability()
         }
       })
-      return () => {
-        cancelled = true
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [refreshObservability, serverRunning, view])
+
+  const deleteServer = async (serverId: string) => {
+    setBusy('delete')
+    try {
+      const deleted = await onDeleteServer({ serverId })
+      const nextServerId =
+        configuredServers.find((candidate) => candidate.id !== serverId)?.id ??
+        ''
+      if (deleted) {
+        setSelectedServerId(nextServerId)
       }
+      await refreshStatus()
+    } finally {
+      setBusy(undefined)
     }
-    return undefined
-  }, [refreshObservability, selectedServerId, status?.servers, view])
+  }
 
-  const selectedConnection = connections.find((item) => item.id === connectionId)
-  const selectedEnvironment = environments.find((item) => item.id === environmentId)
-  const port = clampPort(Number(portDraft))
-  const selectedStatus =
-    status?.servers?.find((server) => server.id === selectedServerId) ??
-    (status?.serverId === selectedServerId ? statusToInstance(status) : undefined)
-  const serverRunning = Boolean(selectedStatus?.running)
-  const baseUrl =
-    selectedStatus?.baseUrl ?? (apiServer.enabled ? `http://127.0.0.1:${port}` : undefined)
-  const docsUrl = serverRunning && baseUrl ? `${baseUrl}/docs` : undefined
-  const openApiUrl = serverRunning && baseUrl ? `${baseUrl}/openapi.json` : undefined
-  const targetChanged =
-    connectionId !== (selectedServer?.connectionId ?? '') ||
-    environmentId !== (selectedServer?.environmentId ?? '') ||
-    port !== (selectedServer?.port ?? DEFAULT_API_PORT)
-  const supportedResources = useMemo(
-    () => supportedCrudResources(selectedConnection),
-    [selectedConnection],
-  )
-
-  const saveTarget = async () => {
+  const saveServer = async (patch: Partial<ApiServerConfig>) => {
+    if (!server) return false
     setBusy('save')
-    await onUpdateSettings({
-      enabled: true,
-      host: '127.0.0.1',
-      serverId: selectedServerId,
-      activeServerId: selectedServerId,
-      name: selectedServer?.name || defaultApiServerName(port),
-      port,
-      autoStart: selectedServer?.autoStart ?? apiServer.autoStart,
-      connectionId,
-      environmentId,
-    })
-    setBusy(undefined)
-    await refreshStatus()
-  }
+    try {
+      let saved = false
+      const request = {
+        serverId: server.id,
+        name: patch.name ?? server.name,
+        description:
+          patch.description !== undefined
+            ? patch.description
+            : server.description,
+        protocol: patch.protocol ?? server.protocol,
+        basePath:
+          patch.basePath !== undefined ? patch.basePath : server.basePath,
+        port: patch.port ?? server.port,
+        autoStart: patch.autoStart ?? server.autoStart,
+        connectionId:
+          patch.connectionId !== undefined
+            ? patch.connectionId
+            : server.connectionId,
+        environmentId:
+          patch.environmentId !== undefined
+            ? patch.environmentId
+            : server.environmentId,
+        resources: patch.resources ?? server.resources,
+        customEndpoints: patch.customEndpoints ?? server.customEndpoints,
+      }
 
-  const startServer = async () => {
-    setBusy('start')
-    const nextStatus = await onStart({
-      serverId: selectedServerId,
-      connectionId,
-      environmentId,
-      port,
-    })
-    setStatus(nextStatus)
-    setBusy(undefined)
-    if (nextStatus?.running) {
-      void refreshObservability()
+      if (onUpdateServer) {
+        saved = await onUpdateServer(request)
+      } else {
+        saved = await onUpdateSettings({
+          enabled: apiServer.enabled,
+          host: '127.0.0.1',
+          activeServerId: server.id,
+          ...request,
+        })
+      }
+      await refreshStatus()
+      return saved
+    } finally {
+      setBusy(undefined)
     }
   }
 
-  const stopServer = async () => {
-    setBusy('stop')
-    const nextStatus = await onStop({ serverId: selectedServerId })
-    setStatus(nextStatus)
-    setBusy(undefined)
+  const updateServerDraft = (
+    serverId: string,
+    field: ApiServerTextField,
+    value: string,
+  ) => {
+    setServerDrafts((current) => ({
+      ...current,
+      [serverId]: {
+        ...current[serverId],
+        [field]: value,
+      },
+    }))
   }
 
-  const selectServer = async (serverId: string) => {
-    const server = configuredServers.find((item) => item.id === serverId)
-    if (!server) {
+  const clearServerDraft = (serverId: string, field: ApiServerTextField) => {
+    setServerDrafts((current) => {
+      const draft = current[serverId]
+      if (!draft || draft[field] === undefined) return current
+      const remainingDraft = { ...draft }
+      delete remainingDraft[field]
+      if (Object.keys(remainingDraft).length === 0) {
+        const remaining = { ...current }
+        delete remaining[serverId]
+        return remaining
+      }
+      return {
+        ...current,
+        [serverId]: remainingDraft,
+      }
+    })
+  }
+
+  const commitServerTextField = async (field: ApiServerTextField) => {
+    if (!server) return
+    const draft = serverDrafts[server.id]?.[field]
+    if (draft === undefined) return
+
+    const currentValue =
+      field === 'description'
+        ? (server.description ?? '')
+        : (server[field] ?? '')
+    const nextValue = field === 'name' ? draft.trim() || server.name : draft
+
+    if (nextValue === currentValue) {
+      clearServerDraft(server.id, field)
       return
     }
-    setSelectedServerId(server.id)
-    setConnectionId(server.connectionId || activeConnection?.id || connections[0]?.id || '')
-    setEnvironmentId(server.environmentId || activeEnvironment?.id || environments[0]?.id || '')
-    setPortDraft(String(server.port))
-    setBusy('save')
-    await onUpdateSettings({
-      enabled: true,
-      host: '127.0.0.1',
-      serverId: server.id,
-      activeServerId: server.id,
-      name: server.name,
-      port: server.port,
-      autoStart: server.autoStart,
-      connectionId: server.connectionId,
-      environmentId: server.environmentId,
-    })
-    setBusy(undefined)
-    await refreshStatus()
+
+    const saved = await saveServer({
+      [field]: nextValue,
+    } as Partial<ApiServerConfig>)
+    if (saved) {
+      clearServerDraft(server.id, field)
+    }
   }
 
-  const createServer = async () => {
-    const nextPort = nextAvailableApiServerPort(configuredServers)
-    const serverId = `api-server-${Date.now()}`
-    const nextConnectionId = activeConnection?.id || connections[0]?.id || ''
-    const nextEnvironmentId = activeEnvironment?.id || environments[0]?.id || ''
-    setSelectedServerId(serverId)
-    setConnectionId(nextConnectionId)
-    setEnvironmentId(nextEnvironmentId)
-    setPortDraft(String(nextPort))
-    setBusy('save')
-    await onUpdateSettings({
-      enabled: true,
-      host: '127.0.0.1',
-      serverId,
-      activeServerId: serverId,
-      name: defaultApiServerName(nextPort),
-      port: nextPort,
-      autoStart: false,
-      connectionId: nextConnectionId,
-      environmentId: nextEnvironmentId,
+  const startServer = async (serverId = server?.id) => {
+    if (!serverId) return
+    setBusy('start')
+    try {
+      const nextStatus = await onStart({ serverId })
+      setStatus(nextStatus)
+      if (nextStatus?.running) {
+        void refreshObservability()
+      }
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const stopServer = async (serverId = server?.id) => {
+    if (!serverId) return
+    setBusy('stop')
+    try {
+      const nextStatus = await onStop({ serverId })
+      setStatus(nextStatus)
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const discoverResources = async () => {
+    if (!server?.connectionId || !server.environmentId) return
+    setBusy('discover')
+    try {
+      const discovered = await withResourceDiscoveryTimeout(
+        onDiscoverResources({
+          connectionId: server.connectionId,
+          environmentId: server.environmentId,
+          limit: 500,
+        }),
+      )
+      const existingIds = new Set(
+        (server.resources ?? []).map((resource) => resource.id),
+      )
+      const candidates = (discovered?.resources ?? []).filter(
+        (resource) => !existingIds.has(resource.id),
+      )
+      setResourcePicker(candidates)
+      setSelectedResourceIds(new Set(candidates.map((resource) => resource.id)))
+    } catch {
+      setResourcePicker([])
+      setSelectedResourceIds(new Set())
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const addSelectedResources = async () => {
+    if (!server || !resourcePicker) return
+    const resources = resourcePicker.filter((resource) =>
+      selectedResourceIds.has(resource.id),
+    )
+    setBusy('resource')
+    try {
+      await onAddResources({ serverId: server.id, resources })
+      setResourcePicker(undefined)
+      await refreshStatus()
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const removeResource = async (resourceId: string) => {
+    if (!server) return
+    setBusy('resource')
+    try {
+      await onRemoveResource({ serverId: server.id, resourceId })
+      await refreshStatus()
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const openCustomEndpointEditor = async (
+    endpoint?: DatastoreApiServerCustomEndpointConfig,
+  ) => {
+    if (!server) return
+    setEndpointEditorError(undefined)
+    setBusy('query-source')
+    try {
+      const discovered = await onDiscoverQuerySources({ serverId: server.id })
+      const sources = discovered?.sources ?? []
+      setQuerySources(sources)
+      setEndpointEditor({
+        mode: endpoint ? 'edit' : 'create',
+        endpoint: endpoint
+          ? normalizeCustomEndpoint(endpoint)
+          : customEndpointFromSource(sources[0], server),
+      })
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const updateEndpointDraft = (
+    patch: Partial<DatastoreApiServerCustomEndpointConfig>,
+  ) => {
+    setEndpointEditor((current) =>
+      current
+        ? {
+            ...current,
+            endpoint: normalizeCustomEndpoint(
+              {
+                ...current.endpoint,
+                ...patch,
+              },
+            ),
+          }
+        : current,
+    )
+  }
+
+  const updateEndpointParameter = (
+    name: string,
+    patch: Partial<DatastoreApiServerCustomEndpointParameterConfig>,
+  ) => {
+    setEndpointEditor((current) => {
+      if (!current) return current
+      const parameters = (current.endpoint.parameters ?? []).map((parameter) =>
+        parameter.name === name ? { ...parameter, ...patch } : parameter,
+      )
+      return {
+        ...current,
+        endpoint: normalizeCustomEndpoint(
+          {
+            ...current.endpoint,
+            parameters,
+          },
+        ),
+      }
     })
-    setBusy(undefined)
-    await refreshStatus()
+  }
+
+  const selectEndpointSource = (sourceId: string) => {
+    if (!server) return
+    const source = querySources?.find((item) => item.id === sourceId)
+    setEndpointEditor((current) =>
+      current
+        ? {
+            ...current,
+            endpoint: customEndpointFromSource(
+              source,
+              server,
+              current.endpoint.id,
+            ),
+          }
+        : current,
+    )
+  }
+
+  const saveCustomEndpoint = async () => {
+    if (!server || !endpointEditor) return
+    const endpoint = normalizeCustomEndpoint(endpointEditor.endpoint)
+    if (!endpoint.sourceLibraryNodeId || !endpoint.queryText.trim()) {
+      setEndpointEditorError('Choose a saved Library query before saving.')
+      return
+    }
+    setBusy('custom-endpoint')
+    try {
+      const saved =
+        endpointEditor.mode === 'edit'
+          ? await onUpdateCustomEndpoint({
+              serverId: server.id,
+              endpointId: endpoint.id,
+              endpoint,
+            })
+          : await onAddCustomEndpoint({
+              serverId: server.id,
+              endpoint,
+            })
+      if (saved) {
+        setEndpointEditor(undefined)
+        setQuerySources(undefined)
+        setEndpointEditorError(undefined)
+      }
+      await refreshStatus()
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const removeCustomEndpoint = async (endpointId: string) => {
+    if (!server) return
+    setBusy('custom-endpoint')
+    try {
+      await onRemoveCustomEndpoint({ serverId: server.id, endpointId })
+      await refreshStatus()
+    } finally {
+      setBusy(undefined)
+    }
   }
 
   const openInBrowser = (url?: string) => {
@@ -244,11 +608,17 @@ export function ApiServerWorkspace({
 
   if (!apiServer.enabled) {
     return (
-      <section className="environment-workspace api-server-workspace" aria-label="API Server workspace">
+      <section
+        className="environment-workspace api-server-workspace api-server-workspace--disabled"
+        aria-label="API Server workspace"
+      >
         <div className="environment-empty">
           <p className="sidebar-eyebrow">Experimental</p>
           <h1>API Server</h1>
-          <p>Enable the datastore API server from Settings before opening a listener.</p>
+          <p>
+            Enable the datastore API server from Settings before opening a
+            listener.
+          </p>
           <button
             type="button"
             className="drawer-button drawer-button--primary"
@@ -262,14 +632,49 @@ export function ApiServerWorkspace({
   }
 
   return (
-    <section className="environment-workspace api-server-workspace" aria-label="API Server workspace">
+    <section
+      className="environment-workspace api-server-workspace"
+      aria-label="API Server workspace"
+    >
       <header className="environment-header api-server-header">
         <div>
           <p className="sidebar-eyebrow">Experimental</p>
           <h1>API Server</h1>
+          {server ? (
+            <p className="api-server-header-description">
+              {server.name}
+              {server.description ? ` - ${server.description}` : ''}
+            </p>
+          ) : null}
         </div>
-        <div className="environment-actions">
-          <span className={`api-server-status-pill${serverRunning ? ' is-running' : ''}`}>
+        <div className="environment-actions api-server-header-actions">
+          {server ? (
+            serverRunning ? (
+              <button
+                type="button"
+                className="drawer-button drawer-button--danger api-server-header-control"
+                disabled={Boolean(busy)}
+                onClick={() => void stopServer()}
+              >
+                <StopIcon className="panel-inline-icon" />
+                Stop
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="drawer-button drawer-button--primary api-server-header-control"
+                disabled={Boolean(startDisabledReason || busy)}
+                title={startDisabledReason}
+                onClick={() => void startServer()}
+              >
+                <PlayIcon className="panel-inline-icon" />
+                Start
+              </button>
+            )
+          ) : null}
+          <span
+            className={`api-server-status-pill${serverRunning ? ' is-running' : ''}`}
+          >
             {serverRunning ? 'Running' : 'Stopped'}
           </span>
           <button
@@ -298,160 +703,470 @@ export function ApiServerWorkspace({
         ))}
       </nav>
 
+      {server ? (
+        <div className="api-server-summary-bar" aria-label="API Server summary">
+          <div className="api-server-summary-item">
+            <span>Protocol</span>
+            <strong>{serverProtocolLabel}</strong>
+          </div>
+          <div className="api-server-summary-item">
+            <span>Endpoint</span>
+            <code>{baseUrl ?? `http://127.0.0.1:${server.port}`}</code>
+          </div>
+          <div className="api-server-summary-item">
+            <span>Datastore</span>
+            <strong>{selectedConnection?.name ?? 'Not selected'}</strong>
+          </div>
+          <div className="api-server-summary-item">
+            <span>Exposed</span>
+            <strong>
+              {formatExposureCount(
+                serverResourceCount,
+                serverCustomEndpointCount,
+              )}
+            </strong>
+          </div>
+        </div>
+      ) : null}
+
       <div className="environment-body api-server-body">
-        {view === 'overview' ? (
+        {!server ? (
+          <section className="environment-card">
+            <div className="settings-empty">
+              <p>No API server is selected.</p>
+            </div>
+          </section>
+        ) : null}
+
+        {view === 'overview' && server ? (
           <>
-            <section className="environment-card">
-              <div className="environment-section-header">
-                <strong>Target</strong>
-                <span>127.0.0.1 only</span>
-              </div>
-              <div className="environment-form-grid">
-                <label className="environment-field">
-                  <span>Server</span>
-                  <select
-                    value={selectedServerId}
-                    onChange={(event) => void selectServer(event.target.value)}
-                    disabled={Boolean(busy)}
-                  >
-                    {configuredServers.map((server) => (
-                      <option key={server.id} value={server.id}>
-                        {server.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="api-server-target-summary api-server-target-summary--action">
-                  <button
-                    type="button"
-                    className="drawer-button"
-                    disabled={Boolean(busy)}
-                    onClick={() => void createServer()}
-                  >
-                    New Server
-                  </button>
-                </div>
-                <label className="environment-field">
-                  <span>Datastore</span>
-                  <select
-                    value={connectionId}
-                    onChange={(event) => setConnectionId(event.target.value)}
-                    disabled={serverRunning || Boolean(busy)}
-                  >
-                    {connections.map((connection) => (
-                      <option key={connection.id} value={connection.id}>
-                        {connection.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="environment-field">
-                  <span>Environment</span>
-                  <select
-                    value={environmentId}
-                    onChange={(event) => setEnvironmentId(event.target.value)}
-                    disabled={serverRunning || Boolean(busy)}
-                  >
-                    {environments.map((environment) => (
-                      <option key={environment.id} value={environment.id}>
-                        {environment.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="environment-field">
-                  <span>Port</span>
-                  <input
-                    type="number"
-                    min={1024}
-                    max={65535}
-                    value={portDraft}
-                    disabled={serverRunning || Boolean(busy)}
-                    onChange={(event) => setPortDraft(event.target.value)}
-                  />
-                </label>
-                <div className="api-server-target-summary">
-                  <ObjectServerIcon className="panel-inline-icon" />
+            <div className="api-server-overview-grid">
+              <section className="environment-card api-server-server-card">
+                <div className="environment-section-header">
+                  <div className="api-server-section-title">
+                    <strong>Server</strong>
+                    <span>Configure the listener and selected datastore.</span>
+                  </div>
                   <span>
-                    {selectedConnection
-                      ? `${selectedConnection.engine} / ${selectedConnection.family}`
-                      : 'Select a datastore'}
+                    {serverProtocolLabel} / {server.port}
                   </span>
                 </div>
-              </div>
-              <div className="drawer-button-row">
-                <button
-                  type="button"
-                  className="drawer-button"
-                  disabled={
-                    !selectedConnection ||
-                    !selectedEnvironment ||
-                    !targetChanged ||
-                    Boolean(busy) ||
-                    serverRunning
-                  }
-                  onClick={() => void saveTarget()}
-                >
-                  Save Target
-                </button>
-                {serverRunning ? (
-                  <button
-                    type="button"
-                    className="drawer-button drawer-button--danger"
-                    disabled={Boolean(busy)}
-                    onClick={() => void stopServer()}
-                  >
-                    <StopIcon className="panel-inline-icon" />
-                    Stop
-                  </button>
+                <div className="environment-form-grid api-server-server-form">
+                  <label className="environment-field">
+                    <span>Name</span>
+                    <input
+                      type="text"
+                      value={serverNameValue}
+                      disabled={serverActionDisabled}
+                      onBlur={() => void commitServerTextField('name')}
+                      onChange={(event) =>
+                        updateServerDraft(server.id, 'name', event.target.value)
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') event.currentTarget.blur()
+                      }}
+                    />
+                  </label>
+                  <label className="environment-field">
+                    <span>Description</span>
+                    <input
+                      type="text"
+                      value={serverDescriptionValue}
+                      disabled={serverActionDisabled}
+                      onBlur={() => void commitServerTextField('description')}
+                      onChange={(event) =>
+                        updateServerDraft(
+                          server.id,
+                          'description',
+                          event.target.value,
+                        )
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') event.currentTarget.blur()
+                      }}
+                    />
+                  </label>
+                  <label className="environment-field">
+                    <span>Protocol</span>
+                    <select
+                      value={server.protocol}
+                      disabled={serverRunning || Boolean(busy)}
+                      onChange={(event) =>
+                        void saveServer({
+                          protocol: event.target.value as ApiServerProtocol,
+                        })
+                      }
+                    >
+                      <option value="rest">REST / OpenAPI</option>
+                      <option value="graphql">GraphQL</option>
+                      <option value="grpc">gRPC</option>
+                    </select>
+                  </label>
+                  <label className="environment-field">
+                    <span>Base path</span>
+                    <input
+                      type="text"
+                      value={serverBasePathValue}
+                      disabled={serverActionDisabled}
+                      placeholder="/api"
+                      onBlur={() => void commitServerTextField('basePath')}
+                      onChange={(event) =>
+                        updateServerDraft(
+                          server.id,
+                          'basePath',
+                          event.target.value,
+                        )
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') event.currentTarget.blur()
+                      }}
+                    />
+                  </label>
+                  <label className="environment-field">
+                    <span>Port</span>
+                    <input
+                      type="number"
+                      min={1024}
+                      max={65535}
+                      value={server.port}
+                      disabled={serverRunning || Boolean(busy)}
+                      onChange={(event) =>
+                        void saveServer({
+                          port: clampPort(Number(event.target.value)),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="environment-field">
+                    <span>Datastore</span>
+                    <select
+                      value={server.connectionId ?? ''}
+                      disabled={serverRunning || Boolean(busy)}
+                      onChange={(event) =>
+                        void saveServer({ connectionId: event.target.value })
+                      }
+                    >
+                      {connections.map((connection) => (
+                        <option key={connection.id} value={connection.id}>
+                          {connection.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="environment-field">
+                    <span>Environment</span>
+                    <select
+                      value={server.environmentId ?? ''}
+                      disabled={serverRunning || Boolean(busy)}
+                      onChange={(event) =>
+                        void saveServer({ environmentId: event.target.value })
+                      }
+                    >
+                      {environments.map((environment) => (
+                        <option key={environment.id} value={environment.id}>
+                          {environment.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="settings-check-row api-server-auto-start-row">
+                    <input
+                      type="checkbox"
+                      checked={server.autoStart}
+                      disabled={Boolean(busy)}
+                      onChange={(event) =>
+                        void saveServer({ autoStart: event.target.checked })
+                      }
+                    />
+                    <span>Start automatically</span>
+                  </label>
+                </div>
+                <div className="api-server-card-footer">
+                  <div className="api-server-target-summary">
+                    <ObjectServerIcon className="panel-inline-icon" />
+                    <span>
+                      {selectedConnection
+                        ? `${selectedConnection.engine} / ${selectedConnection.family}`
+                        : 'Select a datastore'}
+                      {selectedEnvironment
+                        ? ` / ${selectedEnvironment.label}`
+                        : ''}
+                    </span>
+                  </div>
+                  {startDisabledReason && !serverRunning ? (
+                    <p className="settings-inline-note">
+                      {startDisabledReason}
+                    </p>
+                  ) : null}
+                </div>
+              </section>
+
+              <section className="environment-card api-server-resources-card">
+                <div className="environment-section-header">
+                  <div className="api-server-section-title">
+                    <strong>Resources</strong>
+                    <span>Expose CRUD endpoints for selected objects.</span>
+                  </div>
+                  {server.resources.length ? (
+                    <button
+                      type="button"
+                      className="drawer-button drawer-button--primary"
+                      disabled={
+                        !server.connectionId ||
+                        !server.environmentId ||
+                        Boolean(busy)
+                      }
+                      onClick={() => void discoverResources()}
+                    >
+                      <PlusIcon className="panel-inline-icon" />
+                      {discoveringResources
+                        ? 'Discovering...'
+                        : 'Add Resources'}
+                    </button>
+                  ) : null}
+                </div>
+                {server.resources.length ? (
+                  <div className="api-server-resource-grid">
+                    {server.resources.map((resource) => (
+                      <div
+                        key={resource.id}
+                        className="api-server-resource-row"
+                      >
+                        <div className="api-server-resource-main">
+                          <strong>{resource.label}</strong>
+                          <span>
+                            {resource.kind}
+                            {resource.detail ? ` / ${resource.detail}` : ''}
+                          </span>
+                        </div>
+                        <code>{resourcePath(server, resource)}</code>
+                        <button
+                          type="button"
+                          className="drawer-button"
+                          disabled={Boolean(busy)}
+                          onClick={() => void removeResource(resource.id)}
+                        >
+                          <TrashIcon className="panel-inline-icon" />
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
+                  <div className="settings-empty api-server-empty-state">
+                    <p>
+                      Choose tables, collections, databases, keys, items, or
+                      indexes from this datastore to generate endpoints.
+                    </p>
+                    <button
+                      type="button"
+                      className="drawer-button drawer-button--primary"
+                      disabled={
+                        !server.connectionId ||
+                        !server.environmentId ||
+                        Boolean(busy)
+                      }
+                      onClick={() => void discoverResources()}
+                    >
+                      <PlusIcon className="panel-inline-icon" />
+                      {discoveringResources
+                        ? 'Discovering...'
+                        : 'Choose Resources'}
+                    </button>
+                  </div>
+                )}
+              </section>
+            </div>
+
+            {resourcePicker ? (
+              <section className="environment-card api-server-picker-card">
+                <div className="environment-section-header">
+                  <div className="api-server-section-title">
+                    <strong>Select Resources</strong>
+                    <span>Choose the objects this server should expose.</span>
+                  </div>
+                  <span>{resourcePicker.length} available</span>
+                </div>
+                {resourcePicker.length ? (
+                  <div className="api-server-resource-grid">
+                    {resourcePicker.map((resource) => (
+                      <label
+                        key={resource.id}
+                        className="settings-check-row api-server-resource-picker-row"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedResourceIds.has(resource.id)}
+                          onChange={(event) => {
+                            setSelectedResourceIds((current) => {
+                              const next = new Set(current)
+                              if (event.target.checked) next.add(resource.id)
+                              else next.delete(resource.id)
+                              return next
+                            })
+                          }}
+                        />
+                        <span>
+                          <strong>{resource.label}</strong>
+                          <small>
+                            {resource.kind}
+                            {resource.detail ? ` / ${resource.detail}` : ''}
+                            {resource.path?.length
+                              ? ` / ${resource.path.join(' / ')}`
+                              : ''}
+                          </small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="settings-empty">
+                    No new CRUD-capable resources were discovered.
+                  </div>
+                )}
+                <div className="drawer-button-row">
                   <button
                     type="button"
                     className="drawer-button drawer-button--primary"
-                    disabled={
-                      !selectedConnection ||
-                      !selectedEnvironment ||
-                      supportedResources.length === 0 ||
-                      Boolean(busy)
-                    }
-                    onClick={() => void startServer()}
+                    disabled={!selectedResourceIds.size || Boolean(busy)}
+                    onClick={() => void addSelectedResources()}
                   >
-                    <PlayIcon className="panel-inline-icon" />
-                    Start
+                    <PlusIcon className="panel-inline-icon" />
+                    Add Selected
                   </button>
-                )}
-              </div>
-            </section>
+                  <button
+                    type="button"
+                    className="drawer-button"
+                    onClick={() => setResourcePicker(undefined)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </section>
+            ) : null}
 
-            <section className="environment-card">
+            <section className="environment-card api-server-custom-endpoints-card">
               <div className="environment-section-header">
-                <strong>CRUD Resources</strong>
-                <span>{supportedResources.length ? 'Generated endpoints' : 'Unsupported'}</span>
+                <div className="api-server-section-title">
+                  <strong>Custom Endpoints</strong>
+                  <span>
+                    Expose saved Library queries with explicit API parameters.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="drawer-button drawer-button--primary"
+                  disabled={!server.connectionId || !server.environmentId || Boolean(busy)}
+                  onClick={() => void openCustomEndpointEditor()}
+                >
+                  <QueryIcon className="panel-inline-icon" />
+                  {busy === 'query-source' ? 'Loading...' : 'Add Query Endpoint'}
+                </button>
               </div>
-              {supportedResources.length > 0 && baseUrl ? (
-                <div className="api-server-resource-grid">
-                  {supportedResources.map((resource) => (
-                    <div key={resource.kind} className="api-server-resource-row">
-                      <strong>{resource.label}</strong>
-                      <span>{resource.detail}</span>
+              {server.protocol !== 'rest' ? (
+                <p className="settings-inline-note">
+                  Custom query endpoints are stored with this server, but only REST/OpenAPI servers serve them in this version.
+                </p>
+              ) : null}
+              {server.customEndpoints.length ? (
+                <div className="api-server-custom-endpoint-grid">
+                  {server.customEndpoints.map((endpoint) => (
+                    <div
+                      key={endpoint.id}
+                      className={`api-server-custom-endpoint-row${
+                        endpoint.enabled === false ? ' is-disabled' : ''
+                      }`}
+                    >
+                      <div className="api-server-method-path">
+                        <span>{endpoint.method}</span>
+                        <code>{customEndpointPath(server, endpoint)}</code>
+                      </div>
+                      <div className="api-server-resource-main">
+                        <strong>{endpoint.label}</strong>
+                        <span>
+                          {endpoint.sourceName}
+                          {' / '}
+                          {formatParameterCount(
+                            endpoint.parameters?.length ?? 0,
+                          )}
+                          {endpoint.enabled === false ? ' / disabled' : ''}
+                        </span>
+                      </div>
+                      <div className="api-server-row-actions">
+                        <button
+                          type="button"
+                          className="drawer-button"
+                          disabled={Boolean(busy)}
+                          onClick={() => void openCustomEndpointEditor(endpoint)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="drawer-button"
+                          disabled={Boolean(busy)}
+                          onClick={() => void removeCustomEndpoint(endpoint.id)}
+                        >
+                          <TrashIcon className="panel-inline-icon" />
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="settings-empty">
-                  This datastore family does not have a generic CRUD adapter mapping yet.
+                <div className="settings-empty api-server-empty-state">
+                  <p>
+                    Add a saved Library query to create a concrete endpoint such
+                    as <code>/users-by-email</code>.
+                  </p>
+                  <button
+                    type="button"
+                    className="drawer-button drawer-button--primary"
+                    disabled={!server.connectionId || !server.environmentId || Boolean(busy)}
+                    onClick={() => void openCustomEndpointEditor()}
+                  >
+                    <QueryIcon className="panel-inline-icon" />
+                    {busy === 'query-source' ? 'Loading...' : 'Add Query Endpoint'}
+                  </button>
                 </div>
               )}
             </section>
 
+            <section
+              className="environment-card api-server-danger-zone"
+              aria-label="Danger zone"
+            >
+              <div className="environment-section-header">
+                <strong>Danger Zone</strong>
+              </div>
+              <div className="api-server-danger-row">
+                <div>
+                  <strong>Delete this API server</strong>
+                  <p>
+                    Remove this server, its resources, docs, metrics, and logs.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="drawer-button drawer-button--danger"
+                  aria-label="Delete selected API server"
+                  disabled={Boolean(busy)}
+                  onClick={() => void deleteServer(server.id)}
+                >
+                  <TrashIcon className="panel-inline-icon" />
+                  Delete Server
+                </button>
+              </div>
+            </section>
           </>
         ) : null}
 
-        {view === 'openapi' ? (
+        {view === 'docs' && server ? (
           <section className="environment-card api-server-docs-card">
             <div className="environment-section-header">
-              <strong>OpenAPI</strong>
-              <span>{docsUrl ? 'Available' : 'Start the server'}</span>
+              <strong>{docsTitle(server)}</strong>
+              <span>{serverRunning ? 'Available' : 'Start the server'}</span>
             </div>
             <div className="drawer-button-row">
               <button
@@ -465,26 +1180,35 @@ export function ApiServerWorkspace({
               <button
                 type="button"
                 className="drawer-button"
-                disabled={!openApiUrl}
-                onClick={() => openInBrowser(openApiUrl)}
+                disabled={!openApiUrl && !graphqlUrl && !protoUrl}
+                onClick={() =>
+                  openInBrowser(openApiUrl ?? graphqlUrl ?? protoUrl)
+                }
               >
-                Open JSON
+                Open{' '}
+                {server?.protocol === 'grpc'
+                  ? 'Proto'
+                  : server?.protocol === 'graphql'
+                    ? 'Schema'
+                    : 'JSON'}
               </button>
             </div>
             {docsUrl ? (
               <iframe
                 className="api-server-docs-frame"
-                title="API Server OpenAPI documentation"
+                title="API Server documentation"
                 src={docsUrl}
               />
             ) : (
-              <div className="settings-empty">Start the API server to view the interactive docs.</div>
+              <div className="settings-empty">
+                Start the API server to view interactive docs.
+              </div>
             )}
           </section>
         ) : null}
 
-        {view === 'metrics' ? (
-          <section className="environment-card">
+        {view === 'metrics' && server ? (
+          <section className="environment-card api-server-observability-card">
             <div className="environment-section-header">
               <strong>Metrics</strong>
               <button
@@ -499,10 +1223,22 @@ export function ApiServerWorkspace({
               </button>
             </div>
             <div className="api-server-runtime-grid">
-              <Metric label="Requests" value={formatNumber(metrics?.totalRequests ?? 0)} />
-              <Metric label="Errors" value={formatNumber(metrics?.totalErrors ?? 0)} />
-              <Metric label="Routes" value={formatNumber(metrics?.routes.length ?? 0)} />
-              <Metric label="Response Bytes" value={formatNumber(metrics?.responseBytes ?? 0)} />
+              <Metric
+                label="Requests"
+                value={formatNumber(metrics?.totalRequests ?? 0)}
+              />
+              <Metric
+                label="Errors"
+                value={formatNumber(metrics?.totalErrors ?? 0)}
+              />
+              <Metric
+                label="Routes"
+                value={formatNumber(metrics?.routes.length ?? 0)}
+              />
+              <Metric
+                label="Response Bytes"
+                value={formatNumber(metrics?.responseBytes ?? 0)}
+              />
             </div>
             {metrics?.routes.length ? (
               <div className="api-server-table-wrap">
@@ -536,13 +1272,15 @@ export function ApiServerWorkspace({
                 </table>
               </div>
             ) : (
-              <div className="settings-empty">No endpoint metrics have been recorded yet.</div>
+              <div className="settings-empty">
+                No endpoint metrics have been recorded yet.
+              </div>
             )}
           </section>
         ) : null}
 
-        {view === 'logs' ? (
-          <section className="environment-card">
+        {view === 'logs' && server ? (
+          <section className="environment-card api-server-observability-card">
             <div className="environment-section-header">
               <strong>Logs</strong>
               <button
@@ -578,7 +1316,11 @@ export function ApiServerWorkspace({
                           <code>{entry.route}</code>
                         </td>
                         <td>
-                          <span className={entry.status >= 400 ? 'is-error' : 'is-ok'}>
+                          <span
+                            className={
+                              entry.status >= 400 ? 'is-error' : 'is-ok'
+                            }
+                          >
                             {entry.status}
                           </span>
                         </td>
@@ -590,18 +1332,37 @@ export function ApiServerWorkspace({
                 </table>
               </div>
             ) : (
-              <div className="settings-empty">No endpoint logs have been recorded yet.</div>
+              <div className="settings-empty">
+                No endpoint logs have been recorded yet.
+              </div>
             )}
           </section>
         ) : null}
       </div>
+      {endpointEditor ? (
+        <CustomEndpointEditorDialog
+          busy={busy === 'custom-endpoint' || busy === 'query-source'}
+          editor={endpointEditor}
+          error={endpointEditorError}
+          sources={querySources ?? []}
+          onCancel={() => {
+            setEndpointEditor(undefined)
+            setQuerySources(undefined)
+            setEndpointEditorError(undefined)
+          }}
+          onParameterChange={updateEndpointParameter}
+          onSave={() => void saveCustomEndpoint()}
+          onSelectSource={selectEndpointSource}
+          onUpdate={updateEndpointDraft}
+        />
+      ) : null}
     </section>
   )
 }
 
 const apiServerViews: Array<{ id: ApiServerView; label: string }> = [
   { id: 'overview', label: 'Overview' },
-  { id: 'openapi', label: 'OpenAPI' },
+  { id: 'docs', label: 'Docs' },
   { id: 'metrics', label: 'Metrics' },
   { id: 'logs', label: 'Logs' },
 ]
@@ -615,39 +1376,354 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
+function CustomEndpointEditorDialog({
+  busy,
+  editor,
+  error,
+  sources,
+  onCancel,
+  onParameterChange,
+  onSave,
+  onSelectSource,
+  onUpdate,
+}: {
+  busy: boolean
+  editor: CustomEndpointEditorState
+  error?: string
+  sources: DatastoreApiServerQuerySource[]
+  onCancel(): void
+  onParameterChange(
+    name: string,
+    patch: Partial<DatastoreApiServerCustomEndpointParameterConfig>,
+  ): void
+  onSave(): void
+  onSelectSource(sourceId: string): void
+  onUpdate(patch: Partial<DatastoreApiServerCustomEndpointConfig>): void
+}) {
+  const endpoint = editor.endpoint
+  const parameters = endpoint.parameters ?? []
+
+  return (
+    <div className="workbench-modal-overlay" role="presentation">
+      <section
+        className="workbench-dialog api-server-endpoint-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="api-server-endpoint-dialog-title"
+      >
+        <p className="sidebar-eyebrow">REST Custom Endpoint</p>
+        <h2 id="api-server-endpoint-dialog-title">
+          {editor.mode === 'edit' ? 'Edit Query Endpoint' : 'Add Query Endpoint'}
+        </h2>
+
+        <div className="api-server-endpoint-form">
+          <label className="environment-field api-server-endpoint-source">
+            <span>Library query</span>
+            {editor.mode === 'edit' ? (
+              <input type="text" value={endpoint.sourceName} disabled />
+            ) : (
+              <select
+                value={endpoint.sourceLibraryNodeId}
+                disabled={busy || !sources.length}
+                onChange={(event) => onSelectSource(event.target.value)}
+              >
+                {sources.length ? null : (
+                  <option value="">No compatible saved queries</option>
+                )}
+                {sources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {source.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+
+          <div className="environment-form-grid">
+            <label className="environment-field">
+              <span>Name</span>
+              <input
+                type="text"
+                value={endpoint.label}
+                disabled={busy}
+                onChange={(event) => onUpdate({ label: event.target.value })}
+              />
+            </label>
+            <label className="environment-field">
+              <span>Slug</span>
+              <input
+                type="text"
+                value={endpoint.endpointSlug}
+                disabled={busy}
+                onChange={(event) =>
+                  onUpdate({ endpointSlug: event.target.value })
+                }
+              />
+            </label>
+            <label className="environment-field">
+              <span>Method</span>
+              <select
+                value={endpoint.method}
+                disabled={busy}
+                onChange={(event) =>
+                  onUpdate({
+                    method:
+                      event.target.value === 'POST' ? 'POST' : 'GET',
+                  })
+                }
+              >
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+              </select>
+            </label>
+            <label className="environment-field">
+              <span>Max rows</span>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={endpoint.rowLimit ?? 100}
+                disabled={busy}
+                onChange={(event) =>
+                  onUpdate({ rowLimit: Number(event.target.value) })
+                }
+              />
+            </label>
+          </div>
+
+          <label className="environment-field">
+            <span>Description</span>
+            <input
+              type="text"
+              value={endpoint.description ?? ''}
+              disabled={busy}
+              onChange={(event) =>
+                onUpdate({ description: event.target.value })
+              }
+            />
+          </label>
+
+          <label className="settings-check-row">
+            <input
+              type="checkbox"
+              checked={endpoint.enabled !== false}
+              disabled={busy}
+              onChange={(event) => onUpdate({ enabled: event.target.checked })}
+            />
+            <span>Endpoint enabled</span>
+          </label>
+
+          <section className="api-server-endpoint-subsection">
+            <div className="environment-section-header">
+              <strong>Parameters</strong>
+              <span>
+                {parameters.length
+                  ? formatParameterCount(parameters.length)
+                  : 'None detected'}
+              </span>
+            </div>
+            {parameters.length ? (
+              <div className="api-server-table-wrap">
+                <table className="api-server-table api-server-parameter-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th>Required</th>
+                      <th>Serialization</th>
+                      <th>Default</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parameters.map((parameter) => (
+                      <tr key={parameter.name}>
+                        <td>
+                          <code>{parameter.name}</code>
+                        </td>
+                        <td>
+                          <select
+                            value={parameter.type}
+                            disabled={busy}
+                            onChange={(event) =>
+                              onParameterChange(parameter.name, {
+                                type: event.target
+                                  .value as DatastoreApiServerCustomEndpointParameterConfig['type'],
+                              })
+                            }
+                          >
+                            <option value="string">String</option>
+                            <option value="number">Number</option>
+                            <option value="boolean">Boolean</option>
+                            <option value="json">JSON</option>
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={parameter.required}
+                            disabled={busy}
+                            onChange={(event) =>
+                              onParameterChange(parameter.name, {
+                                required: event.target.checked,
+                              })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <select
+                            value={parameter.serialization ?? 'auto'}
+                            disabled={busy}
+                            onChange={(event) =>
+                              onParameterChange(parameter.name, {
+                                serialization: event.target
+                                  .value as DatastoreApiServerCustomEndpointParameterConfig['serialization'],
+                              })
+                            }
+                          >
+                            <option value="auto">Auto</option>
+                            <option value="sql">SQL</option>
+                            <option value="json">JSON</option>
+                            <option value="raw">Raw</option>
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={
+                              parameter.defaultValue === undefined
+                                ? ''
+                                : String(parameter.defaultValue)
+                            }
+                            disabled={busy}
+                            onChange={(event) =>
+                              onParameterChange(parameter.name, {
+                                defaultValue:
+                                  event.target.value === ''
+                                    ? undefined
+                                    : event.target.value,
+                              })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={parameter.description ?? ''}
+                            disabled={busy}
+                            onChange={(event) =>
+                              onParameterChange(parameter.name, {
+                                description: event.target.value,
+                              })
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="settings-empty">
+                Use tokens like <code>{'{{api.email}}'}</code> in the saved
+                query to accept endpoint parameters.
+              </div>
+            )}
+          </section>
+
+          <section className="api-server-endpoint-subsection">
+            <div className="environment-section-header">
+              <strong>Query Preview</strong>
+              <span>{endpoint.language}</span>
+            </div>
+            <pre className="api-server-query-preview">
+              {endpoint.queryText || 'No query selected.'}
+            </pre>
+          </section>
+
+          {error ? <p className="settings-inline-note is-error">{error}</p> : null}
+        </div>
+
+        <div className="workbench-dialog-actions">
+          <button type="button" className="drawer-button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="drawer-button drawer-button--primary"
+            disabled={busy || !endpoint.sourceLibraryNodeId || !endpoint.queryText}
+            onClick={onSave}
+          >
+            {busy ? 'Saving...' : 'Save Endpoint'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function useResettableState<T>(resetValue: T) {
   const [state, setState] = useState(() => ({
     resetValue,
     value: resetValue,
   }))
-  const value = Object.is(state.resetValue, resetValue) ? state.value : resetValue
+  const value = Object.is(state.resetValue, resetValue)
+    ? state.value
+    : resetValue
   const setValue = (nextValue: T) => setState({ resetValue, value: nextValue })
   return [value, setValue] as const
 }
 
-function normalizeApiServerConfigs(preferences: ApiServerPreferences): ApiServerConfig[] {
+function normalizeApiServerConfigs(
+  preferences: ApiServerPreferences,
+): ApiServerConfig[] {
+  const hasLegacyServer =
+    !preferences.servers?.length &&
+    (typeof preferences.connectionId === 'string' ||
+      typeof preferences.environmentId === 'string' ||
+      Boolean(preferences.autoStart) ||
+      (typeof preferences.port === 'number' &&
+        preferences.port !== DEFAULT_API_PORT) ||
+      (typeof preferences.activeServerId === 'string' &&
+        preferences.activeServerId !== 'api-server-default'))
   const servers = preferences.servers?.length
     ? preferences.servers
-    : [{
-        id: preferences.activeServerId || 'api-server-default',
-        name: 'Local API Server',
-        host: '127.0.0.1' as const,
-        port: preferences.port ?? DEFAULT_API_PORT,
-        autoStart: preferences.autoStart,
-        connectionId: preferences.connectionId,
-        environmentId: preferences.environmentId,
-      }]
+    : hasLegacyServer
+      ? [
+          {
+            id: preferences.activeServerId || 'api-server-default',
+            name: 'Local API Server',
+            host: '127.0.0.1' as const,
+            port: preferences.port ?? DEFAULT_API_PORT,
+            autoStart: preferences.autoStart,
+            connectionId: preferences.connectionId,
+            environmentId: preferences.environmentId,
+            protocol: 'rest' as const,
+            basePath: '',
+            resources: [],
+            customEndpoints: [],
+          },
+        ]
+      : []
 
   return servers.map((server, index) => {
     const port = clampPort(server.port)
     return {
       id: server.id || `api-server-${index + 1}`,
       name: server.name?.trim() || defaultApiServerName(port),
+      description: server.description?.trim() || undefined,
       host: '127.0.0.1',
       port,
       autoStart: Boolean(server.autoStart),
+      protocol: normalizeProtocol(server.protocol),
+      basePath: normalizeBasePath(server.basePath),
       connectionId: server.connectionId,
       environmentId: server.environmentId,
+      resources: normalizeResources(server.resources ?? []),
+      customEndpoints: normalizeCustomEndpoints(
+        server.customEndpoints ?? [],
+        server.resources ?? [],
+      ),
     }
   })
 }
@@ -658,96 +1734,293 @@ function statusToInstance(
   return {
     id: status.serverId ?? status.activeServerId ?? 'api-server-default',
     name: status.name ?? defaultApiServerName(status.port),
+    description: status.description,
     running: status.running,
     host: status.host,
     port: status.port,
+    protocol: status.protocol ?? 'rest',
+    basePath: status.basePath ?? '',
     baseUrl: status.baseUrl,
     connectionId: status.connectionId,
     environmentId: status.environmentId,
     startedAt: status.startedAt,
     message: status.message,
     warnings: status.warnings,
+    resources: status.resources ?? [],
+    customEndpoints: status.customEndpoints ?? [],
   }
 }
 
-function nextAvailableApiServerPort(servers: ApiServerConfig[]) {
-  const usedPorts = new Set(servers.map((server) => server.port))
-  let port = DEFAULT_API_PORT
-  while (usedPorts.has(port) && port < 65535) {
-    port += 1
+async function withResourceDiscoveryTimeout<T>(
+  request: Promise<T>,
+): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), RESOURCE_DISCOVERY_TIMEOUT_MS)
+  })
+  try {
+    return await Promise.race([request.catch(() => undefined), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
-  return clampPort(port)
+}
+
+function mergeStatusIntoServer(
+  server: ApiServerConfig | undefined,
+  status: DatastoreApiServerStatus['servers'][number],
+): ApiServerConfig {
+  return {
+    id: status.id,
+    name: status.name,
+    description: status.description ?? server?.description,
+    host: '127.0.0.1',
+    port: status.port,
+    autoStart: Boolean(server?.autoStart),
+    protocol: normalizeProtocol(status.protocol ?? server?.protocol),
+    basePath: normalizeBasePath(status.basePath ?? server?.basePath),
+    connectionId: status.connectionId ?? server?.connectionId,
+    environmentId: status.environmentId ?? server?.environmentId,
+    resources: normalizeResources(status.resources ?? server?.resources ?? []),
+    customEndpoints: normalizeCustomEndpoints(
+      status.customEndpoints ?? server?.customEndpoints ?? [],
+      status.resources ?? server?.resources ?? [],
+    ),
+  }
+}
+
+function normalizeResources(resources: DatastoreApiServerResourceConfig[]) {
+  return resources.map((resource) => ({
+    ...resource,
+    endpointSlug: slug(resource.endpointSlug || resource.label),
+    enabled: resource.enabled !== false,
+  }))
+}
+
+function normalizeCustomEndpoints(
+  endpoints: DatastoreApiServerCustomEndpointConfig[],
+  resources: DatastoreApiServerResourceConfig[],
+) {
+  const seen = new Map<string, number>()
+  for (const resource of normalizeResources(resources)) {
+    seen.set(resource.endpointSlug, 1)
+  }
+  return endpoints.map((endpoint, index) =>
+    normalizeCustomEndpoint(
+      {
+        ...endpoint,
+        endpointSlug: uniqueSlug(endpoint.endpointSlug || endpoint.label, seen),
+      },
+      index,
+    ),
+  )
+}
+
+function normalizeCustomEndpoint(
+  endpoint: DatastoreApiServerCustomEndpointConfig,
+  index = 0,
+): DatastoreApiServerCustomEndpointConfig {
+  const label =
+    endpoint.label?.trim() ||
+    endpoint.sourceName?.trim() ||
+    `Query Endpoint ${index + 1}`
+  const sourceName = endpoint.sourceName?.trim() || label
+  const endpointSlug = slug(endpoint.endpointSlug || label)
+  return {
+    id: endpoint.id || `api-endpoint-${index + 1}`,
+    label,
+    description: endpoint.description?.trim() || undefined,
+    endpointSlug,
+    enabled: endpoint.enabled !== false,
+    method: endpoint.method === 'POST' ? 'POST' : 'GET',
+    sourceLibraryNodeId: endpoint.sourceLibraryNodeId || '',
+    sourceName,
+    queryText: endpoint.queryText ?? '',
+    language: endpoint.language ?? 'sql',
+    queryViewMode:
+      endpoint.queryViewMode === 'builder' ||
+      endpoint.queryViewMode === 'script'
+        ? endpoint.queryViewMode
+        : 'raw',
+    rowLimit: clampRowLimit(endpoint.rowLimit),
+    parameters: normalizeEndpointParameters(
+      endpoint.parameters ?? [],
+      endpoint.queryText ?? '',
+    ),
+  }
+}
+
+function normalizeEndpointParameters(
+  parameters: DatastoreApiServerCustomEndpointParameterConfig[],
+  queryText: string,
+) {
+  const seen = new Set<string>()
+  const normalized: DatastoreApiServerCustomEndpointParameterConfig[] = []
+  for (const [index, parameter] of parameters.entries()) {
+    const name = isApiParameterName(parameter.name)
+      ? parameter.name.trim()
+      : `param${index + 1}`
+    if (seen.has(name)) continue
+    seen.add(name)
+    normalized.push({
+      name,
+      type:
+        parameter.type === 'number' ||
+        parameter.type === 'boolean' ||
+        parameter.type === 'json'
+          ? parameter.type
+          : 'string',
+      required: Boolean(parameter.required),
+      defaultValue: parameter.defaultValue,
+      description: parameter.description?.trim() || undefined,
+      serialization:
+        parameter.serialization === 'sql' ||
+        parameter.serialization === 'json' ||
+        parameter.serialization === 'raw'
+          ? parameter.serialization
+          : 'auto',
+    })
+  }
+  for (const name of apiParameterNames(queryText)) {
+    if (seen.has(name)) continue
+    seen.add(name)
+    normalized.push({
+      name,
+      type: 'string',
+      required: true,
+      serialization: 'auto',
+    })
+  }
+  return normalized
+}
+
+function customEndpointFromSource(
+  source: DatastoreApiServerQuerySource | undefined,
+  server: ApiServerConfig,
+  endpointId = `api-endpoint-${Date.now()}`,
+): DatastoreApiServerCustomEndpointConfig {
+  const label = source?.name?.trim() || 'Query Endpoint'
+  const usedSlugs = new Map<string, number>()
+  for (const resource of server.resources) usedSlugs.set(resource.endpointSlug, 1)
+  for (const endpoint of server.customEndpoints) {
+    if (endpoint.id !== endpointId) usedSlugs.set(endpoint.endpointSlug, 1)
+  }
+  const queryText = source?.queryText ?? ''
+  return normalizeCustomEndpoint({
+    id: endpointId,
+    label,
+    description: source?.summary,
+    endpointSlug: uniqueSlug(label, usedSlugs),
+    enabled: true,
+    method: 'GET',
+    sourceLibraryNodeId: source?.id ?? '',
+    sourceName: source?.name ?? label,
+    queryText,
+    language: source?.language ?? 'sql',
+    queryViewMode: source?.queryViewMode ?? 'raw',
+    rowLimit: 100,
+    parameters: normalizeEndpointParameters([], queryText),
+  })
+}
+
+function resourcePath(
+  server: ApiServerConfig,
+  resource: DatastoreApiServerResourceConfig,
+) {
+  const basePath = normalizeBasePath(server.basePath)
+  const endpoint = `/${slug(resource.endpointSlug || resource.label)}`
+  return `${basePath}${endpoint}` || endpoint
+}
+
+function customEndpointPath(
+  server: ApiServerConfig,
+  endpoint: DatastoreApiServerCustomEndpointConfig,
+) {
+  const basePath = normalizeBasePath(server.basePath)
+  const endpointPath = `/${slug(endpoint.endpointSlug || endpoint.label)}`
+  return `${basePath}${endpointPath}` || endpointPath
+}
+
+function docsTitle(server: ApiServerConfig | undefined) {
+  if (server?.protocol === 'graphql') return 'GraphQL'
+  if (server?.protocol === 'grpc') return 'gRPC'
+  return 'OpenAPI'
+}
+
+function protocolDisplayName(protocol: ApiServerProtocol | undefined) {
+  if (protocol === 'graphql') return 'GraphQL'
+  if (protocol === 'grpc') return 'gRPC'
+  return 'REST'
+}
+
+function formatExposureCount(resources: number, customEndpoints: number) {
+  if (!resources && !customEndpoints) return 'None'
+  if (!customEndpoints) {
+    return resources === 1 ? '1 resource' : `${formatNumber(resources)} resources`
+  }
+  if (!resources) {
+    return customEndpoints === 1
+      ? '1 query endpoint'
+      : `${formatNumber(customEndpoints)} query endpoints`
+  }
+  return `${formatNumber(resources)} CRUD / ${formatNumber(customEndpoints)} custom`
+}
+
+function formatParameterCount(count: number) {
+  return count === 1 ? '1 parameter' : `${formatNumber(count)} parameters`
+}
+
+function serverStartDisabledReason(server: ApiServerConfig | undefined) {
+  if (!server?.connectionId)
+    return 'Choose a datastore before starting this server.'
+  if (!server.environmentId)
+    return 'Choose an environment before starting this server.'
+  const hasCrudResource = server.resources.some(
+    (resource) => resource.enabled !== false,
+  )
+  const hasCustomEndpoint = server.customEndpoints.some(
+    (endpoint) => endpoint.enabled !== false,
+  )
+  if (!hasCrudResource && !hasCustomEndpoint)
+    return 'Add at least one CRUD resource or query endpoint before starting this server.'
+  return undefined
 }
 
 function defaultApiServerName(port: number) {
   const safePort = clampPort(port)
-  return safePort === DEFAULT_API_PORT ? 'Local API Server' : `Local API Server ${safePort}`
+  return safePort === DEFAULT_API_PORT
+    ? 'Local API Server'
+    : `Local API Server ${safePort}`
 }
 
-function supportedCrudResources(connection?: ConnectionProfile): Array<{
-  kind: CrudResourceKind
-  label: string
-  detail: string
-}> {
-  if (!connection) {
-    return []
-  }
+function normalizeProtocol(
+  value: ApiServerConfig['protocol'] | undefined,
+): ApiServerProtocol {
+  return value === 'graphql' || value === 'grpc' ? value : 'rest'
+}
 
-  if (connection.engine === 'redis' || connection.engine === 'valkey') {
-    return [
-      {
-        kind: 'key',
-        label: 'Keys',
-        detail: 'Concrete key CRUD routes are generated from datastore discovery.',
-      },
-    ]
-  }
+function normalizeBasePath(value: string | undefined) {
+  const trimmed = (value ?? '').trim().replace(/^\/+|\/+$/g, '')
+  return trimmed ? `/${trimmed}` : ''
+}
 
-  if (connection.engine === 'mongodb' || connection.engine === 'litedb') {
-    return [
-      {
-        kind: 'collection',
-        label: 'Collections',
-        detail: 'Concrete collection CRUD routes are generated from datastore discovery.',
-      },
-    ]
-  }
+function slug(value: string) {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'resource'
+  )
+}
 
-  if (connection.engine === 'dynamodb') {
-    return [
-      {
-        kind: 'item',
-        label: 'Items',
-        detail: 'Concrete item CRUD routes are generated from datastore discovery.',
-      },
-    ]
-  }
-
-  if (connection.engine === 'elasticsearch' || connection.engine === 'opensearch') {
-    return [
-      {
-        kind: 'index',
-        label: 'Indexes',
-        detail: 'Concrete index CRUD routes are generated from datastore discovery.',
-      },
-    ]
-  }
-
-  if (
-    connection.family === 'sql' ||
-    connection.family === 'embedded-olap' ||
-    connection.family === 'warehouse'
-  ) {
-    return [
-      {
-        kind: 'table',
-        label: 'Tables',
-        detail: 'Concrete table CRUD routes are generated from datastore discovery.',
-      },
-    ]
-  }
-
-  return []
+function uniqueSlug(value: string, seen: Map<string, number>) {
+  const base = slug(value)
+  const count = seen.get(base) ?? 0
+  seen.set(base, count + 1)
+  if (!count) return base
+  const next = `${base}-${count + 1}`
+  seen.set(next, 1)
+  return next
 }
 
 function clampPort(value: number) {
@@ -755,18 +2028,38 @@ function clampPort(value: number) {
   return Math.min(65535, Math.max(1024, Math.floor(value)))
 }
 
-function formatDuration(value: number) {
-  return `${Math.round(value * 100) / 100} ms`
+function clampRowLimit(value: number | undefined) {
+  if (!Number.isFinite(value ?? Number.NaN)) return 100
+  return Math.min(500, Math.max(1, Math.floor(value ?? 100)))
+}
+
+function apiParameterNames(queryText: string) {
+  const names: string[] = []
+  const pattern = /\{\{api\.([^}]+)\}\}/g
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(queryText))) {
+    const name = match[1]?.trim()
+    if (name && isApiParameterName(name) && !names.includes(name)) {
+      names.push(name)
+    }
+  }
+  return names
+}
+
+function isApiParameterName(name: string) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name.trim())
 }
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat().format(value)
 }
 
+function formatDuration(value: number | undefined) {
+  if (value === undefined) return 'None'
+  return `${Math.round(value * 100) / 100} ms`
+}
+
 function formatTimestamp(value: string) {
   const date = new Date(value)
-  if (Number.isNaN(date.valueOf())) {
-    return value
-  }
-  return date.toLocaleTimeString()
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString()
 }

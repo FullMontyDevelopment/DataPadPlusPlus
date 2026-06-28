@@ -63,10 +63,23 @@ interface LibraryPaneProps {
   apiServers?: DatastoreApiServerInstanceStatus[]
   workspaceSearchEnabled?: boolean
   activeWorkspaceSearch?: boolean
-  getConnectionExplorerItems?(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
-  getConnectionExplorerStatus?(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
-  getConnectionHealth?(connectionId: string, environmentId?: string): ConnectionHealth | undefined
-  isExplorerScopeLoading?(connectionId: string, scope?: string, environmentId?: string): boolean
+  getConnectionExplorerItems?(
+    connectionId: string,
+    environmentId?: string,
+  ): ExplorerNode[] | undefined
+  getConnectionExplorerStatus?(
+    connectionId: string,
+    environmentId?: string,
+  ): 'idle' | 'loading' | 'ready'
+  getConnectionHealth?(
+    connectionId: string,
+    environmentId?: string,
+  ): ConnectionHealth | undefined
+  isExplorerScopeLoading?(
+    connectionId: string,
+    scope?: string,
+    environmentId?: string,
+  ): boolean
   libraryFilter: string
   libraryNodes: LibraryNode[]
   sectionStates: Record<string, boolean>
@@ -83,12 +96,19 @@ interface LibraryPaneProps {
   onDuplicateConnection?(connectionId: string): void
   onEditEnvironment?(environmentId: string): void
   onLibraryFilterChange(value: string): void
-  onLoadExplorerScope?(connectionId: string, scope?: string, environmentId?: string): void
+  onLoadExplorerScope?(
+    connectionId: string,
+    scope?: string,
+    environmentId?: string,
+  ): void
   onMoveNode(nodeId: string, parentId?: string): void
   onOpenConnectionDrawer?(connectionId: string): void
   onOpenConnectionExplorer?(connectionId: string): void
   onOpenConnectionMetrics?(connectionId: string): void
   onInspectExplorerNode?(node: ExplorerNode): void
+  onCreateApiServerFromNode?(connectionId: string, node: ExplorerNode): void
+  onCreateApiServer?(): void
+  onAddNodeToApiServer?(connectionId: string, node: ExplorerNode): void
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery?(connectionId: string, target: ScopedQueryTarget): void
   onOpenApiServer?(serverId?: string): void
@@ -213,6 +233,9 @@ export function LibraryPane({
   onOpenConnectionExplorer = noop,
   onOpenConnectionMetrics = noop,
   onInspectExplorerNode = noop,
+  onCreateApiServerFromNode,
+  onCreateApiServer,
+  onAddNodeToApiServer,
   onOpenObjectView = noop,
   onOpenScopedQuery = noop,
   onOpenApiServer = noop,
@@ -230,9 +253,12 @@ export function LibraryPane({
   onTestConnection = noop,
 }: LibraryPaneProps) {
   const [contextMenu, setContextMenu] = useState<LibraryContextMenuState>()
-  const [createFolderDialog, setCreateFolderDialog] = useState<CreateFolderDialogState>()
-  const [environmentMenu, setEnvironmentMenu] = useState<EnvironmentContextMenuState>()
-  const [apiServerMenu, setApiServerMenu] = useState<ApiServerContextMenuState>()
+  const [createFolderDialog, setCreateFolderDialog] =
+    useState<CreateFolderDialogState>()
+  const [environmentMenu, setEnvironmentMenu] =
+    useState<EnvironmentContextMenuState>()
+  const [apiServerMenu, setApiServerMenu] =
+    useState<ApiServerContextMenuState>()
   const [moveNodeDialog, setMoveNodeDialog] = useState<MoveNodeDialogState>()
   const [renameNodeDialog, setRenameNodeDialog] = useState<LibraryNode>()
   const [draggedNodeId, setDraggedNodeId] = useState<string>()
@@ -249,26 +275,18 @@ export function LibraryPane({
   )
   const tree = useMemo(() => buildLibraryTree(filteredNodes), [filteredNodes])
   const hasLibraryNodes = filteredNodes.length > 0
-  const recentLibraryItems = useMemo(() => recentLibraryNodes(libraryNodes), [libraryNodes])
+  const recentLibraryItems = useMemo(
+    () => recentLibraryNodes(libraryNodes),
+    [libraryNodes],
+  )
   const recentsCount = recentLibraryItems.length + closedTabs.length
   const recentsExpanded = sectionStates[RECENTS_SECTION_ID] ?? true
   const apiServerExpanded = sectionStates[API_SERVER_SECTION_ID] ?? true
   const environmentsExpanded = sectionStates[ENVIRONMENTS_SECTION_ID] ?? true
-  const displayedApiServers = useMemo(
-    () =>
-      apiServers.length > 0
-        ? apiServers
-        : [{
-            id: 'api-server-default',
-            name: 'Local API Server',
-            running: false,
-            host: '127.0.0.1' as const,
-            port: 17640,
-            message: 'Experimental datastore API server is stopped.',
-            warnings: [],
-          }],
-    [apiServers],
-  )
+  const displayedApiServers = apiServers
+  const apiServerMenuStartDisabledReason = apiServerMenu
+    ? apiServerStartDisabledReason(apiServerMenu.server)
+    : undefined
   const connectionById = useMemo(
     () => new Map(connections.map((connection) => [connection.id, connection])),
     [connections],
@@ -331,14 +349,19 @@ export function LibraryPane({
     setMoveNodeDialog({
       node,
       initialPath: node.parentId
-        ? libraryNodePath(libraryNodes, libraryNodes.find((item) => item.id === node.parentId))
+        ? libraryNodePath(
+            libraryNodes,
+            libraryNodes.find((item) => item.id === node.parentId),
+          )
         : '',
     })
   }
 
   const showDropTarget = (target?: LibraryDropTarget) => {
     setRootDragActive(target?.kind === 'root')
-    setFolderDropTargetId(target?.kind === 'folder' ? target.parentId : undefined)
+    setFolderDropTargetId(
+      target?.kind === 'folder' ? target.parentId : undefined,
+    )
   }
 
   const clearDrag = () => {
@@ -348,7 +371,10 @@ export function LibraryPane({
     setRootDragActive(false)
   }
 
-  const beginPointerDrag = (nodeId: string, event: ReactPointerEvent<HTMLElement>) => {
+  const beginPointerDrag = (
+    nodeId: string,
+    event: ReactPointerEvent<HTMLElement>,
+  ) => {
     if (event.button !== 0) {
       return
     }
@@ -370,14 +396,24 @@ export function LibraryPane({
       return
     }
 
-    const distance = Math.hypot(event.clientX - session.startX, event.clientY - session.startY)
+    const distance = Math.hypot(
+      event.clientX - session.startX,
+      event.clientY - session.startY,
+    )
     if (!session.active && distance < POINTER_DRAG_THRESHOLD) {
       return
     }
 
     session.active = true
     setDraggedNodeId(session.nodeId)
-    showDropTarget(dropTargetFromPoint(event.clientX, event.clientY, session.nodeId, libraryNodes))
+    showDropTarget(
+      dropTargetFromPoint(
+        event.clientX,
+        event.clientY,
+        session.nodeId,
+        libraryNodes,
+      ),
+    )
     event.preventDefault()
     event.stopPropagation()
   }
@@ -390,7 +426,12 @@ export function LibraryPane({
     }
 
     if (session.active) {
-      const target = dropTargetFromPoint(event.clientX, event.clientY, session.nodeId, libraryNodes)
+      const target = dropTargetFromPoint(
+        event.clientX,
+        event.clientY,
+        session.nodeId,
+        libraryNodes,
+      )
 
       if (target) {
         onMoveNode(session.nodeId, target.parentId)
@@ -420,29 +461,43 @@ export function LibraryPane({
   const resizeRecents = (nextHeight: number) => {
     const clamped = clamp(nextHeight, MIN_RECENTS_HEIGHT, MAX_RECENTS_HEIGHT)
     setRecentsHeight(clamped)
-    window.localStorage.setItem('datapadplusplus.library.recentsHeight', String(clamped))
+    window.localStorage.setItem(
+      'datapadplusplus.library.recentsHeight',
+      String(clamped),
+    )
   }
-  const contextMenuConnection = contextMenu?.node.kind === 'connection' && contextMenu.node.connectionId
-    ? connectionById.get(contextMenu.node.connectionId)
-    : undefined
+  const contextMenuConnection =
+    contextMenu?.node.kind === 'connection' && contextMenu.node.connectionId
+      ? connectionById.get(contextMenu.node.connectionId)
+      : undefined
   const contextMenuEnvironmentId = contextMenu
-    ? effectiveEnvironmentForNode(contextMenu.node, libraryNodes, environments)?.environment.id ?? activeEnvironmentId
+    ? (effectiveEnvironmentForNode(contextMenu.node, libraryNodes, environments)
+        ?.environment.id ?? activeEnvironmentId)
     : activeEnvironmentId
   const contextMenuAdapter = contextMenuConnection
-    ? adapterManifests.find((manifest) => manifest.engine === contextMenuConnection.engine)
+    ? adapterManifests.find(
+        (manifest) => manifest.engine === contextMenuConnection.engine,
+      )
     : undefined
   const contextMenuCapabilities = new Set([
     ...(contextMenuAdapter?.capabilities ?? []),
     ...(contextMenuConnection
-      ? datastoreBacklogByEngine(contextMenuConnection.engine)?.capabilities ?? []
+      ? (datastoreBacklogByEngine(contextMenuConnection.engine)?.capabilities ??
+        [])
       : []),
   ])
-  const contextMenuSupportsMetrics = contextMenuCapabilities.has('supports_metrics_collection')
+  const contextMenuSupportsMetrics = contextMenuCapabilities.has(
+    'supports_metrics_collection',
+  )
 
   return (
     <>
       <div className="sidebar-header sidebar-header--toolbar-only">
-        <div className="sidebar-actions" role="toolbar" aria-label="Library actions">
+        <div
+          className="sidebar-actions"
+          role="toolbar"
+          aria-label="Library actions"
+        >
           <button
             type="button"
             className="sidebar-icon-button"
@@ -505,12 +560,23 @@ export function LibraryPane({
             <div className="sidebar-empty library-empty-placeholder">
               <DatabaseIcon className="empty-icon" />
               <strong>Start your workspace</strong>
-              <p>Add your first datastore connection or create a folder to organize work.</p>
+              <p>
+                Add your first datastore connection or create a folder to
+                organize work.
+              </p>
               <div className="sidebar-empty-actions">
-                <button type="button" className="sidebar-empty-action" onClick={() => onCreateConnection()}>
+                <button
+                  type="button"
+                  className="sidebar-empty-action"
+                  onClick={() => onCreateConnection()}
+                >
                   Add Connection
                 </button>
-                <button type="button" className="sidebar-empty-action" onClick={() => requestCreateFolder()}>
+                <button
+                  type="button"
+                  className="sidebar-empty-action"
+                  onClick={() => requestCreateFolder()}
+                >
                   Add Folder
                 </button>
               </div>
@@ -563,6 +629,8 @@ export function LibraryPane({
                 onOpenConnectionExplorer={onOpenConnectionExplorer}
                 onOpenConnectionMetrics={onOpenConnectionMetrics}
                 onInspectExplorerNode={onInspectExplorerNode}
+                onCreateApiServerFromNode={onCreateApiServerFromNode}
+                onAddNodeToApiServer={onAddNodeToApiServer}
                 onOpenObjectView={onOpenObjectView}
                 onOpenScopedQuery={onOpenScopedQuery}
                 onOpenLibraryItem={onOpenLibraryItem}
@@ -630,7 +698,12 @@ export function LibraryPane({
               aria-label={`${recentsExpanded ? 'Collapse' : 'Expand'} Recents section (${recentsCount})`}
               aria-expanded={recentsExpanded}
               aria-controls="library-recents-body"
-              onClick={() => onSidebarSectionExpandedChange(RECENTS_SECTION_ID, !recentsExpanded)}
+              onClick={() =>
+                onSidebarSectionExpandedChange(
+                  RECENTS_SECTION_ID,
+                  !recentsExpanded,
+                )
+              }
             >
               <span className="sidebar-section-title">
                 {recentsExpanded ? (
@@ -674,7 +747,10 @@ export function LibraryPane({
                 ))}
 
                 {closedTabs.slice(0, 8).map((tab) => (
-                  <div key={`${tab.id}-${tab.closedAt}`} className="saved-work-row">
+                  <div
+                    key={`${tab.id}-${tab.closedAt}`}
+                    className="saved-work-row"
+                  >
                     <div className="saved-work-title-row">
                       <strong>{tab.title}</strong>
                       <span>{tab.dirty ? 'edited' : 'closed'}</span>
@@ -707,84 +783,120 @@ export function LibraryPane({
               apiServerExpanded ? ' is-expanded' : ' is-collapsed'
             }`}
           >
-            <button
-              type="button"
-              className="sidebar-section-header sidebar-section-header--button"
-              aria-label={`${apiServerExpanded ? 'Collapse' : 'Expand'} API Server section`}
-              aria-expanded={apiServerExpanded}
-              aria-controls="library-api-server-body"
-              onClick={() =>
-                onSidebarSectionExpandedChange(API_SERVER_SECTION_ID, !apiServerExpanded)
-              }
-            >
-              <span className="sidebar-section-title">
-                {apiServerExpanded ? (
-                  <ChevronDownIcon className="sidebar-section-chevron" />
-                ) : (
-                  <ChevronRightIcon className="sidebar-section-chevron" />
-                )}
-              <span>API Server</span>
-              </span>
+            <div className="sidebar-section-header library-api-server-header">
+              <button
+                type="button"
+                className="sidebar-section-header--button library-api-server-header-toggle"
+                aria-label={`${apiServerExpanded ? 'Collapse' : 'Expand'} API Server section`}
+                aria-expanded={apiServerExpanded}
+                aria-controls="library-api-server-body"
+                onClick={() =>
+                  onSidebarSectionExpandedChange(
+                    API_SERVER_SECTION_ID,
+                    !apiServerExpanded,
+                  )
+                }
+              >
+                <span className="sidebar-section-title">
+                  {apiServerExpanded ? (
+                    <ChevronDownIcon className="sidebar-section-chevron" />
+                  ) : (
+                    <ChevronRightIcon className="sidebar-section-chevron" />
+                  )}
+                  <span>API Server</span>
+                </span>
+              </button>
               <span>{displayedApiServers.length}</span>
-            </button>
+              <button
+                type="button"
+                className="sidebar-icon-button sidebar-icon-button--inline"
+                aria-label="Create API server"
+                title="Create API server"
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onCreateApiServer?.()
+                }}
+              >
+                <PlusIcon className="sidebar-icon" />
+              </button>
+            </div>
 
             {apiServerExpanded ? (
-              <div id="library-api-server-body" className="library-api-server-body">
-                {displayedApiServers.map((server) => {
-                  const isActive =
-                    activeApiServer && (!activeApiServerId || activeApiServerId === server.id)
-                  return (
-                    <div
-                      key={server.id}
-                      className={`library-api-server-row${isActive ? ' is-active' : ''}${
-                        server.running ? ' is-running' : ''
-                      }`}
-                      onContextMenu={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        setContextMenu(undefined)
-                        setEnvironmentMenu(undefined)
-                        setApiServerMenu({ server, x: event.clientX, y: event.clientY })
-                      }}
-                    >
-                      <button
-                        type="button"
-                        className="library-api-server-main"
-                        aria-label={`Open API Server workspace for ${server.name}`}
-                        onClick={() => onOpenApiServer(server.id)}
-                      >
-                        <ObjectServerIcon className="tree-icon" />
-                        <span>
-                          <strong>{server.name}</strong>
-                          <small>
-                            <span
-                              className={`library-api-server-status-dot${
-                                server.running ? ' is-running' : ''
-                              }`}
-                              aria-hidden="true"
-                            />
-                            {server.running ? 'Running' : 'Stopped'} / {server.port}
-                          </small>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        className="sidebar-icon-button sidebar-icon-button--inline library-api-server-menu-button"
-                        aria-label={`API Server actions for ${server.name}`}
-                        title={`Manage ${server.name}.`}
-                        onClick={(event) => {
+              <div
+                id="library-api-server-body"
+                className="library-api-server-body"
+              >
+                {displayedApiServers.length ? (
+                  displayedApiServers.map((server) => {
+                    const isActive =
+                      activeApiServer &&
+                      (!activeApiServerId || activeApiServerId === server.id)
+                    return (
+                      <div
+                        key={server.id}
+                        className={`library-api-server-row${isActive ? ' is-active' : ''}${
+                          server.running ? ' is-running' : ''
+                        }`}
+                        onContextMenu={(event) => {
                           event.preventDefault()
                           event.stopPropagation()
                           setContextMenu(undefined)
                           setEnvironmentMenu(undefined)
-                          setApiServerMenu({ server, x: event.clientX, y: event.clientY })
+                          setApiServerMenu({
+                            server,
+                            x: event.clientX,
+                            y: event.clientY,
+                          })
                         }}
                       >
-                        <MoreIcon className="sidebar-icon" />
-                      </button>
-                    </div>
-                  )
-                })}
+                        <button
+                          type="button"
+                          className="library-api-server-main"
+                          aria-label={`Open API Server workspace for ${server.name}`}
+                          onClick={() => onOpenApiServer(server.id)}
+                        >
+                          <ObjectServerIcon className="tree-icon" />
+                          <span>
+                            <strong>{server.name}</strong>
+                            <small>
+                              <span
+                                className={`library-api-server-status-dot${
+                                  server.running ? ' is-running' : ''
+                                }`}
+                                aria-hidden="true"
+                              />
+                              {server.running ? 'Running' : 'Stopped'} /{' '}
+                              {apiServerProtocolLabel(server.protocol)} /{' '}
+                              {server.port}
+                            </small>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="sidebar-icon-button sidebar-icon-button--inline library-api-server-menu-button"
+                          aria-label={`API Server actions for ${server.name}`}
+                          title={`Manage ${server.name}.`}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            setContextMenu(undefined)
+                            setEnvironmentMenu(undefined)
+                            setApiServerMenu({
+                              server,
+                              x: event.clientX,
+                              y: event.clientY,
+                            })
+                          }}
+                        >
+                          <MoreIcon className="sidebar-icon" />
+                        </button>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <div className="library-api-server-empty">No API servers</div>
+                )}
               </div>
             ) : null}
           </section>
@@ -802,7 +914,10 @@ export function LibraryPane({
             aria-expanded={environmentsExpanded}
             aria-controls="library-environments-body"
             onClick={() =>
-              onSidebarSectionExpandedChange(ENVIRONMENTS_SECTION_ID, !environmentsExpanded)
+              onSidebarSectionExpandedChange(
+                ENVIRONMENTS_SECTION_ID,
+                !environmentsExpanded,
+              )
             }
           >
             <span className="sidebar-section-title">
@@ -817,14 +932,19 @@ export function LibraryPane({
           </button>
 
           {environmentsExpanded ? (
-            <div id="library-environments-body" className="library-environments-body">
+            <div
+              id="library-environments-body"
+              className="library-environments-body"
+            >
               {environments.map((environment) => (
                 <div
                   key={environment.id}
                   className={`library-environment-row${
                     environment.id === activeEnvironmentId ? ' is-active' : ''
                   }`}
-                  onContextMenu={(event) => openEnvironmentMenu(environment, event)}
+                  onContextMenu={(event) =>
+                    openEnvironmentMenu(environment, event)
+                  }
                 >
                   <button
                     type="button"
@@ -848,7 +968,9 @@ export function LibraryPane({
                       className="sidebar-icon-button sidebar-icon-button--inline"
                       aria-label={`Environment actions for ${environment.label}`}
                       title={`Manage ${environment.label}.`}
-                      onClick={(event) => openEnvironmentMenu(environment, event)}
+                      onClick={(event) =>
+                        openEnvironmentMenu(environment, event)
+                      }
                     >
                       <MoreIcon className="sidebar-icon" />
                     </button>
@@ -966,10 +1088,10 @@ export function LibraryPane({
               className="connection-context-menu-item"
               role="menuitem"
               aria-label={`Start ${apiServerMenu.server.name}`}
-              disabled={!apiServerMenu.server.connectionId || !apiServerMenu.server.environmentId}
+              disabled={Boolean(apiServerMenuStartDisabledReason)}
               title={
-                !apiServerMenu.server.connectionId || !apiServerMenu.server.environmentId
-                  ? 'Choose a datastore and environment before starting this API server.'
+                apiServerMenuStartDisabledReason
+                  ? apiServerMenuStartDisabledReason
                   : `Start ${apiServerMenu.server.name}.`
               }
               onClick={() => {
@@ -1091,7 +1213,10 @@ export function LibraryPane({
                 role="menuitem"
                 aria-label={`Test connection ${contextMenuConnection.name}`}
                 onClick={() => {
-                  onTestConnection(contextMenuConnection.id, contextMenuEnvironmentId)
+                  onTestConnection(
+                    contextMenuConnection.id,
+                    contextMenuEnvironmentId,
+                  )
                   setContextMenu(undefined)
                 }}
               >
@@ -1124,7 +1249,10 @@ export function LibraryPane({
                 <PlusIcon className="connection-context-menu-icon" />
                 <span>Duplicate</span>
               </button>
-              <div className="connection-context-menu-separator" role="separator" />
+              <div
+                className="connection-context-menu-separator"
+                role="separator"
+              />
             </>
           ) : null}
           {contextMenu.node.kind === 'folder' ? (
@@ -1221,7 +1349,9 @@ export function LibraryPane({
             <span>Move to Folder</span>
           </button>
           <div className="connection-context-menu-separator" role="separator" />
-          <div className="connection-context-menu-section-label">Environment</div>
+          <div className="connection-context-menu-section-label">
+            Environment
+          </div>
           <button
             type="button"
             className="connection-context-menu-item"
@@ -1273,7 +1403,9 @@ export function LibraryPane({
             }}
           >
             <TrashIcon className="connection-context-menu-icon" />
-            <span>{contextMenuConnection ? 'Delete Connection' : 'Delete'}</span>
+            <span>
+              {contextMenuConnection ? 'Delete Connection' : 'Delete'}
+            </span>
           </button>
         </div>
       ) : null}
@@ -1326,7 +1458,13 @@ export function LibraryPane({
               return 'No folder exists at that path.'
             }
 
-            if (!canMoveLibraryNode(libraryNodes, moveNodeDialog.node.id, parentId)) {
+            if (
+              !canMoveLibraryNode(
+                libraryNodes,
+                moveNodeDialog.node.id,
+                parentId,
+              )
+            ) {
               return 'This item cannot be moved into that folder.'
             }
 
@@ -1379,6 +1517,8 @@ function LibraryTreeItem({
   onOpenConnectionExplorer,
   onOpenConnectionMetrics,
   onInspectExplorerNode,
+  onCreateApiServerFromNode,
+  onAddNodeToApiServer,
   onOpenObjectView,
   onOpenScopedQuery,
   onOpenLibraryItem,
@@ -1397,10 +1537,23 @@ function LibraryTreeItem({
   item: TreeNode
   environments: EnvironmentProfile[]
   explorerStatus: 'idle' | 'loading' | 'ready'
-  getConnectionExplorerItems(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
-  getConnectionExplorerStatus(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
-  getConnectionHealth(connectionId: string, environmentId?: string): ConnectionHealth | undefined
-  isExplorerScopeLoading(connectionId: string, scope?: string, environmentId?: string): boolean
+  getConnectionExplorerItems(
+    connectionId: string,
+    environmentId?: string,
+  ): ExplorerNode[] | undefined
+  getConnectionExplorerStatus(
+    connectionId: string,
+    environmentId?: string,
+  ): 'idle' | 'loading' | 'ready'
+  getConnectionHealth(
+    connectionId: string,
+    environmentId?: string,
+  ): ConnectionHealth | undefined
+  isExplorerScopeLoading(
+    connectionId: string,
+    scope?: string,
+    environmentId?: string,
+  ): boolean
   libraryNodes: LibraryNode[]
   draggedNodeId?: string
   folderDropTargetId?: string
@@ -1414,14 +1567,23 @@ function LibraryTreeItem({
   onDeleteConnection(connectionId: string): void
   onDeleteNode(node: LibraryNode): void
   onDuplicateConnection(connectionId: string): void
-  onBeginPointerDrag(nodeId: string, event: ReactPointerEvent<HTMLElement>): void
+  onBeginPointerDrag(
+    nodeId: string,
+    event: ReactPointerEvent<HTMLElement>,
+  ): void
   onClearDrag(): void
   onFinishPointerDrag(event: ReactPointerEvent<HTMLElement>): void
-  onLoadExplorerScope(connectionId: string, scope?: string, environmentId?: string): void
+  onLoadExplorerScope(
+    connectionId: string,
+    scope?: string,
+    environmentId?: string,
+  ): void
   onOpenConnectionDrawer(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
   onOpenConnectionMetrics(connectionId: string): void
   onInspectExplorerNode(node: ExplorerNode): void
+  onCreateApiServerFromNode?(connectionId: string, node: ExplorerNode): void
+  onAddNodeToApiServer?(connectionId: string, node: ExplorerNode): void
   onOpenObjectView(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onOpenLibraryItem(nodeId: string): void
@@ -1435,15 +1597,21 @@ function LibraryTreeItem({
 }) {
   const { node, children } = item
   const isFolder = node.kind === 'folder'
-  const connection = node.kind === 'connection' && node.connectionId
-    ? connections.find((candidate) => candidate.id === node.connectionId)
-    : undefined
+  const connection =
+    node.kind === 'connection' && node.connectionId
+      ? connections.find((candidate) => candidate.id === node.connectionId)
+      : undefined
   const isConnection = Boolean(connection)
   const isContainer = isFolder || isConnection
   const sectionId = sidebarSectionId('library', 'node', node.id)
   const [optimisticExpanded, setOptimisticExpanded] = useState<boolean>()
-  const expanded = optimisticExpanded ?? sectionStates[sectionId] ?? (isFolder && depth === 0)
-  const environmentState = effectiveEnvironmentForNode(node, libraryNodes, environments)
+  const expanded =
+    optimisticExpanded ?? sectionStates[sectionId] ?? (isFolder && depth === 0)
+  const environmentState = effectiveEnvironmentForNode(
+    node,
+    libraryNodes,
+    environments,
+  )
   const environment = environmentState?.environment
   const connectionEnvironmentId = environment?.id ?? activeEnvironmentId
   const connectionHealth =
@@ -1455,16 +1623,24 @@ function LibraryTreeItem({
     : explorerStatus
   const isLoadingMetadata = Boolean(
     connection &&
-      (isExplorerScopeLoading(connection.id, undefined, connectionEnvironmentId) ||
-        connectionExplorerStatus === 'loading'),
+    (isExplorerScopeLoading(
+      connection.id,
+      undefined,
+      connectionEnvironmentId,
+    ) ||
+      connectionExplorerStatus === 'loading'),
   )
   const canDropOnFolder =
-    isFolder && Boolean(draggedNodeId) && canMoveLibraryNode(libraryNodes, draggedNodeId, node.id)
+    isFolder &&
+    Boolean(draggedNodeId) &&
+    canMoveLibraryNode(libraryNodes, draggedNodeId, node.id)
 
   return (
     <div
       className={`library-tree-item${draggedNodeId === node.id ? ' is-dragging' : ''}${
-        canDropOnFolder && folderDropTargetId === node.id ? ' is-folder-drop-target' : ''
+        canDropOnFolder && folderDropTargetId === node.id
+          ? ' is-folder-drop-target'
+          : ''
       }`}
       role="treeitem"
       aria-expanded={isContainer ? expanded : undefined}
@@ -1481,7 +1657,9 @@ function LibraryTreeItem({
     >
       <div
         className={`library-tree-row${
-          environmentState ? ` has-library-env is-library-env-${environmentState.source}` : ''
+          environmentState
+            ? ` has-library-env is-library-env-${environmentState.source}`
+            : ''
         }`}
         data-library-folder-id={isFolder ? node.id : undefined}
         data-library-row="true"
@@ -1502,7 +1680,11 @@ function LibraryTreeItem({
               setOptimisticExpanded(nextExpanded)
               onSidebarSectionExpandedChange(sectionId, nextExpanded)
               if (connection && nextExpanded) {
-                onLoadExplorerScope(connection.id, undefined, connectionEnvironmentId)
+                onLoadExplorerScope(
+                  connection.id,
+                  undefined,
+                  connectionEnvironmentId,
+                )
               }
             }}
           >
@@ -1538,7 +1720,11 @@ function LibraryTreeItem({
             if (connection) {
               onSelectConnection(connection.id)
               if (expanded) {
-                onLoadExplorerScope(connection.id, undefined, connectionEnvironmentId)
+                onLoadExplorerScope(
+                  connection.id,
+                  undefined,
+                  connectionEnvironmentId,
+                )
               }
               return
             }
@@ -1589,10 +1775,10 @@ function LibraryTreeItem({
             <span
               className={`library-env-badge is-${environmentState.source}`}
               title={environmentBadgeTitle(environmentState)}
-          >
-            {environmentState.environment.label}
-          </span>
-        ) : null}
+            >
+              {environmentState.environment.label}
+            </span>
+          ) : null}
           <button
             type="button"
             className="sidebar-icon-button sidebar-icon-button--inline library-row-menu-button"
@@ -1610,38 +1796,47 @@ function LibraryTreeItem({
       </div>
       {connection && expanded ? (
         <>
-        <ConnectionHealthIssueStrip
-          health={connectionHealth}
-          environmentLabel={environment?.label}
-          onEditConnection={() => onOpenConnectionDrawer(connection.id)}
-          onOpenEnvironment={
-            connectionEnvironmentId
-              ? () => onSelectEnvironment(connectionEnvironmentId)
-              : undefined
-          }
-          onTestAgain={() => onTestConnection(connection.id, connectionEnvironmentId)}
-        />
-        <ConnectionObjectTree
-          adapterManifest={adapterManifests?.find(
-            (manifest) => manifest.engine === connection.engine,
-          )}
-          connection={connection}
-          environment={environment}
-          explorerNodes={
-            getConnectionExplorerItems(connection.id, connectionEnvironmentId)
-          }
-          explorerStatus={connectionExplorerStatus}
-          isExplorerScopeLoading={(connectionId, scope) =>
-            isExplorerScopeLoading(connectionId, scope, connectionEnvironmentId)
-          }
-          visualDepthOffset={depth}
-          onLoadExplorerScope={(connectionId, scope) =>
-            onLoadExplorerScope(connectionId, scope, connectionEnvironmentId)
-          }
-          onInspectNode={onInspectExplorerNode}
-          onOpenObjectView={onOpenObjectView}
-          onOpenScopedQuery={onOpenScopedQuery}
-        />
+          <ConnectionHealthIssueStrip
+            health={connectionHealth}
+            environmentLabel={environment?.label}
+            onEditConnection={() => onOpenConnectionDrawer(connection.id)}
+            onOpenEnvironment={
+              connectionEnvironmentId
+                ? () => onSelectEnvironment(connectionEnvironmentId)
+                : undefined
+            }
+            onTestAgain={() =>
+              onTestConnection(connection.id, connectionEnvironmentId)
+            }
+          />
+          <ConnectionObjectTree
+            adapterManifest={adapterManifests?.find(
+              (manifest) => manifest.engine === connection.engine,
+            )}
+            connection={connection}
+            environment={environment}
+            explorerNodes={getConnectionExplorerItems(
+              connection.id,
+              connectionEnvironmentId,
+            )}
+            explorerStatus={connectionExplorerStatus}
+            isExplorerScopeLoading={(connectionId, scope) =>
+              isExplorerScopeLoading(
+                connectionId,
+                scope,
+                connectionEnvironmentId,
+              )
+            }
+            visualDepthOffset={depth}
+            onLoadExplorerScope={(connectionId, scope) =>
+              onLoadExplorerScope(connectionId, scope, connectionEnvironmentId)
+            }
+            onInspectNode={onInspectExplorerNode}
+            onCreateApiServer={onCreateApiServerFromNode}
+            onAddToApiServer={onAddNodeToApiServer}
+            onOpenObjectView={onOpenObjectView}
+            onOpenScopedQuery={onOpenScopedQuery}
+          />
         </>
       ) : null}
       {isFolder && expanded && children.length > 0 ? (
@@ -1681,6 +1876,8 @@ function LibraryTreeItem({
               onOpenConnectionExplorer={onOpenConnectionExplorer}
               onOpenConnectionMetrics={onOpenConnectionMetrics}
               onInspectExplorerNode={onInspectExplorerNode}
+              onCreateApiServerFromNode={onCreateApiServerFromNode}
+              onAddNodeToApiServer={onAddNodeToApiServer}
               onOpenObjectView={onOpenObjectView}
               onOpenScopedQuery={onOpenScopedQuery}
               onOpenLibraryItem={onOpenLibraryItem}
@@ -1707,15 +1904,17 @@ function filterLibraryNodes(nodes: LibraryNode[], filter: string) {
 
   const matchingIds = new Set<string>()
   nodes.forEach((node) => {
-    const haystack = `${node.name} ${node.kind} ${node.summary ?? ''} ${(node.tags ?? []).join(
-      ' ',
-    )}`.toLowerCase()
+    const haystack = `${node.name} ${node.kind} ${node.summary ?? ''} ${(
+      node.tags ?? []
+    ).join(' ')}`.toLowerCase()
     if (haystack.includes(normalizedFilter)) {
       matchingIds.add(node.id)
       let parentId = node.parentId
       while (parentId) {
         matchingIds.add(parentId)
-        parentId = nodes.find((candidate) => candidate.id === parentId)?.parentId
+        parentId = nodes.find(
+          (candidate) => candidate.id === parentId,
+        )?.parentId
       }
     }
   })
@@ -1723,10 +1922,33 @@ function filterLibraryNodes(nodes: LibraryNode[], filter: string) {
   return nodes.filter((node) => matchingIds.has(node.id))
 }
 
+function apiServerProtocolLabel(
+  protocol: DatastoreApiServerInstanceStatus['protocol'],
+) {
+  if (protocol === 'graphql') return 'GraphQL'
+  if (protocol === 'grpc') return 'gRPC'
+  return 'REST'
+}
+
+function apiServerStartDisabledReason(
+  server: DatastoreApiServerInstanceStatus,
+) {
+  if (!server.connectionId || !server.environmentId) {
+    return 'Choose a datastore and environment before starting this API server.'
+  }
+  if (!server.resources?.length) {
+    return 'Add at least one table, collection, key, item, or index before starting this API server.'
+  }
+  return undefined
+}
+
 function buildLibraryTree(nodes: LibraryNode[]) {
   const byParent = new Map<string, LibraryNode[]>()
   nodes.forEach((node) => {
-    byParent.set(node.parentId ?? 'root', [...(byParent.get(node.parentId ?? 'root') ?? []), node])
+    byParent.set(node.parentId ?? 'root', [
+      ...(byParent.get(node.parentId ?? 'root') ?? []),
+      node,
+    ])
   })
 
   const build = (parentId: string): TreeNode[] =>
@@ -1755,7 +1977,10 @@ function recentLibraryNodes(nodes: LibraryNode[]) {
   return nodes
     .filter((node) => node.kind !== 'folder' && Boolean(node.lastOpenedAt))
     .slice()
-    .sort((left, right) => timestampValue(right.lastOpenedAt) - timestampValue(left.lastOpenedAt))
+    .sort(
+      (left, right) =>
+        timestampValue(right.lastOpenedAt) - timestampValue(left.lastOpenedAt),
+    )
     .slice(0, 8)
 }
 
@@ -1781,7 +2006,11 @@ function dropTargetFromPoint(
   const insideLibraryRoot = element.closest('[data-library-drop-root="true"]')
   const insideLibraryRow = element.closest('[data-library-row="true"]')
 
-  if (insideLibraryRoot && !insideLibraryRow && canMoveLibraryNode(nodes, nodeId)) {
+  if (
+    insideLibraryRoot &&
+    !insideLibraryRow &&
+    canMoveLibraryNode(nodes, nodeId)
+  ) {
     return { kind: 'root' }
   }
 
@@ -1799,7 +2028,9 @@ function effectiveEnvironmentForNode(
   while (current && !visited.has(current.id)) {
     visited.add(current.id)
     if (current.environmentId) {
-      const environment = environments.find((item) => item.id === current?.environmentId)
+      const environment = environments.find(
+        (item) => item.id === current?.environmentId,
+      )
 
       return environment
         ? {
@@ -1823,7 +2054,9 @@ function environmentBadgeTitle(state: LibraryEnvironmentState) {
     : `${state.environment.label} is inherited from ${state.sourceNode.name}.`
 }
 
-function libraryEnvironmentStyle(environment?: EnvironmentProfile): CSSProperties | undefined {
+function libraryEnvironmentStyle(
+  environment?: EnvironmentProfile,
+): CSSProperties | undefined {
   const color = normalizeHexColor(environment?.color)
 
   if (!color) {
@@ -1866,7 +2099,9 @@ function hexToRgba(hex: string, alpha: number) {
 }
 
 function readInitialRecentsHeight() {
-  const raw = window.localStorage.getItem('datapadplusplus.library.recentsHeight')
+  const raw = window.localStorage.getItem(
+    'datapadplusplus.library.recentsHeight',
+  )
   const parsed = raw ? Number(raw) : DEFAULT_RECENTS_HEIGHT
   return clamp(parsed, MIN_RECENTS_HEIGHT, MAX_RECENTS_HEIGHT)
 }

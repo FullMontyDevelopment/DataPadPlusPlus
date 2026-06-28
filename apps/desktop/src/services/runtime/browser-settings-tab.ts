@@ -43,9 +43,21 @@ export function createSettingsTabInSnapshot(snapshot: WorkspaceSnapshot): Worksp
   return focused
 }
 
-export function createApiServerTabInSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+export function createApiServerTabInSnapshot(
+  snapshot: WorkspaceSnapshot,
+  serverId?: string,
+): WorkspaceSnapshot {
   const next = cloneSnapshot(snapshot)
-  const existingApiServerTab = next.tabs.find((tab) => tab.tabKind === 'api-server')
+  const configured = next.preferences.datastoreApiServer
+  const selectedServer =
+    (serverId ? configured?.servers?.find((server) => server.id === serverId) : undefined) ??
+    configured?.servers?.find((server) => server.id === configured.activeServerId) ??
+    configured?.servers?.[0]
+  const selectedServerId = selectedServer?.id
+  const existingApiServerTab = next.tabs.find((tab) =>
+    tab.tabKind === 'api-server' &&
+    apiServerTabServerId(tab) === selectedServerId
+  )
 
   if (existingApiServerTab) {
     const focused = upsertTab(next, existingApiServerTab)
@@ -55,18 +67,20 @@ export function createApiServerTabInSnapshot(snapshot: WorkspaceSnapshot): Works
     return focused
   }
 
-  const configured = next.preferences.datastoreApiServer
   const connection =
+    next.connections.find((item) => item.id === selectedServer?.connectionId) ??
     next.connections.find((item) => item.id === configured?.connectionId) ??
     next.connections.find((item) => item.id === next.ui.activeConnectionId) ??
     next.connections[0]
   const environment =
+    next.environments.find((item) => item.id === selectedServer?.environmentId) ??
     next.environments.find((item) => item.id === configured?.environmentId) ??
     next.environments.find((item) => item.id === next.ui.activeEnvironmentId) ??
     next.environments[0]
+  const title = selectedServer?.name?.trim() || 'API Server'
   const tab: QueryTabState = {
     id: createId('api-server-tab'),
-    title: 'API Server',
+    title,
     tabKind: 'api-server',
     connectionId: connection?.id ?? '',
     environmentId: environment?.id ?? '',
@@ -76,6 +90,13 @@ export function createApiServerTabInSnapshot(snapshot: WorkspaceSnapshot): Works
     queryText: '',
     queryViewMode: undefined,
     scriptText: undefined,
+    scopedTarget: selectedServerId
+      ? {
+          kind: 'api-server',
+          label: title,
+          scope: selectedServerId,
+        }
+      : undefined,
     status: 'idle',
     dirty: false,
     history: [],
@@ -86,6 +107,10 @@ export function createApiServerTabInSnapshot(snapshot: WorkspaceSnapshot): Works
   focused.ui.activeSidebarPane = 'library'
   focused.ui.rightDrawer = 'none'
   return focused
+}
+
+function apiServerTabServerId(tab: QueryTabState) {
+  return tab.scopedTarget?.kind === 'api-server' ? tab.scopedTarget.scope : undefined
 }
 
 export function createWorkspaceSearchTabInSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {

@@ -26,20 +26,14 @@ export const defaultPreferences: AppPreferences = {
     maxBackups: 20,
     includeSecrets: false,
   },
-  datastoreApiServer: {
-    enabled: false,
-    host: '127.0.0.1',
-    port: 17640,
-    autoStart: false,
-    activeServerId: 'api-server-default',
-    servers: [{
-      id: 'api-server-default',
-      name: 'Local API Server',
+    datastoreApiServer: {
+      enabled: false,
       host: '127.0.0.1',
       port: 17640,
       autoStart: false,
-    }],
-  },
+      activeServerId: undefined,
+      servers: [],
+    },
   workspaceSearch: {
     enabled: false,
   },

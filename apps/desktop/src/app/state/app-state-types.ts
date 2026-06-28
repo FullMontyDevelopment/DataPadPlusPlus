@@ -20,11 +20,22 @@ import type {
   DatastoreApiServerLogs,
   DatastoreApiServerLogsRequest,
   DatastoreApiServerMetrics,
+  DatastoreApiServerAddResourcesRequest,
+  DatastoreApiServerAddCustomEndpointRequest,
+  DatastoreApiServerCreateRequest,
   DatastoreApiServerDeleteRequest,
+  DatastoreApiServerQuerySourceDiscoveryRequest,
+  DatastoreApiServerQuerySourceDiscoveryResponse,
+  DatastoreApiServerRemoveCustomEndpointRequest,
+  DatastoreApiServerResourceDiscoveryRequest,
+  DatastoreApiServerResourceDiscoveryResponse,
+  DatastoreApiServerRemoveResourceRequest,
   DatastoreApiServerSettingsRequest,
   DatastoreApiServerStartRequest,
   DatastoreApiServerStatus,
   DatastoreApiServerStopRequest,
+  DatastoreApiServerUpdateCustomEndpointRequest,
+  DatastoreApiServerUpdateRequest,
   DiagnosticsReport,
   DocumentNodeChildrenRequest,
   DocumentNodeChildrenResponse,
@@ -338,6 +349,19 @@ export interface Actions {
   getDatastoreApiServerStatus(): Promise<DatastoreApiServerStatus | undefined>
   getDatastoreApiServerMetrics(): Promise<DatastoreApiServerMetrics | undefined>
   getDatastoreApiServerLogs(request?: DatastoreApiServerLogsRequest): Promise<DatastoreApiServerLogs | undefined>
+  createDatastoreApiServer(request: DatastoreApiServerCreateRequest): Promise<boolean>
+  updateDatastoreApiServer(request: DatastoreApiServerUpdateRequest): Promise<boolean>
+  discoverDatastoreApiServerResources(
+    request: DatastoreApiServerResourceDiscoveryRequest,
+  ): Promise<DatastoreApiServerResourceDiscoveryResponse | undefined>
+  discoverDatastoreApiServerQuerySources(
+    request: DatastoreApiServerQuerySourceDiscoveryRequest,
+  ): Promise<DatastoreApiServerQuerySourceDiscoveryResponse | undefined>
+  addDatastoreApiServerResources(request: DatastoreApiServerAddResourcesRequest): Promise<boolean>
+  removeDatastoreApiServerResource(request: DatastoreApiServerRemoveResourceRequest): Promise<boolean>
+  addDatastoreApiServerCustomEndpoint(request: DatastoreApiServerAddCustomEndpointRequest): Promise<boolean>
+  updateDatastoreApiServerCustomEndpoint(request: DatastoreApiServerUpdateCustomEndpointRequest): Promise<boolean>
+  removeDatastoreApiServerCustomEndpoint(request: DatastoreApiServerRemoveCustomEndpointRequest): Promise<boolean>
   updateDatastoreApiServerSettings(request: DatastoreApiServerSettingsRequest): Promise<boolean>
   startDatastoreApiServer(request: DatastoreApiServerStartRequest): Promise<DatastoreApiServerStatus | undefined>
   stopDatastoreApiServer(request?: DatastoreApiServerStopRequest): Promise<DatastoreApiServerStatus | undefined>

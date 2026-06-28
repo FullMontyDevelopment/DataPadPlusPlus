@@ -126,19 +126,16 @@ describe('SettingsWorkspace', () => {
     const apiServerGroup = screen.getByRole('region', { name: 'API Server' })
     expect(within(apiServerGroup).getByText('Experimental')).toBeInTheDocument()
     expect(within(apiServerGroup).getByLabelText('Datastore API server')).not.toBeChecked()
-    expect(within(apiServerGroup).getByLabelText('Server name')).toHaveValue('Local API Server')
     expect(within(apiServerGroup).getByRole('button', { name: 'Open API Server' })).toBeDisabled()
 
     fireEvent.click(within(apiServerGroup).getByLabelText('Datastore API server'))
 
     await waitFor(() => {
       expect(onUpdateApiServerSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
+        {
           enabled: true,
           host: '127.0.0.1',
-          name: 'Local API Server',
-          port: 17640,
-        }),
+        },
       )
     })
     expect(props.onOpenApiServer).not.toHaveBeenCalled()
@@ -169,8 +166,6 @@ describe('SettingsWorkspace', () => {
 
     const apiServerGroup = screen.getByRole('region', { name: 'API Server' })
     expect(within(apiServerGroup).getByLabelText('Datastore API server')).toBeChecked()
-    expect(within(apiServerGroup).getByLabelText('Server name')).toHaveValue('Orders API')
-    expect(within(apiServerGroup).getByLabelText('Local port')).toHaveValue(17641)
 
     fireEvent.click(within(apiServerGroup).getByRole('button', { name: 'Open API Server' }))
 
@@ -217,7 +212,7 @@ describe('SettingsWorkspace', () => {
     expect(props.onOpenWorkspaceSearch).toHaveBeenCalled()
   })
 
-  it('saves a customised API Server name', async () => {
+  it('saves the API Server feature gate without per-server details', async () => {
     const onUpdateApiServerSettings = vi.fn().mockResolvedValue(true)
     const preferences = {
       ...createSeedSnapshot().preferences,
@@ -243,19 +238,14 @@ describe('SettingsWorkspace', () => {
     })
 
     const apiServerGroup = screen.getByRole('region', { name: 'API Server' })
-    fireEvent.change(within(apiServerGroup).getByLabelText('Server name'), {
-      target: { value: 'Customer Data API' },
-    })
-    fireEvent.click(within(apiServerGroup).getByRole('button', { name: 'Save Details' }))
+    fireEvent.click(within(apiServerGroup).getByLabelText('Datastore API server'))
 
     await waitFor(() => {
       expect(onUpdateApiServerSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          activeServerId: 'api-server-default',
-          serverId: 'api-server-default',
-          name: 'Customer Data API',
-          port: 17640,
-        }),
+        {
+          enabled: false,
+          host: '127.0.0.1',
+        },
       )
     })
   })

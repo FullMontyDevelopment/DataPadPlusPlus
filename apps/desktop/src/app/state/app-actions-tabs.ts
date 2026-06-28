@@ -184,7 +184,7 @@ export function useQueryTabActions({
             }),
           )
         }
-        applyPayload(await desktopClient.createApiServerTab())
+        applyPayload(await desktopClient.createApiServerTab(serverId))
       } catch (error) {
         handleError(error)
       }
