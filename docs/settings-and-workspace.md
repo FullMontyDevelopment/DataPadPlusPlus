@@ -8,10 +8,17 @@ DataPad++ settings open as a normal workbench tab. The tab is closeable, non-sav
 - **Workspace**: file-based workspace export and import.
 - **Backups**: opt-in encrypted automatic backups and restore tools.
 - **Security**: credential-store status and secret handling options.
+- **Experimental**: opt-in desktop-only API Server, MCP Server, and Workspace Search features.
 - **Shortcuts**: keyboard shortcuts and command behavior.
 - **Health**: workspace counts, warnings, and app/runtime status.
 
 Settings apply immediately. The Settings tab does not show dirty indicators or save prompts.
+
+## MCP Client Setup
+
+The experimental MCP Server tab includes a Setup section for local LLM coding clients. It generates endpoint-aware snippets for OpenAI Codex, VS Code/GitHub Copilot, Cursor, Claude Code, and Gemini CLI.
+
+Automatic setup is desktop-only and user-level in v1. DataPad++ previews the target config path and DataPad++ entry, then creates a backup before applying the merge. It writes only endpoint and auth-token environment references; raw auth token values are never written to workspace JSON, workspace exports, or client config files by the automatic setup flow.
 
 ## Themes
 
@@ -50,6 +57,7 @@ Backup tools include enable/disable, change passphrase, include passwords/secret
 ## Security Expectations
 
 - Passwords and tokens should never appear in workspace JSON, diagnostics, messages, logs, or non-secret exports.
+- MCP client auth tokens are shown only at creation/reset time; workspace data stores verifier references only, and exports strip auth token metadata.
 - Bundle integrity hashes live inside the encrypted payload so they do not expose a stable public workspace fingerprint.
 - Exporting secrets is always explicit and encrypted.
 - Import never applies a tampered bundle or restores bundled secrets before integrity verification succeeds.

@@ -149,7 +149,7 @@ fn data_edits_use_environment_confirmation_when_environment_requires_it() {
 }
 
 #[test]
-fn data_edits_do_not_prompt_for_low_risk_environment_just_because_global_safe_mode_is_on() {
+fn data_edits_are_blocked_when_global_safe_mode_is_on() {
     let mut plan = data_edit_plan();
 
     apply_environment_guards_to_data_edit_plan(
@@ -160,13 +160,35 @@ fn data_edits_do_not_prompt_for_low_risk_environment_just_because_global_safe_mo
     );
 
     assert!(plan.confirmation_text.is_none());
-    assert!(plan.warnings.is_empty());
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|warning| warning == "Global safe mode blocks inline result edits."));
 }
 
 #[test]
-fn destructive_data_edits_still_use_global_safe_mode_confirmation() {
+fn data_edits_are_blocked_when_environment_safe_mode_is_on() {
+    let mut plan = data_edit_plan();
+
+    apply_environment_guards_to_data_edit_plan(
+        &mut plan,
+        &environment("low", true, false),
+        &resolved_environment(Vec::new()),
+        false,
+    );
+
+    assert!(plan.confirmation_text.is_none());
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|warning| warning == "Prod safe mode blocks inline result edits."));
+}
+
+#[test]
+fn safe_mode_clears_adapter_confirmation_from_destructive_data_edits() {
     let mut plan = data_edit_plan();
     plan.destructive = true;
+    plan.confirmation_text = Some("CONFIRM MONGODB DELETE-DOCUMENT".into());
 
     apply_environment_guards_to_data_edit_plan(
         &mut plan,
@@ -175,11 +197,11 @@ fn destructive_data_edits_still_use_global_safe_mode_confirmation() {
         true,
     );
 
-    assert_eq!(plan.confirmation_text.as_deref(), Some("CONFIRM Prod"));
+    assert!(plan.confirmation_text.is_none());
     assert!(plan
         .warnings
         .iter()
-        .any(|warning| warning.contains("Global safe mode")));
+        .any(|warning| warning == "Global safe mode blocks inline result edits."));
 }
 
 #[test]

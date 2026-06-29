@@ -57,14 +57,15 @@ export function applyEnvironmentGuardsToDataEditPlan(
     return
   }
 
-  const destructiveOrAdapterGuarded = plan.destructive || Boolean(plan.confirmationText)
+  for (const reason of dataEditSafeModeBlockReasons(snapshot, environmentId)) {
+    pushUniqueWarning(plan.warnings, reason)
+  }
+  if (dataEditSafeModeBlocked(snapshot, environmentId)) {
+    plan.confirmationText = undefined
+    return
+  }
+
   const reasons = [
-    snapshot.preferences.safeModeEnabled && destructiveOrAdapterGuarded
-      ? 'Global safe mode requires confirmation for risky work.'
-      : '',
-    environment.safeMode
-      ? `${environment.label} safe mode requires confirmation for risky work.`
-      : '',
     environment.requiresConfirmation
       ? `${environment.label} requires confirmation for risky work.`
       : '',
@@ -80,4 +81,27 @@ export function applyEnvironmentGuardsToDataEditPlan(
   if (reasons.length > 0 && !plan.confirmationText) {
     plan.confirmationText = `CONFIRM ${environment.label}`
   }
+}
+
+export function dataEditSafeModeBlocked(
+  snapshot: WorkspaceSnapshot,
+  environmentId: string,
+) {
+  const environment = snapshot.environments.find((item) => item.id === environmentId)
+  return Boolean(snapshot.preferences.safeModeEnabled || environment?.safeMode)
+}
+
+export function dataEditSafeModeBlockReasons(
+  snapshot: WorkspaceSnapshot,
+  environmentId: string,
+) {
+  const environment = snapshot.environments.find((item) => item.id === environmentId)
+  return [
+    snapshot.preferences.safeModeEnabled
+      ? 'Global safe mode blocks inline result edits.'
+      : '',
+    environment?.safeMode
+      ? `${environment.label} safe mode blocks inline result edits.`
+      : '',
+  ].filter(Boolean)
 }

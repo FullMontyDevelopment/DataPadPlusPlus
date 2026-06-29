@@ -4,13 +4,16 @@ use super::{
     generate_id,
     tabs::reorder_query_tabs_in_place,
     timestamp_now,
-    workspace::migrate_snapshot,
+    workspace::{migrate_snapshot, sanitize_snapshot},
     workspace_bundle::{
         parse_workspace_bundle_payload, validate_bundle_passphrase, validate_bundle_payload_size,
         workspace_bundle_payload_with_integrity,
     },
 };
-use crate::domain::models::{ConnectionProfile, QueryTabState};
+use crate::domain::models::{
+    ConnectionProfile, DatastoreMcpServerConfig, DatastoreMcpServerTokenConfig, QueryTabState,
+    SecretRef,
+};
 use std::{fs, path::PathBuf, sync::Mutex as TestMutex};
 
 static ENV_LOCK: TestMutex<()> = TestMutex::new(());
@@ -228,6 +231,50 @@ fn workspace_bundle_payload_adds_and_verifies_integrity_metadata() {
 
     assert_eq!(parsed.snapshot.schema_version, snapshot.schema_version);
     assert!(parsed.secrets.is_empty());
+}
+
+#[test]
+fn workspace_export_sanitizer_strips_mcp_token_metadata() {
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.preferences.datastore_mcp_server.enabled = true;
+    snapshot.preferences.datastore_mcp_server.active_server_id = Some("mcp-local".into());
+    snapshot
+        .preferences
+        .datastore_mcp_server
+        .servers
+        .push(DatastoreMcpServerConfig {
+            id: "mcp-local".into(),
+            name: "Local MCP".into(),
+            connection_ids: vec!["conn-dev".into()],
+            environment_ids: vec!["env-dev".into()],
+            tokens: vec![DatastoreMcpServerTokenConfig {
+                id: "mcp-token-dev".into(),
+                label: "Dev client".into(),
+                enabled: true,
+                scopes: vec!["query:read".into()],
+                verifier_secret_ref: SecretRef {
+                    id: "secret-mcp-token".into(),
+                    provider: "os-keyring".into(),
+                    service: "DataPad++".into(),
+                    account: "mcp-token-verifier:mcp-local:mcp-token-dev".into(),
+                    label: "MCP auth token verifier".into(),
+                },
+                created_at: timestamp_now(),
+                last_used_at: Some(timestamp_now()),
+            }],
+            ..DatastoreMcpServerConfig::default()
+        });
+
+    let sanitized = sanitize_snapshot(&snapshot);
+    let serialized = serde_json::to_string(&sanitized).expect("serialize sanitized snapshot");
+    let server = &sanitized.preferences.datastore_mcp_server.servers[0];
+
+    assert_eq!(server.id, "mcp-local");
+    assert_eq!(server.connection_ids, vec!["conn-dev"]);
+    assert_eq!(server.environment_ids, vec!["env-dev"]);
+    assert!(server.tokens.is_empty());
+    assert!(!serialized.contains("mcp-token-dev"));
+    assert!(!serialized.contains("mcp-token-verifier"));
 }
 
 #[test]

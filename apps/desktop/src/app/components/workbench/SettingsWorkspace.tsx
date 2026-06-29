@@ -6,6 +6,7 @@ import type {
   AppLogFileSummary,
   AppShortcutId,
   DatastoreApiServerSettingsRequest,
+  DatastoreMcpServerSettingsRequest,
   DiagnosticsReport,
   WorkspaceBackupRunResponse,
   WorkspaceBackupSummary,
@@ -56,8 +57,10 @@ export function SettingsWorkspace({
   onSetTheme,
   onSetUpdatePrereleases,
   onOpenApiServer,
+  onOpenMcpServer,
   onOpenWorkspaceSearch,
   onUpdateApiServerSettings,
+  onUpdateMcpServerSettings,
   onUpdateBackupSettings,
   onUpdateWorkspaceSearchSettings,
 }: {
@@ -86,9 +89,13 @@ export function SettingsWorkspace({
     includeSecrets?: boolean
   }): Promise<boolean>
   onOpenApiServer(): void
+  onOpenMcpServer(): void
   onOpenWorkspaceSearch(): void
   onUpdateApiServerSettings(
     request: DatastoreApiServerSettingsRequest,
+  ): Promise<boolean>
+  onUpdateMcpServerSettings(
+    request: DatastoreMcpServerSettingsRequest,
   ): Promise<boolean>
   onUpdateWorkspaceSearchSettings(
     request: WorkspaceSearchSettingsRequest,
@@ -187,8 +194,10 @@ export function SettingsWorkspace({
           <SettingsExperimentalPanel
             preferences={preferences}
             onOpenApiServer={onOpenApiServer}
+            onOpenMcpServer={onOpenMcpServer}
             onOpenWorkspaceSearch={onOpenWorkspaceSearch}
             onUpdateApiServerSettings={onUpdateApiServerSettings}
+            onUpdateMcpServerSettings={onUpdateMcpServerSettings}
             onUpdateWorkspaceSearchSettings={onUpdateWorkspaceSearchSettings}
           />
         ) : null}

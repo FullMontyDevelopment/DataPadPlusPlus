@@ -8,19 +8,25 @@ interface ConnectionFooterProps {
   connectionTest?: ConnectionTestResult
   environmentAccentStyle?: CSSProperties
   hasEnvironment: boolean
+  loadingTest?: { engine: string; environmentLabel: string }
   resolvedDatabase?: string
   resolvedHost: string
   secretDraft: string
   selectedEnvironmentId: string
   getConnectionForAction(): ConnectionProfile
   onSaveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
-  onTestConnection(profile: ConnectionProfile, environmentId: string, secret?: string): void
+  onTestConnection(
+    profile: ConnectionProfile,
+    environmentId: string,
+    secret?: string,
+  ): Promise<ConnectionTestResult | undefined>
 }
 
 export function ConnectionFooter({
   connectionTest,
   environmentAccentStyle,
   hasEnvironment,
+  loadingTest,
   resolvedDatabase,
   resolvedHost,
   secretDraft,
@@ -34,7 +40,15 @@ export function ConnectionFooter({
       className={`drawer-footer drawer-footer--stacked${hasEnvironment ? ' has-environment-accent' : ''}`}
       style={environmentAccentStyle}
     >
-      {connectionTest ? (
+      {loadingTest ? (
+        <div className="drawer-callout is-loading" role="status">
+          <strong>Testing connection</strong>
+          <span>
+            Checking {loadingTest.engine}
+            {loadingTest.environmentLabel ? ` with ${loadingTest.environmentLabel}` : ''}...
+          </span>
+        </div>
+      ) : connectionTest ? (
         <div className={`drawer-callout${connectionTest.ok ? ' is-success' : ' is-error'}`}>
           <strong>{connectionTest.ok ? 'Connection ready' : 'Connection issue'}</strong>
           <span>{connectionTest.message}</span>
@@ -52,12 +66,13 @@ export function ConnectionFooter({
         <button
           type="button"
           className="drawer-button"
+          disabled={Boolean(loadingTest)}
           title="Test this connection using the selected environment, or no environment if none is selected."
           onClick={() =>
-            onTestConnection(getConnectionForAction(), selectedEnvironmentId, secretDraft)
+            void onTestConnection(getConnectionForAction(), selectedEnvironmentId, secretDraft)
           }
         >
-          Test Connection
+          {loadingTest ? 'Testing...' : 'Test Connection'}
         </button>
         <button
           type="button"

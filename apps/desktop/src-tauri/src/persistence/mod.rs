@@ -7,7 +7,7 @@ use crate::domain::{error::CommandError, models::WorkspaceSnapshot};
 pub const SNAPSHOT_FORMAT: &str = "datapadplusplus-pack-v1";
 pub const LEGACY_DATANAUT_SNAPSHOT_FORMAT: &str = "datanaut-pack-v1";
 pub const LEGACY_SNAPSHOT_FORMAT: &str = "universality-pack-v1";
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 
 pub fn workspace_file_path(app: &AppHandle) -> PathBuf {
     if let Some(override_dir) = env_value(&[

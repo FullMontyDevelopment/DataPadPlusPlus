@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   ConnectionTestResult,
@@ -28,7 +28,11 @@ interface ConnectionBladeProps {
   connectionTest?: ConnectionTestResult
   onClose(): void
   onSaveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
-  onTestConnection(profile: ConnectionProfile, environmentId: string, secret?: string): void
+  onTestConnection(
+    profile: ConnectionProfile,
+    environmentId: string,
+    secret?: string,
+  ): Promise<ConnectionTestResult | undefined>
   onPickLocalDatabaseFile(request: LocalDatabasePickRequest): Promise<LocalDatabasePickResult>
   onCreateLocalDatabase(
     request: LocalDatabaseCreateRequest,
@@ -60,6 +64,12 @@ export function ConnectionBlade({
   const [pendingCreateFolder, setPendingCreateFolder] = useState('')
   const [localDatabaseName, setLocalDatabaseName] = useState('')
   const [localDatabaseStatus, setLocalDatabaseStatus] = useState('')
+  const [testDisplay, setTestDisplay] = useState<
+    | { status: 'idle' }
+    | { status: 'loading'; engine: string; environmentLabel: string }
+    | { status: 'ready'; result: ConnectionTestResult }
+  >({ status: 'idle' })
+  const testRequestIdRef = useRef(0)
 
   const selectedEngineOption = engineOption(connectionDraft.engine)
   const localDatabaseManifest = selectedEngineOption?.localDatabase
@@ -68,12 +78,18 @@ export function ConnectionBlade({
     (environment) => environment.id === selectedEnvironmentId,
   )
   const environmentAccentStyle = environmentAccentVariables(selectedEnvironment)
-  const displayedResolvedHost = connectionTest
-    ? redactEnvironmentSecrets(connectionTest.resolvedHost, selectedEnvironmentId, environments)
+  const displayedConnectionTest =
+    testDisplay.status === 'ready'
+      ? testDisplay.result
+      : testDisplay.status === 'idle'
+        ? connectionTest
+        : undefined
+  const displayedResolvedHost = displayedConnectionTest
+    ? redactEnvironmentSecrets(displayedConnectionTest.resolvedHost, selectedEnvironmentId, environments)
     : ''
-  const displayedResolvedDatabase = connectionTest?.resolvedDatabase
+  const displayedResolvedDatabase = displayedConnectionTest?.resolvedDatabase
     ? redactEnvironmentSecrets(
-        connectionTest.resolvedDatabase,
+        displayedConnectionTest.resolvedDatabase,
         selectedEnvironmentId,
         environments,
       )
@@ -216,12 +232,40 @@ export function ConnectionBlade({
     return saved
   }
 
-  const testConnectionWithDraftSecret = (
+  const testConnectionWithDraftSecret = async (
     profile: ConnectionProfile,
     environmentId: string,
     secret?: string,
   ) => {
-    onTestConnection(profile, environmentId, secret)
+    const requestId = testRequestIdRef.current + 1
+    testRequestIdRef.current = requestId
+    const environmentLabel =
+      environments.find((environment) => environment.id === environmentId)?.label ??
+      'no environment'
+    setTestDisplay({
+      status: 'loading',
+      engine: profile.engine,
+      environmentLabel,
+    })
+
+    try {
+      const result = await onTestConnection(profile, environmentId, secret)
+      if (testRequestIdRef.current !== requestId) {
+        return undefined
+      }
+
+      const displayResult = result ?? fallbackConnectionTestResult(profile)
+      setTestDisplay({ status: 'ready', result: displayResult })
+      return displayResult
+    } catch {
+      if (testRequestIdRef.current !== requestId) {
+        return undefined
+      }
+
+      const result = fallbackConnectionTestResult(profile)
+      setTestDisplay({ status: 'ready', result })
+      return result
+    }
   }
 
   return (
@@ -265,10 +309,11 @@ export function ConnectionBlade({
       </div>
 
       <ConnectionFooter
-        connectionTest={connectionTest}
+        connectionTest={displayedConnectionTest}
         environmentAccentStyle={environmentAccentStyle}
         getConnectionForAction={connectionForAction}
         hasEnvironment={Boolean(selectedEnvironment)}
+        loadingTest={testDisplay.status === 'loading' ? testDisplay : undefined}
         resolvedDatabase={displayedResolvedDatabase}
         resolvedHost={displayedResolvedHost}
         secretDraft={secretDraft}
@@ -278,6 +323,17 @@ export function ConnectionBlade({
       />
     </>
   )
+}
+
+function fallbackConnectionTestResult(profile: ConnectionProfile): ConnectionTestResult {
+  return {
+    ok: false,
+    engine: profile.engine,
+    message: 'Connection test failed before a result was returned.',
+    warnings: [],
+    resolvedHost: profile.host,
+    resolvedDatabase: profile.database,
+  }
 }
 
 function defaultLocalDatabaseName(manifest?: LocalDatabaseManifest) {

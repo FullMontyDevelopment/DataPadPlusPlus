@@ -16,6 +16,7 @@ type QueryTabActions = Pick<
   | 'createEnvironmentTab'
   | 'createSettingsTab'
   | 'createApiServerTab'
+  | 'createMcpServerTab'
   | 'createWorkspaceSearchTab'
   | 'refreshMetricsTab'
   | 'createObjectViewTab'
@@ -185,6 +186,37 @@ export function useQueryTabActions({
           )
         }
         applyPayload(await desktopClient.createApiServerTab(serverId))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const createMcpServerTab = useCallback<Actions['createMcpServerTab']>(
+    async (serverId) => {
+      try {
+        const mcpServer = state.payload?.snapshot.preferences.datastoreMcpServer
+        const server = serverId
+          ? mcpServer?.servers?.find((item) => item.id === serverId)
+          : undefined
+        if (mcpServer?.enabled && server) {
+          applyPayload(
+            await desktopClient.updateDatastoreMcpServerSettings({
+              enabled: true,
+              host: '127.0.0.1',
+              serverId,
+              activeServerId: serverId,
+              name: server.name,
+              port: server.port,
+              autoStart: server.autoStart,
+              allowedOrigins: server.allowedOrigins,
+              connectionIds: server.connectionIds,
+              environmentIds: server.environmentIds,
+            }),
+          )
+        }
+        applyPayload(await desktopClient.createMcpServerTab(serverId))
       } catch (error) {
         handleError(error)
       }
@@ -539,6 +571,7 @@ export function useQueryTabActions({
       createEnvironmentTab,
       createSettingsTab,
       createApiServerTab,
+      createMcpServerTab,
       createWorkspaceSearchTab,
       createObjectViewTab,
       refreshMetricsTab,
@@ -569,6 +602,7 @@ export function useQueryTabActions({
       closeTab,
       createApiServerTab,
       createEnvironmentTab,
+      createMcpServerTab,
       createWorkspaceSearchTab,
       createLibraryFolder,
       createExplorerTab,

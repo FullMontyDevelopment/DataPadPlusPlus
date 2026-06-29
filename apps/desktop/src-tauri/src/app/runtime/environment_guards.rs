@@ -51,19 +51,44 @@ pub(super) fn apply_environment_guards_to_data_edit_plan(
         return;
     }
 
+    for reason in data_edit_safe_mode_block_reasons(environment, global_safe_mode) {
+        push_unique_warning(&mut plan.warnings, reason);
+    }
+    if data_edit_safe_mode_blocked(environment, global_safe_mode) {
+        plan.confirmation_text = None;
+        return;
+    }
+
     let destructive_or_adapter_guarded = plan.destructive || plan.confirmation_text.is_some();
-    let requires_environment_confirmation = environment.safe_mode
-        || environment.requires_confirmation
+    let requires_environment_confirmation = environment.requires_confirmation
         || matches!(environment.risk.as_str(), "high" | "critical");
     let requires_confirmation = destructive_or_adapter_guarded || requires_environment_confirmation;
-    let apply_global_safe_mode = global_safe_mode && destructive_or_adapter_guarded;
 
-    apply_environment_confirmation_to_plan(
-        plan,
-        environment,
-        apply_global_safe_mode,
-        requires_confirmation,
-    );
+    apply_environment_confirmation_to_plan(plan, environment, false, requires_confirmation);
+}
+
+pub(super) fn data_edit_safe_mode_blocked(
+    environment: &EnvironmentProfile,
+    global_safe_mode: bool,
+) -> bool {
+    global_safe_mode || environment.safe_mode
+}
+
+pub(super) fn data_edit_safe_mode_block_reasons(
+    environment: &EnvironmentProfile,
+    global_safe_mode: bool,
+) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if global_safe_mode {
+        reasons.push("Global safe mode blocks inline result edits.".into());
+    }
+    if environment.safe_mode {
+        reasons.push(format!(
+            "{} safe mode blocks inline result edits.",
+            environment.label
+        ));
+    }
+    reasons
 }
 
 fn apply_environment_confirmation_to_plan(

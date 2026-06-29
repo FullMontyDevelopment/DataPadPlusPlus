@@ -117,6 +117,49 @@ export interface DatastoreApiServerConfig {
   customEndpoints?: DatastoreApiServerCustomEndpointConfig[]
 }
 
+export const DATASTORE_MCP_SERVER_SCOPES = [
+  'workspace:read',
+  'workspace:switch',
+  'datastore:list',
+  'datastore:explore',
+  'query:read',
+  'operation:diagnostic',
+] as const
+
+export type DatastoreMcpServerScope = (typeof DATASTORE_MCP_SERVER_SCOPES)[number]
+
+export interface DatastoreMcpServerTokenConfig {
+  id: string
+  label: string
+  enabled: boolean
+  scopes: DatastoreMcpServerScope[]
+  verifierSecretRef: import('./connection').SecretRef
+  createdAt: string
+  lastUsedAt?: string
+}
+
+export interface DatastoreMcpServerConfig {
+  id: string
+  name: string
+  description?: string
+  host: '127.0.0.1'
+  port: number
+  autoStart: boolean
+  allowedOrigins: string[]
+  connectionIds: string[]
+  environmentIds: string[]
+  tokens: DatastoreMcpServerTokenConfig[]
+}
+
+export interface DatastoreMcpServerPreferences {
+  enabled: boolean
+  host: '127.0.0.1'
+  port: number
+  autoStart: boolean
+  activeServerId?: string
+  servers?: DatastoreMcpServerConfig[]
+}
+
 export interface WorkspaceSearchPreferences {
   enabled: boolean
 }
@@ -154,6 +197,7 @@ export interface AppPreferences {
   keyboardShortcuts?: KeyboardShortcutPreferences
   workspaceBackups?: WorkspaceBackupPreferences
   datastoreApiServer?: DatastoreApiServerPreferences
+  datastoreMcpServer?: DatastoreMcpServerPreferences
   workspaceSearch?: WorkspaceSearchPreferences
 }
 

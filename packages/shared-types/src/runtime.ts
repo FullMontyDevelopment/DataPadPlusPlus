@@ -428,6 +428,212 @@ export interface DatastoreApiServerLogs {
   entries: DatastoreApiServerLogEntry[]
 }
 
+export interface DatastoreMcpServerSettingsRequest {
+  enabled: boolean
+  host?: '127.0.0.1'
+  port?: number
+  autoStart?: boolean
+  serverId?: string
+  name?: string
+  description?: string
+  allowedOrigins?: string[]
+  connectionIds?: string[]
+  environmentIds?: string[]
+  activeServerId?: string
+}
+
+export interface DatastoreMcpServerCreateRequest {
+  name?: string
+  description?: string
+  port?: number
+  autoStart?: boolean
+  allowedOrigins?: string[]
+  connectionIds?: string[]
+  environmentIds?: string[]
+}
+
+export interface DatastoreMcpServerUpdateRequest {
+  serverId: string
+  name?: string
+  description?: string
+  port?: number
+  autoStart?: boolean
+  allowedOrigins?: string[]
+  connectionIds?: string[]
+  environmentIds?: string[]
+}
+
+export interface DatastoreMcpServerStartRequest {
+  serverId?: string
+  port?: number
+}
+
+export interface DatastoreMcpServerStopRequest {
+  serverId?: string
+  reason?: string
+}
+
+export interface DatastoreMcpServerDeleteRequest {
+  serverId: string
+}
+
+export interface DatastoreMcpServerTokenCreateRequest {
+  serverId: string
+  label?: string
+  scopes?: import('./security').DatastoreMcpServerScope[]
+}
+
+export interface DatastoreMcpServerTokenCreateResponse {
+  serverId: string
+  tokenId: string
+  token: string
+  config: import('./security').DatastoreMcpServerTokenConfig
+  status: DatastoreMcpServerStatus
+}
+
+export interface DatastoreMcpServerTokenDeleteRequest {
+  serverId: string
+  tokenId: string
+}
+
+export type DatastoreMcpClientSetupClientId =
+  | 'codex'
+  | 'vscode'
+  | 'cursor'
+  | 'claude-code'
+  | 'gemini-cli'
+
+export type DatastoreMcpClientSetupScope = 'user'
+
+export interface DatastoreMcpClientSetupRequest {
+  clientId: DatastoreMcpClientSetupClientId
+  scope: DatastoreMcpClientSetupScope
+  endpoint: string
+}
+
+export interface DatastoreMcpClientSetupPreview {
+  clientId: DatastoreMcpClientSetupClientId
+  scope: DatastoreMcpClientSetupScope
+  endpoint: string
+  targetPath: string
+  targetExists: boolean
+  canApply: boolean
+  previewId: string
+  changeSummary: string
+  proposedSnippet: string
+  warnings: string[]
+}
+
+export interface DatastoreMcpClientSetupApplyRequest extends DatastoreMcpClientSetupRequest {
+  previewId: string
+}
+
+export interface DatastoreMcpClientSetupApplyResponse extends DatastoreMcpClientSetupPreview {
+  applied: boolean
+  backupPath?: string
+}
+
+export interface DatastoreMcpServerInstanceStatus {
+  id: string
+  name: string
+  description?: string
+  running: boolean
+  host: '127.0.0.1'
+  port: number
+  endpoint?: string
+  startedAt?: string
+  message: string
+  warnings: string[]
+  allowedOrigins: string[]
+  connectionIds: string[]
+  environmentIds: string[]
+  tokenCount: number
+}
+
+export interface DatastoreMcpServerStatus {
+  enabled: boolean
+  running: boolean
+  host: '127.0.0.1'
+  port: number
+  endpoint?: string
+  serverId?: string
+  name?: string
+  description?: string
+  activeServerId?: string
+  startedAt?: string
+  message: string
+  warnings: string[]
+  allowedOrigins: string[]
+  connectionIds: string[]
+  environmentIds: string[]
+  tokenCount: number
+  servers: DatastoreMcpServerInstanceStatus[]
+}
+
+export interface DatastoreMcpServerRouteMetric {
+  routeId: string
+  method: string
+  route: string
+  requests: number
+  successes: number
+  errors: number
+  statusCounts: Record<string, number>
+  averageDurationMs: number
+  p50DurationMs: number
+  p95DurationMs: number
+  lastDurationMs?: number
+  lastStatus?: number
+  lastSeenAt?: string
+  requestBytes: number
+  responseBytes: number
+}
+
+export interface DatastoreMcpServerMetrics {
+  running: boolean
+  generatedAt: string
+  serverId?: string
+  startedAt?: string
+  totalRequests: number
+  totalErrors: number
+  requestBytes: number
+  responseBytes: number
+  routes: DatastoreMcpServerRouteMetric[]
+  retention: {
+    routeSamples: number
+    logs: number
+  }
+}
+
+export interface DatastoreMcpServerLogEntry {
+  id: number
+  timestamp: string
+  method: string
+  path: string
+  route: string
+  status: number
+  durationMs: number
+  requestBytes: number
+  responseBytes: number
+  tokenId?: string
+  errorCode?: string
+  errorMessage?: string
+}
+
+export interface DatastoreMcpServerLogsRequest {
+  serverId?: string
+  limit?: number
+  method?: string
+  route?: string
+  status?: number
+}
+
+export interface DatastoreMcpServerLogs {
+  running: boolean
+  generatedAt: string
+  totalRetained: number
+  entries: DatastoreMcpServerLogEntry[]
+}
+
 export interface WorkspaceSearchSettingsRequest {
   enabled: boolean
 }

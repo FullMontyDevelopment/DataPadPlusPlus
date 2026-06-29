@@ -783,10 +783,10 @@ export function LibraryPane({
               apiServerExpanded ? ' is-expanded' : ' is-collapsed'
             }`}
           >
-            <div className="sidebar-section-header library-api-server-header">
+            <div className="library-api-server-header">
               <button
                 type="button"
-                className="sidebar-section-header--button library-api-server-header-toggle"
+                className="sidebar-section-header sidebar-section-header--button library-api-server-header-toggle"
                 aria-label={`${apiServerExpanded ? 'Collapse' : 'Expand'} API Server section`}
                 aria-expanded={apiServerExpanded}
                 aria-controls="library-api-server-body"
@@ -805,11 +805,13 @@ export function LibraryPane({
                   )}
                   <span>API Server</span>
                 </span>
+                <span className="library-api-server-count">
+                  {displayedApiServers.length}
+                </span>
               </button>
-              <span>{displayedApiServers.length}</span>
               <button
                 type="button"
-                className="sidebar-icon-button sidebar-icon-button--inline"
+                className="sidebar-icon-button sidebar-icon-button--inline library-api-server-add-button"
                 aria-label="Create API server"
                 title="Create API server"
                 onClick={(event) => {

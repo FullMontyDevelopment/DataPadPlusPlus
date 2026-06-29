@@ -113,6 +113,70 @@ function apiServerTabServerId(tab: QueryTabState) {
   return tab.scopedTarget?.kind === 'api-server' ? tab.scopedTarget.scope : undefined
 }
 
+export function createMcpServerTabInSnapshot(
+  snapshot: WorkspaceSnapshot,
+  serverId?: string,
+): WorkspaceSnapshot {
+  const next = cloneSnapshot(snapshot)
+  const configured = next.preferences.datastoreMcpServer
+  const selectedServer =
+    (serverId ? configured?.servers?.find((server) => server.id === serverId) : undefined) ??
+    configured?.servers?.find((server) => server.id === configured.activeServerId) ??
+    configured?.servers?.[0]
+  const selectedServerId = selectedServer?.id
+  const existingMcpServerTab = next.tabs.find((tab) =>
+    tab.tabKind === 'mcp-server' &&
+    mcpServerTabServerId(tab) === selectedServerId
+  )
+
+  if (existingMcpServerTab) {
+    const focused = upsertTab(next, existingMcpServerTab)
+    focused.ui.activeActivity = 'library'
+    focused.ui.activeSidebarPane = 'library'
+    focused.ui.rightDrawer = 'none'
+    return focused
+  }
+
+  const connection =
+    next.connections.find((item) => item.id === next.ui.activeConnectionId) ?? next.connections[0]
+  const environment =
+    next.environments.find((item) => item.id === next.ui.activeEnvironmentId) ?? next.environments[0]
+  const title = selectedServer?.name?.trim() || 'MCP Server'
+  const tab: QueryTabState = {
+    id: createId('mcp-server-tab'),
+    title,
+    tabKind: 'mcp-server',
+    connectionId: connection?.id ?? '',
+    environmentId: environment?.id ?? '',
+    family: connection?.family ?? 'sql',
+    language: 'json',
+    editorLabel: 'MCP Server',
+    queryText: '',
+    queryViewMode: undefined,
+    scriptText: undefined,
+    scopedTarget: selectedServerId
+      ? {
+          kind: 'mcp-server',
+          label: title,
+          scope: selectedServerId,
+        }
+      : undefined,
+    status: 'idle',
+    dirty: false,
+    history: [],
+  }
+
+  const focused = upsertTab(next, tab)
+  focused.ui.activeActivity = 'library'
+  focused.ui.activeSidebarPane = 'library'
+  focused.ui.rightDrawer = 'none'
+  return focused
+}
+
+function mcpServerTabServerId(tab: QueryTabState) {
+  return tab.scopedTarget?.kind === 'mcp-server' ? tab.scopedTarget.scope : undefined
+}
+
 export function createWorkspaceSearchTabInSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
   const next = cloneSnapshot(snapshot)
   const existingSearchTab = next.tabs.find((tab) => tab.tabKind === 'workspace-search')

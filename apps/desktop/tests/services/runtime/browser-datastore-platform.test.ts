@@ -733,6 +733,38 @@ describe('browser datastore platform contracts', () => {
     )
   })
 
+  it('blocks browser-preview inline data edits when safe mode is enabled', () => {
+    const connection = connectionProfile('mongodb', 'document')
+    const snapshot = dataEditSnapshot(connection, {
+      safeModeEnabled: true,
+      environmentSafeMode: true,
+    })
+    const response = executeDataEditLocally(connection, {
+      ...mongoUpdateDocumentRequest(connection),
+      confirmationText: 'CONFIRM Dev',
+    }, snapshot)
+
+    expect(response.executed).toBe(false)
+    expect(response.plan.confirmationText).toBeUndefined()
+    expect(response.warnings).toContain('Global safe mode blocks inline result edits.')
+    expect(response.warnings).toContain('Dev safe mode blocks inline result edits.')
+    expect(response.warnings).not.toContain('This data edit needs confirmation before it can run.')
+  })
+
+  it('adds confirmation to every browser-preview inline data edit when the environment requires it', () => {
+    const connection = connectionProfile('mongodb', 'document')
+    const snapshot = dataEditSnapshot(connection, {
+      requiresConfirmation: true,
+    })
+    const plan = planDataEditLocally(connection, mongoUpdateDocumentRequest(connection), snapshot)
+    const response = executeDataEditLocally(connection, mongoUpdateDocumentRequest(connection), snapshot)
+
+    expect(plan.plan.destructive).toBe(false)
+    expect(plan.plan.confirmationText).toBe('CONFIRM Dev')
+    expect(plan.plan.warnings).toContain('Dev requires confirmation for risky work.')
+    expect(response.warnings).toContain('This data edit needs confirmation before it can run.')
+  })
+
   it('plans Mongo document uploads without requiring an existing document id', () => {
     const connection = connectionProfile('mongodb', 'document')
     const response = planDataEditLocally(connection, {
@@ -953,4 +985,61 @@ function connectionProfile(
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
+}
+
+function mongoUpdateDocumentRequest(connection: ConnectionProfile): DataEditPlanRequest {
+  return {
+    connectionId: connection.id,
+    environmentId: 'env-dev',
+    editKind: 'update-document',
+    target: {
+      objectKind: 'document',
+      path: ['catalog', 'products', 'item-1'],
+      database: 'catalog',
+      collection: 'products',
+      documentId: 'item-1',
+    },
+    changes: [{
+      field: 'status',
+      value: 'active',
+      valueType: 'string',
+    }],
+  }
+}
+
+function dataEditSnapshot(
+  connection: ConnectionProfile,
+  {
+    safeModeEnabled = false,
+    environmentSafeMode = false,
+    requiresConfirmation = false,
+  }: {
+    safeModeEnabled?: boolean
+    environmentSafeMode?: boolean
+    requiresConfirmation?: boolean
+  },
+): WorkspaceSnapshot {
+  return {
+    connections: [connection],
+    environments: [{
+      id: 'env-dev',
+      label: 'Dev',
+      color: '#2dbf9b',
+      risk: 'low',
+      variables: {},
+      sensitiveKeys: [],
+      variableDefinitions: [],
+      requiresConfirmation,
+      safeMode: environmentSafeMode,
+      exportable: true,
+      createdAt: '2026-05-25T00:00:00.000Z',
+      updatedAt: '2026-05-25T00:00:00.000Z',
+    }],
+    preferences: {
+      theme: 'dark',
+      telemetry: 'opt-in',
+      lockAfterMinutes: 15,
+      safeModeEnabled,
+    },
+  } as unknown as WorkspaceSnapshot
 }

@@ -40,6 +40,19 @@ type WorkspaceActions = Pick<
   | 'startDatastoreApiServer'
   | 'stopDatastoreApiServer'
   | 'deleteDatastoreApiServer'
+  | 'getDatastoreMcpServerStatus'
+  | 'getDatastoreMcpServerMetrics'
+  | 'getDatastoreMcpServerLogs'
+  | 'createDatastoreMcpServer'
+  | 'updateDatastoreMcpServer'
+  | 'updateDatastoreMcpServerSettings'
+  | 'startDatastoreMcpServer'
+  | 'stopDatastoreMcpServer'
+  | 'deleteDatastoreMcpServer'
+  | 'createDatastoreMcpServerToken'
+  | 'deleteDatastoreMcpServerToken'
+  | 'previewDatastoreMcpClientSetup'
+  | 'applyDatastoreMcpClientSetup'
   | 'listWorkspaceBackups'
   | 'createWorkspaceBackupNow'
   | 'restoreWorkspaceBackup'
@@ -488,6 +501,174 @@ export function useWorkspaceActions({
     [applyPayload, handleError, state.payload],
   )
 
+  const getDatastoreMcpServerStatus = useCallback<Actions['getDatastoreMcpServerStatus']>(
+    async () => {
+      try {
+        return await desktopClient.getDatastoreMcpServerStatus()
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const getDatastoreMcpServerMetrics = useCallback<Actions['getDatastoreMcpServerMetrics']>(
+    async () => {
+      try {
+        return await desktopClient.getDatastoreMcpServerMetrics()
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const getDatastoreMcpServerLogs = useCallback<Actions['getDatastoreMcpServerLogs']>(
+    async (request) => {
+      try {
+        return await desktopClient.getDatastoreMcpServerLogs(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const createDatastoreMcpServer = useCallback<Actions['createDatastoreMcpServer']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.createDatastoreMcpServer(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const updateDatastoreMcpServer = useCallback<Actions['updateDatastoreMcpServer']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.updateDatastoreMcpServer(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const updateDatastoreMcpServerSettings = useCallback<Actions['updateDatastoreMcpServerSettings']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.updateDatastoreMcpServerSettings(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const startDatastoreMcpServer = useCallback<Actions['startDatastoreMcpServer']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.startDatastoreMcpServer(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
+  const stopDatastoreMcpServer = useCallback<Actions['stopDatastoreMcpServer']>(
+    async (request) => {
+      try {
+        return await desktopClient.stopDatastoreMcpServer(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const deleteDatastoreMcpServer = useCallback<Actions['deleteDatastoreMcpServer']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.deleteDatastoreMcpServer(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const createDatastoreMcpServerToken = useCallback<Actions['createDatastoreMcpServerToken']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.createDatastoreMcpServerToken(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
+  const deleteDatastoreMcpServerToken = useCallback<Actions['deleteDatastoreMcpServerToken']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.deleteDatastoreMcpServerToken(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
+  const previewDatastoreMcpClientSetup = useCallback<Actions['previewDatastoreMcpClientSetup']>(
+    async (request) => {
+      try {
+        return await desktopClient.previewDatastoreMcpClientSetup(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const applyDatastoreMcpClientSetup = useCallback<Actions['applyDatastoreMcpClientSetup']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.applyDatastoreMcpClientSetup(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
   const listWorkspaceBackups = useCallback<Actions['listWorkspaceBackups']>(
     async () => {
       try {
@@ -575,6 +756,19 @@ export function useWorkspaceActions({
       startDatastoreApiServer,
       stopDatastoreApiServer,
       deleteDatastoreApiServer,
+      getDatastoreMcpServerStatus,
+      getDatastoreMcpServerMetrics,
+      getDatastoreMcpServerLogs,
+      createDatastoreMcpServer,
+      updateDatastoreMcpServer,
+      updateDatastoreMcpServerSettings,
+      startDatastoreMcpServer,
+      stopDatastoreMcpServer,
+      deleteDatastoreMcpServer,
+      createDatastoreMcpServerToken,
+      deleteDatastoreMcpServerToken,
+      previewDatastoreMcpClientSetup,
+      applyDatastoreMcpClientSetup,
       listWorkspaceBackups,
       createWorkspaceBackupNow,
       restoreWorkspaceBackup,
@@ -606,6 +800,19 @@ export function useWorkspaceActions({
       startDatastoreApiServer,
       stopDatastoreApiServer,
       deleteDatastoreApiServer,
+      getDatastoreMcpServerStatus,
+      getDatastoreMcpServerMetrics,
+      getDatastoreMcpServerLogs,
+      createDatastoreMcpServer,
+      updateDatastoreMcpServer,
+      updateDatastoreMcpServerSettings,
+      startDatastoreMcpServer,
+      stopDatastoreMcpServer,
+      deleteDatastoreMcpServer,
+      createDatastoreMcpServerToken,
+      deleteDatastoreMcpServerToken,
+      previewDatastoreMcpClientSetup,
+      applyDatastoreMcpClientSetup,
       listWorkspaceBackups,
       createWorkspaceBackupNow,
       restoreWorkspaceBackup,

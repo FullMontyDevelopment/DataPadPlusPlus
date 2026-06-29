@@ -94,6 +94,9 @@ pub fn run() {
             app.manage(std::sync::Mutex::new(
                 app::runtime::datastore_api_server::DatastoreApiServerManager::default(),
             ));
+            app.manage(std::sync::Mutex::new(
+                app::runtime::datastore_mcp_server::DatastoreMcpServerManager::default(),
+            ));
             {
                 let app_handle = app.handle().clone();
                 let state = app.state::<app::runtime::SharedAppState>();
@@ -123,6 +126,38 @@ pub fn run() {
                     Err(_) => infrastructure::log_warning(
                         "api-server",
                         "API server auto-start skipped because workspace state was unavailable.",
+                    ),
+                };
+            }
+            {
+                let app_handle = app.handle().clone();
+                let state = app.state::<app::runtime::SharedAppState>();
+                let mcp_server =
+                    app.state::<app::runtime::datastore_mcp_server::SharedDatastoreMcpServer>();
+                match state.lock() {
+                    Ok(mut runtime) => {
+                        match app::runtime::datastore_mcp_server::auto_start_if_configured(
+                            app_handle,
+                            &mcp_server,
+                            &mut runtime,
+                        ) {
+                            Ok(Some(status)) => infrastructure::log_info(
+                                "mcp-server",
+                                format!(
+                                    "Auto-started experimental MCP server at {}.",
+                                    status.endpoint.unwrap_or_else(|| "127.0.0.1".into())
+                                ),
+                            ),
+                            Ok(None) => {}
+                            Err(error) => infrastructure::log_warning(
+                                "mcp-server",
+                                format!("MCP server auto-start skipped: {}", error.message),
+                            ),
+                        }
+                    }
+                    Err(_) => infrastructure::log_warning(
+                        "mcp-server",
+                        "MCP server auto-start skipped because workspace state was unavailable.",
                     ),
                 };
             }
@@ -160,7 +195,9 @@ pub fn run() {
             commands::workspace::create_metrics_tab,
             commands::workspace::create_object_view_tab,
             commands::workspace::create_datastore_api_server,
+            commands::workspace::create_datastore_mcp_server,
             commands::workspace::create_api_server_tab,
+            commands::workspace::create_mcp_server_tab,
             commands::workspace::create_query_tab,
             commands::workspace::create_scoped_query_tab,
             commands::workspace::create_settings_tab,
@@ -170,6 +207,8 @@ pub fn run() {
             commands::workspace::delete_environment_profile,
             commands::workspace::delete_library_node,
             commands::workspace::delete_datastore_api_server,
+            commands::workspace::delete_datastore_mcp_server,
+            commands::workspace::delete_datastore_mcp_server_token,
             commands::workspace::delete_workspace_backup,
             commands::workspace::delete_saved_work_item,
             commands::workspace::discover_datastore_api_server_query_sources,
@@ -186,6 +225,9 @@ pub fn run() {
             commands::workspace::get_datastore_api_server_logs,
             commands::workspace::get_datastore_api_server_metrics,
             commands::workspace::get_datastore_api_server_status,
+            commands::workspace::get_datastore_mcp_server_logs,
+            commands::workspace::get_datastore_mcp_server_metrics,
+            commands::workspace::get_datastore_mcp_server_status,
             commands::workspace::import_workspace_bundle,
             commands::workspace::import_workspace_bundle_file,
             commands::workspace::inspect_explorer_node,
@@ -203,6 +245,7 @@ pub fn run() {
             commands::workspace::plan_data_edit,
             commands::workspace::plan_datastore_operation,
             commands::workspace::pick_local_database_file,
+            commands::workspace::preview_datastore_mcp_client_setup,
             commands::workspace::reorder_query_tabs,
             commands::workspace::refresh_metrics_tab,
             commands::workspace::refresh_object_view_tab,
@@ -223,16 +266,22 @@ pub fn run() {
             commands::workspace::set_theme,
             commands::workspace::set_ui_state,
             commands::workspace::start_datastore_api_server,
+            commands::workspace::start_datastore_mcp_server,
             commands::workspace::stop_datastore_api_server,
+            commands::workspace::stop_datastore_mcp_server,
             commands::workspace::test_connection,
             commands::workspace::unlock_app,
             commands::workspace::add_datastore_api_server_custom_endpoint,
             commands::workspace::add_datastore_api_server_resources,
+            commands::workspace::apply_datastore_mcp_client_setup,
             commands::workspace::remove_datastore_api_server_custom_endpoint,
             commands::workspace::remove_datastore_api_server_resource,
             commands::workspace::update_datastore_api_server,
             commands::workspace::update_datastore_api_server_custom_endpoint,
             commands::workspace::update_datastore_api_server_settings,
+            commands::workspace::update_datastore_mcp_server,
+            commands::workspace::update_datastore_mcp_server_settings,
+            commands::workspace::create_datastore_mcp_server_token,
             commands::workspace::update_query_builder_state,
             commands::workspace::update_query_tab,
             commands::workspace::update_test_suite_tab,

@@ -3,6 +3,7 @@ import { clientAdapters } from './client-adapters'
 import { clientConnections } from './client-connections'
 import { clientExecution } from './client-execution'
 import { clientLibrary } from './client-library'
+import { clientMcpServer } from './client-mcp-server'
 import { clientResultExport } from './client-result-export'
 import { clientSavedWork } from './client-saved-work'
 import { clientSettingsTab } from './client-settings-tab'
@@ -14,6 +15,7 @@ import { clientWorkspace } from './client-workspace'
 export const desktopClient = {
   ...clientWorkspace,
   ...clientApiServer,
+  ...clientMcpServer,
   ...clientConnections,
   ...clientTabs,
   ...clientLibrary,

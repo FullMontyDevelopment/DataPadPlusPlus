@@ -139,6 +139,7 @@ export function useRuntimeActions({
           source: 'manual-test',
           result,
         })
+        return result
       } catch (error) {
         const result = buildConnectionTestFailure(profile, error, secret)
         dispatch({
@@ -153,6 +154,7 @@ export function useRuntimeActions({
           source: 'manual-test',
           result,
         })
+        return result
       }
     },
     [dispatch, state.payload],

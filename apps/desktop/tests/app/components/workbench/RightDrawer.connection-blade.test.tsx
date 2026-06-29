@@ -1,9 +1,76 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { ConnectionProfile, EnvironmentProfile } from '@datapadplusplus/shared-types'
+import type {
+  ConnectionProfile,
+  ConnectionTestResult,
+  EnvironmentProfile,
+} from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import { ConnectionBlade } from '../../../../src/app/components/workbench/RightDrawer.connection-blade'
 
 describe('ConnectionBlade', () => {
+  it('shows loading immediately and replaces a previous connection test result', async () => {
+    const testResult = connectionTestResult({
+      message: 'Connected with fresh settings.',
+      resolvedHost: 'db.internal',
+    })
+    const pending = deferred<ConnectionTestResult>()
+    const onTestConnection = vi.fn(async () => pending.promise)
+
+    render(
+      <ConnectionBlade
+        activeConnection={connection}
+        connectionTest={connectionTestResult({ message: 'Old failure.', ok: false })}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    expect(screen.getByText('Old failure.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('Testing connection')
+    expect(screen.queryByText('Old failure.')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Testing...' })).toBeDisabled()
+
+    pending.resolve(testResult)
+
+    await waitFor(() => {
+      expect(screen.getByText('Connected with fresh settings.')).toBeInTheDocument()
+    })
+  })
+
+  it('replaces loading with a failure message when testing rejects', async () => {
+    const onTestConnection = vi.fn(async () => {
+      throw new Error('Network down')
+    })
+
+    render(
+      <ConnectionBlade
+        activeConnection={connection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+    expect(screen.getByRole('status')).toHaveTextContent('Testing connection')
+
+    await waitFor(() => {
+      expect(screen.getByText('Connection test failed before a result was returned.')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: 'Test Connection' })).not.toBeDisabled()
+  })
+
   it('keeps typed credentials for testing but clears them after successful save and close actions', async () => {
     const onClose = vi.fn()
     const onSaveConnection = vi.fn(async () => true)
@@ -1156,6 +1223,31 @@ describe('ConnectionBlade', () => {
     )
   })
 })
+
+function connectionTestResult(
+  patch: Partial<ConnectionTestResult> = {},
+): ConnectionTestResult {
+  return {
+    ok: true,
+    engine: connection.engine,
+    message: 'Connection ready.',
+    warnings: [],
+    resolvedHost: connection.host,
+    resolvedDatabase: connection.database,
+    ...patch,
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+
+  return { promise, resolve, reject }
+}
 
 const environment: EnvironmentProfile = {
   id: 'env-local',

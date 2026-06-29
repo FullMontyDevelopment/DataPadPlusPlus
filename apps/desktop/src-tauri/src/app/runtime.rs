@@ -9,6 +9,8 @@ mod app_updates_github;
 mod app_updates_settings;
 pub mod datastore_api_server;
 mod datastore_commands;
+pub mod datastore_mcp_client_setup;
+pub mod datastore_mcp_server;
 mod datastore_tab_refresh;
 mod environment_guards;
 mod environments;

@@ -25,7 +25,8 @@ use crate::{
         error::CommandError,
         models::{
             AppHealth, AppPreferences, BootstrapPayload, DatastoreApiServerConfig,
-            DatastoreApiServerPreferences, DiagnosticsCounts, DiagnosticsReport, ExportBundle,
+            DatastoreApiServerPreferences, DatastoreMcpServerPreferences,
+            DatastoreMcpServerTokenConfig, DiagnosticsCounts, DiagnosticsReport, ExportBundle,
             LockState, ResolvedEnvironment, UiState, WorkspaceSearchSettingsRequest,
             WorkspaceSnapshot,
         },
@@ -37,6 +38,8 @@ const MAX_DECRYPTED_WORKSPACE_BYTES: usize = 50 * 1024 * 1024;
 const API_SERVER_HOST: &str = "127.0.0.1";
 const DEFAULT_API_SERVER_ID: &str = "api-server-default";
 const DEFAULT_API_SERVER_PORT: u16 = 17640;
+const MCP_SERVER_HOST: &str = "127.0.0.1";
+const DEFAULT_MCP_SERVER_PORT: u16 = 17641;
 
 impl ManagedAppState {
     pub fn load(app: AppHandle) -> Self {
@@ -201,7 +204,7 @@ impl ManagedAppState {
     }
 }
 
-fn sanitize_snapshot(snapshot: &WorkspaceSnapshot) -> WorkspaceSnapshot {
+pub(super) fn sanitize_snapshot(snapshot: &WorkspaceSnapshot) -> WorkspaceSnapshot {
     let mut sanitized = snapshot.clone();
 
     for environment in &mut sanitized.environments {
@@ -214,6 +217,10 @@ fn sanitize_snapshot(snapshot: &WorkspaceSnapshot) -> WorkspaceSnapshot {
 
     for closed_tab in &mut sanitized.closed_tabs {
         closed_tab.tab.result = None;
+    }
+
+    for server in &mut sanitized.preferences.datastore_mcp_server.servers {
+        server.tokens.clear();
     }
 
     sanitized
@@ -249,6 +256,7 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     migrate_legacy_variable_tokens(&mut snapshot);
     migrate_connection_modes(&mut snapshot);
     normalize_datastore_api_server_preferences(&mut snapshot.preferences.datastore_api_server);
+    normalize_datastore_mcp_server_preferences(&mut snapshot.preferences.datastore_mcp_server);
     ensure_library_nodes(&mut snapshot);
 
     for tab in &mut snapshot.tabs {
@@ -615,6 +623,114 @@ fn default_api_server_name(port: u16) -> String {
     }
 }
 
+fn normalize_datastore_mcp_server_preferences(preferences: &mut DatastoreMcpServerPreferences) {
+    let mut servers = preferences.servers.clone();
+
+    for (index, server) in servers.iter_mut().enumerate() {
+        if server.id.trim().is_empty() {
+            server.id = format!("mcp-server-{}", index + 1);
+        }
+        if server.name.trim().is_empty() {
+            server.name = default_mcp_server_name(server.port);
+        } else {
+            server.name = server.name.trim().into();
+        }
+        server.host = MCP_SERVER_HOST.into();
+        server.port = normalize_mcp_server_port(server.port);
+        normalize_string_list(&mut server.allowed_origins);
+        normalize_string_list(&mut server.connection_ids);
+        normalize_string_list(&mut server.environment_ids);
+        normalize_mcp_server_tokens(&mut server.tokens);
+    }
+
+    preferences.active_server_id = preferences
+        .active_server_id
+        .clone()
+        .filter(|id| servers.iter().any(|server| server.id == *id))
+        .or_else(|| servers.first().map(|server| server.id.clone()));
+
+    if let Some(active) = preferences
+        .active_server_id
+        .as_ref()
+        .and_then(|id| servers.iter().find(|server| &server.id == id))
+        .or_else(|| servers.first())
+    {
+        preferences.host = MCP_SERVER_HOST.into();
+        preferences.port = active.port;
+        preferences.auto_start = active.auto_start;
+    } else {
+        preferences.host = MCP_SERVER_HOST.into();
+        preferences.port = DEFAULT_MCP_SERVER_PORT;
+        preferences.auto_start = false;
+    }
+
+    preferences.servers = servers;
+}
+
+fn normalize_mcp_server_tokens(tokens: &mut Vec<DatastoreMcpServerTokenConfig>) {
+    tokens.retain(|token| {
+        !token.id.trim().is_empty()
+            && !token.verifier_secret_ref.id.trim().is_empty()
+            && !token.verifier_secret_ref.service.trim().is_empty()
+            && !token.verifier_secret_ref.account.trim().is_empty()
+    });
+    for (index, token) in tokens.iter_mut().enumerate() {
+        token.id = token.id.trim().to_string();
+        if token.label.trim().is_empty() {
+            token.label = format!("MCP client {}", index + 1);
+        } else {
+            token.label = token.label.trim().to_string();
+        }
+        normalize_mcp_scopes(&mut token.scopes);
+    }
+}
+
+fn normalize_mcp_scopes(scopes: &mut Vec<String>) {
+    scopes.retain(|scope| {
+        matches!(
+            scope.as_str(),
+            "workspace:read"
+                | "workspace:switch"
+                | "datastore:list"
+                | "datastore:explore"
+                | "query:read"
+                | "operation:diagnostic"
+        )
+    });
+    scopes.sort();
+    scopes.dedup();
+    if scopes.is_empty() {
+        scopes.push("workspace:read".into());
+        scopes.push("datastore:list".into());
+    }
+}
+
+fn normalize_string_list(values: &mut Vec<String>) {
+    for value in values.iter_mut() {
+        *value = value.trim().to_string();
+    }
+    values.retain(|value| !value.is_empty());
+    values.sort();
+    values.dedup();
+}
+
+fn normalize_mcp_server_port(port: u16) -> u16 {
+    if port < 1024 {
+        DEFAULT_MCP_SERVER_PORT
+    } else {
+        port
+    }
+}
+
+fn default_mcp_server_name(port: u16) -> String {
+    let port = normalize_mcp_server_port(port);
+    if port == DEFAULT_MCP_SERVER_PORT {
+        "Local MCP Server".into()
+    } else {
+        format!("Local MCP Server {port}")
+    }
+}
+
 fn strip_demo_records(snapshot: &mut WorkspaceSnapshot) {
     const DEMO_CONNECTIONS: &[&str] = &[
         "conn-analytics",
@@ -716,6 +832,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
                     keyboard_shortcuts: HashMap::new(),
                     workspace_backups: Default::default(),
                     datastore_api_server: Default::default(),
+                    datastore_mcp_server: Default::default(),
                     workspace_search: Default::default(),
                 },
                 guardrails: Vec::new(),
@@ -759,6 +876,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
             keyboard_shortcuts: HashMap::new(),
             workspace_backups: Default::default(),
             datastore_api_server: Default::default(),
+            datastore_mcp_server: Default::default(),
             workspace_search: Default::default(),
         },
         guardrails: Vec::new(),

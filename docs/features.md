@@ -16,6 +16,118 @@ Most work in DataPad++ follows a simple flow:
 
 The app is intentionally local-first. Your workspace, saved work, and connection profiles live on your machine, and secrets are handled through desktop-safe storage where available.
 
+## Experimental MCP Server
+
+DataPad++ can expose a desktop-only Model Context Protocol server for local MCP clients. The feature is disabled by default and does not auto-start unless you explicitly enable it from Settings -> Experimental.
+
+The MCP listener is intentionally narrow:
+
+- it binds only to `127.0.0.1`, default port `17641`
+- it serves only Streamable HTTP at `/mcp`
+- every request requires `Authorization: Bearer <auth token>`
+- present `Origin` headers are rejected unless allowlisted
+- datastores and workspace contexts are hidden until allowlisted
+- v1 exposes read, explore, list, context switch, and diagnostic scopes only
+- write, destructive, admin, and costly operations are blocked
+
+Create or reset client auth tokens from the MCP Server tab. DataPad++ shows the raw auth token only once, at creation time. Workspace JSON and exports keep only secure verifier references; if an auth token is lost, rotate it. Client setup snippets use `DATAPAD_MCP_TOKEN` or a client-side secure prompt so raw auth tokens do not need to be saved in config files.
+
+The MCP Server Setup tab includes copy/paste snippets and desktop-only automatic setup for user-level local coding clients. Automatic setup previews the exact config file and DataPad++ entry before writing, creates a backup before overwriting existing config, and never writes the raw auth token value.
+
+Set the auth token once for local clients:
+
+```powershell
+[Environment]::SetEnvironmentVariable("DATAPAD_MCP_TOKEN", "<auth token shown once>", "User")
+```
+
+```sh
+export DATAPAD_MCP_TOKEN='<auth token shown once>'
+```
+
+OpenAI Codex (`~/.codex/config.toml` or `.codex/config.toml`):
+
+```toml
+[mcp_servers.datapadplusplus]
+url = "http://127.0.0.1:17641/mcp"
+bearer_token_env_var = "DATAPAD_MCP_TOKEN"
+startup_timeout_sec = 10
+tool_timeout_sec = 30
+```
+
+VS Code / GitHub Copilot (`mcp.json` or `.vscode/mcp.json`):
+
+```json
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "datapad-mcp-token",
+      "description": "DataPad++ MCP Auth Token",
+      "password": true
+    }
+  ],
+  "servers": {
+    "datapadplusplus": {
+      "type": "http",
+      "url": "http://127.0.0.1:17641/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:datapad-mcp-token}"
+      }
+    }
+  }
+}
+```
+
+Cursor (`~/.cursor/mcp.json` or `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "datapadplusplus": {
+      "url": "http://127.0.0.1:17641/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:DATAPAD_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Claude Code (`~/.claude.json` or `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "datapadplusplus": {
+      "type": "http",
+      "url": "http://127.0.0.1:17641/mcp",
+      "headers": {
+        "Authorization": "Bearer ${DATAPAD_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Gemini CLI (`~/.gemini/settings.json` or `.gemini/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "datapadplusplus": {
+      "httpUrl": "http://127.0.0.1:17641/mcp",
+      "headers": {
+        "Authorization": "Bearer $DATAPAD_MCP_TOKEN"
+      },
+      "timeout": 30000,
+      "trust": false
+    }
+  }
+}
+```
+
+Cloud or browser-hosted LLM apps cannot normally reach a desktop `127.0.0.1` listener. Treat them as guidance-only until DataPad++ offers an explicit tunnel/public-endpoint mode.
+
 ## Connections
 
 Connections are the starting point for every datastore. A connection profile can include the datastore type, host, port, database name, local file path, connection string, tags, notes, and read-only settings.

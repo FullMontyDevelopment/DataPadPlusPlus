@@ -36,6 +36,23 @@ import type {
   DatastoreApiServerStopRequest,
   DatastoreApiServerUpdateCustomEndpointRequest,
   DatastoreApiServerUpdateRequest,
+  DatastoreMcpClientSetupApplyRequest,
+  DatastoreMcpClientSetupApplyResponse,
+  DatastoreMcpClientSetupPreview,
+  DatastoreMcpClientSetupRequest,
+  DatastoreMcpServerCreateRequest,
+  DatastoreMcpServerDeleteRequest,
+  DatastoreMcpServerLogs,
+  DatastoreMcpServerLogsRequest,
+  DatastoreMcpServerMetrics,
+  DatastoreMcpServerSettingsRequest,
+  DatastoreMcpServerStartRequest,
+  DatastoreMcpServerStatus,
+  DatastoreMcpServerStopRequest,
+  DatastoreMcpServerTokenCreateRequest,
+  DatastoreMcpServerTokenCreateResponse,
+  DatastoreMcpServerTokenDeleteRequest,
+  DatastoreMcpServerUpdateRequest,
   DiagnosticsReport,
   DocumentNodeChildrenRequest,
   DocumentNodeChildrenResponse,
@@ -245,6 +262,7 @@ export interface Actions {
   createEnvironmentTab(environmentId: string): Promise<void>
   createSettingsTab(): Promise<void>
   createApiServerTab(serverId?: string): Promise<void>
+  createMcpServerTab(serverId?: string): Promise<void>
   createWorkspaceSearchTab(): Promise<void>
   refreshMetricsTab(tabId: string): Promise<void>
   createObjectViewTab(request: CreateObjectViewTabRequest): Promise<void>
@@ -278,7 +296,7 @@ export interface Actions {
     profile: ConnectionProfile,
     environmentId: string,
     secret?: string,
-  ): Promise<void>
+  ): Promise<ConnectionTestResult | undefined>
   loadExplorer(request: ExplorerRequest): Promise<void>
   loadStructureMap(request: StructureRequest): Promise<void>
   inspectExplorer(
@@ -366,6 +384,27 @@ export interface Actions {
   startDatastoreApiServer(request: DatastoreApiServerStartRequest): Promise<DatastoreApiServerStatus | undefined>
   stopDatastoreApiServer(request?: DatastoreApiServerStopRequest): Promise<DatastoreApiServerStatus | undefined>
   deleteDatastoreApiServer(request: DatastoreApiServerDeleteRequest): Promise<boolean>
+  getDatastoreMcpServerStatus(): Promise<DatastoreMcpServerStatus | undefined>
+  getDatastoreMcpServerMetrics(): Promise<DatastoreMcpServerMetrics | undefined>
+  getDatastoreMcpServerLogs(request?: DatastoreMcpServerLogsRequest): Promise<DatastoreMcpServerLogs | undefined>
+  createDatastoreMcpServer(request: DatastoreMcpServerCreateRequest): Promise<boolean>
+  updateDatastoreMcpServer(request: DatastoreMcpServerUpdateRequest): Promise<boolean>
+  updateDatastoreMcpServerSettings(request: DatastoreMcpServerSettingsRequest): Promise<boolean>
+  startDatastoreMcpServer(request: DatastoreMcpServerStartRequest): Promise<DatastoreMcpServerStatus | undefined>
+  stopDatastoreMcpServer(request?: DatastoreMcpServerStopRequest): Promise<DatastoreMcpServerStatus | undefined>
+  deleteDatastoreMcpServer(request: DatastoreMcpServerDeleteRequest): Promise<boolean>
+  createDatastoreMcpServerToken(
+    request: DatastoreMcpServerTokenCreateRequest,
+  ): Promise<DatastoreMcpServerTokenCreateResponse | undefined>
+  deleteDatastoreMcpServerToken(
+    request: DatastoreMcpServerTokenDeleteRequest,
+  ): Promise<DatastoreMcpServerStatus | undefined>
+  previewDatastoreMcpClientSetup(
+    request: DatastoreMcpClientSetupRequest,
+  ): Promise<DatastoreMcpClientSetupPreview | undefined>
+  applyDatastoreMcpClientSetup(
+    request: DatastoreMcpClientSetupApplyRequest,
+  ): Promise<DatastoreMcpClientSetupApplyResponse | undefined>
   listWorkspaceBackups(): Promise<WorkspaceBackupSummary[] | undefined>
   createWorkspaceBackupNow(
     request: WorkspaceBackupRunRequest,

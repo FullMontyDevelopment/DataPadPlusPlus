@@ -11,7 +11,8 @@ use super::validators::{
 use super::{
     environment_guards::{
         apply_environment_guards_to_data_edit_plan, apply_environment_guards_to_operation_plan,
-        data_edit_execution_blocked_response, environment_execution_blocked,
+        data_edit_execution_blocked_response, data_edit_safe_mode_block_reasons,
+        data_edit_safe_mode_blocked, environment_execution_blocked,
         merge_environment_plan_into_data_edit_response,
         merge_environment_plan_into_operation_response, operation_execution_blocked_response,
     },
@@ -398,6 +399,21 @@ impl ManagedAppState {
                     "Unresolved environment variables must be fixed before this data edit can run."
                         .into(),
                 ],
+            );
+            return Ok(redact_data_edit_response_for_environment(
+                response,
+                &resolved_environment,
+            ));
+        }
+
+        if data_edit_safe_mode_blocked(&environment, self.snapshot.preferences.safe_mode_enabled) {
+            let response = data_edit_execution_blocked_response(
+                &request,
+                plan_response,
+                data_edit_safe_mode_block_reasons(
+                    &environment,
+                    self.snapshot.preferences.safe_mode_enabled,
+                ),
             );
             return Ok(redact_data_edit_response_for_environment(
                 response,

@@ -73,6 +73,25 @@ The native layer should support:
 - opt-in encrypted auto-backups with passphrases stored only through the secret store
 - clear separation between UI code and privileged native commands
 
+## Experimental MCP server
+
+The desktop MCP server is opt-in and locked down by default:
+
+- disabled by default, with no default auto-start
+- bound only to `127.0.0.1:<port>` and served only at `/mcp`
+- rejects non-loopback peers and unexpected `Host` headers
+- rejects browser-style `Origin` headers unless explicitly allowlisted
+- requires `Authorization: Bearer <auth token>` on every request
+- rejects auth tokens in query strings, workspace files, request bodies, and logs
+- stores only auth token verifiers through secure secret storage
+- exposes only allowlisted datastores and environments
+- allows only scoped read, explore, list, context-switch, and diagnostic tools in v1
+- enforces row limits, query timeouts, read-only query checks, and full request audit logs
+
+MCP session IDs are not authentication. They are random session identifiers only; auth-token checks run for every request.
+
+MCP client automatic setup follows the same auth token rules. The desktop app can update known user-level config files for supported local clients only after showing a preview. It merges a DataPad++ entry, creates a timestamped backup before overwriting existing config, and writes auth-token environment-variable references or client-side secure prompts instead of raw auth token values. Browser preview cannot apply MCP client config changes.
+
 ## Workspace bundles and backups
 
 Workspace bundles are encrypted `.datapadpp-workspace` files. Normal exports include workspace structure, connection metadata, Library items, environments, and non-secret variable metadata. Secret values are excluded unless the user explicitly chooses to include passwords/secrets.

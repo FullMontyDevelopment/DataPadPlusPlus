@@ -73,6 +73,19 @@ describe('data edit confirmation', () => {
     expect(response?.warnings).toContain('Data edit canceled because confirmation UI is unavailable.')
     expect(response?.warnings).not.toContain('Type `CONFIRM QA` before executing this data edit.')
   })
+
+  it('does not open confirmation for safe-mode blocked responses', async () => {
+    const confirm = vi.fn(async () => true)
+    const response = await executeDataEditWithConfirmation(
+      async () => safeModeBlockedResponse(),
+      dataEditRequest(),
+      { confirm },
+    )
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(response?.executed).toBe(false)
+    expect(response?.warnings).toContain('Global safe mode blocks inline result edits.')
+  })
 })
 
 function dataEditRequest(): DataEditExecutionRequest {
@@ -128,5 +141,27 @@ function responseForRequest(request: DataEditExecutionRequest): DataEditExecutio
           'Type `CONFIRM QA` before executing this data edit.',
           'This data edit needs confirmation before it can run.',
         ],
+  }
+}
+
+function safeModeBlockedResponse(): DataEditExecutionResponse {
+  return {
+    connectionId: 'conn-mongo',
+    environmentId: 'env-qa',
+    editKind: 'set-field',
+    executionSupport: 'live',
+    executed: false,
+    plan: {
+      operationId: 'mongodb.data-edit.set-field',
+      engine: 'mongodb',
+      summary: 'Updated document field.',
+      generatedRequest: '{}',
+      requestLanguage: 'mongodb',
+      destructive: false,
+      requiredPermissions: ['update collection document'],
+      warnings: ['Global safe mode blocks inline result edits.'],
+    },
+    messages: [],
+    warnings: ['Global safe mode blocks inline result edits.'],
   }
 }

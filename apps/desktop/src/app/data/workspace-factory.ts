@@ -10,7 +10,7 @@ import { DATAPADPLUSPLUS_ADAPTER_MANIFESTS } from '@datapadplusplus/shared-types
 import { buildDiagnosticsReport, resolveEnvironment } from '../state/helpers'
 import { defaultKeyboardShortcuts } from '../keyboard-shortcuts'
 
-export const EMPTY_WORKSPACE_SCHEMA_VERSION = 9
+export const EMPTY_WORKSPACE_SCHEMA_VERSION = 10
 
 export const adapterManifests: AdapterManifest[] = DATAPADPLUSPLUS_ADAPTER_MANIFESTS
 
@@ -26,14 +26,22 @@ export const defaultPreferences: AppPreferences = {
     maxBackups: 20,
     includeSecrets: false,
   },
-    datastoreApiServer: {
-      enabled: false,
-      host: '127.0.0.1',
-      port: 17640,
-      autoStart: false,
-      activeServerId: undefined,
-      servers: [],
-    },
+  datastoreApiServer: {
+    enabled: false,
+    host: '127.0.0.1',
+    port: 17640,
+    autoStart: false,
+    activeServerId: undefined,
+    servers: [],
+  },
+  datastoreMcpServer: {
+    enabled: false,
+    host: '127.0.0.1',
+    port: 17641,
+    autoStart: false,
+    activeServerId: undefined,
+    servers: [],
+  },
   workspaceSearch: {
     enabled: false,
   },

@@ -78,6 +78,7 @@ export function EditorTabItem({
     tab.tabKind !== 'object-view' &&
     tab.tabKind !== 'settings' &&
     tab.tabKind !== 'api-server' &&
+    tab.tabKind !== 'mcp-server' &&
     tab.tabKind !== 'workspace-search'
   const tabRunning = Boolean(tab.activeExecution) || tab.status === 'queued' || tab.status === 'running'
   const showUnsavedChanges = tabCanBeSaved && tab.dirty && !tabRunning
@@ -86,6 +87,8 @@ export function EditorTabItem({
       ? 'Workspace settings'
       : tab.tabKind === 'api-server'
       ? 'API server'
+      : tab.tabKind === 'mcp-server'
+      ? 'MCP server'
       : tab.tabKind === 'workspace-search'
       ? 'Workspace search'
       : tab.tabKind === 'environment'
@@ -136,6 +139,11 @@ export function EditorTabItem({
         <ObjectServerIcon
           className="editor-tab-fallback-icon"
           aria-label="API Server icon"
+        />
+      ) : tab.tabKind === 'mcp-server' ? (
+        <ObjectServerIcon
+          className="editor-tab-fallback-icon"
+          aria-label="MCP Server icon"
         />
       ) : tab.tabKind === 'workspace-search' ? (
         <SearchIcon

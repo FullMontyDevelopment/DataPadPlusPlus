@@ -64,7 +64,12 @@ export const ENVIRONMENT_RISKS = ['low', 'medium', 'high', 'critical'] as const
 
 export type EnvironmentRisk = (typeof ENVIRONMENT_RISKS)[number]
 
-export const SECRET_PROVIDERS = ['os-keyring', 'manual', 'session'] as const
+export const SECRET_PROVIDERS = [
+  'os-keyring',
+  'manual',
+  'session',
+  'desktop-secret-store',
+] as const
 
 export type SecretProvider = (typeof SECRET_PROVIDERS)[number]
 

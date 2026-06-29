@@ -5,6 +5,8 @@ import type {
   DatastoreApiServerInstanceStatus,
   DatastoreApiServerResourceConfig,
   DatastoreApiServerStatus,
+  DatastoreMcpServerInstanceStatus,
+  DatastoreMcpServerStatus,
   EnvironmentProfile,
   ExecutionRequest,
   ExplorerNode,
@@ -118,6 +120,11 @@ const EnvironmentWorkspace = lazy(() =>
 const ApiServerWorkspace = lazy(() =>
   import('./components/workbench/ApiServerWorkspace').then((module) => ({
     default: module.ApiServerWorkspace,
+  })),
+)
+const McpServerWorkspace = lazy(() =>
+  import('./components/workbench/McpServerWorkspace').then((module) => ({
+    default: module.McpServerWorkspace,
   })),
 )
 const WorkspaceSearchWorkspace = lazy(() =>
@@ -307,6 +314,7 @@ function GlobalShortcutHandler({
   activeTab,
   activeTabIsEnvironment,
   activeTabIsApiServer,
+  activeTabIsMcpServer,
   activeTabIsExplorer,
   activeTabIsMetrics,
   activeTabIsObjectView,
@@ -326,6 +334,7 @@ function GlobalShortcutHandler({
   activeTab?: QueryTabState
   activeTabIsEnvironment: boolean
   activeTabIsApiServer: boolean
+  activeTabIsMcpServer: boolean
   activeTabIsExplorer: boolean
   activeTabIsMetrics: boolean
   activeTabIsObjectView: boolean
@@ -345,7 +354,7 @@ function GlobalShortcutHandler({
       if (shortcutMatchesEvent(event, keyboardShortcuts.refresh)) {
         event.preventDefault()
 
-        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsWorkspaceSearch) {
+        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch) {
           runCurrentTabQuery()
         }
 
@@ -358,7 +367,7 @@ function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.saveQuery)) {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsWorkspaceSearch) {
+        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch) {
           requestSaveQuery(activeTab.id)
         }
         return
@@ -366,7 +375,7 @@ function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.runQuery)) {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsWorkspaceSearch) {
+        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch) {
           runCurrentTabQuery()
         }
         return
@@ -421,6 +430,7 @@ function GlobalShortcutHandler({
           !activeTabIsEnvironment &&
           !activeTabIsSettings &&
           !activeTabIsApiServer &&
+          !activeTabIsMcpServer &&
           !activeTabIsWorkspaceSearch
         ) {
           runCurrentTabQuery('explain')
@@ -435,6 +445,7 @@ function GlobalShortcutHandler({
     activeConnectionId,
     activeTab,
     activeTabIsApiServer,
+    activeTabIsMcpServer,
     activeTabIsEnvironment,
     activeTabIsExplorer,
     activeTabIsMetrics,
@@ -524,6 +535,7 @@ function DesktopWorkspace() {
   const [editorSelectionDrafts, setEditorSelectionDrafts] = useState<Record<string, string>>({})
   const [redisBrowserRefreshSignals, setRedisBrowserRefreshSignals] = useState<Record<string, number>>({})
   const [apiServerStatus, setApiServerStatus] = useState<DatastoreApiServerStatus>()
+  const [mcpServerStatus, setMcpServerStatus] = useState<DatastoreMcpServerStatus>()
   const [pendingTabClose, setPendingTabClose] = useState<
     | {
         tab: QueryTabState
@@ -586,6 +598,7 @@ function DesktopWorkspace() {
       item.id === snapshot.ui.activeTabId &&
       (item.tabKind === 'environment' ||
         item.tabKind === 'api-server' ||
+        item.tabKind === 'mcp-server' ||
         item.tabKind === 'workspace-search' ||
         item.tabKind === 'settings' ||
         !activeConnection ||
@@ -610,6 +623,7 @@ function DesktopWorkspace() {
   const activeTabIsEnvironment = activeTab?.tabKind === 'environment'
   const activeTabIsSettings = activeTab?.tabKind === 'settings'
   const activeTabIsApiServer = activeTab?.tabKind === 'api-server'
+  const activeTabIsMcpServer = activeTab?.tabKind === 'mcp-server'
   const activeTabIsWorkspaceSearch = activeTab?.tabKind === 'workspace-search'
   const activeEnvironment =
     snapshot?.environments.find((item) => item.id === snapshot.ui.activeEnvironmentId) ??
@@ -699,6 +713,94 @@ function DesktopWorkspace() {
       const nextStatus = await actions.stopDatastoreApiServer(request)
       if (nextStatus) {
         setApiServerStatus(nextStatus)
+      }
+      return nextStatus
+    },
+    [actions],
+  )
+  const mcpServerPreferences = snapshot?.preferences.datastoreMcpServer
+  const mcpServerPreferenceKey = useMemo(
+    () =>
+      mcpServerPreferences
+        ? JSON.stringify({
+            enabled: mcpServerPreferences.enabled,
+            activeServerId: mcpServerPreferences.activeServerId,
+            servers: mcpServerPreferences.servers,
+            port: mcpServerPreferences.port,
+          })
+        : '',
+    [mcpServerPreferences],
+  )
+  const refreshMcpServerStatus = useCallback(async () => {
+    if (!mcpServerPreferences?.enabled) {
+      return undefined
+    }
+
+    const nextStatus = await actions.getDatastoreMcpServerStatus()
+    if (nextStatus) {
+      setMcpServerStatus(nextStatus)
+    }
+    return nextStatus
+  }, [actions, mcpServerPreferences?.enabled])
+  useEffect(() => {
+    if (!mcpServerPreferences?.enabled) {
+      return undefined
+    }
+
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void refreshMcpServerStatus()
+      }
+    })
+    const timer = window.setInterval(() => {
+      void refreshMcpServerStatus()
+    }, 5000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [mcpServerPreferenceKey, mcpServerPreferences?.enabled, refreshMcpServerStatus])
+  const effectiveMcpServerStatus = mcpServerPreferences?.enabled ? mcpServerStatus : undefined
+  const mcpServerInstances = useMemo(
+    () => effectiveMcpServerStatus?.servers ?? mcpServerInstancesFromPreferences(mcpServerPreferences),
+    [mcpServerPreferences, effectiveMcpServerStatus?.servers],
+  )
+  const activeMcpServerTabServerId = activeTabIsMcpServer ? mcpServerIdFromTab(activeTab) : undefined
+  const activeMcpServerId =
+    activeMcpServerTabServerId ??
+    effectiveMcpServerStatus?.activeServerId ??
+    mcpServerPreferences?.activeServerId ??
+    mcpServerInstances[0]?.id
+  const getMcpServerStatus = useCallback(
+    async () => refreshMcpServerStatus(),
+    [refreshMcpServerStatus],
+  )
+  const updateMcpServerSettings = useCallback(
+    async (request: Parameters<Actions['updateDatastoreMcpServerSettings']>[0]) => {
+      const updated = await actions.updateDatastoreMcpServerSettings(request)
+      if (updated) {
+        await refreshMcpServerStatus()
+      }
+      return updated
+    },
+    [actions, refreshMcpServerStatus],
+  )
+  const startMcpServer = useCallback(
+    async (request: Parameters<Actions['startDatastoreMcpServer']>[0]) => {
+      const nextStatus = await actions.startDatastoreMcpServer(request)
+      if (nextStatus) {
+        setMcpServerStatus(nextStatus)
+      }
+      return nextStatus
+    },
+    [actions],
+  )
+  const stopMcpServer = useCallback(
+    async (request: Parameters<Actions['stopDatastoreMcpServer']>[0] = {}) => {
+      const nextStatus = await actions.stopDatastoreMcpServer(request)
+      if (nextStatus) {
+        setMcpServerStatus(nextStatus)
       }
       return nextStatus
     },
@@ -837,6 +939,7 @@ function DesktopWorkspace() {
     !activeTabIsEnvironment &&
     !activeTabIsSettings &&
     !activeTabIsApiServer &&
+    !activeTabIsMcpServer &&
     !activeTabIsWorkspaceSearch &&
     activeConnection
       ? builderStateForTab(activeTab, activeConnection, builderStateDrafts)
@@ -927,6 +1030,7 @@ function DesktopWorkspace() {
       activeTabIsEnvironment ||
       activeTabIsSettings ||
       activeTabIsApiServer ||
+      activeTabIsMcpServer ||
       activeTabIsWorkspaceSearch
     ) {
       return undefined
@@ -951,6 +1055,7 @@ function DesktopWorkspace() {
     activeTabIsTestSuite,
     activeTabIsEnvironment,
     activeTabIsApiServer,
+    activeTabIsMcpServer,
     activeTabIsSettings,
     activeTabIsWorkspaceSearch,
     intellisenseCatalog,
@@ -1105,6 +1210,7 @@ function DesktopWorkspace() {
       activeTabIsEnvironment ||
       activeTabIsSettings ||
       activeTabIsApiServer ||
+      activeTabIsMcpServer ||
       activeTabIsWorkspaceSearch
     ) {
       return
@@ -1118,6 +1224,7 @@ function DesktopWorkspace() {
     activeTabIsMetrics,
     activeTabIsObjectView,
     activeTabIsApiServer,
+    activeTabIsMcpServer,
     activeTabIsSettings,
     activeTabIsTestSuite,
     activeTabIsWorkspaceSearch,
@@ -1449,6 +1556,7 @@ function DesktopWorkspace() {
         tab.tabKind === 'environment' ||
         tab.tabKind === 'settings' ||
         tab.tabKind === 'api-server' ||
+        tab.tabKind === 'mcp-server' ||
         tab.tabKind === 'workspace-search'
       ) {
         return
@@ -1595,6 +1703,7 @@ function DesktopWorkspace() {
       activeTabIsEnvironment ||
       activeTabIsSettings ||
       activeTabIsApiServer ||
+      activeTabIsMcpServer ||
       activeTabIsWorkspaceSearch
     ) {
       return
@@ -1623,6 +1732,7 @@ function DesktopWorkspace() {
     activeTabIsMetrics,
     activeTabIsObjectView,
     activeTabIsApiServer,
+    activeTabIsMcpServer,
     activeTabIsEnvironment,
     activeTabIsTestSuite,
     activeTabIsSettings,
@@ -1817,6 +1927,7 @@ function DesktopWorkspace() {
   const showingMetricsWorkspace = activeTabIsMetrics
   const showingObjectViewWorkspace = activeTabIsObjectView
   const showingApiServerWorkspace = activeTabIsApiServer
+  const showingMcpServerWorkspace = activeTabIsMcpServer
   const showingWorkspaceSearchWorkspace = activeTabIsWorkspaceSearch
   const availableAppUpdate = appUpdateCheckResult?.status === 'available'
     ? appUpdateCheckResult.candidate
@@ -1832,6 +1943,7 @@ function DesktopWorkspace() {
       !activeTabIsEnvironment &&
       !activeTabIsSettings &&
       !activeTabIsApiServer &&
+      !activeTabIsMcpServer &&
       !activeTabIsWorkspaceSearch,
   )
   const isMessagePanelRequested = snapshot.ui.activeBottomPanelTab === 'messages'
@@ -1846,6 +1958,7 @@ function DesktopWorkspace() {
         !showingMetricsWorkspace &&
         !showingObjectViewWorkspace &&
         !showingApiServerWorkspace &&
+        !showingMcpServerWorkspace &&
         !showingWorkspaceSearchWorkspace &&
         hasActiveQueryContext))
   const resultsDock = snapshot.ui.resultsDock ?? 'bottom'
@@ -2420,6 +2533,7 @@ function DesktopWorkspace() {
         activeConnectionId={activeConnection?.id}
         activeTab={activeTab}
         activeTabIsApiServer={activeTabIsApiServer}
+        activeTabIsMcpServer={activeTabIsMcpServer}
         activeTabIsEnvironment={activeTabIsEnvironment}
         activeTabIsExplorer={activeTabIsExplorer}
         activeTabIsMetrics={activeTabIsMetrics}
@@ -2758,8 +2872,10 @@ function DesktopWorkspace() {
                     onSetTheme={(theme) => void actions.setTheme(theme)}
                     onSetUpdatePrereleases={(enabled) => void actions.setAppUpdateSettings(enabled)}
                     onOpenApiServer={() => void actions.createApiServerTab()}
+                    onOpenMcpServer={() => void actions.createMcpServerTab()}
                     onOpenWorkspaceSearch={() => void actions.createWorkspaceSearchTab()}
                     onUpdateApiServerSettings={actions.updateDatastoreApiServerSettings}
+                    onUpdateMcpServerSettings={actions.updateDatastoreMcpServerSettings}
                     onUpdateBackupSettings={actions.updateWorkspaceBackupSettings}
                     onUpdateWorkspaceSearchSettings={actions.updateWorkspaceSearchSettings}
                   />
@@ -2786,6 +2902,28 @@ function DesktopWorkspace() {
                     onUpdateSettings={updateApiServerSettings}
                     onStart={startApiServer}
                     onStop={stopApiServer}
+                  />
+                ) : activeTabIsMcpServer && activeTab ? (
+                  <McpServerWorkspace
+                    key={activeTab.id}
+                    serverId={activeMcpServerId}
+                    connections={snapshot.connections}
+                    environments={snapshot.environments}
+                    preferences={snapshot.preferences}
+                    onOpenExperimentalSettings={() => openDiagnosticsDrawer('experimental')}
+                    onGetStatus={getMcpServerStatus}
+                    onGetMetrics={actions.getDatastoreMcpServerMetrics}
+                    onGetLogs={actions.getDatastoreMcpServerLogs}
+                    onCreateServer={actions.createDatastoreMcpServer}
+                    onDeleteServer={actions.deleteDatastoreMcpServer}
+                    onUpdateServer={actions.updateDatastoreMcpServer}
+                    onUpdateSettings={updateMcpServerSettings}
+                    onStart={startMcpServer}
+                    onStop={stopMcpServer}
+                    onCreateToken={actions.createDatastoreMcpServerToken}
+                    onDeleteToken={actions.deleteDatastoreMcpServerToken}
+                    onPreviewClientSetup={actions.previewDatastoreMcpClientSetup}
+                    onApplyClientSetup={actions.applyDatastoreMcpClientSetup}
                   />
                 ) : activeTabIsWorkspaceSearch && activeTab ? (
                   <WorkspaceSearchWorkspace
@@ -3262,7 +3400,7 @@ function DesktopWorkspace() {
               onClose={closeDrawer}
               onSaveConnection={saveConnectionProfile}
               onTestConnection={(profile, environmentId, secret) =>
-                void actions.testConnection(
+                actions.testConnection(
                   profile,
                   environmentId || '',
                   secret,
@@ -3413,6 +3551,65 @@ function apiServerInstancesFromPreferences(
 
 function apiServerIdFromTab(tab: QueryTabState | undefined) {
   return tab?.scopedTarget?.kind === 'api-server' ? tab.scopedTarget.scope : undefined
+}
+
+function mcpServerInstancesFromPreferences(
+  preferences: WorkspaceSnapshot['preferences']['datastoreMcpServer'] | undefined,
+): DatastoreMcpServerInstanceStatus[] {
+  const hasLegacyServer = !preferences?.servers?.length && Boolean(preferences) && (
+    Boolean(preferences?.autoStart) ||
+    (typeof preferences?.port === 'number' && preferences.port !== 17641) ||
+    (typeof preferences?.activeServerId === 'string' &&
+      preferences.activeServerId !== 'mcp-server-default')
+  )
+  const servers = preferences?.servers?.length
+    ? preferences.servers
+    : hasLegacyServer
+      ? [{
+        id: preferences?.activeServerId || 'mcp-server-default',
+        name: 'Local MCP Server',
+        host: '127.0.0.1' as const,
+        port: preferences?.port ?? 17641,
+        autoStart: preferences?.autoStart ?? false,
+        allowedOrigins: [],
+        connectionIds: [],
+        environmentIds: [],
+        tokens: [],
+      }]
+      : []
+  const enabled = Boolean(preferences?.enabled)
+
+  return servers.map((server, index) => {
+    const port = clampMcpServerPort(server.port)
+    return {
+      id: server.id || `mcp-server-${index + 1}`,
+      name: server.name?.trim() || (port === 17641 ? 'Local MCP Server' : `Local MCP Server ${port}`),
+      description: server.description,
+      running: false,
+      host: '127.0.0.1',
+      port,
+      endpoint: enabled ? `http://127.0.0.1:${port}/mcp` : undefined,
+      message: enabled
+        ? 'Experimental MCP server is stopped.'
+        : 'Experimental MCP server is disabled.',
+      warnings: enabled ? ['Localhost only. Bearer token required.'] : [],
+      allowedOrigins: server.allowedOrigins ?? [],
+      connectionIds: server.connectionIds ?? [],
+      environmentIds: server.environmentIds ?? [],
+      tokenCount: (server.tokens ?? []).filter((token) => token.enabled).length,
+    }
+  })
+}
+
+function mcpServerIdFromTab(tab: QueryTabState | undefined) {
+  return tab?.scopedTarget?.kind === 'mcp-server' ? tab.scopedTarget.scope : undefined
+}
+
+function clampMcpServerPort(value: number | undefined) {
+  if (!Number.isFinite(value)) {
+    return 17641
+  }
+  return Math.min(65535, Math.max(1024, Math.floor(value as number)))
 }
 
 function clampApiServerPort(value: number | undefined) {
