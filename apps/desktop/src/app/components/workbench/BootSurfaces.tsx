@@ -17,13 +17,19 @@ export function WelcomeSurface({
   onCreateConnection,
   onImportWorkspace,
   onOpenDiagnostics,
+  onStartTutorial,
 }: {
   onCreateConnection(): void
   onImportWorkspace(): void
   onOpenDiagnostics(): void
+  onStartTutorial?(): void
 }) {
   return (
-    <section className="welcome-surface" aria-label="First run onboarding">
+    <section
+      className="welcome-surface"
+      aria-label="First run onboarding"
+      data-tour-id="welcome-surface"
+    >
       <div className="welcome-panel">
         <AppLogo className="welcome-logo" />
         <h1>Connect to your first datastore.</h1>
@@ -39,6 +45,11 @@ export function WelcomeSurface({
           >
             New Connection
           </button>
+          {onStartTutorial ? (
+            <button type="button" className="drawer-button" onClick={onStartTutorial}>
+              Take Tutorial
+            </button>
+          ) : null}
           <button type="button" className="drawer-button" onClick={onImportWorkspace}>
             Import Workspace
           </button>

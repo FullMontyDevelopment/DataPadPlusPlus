@@ -2359,6 +2359,25 @@ pub struct WorkspaceSearchPreferences {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct FirstInstallGuidePreferences {
+    pub status: String,
+    pub updated_at: Option<String>,
+    pub completed_at: Option<String>,
+}
+
+impl Default for FirstInstallGuidePreferences {
+    fn default() -> Self {
+        Self {
+            status: "unseen".into(),
+            updated_at: None,
+            completed_at: None,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceSearchSettingsRequest {
     pub enabled: bool,
 }
@@ -2380,6 +2399,8 @@ pub struct AppPreferences {
     pub datastore_mcp_server: DatastoreMcpServerPreferences,
     #[serde(default)]
     pub workspace_search: WorkspaceSearchPreferences,
+    #[serde(default)]
+    pub first_install_guide: FirstInstallGuidePreferences,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

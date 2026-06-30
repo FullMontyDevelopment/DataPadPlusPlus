@@ -164,6 +164,15 @@ export interface WorkspaceSearchPreferences {
   enabled: boolean
 }
 
+export type FirstInstallGuideStatus = 'unseen' | 'started' | 'skipped' | 'completed'
+export type FirstInstallGuidePersistedStatus = Exclude<FirstInstallGuideStatus, 'unseen'>
+
+export interface FirstInstallGuidePreferences {
+  status: FirstInstallGuideStatus
+  updatedAt?: string
+  completedAt?: string
+}
+
 export interface GuardrailPolicy {
   id: string
   action: GuardrailAction
@@ -199,6 +208,7 @@ export interface AppPreferences {
   datastoreApiServer?: DatastoreApiServerPreferences
   datastoreMcpServer?: DatastoreMcpServerPreferences
   workspaceSearch?: WorkspaceSearchPreferences
+  firstInstallGuide?: FirstInstallGuidePreferences
 }
 
 export interface LockState {

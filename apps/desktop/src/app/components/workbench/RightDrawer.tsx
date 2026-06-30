@@ -139,7 +139,11 @@ export function RightDrawer({
   const drawerLabel = view === 'diagnostics' ? 'settings drawer' : `${view} drawer`
 
   return (
-    <aside className="workbench-drawer" aria-label={drawerLabel}>
+    <aside
+      className="workbench-drawer"
+      aria-label={drawerLabel}
+      data-tour-id={view === 'connection' ? 'connection-drawer' : undefined}
+    >
       <div
         role="separator"
         tabIndex={0}

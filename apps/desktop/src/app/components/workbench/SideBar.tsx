@@ -35,6 +35,7 @@ interface SideBarProps {
   apiServers?: DatastoreApiServerInstanceStatus[]
   workspaceSearchEnabled?: boolean
   activeWorkspaceSearch?: boolean
+  createFolderDialogRequestRevision?: number
   isExplorerScopeLoading?(connectionId: string, scope?: string, environmentId?: string): boolean
   activeConnectionId: string
   activeEnvironmentId: string
@@ -102,6 +103,7 @@ export function SideBar({
   apiServers,
   workspaceSearchEnabled = false,
   activeWorkspaceSearch = false,
+  createFolderDialogRequestRevision,
   isExplorerScopeLoading,
   activeConnectionId,
   activeEnvironmentId,
@@ -203,7 +205,11 @@ export function SideBar({
   }, [])
 
   return (
-    <aside className="workbench-sidebar" aria-label={`${activePane} sidebar`}>
+    <aside
+      className="workbench-sidebar"
+      aria-label={`${activePane} sidebar`}
+      data-tour-id="library-sidebar"
+    >
       <div
         role="separator"
         tabIndex={0}
@@ -290,6 +296,7 @@ export function SideBar({
           apiServers={apiServers}
           workspaceSearchEnabled={workspaceSearchEnabled}
           activeWorkspaceSearch={activeWorkspaceSearch}
+          createFolderDialogRequestRevision={createFolderDialogRequestRevision}
           isExplorerScopeLoading={isExplorerScopeLoading}
           libraryFilter={libraryFilter}
           libraryNodes={libraryNodes}

@@ -263,6 +263,7 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     migrate_connection_modes(&mut snapshot);
     normalize_datastore_api_server_preferences(&mut snapshot.preferences.datastore_api_server);
     normalize_datastore_mcp_server_preferences(&mut snapshot.preferences.datastore_mcp_server);
+    normalize_first_install_guide_preferences(&mut snapshot.preferences.first_install_guide);
     ensure_library_nodes(&mut snapshot);
 
     for tab in &mut snapshot.tabs {
@@ -441,6 +442,19 @@ fn normalize_datastore_api_server_preferences(preferences: &mut DatastoreApiServ
     }
 
     preferences.servers = servers;
+}
+
+fn normalize_first_install_guide_preferences(
+    preferences: &mut crate::domain::models::FirstInstallGuidePreferences,
+) {
+    match preferences.status.as_str() {
+        "started" | "skipped" | "completed" => {}
+        _ => preferences.status = "unseen".into(),
+    }
+
+    if preferences.status != "completed" {
+        preferences.completed_at = None;
+    }
 }
 
 fn is_default_api_server_placeholder(server: &DatastoreApiServerConfig) -> bool {
@@ -840,6 +854,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
                     datastore_api_server: Default::default(),
                     datastore_mcp_server: Default::default(),
                     workspace_search: Default::default(),
+                    first_install_guide: Default::default(),
                 },
                 guardrails: Vec::new(),
                 lock_state: LockState {
@@ -884,6 +899,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
             datastore_api_server: Default::default(),
             datastore_mcp_server: Default::default(),
             workspace_search: Default::default(),
+            first_install_guide: Default::default(),
         },
         guardrails: Vec::new(),
         lock_state: LockState {

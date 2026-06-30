@@ -14,38 +14,45 @@ export const EMPTY_WORKSPACE_SCHEMA_VERSION = 10
 
 export const adapterManifests: AdapterManifest[] = DATAPADPLUSPLUS_ADAPTER_MANIFESTS
 
-export const defaultPreferences: AppPreferences = {
-  theme: 'dark',
-  telemetry: 'opt-in',
-  lockAfterMinutes: 15,
-  safeModeEnabled: true,
-  keyboardShortcuts: defaultKeyboardShortcuts(),
-  workspaceBackups: {
-    enabled: false,
-    intervalMinutes: 30,
-    maxBackups: 20,
-    includeSecrets: false,
-  },
-  datastoreApiServer: {
-    enabled: false,
-    host: '127.0.0.1',
-    port: 17640,
-    autoStart: false,
-    activeServerId: undefined,
-    servers: [],
-  },
-  datastoreMcpServer: {
-    enabled: false,
-    host: '127.0.0.1',
-    port: 17641,
-    autoStart: false,
-    activeServerId: undefined,
-    servers: [],
-  },
-  workspaceSearch: {
-    enabled: false,
-  },
+export function createDefaultPreferences(): AppPreferences {
+  return {
+    theme: 'dark',
+    telemetry: 'opt-in',
+    lockAfterMinutes: 15,
+    safeModeEnabled: true,
+    keyboardShortcuts: defaultKeyboardShortcuts(),
+    workspaceBackups: {
+      enabled: false,
+      intervalMinutes: 30,
+      maxBackups: 20,
+      includeSecrets: false,
+    },
+    datastoreApiServer: {
+      enabled: false,
+      host: '127.0.0.1',
+      port: 17640,
+      autoStart: false,
+      activeServerId: undefined,
+      servers: [],
+    },
+    datastoreMcpServer: {
+      enabled: false,
+      host: '127.0.0.1',
+      port: 17641,
+      autoStart: false,
+      activeServerId: undefined,
+      servers: [],
+    },
+    workspaceSearch: {
+      enabled: false,
+    },
+    firstInstallGuide: {
+      status: 'unseen',
+    },
+  }
 }
+
+export const defaultPreferences: AppPreferences = createDefaultPreferences()
 
 export function createBlankSnapshot(): WorkspaceSnapshot {
   const timestamp = new Date().toISOString()
@@ -60,7 +67,7 @@ export function createBlankSnapshot(): WorkspaceSnapshot {
     savedWork: [],
     explorerNodes: [],
     adapterManifests,
-    preferences: defaultPreferences,
+    preferences: createDefaultPreferences(),
     guardrails: [],
     lockState: {
       isLocked: false,

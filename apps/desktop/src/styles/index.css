@@ -1428,11 +1428,6 @@ button:disabled:hover {
   text-transform: uppercase;
 }
 
-.library-environment-add {
-  justify-self: start;
-  margin-top: 3px;
-}
-
 .sidebar-section {
   padding: 0 0 8px;
 }
@@ -1472,26 +1467,26 @@ button:disabled:hover {
   outline: 0;
 }
 
-.library-api-server-header {
+.sidebar-section-action-header {
   position: relative;
   font: inherit;
 }
 
-.library-api-server-header-toggle {
+.sidebar-section-action-toggle {
   min-width: 0;
   padding-right: 36px;
   text-align: left;
 }
 
-.library-api-server-header-toggle .sidebar-section-title {
+.sidebar-section-action-toggle .sidebar-section-title {
   flex: 1 1 auto;
 }
 
-.library-api-server-count {
+.sidebar-section-count {
   flex: 0 0 auto;
 }
 
-.library-api-server-add-button {
+.sidebar-section-add-button {
   position: absolute;
   z-index: 1;
   top: 50%;
@@ -3059,6 +3054,75 @@ button:disabled:hover {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 18px;
+}
+
+.first-install-guide-prompt {
+  z-index: 60;
+}
+
+.first-install-guide-dialog {
+  display: grid;
+  gap: 12px;
+}
+
+.first-install-guide-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  pointer-events: none;
+}
+
+.first-install-guide-spotlight {
+  position: fixed;
+  border: 2px solid rgba(55, 148, 255, 0.72);
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 9999px rgba(6, 10, 16, 0.48),
+    0 0 0 4px rgba(55, 148, 255, 0.16);
+}
+
+.first-install-guide-popover {
+  position: fixed;
+  width: min(360px, calc(100vw - 32px));
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-bg-elevated);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  pointer-events: auto;
+}
+
+.first-install-guide-popover h2 {
+  margin: 0;
+  color: var(--heading);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.first-install-guide-popover p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.first-install-guide-progress {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--muted-strong);
+}
+
+.first-install-guide-done {
+  color: var(--success, #4ec9b0);
+  font-size: 12px;
+}
+
+.first-install-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .environment-workspace {

@@ -17,6 +17,7 @@ import type {
   AppLogFileContent,
   AppLogFileSummary,
   AppShortcutId,
+  FirstInstallGuidePersistedStatus,
 } from '@datapadplusplus/shared-types'
 import { createBrowserPreviewHealth } from '../../app/data/workspace-factory'
 import { buildDiagnosticsReport, migrateWorkspaceSnapshot } from '../../app/state/helpers'
@@ -97,6 +98,25 @@ export const clientWorkspace = {
       [shortcutId]: shortcut,
     }
     next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async setFirstInstallGuideStatus(
+    status: FirstInstallGuidePersistedStatus,
+  ): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('set_first_install_guide_status', { status })
+    }
+
+    const now = new Date().toISOString()
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    next.preferences.firstInstallGuide = {
+      status,
+      updatedAt: now,
+      completedAt: status === 'completed' ? now : undefined,
+    }
+    next.updatedAt = now
     saveBrowserSnapshot(next)
     return buildBrowserPayload(next)
   },

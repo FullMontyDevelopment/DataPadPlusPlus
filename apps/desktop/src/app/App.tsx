@@ -34,6 +34,7 @@ import { BootSurface, WelcomeSurface } from './components/workbench/BootSurfaces
 import { DesktopCodeEditor } from './components/workbench/DesktopCodeEditor'
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
+import { FirstInstallGuide } from './components/workbench/FirstInstallGuide'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
 import { useReviewConfirmation } from './components/workbench/use-review-confirmation'
 import { RedisConsoleEditor } from './components/workbench/datastores/common/keyvalue/RedisConsoleEditor'
@@ -506,6 +507,8 @@ function DesktopWorkspace() {
     revision: number
     section: SettingsSection
   }>({ revision: 0, section: 'appearance' })
+  const [guideStartRequestRevision, setGuideStartRequestRevision] = useState(0)
+  const [guideFolderDialogRequestRevision, setGuideFolderDialogRequestRevision] = useState(0)
   const [connectionDraft, setConnectionDraft] = useState<ConnectionProfile | undefined>()
   const [connectionDraftParentId, setConnectionDraftParentId] = useState<string | undefined>()
   const [environmentDrafts, setEnvironmentDrafts] = useState<
@@ -2088,6 +2091,24 @@ function DesktopWorkspace() {
     void actions.createSettingsTab()
   }
 
+  const openLibraryForGuide = () => {
+    void actions.updateUiState({
+      activeActivity: 'library',
+      activeSidebarPane: 'library',
+      sidebarCollapsed: false,
+    })
+  }
+
+  const requestGuideFolderDialog = () => {
+    openLibraryForGuide()
+    setGuideFolderDialogRequestRevision((current) => current + 1)
+  }
+
+  const startFirstInstallGuide = () => {
+    setGuideStartRequestRevision((current) => current + 1)
+    void actions.setFirstInstallGuideStatus('started')
+  }
+
   const closeDrawer = () => {
     if (snapshot.ui.rightDrawer === 'diagnostics') {
       setExportPassphrase('')
@@ -2653,6 +2674,7 @@ function DesktopWorkspace() {
 
       <div
         className={`ads-workbench${snapshot.ui.sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
+        data-tour-id="workbench"
         style={
           {
             '--sidebar-width': `${snapshot.ui.sidebarWidth}px`,
@@ -2683,6 +2705,7 @@ function DesktopWorkspace() {
               apiServers={apiServerInstances}
               workspaceSearchEnabled={Boolean(snapshot.preferences.workspaceSearch?.enabled)}
               activeWorkspaceSearch={activeTabIsWorkspaceSearch}
+              createFolderDialogRequestRevision={guideFolderDialogRequestRevision}
               isExplorerScopeLoading={isConnectionExplorerScopeLoading}
               activeConnectionId={activeConnection?.id ?? ''}
               activeEnvironmentId={activeEnvironment?.id ?? ''}
@@ -2808,7 +2831,10 @@ function DesktopWorkspace() {
         ) : null}
 
         <div className={`workbench-center${resultsDockRight && shouldShowBottomPanel ? ' has-right-results' : ''}`}>
-          <main className="editor-workspace">
+          <main
+            className="editor-workspace"
+            data-tour-id={activeTabIsSettings ? 'settings-workspace' : undefined}
+          >
             <>
                 <EditorTabs
                   tabs={displayTabs}
@@ -3297,6 +3323,7 @@ function DesktopWorkspace() {
                     onCreateConnection={openNewConnectionDraft}
                     onImportWorkspace={openDiagnosticsDrawer}
                     onOpenDiagnostics={openDiagnosticsDrawer}
+                    onStartTutorial={startFirstInstallGuide}
                   />
                 )}
               </Suspense>
@@ -3433,6 +3460,27 @@ function DesktopWorkspace() {
           </Suspense>
         ) : null}
       </div>
+
+      <FirstInstallGuide
+        snapshot={snapshot}
+        connectionDraftOpen={Boolean(connectionDraft)}
+        startRequestRevision={guideStartRequestRevision}
+        onStart={startFirstInstallGuide}
+        onSkip={() => void actions.setFirstInstallGuideStatus('skipped')}
+        onComplete={() => void actions.setFirstInstallGuideStatus('completed')}
+        onOpenLibrary={openLibraryForGuide}
+        onRequestCreateFolder={requestGuideFolderDialog}
+        onOpenConnection={openNewConnectionDraft}
+        onOpenExplorer={openConnectionExplorer}
+        onOpenQuery={openQueryTab}
+        onOpenSettings={() => openDiagnosticsDrawer('security')}
+        onShowResults={() =>
+          void actions.updateUiState({
+            activeBottomPanelTab: 'results',
+            bottomPanelVisible: true,
+          })
+        }
+      />
 
       <StatusBar
         activeConnection={activeConnection}

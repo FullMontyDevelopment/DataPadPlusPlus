@@ -1780,6 +1780,15 @@ pub fn set_keyboard_shortcut(
 }
 
 #[tauri::command]
+pub fn set_first_install_guide_status(
+    state: State<'_, SharedAppState>,
+    status: String,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.set_first_install_guide_status(&status)
+}
+
+#[tauri::command]
 pub fn set_ui_state(
     state: State<'_, SharedAppState>,
     patch: UpdateUiStateRequest,

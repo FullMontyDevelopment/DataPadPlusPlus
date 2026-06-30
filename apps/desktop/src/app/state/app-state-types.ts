@@ -69,6 +69,7 @@ import type {
   ExplorerInspectResponse,
   ExplorerRequest,
   ExplorerResponse,
+  FirstInstallGuidePersistedStatus,
   LibraryCreateFolderRequest,
   LibraryDeleteNodeRequest,
   LibraryMoveNodeRequest,
@@ -350,6 +351,7 @@ export interface Actions {
   setTheme(theme: WorkspaceSnapshot['preferences']['theme']): Promise<void>
   setSafeModeEnabled(enabled: boolean): Promise<void>
   setKeyboardShortcut(shortcutId: AppShortcutId, shortcut: string): Promise<void>
+  setFirstInstallGuideStatus(status: FirstInstallGuidePersistedStatus): Promise<void>
   updateUiState(patch: UpdateUiStateRequest): Promise<void>
   refreshDiagnostics(): Promise<void>
   listAppLogFiles(): Promise<AppLogFileSummary[] | undefined>

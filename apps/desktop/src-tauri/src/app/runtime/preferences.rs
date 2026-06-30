@@ -59,6 +59,27 @@ impl ManagedAppState {
         Ok(self.bootstrap_payload())
     }
 
+    pub fn set_first_install_guide_status(
+        &mut self,
+        status: &str,
+    ) -> Result<BootstrapPayload, CommandError> {
+        if !matches!(status, "started" | "skipped" | "completed") {
+            return Err(CommandError::new(
+                "invalid-first-install-guide-status",
+                "First install guide status is invalid.",
+            ));
+        }
+
+        let timestamp = timestamp_now();
+        self.snapshot.preferences.first_install_guide.status = status.into();
+        self.snapshot.preferences.first_install_guide.updated_at = Some(timestamp.clone());
+        self.snapshot.preferences.first_install_guide.completed_at =
+            (status == "completed").then_some(timestamp.clone());
+        self.snapshot.updated_at = timestamp;
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
     pub fn set_ui_state(
         &mut self,
         patch: UpdateUiStateRequest,

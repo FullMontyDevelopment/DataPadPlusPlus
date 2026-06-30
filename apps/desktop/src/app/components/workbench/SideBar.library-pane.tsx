@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
@@ -63,6 +63,7 @@ interface LibraryPaneProps {
   apiServers?: DatastoreApiServerInstanceStatus[]
   workspaceSearchEnabled?: boolean
   activeWorkspaceSearch?: boolean
+  createFolderDialogRequestRevision?: number
   getConnectionExplorerItems?(
     connectionId: string,
     environmentId?: string,
@@ -207,6 +208,7 @@ export function LibraryPane({
   apiServers = [],
   workspaceSearchEnabled = false,
   activeWorkspaceSearch = false,
+  createFolderDialogRequestRevision,
   getConnectionExplorerItems = () => undefined,
   getConnectionExplorerStatus = () => 'idle',
   getConnectionHealth = () => undefined,
@@ -312,10 +314,18 @@ export function LibraryPane({
     }
   }, [apiServerMenu, contextMenu, environmentMenu])
 
-  const requestCreateFolder = (parentId?: string) => {
+  const requestCreateFolder = useCallback((parentId?: string) => {
     setContextMenu(undefined)
     setCreateFolderDialog({ parentId })
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!createFolderDialogRequestRevision) {
+      return
+    }
+
+    requestCreateFolder()
+  }, [createFolderDialogRequestRevision, requestCreateFolder])
 
   const requestRenameNode = (node: LibraryNode) => {
     setContextMenu(undefined)
@@ -512,6 +522,7 @@ export function LibraryPane({
             className="sidebar-icon-button"
             aria-label="New datastore connection"
             title="New Connection"
+            data-tour-id="library-add-connection"
             onClick={() => onCreateConnection()}
           >
             <DatabaseIcon className="sidebar-icon" />
@@ -521,6 +532,7 @@ export function LibraryPane({
             className="sidebar-icon-button"
             aria-label="New library folder"
             title="Create a folder in the Library."
+            data-tour-id="library-add-folder"
             onClick={() => requestCreateFolder()}
           >
             <ExplorerIcon className="sidebar-icon" />
@@ -783,10 +795,10 @@ export function LibraryPane({
               apiServerExpanded ? ' is-expanded' : ' is-collapsed'
             }`}
           >
-            <div className="library-api-server-header">
+            <div className="sidebar-section-action-header">
               <button
                 type="button"
-                className="sidebar-section-header sidebar-section-header--button library-api-server-header-toggle"
+                className="sidebar-section-header sidebar-section-header--button sidebar-section-action-toggle"
                 aria-label={`${apiServerExpanded ? 'Collapse' : 'Expand'} API Server section`}
                 aria-expanded={apiServerExpanded}
                 aria-controls="library-api-server-body"
@@ -805,13 +817,13 @@ export function LibraryPane({
                   )}
                   <span>API Server</span>
                 </span>
-                <span className="library-api-server-count">
+                <span className="sidebar-section-count">
                   {displayedApiServers.length}
                 </span>
               </button>
               <button
                 type="button"
-                className="sidebar-icon-button sidebar-icon-button--inline library-api-server-add-button"
+                className="sidebar-icon-button sidebar-icon-button--inline sidebar-section-add-button"
                 aria-label="Create API server"
                 title="Create API server"
                 onClick={(event) => {
@@ -909,29 +921,46 @@ export function LibraryPane({
             environmentsExpanded ? ' is-expanded' : ' is-collapsed'
           }`}
         >
-          <button
-            type="button"
-            className="sidebar-section-header sidebar-section-header--button"
-            aria-label={`${environmentsExpanded ? 'Collapse' : 'Expand'} Environments section (${environments.length})`}
-            aria-expanded={environmentsExpanded}
-            aria-controls="library-environments-body"
-            onClick={() =>
-              onSidebarSectionExpandedChange(
-                ENVIRONMENTS_SECTION_ID,
-                !environmentsExpanded,
-              )
-            }
-          >
-            <span className="sidebar-section-title">
-              {environmentsExpanded ? (
-                <ChevronDownIcon className="sidebar-section-chevron" />
-              ) : (
-                <ChevronRightIcon className="sidebar-section-chevron" />
-              )}
-              <span>Environments</span>
-            </span>
-            <span>{environments.length}</span>
-          </button>
+          <div className="sidebar-section-action-header">
+            <button
+              type="button"
+              className="sidebar-section-header sidebar-section-header--button sidebar-section-action-toggle"
+              aria-label={`${environmentsExpanded ? 'Collapse' : 'Expand'} Environments section (${environments.length})`}
+              aria-expanded={environmentsExpanded}
+              aria-controls="library-environments-body"
+              onClick={() =>
+                onSidebarSectionExpandedChange(
+                  ENVIRONMENTS_SECTION_ID,
+                  !environmentsExpanded,
+                )
+              }
+            >
+              <span className="sidebar-section-title">
+                {environmentsExpanded ? (
+                  <ChevronDownIcon className="sidebar-section-chevron" />
+                ) : (
+                  <ChevronRightIcon className="sidebar-section-chevron" />
+                )}
+                <span>Environments</span>
+              </span>
+              <span className="sidebar-section-count">
+                {environments.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              className="sidebar-icon-button sidebar-icon-button--inline sidebar-section-add-button"
+              aria-label="Add Environment"
+              title="Add Environment"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onCreateEnvironment()
+              }}
+            >
+              <PlusIcon className="sidebar-icon" />
+            </button>
+          </div>
 
           {environmentsExpanded ? (
             <div
@@ -979,14 +1008,6 @@ export function LibraryPane({
                   </span>
                 </div>
               ))}
-
-              <button
-                type="button"
-                className="sidebar-empty-action library-environment-add"
-                onClick={onCreateEnvironment}
-              >
-                New Environment
-              </button>
             </div>
           ) : null}
         </section>

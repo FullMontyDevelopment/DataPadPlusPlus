@@ -117,6 +117,7 @@ pub(super) fn fixture_workspace_seed_for_profile(
             datastore_api_server: Default::default(),
             datastore_mcp_server: Default::default(),
             workspace_search: Default::default(),
+            first_install_guide: Default::default(),
         },
         guardrails: Vec::new(),
         lock_state: LockState {

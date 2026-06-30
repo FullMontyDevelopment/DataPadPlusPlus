@@ -260,6 +260,7 @@ pub fn run() {
             commands::workspace::scan_redis_keys,
             commands::workspace::set_active_connection,
             commands::workspace::set_active_tab,
+            commands::workspace::set_first_install_guide_status,
             commands::workspace::set_keyboard_shortcut,
             commands::workspace::set_library_node_environment,
             commands::workspace::set_tab_environment,

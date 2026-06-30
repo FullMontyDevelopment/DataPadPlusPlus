@@ -11,6 +11,7 @@ type WorkspaceActions = Pick<
   | 'setTheme'
   | 'setSafeModeEnabled'
   | 'setKeyboardShortcut'
+  | 'setFirstInstallGuideStatus'
   | 'updateUiState'
   | 'refreshDiagnostics'
   | 'listAppLogFiles'
@@ -113,6 +114,17 @@ export function useWorkspaceActions({
     async (shortcutId, shortcut) => {
       try {
         applyPayload(await desktopClient.setKeyboardShortcut(shortcutId, shortcut))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
+  const setFirstInstallGuideStatus = useCallback<Actions['setFirstInstallGuideStatus']>(
+    async (status) => {
+      try {
+        applyPayload(await desktopClient.setFirstInstallGuideStatus(status))
       } catch (error) {
         handleError(error)
       }
@@ -741,6 +753,7 @@ export function useWorkspaceActions({
       setTheme,
       setSafeModeEnabled,
       setKeyboardShortcut,
+      setFirstInstallGuideStatus,
       updateUiState,
       refreshDiagnostics,
       listAppLogFiles,
@@ -841,6 +854,7 @@ export function useWorkspaceActions({
       deleteAppLogFile,
       setSafeModeEnabled,
       setKeyboardShortcut,
+      setFirstInstallGuideStatus,
       setTheme,
       updateUiState,
     ],

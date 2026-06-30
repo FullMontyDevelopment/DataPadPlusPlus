@@ -228,7 +228,7 @@ export function EditorTabs({
   const contextTabIndex = contextTab ? orderedTabIds.indexOf(contextTab.id) : -1
 
   return (
-    <div className="editor-tabs-shell">
+    <div className="editor-tabs-shell" data-tour-id="editor-tabs">
       <button
         type="button"
         className="editor-tab-scroll-button"

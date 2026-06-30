@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createSeedSnapshot } from '../../fixtures/seed-workspace'
+import { createBlankBootstrapPayload } from '../../../src/app/data/workspace-factory'
 import {
   evaluateGuardrails,
   migrateWorkspaceSnapshot,
@@ -95,6 +96,51 @@ describe('evaluateGuardrails', () => {
 })
 
 describe('migrateWorkspaceSnapshot', () => {
+  it('defaults first install guide preferences to unseen', () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+
+    expect(snapshot.preferences.firstInstallGuide).toEqual({ status: 'unseen' })
+  })
+
+  it('normalizes first install guide preferences during migration', () => {
+    const snapshot = createSeedSnapshot()
+    const migrated = migrateWorkspaceSnapshot({
+      ...snapshot,
+      preferences: {
+        ...snapshot.preferences,
+        firstInstallGuide: {
+          status: 'bogus',
+          updatedAt: '2026-06-30T00:00:00.000Z',
+          completedAt: '2026-06-30T00:00:00.000Z',
+        },
+      },
+    } as unknown as typeof snapshot)
+
+    expect(migrated.preferences.firstInstallGuide).toEqual({
+      status: 'unseen',
+      updatedAt: '2026-06-30T00:00:00.000Z',
+      completedAt: undefined,
+    })
+
+    const completed = migrateWorkspaceSnapshot({
+      ...snapshot,
+      preferences: {
+        ...snapshot.preferences,
+        firstInstallGuide: {
+          status: 'completed',
+          updatedAt: '2026-06-30T01:00:00.000Z',
+          completedAt: '2026-06-30T01:01:00.000Z',
+        },
+      },
+    }).preferences.firstInstallGuide
+
+    expect(completed).toEqual({
+      status: 'completed',
+      updatedAt: '2026-06-30T01:00:00.000Z',
+      completedAt: '2026-06-30T01:01:00.000Z',
+    })
+  })
+
   it('maps legacy ui state into ADS workbench defaults', () => {
     const snapshot = createSeedSnapshot()
     const legacy = {
@@ -112,7 +158,7 @@ describe('migrateWorkspaceSnapshot', () => {
 
     const migrated = migrateWorkspaceSnapshot(legacy)
 
-    expect(migrated.schemaVersion).toBe(9)
+    expect(migrated.schemaVersion).toBe(10)
     expect(migrated.ui.activeActivity).toBe('library')
     expect(migrated.ui.activeSidebarPane).toBe('library')
     expect(migrated.ui.sidebarWidth).toBe(280)

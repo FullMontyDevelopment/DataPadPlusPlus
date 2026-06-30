@@ -12,8 +12,8 @@ use super::{
     },
 };
 use crate::domain::models::{
-    ConnectionProfile, DatastoreMcpServerConfig, DatastoreMcpServerTokenConfig, QueryTabState,
-    SecretRef,
+    ConnectionProfile, DatastoreMcpServerConfig, DatastoreMcpServerTokenConfig,
+    FirstInstallGuidePreferences, QueryTabState, SecretRef,
 };
 use std::{fs, path::PathBuf, sync::Mutex as TestMutex};
 
@@ -29,6 +29,72 @@ fn normal_blank_workspace_has_no_fixture_user_data() {
     assert!(snapshot.tabs.is_empty());
     assert!(snapshot.saved_work.is_empty());
     assert!(snapshot.library_nodes.is_empty());
+}
+
+#[test]
+fn blank_workspace_defaults_first_install_guide_to_unseen() {
+    let snapshot = blank_workspace_snapshot();
+
+    assert_eq!(snapshot.preferences.first_install_guide.status, "unseen");
+    assert!(snapshot
+        .preferences
+        .first_install_guide
+        .updated_at
+        .is_none());
+    assert!(snapshot
+        .preferences
+        .first_install_guide
+        .completed_at
+        .is_none());
+}
+
+#[test]
+fn migration_normalizes_first_install_guide_preferences() {
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.preferences.first_install_guide = FirstInstallGuidePreferences {
+        status: "unknown".into(),
+        updated_at: Some("2026-06-30T00:00:00.000Z".into()),
+        completed_at: Some("2026-06-30T00:01:00.000Z".into()),
+    };
+
+    let migrated = migrate_snapshot(snapshot);
+
+    assert_eq!(migrated.preferences.first_install_guide.status, "unseen");
+    assert_eq!(
+        migrated
+            .preferences
+            .first_install_guide
+            .updated_at
+            .as_deref(),
+        Some("2026-06-30T00:00:00.000Z")
+    );
+    assert!(migrated
+        .preferences
+        .first_install_guide
+        .completed_at
+        .is_none());
+
+    let mut completed = blank_workspace_snapshot();
+    completed.preferences.first_install_guide = FirstInstallGuidePreferences {
+        status: "completed".into(),
+        updated_at: Some("2026-06-30T01:00:00.000Z".into()),
+        completed_at: Some("2026-06-30T01:01:00.000Z".into()),
+    };
+
+    let migrated_completed = migrate_snapshot(completed);
+
+    assert_eq!(
+        migrated_completed.preferences.first_install_guide.status,
+        "completed"
+    );
+    assert_eq!(
+        migrated_completed
+            .preferences
+            .first_install_guide
+            .completed_at
+            .as_deref(),
+        Some("2026-06-30T01:01:00.000Z")
+    );
 }
 
 #[test]

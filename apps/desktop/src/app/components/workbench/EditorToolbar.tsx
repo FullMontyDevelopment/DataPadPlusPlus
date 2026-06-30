@@ -95,7 +95,7 @@ export function EditorToolbar({
       : queryWindowModeButtonLabels
 
   return (
-    <div className="editor-toolbar" aria-label="Editor toolbar">
+    <div className="editor-toolbar" aria-label="Editor toolbar" data-tour-id="editor-toolbar">
       <div className="toolbar-group" aria-label="Execution controls">
         <button
           type="button"

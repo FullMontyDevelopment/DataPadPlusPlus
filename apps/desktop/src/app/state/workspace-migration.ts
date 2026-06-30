@@ -8,6 +8,7 @@ import type {
   DatastoreMcpServerConfig,
   DatastoreMcpServerScope,
   DatastoreMcpServerTokenConfig,
+  FirstInstallGuidePreferences,
   LibraryNode,
   QueryTabState,
   SavedWorkItem,
@@ -34,7 +35,7 @@ const MAX_RIGHT_DRAWER_WIDTH = 560
 const MIN_RESULTS_SIDE_WIDTH = 320
 const DEFAULT_RESULTS_SIDE_WIDTH = 420
 const MAX_RESULTS_SIDE_WIDTH = 2400
-const WORKSPACE_SCHEMA_VERSION = 9
+const WORKSPACE_SCHEMA_VERSION = 10
 const DEFAULT_LIBRARY_ROOTS = [
   ['library-root-queries', 'Queries'],
   ['library-root-scripts', 'Scripts'],
@@ -302,6 +303,26 @@ function normalizePreferences(
     workspaceSearch: {
       enabled: Boolean(preferences?.workspaceSearch?.enabled),
     },
+    firstInstallGuide: normalizeFirstInstallGuidePreferences(preferences?.firstInstallGuide),
+  }
+}
+
+function normalizeFirstInstallGuidePreferences(
+  preferences: FirstInstallGuidePreferences | undefined,
+): FirstInstallGuidePreferences {
+  const status = preferences?.status
+  const normalizedStatus =
+    status === 'started' || status === 'skipped' || status === 'completed'
+      ? status
+      : 'unseen'
+
+  return {
+    status: normalizedStatus,
+    updatedAt: typeof preferences?.updatedAt === 'string' ? preferences.updatedAt : undefined,
+    completedAt:
+      normalizedStatus === 'completed' && typeof preferences?.completedAt === 'string'
+        ? preferences.completedAt
+        : undefined,
   }
 }
 

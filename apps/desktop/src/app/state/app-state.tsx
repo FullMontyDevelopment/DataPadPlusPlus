@@ -86,6 +86,7 @@ const defaultActions: Actions = {
   setTheme: noop,
   setSafeModeEnabled: noop,
   setKeyboardShortcut: noop,
+  setFirstInstallGuideStatus: noop,
   updateUiState: noop,
   refreshDiagnostics: noop,
   listAppLogFiles: async () => undefined,

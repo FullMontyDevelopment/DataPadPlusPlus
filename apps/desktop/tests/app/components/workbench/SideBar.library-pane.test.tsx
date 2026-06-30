@@ -469,6 +469,23 @@ describe('LibraryPane', () => {
     expect(onDeleteEnvironment).toHaveBeenCalledWith('env-prod')
   })
 
+  it('creates environments from the Environments section header', () => {
+    const onCreateEnvironment = vi.fn()
+
+    renderLibraryPane(vi.fn(), {
+      environments,
+      onCreateEnvironment,
+    })
+
+    const addButton = screen.getByRole('button', { name: 'Add Environment' })
+    expect(addButton.closest('.sidebar-section-action-header')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New Environment' })).not.toBeInTheDocument()
+
+    fireEvent.click(addButton)
+
+    expect(onCreateEnvironment).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps the Library toolbar focused on navigation and creation actions', () => {
     const onCreateConnection = vi.fn()
 
@@ -540,6 +557,7 @@ function renderLibraryPane(
     getConnectionHealth: (connectionId: string, environmentId?: string) => ConnectionHealth | undefined
     libraryNodes: LibraryNode[]
     onCreateConnection: () => void
+    onCreateEnvironment: () => void
     onCreateFolder: (parentId: string | undefined, name: string) => void
     onCloneEnvironment: (environmentId: string) => void
     onDeleteEnvironment: (environmentId: string) => void
@@ -584,6 +602,7 @@ function renderLibraryPane(
       libraryNodes={overrides.libraryNodes ?? nodes}
       sectionStates={overrides.sectionStates ?? {}}
       onCreateConnection={overrides.onCreateConnection ?? vi.fn()}
+      onCreateEnvironment={overrides.onCreateEnvironment ?? vi.fn()}
       onCreateApiServer={overrides.onCreateApiServer ?? vi.fn()}
       onCloneEnvironment={overrides.onCloneEnvironment ?? vi.fn()}
       onCreateFolder={overrides.onCreateFolder ?? vi.fn()}

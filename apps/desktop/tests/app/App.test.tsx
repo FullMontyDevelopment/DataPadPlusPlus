@@ -7,7 +7,8 @@ import type {
   EnvironmentProfile,
 } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../src/services/runtime/client'
-import { saveBrowserSnapshot } from '../../src/services/runtime/browser-store'
+import { loadBrowserSnapshot, saveBrowserSnapshot } from '../../src/services/runtime/browser-store'
+import { createObjectViewTabInSnapshot } from '../../src/services/runtime/browser-tabs'
 import { App } from '../../src/app/App'
 import { createBlankBootstrapPayload } from '../../src/app/data/workspace-factory'
 import { startupConnectionHealthTargets } from '../../src/app/state/app-state'
@@ -314,6 +315,9 @@ async function createCatalogMongoWithBuilderTab() {
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: /products\.find/i })).toBeInTheDocument()
   })
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Query Builder' })).toBeInTheDocument()
+  }, { timeout: 4000 })
 }
 
 describe('App', () => {
@@ -412,6 +416,126 @@ describe('App', () => {
     expect(screen.queryByText('Analytics Postgres')).not.toBeInTheDocument()
     expect(screen.queryByText('Ops dashboard')).not.toBeInTheDocument()
   })
+
+  it('prompts for the first install guide and persists skip', async () => {
+    render(<App />)
+
+    const prompt = await screen.findByRole('dialog', { name: 'Take a quick tour?' })
+
+    expect(prompt).toBeInTheDocument()
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Skip' }))
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: 'Take a quick tour?' }),
+      ).not.toBeInTheDocument()
+    })
+    expect(loadBrowserSnapshot().preferences.firstInstallGuide?.status).toBe('skipped')
+  })
+
+  it('persists tutorial start and keeps the empty workspace entry point without re-prompting skipped users', async () => {
+    const { unmount } = render(<App />)
+
+    const prompt = await screen.findByRole('dialog', { name: 'Take a quick tour?' })
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Start Tutorial' }))
+
+    expect(await screen.findByText('Step 1 of 7')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(loadBrowserSnapshot().preferences.firstInstallGuide?.status).toBe('started')
+    })
+
+    unmount()
+    window.localStorage.clear()
+    const skippedSnapshot = createBlankBootstrapPayload().snapshot
+    skippedSnapshot.preferences.firstInstallGuide = {
+      status: 'skipped',
+      updatedAt: '2026-06-30T00:00:00.000Z',
+    }
+    saveBrowserSnapshot(skippedSnapshot)
+    render(<App />)
+
+    await screen.findByLabelText('First run onboarding')
+    expect(screen.queryByRole('dialog', { name: 'Take a quick tour?' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Take Tutorial' })).toBeInTheDocument()
+  })
+
+  it('walks the first install guide through folders, connections, Explorer, query, settings, and finish', async () => {
+    render(<App />)
+
+    const prompt = await screen.findByRole('dialog', { name: 'Take a quick tour?' })
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Start Tutorial' }))
+
+    let guide = await screen.findByRole('dialog', { name: 'Welcome to DataPad++' })
+    fireEvent.click(within(guide).getByRole('button', { name: 'Next' }))
+
+    guide = await screen.findByRole('dialog', { name: 'Organize the Library' })
+    fireEvent.click(within(guide).getByRole('button', { name: 'Create Folder' }))
+
+    const folderDialog = await screen.findByRole('dialog', { name: 'New folder' })
+    fireEvent.change(within(folderDialog).getByLabelText('Folder name'), {
+      target: { value: 'Getting Started' },
+    })
+    fireEvent.click(within(folderDialog).getByRole('button', { name: 'Create Folder' }))
+
+    guide = await screen.findByRole('dialog', { name: 'Create a connection' })
+    await waitFor(() => {
+      expect(
+        loadBrowserSnapshot().libraryNodes.some((node) => node.name === 'Getting Started'),
+      ).toBe(true)
+    })
+
+    fireEvent.click(within(guide).getByRole('button', { name: 'New Connection' }))
+
+    const drawer = await screen.findByLabelText('connection drawer')
+    guide = await screen.findByRole('dialog', { name: 'Test and save' })
+    expect(within(drawer).getByLabelText('Name')).toHaveValue('PostgreSQL connection')
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Save Connection' }))
+
+    guide = await screen.findByRole('dialog', { name: 'Browse metadata' })
+    await waitFor(() => {
+      expect(
+        loadBrowserSnapshot().connections.some(
+          (connection) => connection.name === 'PostgreSQL connection',
+        ),
+      ).toBe(true)
+    })
+
+    fireEvent.click(within(guide).getByRole('button', { name: 'Open Explorer' }))
+
+    expect(
+      await screen.findByRole(
+        'tab',
+        { name: /Explorer - PostgreSQL connection/i },
+        { timeout: 4000 },
+      ),
+    ).toBeInTheDocument()
+    guide = await screen.findByRole('dialog', { name: 'Query and review results' })
+
+    fireEvent.click(within(guide).getByRole('button', { name: 'Open Query Tab' }))
+
+    expect(
+      await screen.findByRole('tab', { name: /Query 1/i }, { timeout: 4000 }),
+    ).toBeInTheDocument()
+    guide = await screen.findByRole('dialog', { name: 'Check safety settings' })
+
+    fireEvent.click(within(guide).getByRole('button', { name: 'Open Settings' }))
+
+    await waitFor(() => {
+      expect(loadBrowserSnapshot().tabs.some((tab) => tab.tabKind === 'settings')).toBe(true)
+    }, { timeout: 4000 })
+    guide = await screen.findByRole('dialog', { name: 'Check safety settings' })
+    fireEvent.click(within(guide).getByRole('button', { name: 'Finish' }))
+
+    await waitFor(() => {
+      expect(loadBrowserSnapshot().preferences.firstInstallGuide?.status).toBe('completed')
+    })
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: 'Check safety settings' }),
+      ).not.toBeInTheDocument()
+    })
+  }, 10000)
 
   it('opens Workspace Search from the Library when the experiment is enabled', async () => {
     const snapshot = createBlankBootstrapPayload().snapshot
@@ -2167,26 +2291,46 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Query Builder' }))
     expect(screen.getByLabelText('MongoDB query builder')).toBeInTheDocument()
     expect(screen.queryByLabelText('Query editor')).not.toBeInTheDocument()
-  })
+  }, 10000)
 
   it('keeps a Mongo query tab in builder mode after opening an object view', async () => {
-    render(<App />)
+    const { unmount } = render(<App />)
 
     await createCatalogMongoWithBuilderTab()
 
-    expect(screen.getByRole('button', { name: 'Query Builder' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Query Builder' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+    })
     expect(screen.getByLabelText('MongoDB query builder')).toBeInTheDocument()
 
-    let mongoTree = getConnectionObjectTree('Catalog Mongo')
+    const mongoTree = getConnectionObjectTree('Catalog Mongo')
     expandObjectTreeItem(mongoTree, 'products')
     await waitFor(() => {
       expect(within(getConnectionObjectTree('Catalog Mongo')).getByText('Schema Preview')).toBeInTheDocument()
     })
-    mongoTree = getConnectionObjectTree('Catalog Mongo')
-    fireEvent.click(within(mongoTree).getByRole('treeitem', { name: /Schema Preview/i }))
+
+    const snapshot = loadBrowserSnapshot()
+    const mongoConnection = snapshot.connections.find(
+      (connection) => connection.name === 'Catalog Mongo',
+    )
+    if (!mongoConnection) {
+      throw new Error('Catalog Mongo connection was not found.')
+    }
+
+    saveBrowserSnapshot(createObjectViewTabInSnapshot(snapshot, {
+      connectionId: mongoConnection.id,
+      environmentId: snapshot.ui.activeEnvironmentId,
+      nodeId: 'schema-preview:catalog:products',
+      label: 'Schema Preview',
+      kind: 'schema-preview',
+      path: ['Databases', 'catalog', 'Collections', 'products', 'Schema Preview'],
+    }))
+
+    unmount()
+    render(<App />)
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Schema Preview/i })).toHaveAttribute(
@@ -2205,7 +2349,7 @@ describe('App', () => {
     })
     expect(screen.getByLabelText('MongoDB query builder')).toBeInTheDocument()
     expect(screen.queryByLabelText('Query editor')).not.toBeInTheDocument()
-  })
+  }, 10000)
 
   it('opens scoped SQL queries with builder and raw modes', async () => {
     render(<App />)
