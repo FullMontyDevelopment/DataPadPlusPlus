@@ -1,4 +1,5 @@
 use super::*;
+use std::io::Read;
 
 #[test]
 fn host_header_stays_local() {
@@ -93,6 +94,79 @@ fn mutation_kind_mapping_is_capability_scoped() {
         "insert-document"
     );
     assert!(edit_kind_for("graph", "neo4j", "table", "PATCH").is_err());
+}
+
+#[test]
+fn query_source_discovery_includes_all_saved_queries_for_server_connection() {
+    let mut snapshot = crate::app::runtime::blank_workspace_snapshot();
+    snapshot.preferences.datastore_api_server = DatastoreApiServerPreferences {
+        enabled: true,
+        active_server_id: Some("api-server-users".into()),
+        servers: vec![DatastoreApiServerConfig {
+            id: "api-server-users".into(),
+            name: "Users API".into(),
+            connection_id: Some("conn-users".into()),
+            environment_id: Some("env-prod".into()),
+            ..DatastoreApiServerConfig::default()
+        }],
+        ..DatastoreApiServerPreferences::default()
+    };
+    snapshot.library_nodes = vec![
+        saved_query_node(
+            "library-query-prod",
+            "Prod users",
+            "conn-users",
+            Some("env-prod"),
+        ),
+        saved_query_node("library-query-qa", "QA users", "conn-users", Some("env-qa")),
+        saved_query_node("library-query-any", "Any users", "conn-users", None),
+        saved_query_node("library-query-other", "Other datastore", "conn-other", None),
+    ];
+
+    let sources = query_sources_for_snapshot(&snapshot, "api-server-users").unwrap();
+    let source_ids = sources
+        .iter()
+        .map(|source| source.id.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        source_ids,
+        vec![
+            "library-query-any",
+            "library-query-prod",
+            "library-query-qa",
+        ]
+    );
+}
+
+fn saved_query_node(
+    id: &str,
+    name: &str,
+    connection_id: &str,
+    environment_id: Option<&str>,
+) -> LibraryNode {
+    LibraryNode {
+        id: id.into(),
+        kind: "query".into(),
+        parent_id: None,
+        name: name.into(),
+        summary: None,
+        tags: Vec::new(),
+        favorite: None,
+        created_at: "2026-06-30T00:00:00.000Z".into(),
+        updated_at: "2026-06-30T00:00:00.000Z".into(),
+        last_opened_at: None,
+        connection_id: Some(connection_id.into()),
+        environment_id: environment_id.map(str::to_string),
+        language: Some("sql".into()),
+        query_text: Some("select * from users where email = {{api.email}}".into()),
+        query_view_mode: Some("raw".into()),
+        document_efficiency_mode: None,
+        builder_state: None,
+        script_text: None,
+        test_suite: None,
+        snapshot_result_id: None,
+    }
 }
 
 fn route_target(kind: &str, name: &str) -> ResourceRouteTarget {
@@ -808,4 +882,337 @@ fn legacy_resource_endpoint_encodes_concrete_names() {
         resource_endpoint("table", "accounts"),
         "/v1/tables/accounts"
     );
+}
+
+fn export_test_resource() -> ProjectResourceModel {
+    ProjectResourceModel {
+        label: "users".into(),
+        kind: "table".into(),
+        endpoint_slug: "users".into(),
+        endpoint_path: "/users".into(),
+        model_name: "Users".into(),
+        schema_source: "catalog".into(),
+        schema_source_label: "Catalog".into(),
+        primary_fields: vec!["id".into()],
+        fields: vec![
+            ProjectFieldModel {
+                source_name: "id".into(),
+                rust_name: "id".into(),
+                csharp_name: "Id".into(),
+                json_name: "id".into(),
+                rust_type: "i32".into(),
+                csharp_type: "int".into(),
+                data_type: "integer".into(),
+                nullable: false,
+                primary: true,
+            },
+            ProjectFieldModel {
+                source_name: "email".into(),
+                rust_name: "email".into(),
+                csharp_name: "Email".into(),
+                json_name: "email".into(),
+                rust_type: "String".into(),
+                csharp_type: "string".into(),
+                data_type: "text".into(),
+                nullable: false,
+                primary: false,
+            },
+        ],
+    }
+}
+
+fn export_test_spec(framework: &str, protocol: &str) -> ProjectExportSpec {
+    ProjectExportSpec {
+        framework: framework.into(),
+        project_name: "UsersApi".into(),
+        namespace: "UsersApi".into(),
+        package_name: "users_api".into(),
+        protocol: protocol.into(),
+        base_path: String::new(),
+        connection_engine: "sqlite".into(),
+        connection_family: "sql".into(),
+        provider: ExportProvider::Sql,
+        env_var: "DATABASE_URL".into(),
+        resources: vec![export_test_resource()],
+        custom_endpoints: Vec::new(),
+        warnings: Vec::new(),
+    }
+}
+
+#[test]
+fn project_export_provider_validation_is_typed_only() {
+    assert_eq!(
+        export_provider_for_connection("sql", "sqlite").unwrap(),
+        ExportProvider::Sql
+    );
+    assert_eq!(
+        export_provider_for_connection("document", "mongodb").unwrap(),
+        ExportProvider::MongoDb
+    );
+    assert_eq!(
+        export_provider_for_connection("keyvalue", "redis").unwrap(),
+        ExportProvider::Redis
+    );
+    assert_eq!(
+        export_provider_for_connection("search", "opensearch").unwrap(),
+        ExportProvider::Search
+    );
+
+    let unsupported = DatastoreApiServerResourceConfig {
+        kind: "key".into(),
+        label: "session-cache".into(),
+        enabled: true,
+        ..Default::default()
+    };
+    assert!(validate_project_export_resources(ExportProvider::Sql, &[unsupported]).is_err());
+}
+
+#[test]
+fn project_schema_prefers_structure_fields_before_metadata() {
+    let resource = DatastoreApiServerResourceConfig {
+        id: "api-resource-users".into(),
+        kind: "collection".into(),
+        label: "users".into(),
+        node_id: "users".into(),
+        endpoint_slug: "users".into(),
+        enabled: true,
+        ..Default::default()
+    };
+    let node = StructureNode {
+        id: "users".into(),
+        family: "document".into(),
+        label: "users".into(),
+        kind: "collection".into(),
+        fields: vec![StructureField {
+            name: "_id".into(),
+            data_type: "objectId".into(),
+            detail: None,
+            nullable: Some(false),
+            primary: Some(true),
+            ordinal: Some(0),
+            indexed: None,
+        }],
+        sample: None,
+        group_id: None,
+        detail: None,
+        database: None,
+        schema: None,
+        object_name: None,
+        qualified_name: None,
+        column_count: None,
+        relationship_count: None,
+        row_count_estimate: None,
+        index_count: None,
+        is_system: None,
+        is_view: None,
+        metrics: Vec::new(),
+    };
+
+    let schema = project_resource_schema(ExportProvider::MongoDb, &resource, &[node]).unwrap();
+
+    assert_eq!(schema.source, ProjectSchemaSource::Sample);
+    assert_eq!(schema.fields.len(), 1);
+    assert_eq!(schema.fields[0].name, "_id");
+}
+
+#[test]
+fn project_schema_infers_mongo_json_schema_and_samples() {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        "validator".into(),
+        json!({
+            "$jsonSchema": {
+                "required": ["_id", "email"],
+                "properties": {
+                    "_id": { "bsonType": "objectId" },
+                    "email": { "bsonType": "string" },
+                    "age": { "bsonType": ["null", "int"] }
+                }
+            }
+        }),
+    );
+    let resource = DatastoreApiServerResourceConfig {
+        kind: "collection".into(),
+        label: "users".into(),
+        endpoint_slug: "users".into(),
+        enabled: true,
+        metadata,
+        ..Default::default()
+    };
+
+    let schema = project_resource_schema(ExportProvider::MongoDb, &resource, &[]).unwrap();
+
+    assert_eq!(schema.source, ProjectSchemaSource::DeclaredSchema);
+    assert!(schema
+        .fields
+        .iter()
+        .any(|field| field.name == "_id" && field.primary == Some(true)));
+    assert!(schema
+        .fields
+        .iter()
+        .any(|field| field.name == "age" && field.nullable == Some(true)));
+}
+
+#[test]
+fn project_schema_infers_sample_nullable_and_conflicting_types() {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        "samples".into(),
+        json!([
+            { "_id": "1", "score": 4, "name": "Ada" },
+            { "_id": "2", "score": "unknown", "active": true }
+        ]),
+    );
+    let resource = DatastoreApiServerResourceConfig {
+        kind: "collection".into(),
+        label: "profiles".into(),
+        endpoint_slug: "profiles".into(),
+        enabled: true,
+        metadata,
+        ..Default::default()
+    };
+
+    let schema = project_resource_schema(ExportProvider::MongoDb, &resource, &[]).unwrap();
+    let score = schema
+        .fields
+        .iter()
+        .find(|field| field.name == "score")
+        .unwrap();
+    let name = schema
+        .fields
+        .iter()
+        .find(|field| field.name == "name")
+        .unwrap();
+
+    assert_eq!(schema.source, ProjectSchemaSource::Sample);
+    assert_eq!(score.data_type, "value");
+    assert_eq!(name.nullable, Some(true));
+}
+
+#[test]
+fn mongo_empty_collection_uses_identity_only_resource_shape() {
+    let resource = DatastoreApiServerResourceConfig {
+        kind: "collection".into(),
+        label: "test".into(),
+        endpoint_slug: "test".into(),
+        enabled: true,
+        ..Default::default()
+    };
+
+    let schema = resource_shape_schema(ExportProvider::MongoDb, &resource).unwrap();
+
+    assert_eq!(schema.source, ProjectSchemaSource::ResourceShape);
+    assert!(schema.warnings[0].contains("identity-only model"));
+    assert_eq!(schema.fields.len(), 1);
+    assert_eq!(schema.fields[0].name, "_id");
+    assert_eq!(schema.fields[0].primary, Some(true));
+}
+
+#[test]
+fn project_schema_infers_dynamodb_key_schema_and_redis_shape() {
+    let mut dynamo_metadata = HashMap::new();
+    dynamo_metadata.insert(
+        "Table".into(),
+        json!({
+            "KeySchema": [
+                { "AttributeName": "pk", "KeyType": "HASH" },
+                { "AttributeName": "sk", "KeyType": "RANGE" }
+            ],
+            "AttributeDefinitions": [
+                { "AttributeName": "pk", "AttributeType": "S" },
+                { "AttributeName": "sk", "AttributeType": "N" }
+            ]
+        }),
+    );
+    let dynamo = DatastoreApiServerResourceConfig {
+        kind: "item".into(),
+        label: "Orders".into(),
+        endpoint_slug: "orders".into(),
+        enabled: true,
+        metadata: dynamo_metadata,
+        ..Default::default()
+    };
+    let dynamo_schema = project_resource_schema(ExportProvider::DynamoDb, &dynamo, &[]).unwrap();
+    assert_eq!(dynamo_schema.source, ProjectSchemaSource::DeclaredSchema);
+    assert!(dynamo_schema
+        .fields
+        .iter()
+        .any(|field| field.name == "pk" && field.primary == Some(true)));
+
+    let redis = DatastoreApiServerResourceConfig {
+        kind: "key".into(),
+        label: "sessions:*".into(),
+        endpoint_slug: "sessions".into(),
+        enabled: true,
+        detail: Some("hash".into()),
+        ..Default::default()
+    };
+    let redis_schema = project_resource_schema(ExportProvider::Redis, &redis, &[]).unwrap();
+    assert_eq!(redis_schema.source, ProjectSchemaSource::ResourceShape);
+    assert!(redis_schema
+        .fields
+        .iter()
+        .any(|field| field.name == "value" && field.data_type == "document"));
+}
+
+#[test]
+fn rust_project_export_zip_contains_expected_files_without_secrets() {
+    let spec = export_test_spec("rust", "rest");
+    let bytes = zip_project_files(rust_project_files(&spec)).unwrap();
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+
+    let mut cargo = String::new();
+    archive
+        .by_name("UsersApi/Cargo.toml")
+        .unwrap()
+        .read_to_string(&mut cargo)
+        .unwrap();
+    assert!(cargo.contains("axum"));
+    assert!(cargo.contains("sqlx"));
+
+    let mut env = String::new();
+    archive
+        .by_name("UsersApi/.env.example")
+        .unwrap()
+        .read_to_string(&mut env)
+        .unwrap();
+    assert!(env.contains("DATABASE_URL="));
+    assert!(!env.contains("password"));
+
+    let mut manifest = String::new();
+    archive
+        .by_name("UsersApi/datapad-api-export.json")
+        .unwrap()
+        .read_to_string(&mut manifest)
+        .unwrap();
+    assert!(manifest.contains("\"schemaSource\": \"catalog\""));
+
+    let mut readme = String::new();
+    archive
+        .by_name("UsersApi/README.md")
+        .unwrap()
+        .read_to_string(&mut readme)
+        .unwrap();
+    assert!(readme.contains("## Export Warnings"));
+}
+
+#[test]
+fn dotnet_grpc_project_export_contains_proto_and_resource_service() {
+    let spec = export_test_spec("dotnet", "grpc");
+    let files = dotnet_project_files(&spec);
+    let proto = files
+        .iter()
+        .find(|file| file.path == "UsersApi/Protos/datapad_api.proto")
+        .unwrap();
+    assert!(proto
+        .contents
+        .contains("option csharp_namespace = \"UsersApi.Grpc\";"));
+    assert!(proto.contents.contains("service UsersService"));
+
+    let services = files
+        .iter()
+        .find(|file| file.path == "UsersApi/Services.cs")
+        .unwrap();
+    assert!(services.contents.contains("UsersServiceImpl"));
+    assert!(services.contents.contains("UsersService.UsersServiceBase"));
 }

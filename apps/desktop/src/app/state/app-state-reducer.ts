@@ -282,7 +282,7 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         executionStatus: Object.keys(executionsByTab).length ? 'loading' : 'ready',
         payload: applyExecutionToPayload(state.payload, action.execution, {
           waitForDisplay,
-        }),
+        }, action.request),
         lastExecution: action.execution,
         lastExecutionRequest: action.request,
       }

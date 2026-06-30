@@ -349,6 +349,7 @@ fn fixture_query_tab(
         query_text: seed.query_text.into(),
         query_view_mode: Some(super::query_tabs::default_query_view_mode(connection)),
         script_text: super::query_tabs::default_script_text(connection),
+        document_efficiency_mode: None,
         scoped_target: None,
         builder_state: None,
         metrics_state: None,

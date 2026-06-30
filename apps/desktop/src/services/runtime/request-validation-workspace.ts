@@ -12,6 +12,7 @@ import type {
   SecretRef,
   ScopedQueryTarget,
   UpdateQueryBuilderStateRequest,
+  UpdateQueryTabRequest,
   UpdateTestSuiteTabRequest,
 } from '@datapadplusplus/shared-types'
 import {
@@ -202,8 +203,8 @@ export function validateQueryTabReorderRequest(
 }
 
 export function validateUpdateQueryTabRequest(
-  request: { tabId: string; queryText: string; queryViewMode?: QueryViewMode },
-) {
+  request: UpdateQueryTabRequest,
+): UpdateQueryTabRequest {
   validateRequiredId(request.tabId, 'Tab id')
   validateQueryText(request.queryText, 'Query text')
   validateQueryViewMode(request.queryViewMode)

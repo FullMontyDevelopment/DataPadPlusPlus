@@ -372,9 +372,16 @@ export function useQueryTabActions({
   )
 
   const updateQuery = useCallback<Actions['updateQuery']>(
-    async (tabId, queryText, queryViewMode) => {
+    async (tabId, queryText, queryViewMode, documentEfficiencyMode) => {
       try {
-        applyPayload(await desktopClient.updateQueryTab(tabId, queryText, queryViewMode))
+        applyPayload(
+          await desktopClient.updateQueryTab(
+            tabId,
+            queryText,
+            queryViewMode,
+            documentEfficiencyMode,
+          ),
+        )
       } catch (error) {
         handleError(error)
       }

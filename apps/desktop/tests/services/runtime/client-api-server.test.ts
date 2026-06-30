@@ -110,5 +110,93 @@ describe('clientApiServer browser preview', () => {
     const deletedStatus = await clientApiServer.getDatastoreApiServerStatus()
     expect(deletedStatus.activeServerId).toBeUndefined()
     expect(deletedStatus.servers).toEqual([])
+
+    await expect(
+      clientApiServer.exportDatastoreApiServerProjectFile({
+        serverId: 'api-server-default',
+        framework: 'rust',
+        projectName: 'LocalApi',
+      }),
+    ).rejects.toThrow(/desktop app/)
+  })
+
+  it('discovers all saved query endpoints for the selected datastore connection', async () => {
+    const snapshot = createBlankSnapshot()
+    snapshot.connections = [
+      {
+        id: 'conn-sqlite',
+        name: 'Local SQLite',
+        engine: 'sqlite',
+        family: 'sql',
+        host: 'local.db',
+        database: 'local.db',
+        environmentIds: ['env-local', 'env-prod'],
+        tags: [],
+        favorite: false,
+        readOnly: false,
+        icon: 'SQ',
+        auth: {},
+        createdAt: '2026-06-14T00:00:00.000Z',
+        updatedAt: '2026-06-14T00:00:00.000Z',
+      },
+    ]
+    snapshot.preferences.datastoreApiServer = {
+      enabled: true,
+      host: '127.0.0.1',
+      port: 17640,
+      autoStart: false,
+      activeServerId: 'api-server-default',
+      servers: [{
+        id: 'api-server-default',
+        name: 'Local API Server',
+        host: '127.0.0.1',
+        port: 17640,
+        autoStart: false,
+        protocol: 'rest',
+        basePath: '',
+        connectionId: 'conn-sqlite',
+        environmentId: 'env-local',
+        resources: [],
+        customEndpoints: [],
+      }],
+    }
+    snapshot.libraryNodes = [
+      savedQuery('library-any', 'Any users', 'conn-sqlite'),
+      savedQuery('library-local', 'Local users', 'conn-sqlite', 'env-local'),
+      savedQuery('library-prod', 'Prod users', 'conn-sqlite', 'env-prod'),
+      savedQuery('library-other', 'Other datastore', 'conn-other'),
+    ]
+    saveBrowserSnapshot(snapshot)
+
+    const response = await clientApiServer.discoverDatastoreApiServerQuerySources({
+      serverId: 'api-server-default',
+    })
+
+    expect(response.sources.map((source) => source.id)).toEqual([
+      'library-any',
+      'library-local',
+      'library-prod',
+    ])
   })
 })
+
+function savedQuery(
+  id: string,
+  name: string,
+  connectionId: string,
+  environmentId?: string,
+) {
+  return {
+    id,
+    kind: 'query' as const,
+    name,
+    tags: [],
+    createdAt: '2026-06-14T00:00:00.000Z',
+    updatedAt: '2026-06-14T00:00:00.000Z',
+    connectionId,
+    environmentId,
+    language: 'sql' as const,
+    queryText: 'select * from users where email = {{api.email}}',
+    queryViewMode: 'raw' as const,
+  }
+}

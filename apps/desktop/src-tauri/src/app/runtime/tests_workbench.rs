@@ -277,6 +277,7 @@ impl ManagedAppState {
             query_text: serde_json::to_string_pretty(&suite)?,
             query_view_mode: Some("raw".into()),
             script_text: None,
+            document_efficiency_mode: None,
             scoped_target: None,
             builder_state: None,
             metrics_state: None,

@@ -6,7 +6,8 @@ use super::{
     timestamp_now,
     workspace::{migrate_snapshot, sanitize_snapshot},
     workspace_bundle::{
-        parse_workspace_bundle_payload, validate_bundle_passphrase, validate_bundle_payload_size,
+        collect_workspace_bundle_secrets, parse_workspace_bundle_payload,
+        validate_bundle_passphrase, validate_bundle_payload_size,
         workspace_bundle_payload_with_integrity,
     },
 };
@@ -265,7 +266,7 @@ fn workspace_export_sanitizer_strips_mcp_token_metadata() {
             ..DatastoreMcpServerConfig::default()
         });
 
-    let sanitized = sanitize_snapshot(&snapshot);
+    let sanitized = sanitize_snapshot(&snapshot, false);
     let serialized = serde_json::to_string(&sanitized).expect("serialize sanitized snapshot");
     let server = &sanitized.preferences.datastore_mcp_server.servers[0];
 
@@ -275,6 +276,100 @@ fn workspace_export_sanitizer_strips_mcp_token_metadata() {
     assert!(server.tokens.is_empty());
     assert!(!serialized.contains("mcp-token-dev"));
     assert!(!serialized.contains("mcp-token-verifier"));
+}
+
+#[test]
+fn workspace_export_sanitizer_keeps_mcp_token_metadata_when_including_secrets() {
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.preferences.datastore_mcp_server.enabled = true;
+    snapshot
+        .preferences
+        .datastore_mcp_server
+        .servers
+        .push(DatastoreMcpServerConfig {
+            id: "mcp-local".into(),
+            name: "Local MCP".into(),
+            tokens: vec![DatastoreMcpServerTokenConfig {
+                id: "mcp-token-dev".into(),
+                label: "Dev client".into(),
+                enabled: true,
+                scopes: vec!["query:read".into()],
+                verifier_secret_ref: SecretRef {
+                    id: "secret-mcp-token".into(),
+                    provider: "os-keyring".into(),
+                    service: "DataPad++".into(),
+                    account: "mcp-token-verifier:mcp-local:mcp-token-dev".into(),
+                    label: "MCP auth token verifier".into(),
+                },
+                created_at: timestamp_now(),
+                last_used_at: None,
+            }],
+            ..DatastoreMcpServerConfig::default()
+        });
+
+    let sanitized = sanitize_snapshot(&snapshot, true);
+    let serialized = serde_json::to_string(&sanitized).expect("serialize sanitized snapshot");
+    let server = &sanitized.preferences.datastore_mcp_server.servers[0];
+
+    assert_eq!(server.tokens.len(), 1);
+    assert!(serialized.contains("mcp-token-dev"));
+    assert!(serialized.contains("mcp-token-verifier"));
+}
+
+#[test]
+fn workspace_bundle_secret_collection_includes_mcp_token_verifier_when_allowed() {
+    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let path = temp_secret_file_path();
+    std::env::set_var("DATAPADPLUSPLUS_SECRET_STORE", "file");
+    std::env::set_var("DATAPADPLUSPLUS_SECRET_FILE", &path);
+
+    let secret_ref = SecretRef {
+        id: "secret-mcp-token".into(),
+        provider: "os-keyring".into(),
+        service: "DataPad++".into(),
+        account: "mcp-token-verifier:mcp-local:mcp-token-dev".into(),
+        label: "MCP auth token verifier".into(),
+    };
+    crate::security::store_secret_value(&secret_ref, "hashed-verifier")
+        .expect("store MCP verifier secret");
+
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot
+        .preferences
+        .datastore_mcp_server
+        .servers
+        .push(DatastoreMcpServerConfig {
+            id: "mcp-local".into(),
+            name: "Local MCP".into(),
+            tokens: vec![DatastoreMcpServerTokenConfig {
+                id: "mcp-token-dev".into(),
+                label: "Dev client".into(),
+                enabled: true,
+                scopes: vec!["query:read".into()],
+                verifier_secret_ref: secret_ref.clone(),
+                created_at: timestamp_now(),
+                last_used_at: None,
+            }],
+            ..DatastoreMcpServerConfig::default()
+        });
+
+    let stripped = sanitize_snapshot(&snapshot, false);
+    assert!(stripped.preferences.datastore_mcp_server.servers[0]
+        .tokens
+        .is_empty());
+    assert!(collect_workspace_bundle_secrets(&stripped)
+        .expect("collect stripped secrets")
+        .is_empty());
+
+    let preserved = sanitize_snapshot(&snapshot, true);
+    let secrets = collect_workspace_bundle_secrets(&preserved).expect("collect secrets");
+    assert_eq!(secrets.len(), 1);
+    assert_eq!(secrets[0].secret_ref.id, "secret-mcp-token");
+    assert_eq!(secrets[0].value, "hashed-verifier");
+
+    std::env::remove_var("DATAPADPLUSPLUS_SECRET_STORE");
+    std::env::remove_var("DATAPADPLUSPLUS_SECRET_FILE");
+    let _ = fs::remove_file(path);
 }
 
 #[test]

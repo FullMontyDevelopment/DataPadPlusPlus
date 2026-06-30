@@ -306,6 +306,24 @@ export interface DatastoreApiServerRemoveCustomEndpointRequest {
   endpointId: string
 }
 
+export type DatastoreApiServerProjectExportFramework = 'rust' | 'dotnet'
+
+export interface DatastoreApiServerProjectExportRequest {
+  serverId: string
+  framework: DatastoreApiServerProjectExportFramework
+  projectName: string
+  namespace?: string
+  packageName?: string
+}
+
+export interface DatastoreApiServerProjectExportResponse {
+  saved: boolean
+  path?: string
+  framework: DatastoreApiServerProjectExportFramework
+  projectName: string
+  warnings: string[]
+}
+
 export interface DatastoreApiServerStartRequest {
   serverId?: string
   connectionId?: string
@@ -1069,6 +1087,7 @@ export interface UpdateQueryTabRequest {
   tabId: string
   queryText: string
   queryViewMode?: QueryViewMode
+  documentEfficiencyMode?: boolean
 }
 
 export type LocalDatabaseCreateMode = 'empty' | 'starter'

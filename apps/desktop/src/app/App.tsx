@@ -523,7 +523,6 @@ function DesktopWorkspace() {
   const [builderStateDrafts, setBuilderStateDrafts] = useState<
     Record<string, QueryBuilderState>
   >({})
-  const [documentEfficiencyModes, setDocumentEfficiencyModes] = useState<Record<string, boolean>>({})
   const queryTextDraftRef = useRef<Record<string, string>>({})
   const scriptTextDraftRef = useRef<Record<string, string>>({})
   const queryTextDraftSyncTimersRef = useRef<Record<string, number>>({})
@@ -614,8 +613,7 @@ function DesktopWorkspace() {
     activeTabId ? activeTab?.activeExecution ?? executionsByTab[activeTabId] : undefined
   const activeExecutionStatus = activeTabExecution ? 'loading' : 'idle'
   const activeExecutionId = activeTabExecution?.executionId
-  const activeDocumentEfficiencyMode =
-    activeTabId ? documentEfficiencyModes[activeTabId] ?? activeTab?.documentEfficiencyMode ?? false : false
+  const activeDocumentEfficiencyMode = activeTab?.documentEfficiencyMode ?? false
   const activeTabIsExplorer = activeTab?.tabKind === 'explorer'
   const activeTabIsMetrics = activeTab?.tabKind === 'metrics'
   const activeTabIsObjectView = activeTab?.tabKind === 'object-view'
@@ -2899,6 +2897,7 @@ function DesktopWorkspace() {
                     onAddCustomEndpoint={actions.addDatastoreApiServerCustomEndpoint}
                     onUpdateCustomEndpoint={actions.updateDatastoreApiServerCustomEndpoint}
                     onRemoveCustomEndpoint={actions.removeDatastoreApiServerCustomEndpoint}
+                    onExportProject={actions.exportDatastoreApiServerProjectFile}
                     onUpdateSettings={updateApiServerSettings}
                     onStart={startApiServer}
                     onStop={stopApiServer}
@@ -3084,10 +3083,12 @@ function DesktopWorkspace() {
                       )}
                       documentEfficiencyMode={activeDocumentEfficiencyMode}
                       onToggleDocumentEfficiency={() => {
-                        setDocumentEfficiencyModes((current) => ({
-                          ...current,
-                          [activeTab.id]: !activeDocumentEfficiencyMode,
-                        }))
+                        void actions.updateQuery(
+                          activeTab.id,
+                          resolveQueryText(activeTab),
+                          undefined,
+                          !activeDocumentEfficiencyMode,
+                        )
                       }}
                       canToggleBuilderView={hasBuilderQuery}
                       builderKind={activeBuilderKind}

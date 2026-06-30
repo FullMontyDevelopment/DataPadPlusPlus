@@ -137,6 +137,7 @@ fn build_settings_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
         query_text: String::new(),
         query_view_mode: None,
         script_text: None,
+        document_efficiency_mode: None,
         scoped_target: None,
         builder_state: None,
         metrics_state: None,
@@ -244,6 +245,7 @@ fn build_api_server_tab(snapshot: &WorkspaceSnapshot, server_id: Option<String>)
         query_text: String::new(),
         query_view_mode: None,
         script_text: None,
+        document_efficiency_mode: None,
         scoped_target: server_id.map(|server_id| ScopedQueryTarget {
             kind: "api-server".into(),
             label: title.into(),
@@ -312,6 +314,7 @@ fn build_mcp_server_tab(snapshot: &WorkspaceSnapshot, server_id: Option<String>)
         query_text: String::new(),
         query_view_mode: None,
         script_text: None,
+        document_efficiency_mode: None,
         scoped_target: server_id.map(|server_id| ScopedQueryTarget {
             kind: "mcp-server".into(),
             label: title.into(),
@@ -414,6 +417,7 @@ fn build_workspace_search_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
         query_text: String::new(),
         query_view_mode: None,
         script_text: None,
+        document_efficiency_mode: None,
         scoped_target: None,
         builder_state: None,
         metrics_state: None,

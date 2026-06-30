@@ -731,6 +731,8 @@ function migrateTabKinds(tabs: QueryTabState[]) {
     if (queryViewMode) {
       tab.queryViewMode = queryViewMode
     }
+
+    tab.documentEfficiencyMode = Boolean(tab.documentEfficiencyMode)
   })
 }
 
@@ -811,6 +813,10 @@ function migrateLibraryNodes(
     const queryViewMode = normalizeQueryViewMode(node.queryViewMode)
     if (queryViewMode) {
       node.queryViewMode = queryViewMode
+    }
+
+    if (node.documentEfficiencyMode !== undefined) {
+      node.documentEfficiencyMode = Boolean(node.documentEfficiencyMode)
     }
   })
 

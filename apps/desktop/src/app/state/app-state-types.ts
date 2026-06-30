@@ -24,6 +24,8 @@ import type {
   DatastoreApiServerAddCustomEndpointRequest,
   DatastoreApiServerCreateRequest,
   DatastoreApiServerDeleteRequest,
+  DatastoreApiServerProjectExportRequest,
+  DatastoreApiServerProjectExportResponse,
   DatastoreApiServerQuerySourceDiscoveryRequest,
   DatastoreApiServerQuerySourceDiscoveryResponse,
   DatastoreApiServerRemoveCustomEndpointRequest,
@@ -276,6 +278,7 @@ export interface Actions {
     tabId: string,
     queryText: string,
     queryViewMode?: QueryViewMode,
+    documentEfficiencyMode?: boolean,
   ): Promise<void>
   updateQueryBuilderState(request: UpdateQueryBuilderStateRequest): Promise<void>
   updateTestSuiteTab(request: UpdateTestSuiteTabRequest): Promise<void>
@@ -380,6 +383,9 @@ export interface Actions {
   addDatastoreApiServerCustomEndpoint(request: DatastoreApiServerAddCustomEndpointRequest): Promise<boolean>
   updateDatastoreApiServerCustomEndpoint(request: DatastoreApiServerUpdateCustomEndpointRequest): Promise<boolean>
   removeDatastoreApiServerCustomEndpoint(request: DatastoreApiServerRemoveCustomEndpointRequest): Promise<boolean>
+  exportDatastoreApiServerProjectFile(
+    request: DatastoreApiServerProjectExportRequest,
+  ): Promise<DatastoreApiServerProjectExportResponse | undefined>
   updateDatastoreApiServerSettings(request: DatastoreApiServerSettingsRequest): Promise<boolean>
   startDatastoreApiServer(request: DatastoreApiServerStartRequest): Promise<DatastoreApiServerStatus | undefined>
   stopDatastoreApiServer(request?: DatastoreApiServerStopRequest): Promise<DatastoreApiServerStatus | undefined>

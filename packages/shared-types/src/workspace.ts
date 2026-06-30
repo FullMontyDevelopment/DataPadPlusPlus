@@ -945,6 +945,7 @@ export interface LibraryNode {
   language?: QueryLanguage
   queryText?: string
   queryViewMode?: QueryViewMode
+  documentEfficiencyMode?: boolean
   builderState?: QueryBuilderState
   scriptText?: string
   testSuite?: DatastoreTestSuiteDefinition

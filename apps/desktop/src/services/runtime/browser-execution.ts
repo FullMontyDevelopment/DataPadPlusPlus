@@ -48,6 +48,9 @@ export function applyExecutionRequestLocally(
     if (request.executionInputMode) {
       tab.queryViewMode = request.executionInputMode
     }
+    if (request.documentEfficiencyMode !== undefined) {
+      tab.documentEfficiencyMode = request.documentEfficiencyMode
+    }
     tab.status = 'blocked'
     tab.lastRunAt = new Date().toISOString()
     tab.history.unshift({
@@ -123,6 +126,9 @@ export function applyExecutionRequestLocally(
       }
       if (request.executionInputMode) {
         tab.queryViewMode = request.executionInputMode
+      }
+      if (request.documentEfficiencyMode !== undefined) {
+        tab.documentEfficiencyMode = request.documentEfficiencyMode
       }
       tab.status = 'blocked'
       tab.lastRunAt = new Date().toISOString()
@@ -255,6 +261,9 @@ export function applyExecutionRequestLocally(
   }
   if (request.executionInputMode) {
     tab.queryViewMode = request.executionInputMode
+  }
+  if (request.documentEfficiencyMode !== undefined) {
+    tab.documentEfficiencyMode = request.documentEfficiencyMode
   }
   tab.status =
     guardrail.status === 'block'

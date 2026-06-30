@@ -86,6 +86,9 @@ impl ManagedAppState {
                         tab.script_text = request.script_text.clone();
                     }
                     tab.query_view_mode = request.execution_input_mode.clone();
+                    if request.document_efficiency_mode.is_some() {
+                        tab.document_efficiency_mode = request.document_efficiency_mode;
+                    }
                     tab.status = "blocked".into();
                     tab.last_run_at = Some(executed_at.clone());
                     tab.history.insert(
@@ -189,6 +192,9 @@ impl ManagedAppState {
                 tab.script_text = request.script_text.clone();
             }
             tab.query_view_mode = request.execution_input_mode.clone();
+            if request.document_efficiency_mode.is_some() {
+                tab.document_efficiency_mode = request.document_efficiency_mode;
+            }
             tab.status = status.clone();
             tab.last_run_at = Some(executed_at.clone());
             tab.history.insert(

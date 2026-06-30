@@ -149,6 +149,7 @@ export function applyExecutionToPayload(
   payload: BootstrapPayload | undefined,
   execution: Extract<AppAction, { type: 'EXECUTION_READY' }>['execution'],
   options: { waitForDisplay?: boolean } = {},
+  request?: Extract<AppAction, { type: 'EXECUTION_READY' }>['request'],
 ): BootstrapPayload | undefined {
   if (!payload) {
     return payload
@@ -192,6 +193,10 @@ export function applyExecutionToPayload(
       queryText: currentTab?.queryText ?? executionTab.queryText,
       queryViewMode: currentTab?.queryViewMode ?? executionTab.queryViewMode,
       scriptText: currentTab?.scriptText ?? executionTab.scriptText,
+      documentEfficiencyMode:
+        request?.documentEfficiencyMode ??
+        currentTab?.documentEfficiencyMode ??
+        executionTab.documentEfficiencyMode,
       builderState: currentTab?.builderState ?? executionTab.builderState,
       dirty: currentTab?.dirty ?? executionTab.dirty,
       status: shouldWaitForDisplay ? 'running' : executionTab.status,
@@ -206,6 +211,8 @@ export function applyExecutionToPayload(
   } else {
     next.snapshot.tabs.push({
       ...executionTab,
+      documentEfficiencyMode:
+        request?.documentEfficiencyMode ?? executionTab.documentEfficiencyMode,
       activeExecution: undefined,
     })
   }

@@ -29,6 +29,7 @@ use crate::{
             DatastoreApiServerAddCustomEndpointRequest, DatastoreApiServerAddResourcesRequest,
             DatastoreApiServerCreateRequest, DatastoreApiServerDeleteRequest,
             DatastoreApiServerLogs, DatastoreApiServerLogsRequest, DatastoreApiServerMetrics,
+            DatastoreApiServerProjectExportRequest, DatastoreApiServerProjectExportResponse,
             DatastoreApiServerQuerySourceDiscoveryRequest,
             DatastoreApiServerQuerySourceDiscoveryResponse,
             DatastoreApiServerRemoveCustomEndpointRequest, DatastoreApiServerRemoveResourceRequest,
@@ -222,6 +223,9 @@ fn clear_tab_execution_after_cancel(
             tab.script_text = request.script_text.clone();
         }
         tab.query_view_mode = request.execution_input_mode.clone();
+        if request.document_efficiency_mode.is_some() {
+            tab.document_efficiency_mode = request.document_efficiency_mode;
+        }
         tab.status = "canceled".into();
         tab.last_run_at = Some(executed_at.clone());
         tab.history.insert(
@@ -295,6 +299,9 @@ fn merge_execution_response(
     response.tab.query_text = current_tab.query_text;
     response.tab.query_view_mode = current_tab.query_view_mode;
     response.tab.script_text = current_tab.script_text;
+    if response.tab.document_efficiency_mode.is_none() {
+        response.tab.document_efficiency_mode = current_tab.document_efficiency_mode;
+    }
     response.tab.builder_state = current_tab.builder_state;
     response.tab.dirty = current_tab.dirty;
     response.tab.active_execution = None;
@@ -544,9 +551,15 @@ pub fn update_query_tab(
     tab_id: String,
     query_text: String,
     query_view_mode: Option<String>,
+    document_efficiency_mode: Option<bool>,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
-    state.update_query_tab(&tab_id, &query_text, query_view_mode)
+    state.update_query_tab(
+        &tab_id,
+        &query_text,
+        query_view_mode,
+        document_efficiency_mode,
+    )
 }
 
 #[tauri::command]
@@ -1175,6 +1188,49 @@ pub fn remove_datastore_api_server_custom_endpoint(
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
     datastore_api_server::remove_custom_endpoint(&api_server, &mut state, request)
+}
+
+#[tauri::command]
+pub async fn export_datastore_api_server_project_file(
+    app: AppHandle,
+    state: State<'_, SharedAppState>,
+    request: DatastoreApiServerProjectExportRequest,
+) -> Result<DatastoreApiServerProjectExportResponse, CommandError> {
+    let mut runtime = clone_runtime(&state)?;
+    let archive = datastore_api_server::build_project_export_archive(&mut runtime, request).await?;
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("Export API server project")
+        .set_file_name(&archive.default_file_name)
+        .add_filter("Zip archive", &["zip"])
+        .blocking_save_file();
+
+    let Some(selected) = selected else {
+        return Ok(DatastoreApiServerProjectExportResponse {
+            saved: false,
+            path: None,
+            framework: archive.framework,
+            project_name: archive.project_name,
+            warnings: archive.warnings,
+        });
+    };
+
+    let path = dialog_path_to_string(selected)?;
+    fs::write(&path, &archive.bytes).map_err(|error| {
+        CommandError::new(
+            "api-server-export-write-failed",
+            format!("Unable to write the API server project export: {error}"),
+        )
+    })?;
+
+    Ok(DatastoreApiServerProjectExportResponse {
+        saved: true,
+        path: Some(path),
+        framework: archive.framework,
+        project_name: archive.project_name,
+        warnings: archive.warnings,
+    })
 }
 
 #[tauri::command]

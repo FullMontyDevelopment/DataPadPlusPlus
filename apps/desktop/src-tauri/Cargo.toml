@@ -42,6 +42,7 @@ tokio = { version = "1", features = ["io-util", "net", "process", "time"] }
 tokio-util = { version = "0.7", features = ["compat", "rt"] }
 toml = "0.8"
 url = "2.5.8"
+zip = "6.0.0"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2.10.1"

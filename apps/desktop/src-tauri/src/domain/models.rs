@@ -793,6 +793,8 @@ pub struct QueryTabState {
     pub query_view_mode: Option<String>,
     #[serde(default)]
     pub script_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_efficiency_mode: Option<bool>,
     #[serde(default)]
     pub scoped_target: Option<ScopedQueryTarget>,
     #[serde(default)]
@@ -877,6 +879,8 @@ pub struct LibraryNode {
     pub query_text: Option<String>,
     #[serde(default)]
     pub query_view_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_efficiency_mode: Option<bool>,
     #[serde(default)]
     pub builder_state: Option<Value>,
     pub script_text: Option<String>,
@@ -1529,6 +1533,27 @@ pub struct DatastoreApiServerUpdateCustomEndpointRequest {
 pub struct DatastoreApiServerRemoveCustomEndpointRequest {
     pub server_id: String,
     pub endpoint_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerProjectExportRequest {
+    pub server_id: String,
+    pub framework: String,
+    pub project_name: String,
+    pub namespace: Option<String>,
+    pub package_name: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerProjectExportResponse {
+    pub saved: bool,
+    pub path: Option<String>,
+    pub framework: String,
+    pub project_name: String,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]

@@ -9,6 +9,9 @@ import type {
   DatastoreApiServerLogs,
   DatastoreApiServerLogsRequest,
   DatastoreApiServerMetrics,
+  DatastoreApiServerProjectExportFramework,
+  DatastoreApiServerProjectExportRequest,
+  DatastoreApiServerProjectExportResponse,
   DatastoreApiServerQuerySource,
   DatastoreApiServerQuerySourceDiscoveryRequest,
   DatastoreApiServerQuerySourceDiscoveryResponse,
@@ -27,6 +30,7 @@ import type {
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import {
+  DownloadIcon,
   ObjectServerIcon,
   PlayIcon,
   PlusIcon,
@@ -72,6 +76,13 @@ interface CustomEndpointEditorState {
   endpoint: DatastoreApiServerCustomEndpointConfig
 }
 
+interface ProjectExportDraft {
+  framework: DatastoreApiServerProjectExportFramework
+  projectName: string
+  namespace: string
+  packageName: string
+}
+
 export function ApiServerWorkspace({
   serverId,
   connections,
@@ -87,6 +98,7 @@ export function ApiServerWorkspace({
   onAddCustomEndpoint = async () => false,
   onUpdateCustomEndpoint = async () => false,
   onRemoveCustomEndpoint = async () => false,
+  onExportProject = async () => undefined,
   onStart,
   onStop,
   onUpdateSettings,
@@ -122,6 +134,9 @@ export function ApiServerWorkspace({
   onRemoveCustomEndpoint?(
     request: DatastoreApiServerRemoveCustomEndpointRequest,
   ): Promise<boolean>
+  onExportProject?(
+    request: DatastoreApiServerProjectExportRequest,
+  ): Promise<DatastoreApiServerProjectExportResponse | undefined>
   onGetStatus(): Promise<DatastoreApiServerStatus | undefined>
   onGetMetrics(): Promise<DatastoreApiServerMetrics | undefined>
   onGetLogs(
@@ -171,6 +186,7 @@ export function ApiServerWorkspace({
     | 'resource'
     | 'query-source'
     | 'custom-endpoint'
+    | 'export'
   >()
   const [observabilityBusy, setObservabilityBusy] = useState(false)
   const [resourcePicker, setResourcePicker] =
@@ -178,10 +194,17 @@ export function ApiServerWorkspace({
   const [selectedResourceIds, setSelectedResourceIds] = useState<Set<string>>(
     new Set(),
   )
-  const [querySources, setQuerySources] = useState<DatastoreApiServerQuerySource[]>()
+  const [querySources, setQuerySources] =
+    useState<DatastoreApiServerQuerySource[]>()
   const [endpointEditor, setEndpointEditor] =
     useState<CustomEndpointEditorState>()
   const [endpointEditorError, setEndpointEditorError] = useState<string>()
+  const [projectExportDialogOpen, setProjectExportDialogOpen] = useState(false)
+  const [projectExportDraft, setProjectExportDraft] =
+    useState<ProjectExportDraft>(defaultProjectExportDraft())
+  const [projectExportResult, setProjectExportResult] =
+    useState<DatastoreApiServerProjectExportResponse>()
+  const [projectExportError, setProjectExportError] = useState<string>()
   const [serverDrafts, setServerDrafts] = useState<
     Record<string, Partial<Record<ApiServerTextField, string>>>
   >({})
@@ -509,12 +532,10 @@ export function ApiServerWorkspace({
       current
         ? {
             ...current,
-            endpoint: normalizeCustomEndpoint(
-              {
-                ...current.endpoint,
-                ...patch,
-              },
-            ),
+            endpoint: normalizeCustomEndpoint({
+              ...current.endpoint,
+              ...patch,
+            }),
           }
         : current,
     )
@@ -531,12 +552,10 @@ export function ApiServerWorkspace({
       )
       return {
         ...current,
-        endpoint: normalizeCustomEndpoint(
-          {
-            ...current.endpoint,
-            parameters,
-          },
-        ),
+        endpoint: normalizeCustomEndpoint({
+          ...current.endpoint,
+          parameters,
+        }),
       }
     })
   }
@@ -600,6 +619,57 @@ export function ApiServerWorkspace({
     }
   }
 
+  const openProjectExportDialog = () => {
+    if (!server) return
+    setProjectExportDraft(defaultProjectExportDraft(server.name))
+    setProjectExportResult(undefined)
+    setProjectExportError(undefined)
+    setProjectExportDialogOpen(true)
+  }
+
+  const exportProject = async () => {
+    if (!server) return
+    const disabledReason = projectExportDisabledReason(server)
+    if (disabledReason) {
+      setProjectExportError(disabledReason)
+      return
+    }
+    const projectName = projectExportDraft.projectName.trim()
+    if (!projectName) {
+      setProjectExportError('Enter a project name before exporting.')
+      return
+    }
+
+    setBusy('export')
+    setProjectExportResult(undefined)
+    setProjectExportError(undefined)
+    try {
+      const response = await onExportProject({
+        serverId: server.id,
+        framework: projectExportDraft.framework,
+        projectName,
+        namespace:
+          projectExportDraft.framework === 'dotnet'
+            ? projectExportDraft.namespace.trim() || undefined
+            : undefined,
+        packageName:
+          projectExportDraft.framework === 'rust'
+            ? projectExportDraft.packageName.trim() || undefined
+            : undefined,
+      })
+      if (!response) {
+        setProjectExportError('The API server project export did not complete.')
+        return
+      }
+      setProjectExportResult(response)
+      if (!response.saved) {
+        setProjectExportError('Export canceled before a zip file was written.')
+      }
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
   const openInBrowser = (url?: string) => {
     if (url) {
       window.open(url, '_blank', 'noopener,noreferrer')
@@ -648,6 +718,18 @@ export function ApiServerWorkspace({
           ) : null}
         </div>
         <div className="environment-actions api-server-header-actions">
+          {server ? (
+            <button
+              type="button"
+              className="drawer-button"
+              disabled={Boolean(projectExportDisabledReason(server) || busy)}
+              title={projectExportDisabledReason(server)}
+              onClick={openProjectExportDialog}
+            >
+              <DownloadIcon className="panel-inline-icon" />
+              Export Project
+            </button>
+          ) : null}
           {server ? (
             serverRunning ? (
               <button
@@ -1056,16 +1138,23 @@ export function ApiServerWorkspace({
                 <button
                   type="button"
                   className="drawer-button drawer-button--primary"
-                  disabled={!server.connectionId || !server.environmentId || Boolean(busy)}
+                  disabled={
+                    !server.connectionId ||
+                    !server.environmentId ||
+                    Boolean(busy)
+                  }
                   onClick={() => void openCustomEndpointEditor()}
                 >
                   <QueryIcon className="panel-inline-icon" />
-                  {busy === 'query-source' ? 'Loading...' : 'Add Query Endpoint'}
+                  {busy === 'query-source'
+                    ? 'Loading...'
+                    : 'Add Query Endpoint'}
                 </button>
               </div>
               {server.protocol !== 'rest' ? (
                 <p className="settings-inline-note">
-                  Custom query endpoints are stored with this server, but only REST/OpenAPI servers serve them in this version.
+                  Custom query endpoints are stored with this server, but only
+                  REST/OpenAPI servers serve them in this version.
                 </p>
               ) : null}
               {server.customEndpoints.length ? (
@@ -1097,7 +1186,9 @@ export function ApiServerWorkspace({
                           type="button"
                           className="drawer-button"
                           disabled={Boolean(busy)}
-                          onClick={() => void openCustomEndpointEditor(endpoint)}
+                          onClick={() =>
+                            void openCustomEndpointEditor(endpoint)
+                          }
                         >
                           Edit
                         </button>
@@ -1123,11 +1214,17 @@ export function ApiServerWorkspace({
                   <button
                     type="button"
                     className="drawer-button drawer-button--primary"
-                    disabled={!server.connectionId || !server.environmentId || Boolean(busy)}
+                    disabled={
+                      !server.connectionId ||
+                      !server.environmentId ||
+                      Boolean(busy)
+                    }
                     onClick={() => void openCustomEndpointEditor()}
                   >
                     <QueryIcon className="panel-inline-icon" />
-                    {busy === 'query-source' ? 'Loading...' : 'Add Query Endpoint'}
+                    {busy === 'query-source'
+                      ? 'Loading...'
+                      : 'Add Query Endpoint'}
                   </button>
                 </div>
               )}
@@ -1339,6 +1436,29 @@ export function ApiServerWorkspace({
           </section>
         ) : null}
       </div>
+      {projectExportDialogOpen && server ? (
+        <ProjectExportDialog
+          busy={busy === 'export'}
+          draft={projectExportDraft}
+          error={projectExportError}
+          result={projectExportResult}
+          server={server}
+          onCancel={() => {
+            setProjectExportDialogOpen(false)
+            setProjectExportResult(undefined)
+            setProjectExportError(undefined)
+          }}
+          onExport={() => void exportProject()}
+          onUpdate={(patch) =>
+            setProjectExportDraft((current) =>
+              normalizeProjectExportDraft({
+                ...current,
+                ...patch,
+              }),
+            )
+          }
+        />
+      ) : null}
       {endpointEditor ? (
         <CustomEndpointEditorDialog
           busy={busy === 'custom-endpoint' || busy === 'query-source'}
@@ -1372,6 +1492,196 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="api-server-metric">
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  )
+}
+
+function ProjectExportDialog({
+  busy,
+  draft,
+  error,
+  result,
+  server,
+  onCancel,
+  onExport,
+  onUpdate,
+}: {
+  busy: boolean
+  draft: ProjectExportDraft
+  error?: string
+  result?: DatastoreApiServerProjectExportResponse
+  server: ApiServerConfig
+  onCancel(): void
+  onExport(): void
+  onUpdate(patch: Partial<ProjectExportDraft>): void
+}) {
+  const disabledReason = projectExportDisabledReason(server)
+  const validationMessages = projectExportValidationMessages(server)
+  const enabledResources = server.resources.filter(
+    (resource) => resource.enabled !== false,
+  )
+  const enabledCustomEndpoints = server.customEndpoints.filter(
+    (endpoint) => endpoint.enabled !== false,
+  )
+  const frameworkLabel = draft.framework === 'dotnet' ? '.NET' : 'Rust'
+
+  return (
+    <div className="workbench-modal-overlay" role="presentation">
+      <section
+        className="workbench-dialog api-server-export-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="api-server-export-dialog-title"
+      >
+        <p className="sidebar-eyebrow">Hostable Project</p>
+        <h2 id="api-server-export-dialog-title">Export API Server Project</h2>
+
+        <div className="api-server-export-summary">
+          <div>
+            <span>Protocol</span>
+            <strong>{protocolDisplayName(server.protocol)}</strong>
+          </div>
+          <div>
+            <span>Resources</span>
+            <strong>{formatNumber(enabledResources.length)}</strong>
+          </div>
+          <div>
+            <span>Custom Endpoints</span>
+            <strong>{formatNumber(enabledCustomEndpoints.length)}</strong>
+          </div>
+        </div>
+
+        <div className="environment-form-grid">
+          <label className="environment-field">
+            <span>Framework</span>
+            <select
+              value={draft.framework}
+              disabled={busy}
+              onChange={(event) =>
+                onUpdate({
+                  framework: event.target
+                    .value as DatastoreApiServerProjectExportFramework,
+                })
+              }
+            >
+              <option value="rust">Rust / axum</option>
+              <option value="dotnet">.NET / ASP.NET Core</option>
+            </select>
+          </label>
+          <label className="environment-field">
+            <span>Project name</span>
+            <input
+              type="text"
+              value={draft.projectName}
+              disabled={busy}
+              onChange={(event) =>
+                onUpdate(projectNamePatch(event.target.value, draft.framework))
+              }
+            />
+          </label>
+          {draft.framework === 'dotnet' ? (
+            <label className="environment-field">
+              <span>Namespace</span>
+              <input
+                type="text"
+                value={draft.namespace}
+                disabled={busy}
+                onChange={(event) =>
+                  onUpdate({ namespace: event.target.value })
+                }
+              />
+            </label>
+          ) : (
+            <label className="environment-field">
+              <span>Package name</span>
+              <input
+                type="text"
+                value={draft.packageName}
+                disabled={busy}
+                onChange={(event) =>
+                  onUpdate({ packageName: event.target.value })
+                }
+              />
+            </label>
+          )}
+        </div>
+
+        <section className="api-server-endpoint-subsection">
+          <div className="environment-section-header">
+            <strong>Export Contents</strong>
+            <span>{frameworkLabel}</span>
+          </div>
+          <div className="api-server-export-list">
+            {enabledResources.map((resource) => (
+              <div key={resource.id}>
+                <strong>{resource.label}</strong>
+                <span>
+                  {resource.kind} / {resourcePath(server, resource)}
+                </span>
+                <small>
+                  Schema: {projectExportSchemaSourceLabel(resource.kind)}
+                </small>
+              </div>
+            ))}
+            {enabledCustomEndpoints.map((endpoint) => (
+              <div key={endpoint.id}>
+                <strong>{endpoint.label}</strong>
+                <span>
+                  {endpoint.method} / {customEndpointPath(server, endpoint)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {validationMessages.length ? (
+          <section className="api-server-endpoint-subsection">
+            <div className="environment-section-header">
+              <strong>Validation</strong>
+              <span>Typed models required</span>
+            </div>
+            <ul className="api-server-export-validation">
+              {validationMessages.map((message) => (
+                <li key={message}>{message}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {result?.saved ? (
+          <p className="settings-inline-note">
+            Saved {result.framework} project to <code>{result.path}</code>.
+          </p>
+        ) : null}
+        {result?.warnings.length ? (
+          <ul className="api-server-export-validation">
+            {result.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
+        {error ? (
+          <p className="settings-inline-note is-error">{error}</p>
+        ) : null}
+
+        <div className="workbench-dialog-actions">
+          <button type="button" className="drawer-button" onClick={onCancel}>
+            Close
+          </button>
+          <button
+            type="button"
+            className="drawer-button drawer-button--primary"
+            disabled={
+              busy || Boolean(disabledReason) || !draft.projectName.trim()
+            }
+            title={disabledReason}
+            onClick={onExport}
+          >
+            <DownloadIcon className="panel-inline-icon" />
+            {busy ? 'Exporting...' : 'Export Zip'}
+          </button>
+        </div>
+      </section>
     </div>
   )
 }
@@ -1413,7 +1723,9 @@ function CustomEndpointEditorDialog({
       >
         <p className="sidebar-eyebrow">REST Custom Endpoint</p>
         <h2 id="api-server-endpoint-dialog-title">
-          {editor.mode === 'edit' ? 'Edit Query Endpoint' : 'Add Query Endpoint'}
+          {editor.mode === 'edit'
+            ? 'Edit Query Endpoint'
+            : 'Add Query Endpoint'}
         </h2>
 
         <div className="api-server-endpoint-form">
@@ -1467,8 +1779,7 @@ function CustomEndpointEditorDialog({
                 disabled={busy}
                 onChange={(event) =>
                   onUpdate({
-                    method:
-                      event.target.value === 'POST' ? 'POST' : 'GET',
+                    method: event.target.value === 'POST' ? 'POST' : 'GET',
                   })
                 }
               >
@@ -1641,7 +1952,9 @@ function CustomEndpointEditorDialog({
             </pre>
           </section>
 
-          {error ? <p className="settings-inline-note is-error">{error}</p> : null}
+          {error ? (
+            <p className="settings-inline-note is-error">{error}</p>
+          ) : null}
         </div>
 
         <div className="workbench-dialog-actions">
@@ -1651,7 +1964,9 @@ function CustomEndpointEditorDialog({
           <button
             type="button"
             className="drawer-button drawer-button--primary"
-            disabled={busy || !endpoint.sourceLibraryNodeId || !endpoint.queryText}
+            disabled={
+              busy || !endpoint.sourceLibraryNodeId || !endpoint.queryText
+            }
             onClick={onSave}
           >
             {busy ? 'Saving...' : 'Save Endpoint'}
@@ -1900,7 +2215,8 @@ function customEndpointFromSource(
 ): DatastoreApiServerCustomEndpointConfig {
   const label = source?.name?.trim() || 'Query Endpoint'
   const usedSlugs = new Map<string, number>()
-  for (const resource of server.resources) usedSlugs.set(resource.endpointSlug, 1)
+  for (const resource of server.resources)
+    usedSlugs.set(resource.endpointSlug, 1)
   for (const endpoint of server.customEndpoints) {
     if (endpoint.id !== endpointId) usedSlugs.set(endpoint.endpointSlug, 1)
   }
@@ -1955,7 +2271,9 @@ function protocolDisplayName(protocol: ApiServerProtocol | undefined) {
 function formatExposureCount(resources: number, customEndpoints: number) {
   if (!resources && !customEndpoints) return 'None'
   if (!customEndpoints) {
-    return resources === 1 ? '1 resource' : `${formatNumber(resources)} resources`
+    return resources === 1
+      ? '1 resource'
+      : `${formatNumber(resources)} resources`
   }
   if (!resources) {
     return customEndpoints === 1
@@ -1983,6 +2301,99 @@ function serverStartDisabledReason(server: ApiServerConfig | undefined) {
   if (!hasCrudResource && !hasCustomEndpoint)
     return 'Add at least one CRUD resource or query endpoint before starting this server.'
   return undefined
+}
+
+function projectExportDisabledReason(server: ApiServerConfig | undefined) {
+  if (!server?.connectionId)
+    return 'Choose a datastore before exporting this project.'
+  if (!server.environmentId)
+    return 'Choose an environment before exporting this project.'
+  const enabledResources = server.resources.filter(
+    (resource) => resource.enabled !== false,
+  )
+  const enabledCustomEndpoints = server.customEndpoints.filter(
+    (endpoint) => endpoint.enabled !== false,
+  )
+  if (!enabledResources.length && !enabledCustomEndpoints.length) {
+    return 'Add at least one CRUD resource or query endpoint before exporting this project.'
+  }
+  if (server.protocol !== 'rest' && enabledCustomEndpoints.length) {
+    return 'Custom query endpoints can only be exported with REST/OpenAPI servers in this version.'
+  }
+  return undefined
+}
+
+function projectExportValidationMessages(server: ApiServerConfig) {
+  const messages = [
+    'Export uses environment variables only; DataPad++ secrets are not included.',
+    'Typed models use catalog metadata, declared schemas, mappings, bounded samples, or resource-shape wrappers.',
+  ]
+  if (
+    server.protocol !== 'rest' &&
+    server.customEndpoints.some((endpoint) => endpoint.enabled !== false)
+  ) {
+    messages.push(
+      'Custom query endpoints are stored with this server, but export supports them only for REST/OpenAPI projects.',
+    )
+  }
+  return messages
+}
+
+function projectExportSchemaSourceLabel(
+  kind: DatastoreApiServerResourceConfig['kind'],
+) {
+  switch (kind) {
+    case 'table':
+      return 'catalog columns'
+    case 'collection':
+      return 'declared schema or bounded samples'
+    case 'index':
+      return 'mapping or document wrapper'
+    case 'item':
+      return 'key schema and bounded samples'
+    case 'key':
+      return 'key/value resource shape'
+    default:
+      return 'inferred model'
+  }
+}
+
+function defaultProjectExportDraft(
+  serverName = 'API Server',
+): ProjectExportDraft {
+  const projectName = pascalName(serverName, 'ApiServer')
+  return normalizeProjectExportDraft({
+    framework: 'rust',
+    projectName,
+    namespace: projectName,
+    packageName: slug(projectName).replaceAll('-', '_'),
+  })
+}
+
+function normalizeProjectExportDraft(draft: ProjectExportDraft) {
+  const projectName = draft.projectName
+  const fallbackName = pascalName(projectName, 'ApiServer')
+  return {
+    framework: draft.framework === 'dotnet' ? 'dotnet' : 'rust',
+    projectName,
+    namespace: draft.namespace || fallbackName,
+    packageName:
+      draft.packageName ||
+      slug(projectName || fallbackName).replaceAll('-', '_'),
+  } satisfies ProjectExportDraft
+}
+
+function projectNamePatch(
+  projectName: string,
+  framework: DatastoreApiServerProjectExportFramework,
+): Partial<ProjectExportDraft> {
+  const normalizedName = pascalName(projectName, 'ApiServer')
+  return framework === 'dotnet'
+    ? { projectName, namespace: normalizedName }
+    : {
+        projectName,
+        packageName: slug(projectName || normalizedName).replaceAll('-', '_'),
+      }
 }
 
 function defaultApiServerName(port: number) {
@@ -2021,6 +2432,18 @@ function uniqueSlug(value: string, seen: Map<string, number>) {
   const next = `${base}-${count + 1}`
   seen.set(next, 1)
   return next
+}
+
+function pascalName(value: string, fallback: string) {
+  const parts = value
+    .trim()
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+  const name = parts
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join('')
+  if (!name || /^\d/.test(name)) return fallback
+  return name
 }
 
 function clampPort(value: number) {

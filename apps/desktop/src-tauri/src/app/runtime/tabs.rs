@@ -449,6 +449,7 @@ impl ManagedAppState {
         tab_id: &str,
         query_text: &str,
         query_view_mode: Option<String>,
+        document_efficiency_mode: Option<bool>,
     ) -> Result<BootstrapPayload, CommandError> {
         validate_update_query_tab_request(tab_id, query_text, query_view_mode.as_deref())?;
         let tab = self
@@ -464,6 +465,9 @@ impl ManagedAppState {
         }
         if query_view_mode.is_some() {
             tab.query_view_mode = query_view_mode;
+        }
+        if document_efficiency_mode.is_some() {
+            tab.document_efficiency_mode = document_efficiency_mode;
         }
         tab.dirty = true;
         tab.error = None;

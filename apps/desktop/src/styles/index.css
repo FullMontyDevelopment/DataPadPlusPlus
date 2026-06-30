@@ -4238,6 +4238,65 @@ button:disabled:hover {
   overflow: auto;
 }
 
+.api-server-export-dialog {
+  width: min(760px, calc(100vw - 48px));
+  max-height: min(780px, calc(100vh - 48px));
+  overflow: auto;
+}
+
+.api-server-export-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.api-server-export-summary div,
+.api-server-export-list div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.api-server-export-summary span,
+.api-server-export-list span {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.api-server-export-list small {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.api-server-export-summary strong,
+.api-server-export-list strong {
+  color: var(--heading);
+  font-size: 12px;
+}
+
+.api-server-export-list {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.api-server-export-validation {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .api-server-endpoint-form {
   display: grid;
   gap: 10px;

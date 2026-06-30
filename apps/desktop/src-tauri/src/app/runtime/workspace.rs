@@ -57,7 +57,8 @@ impl ManagedAppState {
             loaded_snapshot.unwrap_or_else(blank_workspace_snapshot)
         };
         let managed = Self { app, snapshot };
-        let _ = persistence::save_snapshot(&managed.app, &sanitize_snapshot(&managed.snapshot));
+        let _ =
+            persistence::save_snapshot(&managed.app, &sanitize_snapshot(&managed.snapshot, true));
         managed
     }
 
@@ -127,7 +128,7 @@ impl ManagedAppState {
     }
 
     pub fn persist(&self) -> Result<(), CommandError> {
-        persistence::save_snapshot(&self.app, &sanitize_snapshot(&self.snapshot))
+        persistence::save_snapshot(&self.app, &sanitize_snapshot(&self.snapshot, true))
     }
 
     pub fn ensure_unlocked(&self) -> Result<(), CommandError> {
@@ -148,7 +149,7 @@ impl ManagedAppState {
     ) -> Result<ExportBundle, CommandError> {
         self.ensure_unlocked()?;
         validate_bundle_passphrase(passphrase)?;
-        let sanitized = sanitize_snapshot(&self.snapshot);
+        let sanitized = sanitize_snapshot(&self.snapshot, include_secrets);
         let secret_entries = if include_secrets {
             collect_workspace_bundle_secrets(&sanitized)?
         } else {
@@ -204,7 +205,10 @@ impl ManagedAppState {
     }
 }
 
-pub(super) fn sanitize_snapshot(snapshot: &WorkspaceSnapshot) -> WorkspaceSnapshot {
+pub(super) fn sanitize_snapshot(
+    snapshot: &WorkspaceSnapshot,
+    include_secrets: bool,
+) -> WorkspaceSnapshot {
     let mut sanitized = snapshot.clone();
 
     for environment in &mut sanitized.environments {
@@ -219,8 +223,10 @@ pub(super) fn sanitize_snapshot(snapshot: &WorkspaceSnapshot) -> WorkspaceSnapsh
         closed_tab.tab.result = None;
     }
 
-    for server in &mut sanitized.preferences.datastore_mcp_server.servers {
-        server.tokens.clear();
+    if !include_secrets {
+        for server in &mut sanitized.preferences.datastore_mcp_server.servers {
+            server.tokens.clear();
+        }
     }
 
     sanitized

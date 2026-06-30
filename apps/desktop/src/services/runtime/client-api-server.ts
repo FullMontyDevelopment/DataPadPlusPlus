@@ -5,6 +5,8 @@ import type {
   DatastoreApiServerMetrics,
   DatastoreApiServerAddCustomEndpointRequest,
   DatastoreApiServerAddResourcesRequest,
+  DatastoreApiServerProjectExportRequest,
+  DatastoreApiServerProjectExportResponse,
   DatastoreApiServerCreateRequest,
   DatastoreApiServerCustomEndpointConfig,
   DatastoreApiServerCustomEndpointParameterConfig,
@@ -162,10 +164,7 @@ export const clientApiServer = {
           node.kind === 'query' &&
           Boolean(node.queryText?.trim()) &&
           Boolean(server?.connectionId) &&
-          node.connectionId === server?.connectionId &&
-          (!node.environmentId ||
-            !server?.environmentId ||
-            node.environmentId === server.environmentId),
+          node.connectionId === server?.connectionId,
       )
       .map((node) => ({
         id: node.id,
@@ -271,6 +270,19 @@ export const clientApiServer = {
     snapshot.updatedAt = new Date().toISOString()
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
+  },
+
+  async exportDatastoreApiServerProjectFile(
+    request: DatastoreApiServerProjectExportRequest,
+  ): Promise<DatastoreApiServerProjectExportResponse> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<DatastoreApiServerProjectExportResponse>(
+        'export_datastore_api_server_project_file',
+        { request },
+      )
+    }
+
+    throw new Error('API server project export is available in the desktop app.')
   },
 
   async addDatastoreApiServerResources(

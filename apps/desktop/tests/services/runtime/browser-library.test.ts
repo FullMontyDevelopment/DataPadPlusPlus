@@ -204,6 +204,37 @@ describe('browser Library runtime', () => {
     })
   })
 
+  it('saves and reopens document efficiency mode with Library queries', () => {
+    const snapshot = workspaceSnapshot()
+    snapshot.connections[0] = {
+      ...snapshot.connections[0]!,
+      engine: 'mongodb',
+      family: 'document',
+    }
+    snapshot.tabs[0] = {
+      ...snapshot.tabs[0]!,
+      family: 'document',
+      language: 'mongodb',
+      documentEfficiencyMode: true,
+      dirty: true,
+    }
+
+    const saved = saveQueryTabToLibrary(snapshot, {
+      tabId: 'tab-existing',
+      itemId: 'library-query-1',
+      name: 'Orders',
+      kind: 'query',
+      tags: [],
+    })
+
+    expect(saved.libraryNodes[0]?.documentEfficiencyMode).toBe(true)
+
+    saved.tabs = []
+    const reopened = openLibraryItem(saved, 'library-query-1')
+
+    expect(reopened.tabs[0]?.documentEfficiencyMode).toBe(true)
+  })
+
   it('keeps the open tab results when saving to the Library', () => {
     const snapshot = workspaceSnapshot()
     snapshot.tabs[0] = {

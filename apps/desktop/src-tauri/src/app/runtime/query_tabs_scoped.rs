@@ -123,6 +123,7 @@ pub(super) fn build_scoped_query_tab(
                 text
             }
         }),
+        document_efficiency_mode: None,
         scoped_target: Some(request.target),
         builder_state,
         metrics_state: None,

@@ -1,5 +1,6 @@
 import type {
   BootstrapPayload,
+  ExecutionRequest,
   ExecutionResponse,
   ExplorerResponse,
   ResultPageResponse,
@@ -208,6 +209,38 @@ describe('applyExecutionToPayload', () => {
     const next = applyExecutionToPayload(payload, executionFor(payload, false))
 
     expect(next?.snapshot.tabs[0]?.dirty).toBe(true)
+  })
+
+  it('persists requested document efficiency mode when execution completes', () => {
+    const payload = createSeedBootstrapPayload()
+    const tab = payload.snapshot.tabs[0]
+
+    if (!tab) {
+      throw new Error('Seed fixture must include at least one tab')
+    }
+
+    payload.snapshot.tabs[0] = {
+      ...tab,
+      documentEfficiencyMode: false,
+    }
+
+    const request: ExecutionRequest = {
+      tabId: tab.id,
+      connectionId: tab.connectionId,
+      environmentId: tab.environmentId,
+      language: tab.language,
+      queryText: tab.queryText,
+      documentEfficiencyMode: true,
+    }
+
+    const next = applyExecutionToPayload(
+      payload,
+      executionFor(payload, false),
+      {},
+      request,
+    )
+
+    expect(next?.snapshot.tabs[0]?.documentEfficiencyMode).toBe(true)
   })
 
   it('normalizes malformed execution payloads from adapters', () => {

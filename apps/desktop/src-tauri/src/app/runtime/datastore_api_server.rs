@@ -1,5 +1,6 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    io::{Cursor, Write},
     net::SocketAddr,
     sync::{Arc, Mutex},
     time::Instant,
@@ -32,8 +33,8 @@ use crate::{
             DatastoreApiServerCustomEndpointParameterConfig, DatastoreApiServerDeleteRequest,
             DatastoreApiServerInstanceStatus, DatastoreApiServerLogEntry, DatastoreApiServerLogs,
             DatastoreApiServerLogsRequest, DatastoreApiServerMetrics,
-            DatastoreApiServerPreferences, DatastoreApiServerQuerySource,
-            DatastoreApiServerQuerySourceDiscoveryRequest,
+            DatastoreApiServerPreferences, DatastoreApiServerProjectExportRequest,
+            DatastoreApiServerQuerySource, DatastoreApiServerQuerySourceDiscoveryRequest,
             DatastoreApiServerQuerySourceDiscoveryResponse,
             DatastoreApiServerRemoveCustomEndpointRequest, DatastoreApiServerRemoveResourceRequest,
             DatastoreApiServerResourceConfig, DatastoreApiServerResourceDiscoveryRequest,
@@ -42,7 +43,8 @@ use crate::{
             DatastoreApiServerStatus, DatastoreApiServerStopRequest,
             DatastoreApiServerTelemetryRetention, DatastoreApiServerUpdateCustomEndpointRequest,
             DatastoreApiServerUpdateRequest, ExecutionRequest, ExecutionResultEnvelope,
-            ExplorerNode, ExplorerRequest, QueryExecutionNotice,
+            ExplorerNode, ExplorerRequest, LibraryNode, QueryExecutionNotice, StructureField,
+            StructureNode, StructureRequest, WorkspaceSnapshot,
         },
     },
     security,
@@ -77,6 +79,126 @@ struct RunningApiServer {
     config: Arc<Mutex<DatastoreApiServerConfig>>,
     telemetry: Arc<Mutex<ApiServerTelemetry>>,
     handle: tauri::async_runtime::JoinHandle<()>,
+}
+
+pub struct DatastoreApiServerProjectArchive {
+    pub bytes: Vec<u8>,
+    pub framework: String,
+    pub project_name: String,
+    pub default_file_name: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone)]
+struct ProjectExportSpec {
+    framework: String,
+    project_name: String,
+    namespace: String,
+    package_name: String,
+    protocol: String,
+    base_path: String,
+    connection_engine: String,
+    connection_family: String,
+    provider: ExportProvider,
+    env_var: String,
+    resources: Vec<ProjectResourceModel>,
+    custom_endpoints: Vec<ProjectCustomEndpoint>,
+    warnings: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExportProvider {
+    DynamoDb,
+    LiteDb,
+    Sql,
+    Redis,
+    Search,
+    MongoDb,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProjectSchemaSource {
+    Catalog,
+    DeclaredSchema,
+    Mapping,
+    Sample,
+    ResourceShape,
+}
+
+impl ProjectSchemaSource {
+    fn id(self) -> &'static str {
+        match self {
+            ProjectSchemaSource::Catalog => "catalog",
+            ProjectSchemaSource::DeclaredSchema => "declared-schema",
+            ProjectSchemaSource::Mapping => "mapping",
+            ProjectSchemaSource::Sample => "sample",
+            ProjectSchemaSource::ResourceShape => "resource-shape",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            ProjectSchemaSource::Catalog => "Catalog",
+            ProjectSchemaSource::DeclaredSchema => "Declared schema",
+            ProjectSchemaSource::Mapping => "Mapping",
+            ProjectSchemaSource::Sample => "Sample",
+            ProjectSchemaSource::ResourceShape => "Resource shape",
+        }
+    }
+}
+
+struct ProjectResourceSchema {
+    fields: Vec<StructureField>,
+    source: ProjectSchemaSource,
+    warnings: Vec<String>,
+}
+
+#[derive(Clone)]
+struct ProjectResourceModel {
+    label: String,
+    kind: String,
+    endpoint_slug: String,
+    endpoint_path: String,
+    model_name: String,
+    schema_source: String,
+    schema_source_label: String,
+    fields: Vec<ProjectFieldModel>,
+    primary_fields: Vec<String>,
+}
+
+#[derive(Clone)]
+struct ProjectFieldModel {
+    source_name: String,
+    rust_name: String,
+    csharp_name: String,
+    json_name: String,
+    rust_type: String,
+    csharp_type: String,
+    data_type: String,
+    nullable: bool,
+    primary: bool,
+}
+
+#[derive(Clone)]
+struct ProjectCustomEndpoint {
+    label: String,
+    method: String,
+    endpoint_path: String,
+    function_name: String,
+    parameters: Vec<ProjectEndpointParameter>,
+}
+
+#[derive(Clone)]
+struct ProjectEndpointParameter {
+    name: String,
+    rust_type: String,
+    csharp_type: String,
+    required: bool,
+}
+
+struct ProjectFile {
+    path: String,
+    contents: String,
 }
 
 impl Drop for DatastoreApiServerManager {
@@ -837,10 +959,21 @@ pub fn discover_query_sources(
     request: DatastoreApiServerQuerySourceDiscoveryRequest,
 ) -> Result<DatastoreApiServerQuerySourceDiscoveryResponse, CommandError> {
     runtime.ensure_unlocked()?;
-    let servers = normalized_servers(&runtime.snapshot.preferences.datastore_api_server);
+    let sources = query_sources_for_snapshot(&runtime.snapshot, &request.server_id)?;
+    Ok(DatastoreApiServerQuerySourceDiscoveryResponse {
+        server_id: request.server_id,
+        sources,
+    })
+}
+
+fn query_sources_for_snapshot(
+    snapshot: &WorkspaceSnapshot,
+    server_id: &str,
+) -> Result<Vec<DatastoreApiServerQuerySource>, CommandError> {
+    let servers = normalized_servers(&snapshot.preferences.datastore_api_server);
     let server = servers
         .iter()
-        .find(|server| server.id == request.server_id)
+        .find(|server| server.id == server_id)
         .ok_or_else(|| {
             CommandError::new(
                 "api-server-not-found",
@@ -853,9 +986,7 @@ pub fn discover_query_sources(
             "Choose a datastore before discovering saved queries.",
         )
     })?;
-    let environment_id = server.environment_id.as_deref();
-    let mut sources = runtime
-        .snapshot
+    let mut sources = snapshot
         .library_nodes
         .iter()
         .filter(|node| {
@@ -864,24 +995,14 @@ pub fn discover_query_sources(
                     .query_text
                     .as_deref()
                     .is_some_and(|query_text| !query_text.trim().is_empty())
-                && node
-                    .connection_id
-                    .as_deref()
-                    .is_some_and(|node_connection_id| node_connection_id == connection_id)
-                && node
-                    .environment_id
-                    .as_deref()
-                    .is_none_or(|node_environment_id| {
-                        environment_id.is_none_or(|server_environment_id| {
-                            node_environment_id == server_environment_id
-                        })
-                    })
+                && library_query_connection_id(node, &snapshot.library_nodes).as_deref()
+                    == Some(connection_id)
         })
         .map(|node| DatastoreApiServerQuerySource {
             id: node.id.clone(),
             name: node.name.clone(),
             summary: node.summary.clone(),
-            connection_id: node.connection_id.clone(),
+            connection_id: library_query_connection_id(node, &snapshot.library_nodes),
             environment_id: node.environment_id.clone(),
             language: node.language.clone(),
             query_view_mode: node.query_view_mode.clone(),
@@ -889,9 +1010,186 @@ pub fn discover_query_sources(
         })
         .collect::<Vec<_>>();
     sources.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
-    Ok(DatastoreApiServerQuerySourceDiscoveryResponse {
-        server_id: request.server_id,
-        sources,
+    Ok(sources)
+}
+
+fn library_query_connection_id(node: &LibraryNode, nodes: &[LibraryNode]) -> Option<String> {
+    if node
+        .connection_id
+        .as_deref()
+        .is_some_and(|id| !id.is_empty())
+    {
+        return node.connection_id.clone();
+    }
+
+    let mut current_id = node.parent_id.as_deref();
+    let mut visited = HashSet::new();
+    while let Some(parent_id) = current_id {
+        if !visited.insert(parent_id.to_string()) {
+            return None;
+        }
+        let Some(parent) = nodes.iter().find(|candidate| candidate.id == parent_id) else {
+            return None;
+        };
+        if parent
+            .connection_id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty())
+        {
+            return parent.connection_id.clone();
+        }
+        current_id = parent.parent_id.as_deref();
+    }
+
+    None
+}
+
+pub async fn build_project_export_archive(
+    runtime: &mut ManagedAppState,
+    request: DatastoreApiServerProjectExportRequest,
+) -> Result<DatastoreApiServerProjectArchive, CommandError> {
+    runtime.ensure_unlocked()?;
+    let framework = normalize_export_framework(&request.framework)?;
+    let project_name = normalize_export_project_name(&request.project_name)?;
+    let namespace = normalize_export_namespace(request.namespace.as_deref(), &project_name);
+    let package_name =
+        normalize_export_package_name(request.package_name.as_deref(), &project_name);
+    let servers = normalized_servers(&runtime.snapshot.preferences.datastore_api_server);
+    let server = servers
+        .into_iter()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "api-server-not-found",
+                "The requested API server configuration could not be found.",
+            )
+        })?;
+    let connection_id = server.connection_id.as_deref().ok_or_else(|| {
+        CommandError::new(
+            "api-server-export-connection-required",
+            "Choose a datastore before exporting this API server project.",
+        )
+    })?;
+    let environment_id = server.environment_id.as_deref().ok_or_else(|| {
+        CommandError::new(
+            "api-server-export-environment-required",
+            "Choose an environment before exporting this API server project.",
+        )
+    })?;
+    let connection = runtime.connection_by_id(connection_id)?;
+    let environment = runtime.environment_by_id(environment_id)?;
+    let (resolved_connection, resolved_environment, _) =
+        runtime.resolve_connection_profile(&connection, environment_id)?;
+    let provider = export_provider_for_connection(&connection.family, &connection.engine)?;
+    let protocol = normalize_protocol(&server.protocol);
+    let resources = server
+        .resources
+        .iter()
+        .filter(|resource| resource.enabled)
+        .cloned()
+        .collect::<Vec<_>>();
+    let custom_endpoints = server
+        .custom_endpoints
+        .iter()
+        .filter(|endpoint| endpoint.enabled)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if resources.is_empty() && custom_endpoints.is_empty() {
+        return Err(CommandError::new(
+            "api-server-export-empty",
+            "Add at least one enabled resource or custom endpoint before exporting this project.",
+        ));
+    }
+    validate_project_export_resources(provider, &resources)?;
+    validate_project_export_custom_endpoints(provider, &protocol, &custom_endpoints)?;
+
+    let mut warnings = Vec::new();
+    let structure_nodes = if resources.is_empty() {
+        Vec::new()
+    } else {
+        match runtime
+            .load_structure_map(StructureRequest {
+                connection_id: connection_id.into(),
+                environment_id: environment_id.into(),
+                limit: Some(1_000),
+                scope: None,
+                cursor: None,
+                focus_node_id: None,
+                include_system_objects: Some(false),
+                include_inferred_relationships: Some(true),
+                max_nodes: Some(1_000),
+                max_edges: Some(4_000),
+                depth: Some(2),
+                mode: Some("overview".into()),
+            })
+            .await
+        {
+            Ok(response) => response.nodes,
+            Err(error) => {
+                warnings.push(format!(
+                    "Structure metadata could not be loaded before export: {}",
+                    error.message
+                ));
+                Vec::new()
+            }
+        }
+    };
+    let mut resource_models = Vec::new();
+    for resource in &resources {
+        resource_models.push(
+            project_resource_model(
+                &server,
+                provider,
+                &connection,
+                &environment,
+                &resolved_connection,
+                &resolved_environment,
+                runtime.snapshot.preferences.safe_mode_enabled,
+                resource,
+                &structure_nodes,
+                &mut warnings,
+            )
+            .await?,
+        );
+    }
+    let custom_models = custom_endpoints
+        .iter()
+        .map(|endpoint| project_custom_endpoint(&server, endpoint))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut spec = ProjectExportSpec {
+        framework,
+        project_name,
+        namespace,
+        package_name,
+        protocol,
+        base_path: normalize_base_path(&server.base_path),
+        connection_engine: connection.engine.clone(),
+        connection_family: connection.family.clone(),
+        provider,
+        env_var: export_provider_env_var(provider).into(),
+        resources: resource_models,
+        custom_endpoints: custom_models,
+        warnings,
+    };
+    spec.warnings.sort();
+    spec.warnings.dedup();
+
+    let files = match spec.framework.as_str() {
+        "dotnet" => dotnet_project_files(&spec),
+        _ => rust_project_files(&spec),
+    };
+    let bytes = zip_project_files(files)?;
+    Ok(DatastoreApiServerProjectArchive {
+        default_file_name: format!(
+            "{}-{}.zip",
+            safe_file_stem(&spec.project_name),
+            spec.framework
+        ),
+        framework: spec.framework,
+        project_name: spec.project_name,
+        warnings: spec.warnings,
+        bytes,
     })
 }
 
@@ -4445,6 +4743,2038 @@ fn normalize_custom_endpoint_parameters(
     }
 
     normalized
+}
+
+fn normalize_export_framework(value: &str) -> Result<String, CommandError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "rust" => Ok("rust".into()),
+        "dotnet" | ".net" | "net" => Ok("dotnet".into()),
+        _ => Err(CommandError::new(
+            "api-server-export-framework-unsupported",
+            "Choose Rust or .NET for the exported API server project.",
+        )),
+    }
+}
+
+fn normalize_export_project_name(value: &str) -> Result<String, CommandError> {
+    let normalized = pascal_case(value);
+    if normalized.is_empty() {
+        Err(CommandError::new(
+            "api-server-export-project-name-required",
+            "Enter a project name before exporting this API server project.",
+        ))
+    } else {
+        Ok(normalized)
+    }
+}
+
+fn normalize_export_namespace(value: Option<&str>, project_name: &str) -> String {
+    let raw = value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(project_name);
+    let normalized = raw
+        .split('.')
+        .map(pascal_case)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(".");
+    if normalized.is_empty() {
+        project_name.into()
+    } else {
+        normalized
+    }
+}
+
+fn normalize_export_package_name(value: Option<&str>, project_name: &str) -> String {
+    let raw = value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(project_name);
+    let name = raw
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if name.is_empty() {
+        "datapad-api-server".into()
+    } else {
+        name
+    }
+}
+
+fn export_provider_for_connection(
+    family: &str,
+    engine: &str,
+) -> Result<ExportProvider, CommandError> {
+    if family == "sql"
+        || matches!(
+            engine,
+            "sqlite" | "postgresql" | "cockroachdb" | "mysql" | "mariadb" | "sqlserver"
+        )
+    {
+        return Ok(ExportProvider::Sql);
+    }
+    if matches!(engine, "mongodb" | "cosmosdb") {
+        return Ok(ExportProvider::MongoDb);
+    }
+    if engine == "litedb" {
+        return Ok(ExportProvider::LiteDb);
+    }
+    if matches!(engine, "elasticsearch" | "opensearch") || family == "search" {
+        return Ok(ExportProvider::Search);
+    }
+    if engine == "dynamodb" {
+        return Ok(ExportProvider::DynamoDb);
+    }
+    if matches!(engine, "redis" | "valkey") {
+        return Ok(ExportProvider::Redis);
+    }
+    Err(CommandError::new(
+        "api-server-export-provider-unsupported",
+        format!("Project export does not yet support typed models for {engine} ({family})."),
+    ))
+}
+
+fn export_provider_env_var(provider: ExportProvider) -> &'static str {
+    match provider {
+        ExportProvider::DynamoDb => "AWS_REGION",
+        ExportProvider::LiteDb => "LITEDB_PATH",
+        ExportProvider::MongoDb => "MONGODB_URI",
+        ExportProvider::Redis => "REDIS_URL",
+        ExportProvider::Search => "SEARCH_ENDPOINT",
+        ExportProvider::Sql => "DATABASE_URL",
+    }
+}
+
+fn provider_label(provider: ExportProvider) -> &'static str {
+    match provider {
+        ExportProvider::DynamoDb => "DynamoDB",
+        ExportProvider::LiteDb => "LiteDB",
+        ExportProvider::MongoDb => "MongoDB",
+        ExportProvider::Redis => "Redis/Valkey",
+        ExportProvider::Search => "Elasticsearch/OpenSearch",
+        ExportProvider::Sql => "SQL",
+    }
+}
+
+fn validate_project_export_resources(
+    provider: ExportProvider,
+    resources: &[DatastoreApiServerResourceConfig],
+) -> Result<(), CommandError> {
+    for resource in resources {
+        let supported = match provider {
+            ExportProvider::DynamoDb => matches!(resource.kind.as_str(), "item" | "table"),
+            ExportProvider::LiteDb => resource.kind == "collection",
+            ExportProvider::MongoDb => resource.kind == "collection",
+            ExportProvider::Redis => resource.kind == "key",
+            ExportProvider::Search => resource.kind == "index",
+            ExportProvider::Sql => resource.kind == "table",
+        };
+        if !supported {
+            return Err(CommandError::new(
+                "api-server-export-resource-unsupported",
+                format!(
+                    "Resource `{}` cannot be exported as a typed {} project yet.",
+                    resource.label,
+                    provider_label(provider)
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_project_export_custom_endpoints(
+    provider: ExportProvider,
+    protocol: &str,
+    endpoints: &[DatastoreApiServerCustomEndpointConfig],
+) -> Result<(), CommandError> {
+    if endpoints.is_empty() {
+        return Ok(());
+    }
+    if protocol != "rest" {
+        return Err(CommandError::new(
+            "api-server-export-custom-endpoint-protocol-unsupported",
+            "Custom query endpoints can only be exported for REST/OpenAPI projects in this version.",
+        ));
+    }
+    for endpoint in endpoints {
+        if !custom_endpoint_language_supported(provider, &endpoint.language) {
+            return Err(CommandError::new(
+                "api-server-export-custom-endpoint-language-unsupported",
+                format!(
+                    "Custom endpoint `{}` uses `{}`, which is not supported by this export provider.",
+                    endpoint.label, endpoint.language
+                ),
+            ));
+        }
+        for parameter in &endpoint.parameters {
+            if !matches!(
+                parameter.parameter_type.as_str(),
+                "string" | "number" | "boolean" | "json"
+            ) {
+                return Err(CommandError::new(
+                    "api-server-export-custom-endpoint-parameter-unsupported",
+                    format!(
+                        "Custom endpoint `{}` has unsupported parameter `{}`.",
+                        endpoint.label, parameter.name
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn custom_endpoint_language_supported(provider: ExportProvider, language: &str) -> bool {
+    match provider {
+        ExportProvider::DynamoDb => matches!(language, "dynamodb" | "json"),
+        ExportProvider::LiteDb => {
+            language.contains("sql") || matches!(language, "litedb" | "json" | "query")
+        }
+        ExportProvider::MongoDb => matches!(language, "mongodb" | "json" | "query-dsl"),
+        ExportProvider::Redis => matches!(language, "redis" | "text" | "raw"),
+        ExportProvider::Search => matches!(
+            language,
+            "query-dsl" | "json" | "elasticsearch" | "opensearch"
+        ),
+        ExportProvider::Sql => {
+            language.contains("sql")
+                || matches!(
+                    language,
+                    "sql" | "cql" | "snowflake-sql" | "google-sql" | "clickhouse-sql"
+                )
+        }
+    }
+}
+
+async fn project_resource_model(
+    config: &DatastoreApiServerConfig,
+    provider: ExportProvider,
+    connection: &crate::domain::models::ConnectionProfile,
+    environment: &crate::domain::models::EnvironmentProfile,
+    resolved_connection: &crate::domain::models::ResolvedConnectionProfile,
+    resolved_environment: &crate::domain::models::ResolvedEnvironment,
+    safe_mode_enabled: bool,
+    resource: &DatastoreApiServerResourceConfig,
+    nodes: &[StructureNode],
+    warnings: &mut Vec<String>,
+) -> Result<ProjectResourceModel, CommandError> {
+    let schema = match project_resource_schema(provider, resource, nodes) {
+        Ok(schema) => schema,
+        Err(error) => match live_sample_schema(
+            provider,
+            connection,
+            environment,
+            resolved_connection,
+            resolved_environment,
+            safe_mode_enabled,
+            resource,
+        )
+        .await?
+        .or_else(|| resource_shape_schema(provider, resource))
+        {
+            Some(schema) => schema,
+            None => return Err(error),
+        },
+    };
+    warnings.extend(schema.warnings.iter().cloned());
+    let field_models = project_field_models(provider, &schema.fields);
+    let primary_fields = field_models
+        .iter()
+        .filter(|field| field.primary)
+        .map(|field| field.source_name.clone())
+        .collect::<Vec<_>>();
+    Ok(ProjectResourceModel {
+        label: resource.label.clone(),
+        kind: resource.kind.clone(),
+        endpoint_slug: resource.endpoint_slug.clone(),
+        endpoint_path: configured_resource_endpoint(config, resource),
+        model_name: pascal_case(&resource.endpoint_slug),
+        schema_source: schema.source.id().into(),
+        schema_source_label: schema.source.label().into(),
+        fields: field_models,
+        primary_fields,
+    })
+}
+
+fn project_resource_schema(
+    provider: ExportProvider,
+    resource: &DatastoreApiServerResourceConfig,
+    nodes: &[StructureNode],
+) -> Result<ProjectResourceSchema, CommandError> {
+    if let Some(schema) = matching_structure_node(resource, nodes)
+        .and_then(|node| structure_node_schema(provider, resource, node))
+    {
+        return Ok(schema);
+    }
+    if let Some(schema) = declared_metadata_schema(provider, resource) {
+        return Ok(schema);
+    }
+    if let Some(schema) = sample_metadata_schema(provider, resource) {
+        return Ok(schema);
+    }
+    if provider == ExportProvider::Redis {
+        if let Some(schema) = resource_shape_schema(provider, resource) {
+            return Ok(schema);
+        }
+    }
+    Err(missing_project_schema_error(provider, resource))
+}
+
+fn structure_node_schema(
+    provider: ExportProvider,
+    resource: &DatastoreApiServerResourceConfig,
+    node: &StructureNode,
+) -> Option<ProjectResourceSchema> {
+    if provider == ExportProvider::Redis {
+        return resource_shape_schema(provider, resource);
+    }
+    let mut fields = clean_schema_fields(node.fields.clone());
+    if fields.is_empty() {
+        if matches!(provider, ExportProvider::MongoDb | ExportProvider::LiteDb) {
+            if let Some(sample) = node.sample.as_ref().and_then(Value::as_object) {
+                let samples = vec![sample];
+                fields = infer_fields_from_json_objects(&samples, "_id", Some(1));
+            }
+        }
+    }
+    if fields.is_empty() {
+        return None;
+    }
+    normalize_schema_field_identities(provider, &mut fields);
+    let source = match provider {
+        ExportProvider::DynamoDb => ProjectSchemaSource::DeclaredSchema,
+        ExportProvider::LiteDb | ExportProvider::MongoDb => ProjectSchemaSource::Sample,
+        ExportProvider::Search => ProjectSchemaSource::Mapping,
+        ExportProvider::Sql => ProjectSchemaSource::Catalog,
+        ExportProvider::Redis => ProjectSchemaSource::ResourceShape,
+    };
+    let mut warnings = Vec::new();
+    if matches!(source, ProjectSchemaSource::Sample) {
+        warnings.push(format!(
+            "Model `{}` is inferred from sampled {} metadata.",
+            resource.label,
+            provider_label(provider)
+        ));
+    }
+    Some(ProjectResourceSchema {
+        fields,
+        source,
+        warnings,
+    })
+}
+
+fn declared_metadata_schema(
+    provider: ExportProvider,
+    resource: &DatastoreApiServerResourceConfig,
+) -> Option<ProjectResourceSchema> {
+    match provider {
+        ExportProvider::MongoDb | ExportProvider::LiteDb => {
+            let schema = metadata_json_schema(&resource.metadata)?;
+            let mut fields = json_schema_fields(schema)?;
+            normalize_schema_field_identities(provider, &mut fields);
+            Some(ProjectResourceSchema {
+                fields,
+                source: ProjectSchemaSource::DeclaredSchema,
+                warnings: Vec::new(),
+            })
+        }
+        ExportProvider::Search => {
+            let mapping = metadata_search_mapping(&resource.metadata)?;
+            let mut fields = search_mapping_fields(mapping)?;
+            normalize_schema_field_identities(provider, &mut fields);
+            Some(ProjectResourceSchema {
+                fields,
+                source: ProjectSchemaSource::Mapping,
+                warnings: Vec::new(),
+            })
+        }
+        ExportProvider::DynamoDb => {
+            let mut fields = dynamodb_metadata_fields(&resource.metadata)?;
+            normalize_schema_field_identities(provider, &mut fields);
+            let warnings = if fields.iter().all(|field| field.primary.unwrap_or(false)) {
+                vec![format!(
+                    "DynamoDB table `{}` exported with key schema only; no sampled non-key attributes were available.",
+                    resource.label
+                )]
+            } else {
+                Vec::new()
+            };
+            Some(ProjectResourceSchema {
+                fields,
+                source: ProjectSchemaSource::DeclaredSchema,
+                warnings,
+            })
+        }
+        ExportProvider::Redis | ExportProvider::Sql => None,
+    }
+}
+
+fn sample_metadata_schema(
+    provider: ExportProvider,
+    resource: &DatastoreApiServerResourceConfig,
+) -> Option<ProjectResourceSchema> {
+    let sample_values = metadata_sample_values(&resource.metadata);
+    if sample_values.is_empty() {
+        return None;
+    }
+    let sample_objects = sample_values
+        .iter()
+        .filter_map(|value| value.as_object())
+        .collect::<Vec<_>>();
+    if sample_objects.is_empty() {
+        return None;
+    }
+    let primary_field = match provider {
+        ExportProvider::DynamoDb => "id",
+        ExportProvider::Search | ExportProvider::MongoDb | ExportProvider::LiteDb => "_id",
+        ExportProvider::Redis | ExportProvider::Sql => "id",
+    };
+    let mut fields = infer_fields_from_json_objects(
+        &sample_objects,
+        primary_field,
+        Some(sample_objects.len().min(50)),
+    );
+    if fields.is_empty() {
+        return None;
+    }
+    normalize_schema_field_identities(provider, &mut fields);
+    Some(ProjectResourceSchema {
+        fields,
+        source: ProjectSchemaSource::Sample,
+        warnings: vec![format!(
+            "Model `{}` inferred from {} sampled {} record(s).",
+            resource.label,
+            sample_objects.len().min(50),
+            provider_label(provider)
+        )],
+    })
+}
+
+async fn live_sample_schema(
+    provider: ExportProvider,
+    connection: &crate::domain::models::ConnectionProfile,
+    environment: &crate::domain::models::EnvironmentProfile,
+    resolved_connection: &crate::domain::models::ResolvedConnectionProfile,
+    resolved_environment: &crate::domain::models::ResolvedEnvironment,
+    safe_mode_enabled: bool,
+    resource: &DatastoreApiServerResourceConfig,
+) -> Result<Option<ProjectResourceSchema>, CommandError> {
+    if matches!(provider, ExportProvider::Sql | ExportProvider::Redis) {
+        return Ok(None);
+    }
+    let target = ResourceRouteTarget::from_resource(resource);
+    let query_template = read_query_for(&connection.family, &connection.engine, &target, 50, None)
+        .map_err(|error| {
+            CommandError::new(
+                "api-server-export-schema-sample-query",
+                format!(
+                    "Could not build a bounded sample query for `{}`: {}",
+                    resource.label, error.message
+                ),
+            )
+        })?;
+    let query_text = resolve_string_template(&query_template, &resolved_environment.variables)?;
+    let guardrail = security::evaluate_guardrails(
+        connection,
+        environment,
+        resolved_environment,
+        &query_text,
+        safe_mode_enabled,
+    );
+    if guardrail.status == "block" || guardrail.status == "confirm" {
+        return Err(CommandError::new(
+            "api-server-export-schema-sample-blocked",
+            format!(
+                "Schema sampling for `{}` was blocked by datastore guardrails: {}",
+                resource.label,
+                guardrail.reasons.join(" ")
+            ),
+        ));
+    }
+
+    let execution_request = ExecutionRequest {
+        execution_id: Some(generate_id("api-export-schema")),
+        tab_id: format!("api-export-schema-{}", resource.id),
+        connection_id: connection.id.clone(),
+        environment_id: environment.id.clone(),
+        language: language_for(connection),
+        query_text: query_text.clone(),
+        execution_input_mode: Some("raw".into()),
+        script_text: None,
+        selected_text: None,
+        mode: Some("full".into()),
+        row_limit: Some(50),
+        document_efficiency_mode: None,
+        confirmed_guardrail_id: None,
+    };
+    let result = adapters::execute(
+        resolved_connection,
+        &execution_request,
+        vec![QueryExecutionNotice {
+            code: "api-server-export-schema-sample".into(),
+            level: "info".into(),
+            message: "Executed by API server project export schema inference.".into(),
+        }],
+    )
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "api-server-export-schema-sample-failed",
+            format!(
+                "Could not sample `{}` to infer a typed model: {}",
+                resource.label, error.message
+            ),
+        )
+    })?;
+    let result = redact_execution_result_for_environment(result, resolved_environment);
+    let data = api_read_payload(&result, false);
+    let samples = match data {
+        Value::Array(values) => values,
+        object @ Value::Object(_) => vec![object],
+        _ => Vec::new(),
+    };
+    let sample_objects = samples
+        .iter()
+        .filter_map(|value| value.as_object())
+        .collect::<Vec<_>>();
+    if sample_objects.is_empty() {
+        return Ok(None);
+    }
+    let primary_field = match provider {
+        ExportProvider::DynamoDb => "id",
+        ExportProvider::Search | ExportProvider::MongoDb | ExportProvider::LiteDb => "_id",
+        ExportProvider::Redis | ExportProvider::Sql => "id",
+    };
+    let mut fields = infer_fields_from_json_objects(&sample_objects, primary_field, Some(50));
+    if fields.is_empty() {
+        return Ok(None);
+    }
+    normalize_schema_field_identities(provider, &mut fields);
+    Ok(Some(ProjectResourceSchema {
+        fields,
+        source: ProjectSchemaSource::Sample,
+        warnings: vec![format!(
+            "Model `{}` inferred from {} bounded live {} sample(s).",
+            resource.label,
+            sample_objects.len().min(50),
+            provider_label(provider)
+        )],
+    }))
+}
+
+fn resource_shape_schema(
+    provider: ExportProvider,
+    resource: &DatastoreApiServerResourceConfig,
+) -> Option<ProjectResourceSchema> {
+    let (fields, warning) = match provider {
+        ExportProvider::MongoDb => (
+            vec![schema_field(
+                "_id",
+                "objectId",
+                Some(false),
+                Some(true),
+                Some(0),
+            )],
+            format!(
+                "MongoDB collection `{}` had no `$jsonSchema` validator and no sampled documents; exported an identity-only model.",
+                resource.label
+            ),
+        ),
+        ExportProvider::LiteDb => (
+            vec![schema_field("_id", "value", Some(false), Some(true), Some(0))],
+            format!(
+                "LiteDB collection `{}` had no sampled documents; exported an identity-only model.",
+                resource.label
+            ),
+        ),
+        ExportProvider::Redis => redis_resource_shape_fields(resource),
+        ExportProvider::Search => (
+            vec![
+                schema_field("_id", "string", Some(false), Some(true), Some(0)),
+                schema_field("source", "document", Some(false), Some(false), Some(1)),
+            ],
+            format!(
+                "Search index `{}` exported as a typed document wrapper because mappings were not available.",
+                resource.label
+            ),
+        ),
+        ExportProvider::DynamoDb => (
+            vec![
+                schema_field("key", "document", Some(false), Some(true), Some(0)),
+                schema_field("item", "document", Some(false), Some(false), Some(1)),
+            ],
+            format!(
+                "DynamoDB table `{}` exported as a key/item wrapper because table metadata was not available.",
+                resource.label
+            ),
+        ),
+        _ => return None,
+    };
+    Some(ProjectResourceSchema {
+        fields,
+        source: ProjectSchemaSource::ResourceShape,
+        warnings: vec![warning],
+    })
+}
+
+fn redis_resource_shape_fields(
+    resource: &DatastoreApiServerResourceConfig,
+) -> (Vec<StructureField>, String) {
+    let redis_type = resource
+        .metadata
+        .get("redisType")
+        .or_else(|| resource.metadata.get("type"))
+        .and_then(Value::as_str)
+        .or_else(|| resource.detail.as_deref())
+        .unwrap_or("key")
+        .to_ascii_lowercase();
+    let value_type = if redis_type.contains("json") {
+        "document"
+    } else if redis_type.contains("hash") {
+        "document"
+    } else if redis_type.contains("list")
+        || redis_type.contains("set")
+        || redis_type.contains("zset")
+        || redis_type.contains("stream")
+        || redis_type.contains("timeseries")
+    {
+        "array"
+    } else {
+        "string"
+    };
+    (
+        vec![
+            schema_field("key", "string", Some(false), Some(true), Some(0)),
+            schema_field("kind", "string", Some(false), Some(false), Some(1)),
+            schema_field("ttlSeconds", "int64", Some(true), Some(false), Some(2)),
+            schema_field("value", value_type, Some(true), Some(false), Some(3)),
+        ],
+        format!(
+            "Redis/Valkey key `{}` exported as a typed `{}` wrapper.",
+            resource.label, redis_type
+        ),
+    )
+}
+
+fn missing_project_schema_error(
+    provider: ExportProvider,
+    resource: &DatastoreApiServerResourceConfig,
+) -> CommandError {
+    let message = match provider {
+        ExportProvider::MongoDb => format!(
+            "No MongoDB documents or `$jsonSchema` validator were available to infer `{}`.",
+            resource.label
+        ),
+        ExportProvider::LiteDb => format!(
+            "No LiteDB documents or declared schema metadata were available to infer `{}`.",
+            resource.label
+        ),
+        ExportProvider::Search => format!(
+            "No Elasticsearch/OpenSearch mappings were available to infer `{}`.",
+            resource.label
+        ),
+        ExportProvider::DynamoDb => format!(
+            "No DynamoDB key schema or sampled item attributes were available to infer `{}`.",
+            resource.label
+        ),
+        ExportProvider::Redis => format!(
+            "No Redis/Valkey key shape metadata was available to infer `{}`.",
+            resource.label
+        ),
+        ExportProvider::Sql => format!(
+            "No catalog columns were available to infer `{}`. Refresh structure metadata for this table.",
+            resource.label
+        ),
+    };
+    CommandError::new("api-server-export-schema-missing", message)
+}
+
+fn clean_schema_fields(mut fields: Vec<StructureField>) -> Vec<StructureField> {
+    fields.retain(|field| !field.name.trim().is_empty());
+    fields.sort_by(|left, right| {
+        left.ordinal
+            .unwrap_or(u32::MAX)
+            .cmp(&right.ordinal.unwrap_or(u32::MAX))
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+    fields
+}
+
+fn normalize_schema_field_identities(provider: ExportProvider, fields: &mut [StructureField]) {
+    if matches!(
+        provider,
+        ExportProvider::MongoDb | ExportProvider::LiteDb | ExportProvider::Search
+    ) {
+        for field in fields {
+            if field.name == "_id" {
+                field.primary = Some(true);
+                field.nullable = Some(false);
+            }
+        }
+    }
+}
+
+fn schema_field(
+    name: &str,
+    data_type: &str,
+    nullable: Option<bool>,
+    primary: Option<bool>,
+    ordinal: Option<u32>,
+) -> StructureField {
+    StructureField {
+        name: name.into(),
+        data_type: data_type.into(),
+        detail: None,
+        nullable,
+        primary,
+        ordinal,
+        indexed: None,
+    }
+}
+
+#[derive(Default)]
+struct InferredFieldSummary {
+    data_type: Option<String>,
+    present_count: usize,
+    nullable: bool,
+}
+
+fn infer_fields_from_json_objects(
+    samples: &[&serde_json::Map<String, Value>],
+    primary_field: &str,
+    limit: Option<usize>,
+) -> Vec<StructureField> {
+    let sample_count = limit.unwrap_or(samples.len()).min(samples.len());
+    if sample_count == 0 {
+        return Vec::new();
+    }
+    let mut summaries = BTreeMap::<String, InferredFieldSummary>::new();
+    for sample in samples.iter().take(sample_count) {
+        for (name, value) in sample.iter() {
+            let summary = summaries.entry(name.clone()).or_default();
+            summary.present_count += 1;
+            if value.is_null() {
+                summary.nullable = true;
+            }
+            let next_type = json_value_data_type(value);
+            summary.data_type = Some(merge_data_types(summary.data_type.as_deref(), &next_type));
+        }
+    }
+    summaries
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, summary))| {
+            let primary = name == primary_field;
+            schema_field(
+                &name,
+                summary.data_type.as_deref().unwrap_or("value"),
+                Some(summary.nullable || summary.present_count < sample_count),
+                Some(primary),
+                Some(index as u32),
+            )
+        })
+        .collect()
+}
+
+fn json_value_data_type(value: &Value) -> String {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(number) if number.is_i64() || number.is_u64() => "int64",
+        Value::Number(_) => "double",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(object) if object.contains_key("$oid") => "objectId",
+        Value::Object(object) if object.contains_key("$date") => "dateTime",
+        Value::Object(_) => "document",
+    }
+    .into()
+}
+
+fn merge_data_types(existing: Option<&str>, next: &str) -> String {
+    let next = normalize_schema_data_type(next);
+    if next == "null" {
+        return existing.unwrap_or("value").into();
+    }
+    let Some(existing) = existing.map(normalize_schema_data_type) else {
+        return next;
+    };
+    if existing == next {
+        return existing;
+    }
+    if existing == "null" {
+        return next;
+    }
+    if matches!(
+        (existing.as_str(), next.as_str()),
+        ("int32", "int64") | ("int64", "int32")
+    ) {
+        return "int64".into();
+    }
+    if matches!(
+        (existing.as_str(), next.as_str()),
+        ("int32", "double") | ("int64", "double") | ("double", "int32") | ("double", "int64")
+    ) {
+        return "double".into();
+    }
+    "value".into()
+}
+
+fn normalize_schema_data_type(data_type: &str) -> String {
+    match data_type.trim().to_ascii_lowercase().as_str() {
+        "bool" => "boolean",
+        "integer" => "int32",
+        "long" => "int64",
+        "number" | "float" | "decimal" => "double",
+        "object" | "json" => "document",
+        "mixed" | "unknown" => "value",
+        other => other,
+    }
+    .into()
+}
+
+fn metadata_json_schema(metadata: &HashMap<String, Value>) -> Option<&Value> {
+    metadata
+        .get("$jsonSchema")
+        .or_else(|| metadata.get("jsonSchema"))
+        .or_else(|| {
+            metadata
+                .get("schema")
+                .and_then(|value| value.get("$jsonSchema"))
+        })
+        .or_else(|| {
+            metadata
+                .get("validator")
+                .and_then(|value| value.get("$jsonSchema"))
+        })
+        .or_else(|| {
+            metadata
+                .get("options")
+                .and_then(|value| value.get("validator"))
+                .and_then(|value| value.get("$jsonSchema"))
+        })
+}
+
+fn json_schema_fields(schema: &Value) -> Option<Vec<StructureField>> {
+    let properties = schema.get("properties")?.as_object()?;
+    if properties.is_empty() {
+        return None;
+    }
+    let required = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let fields = properties
+        .iter()
+        .enumerate()
+        .map(|(index, (name, value))| {
+            let (data_type, allows_null) = json_schema_data_type(value);
+            schema_field(
+                name,
+                &data_type,
+                Some(allows_null || !required.contains(name)),
+                Some(name == "_id"),
+                Some(index as u32),
+            )
+        })
+        .collect::<Vec<_>>();
+    (!fields.is_empty()).then_some(fields)
+}
+
+fn json_schema_data_type(schema: &Value) -> (String, bool) {
+    let raw = schema
+        .get("bsonType")
+        .or_else(|| schema.get("type"))
+        .cloned()
+        .unwrap_or(Value::String("value".into()));
+    match raw {
+        Value::String(value) => (normalize_schema_data_type(&value), value == "null"),
+        Value::Array(values) => {
+            let mut allows_null = false;
+            let mut data_type: Option<String> = None;
+            for value in values.iter().filter_map(Value::as_str) {
+                if value == "null" {
+                    allows_null = true;
+                    continue;
+                }
+                data_type = Some(merge_data_types(data_type.as_deref(), value));
+            }
+            (data_type.unwrap_or_else(|| "value".into()), allows_null)
+        }
+        _ => {
+            if schema.get("properties").is_some() {
+                ("document".into(), false)
+            } else if schema.get("items").is_some() {
+                ("array".into(), false)
+            } else {
+                ("value".into(), false)
+            }
+        }
+    }
+}
+
+fn metadata_search_mapping(metadata: &HashMap<String, Value>) -> Option<&Value> {
+    metadata
+        .get("mapping")
+        .or_else(|| metadata.get("mappings"))
+        .or_else(|| metadata.get("properties"))
+        .or_else(|| metadata.get("indexMapping"))
+}
+
+fn search_mapping_fields(mapping: &Value) -> Option<Vec<StructureField>> {
+    let properties = search_mapping_properties(mapping).or_else(|| mapping.as_object())?;
+    let mut fields = Vec::new();
+    collect_search_mapping_fields("", properties, &mut fields);
+    (!fields.is_empty()).then_some(fields)
+}
+
+fn search_mapping_properties(value: &Value) -> Option<&serde_json::Map<String, Value>> {
+    value
+        .get("properties")
+        .and_then(Value::as_object)
+        .or_else(|| {
+            value
+                .pointer("/mappings/properties")
+                .and_then(Value::as_object)
+        })
+        .or_else(|| {
+            value.as_object().and_then(|object| {
+                object.values().find_map(|child| {
+                    child
+                        .pointer("/mappings/properties")
+                        .and_then(Value::as_object)
+                })
+            })
+        })
+}
+
+fn collect_search_mapping_fields(
+    prefix: &str,
+    properties: &serde_json::Map<String, Value>,
+    fields: &mut Vec<StructureField>,
+) {
+    for (name, value) in properties {
+        let field_name = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}.{name}")
+        };
+        if let Some(nested) = value.get("properties").and_then(Value::as_object) {
+            collect_search_mapping_fields(&field_name, nested, fields);
+            continue;
+        }
+        let data_type = value
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("document");
+        fields.push(schema_field(
+            &field_name,
+            data_type,
+            Some(true),
+            Some(field_name == "_id"),
+            Some(fields.len() as u32),
+        ));
+    }
+}
+
+fn dynamodb_metadata_fields(metadata: &HashMap<String, Value>) -> Option<Vec<StructureField>> {
+    let table = metadata
+        .get("Table")
+        .or_else(|| metadata.get("table"))
+        .or_else(|| metadata.get("tableDescription"));
+    let key_schema = table
+        .and_then(|value| value.get("KeySchema").or_else(|| value.get("keySchema")))
+        .or_else(|| metadata.get("KeySchema"))
+        .or_else(|| metadata.get("keySchema"))?
+        .as_array()?;
+    let attributes = table
+        .and_then(|value| {
+            value
+                .get("AttributeDefinitions")
+                .or_else(|| value.get("attributeDefinitions"))
+        })
+        .or_else(|| metadata.get("AttributeDefinitions"))
+        .or_else(|| metadata.get("attributeDefinitions"))
+        .and_then(Value::as_array);
+    let attribute_types = attributes
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| {
+                    let name = value
+                        .get("AttributeName")
+                        .or_else(|| value.get("attributeName"))
+                        .and_then(Value::as_str)?;
+                    let data_type = value
+                        .get("AttributeType")
+                        .or_else(|| value.get("attributeType"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("S");
+                    Some((name.to_string(), dynamodb_attribute_type(data_type)))
+                })
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let mut fields = key_schema
+        .iter()
+        .enumerate()
+        .filter_map(|(index, value)| {
+            let name = value
+                .get("AttributeName")
+                .or_else(|| value.get("attributeName"))
+                .and_then(Value::as_str)?;
+            Some(schema_field(
+                name,
+                attribute_types
+                    .get(name)
+                    .map(String::as_str)
+                    .unwrap_or("string"),
+                Some(false),
+                Some(true),
+                Some(index as u32),
+            ))
+        })
+        .collect::<Vec<_>>();
+    if let Some(samples) = metadata.get("samples").or_else(|| metadata.get("items")) {
+        let sample_values = sample_values_from_value(samples);
+        let sample_objects = sample_values
+            .iter()
+            .filter_map(|value| value.as_object())
+            .collect::<Vec<_>>();
+        let sampled = infer_fields_from_json_objects(&sample_objects, "id", Some(50));
+        for field in sampled {
+            if !fields.iter().any(|existing| existing.name == field.name) {
+                fields.push(field);
+            }
+        }
+    }
+    (!fields.is_empty()).then_some(clean_schema_fields(fields))
+}
+
+fn dynamodb_attribute_type(data_type: &str) -> String {
+    match data_type {
+        "N" => "double",
+        "B" => "binary",
+        "BOOL" => "boolean",
+        "L" | "SS" | "NS" | "BS" => "array",
+        "M" => "document",
+        _ => "string",
+    }
+    .into()
+}
+
+fn metadata_sample_values(metadata: &HashMap<String, Value>) -> Vec<&Value> {
+    let mut values = Vec::new();
+    for key in ["samples", "sample", "documents", "items", "records"] {
+        if let Some(value) = metadata.get(key) {
+            values.extend(sample_values_from_value(value));
+        }
+    }
+    values
+}
+
+fn sample_values_from_value(value: &Value) -> Vec<&Value> {
+    match value {
+        Value::Array(values) => values.iter().take(50).collect(),
+        Value::Object(_) => vec![value],
+        _ => Vec::new(),
+    }
+}
+
+fn project_field_models(
+    provider: ExportProvider,
+    fields: &[StructureField],
+) -> Vec<ProjectFieldModel> {
+    let mut seen_rust = HashMap::<String, usize>::new();
+    let mut seen_csharp = HashMap::<String, usize>::new();
+    fields
+        .iter()
+        .map(|field| {
+            let source_name = field.name.trim().to_string();
+            let rust_base = rust_type_for(provider, &field.data_type);
+            let csharp_base = csharp_type_for(provider, &field.data_type);
+            let nullable = field.nullable.unwrap_or(matches!(
+                provider,
+                ExportProvider::DynamoDb
+                    | ExportProvider::LiteDb
+                    | ExportProvider::MongoDb
+                    | ExportProvider::Redis
+                    | ExportProvider::Search
+            ));
+            let rust_name = unique_identifier(&mut seen_rust, snake_case(&source_name), "field");
+            let csharp_name =
+                unique_identifier(&mut seen_csharp, pascal_case(&source_name), "Field");
+            ProjectFieldModel {
+                source_name: source_name.clone(),
+                rust_name,
+                csharp_name,
+                json_name: source_name,
+                rust_type: if nullable {
+                    format!("Option<{rust_base}>")
+                } else {
+                    rust_base
+                },
+                csharp_type: csharp_nullable_type(&csharp_base, nullable),
+                data_type: field.data_type.clone(),
+                nullable,
+                primary: field.primary.unwrap_or(false),
+            }
+        })
+        .collect()
+}
+
+fn project_custom_endpoint(
+    config: &DatastoreApiServerConfig,
+    endpoint: &DatastoreApiServerCustomEndpointConfig,
+) -> Result<ProjectCustomEndpoint, CommandError> {
+    Ok(ProjectCustomEndpoint {
+        label: endpoint.label.clone(),
+        method: endpoint.method.to_ascii_uppercase(),
+        endpoint_path: configured_custom_endpoint_path(config, endpoint),
+        function_name: snake_case(&endpoint.endpoint_slug),
+        parameters: endpoint
+            .parameters
+            .iter()
+            .map(|parameter| ProjectEndpointParameter {
+                name: parameter.name.clone(),
+                rust_type: custom_parameter_rust_type(&parameter.parameter_type),
+                csharp_type: custom_parameter_csharp_type(&parameter.parameter_type),
+                required: parameter.required,
+            })
+            .collect(),
+    })
+}
+
+fn matching_structure_node<'a>(
+    resource: &DatastoreApiServerResourceConfig,
+    nodes: &'a [StructureNode],
+) -> Option<&'a StructureNode> {
+    let mut candidates = vec![
+        resource.node_id.clone(),
+        resource.label.clone(),
+        resource.endpoint_slug.clone(),
+    ];
+    if let Some(detail) = &resource.detail {
+        candidates.push(detail.clone());
+    }
+    if let Some(scope) = &resource.scope {
+        candidates.push(scope.clone());
+        candidates.extend(scope.split(':').map(str::to_string));
+    }
+    candidates.extend(resource.path.iter().cloned());
+    let candidates = candidates
+        .into_iter()
+        .map(|value| structure_match_key(&value))
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+
+    nodes.iter().find(|node| {
+        let node_keys = [
+            structure_match_key(&node.id),
+            structure_match_key(&node.label),
+            structure_match_key(node.object_name.as_deref().unwrap_or_default()),
+            structure_match_key(node.qualified_name.as_deref().unwrap_or_default()),
+            structure_match_key(node.detail.as_deref().unwrap_or_default()),
+        ];
+        candidates.iter().any(|candidate| {
+            node_keys.iter().any(|node_key| {
+                !node_key.is_empty()
+                    && (node_key == candidate
+                        || node_key.ends_with(candidate)
+                        || candidate.ends_with(node_key))
+            })
+        })
+    })
+}
+
+fn structure_match_key(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('`')
+        .trim_matches('[')
+        .trim_matches(']')
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+                ch.to_ascii_lowercase()
+            } else {
+                '.'
+            }
+        })
+        .collect::<String>()
+        .split('.')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+fn rust_type_for(provider: ExportProvider, data_type: &str) -> String {
+    let normalized = data_type.to_ascii_lowercase();
+    if matches!(
+        normalized.as_str(),
+        "array" | "document" | "object" | "value"
+    ) || normalized.contains("json")
+    {
+        return "serde_json::Value".into();
+    }
+    if matches!(provider, ExportProvider::MongoDb | ExportProvider::LiteDb) {
+        return match normalized.as_str() {
+            "boolean" | "bool" => "bool",
+            "double" => "f64",
+            "int32" => "i32",
+            "int64" => "i64",
+            _ => "String",
+        }
+        .into();
+    }
+    if normalized.contains("bigint") {
+        "i64".into()
+    } else if normalized.contains("smallint") {
+        "i16".into()
+    } else if normalized.contains("int") {
+        "i32".into()
+    } else if normalized.contains("bool") || normalized == "bit" {
+        "bool".into()
+    } else if normalized.contains("double")
+        || normalized.contains("float")
+        || normalized.contains("real")
+    {
+        "f64".into()
+    } else if normalized.contains("binary") || normalized.contains("blob") {
+        "Vec<u8>".into()
+    } else {
+        "String".into()
+    }
+}
+
+fn csharp_type_for(provider: ExportProvider, data_type: &str) -> String {
+    let normalized = data_type.to_ascii_lowercase();
+    if matches!(
+        normalized.as_str(),
+        "array" | "document" | "object" | "value"
+    ) || normalized.contains("json")
+    {
+        return "JsonElement".into();
+    }
+    if matches!(provider, ExportProvider::MongoDb | ExportProvider::LiteDb) {
+        return match normalized.as_str() {
+            "boolean" | "bool" => "bool",
+            "double" => "double",
+            "int32" => "int",
+            "int64" => "long",
+            _ => "string",
+        }
+        .into();
+    }
+    if normalized.contains("bigint") {
+        "long".into()
+    } else if normalized.contains("smallint") {
+        "short".into()
+    } else if normalized.contains("int") {
+        "int".into()
+    } else if normalized.contains("bool") || normalized == "bit" {
+        "bool".into()
+    } else if normalized.contains("double")
+        || normalized.contains("float")
+        || normalized.contains("real")
+    {
+        "double".into()
+    } else if normalized.contains("decimal") || normalized.contains("numeric") {
+        "decimal".into()
+    } else if normalized.contains("binary") || normalized.contains("blob") {
+        "byte[]".into()
+    } else if normalized.contains("date") || normalized.contains("time") {
+        "DateTimeOffset".into()
+    } else {
+        "string".into()
+    }
+}
+
+fn csharp_nullable_type(base: &str, nullable: bool) -> String {
+    if !nullable {
+        return base.into();
+    }
+    if base.ends_with("[]") {
+        base.into()
+    } else {
+        format!("{base}?")
+    }
+}
+
+fn custom_parameter_rust_type(parameter_type: &str) -> String {
+    match parameter_type {
+        "number" => "f64",
+        "boolean" => "bool",
+        "json" => "serde_json::Value",
+        _ => "String",
+    }
+    .into()
+}
+
+fn custom_parameter_csharp_type(parameter_type: &str) -> String {
+    match parameter_type {
+        "number" => "double",
+        "boolean" => "bool",
+        "json" => "JsonElement",
+        _ => "string",
+    }
+    .into()
+}
+
+fn rust_project_files(spec: &ProjectExportSpec) -> Vec<ProjectFile> {
+    let root = safe_file_stem(&spec.project_name);
+    let mut files = vec![
+        project_file(&root, "Cargo.toml", rust_cargo_toml(spec)),
+        project_file(&root, ".env.example", env_example(spec)),
+        project_file(&root, "README.md", project_readme(spec)),
+        project_file(&root, "datapad-api-export.json", project_manifest(spec)),
+        project_file(&root, "src/models.rs", rust_models(spec)),
+        project_file(&root, "src/repository.rs", rust_repository(spec)),
+        project_file(&root, "src/main.rs", rust_main(spec)),
+    ];
+    if spec.protocol == "grpc" {
+        files.push(project_file(&root, "build.rs", rust_grpc_build_rs()));
+        files.push(project_file(
+            &root,
+            "proto/datapad_api.proto",
+            grpc_proto(spec),
+        ));
+    }
+    files
+}
+
+fn dotnet_project_files(spec: &ProjectExportSpec) -> Vec<ProjectFile> {
+    let root = safe_file_stem(&spec.project_name);
+    let mut files = vec![
+        project_file(
+            &root,
+            &format!("{}.csproj", spec.project_name),
+            dotnet_csproj(spec),
+        ),
+        project_file(&root, ".env.example", env_example(spec)),
+        project_file(&root, "README.md", project_readme(spec)),
+        project_file(&root, "datapad-api-export.json", project_manifest(spec)),
+        project_file(&root, "Program.cs", dotnet_program(spec)),
+        project_file(&root, "Models.cs", dotnet_models(spec)),
+        project_file(&root, "DatastoreRepository.cs", dotnet_repository(spec)),
+    ];
+    if spec.protocol == "graphql" {
+        files.push(project_file(
+            &root,
+            "GraphQlTypes.cs",
+            dotnet_graphql_types(spec),
+        ));
+    }
+    if spec.protocol == "grpc" {
+        files.push(project_file(
+            &root,
+            "Services.cs",
+            dotnet_grpc_services(spec),
+        ));
+        files.push(project_file(
+            &root,
+            "Protos/datapad_api.proto",
+            grpc_proto(spec),
+        ));
+    }
+    files
+}
+
+fn project_file(root: &str, path: &str, contents: String) -> ProjectFile {
+    ProjectFile {
+        path: format!("{root}/{path}"),
+        contents,
+    }
+}
+
+fn env_example(spec: &ProjectExportSpec) -> String {
+    let mut lines = vec![
+        "# Generated by DataPad++ API Server export.".to_string(),
+        "# Fill this with your own runtime values before hosting.".to_string(),
+        format!("{}=", spec.env_var),
+    ];
+    if spec.provider == ExportProvider::DynamoDb {
+        lines.push("DYNAMODB_ENDPOINT=".into());
+    }
+    lines.push("ASPNETCORE_URLS=http://localhost:8080".into());
+    lines.push("RUST_LOG=info".into());
+    format!("{}\n", lines.join("\n"))
+}
+
+fn project_readme(spec: &ProjectExportSpec) -> String {
+    let resource_lines = if spec.resources.is_empty() {
+        "- No CRUD resources exported.\n".into()
+    } else {
+        spec.resources
+            .iter()
+            .map(|resource| {
+                format!(
+                    "- `{}` -> `{}` ({})\n",
+                    resource.label, resource.endpoint_path, resource.schema_source_label
+                )
+            })
+            .collect::<String>()
+    };
+    let warnings = if spec.warnings.is_empty() {
+        "No export warnings were generated.\n".into()
+    } else {
+        spec.warnings
+            .iter()
+            .map(|warning| format!("- {warning}\n"))
+            .collect::<String>()
+    };
+    format!(
+        "# {}\n\nGenerated from a DataPad++ API Server configuration.\n\n- Framework: {}\n- Protocol: {}\n- Datastore: {} / {}\n- Base path: `{}`\n- Configuration: set `{}` in your environment.\n\n## Resources\n\n{}## Export Warnings\n\n{}## Notes\n\nThis export contains typed models and endpoint scaffolding only. DataPad++ does not export secrets. Review the repository implementation and connect it to your production datastore before hosting.\n",
+        spec.project_name,
+        spec.framework,
+        spec.protocol,
+        spec.connection_engine,
+        spec.connection_family,
+        if spec.base_path.is_empty() { "/" } else { &spec.base_path },
+        spec.env_var,
+        resource_lines,
+        warnings
+    )
+}
+
+fn project_manifest(spec: &ProjectExportSpec) -> String {
+    let resources = spec
+        .resources
+        .iter()
+        .map(|resource| {
+            json!({
+                "label": resource.label,
+                "kind": resource.kind,
+                "endpointSlug": resource.endpoint_slug,
+                "endpointPath": resource.endpoint_path,
+                "modelName": resource.model_name,
+                "schemaSource": resource.schema_source,
+                "schemaSourceLabel": resource.schema_source_label,
+                "primaryFields": resource.primary_fields,
+                "fields": resource.fields.iter().map(|field| {
+                    json!({
+                        "name": field.source_name,
+                        "dataType": field.data_type,
+                        "nullable": field.nullable,
+                        "primary": field.primary
+                    })
+                }).collect::<Vec<_>>()
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string_pretty(&json!({
+        "generatedBy": "DataPad++",
+        "framework": spec.framework,
+        "protocol": spec.protocol,
+        "projectName": spec.project_name,
+        "namespace": spec.namespace,
+        "packageName": spec.package_name,
+        "datastore": {
+            "engine": spec.connection_engine,
+            "family": spec.connection_family,
+            "provider": provider_label(spec.provider)
+        },
+        "resources": resources,
+        "customEndpoints": spec.custom_endpoints.iter().map(|endpoint| {
+            json!({
+                "label": endpoint.label,
+                "method": endpoint.method,
+                "endpointPath": endpoint.endpoint_path,
+                "parameters": endpoint.parameters.iter().map(|parameter| {
+                    json!({
+                        "name": parameter.name,
+                        "rustType": parameter.rust_type,
+                        "csharpType": parameter.csharp_type,
+                        "required": parameter.required
+                    })
+                }).collect::<Vec<_>>()
+            })
+        }).collect::<Vec<_>>(),
+        "warnings": spec.warnings
+    }))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+fn rust_cargo_toml(spec: &ProjectExportSpec) -> String {
+    let mut dependencies = vec![
+        "axum = \"0.8\"",
+        "serde = { version = \"1\", features = [\"derive\"] }",
+        "serde_json = \"1\"",
+        "tokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"net\"] }",
+        "tracing = \"0.1\"",
+        "tracing-subscriber = { version = \"0.3\", features = [\"env-filter\"] }",
+    ];
+    if spec.protocol == "graphql" {
+        dependencies.push("async-graphql = \"7\"");
+        dependencies.push("async-graphql-axum = \"7\"");
+    }
+    if spec.protocol == "grpc" {
+        dependencies.push("prost = \"0.13\"");
+        dependencies.push("tonic = \"0.12\"");
+    }
+    match spec.provider {
+        ExportProvider::DynamoDb => {
+            dependencies.push("aws-config = \"1\"");
+            dependencies.push("aws-sdk-dynamodb = \"1\"");
+        }
+        ExportProvider::LiteDb => {}
+        ExportProvider::MongoDb => dependencies.push("mongodb = \"3\""),
+        ExportProvider::Redis => dependencies.push("redis = { version = \"0.27\", features = [\"tokio-comp\"] }"),
+        ExportProvider::Search => dependencies.push("reqwest = { version = \"0.12\", features = [\"json\"] }"),
+        ExportProvider::Sql => dependencies.push("sqlx = { version = \"0.8\", default-features = false, features = [\"runtime-tokio-rustls\", \"sqlite\", \"postgres\", \"mysql\", \"json\"] }"),
+    }
+    let build_dependencies = if spec.protocol == "grpc" {
+        "\n[build-dependencies]\ntonic-build = \"0.12\"\n"
+    } else {
+        ""
+    };
+    format!(
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n{}\n{}",
+        spec.package_name,
+        dependencies.join("\n"),
+        build_dependencies
+    )
+}
+
+fn rust_models(spec: &ProjectExportSpec) -> String {
+    let mut output = String::from("use serde::{Deserialize, Serialize};\n\n");
+    for resource in &spec.resources {
+        if spec.protocol == "graphql" {
+            output.push_str("#[derive(Debug, Clone, Default, Serialize, Deserialize, async_graphql::SimpleObject, async_graphql::InputObject)]\n");
+            output.push_str(&format!(
+                "#[graphql(input_name = \"{}Input\")]\n",
+                resource.model_name
+            ));
+        } else {
+            output.push_str("#[derive(Debug, Clone, Default, Serialize, Deserialize)]\n");
+        }
+        output.push_str(&format!("pub struct {} {{\n", resource.model_name));
+        for field in &resource.fields {
+            output.push_str(&format!(
+                "    #[serde(rename = {})]\n    pub {}: {},\n",
+                rust_string_literal(&field.json_name),
+                rust_field_name(field),
+                field.rust_type
+            ));
+        }
+        output.push_str("}\n\n");
+    }
+    output
+}
+
+fn rust_repository(spec: &ProjectExportSpec) -> String {
+    let mut output = format!(
+        "use crate::models::*;\nuse serde_json::{{json, Value}};\n\n#[derive(Clone)]\npub struct DatastoreRepository {{\n    connection_string: String,\n}}\n\nimpl DatastoreRepository {{\n    pub fn from_env() -> Self {{\n        let connection_string = std::env::var({}).unwrap_or_default();\n        Self {{ connection_string }}\n    }}\n\n    pub fn connection_configured(&self) -> bool {{\n        !self.connection_string.trim().is_empty()\n    }}\n",
+        rust_string_literal(&spec.env_var)
+    );
+    for resource in &spec.resources {
+        let fn_base = snake_case(&resource.endpoint_slug);
+        output.push_str(&format!(
+            "\n    pub async fn search_{fn_base}(&self, _limit: u32) -> Result<Vec<{}>, String> {{\n        let _ = self.connection_configured();\n        Ok(Vec::new())\n    }}\n\n    pub async fn get_{fn_base}(&self, _identity: String) -> Result<Option<{}>, String> {{\n        let _ = self.connection_configured();\n        Ok(None)\n    }}\n\n    pub async fn create_{fn_base}(&self, values: {}) -> Result<{}, String> {{\n        let _ = self.connection_configured();\n        Ok(values)\n    }}\n\n    pub async fn update_{fn_base}(&self, _identity: String, values: {}) -> Result<{}, String> {{\n        let _ = self.connection_configured();\n        Ok(values)\n    }}\n\n    pub async fn delete_{fn_base}(&self, identity: String) -> Result<Value, String> {{\n        let _ = self.connection_configured();\n        Ok(json!({{ \"deleted\": true, \"identity\": identity }}))\n    }}\n",
+            resource.model_name,
+            resource.model_name,
+            resource.model_name,
+            resource.model_name,
+            resource.model_name,
+            resource.model_name
+        ));
+    }
+    for endpoint in &spec.custom_endpoints {
+        output.push_str(&format!(
+            "\n    pub async fn run_{}(&self, parameters: Value) -> Result<Value, String> {{\n        let _ = self.connection_configured();\n        Ok(json!({{ \"parameters\": parameters, \"data\": [] }}))\n    }}\n",
+            endpoint.function_name
+        ));
+    }
+    output.push_str("}\n");
+    output
+}
+
+fn rust_main(spec: &ProjectExportSpec) -> String {
+    match spec.protocol.as_str() {
+        "graphql" => rust_graphql_main(spec),
+        "grpc" => rust_grpc_main(spec),
+        _ => rust_rest_main(spec),
+    }
+}
+
+fn rust_rest_main(spec: &ProjectExportSpec) -> String {
+    let mut routes = String::new();
+    let mut handlers = String::new();
+    for resource in &spec.resources {
+        let fn_base = snake_case(&resource.endpoint_slug);
+        routes.push_str(&format!(
+            "        .route({}, get(search_{fn_base}).post(create_{fn_base}))\n        .route({}, get(get_{fn_base}).patch(update_{fn_base}).delete(delete_{fn_base}))\n",
+            rust_string_literal(&resource.endpoint_path),
+            rust_string_literal(&format!("{}/{{identity}}", resource.endpoint_path))
+        ));
+        handlers.push_str(&rust_rest_handlers(resource, &fn_base));
+    }
+    for endpoint in &spec.custom_endpoints {
+        let method = if endpoint.method == "POST" {
+            "post"
+        } else {
+            "get"
+        };
+        routes.push_str(&format!(
+            "        .route({}, {method}(run_{}))\n",
+            rust_string_literal(&endpoint.endpoint_path),
+            endpoint.function_name
+        ));
+        handlers.push_str(&rust_custom_endpoint_handler(endpoint));
+    }
+    format!(
+        "mod models;\nmod repository;\n\nuse std::{{collections::HashMap, net::SocketAddr, sync::Arc}};\nuse axum::{{extract::{{Path, Query, State}}, http::StatusCode, response::IntoResponse, routing::{{delete, get, patch, post}}, Json, Router}};\nuse serde::Deserialize;\nuse serde_json::{{json, Value}};\nuse models::*;\nuse repository::DatastoreRepository;\n\n#[derive(Clone)]\nstruct AppState {{\n    repository: Arc<DatastoreRepository>,\n}}\n\n#[derive(Deserialize)]\nstruct SearchQuery {{\n    limit: Option<u32>,\n}}\n\n#[derive(Deserialize)]\nstruct MutationBody<T> {{\n    identity: Option<Value>,\n    values: Option<T>,\n    changes: Option<Vec<Value>>,\n    #[serde(rename = \"confirmationText\")]\n    confirmation_text: Option<String>,\n}}\n\n#[tokio::main]\nasync fn main() {{\n    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();\n    let state = AppState {{ repository: Arc::new(DatastoreRepository::from_env()) }};\n    let app = Router::new()\n{routes}        .route(\"/health\", get(health))\n        .with_state(state);\n    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));\n    let listener = tokio::net::TcpListener::bind(addr).await.expect(\"bind API listener\");\n    axum::serve(listener, app).await.expect(\"serve API\");\n}}\n\nasync fn health(State(state): State<AppState>) -> Json<Value> {{\n    Json(json!({{ \"ok\": true, \"datastoreConfigured\": state.repository.connection_configured() }}))\n}}\n\nfn api_error(error: String) -> (StatusCode, Json<Value>) {{\n    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({{ \"error\": error }})))\n}}\n\n{handlers}",
+    )
+}
+
+fn rust_rest_handlers(resource: &ProjectResourceModel, fn_base: &str) -> String {
+    format!(
+        "async fn search_{fn_base}(State(state): State<AppState>, Query(query): Query<SearchQuery>) -> Result<Json<Vec<{}>>, (StatusCode, Json<Value>)> {{\n    state.repository.search_{fn_base}(query.limit.unwrap_or(100)).await.map(Json).map_err(api_error)\n}}\n\nasync fn get_{fn_base}(State(state): State<AppState>, Path(identity): Path<String>) -> Result<Json<Option<{}>>, (StatusCode, Json<Value>)> {{\n    state.repository.get_{fn_base}(identity).await.map(Json).map_err(api_error)\n}}\n\nasync fn create_{fn_base}(State(state): State<AppState>, Json(body): Json<MutationBody<{}>>) -> Result<Json<{}>, (StatusCode, Json<Value>)> {{\n    let values = body.values.unwrap_or_default();\n    state.repository.create_{fn_base}(values).await.map(Json).map_err(api_error)\n}}\n\nasync fn update_{fn_base}(State(state): State<AppState>, Path(identity): Path<String>, Json(body): Json<MutationBody<{}>>) -> Result<Json<{}>, (StatusCode, Json<Value>)> {{\n    let values = body.values.unwrap_or_default();\n    state.repository.update_{fn_base}(identity, values).await.map(Json).map_err(api_error)\n}}\n\nasync fn delete_{fn_base}(State(state): State<AppState>, Path(identity): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {{\n    state.repository.delete_{fn_base}(identity).await.map(Json).map_err(api_error)\n}}\n\n",
+        resource.model_name,
+        resource.model_name,
+        resource.model_name,
+        resource.model_name,
+        resource.model_name,
+        resource.model_name
+    )
+}
+
+fn rust_custom_endpoint_handler(endpoint: &ProjectCustomEndpoint) -> String {
+    if endpoint.method == "POST" {
+        format!(
+            "async fn run_{}(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {{\n    state.repository.run_{}(body).await.map(Json).map_err(api_error)\n}}\n\n",
+            endpoint.function_name, endpoint.function_name
+        )
+    } else {
+        format!(
+            "async fn run_{}(State(state): State<AppState>, Query(query): Query<HashMap<String, String>>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {{\n    state.repository.run_{}(json!(query)).await.map(Json).map_err(api_error)\n}}\n\n",
+            endpoint.function_name, endpoint.function_name
+        )
+    }
+}
+
+fn rust_graphql_main(spec: &ProjectExportSpec) -> String {
+    let mut query_methods = String::new();
+    let mut mutation_methods = String::new();
+    for resource in &spec.resources {
+        let fn_base = snake_case(&resource.endpoint_slug);
+        query_methods.push_str(&format!(
+            "    async fn {fn_base}(&self, ctx: &async_graphql::Context<'_>, limit: Option<i32>) -> async_graphql::Result<Vec<{}>> {{\n        let repo = ctx.data::<std::sync::Arc<DatastoreRepository>>()?;\n        Ok(repo.search_{fn_base}(limit.unwrap_or(100).max(1) as u32).await?)\n    }}\n\n",
+            resource.model_name
+        ));
+        mutation_methods.push_str(&format!(
+            "    async fn create_{fn_base}(&self, ctx: &async_graphql::Context<'_>, values: {}) -> async_graphql::Result<{}> {{\n        let repo = ctx.data::<std::sync::Arc<DatastoreRepository>>()?;\n        Ok(repo.create_{fn_base}(values).await?)\n    }}\n\n",
+            resource.model_name, resource.model_name
+        ));
+    }
+    format!(
+        "mod models;\nmod repository;\n\nuse std::sync::Arc;\nuse async_graphql::{{EmptySubscription, Object, Schema}};\nuse async_graphql_axum::GraphQL;\nuse axum::{{response::Html, routing::get, Router}};\nuse models::*;\nuse repository::DatastoreRepository;\n\nstruct QueryRoot;\n\n#[Object]\nimpl QueryRoot {{\n{query_methods}}}\n\nstruct MutationRoot;\n\n#[Object]\nimpl MutationRoot {{\n{mutation_methods}}}\n\n#[tokio::main]\nasync fn main() {{\n    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();\n    let repository = Arc::new(DatastoreRepository::from_env());\n    let schema = Schema::build(QueryRoot, MutationRoot, EmptySubscription).data(repository).finish();\n    let app = Router::new()\n        .route(\"/\", get(|| async {{ Html(\"GraphQL endpoint: /graphql\") }}))\n        .route(\"/graphql\", get(GraphQL::new(schema.clone())).post(GraphQL::new(schema)));\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:8080\").await.expect(\"bind API listener\");\n    axum::serve(listener, app).await.expect(\"serve API\");\n}}\n"
+    )
+}
+
+fn rust_grpc_main(spec: &ProjectExportSpec) -> String {
+    let mut services = String::new();
+    let mut add_services = String::new();
+    for resource in &spec.resources {
+        let service = format!("{}Service", resource.model_name);
+        let module = snake_case(&service);
+        let server = format!("{}Server", service);
+        services.push_str(&format!(
+            "#[derive(Default)]\npub struct {service}Impl;\n\n#[tonic::async_trait]\nimpl api::{module}_server::{service} for {service}Impl {{\n    async fn search(&self, _request: tonic::Request<api::SearchRequest>) -> Result<tonic::Response<api::JsonResponse>, tonic::Status> {{\n        Ok(tonic::Response::new(api::JsonResponse {{ json: \"[]\".into() }}))\n    }}\n}}\n\n"
+        ));
+        add_services.push_str(&format!(
+            "        .add_service(api::{module}_server::{server}::new({service}Impl::default()))\n"
+        ));
+    }
+    format!(
+        "pub mod api {{ tonic::include_proto!(\"datapad.api\"); }}\n\n{services}#[tokio::main]\nasync fn main() -> Result<(), Box<dyn std::error::Error>> {{\n    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();\n    tonic::transport::Server::builder()\n{add_services}        .serve(\"0.0.0.0:8080\".parse()?)\n        .await?;\n    Ok(())\n}}\n"
+    )
+}
+
+fn rust_grpc_build_rs() -> String {
+    "fn main() -> Result<(), Box<dyn std::error::Error>> {\n    tonic_build::compile_protos(\"proto/datapad_api.proto\")?;\n    Ok(())\n}\n".into()
+}
+
+fn dotnet_csproj(spec: &ProjectExportSpec) -> String {
+    let mut packages = vec![
+        "    <PackageReference Include=\"Microsoft.AspNetCore.OpenApi\" Version=\"10.0.0\" />",
+    ];
+    if spec.protocol == "graphql" {
+        packages.push(
+            "    <PackageReference Include=\"HotChocolate.AspNetCore\" Version=\"15.1.11\" />",
+        );
+    }
+    if spec.protocol == "grpc" {
+        packages.push("    <PackageReference Include=\"Grpc.AspNetCore\" Version=\"2.67.0\" />");
+        packages.push("    <PackageReference Include=\"Grpc.Tools\" Version=\"2.67.0\" PrivateAssets=\"All\" />");
+    }
+    match spec.provider {
+        ExportProvider::DynamoDb => packages
+            .push("    <PackageReference Include=\"AWSSDK.DynamoDBv2\" Version=\"4.0.3.3\" />"),
+        ExportProvider::LiteDb => {
+            packages.push("    <PackageReference Include=\"LiteDB\" Version=\"5.0.21\" />")
+        }
+        ExportProvider::MongoDb => {
+            packages.push("    <PackageReference Include=\"MongoDB.Driver\" Version=\"3.4.0\" />")
+        }
+        ExportProvider::Redis => packages
+            .push("    <PackageReference Include=\"StackExchange.Redis\" Version=\"2.8.58\" />"),
+        ExportProvider::Search => {}
+        ExportProvider::Sql => {
+            packages.push("    <PackageReference Include=\"Dapper\" Version=\"2.1.66\" />")
+        }
+    }
+    let proto = if spec.protocol == "grpc" {
+        "\n  <ItemGroup>\n    <Protobuf Include=\"Protos\\datapad_api.proto\" GrpcServices=\"Server\" />\n  </ItemGroup>\n"
+    } else {
+        ""
+    };
+    format!(
+        "<Project Sdk=\"Microsoft.NET.Sdk.Web\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n  </PropertyGroup>\n\n  <ItemGroup>\n{}\n  </ItemGroup>\n{proto}</Project>\n",
+        packages.join("\n")
+    )
+}
+
+fn dotnet_program(spec: &ProjectExportSpec) -> String {
+    match spec.protocol.as_str() {
+        "graphql" => dotnet_graphql_program(spec),
+        "grpc" => dotnet_grpc_program(spec),
+        _ => dotnet_rest_program(spec),
+    }
+}
+
+fn dotnet_rest_program(spec: &ProjectExportSpec) -> String {
+    let mut routes = String::new();
+    for resource in &spec.resources {
+        let base = pascal_case(&resource.endpoint_slug);
+        routes.push_str(&format!(
+            "api.MapGet({path}, async (DatastoreRepository repo, int? limit) => TypedResults.Ok(await repo.Search{base}Async(limit ?? 100)));\napi.MapGet({identity_path}, async (DatastoreRepository repo, string identity) => TypedResults.Ok(await repo.Get{base}Async(identity)));\napi.MapPost({path}, async (DatastoreRepository repo, MutationBody<{model}> body) => TypedResults.Ok(await repo.Create{base}Async(body.Values ?? new {model}())));\napi.MapPatch({identity_path}, async (DatastoreRepository repo, string identity, MutationBody<{model}> body) => TypedResults.Ok(await repo.Update{base}Async(identity, body.Values ?? new {model}())));\napi.MapDelete({identity_path}, async (DatastoreRepository repo, string identity) => TypedResults.Ok(await repo.Delete{base}Async(identity)));\n",
+            path = csharp_string_literal(&resource.endpoint_path),
+            identity_path = csharp_string_literal(&format!("{}/{{identity}}", resource.endpoint_path)),
+            model = resource.model_name
+        ));
+    }
+    for endpoint in &spec.custom_endpoints {
+        let name = pascal_case(&endpoint.function_name);
+        if endpoint.method == "POST" {
+            routes.push_str(&format!(
+                "api.MapPost({path}, async (DatastoreRepository repo, JsonElement body) => TypedResults.Ok(await repo.Run{name}Async(body)));\n",
+                path = csharp_string_literal(&endpoint.endpoint_path)
+            ));
+        } else {
+            routes.push_str(&format!(
+                "api.MapGet({path}, async (DatastoreRepository repo, HttpRequest request) => TypedResults.Ok(await repo.Run{name}Async(request.Query.ToDictionary(item => item.Key, item => item.Value.ToString()))));\n",
+                path = csharp_string_literal(&endpoint.endpoint_path)
+            ));
+        }
+    }
+    format!(
+        "using System.Text.Json;\nusing Microsoft.AspNetCore.Http.HttpResults;\nusing Microsoft.AspNetCore.Mvc;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddOpenApi();\nbuilder.Services.AddSingleton<DatastoreRepository>();\n\nvar app = builder.Build();\nif (app.Environment.IsDevelopment())\n{{\n    app.MapOpenApi();\n}}\n\nvar api = app.MapGroup(\"\");\napi.MapGet(\"/health\", (DatastoreRepository repo) => TypedResults.Ok(new {{ ok = true, datastoreConfigured = repo.ConnectionConfigured }}));\n{routes}\napp.Run();\n\npublic sealed record MutationBody<T>(T? Values, JsonElement? Identity, JsonElement[]? Changes, string? ConfirmationText);\n"
+    )
+}
+
+fn dotnet_graphql_program(_spec: &ProjectExportSpec) -> String {
+    "var builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<DatastoreRepository>();\nbuilder.Services.AddGraphQLServer().AddQueryType<Query>().AddMutationType<Mutation>();\n\nvar app = builder.Build();\napp.MapGraphQL();\napp.Run();\n".into()
+}
+
+fn dotnet_grpc_program(spec: &ProjectExportSpec) -> String {
+    let services = spec
+        .resources
+        .iter()
+        .map(|resource| format!("app.MapGrpcService<{}ServiceImpl>();", resource.model_name))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "var builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddGrpc();\nbuilder.Services.AddSingleton<DatastoreRepository>();\n\nvar app = builder.Build();\n{services}\napp.MapGet(\"/\", () => \"gRPC endpoint. Use a gRPC client with Protos/datapad_api.proto.\");\napp.Run();\n"
+    )
+}
+
+fn dotnet_models(spec: &ProjectExportSpec) -> String {
+    let mut output = format!(
+        "using System.Text.Json;\nusing System.Text.Json.Serialization;\n\nnamespace {};\n\n",
+        spec.namespace
+    );
+    for resource in &spec.resources {
+        output.push_str(&format!(
+            "public sealed class {} \n{{\n",
+            resource.model_name
+        ));
+        for field in &resource.fields {
+            output.push_str(&format!(
+                "    [JsonPropertyName({})]\n    public {} {} {{ get; set; }}{}\n",
+                csharp_string_literal(&field.json_name),
+                field.csharp_type,
+                field.csharp_name,
+                csharp_default_value(field)
+            ));
+        }
+        output.push_str("}\n\n");
+    }
+    output
+}
+
+fn dotnet_repository(spec: &ProjectExportSpec) -> String {
+    let mut output = format!(
+        "using System.Text.Json;\n\nnamespace {};\n\npublic sealed class DatastoreRepository\n{{\n    private readonly string _connectionString;\n\n    public DatastoreRepository(IConfiguration configuration)\n    {{\n        _connectionString = configuration[{}] ?? string.Empty;\n    }}\n\n    public bool ConnectionConfigured => !string.IsNullOrWhiteSpace(_connectionString);\n",
+        spec.namespace,
+        csharp_string_literal(&spec.env_var)
+    );
+    for resource in &spec.resources {
+        let base = pascal_case(&resource.endpoint_slug);
+        output.push_str(&format!(
+            "\n    public Task<IReadOnlyList<{model}>> Search{base}Async(int limit)\n    {{\n        _ = limit;\n        return Task.FromResult<IReadOnlyList<{model}>>(Array.Empty<{model}>());\n    }}\n\n    public Task<{model}?> Get{base}Async(string identity)\n    {{\n        _ = identity;\n        return Task.FromResult<{model}?>(null);\n    }}\n\n    public Task<{model}> Create{base}Async({model} values)\n    {{\n        return Task.FromResult(values);\n    }}\n\n    public Task<{model}> Update{base}Async(string identity, {model} values)\n    {{\n        _ = identity;\n        return Task.FromResult(values);\n    }}\n\n    public Task<object> Delete{base}Async(string identity)\n    {{\n        return Task.FromResult<object>(new {{ deleted = true, identity }});\n    }}\n",
+            model = resource.model_name
+        ));
+    }
+    for endpoint in &spec.custom_endpoints {
+        let name = pascal_case(&endpoint.function_name);
+        output.push_str(&format!(
+            "\n    public Task<object> Run{name}Async(object parameters)\n    {{\n        return Task.FromResult<object>(new {{ parameters, data = Array.Empty<object>() }});\n    }}\n"
+        ));
+    }
+    output.push_str("}\n");
+    output
+}
+
+fn dotnet_graphql_types(spec: &ProjectExportSpec) -> String {
+    let mut query = format!(
+        "namespace {};\n\npublic sealed class Query\n{{\n",
+        spec.namespace
+    );
+    let mut mutation = String::from("public sealed class Mutation\n{\n");
+    for resource in &spec.resources {
+        let base = pascal_case(&resource.endpoint_slug);
+        query.push_str(&format!(
+            "    public Task<IReadOnlyList<{model}>> {base}(DatastoreRepository repo, int? limit) => repo.Search{base}Async(limit ?? 100);\n",
+            model = resource.model_name
+        ));
+        mutation.push_str(&format!(
+            "    public Task<{model}> Create{base}(DatastoreRepository repo, {model} values) => repo.Create{base}Async(values);\n",
+            model = resource.model_name
+        ));
+    }
+    query.push_str("}\n\n");
+    mutation.push_str("}\n");
+    format!("{query}{mutation}")
+}
+
+fn dotnet_grpc_services(spec: &ProjectExportSpec) -> String {
+    let mut output = format!(
+        "using Grpc.Core;\nusing {}.Grpc;\n\nnamespace {};\n\n",
+        spec.namespace, spec.namespace
+    );
+    for resource in &spec.resources {
+        output.push_str(&format!(
+            "public sealed class {model}ServiceImpl : {model}Service.{model}ServiceBase\n{{\n    public override Task<JsonResponse> Search(SearchRequest request, ServerCallContext context)\n    {{\n        return Task.FromResult(new JsonResponse {{ Json = \"[]\" }});\n    }}\n}}\n\n",
+            model = resource.model_name
+        ));
+    }
+    output
+}
+
+fn grpc_proto(spec: &ProjectExportSpec) -> String {
+    let mut messages = String::new();
+    let mut services = String::new();
+    for resource in &spec.resources {
+        messages.push_str(&format!("message {} {{\n", resource.model_name));
+        for (index, field) in resource.fields.iter().enumerate() {
+            messages.push_str(&format!(
+                "  {} {} = {};\n",
+                proto_type(field),
+                snake_case(&field.source_name),
+                index + 1
+            ));
+        }
+        messages.push_str("}\n\n");
+        services.push_str(&format!(
+            "service {}Service {{\n  rpc Search (SearchRequest) returns (JsonResponse);\n}}\n\n",
+            resource.model_name
+        ));
+    }
+    format!(
+        "syntax = \"proto3\";\n\npackage datapad.api;\noption csharp_namespace = {};\n\nmessage SearchRequest {{\n  uint32 limit = 1;\n}}\n\nmessage JsonResponse {{\n  string json = 1;\n}}\n\n{messages}{services}",
+        rust_string_literal(&format!("{}.Grpc", spec.namespace))
+    )
+}
+
+fn proto_type(field: &ProjectFieldModel) -> &'static str {
+    if field.rust_type.contains("i64") {
+        "int64"
+    } else if field.rust_type.contains("i32") || field.rust_type.contains("i16") {
+        "int32"
+    } else if field.rust_type.contains("f64") {
+        "double"
+    } else if field.rust_type.contains("bool") {
+        "bool"
+    } else {
+        "string"
+    }
+}
+
+fn csharp_default_value(field: &ProjectFieldModel) -> &'static str {
+    if field.csharp_type == "string" {
+        " = string.Empty;"
+    } else if field.csharp_type == "byte[]" {
+        " = Array.Empty<byte>();"
+    } else {
+        ""
+    }
+}
+
+fn rust_field_name(field: &ProjectFieldModel) -> String {
+    if matches!(
+        field.rust_name.as_str(),
+        "type" | "match" | "ref" | "self" | "crate" | "super" | "mod" | "async" | "await"
+    ) {
+        format!("{}_", field.rust_name)
+    } else {
+        field.rust_name.clone()
+    }
+}
+
+fn rust_string_literal(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into())
+}
+
+fn csharp_string_literal(value: &str) -> String {
+    format!("@\"{}\"", value.replace('"', "\"\""))
+}
+
+fn zip_project_files(files: Vec<ProjectFile>) -> Result<Vec<u8>, CommandError> {
+    let cursor = Cursor::new(Vec::new());
+    let mut writer = zip::ZipWriter::new(cursor);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for file in files {
+        writer.start_file(&file.path, options).map_err(|error| {
+            CommandError::new(
+                "api-server-export-zip-failed",
+                format!("Unable to add `{}` to the project zip: {error}", file.path),
+            )
+        })?;
+        writer
+            .write_all(file.contents.as_bytes())
+            .map_err(|error| {
+                CommandError::new(
+                    "api-server-export-zip-failed",
+                    format!(
+                        "Unable to write `{}` to the project zip: {error}",
+                        file.path
+                    ),
+                )
+            })?;
+    }
+    let cursor = writer.finish().map_err(|error| {
+        CommandError::new(
+            "api-server-export-zip-failed",
+            format!("Unable to finish the project zip: {error}"),
+        )
+    })?;
+    Ok(cursor.into_inner())
+}
+
+fn unique_identifier(seen: &mut HashMap<String, usize>, value: String, fallback: &str) -> String {
+    let mut value = value.trim_matches('_').to_string();
+    if value.is_empty() || value.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        value = format!("{fallback}{value}");
+    }
+    let count = seen.entry(value.clone()).or_insert(0);
+    *count += 1;
+    if *count > 1 {
+        format!("{value}{count}")
+    } else {
+        value
+    }
+}
+
+fn safe_file_stem(value: &str) -> String {
+    let stem = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if stem.is_empty() {
+        "api-server".into()
+    } else {
+        stem
+    }
+}
+
+fn snake_case(value: &str) -> String {
+    let mut result = String::new();
+    let mut previous_was_separator = true;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if ch.is_ascii_uppercase() && !previous_was_separator && !result.ends_with('_') {
+                result.push('_');
+            }
+            result.push(ch.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !result.ends_with('_') {
+            result.push('_');
+            previous_was_separator = true;
+        }
+    }
+    let result = result.trim_matches('_').to_string();
+    if result.is_empty() {
+        "value".into()
+    } else if result.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        format!("value_{result}")
+    } else {
+        result
+    }
+}
+
+fn pascal_case(value: &str) -> String {
+    let mut result = String::new();
+    for part in value
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+    {
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            result.push(first.to_ascii_uppercase());
+            for ch in chars {
+                result.push(ch.to_ascii_lowercase());
+            }
+        }
+    }
+    if result.is_empty() {
+        String::new()
+    } else if result.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        format!("Value{result}")
+    } else {
+        result
+    }
 }
 
 fn api_parameter_names(query_text: &str) -> Vec<String> {

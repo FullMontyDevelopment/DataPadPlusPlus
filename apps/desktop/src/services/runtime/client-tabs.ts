@@ -318,13 +318,20 @@ export const clientTabs = {
     tabId: string,
     queryText: string,
     queryViewMode?: QueryViewMode,
+    documentEfficiencyMode?: boolean,
   ): Promise<BootstrapPayload> {
-    validateUpdateQueryTabRequest({ tabId, queryText, queryViewMode })
+    validateUpdateQueryTabRequest({
+      tabId,
+      queryText,
+      queryViewMode,
+      documentEfficiencyMode,
+    })
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('update_query_tab', {
         tabId,
         queryText,
         queryViewMode,
+        documentEfficiencyMode,
       })
     }
 
@@ -339,6 +346,9 @@ export const clientTabs = {
       }
       if (queryViewMode) {
         tab.queryViewMode = queryViewMode
+      }
+      if (documentEfficiencyMode !== undefined) {
+        tab.documentEfficiencyMode = documentEfficiencyMode
       }
       tab.dirty = true
       tab.error = undefined

@@ -189,6 +189,13 @@ function renderApiServerWorkspace(
     onAddCustomEndpoint: vi.fn().mockResolvedValue(true),
     onUpdateCustomEndpoint: vi.fn().mockResolvedValue(true),
     onRemoveCustomEndpoint: vi.fn().mockResolvedValue(true),
+    onExportProject: vi.fn().mockResolvedValue({
+      saved: true,
+      path: 'C:\\Exports\\LocalAPIServer-rust.zip',
+      framework: 'rust',
+      projectName: 'LocalAPIServer',
+      warnings: [],
+    }),
     onUpdateSettings: vi.fn().mockResolvedValue(true),
     onStart: vi.fn().mockResolvedValue({
       enabled: true,
@@ -600,6 +607,52 @@ describe('ApiServerWorkspace', () => {
         endpointId: 'custom-users-by-email',
       })
     })
+  })
+
+  it('exports the selected API server as a hostable project', async () => {
+    const props = renderApiServerWorkspace({
+      onExportProject: vi.fn().mockResolvedValue({
+        saved: true,
+        path: 'C:\\Exports\\AnalyticsApi-dotnet.zip',
+        framework: 'dotnet',
+        projectName: 'AnalyticsApi',
+        warnings: ['Model `users` is inferred from sample metadata.'],
+      }),
+    })
+
+    expect(await screen.findByText('Resources')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Export Project' }))
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Export API Server Project',
+    })
+    expect(within(dialog).getByText('Typed models required')).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('/users')
+    expect(dialog).toHaveTextContent('Schema: catalog columns')
+
+    fireEvent.change(within(dialog).getByLabelText('Framework'), {
+      target: { value: 'dotnet' },
+    })
+    fireEvent.change(within(dialog).getByLabelText('Project name'), {
+      target: { value: 'AnalyticsApi' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Export Zip' }))
+
+    await waitFor(() => {
+      expect(props.onExportProject).toHaveBeenCalledWith({
+        serverId: 'api-server-default',
+        framework: 'dotnet',
+        projectName: 'AnalyticsApi',
+        namespace: 'AnalyticsApi',
+        packageName: undefined,
+      })
+    })
+    expect(
+      await within(dialog).findByText(/Saved dotnet project to/),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText('Model `users` is inferred from sample metadata.'),
+    ).toBeInTheDocument()
   })
 
   it('reenables resource discovery controls when discovery fails', async () => {

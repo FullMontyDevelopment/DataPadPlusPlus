@@ -155,6 +155,7 @@ impl ManagedAppState {
                 Some(super::query_tabs::default_query_view_mode(&connection))
             },
             script_text: None,
+            document_efficiency_mode: None,
             scoped_target: None,
             builder_state: None,
             metrics_state: None,

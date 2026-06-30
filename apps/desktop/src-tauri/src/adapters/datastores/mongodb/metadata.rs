@@ -1,9 +1,13 @@
+use std::collections::BTreeMap;
+
 use futures_util::TryStreamExt;
 use mongodb::bson::{self, doc, Document};
 
 use super::super::super::*;
 use super::bson_extjson::mongodb_document_to_json;
 use super::connection::{mongodb_client, mongodb_database_name};
+
+const MONGODB_SCHEMA_SAMPLE_LIMIT: i64 = 50;
 
 pub(crate) async fn load_mongodb_structure(
     connection: &ResolvedConnectionProfile,
@@ -21,25 +25,19 @@ pub(crate) async fn load_mongodb_structure(
         collection_names.push(collection_name.clone());
         let collection = database.collection::<Document>(collection_name);
         let index_names = collection.list_index_names().await.unwrap_or_default();
-        let sample = match collection.find(doc! {}).limit(1).await {
+        let sample_documents = match collection
+            .find(doc! {})
+            .limit(MONGODB_SCHEMA_SAMPLE_LIMIT)
+            .await
+        {
             Ok(cursor) => cursor
                 .try_collect::<Vec<Document>>()
                 .await
-                .ok()
-                .and_then(|mut docs| docs.pop()),
-            Err(_) => None,
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
         };
-        let fields = sample
-            .as_ref()
-            .map(|document| {
-                document
-                    .iter()
-                    .map(|(name, value)| {
-                        structure_field(name, bson_type_name(value), None, None, None)
-                    })
-                    .collect::<Vec<StructureField>>()
-            })
-            .unwrap_or_default();
+        let fields = mongodb_sample_fields(&sample_documents);
+        let sample = sample_documents.first();
         let count = collection
             .estimated_document_count()
             .await
@@ -66,7 +64,7 @@ pub(crate) async fn load_mongodb_structure(
                 structure_metric("Indexes", index_names.len().to_string()),
             ],
             fields,
-            sample: sample.as_ref().map(mongodb_document_to_json),
+            sample: sample.map(mongodb_document_to_json),
         });
     }
     for node in &nodes {
@@ -112,6 +110,71 @@ pub(crate) async fn load_mongodb_structure(
             truncated: collections.len() > limit as usize,
         },
     ))
+}
+
+#[derive(Default)]
+struct MongoFieldSummary {
+    data_type: Option<String>,
+    present_count: usize,
+    nullable: bool,
+}
+
+fn mongodb_sample_fields(documents: &[Document]) -> Vec<StructureField> {
+    let total = documents.len();
+    if total == 0 {
+        return Vec::new();
+    }
+    let mut summaries = BTreeMap::<String, MongoFieldSummary>::new();
+    for document in documents {
+        for (name, value) in document {
+            let summary = summaries.entry(name.clone()).or_default();
+            summary.present_count += 1;
+            if matches!(value, bson::Bson::Null) {
+                summary.nullable = true;
+            }
+            summary.data_type = Some(merge_bson_type(
+                summary.data_type.as_deref(),
+                &bson_type_name(value),
+            ));
+        }
+    }
+    summaries
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, summary))| {
+            structure_field_with_flags(
+                &name,
+                summary.data_type.as_deref().unwrap_or("value"),
+                None,
+                Some(summary.nullable || summary.present_count < total),
+                Some(name == "_id"),
+                Some(index as u32),
+                None,
+            )
+        })
+        .collect()
+}
+
+fn merge_bson_type(existing: Option<&str>, next: &str) -> String {
+    if next == "null" {
+        return existing.unwrap_or("value").into();
+    }
+    let Some(existing) = existing else {
+        return next.into();
+    };
+    if existing == next {
+        return existing.into();
+    }
+    if matches!((existing, next), ("int32", "int64") | ("int64", "int32")) {
+        return "int64".into();
+    }
+    if matches!(
+        (existing, next),
+        ("int32", "double") | ("int64", "double") | ("double", "int32") | ("double", "int64")
+    ) {
+        return "double".into();
+    }
+    "value".into()
 }
 
 fn bson_type_name(value: &bson::Bson) -> String {
