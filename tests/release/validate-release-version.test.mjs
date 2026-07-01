@@ -110,7 +110,7 @@ test('current release workflow matches the hardened release contract', () => {
 
   assert.deepEqual(result.platforms, [
     'ubuntu-22.04',
-    'windows-latest',
+    'windows-2022',
     'macos-latest'
   ])
 })

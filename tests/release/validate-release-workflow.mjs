@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 const REQUIRED_PLATFORMS = [
   'ubuntu-22.04',
-  'windows-latest',
+  'windows-2022',
   'macos-latest'
 ]
 
@@ -238,6 +238,11 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
     text,
     /repos\/\$\{GITHUB_REPOSITORY\}\/releases\/tags\/\$\{TAG_NAME\}/,
     'release workflow must not use the published-release-only releases/tags endpoint for draft releases'
+  )
+  rejectMatch(
+    text,
+    /platform:\s*windows-latest/,
+    'release workflow must not use the moving windows-latest runner for Windows releases'
   )
   requireMatch(
     text,

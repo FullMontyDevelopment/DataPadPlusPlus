@@ -191,7 +191,7 @@ jobs:
             rust-targets: ''
             artifact-suffix: linux-x64
           - label: Windows x64
-            platform: windows-latest
+            platform: windows-2022
             args: '--bundles nsis,msi'
             rust-targets: ''
             artifact-suffix: windows-x64
