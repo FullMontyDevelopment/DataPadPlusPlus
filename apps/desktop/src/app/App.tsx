@@ -3471,6 +3471,7 @@ function DesktopWorkspace() {
         onOpenLibrary={openLibraryForGuide}
         onRequestCreateFolder={requestGuideFolderDialog}
         onOpenConnection={openNewConnectionDraft}
+        onOpenConnectionPanel={openConnectionDrawerFor}
         onOpenExplorer={openConnectionExplorer}
         onOpenQuery={openQueryTab}
         onOpenSettings={() => openDiagnosticsDrawer('security')}

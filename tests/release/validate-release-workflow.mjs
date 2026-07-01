@@ -86,6 +86,16 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
+    /name:\s*Configure Windows bundled C\+\+ build flags/,
+    'release workflow must configure Windows bundled C++ build flags before building'
+  )
+  requireMatch(
+    text,
+    /CXXFLAGS_x86_64_pc_windows_msvc=\/std:c\+\+17 \/EHsc/,
+    'release workflow must compile bundled Windows C++ dependencies with C++17'
+  )
+  requireMatch(
+    text,
     /npm\s+exec\s+--workspace\s+@datapadplusplus\/desktop\s+--\s+tauri\s+signer\s+sign\s+"\$\{smoke_file\}"/,
     'release workflow must smoke-test the Tauri updater private key before building'
   )

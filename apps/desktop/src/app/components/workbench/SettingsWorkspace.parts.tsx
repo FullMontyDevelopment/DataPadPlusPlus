@@ -15,14 +15,16 @@ export function SettingsPanel({
   children,
   icon,
   title,
+  tourId,
 }: {
   children: ReactNode
   icon: ReactNode
   title: string
+  tourId?: string
 }) {
   return (
     <section className="settings-panel">
-      <header className="settings-panel-header">
+      <header className="settings-panel-header" data-tour-id={tourId}>
         {icon}
         <h2>{title}</h2>
       </header>

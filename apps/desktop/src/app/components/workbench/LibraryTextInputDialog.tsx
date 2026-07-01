@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ObjectFolderIcon } from './icons'
 
 interface LibraryTextInputDialogProps {
   body: string
@@ -39,7 +40,7 @@ export function LibraryTextInputDialog({
   return (
     <div className="workbench-modal-overlay" role="presentation">
       <form
-        className="workbench-dialog"
+        className="workbench-dialog library-text-input-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="library-input-dialog-title"
@@ -48,10 +49,17 @@ export function LibraryTextInputDialog({
           submit()
         }}
       >
-        <p className="sidebar-eyebrow">Library</p>
-        <h2 id="library-input-dialog-title">{title}</h2>
-        <p>{body}</p>
-        <label className="drawer-field">
+        <div className="library-text-input-dialog-header">
+          <span className="library-text-input-dialog-icon" aria-hidden="true">
+            <ObjectFolderIcon className="panel-inline-icon" />
+          </span>
+          <div className="library-text-input-dialog-heading">
+            <p className="sidebar-eyebrow">Library</p>
+            <h2 id="library-input-dialog-title">{title}</h2>
+          </div>
+        </div>
+        <p className="library-text-input-dialog-copy">{body}</p>
+        <label className="library-text-input-dialog-field">
           <span>{inputLabel}</span>
           <input
             autoFocus
@@ -63,8 +71,8 @@ export function LibraryTextInputDialog({
             }}
           />
         </label>
-        {error ? <p className="form-error">{error}</p> : null}
-        <div className="drawer-button-row">
+        {error ? <p className="form-error library-text-input-dialog-error">{error}</p> : null}
+        <div className="library-text-input-dialog-actions">
           <button type="button" className="drawer-button" onClick={onCancel}>
             Cancel
           </button>

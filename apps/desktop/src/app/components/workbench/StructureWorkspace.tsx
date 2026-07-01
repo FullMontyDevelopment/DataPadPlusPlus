@@ -138,13 +138,13 @@ function DefaultStructureWorkspace({
       </header>
 
       {!activeConnection || !activeEnvironment ? (
-        <div className="structure-empty">
+        <div className="structure-empty" data-tour-id="explorer-metadata">
           <ExplorerIcon className="empty-icon" />
           <h2>Connect first</h2>
           <p>Create or select a connection, then Explorer can map schemas, collections, or keys.</p>
         </div>
       ) : error ? (
-        <div className="structure-empty structure-empty--error">
+        <div className="structure-empty structure-empty--error" data-tour-id="explorer-metadata">
           <ExplorerIcon className="empty-icon" />
           <h2>Structure unavailable</h2>
           <p>{error}</p>
@@ -173,19 +173,19 @@ function DefaultStructureWorkspace({
           </div>
 
           {status === 'loading' ? (
-            <div className="structure-empty">
+            <div className="structure-empty" data-tour-id="explorer-metadata">
               <ExplorerIcon className="empty-icon" />
               <h2>Loading structure...</h2>
               <p>Metadata is loading with safe limits.</p>
             </div>
           ) : filteredNodes.length === 0 ? (
-            <div className="structure-empty">
+            <div className="structure-empty" data-tour-id="explorer-metadata">
               <ExplorerIcon className="empty-icon" />
               <h2>No structure objects found</h2>
               <p>Refresh metadata or adjust the filter.</p>
             </div>
           ) : (
-            <div className="structure-map-layout">
+            <div className="structure-map-layout" data-tour-id="explorer-metadata">
               <div className="structure-canvas">
                 {(structure?.groups ?? [{ id: 'objects', label: 'Objects', kind: 'group' }]).map(
                   (group) => {

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type {
   LibraryNode,
   QueryTabState,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
+import { CloseIcon } from './icons'
 
 type GuideStepId =
   | 'welcome'
@@ -20,8 +21,11 @@ interface GuideStep {
   title: string
   body: string
   anchor: string
+  placement: GuidePopoverPlacement
   actionLabel?: string
 }
+
+export type GuidePopoverPlacement = 'top' | 'right' | 'bottom' | 'left'
 
 interface FirstInstallGuideProps {
   snapshot: WorkspaceSnapshot
@@ -33,6 +37,7 @@ interface FirstInstallGuideProps {
   onOpenLibrary(): void
   onRequestCreateFolder(): void
   onOpenConnection(parentId?: string): void
+  onOpenConnectionPanel(connectionId: string): void
   onOpenExplorer(connectionId: string): void
   onOpenQuery(connectionId: string): void
   onOpenSettings(): void
@@ -44,7 +49,8 @@ const GUIDE_STEPS: GuideStep[] = [
     id: 'welcome',
     title: 'Welcome to DataPad++',
     body: 'This quick tour uses the real workspace so the important buttons land where your hands expect them.',
-    anchor: 'welcome-surface',
+    anchor: 'welcome-panel',
+    placement: 'right',
     actionLabel: 'Show Library',
   },
   {
@@ -52,6 +58,7 @@ const GUIDE_STEPS: GuideStep[] = [
     title: 'Organize the Library',
     body: 'Create a folder first. Folders keep connections, queries, scripts, notes, and tests grouped together.',
     anchor: 'library-add-folder',
+    placement: 'right',
     actionLabel: 'Create Folder',
   },
   {
@@ -59,6 +66,7 @@ const GUIDE_STEPS: GuideStep[] = [
     title: 'Create a connection',
     body: 'Open a new unsaved connection draft. You can choose a datastore, connection mode, environment, and safety flags before saving.',
     anchor: 'library-add-connection',
+    placement: 'right',
     actionLabel: 'New Connection',
   },
   {
@@ -66,12 +74,15 @@ const GUIDE_STEPS: GuideStep[] = [
     title: 'Test and save',
     body: 'The drawer lets you test credentials with the selected environment, then save only when the profile is ready.',
     anchor: 'connection-drawer',
+    placement: 'left',
+    actionLabel: 'Open Connection Panel',
   },
   {
     id: 'explorer',
     title: 'Browse metadata',
     body: 'Explorer gives you a structure view of the selected datastore before you write or run a query.',
-    anchor: 'editor-tabs',
+    anchor: 'explorer-metadata',
+    placement: 'top',
     actionLabel: 'Open Explorer',
   },
   {
@@ -79,13 +90,15 @@ const GUIDE_STEPS: GuideStep[] = [
     title: 'Query and review results',
     body: 'Query tabs combine the editor, run controls, and results panel so you can inspect data and history in one place.',
     anchor: 'editor-toolbar',
+    placement: 'bottom',
     actionLabel: 'Open Query Tab',
   },
   {
     id: 'settings',
     title: 'Check safety settings',
     body: 'Settings contain safe mode, backups, diagnostics, shortcuts, and experimental features for the workspace.',
-    anchor: 'settings-workspace',
+    anchor: 'settings-safety',
+    placement: 'right',
     actionLabel: 'Open Settings',
   },
 ]
@@ -100,6 +113,7 @@ export function FirstInstallGuide({
   onOpenLibrary,
   onRequestCreateFolder,
   onOpenConnection,
+  onOpenConnectionPanel,
   onOpenExplorer,
   onOpenQuery,
   onOpenSettings,
@@ -117,6 +131,7 @@ export function FirstInstallGuide({
   const [spotlight, setSpotlight] = useState<SpotlightState>()
   const [lastStartRequestRevision, setLastStartRequestRevision] =
     useState(startRequestRevision)
+  const saveStepAutoOpenPending = useRef(false)
 
   const shouldPrompt = guideStatus === 'unseen' && workspaceIsEmpty(snapshot)
   const isRunning = guideStatus === 'started'
@@ -178,6 +193,42 @@ export function FirstInstallGuide({
     }
   }, [currentStep, isRunning])
 
+  useEffect(() => {
+    if (currentStep?.id !== 'save') {
+      saveStepAutoOpenPending.current = false
+      return
+    }
+
+    const saveStepPanelOpen = state.firstConnectionId
+      ? state.connectionPanelOpen
+      : state.connectionDrawerOpen
+
+    if (saveStepPanelOpen) {
+      saveStepAutoOpenPending.current = false
+      return
+    }
+
+    if (saveStepAutoOpenPending.current) {
+      return
+    }
+
+    saveStepAutoOpenPending.current = true
+    onOpenLibrary()
+    if (state.firstConnectionId) {
+      onOpenConnectionPanel(state.firstConnectionId)
+    } else {
+      onOpenConnection(state.folders[0]?.id)
+    }
+  }, [
+    currentStep?.id,
+    onOpenConnection,
+    onOpenConnectionPanel,
+    onOpenLibrary,
+    state.connectionPanelOpen,
+    state.firstConnectionId,
+    state.folders,
+  ])
+
   if (shouldPrompt) {
     return (
       <div className="workbench-modal-overlay first-install-guide-prompt" role="presentation">
@@ -233,11 +284,20 @@ export function FirstInstallGuide({
       ) : null}
       <section
         className="first-install-guide-popover"
-        style={popoverStyle(spotlight)}
+        style={popoverStyle(spotlight, currentStep.placement)}
         role="dialog"
         aria-modal="false"
         aria-labelledby="first-install-guide-title"
       >
+        <button
+          type="button"
+          className="first-install-guide-close"
+          aria-label="Close tutorial"
+          title="Close tutorial"
+          onClick={onSkip}
+        >
+          <CloseIcon className="panel-inline-icon" />
+        </button>
         <p className="first-install-guide-progress">
           Step {stepNumber} of {GUIDE_STEPS.length}
         </p>
@@ -262,15 +322,23 @@ export function FirstInstallGuide({
             <button
               type="button"
               className="drawer-button"
-              onClick={() => runStepAction(currentStep.id, state, {
-                onOpenLibrary,
-                onRequestCreateFolder,
-                onOpenConnection,
-                onOpenExplorer,
-                onOpenQuery,
-                onOpenSettings,
-                onShowResults,
-              })}
+              onClick={() => {
+                runStepAction(currentStep.id, state, {
+                  onOpenLibrary,
+                  onRequestCreateFolder,
+                  onOpenConnection,
+                  onOpenConnectionPanel,
+                  onOpenExplorer,
+                  onOpenQuery,
+                  onOpenSettings,
+                  onShowResults,
+                })
+                if (currentStep.id === 'welcome') {
+                  setCurrentStepIndex((current) =>
+                    Math.min(GUIDE_STEPS.length - 1, current + 1),
+                  )
+                }
+              }}
             >
               {currentStep.actionLabel}
             </button>
@@ -309,6 +377,7 @@ interface GuideRuntimeState {
   hasExplorerTab: boolean
   hasQueryTab: boolean
   hasSettingsTab: boolean
+  connectionPanelOpen: boolean
   connectionDrawerOpen: boolean
 }
 
@@ -316,13 +385,14 @@ interface GuideActions {
   onOpenLibrary(): void
   onRequestCreateFolder(): void
   onOpenConnection(parentId?: string): void
+  onOpenConnectionPanel(connectionId: string): void
   onOpenExplorer(connectionId: string): void
   onOpenQuery(connectionId: string): void
   onOpenSettings(): void
   onShowResults(): void
 }
 
-interface SpotlightState {
+export interface SpotlightState {
   top: number
   left: number
   width: number
@@ -339,6 +409,7 @@ function guideState(
     hasExplorerTab: snapshot.tabs.some((tab) => tab.tabKind === 'explorer'),
     hasQueryTab: snapshot.tabs.some(isQueryTab),
     hasSettingsTab: snapshot.tabs.some((tab) => tab.tabKind === 'settings'),
+    connectionPanelOpen: snapshot.ui.rightDrawer === 'connection',
     connectionDrawerOpen: snapshot.ui.rightDrawer === 'connection' && connectionDraftOpen,
   }
 }
@@ -429,6 +500,14 @@ function runStepAction(
       actions.onOpenLibrary()
       actions.onOpenConnection(state.folders[0]?.id)
       break
+    case 'save':
+      actions.onOpenLibrary()
+      if (state.firstConnectionId) {
+        actions.onOpenConnectionPanel(state.firstConnectionId)
+      } else {
+        actions.onOpenConnection(state.folders[0]?.id)
+      }
+      break
     case 'explorer':
       if (state.firstConnectionId) {
         actions.onOpenExplorer(state.firstConnectionId)
@@ -473,7 +552,17 @@ function spotlightStyle(spotlight: SpotlightState): CSSProperties {
   }
 }
 
-function popoverStyle(spotlight: SpotlightState | undefined): CSSProperties {
+function popoverStyle(
+  spotlight: SpotlightState | undefined,
+  preferredPlacement: GuidePopoverPlacement,
+): CSSProperties {
+  return getGuidePopoverStyle(spotlight, preferredPlacement)
+}
+
+export function getGuidePopoverStyle(
+  spotlight: SpotlightState | undefined,
+  preferredPlacement: GuidePopoverPlacement = 'right',
+): CSSProperties {
   if (!spotlight) {
     return {
       top: 72,
@@ -481,18 +570,100 @@ function popoverStyle(spotlight: SpotlightState | undefined): CSSProperties {
     }
   }
 
-  const width = 360
+  const margin = 16
   const gap = 14
+  const width = Math.min(360, window.innerWidth - margin * 2)
+  const height = 260
   const viewportWidth = window.innerWidth
   const viewportHeight = window.innerHeight
-  const right = spotlight.left + spotlight.width + gap
-  const left =
-    right + width < viewportWidth
-      ? right
-      : Math.max(16, spotlight.left - width - gap)
+  const placements = fallbackPlacements(preferredPlacement)
+  const candidates = placements.map((placement) =>
+    popoverPositionForPlacement(spotlight, placement, width, height, gap),
+  )
+  const fittingCandidate = candidates.find((candidate) =>
+    popoverFitsPrimaryAxis(candidate, width, height, viewportWidth, viewportHeight, margin),
+  )
+  const position =
+    fittingCandidate ??
+    candidates[0] ??
+    popoverPositionForPlacement(spotlight, preferredPlacement, width, height, gap)
 
   return {
-    top: Math.min(Math.max(16, spotlight.top), Math.max(16, viewportHeight - 260)),
-    left,
+    top: clamp(position.top, margin, Math.max(margin, viewportHeight - height - margin)),
+    left: clamp(position.left, margin, Math.max(margin, viewportWidth - width - margin)),
   }
+}
+
+function fallbackPlacements(
+  preferredPlacement: GuidePopoverPlacement,
+): GuidePopoverPlacement[] {
+  switch (preferredPlacement) {
+    case 'top':
+      return ['top', 'right', 'left', 'bottom']
+    case 'bottom':
+      return ['bottom', 'right', 'left', 'top']
+    case 'left':
+      return ['left', 'bottom', 'top', 'right']
+    case 'right':
+    default:
+      return ['right', 'bottom', 'top', 'left']
+  }
+}
+
+function popoverPositionForPlacement(
+  spotlight: SpotlightState,
+  placement: GuidePopoverPlacement,
+  width: number,
+  height: number,
+  gap: number,
+) {
+  const horizontalCenter = spotlight.left + spotlight.width / 2 - width / 2
+  const verticalCenter = spotlight.top + spotlight.height / 2 - height / 2
+
+  switch (placement) {
+    case 'top':
+      return {
+        placement,
+        top: spotlight.top - height - gap,
+        left: horizontalCenter,
+      }
+    case 'bottom':
+      return {
+        placement,
+        top: spotlight.top + spotlight.height + gap,
+        left: horizontalCenter,
+      }
+    case 'left':
+      return {
+        placement,
+        top: verticalCenter,
+        left: spotlight.left - width - gap,
+      }
+    case 'right':
+    default:
+      return {
+        placement,
+        top: verticalCenter,
+        left: spotlight.left + spotlight.width + gap,
+      }
+  }
+}
+
+function popoverFitsPrimaryAxis(
+  position: { placement: GuidePopoverPlacement; top: number; left: number },
+  width: number,
+  height: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  margin: number,
+) {
+  if (position.placement === 'left' || position.placement === 'right') {
+    return position.left >= margin && position.left + width <= viewportWidth - margin
+  }
+
+  return position.top >= margin && position.top + height <= viewportHeight - margin
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
 }

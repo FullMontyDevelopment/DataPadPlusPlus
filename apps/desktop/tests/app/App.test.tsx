@@ -459,6 +459,21 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Take Tutorial' })).toBeInTheDocument()
   })
 
+  it('closes the running first install guide from the compact close button', async () => {
+    render(<App />)
+
+    const prompt = await screen.findByRole('dialog', { name: 'Take a quick tour?' })
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Start Tutorial' }))
+
+    const guide = await screen.findByRole('dialog', { name: 'Welcome to DataPad++' })
+    fireEvent.click(within(guide).getByRole('button', { name: 'Close tutorial' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Welcome to DataPad++' })).not.toBeInTheDocument()
+    })
+    expect(loadBrowserSnapshot().preferences.firstInstallGuide?.status).toBe('skipped')
+  })
+
   it('walks the first install guide through folders, connections, Explorer, query, settings, and finish', async () => {
     render(<App />)
 
@@ -466,7 +481,7 @@ describe('App', () => {
     fireEvent.click(within(prompt).getByRole('button', { name: 'Start Tutorial' }))
 
     let guide = await screen.findByRole('dialog', { name: 'Welcome to DataPad++' })
-    fireEvent.click(within(guide).getByRole('button', { name: 'Next' }))
+    fireEvent.click(within(guide).getByRole('button', { name: 'Show Library' }))
 
     guide = await screen.findByRole('dialog', { name: 'Organize the Library' })
     fireEvent.click(within(guide).getByRole('button', { name: 'Create Folder' }))
@@ -490,7 +505,13 @@ describe('App', () => {
     guide = await screen.findByRole('dialog', { name: 'Test and save' })
     expect(within(drawer).getByLabelText('Name')).toHaveValue('PostgreSQL connection')
 
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Save Connection' }))
+    fireEvent.click(within(drawer).getByLabelText('Close drawer'))
+
+    const reopenedDrawer = await screen.findByLabelText('connection drawer')
+    guide = await screen.findByRole('dialog', { name: 'Test and save' })
+    expect(within(reopenedDrawer).getByLabelText('Name')).toHaveValue('PostgreSQL connection')
+
+    fireEvent.click(within(reopenedDrawer).getByRole('button', { name: 'Save Connection' }))
 
     guide = await screen.findByRole('dialog', { name: 'Browse metadata' })
     await waitFor(() => {
@@ -510,6 +531,7 @@ describe('App', () => {
         { timeout: 4000 },
       ),
     ).toBeInTheDocument()
+    expect(document.querySelector('[data-tour-id="explorer-metadata"]')).toBeInTheDocument()
     guide = await screen.findByRole('dialog', { name: 'Query and review results' })
 
     fireEvent.click(within(guide).getByRole('button', { name: 'Open Query Tab' }))

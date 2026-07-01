@@ -647,6 +647,103 @@ button:disabled:hover {
   color: var(--muted);
 }
 
+.library-text-input-dialog {
+  width: min(460px, calc(100vw - 32px));
+  display: grid;
+  gap: 14px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--panel-bg-elevated);
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.36);
+}
+
+.library-text-input-dialog-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 20px 22px 0;
+}
+
+.library-text-input-dialog-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(215, 180, 106, 0.36);
+  background: rgba(215, 180, 106, 0.1);
+  color: #d7b46a;
+}
+
+.library-text-input-dialog-heading {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.library-text-input-dialog-heading .sidebar-eyebrow {
+  margin: 0;
+}
+
+.library-text-input-dialog h2 {
+  margin: 0;
+  font-size: 21px;
+}
+
+.library-text-input-dialog-copy {
+  max-width: 360px;
+  padding: 0 22px;
+}
+
+.library-text-input-dialog-field {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  padding: 0 22px;
+}
+
+.library-text-input-dialog-field span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.library-text-input-dialog-field input {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.library-text-input-dialog-field input:focus {
+  border-color: rgba(55, 148, 255, 0.72);
+  outline: 0;
+  box-shadow: 0 0 0 2px rgba(55, 148, 255, 0.2);
+}
+
+.library-text-input-dialog-error {
+  padding: 0 22px;
+}
+
+.library-text-input-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 22px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.library-text-input-dialog-actions .drawer-button {
+  min-height: 32px;
+  padding: 0 12px;
+}
+
 .mongo-operation-dialog {
   width: min(560px, calc(100vw - 32px));
   display: grid;
@@ -3086,11 +3183,32 @@ button:disabled:hover {
   width: min(360px, calc(100vw - 32px));
   display: grid;
   gap: 10px;
-  padding: 16px;
+  padding: 16px 44px 16px 16px;
   border: 1px solid var(--border-strong);
   background: var(--panel-bg-elevated);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
   pointer-events: auto;
+}
+
+.first-install-guide-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.first-install-guide-close:hover,
+.first-install-guide-close:focus-visible {
+  border-color: var(--border);
+  background: var(--control-bg);
+  color: var(--heading);
+  outline: 0;
 }
 
 .first-install-guide-popover h2 {

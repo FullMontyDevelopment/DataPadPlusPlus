@@ -10,7 +10,11 @@ export function SettingsSecurityPanel({
   onSetSafeMode(enabled: boolean): void
 }) {
   return (
-    <SettingsPanel title="Security" icon={<LockIcon className="panel-inline-icon" />}>
+    <SettingsPanel
+      title="Security"
+      icon={<LockIcon className="panel-inline-icon" />}
+      tourId="settings-safety"
+    >
       <div className="settings-form-grid settings-form-grid--compact">
         <label className="settings-check-row settings-check-row--card">
           <input

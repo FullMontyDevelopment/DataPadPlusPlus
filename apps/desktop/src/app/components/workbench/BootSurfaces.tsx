@@ -30,7 +30,7 @@ export function WelcomeSurface({
       aria-label="First run onboarding"
       data-tour-id="welcome-surface"
     >
-      <div className="welcome-panel">
+      <div className="welcome-panel" data-tour-id="welcome-panel">
         <AppLogo className="welcome-logo" />
         <h1>Connect to your first datastore.</h1>
         <p>

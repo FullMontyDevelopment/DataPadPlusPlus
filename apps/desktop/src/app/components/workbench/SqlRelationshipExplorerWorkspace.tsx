@@ -167,7 +167,7 @@ export function SqlRelationshipExplorerWorkspace({
       </header>
 
       {error ? (
-        <div className="structure-empty structure-empty--error">
+        <div className="structure-empty structure-empty--error" data-tour-id="explorer-metadata">
           <ExplorerIcon className="empty-icon" />
           <h2>Structure unavailable</h2>
           <p>{error}</p>
@@ -238,17 +238,20 @@ export function SqlRelationshipExplorerWorkspace({
           </div>
 
           {status === 'loading' ? (
-            <div className="structure-empty">
+            <div className="structure-empty" data-tour-id="explorer-metadata">
               <ExplorerIcon className="empty-icon" />
               <h2>Loading relationships...</h2>
             </div>
           ) : filteredNodes.length === 0 ? (
-            <div className="structure-empty">
+            <div className="structure-empty" data-tour-id="explorer-metadata">
               <ExplorerIcon className="empty-icon" />
               <h2>No structure objects found</h2>
             </div>
           ) : (
-            <div className={`sql-rel-layout${showInspector ? ' has-inspector' : ''}`}>
+            <div
+              className={`sql-rel-layout${showInspector ? ' has-inspector' : ''}`}
+              data-tour-id="explorer-metadata"
+            >
               <aside className="sql-rel-catalog" aria-label="Table catalog">
                 <div className="sql-rel-catalog-header">
                   <strong>Catalog</strong>
