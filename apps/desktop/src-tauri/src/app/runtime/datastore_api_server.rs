@@ -1009,7 +1009,7 @@ fn query_sources_for_snapshot(
             query_text: node.query_text.clone().unwrap_or_default(),
         })
         .collect::<Vec<_>>();
-    sources.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    sources.sort_by_key(|source| source.name.to_lowercase());
     Ok(sources)
 }
 
@@ -1028,9 +1028,7 @@ fn library_query_connection_id(node: &LibraryNode, nodes: &[LibraryNode]) -> Opt
         if !visited.insert(parent_id.to_string()) {
             return None;
         }
-        let Some(parent) = nodes.iter().find(|candidate| candidate.id == parent_id) else {
-            return None;
-        };
+        let parent = nodes.iter().find(|candidate| candidate.id == parent_id)?;
         if parent
             .connection_id
             .as_deref()
@@ -1135,24 +1133,24 @@ pub async fn build_project_export_archive(
             }
         }
     };
-    let mut resource_models = Vec::new();
-    for resource in &resources {
-        resource_models.push(
-            project_resource_model(
-                &server,
-                provider,
-                &connection,
-                &environment,
-                &resolved_connection,
-                &resolved_environment,
-                runtime.snapshot.preferences.safe_mode_enabled,
-                resource,
-                &structure_nodes,
-                &mut warnings,
-            )
-            .await?,
-        );
-    }
+    let resource_models = {
+        let mut context = ProjectResourceModelContext {
+            config: &server,
+            provider,
+            connection: &connection,
+            environment: &environment,
+            resolved_connection: &resolved_connection,
+            resolved_environment: &resolved_environment,
+            safe_mode_enabled: runtime.snapshot.preferences.safe_mode_enabled,
+            nodes: &structure_nodes,
+            warnings: &mut warnings,
+        };
+        let mut resource_models = Vec::new();
+        for resource in &resources {
+            resource_models.push(project_resource_model(&mut context, resource).await?);
+        }
+        resource_models
+    };
     let custom_models = custom_endpoints
         .iter()
         .map(|endpoint| project_custom_endpoint(&server, endpoint))
@@ -4958,27 +4956,32 @@ fn custom_endpoint_language_supported(provider: ExportProvider, language: &str) 
     }
 }
 
-async fn project_resource_model(
-    config: &DatastoreApiServerConfig,
+struct ProjectResourceModelContext<'a> {
+    config: &'a DatastoreApiServerConfig,
     provider: ExportProvider,
-    connection: &crate::domain::models::ConnectionProfile,
-    environment: &crate::domain::models::EnvironmentProfile,
-    resolved_connection: &crate::domain::models::ResolvedConnectionProfile,
-    resolved_environment: &crate::domain::models::ResolvedEnvironment,
+    connection: &'a crate::domain::models::ConnectionProfile,
+    environment: &'a crate::domain::models::EnvironmentProfile,
+    resolved_connection: &'a crate::domain::models::ResolvedConnectionProfile,
+    resolved_environment: &'a crate::domain::models::ResolvedEnvironment,
     safe_mode_enabled: bool,
+    nodes: &'a [StructureNode],
+    warnings: &'a mut Vec<String>,
+}
+
+async fn project_resource_model(
+    context: &mut ProjectResourceModelContext<'_>,
     resource: &DatastoreApiServerResourceConfig,
-    nodes: &[StructureNode],
-    warnings: &mut Vec<String>,
 ) -> Result<ProjectResourceModel, CommandError> {
-    let schema = match project_resource_schema(provider, resource, nodes) {
+    let provider = context.provider;
+    let schema = match project_resource_schema(provider, resource, context.nodes) {
         Ok(schema) => schema,
         Err(error) => match live_sample_schema(
             provider,
-            connection,
-            environment,
-            resolved_connection,
-            resolved_environment,
-            safe_mode_enabled,
+            context.connection,
+            context.environment,
+            context.resolved_connection,
+            context.resolved_environment,
+            context.safe_mode_enabled,
             resource,
         )
         .await?
@@ -4988,7 +4991,7 @@ async fn project_resource_model(
             None => return Err(error),
         },
     };
-    warnings.extend(schema.warnings.iter().cloned());
+    context.warnings.extend(schema.warnings.iter().cloned());
     let field_models = project_field_models(provider, &schema.fields);
     let primary_fields = field_models
         .iter()
@@ -4999,7 +5002,7 @@ async fn project_resource_model(
         label: resource.label.clone(),
         kind: resource.kind.clone(),
         endpoint_slug: resource.endpoint_slug.clone(),
-        endpoint_path: configured_resource_endpoint(config, resource),
+        endpoint_path: configured_resource_endpoint(context.config, resource),
         model_name: pascal_case(&resource.endpoint_slug),
         schema_source: schema.source.id().into(),
         schema_source_label: schema.source.label().into(),
@@ -5041,12 +5044,10 @@ fn structure_node_schema(
         return resource_shape_schema(provider, resource);
     }
     let mut fields = clean_schema_fields(node.fields.clone());
-    if fields.is_empty() {
-        if matches!(provider, ExportProvider::MongoDb | ExportProvider::LiteDb) {
-            if let Some(sample) = node.sample.as_ref().and_then(Value::as_object) {
-                let samples = vec![sample];
-                fields = infer_fields_from_json_objects(&samples, "_id", Some(1));
-            }
+    if fields.is_empty() && matches!(provider, ExportProvider::MongoDb | ExportProvider::LiteDb) {
+        if let Some(sample) = node.sample.as_ref().and_then(Value::as_object) {
+            let samples = vec![sample];
+            fields = infer_fields_from_json_objects(&samples, "_id", Some(1));
         }
     }
     if fields.is_empty() {
@@ -5337,12 +5338,10 @@ fn redis_resource_shape_fields(
         .get("redisType")
         .or_else(|| resource.metadata.get("type"))
         .and_then(Value::as_str)
-        .or_else(|| resource.detail.as_deref())
+        .or(resource.detail.as_deref())
         .unwrap_or("key")
         .to_ascii_lowercase();
-    let value_type = if redis_type.contains("json") {
-        "document"
-    } else if redis_type.contains("hash") {
+    let value_type = if redis_type.contains("json") || redis_type.contains("hash") {
         "document"
     } else if redis_type.contains("list")
         || redis_type.contains("set")

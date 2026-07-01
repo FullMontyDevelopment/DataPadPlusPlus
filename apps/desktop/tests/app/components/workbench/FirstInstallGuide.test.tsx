@@ -3,11 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type { ConnectionProfile, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { createBlankBootstrapPayload } from '../../../../src/app/data/workspace-factory'
+import { FirstInstallGuide } from '../../../../src/app/components/workbench/FirstInstallGuide'
 import {
-  FirstInstallGuide,
   getGuidePopoverStyle,
   type SpotlightState,
-} from '../../../../src/app/components/workbench/FirstInstallGuide'
+} from '../../../../src/app/components/workbench/FirstInstallGuide.placement'
 
 function setViewport(width: number, height: number) {
   Object.defineProperty(window, 'innerWidth', {

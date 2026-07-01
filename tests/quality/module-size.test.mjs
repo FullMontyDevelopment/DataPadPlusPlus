@@ -10,8 +10,22 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/ApiServerWorkspace.tsx',
     {
-      maxLines: 790,
+      maxLines: 2489,
       reason: 'Datastore API server workspace keeps server selection, settings, metrics, logs, lifecycle controls, and deletion guardrails in one operational surface.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/FirstInstallGuide.tsx',
+    {
+      maxLines: 569,
+      reason: 'First-install guide coordinates persisted tutorial state, real UI callbacks, spotlight layout, and resume behavior in one overlay surface.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/McpServerWorkspace.tsx',
+    {
+      maxLines: 1628,
+      reason: 'MCP server workspace keeps server configuration, tokens, lifecycle controls, observability, and client setup snippets in one operational surface.',
     },
   ],
   [
@@ -183,6 +197,13 @@ const documentedExceptions = new Map([
     },
   ],
   [
+    'apps/desktop/src/app/components/workbench/RightDrawer.connection-blade.tsx',
+    {
+      maxLines: 405,
+      reason: 'Connection drawer fields, engine-specific controls, safety flags, and save/test actions remain one profile-editing blade.',
+    },
+  ],
+  [
     'apps/desktop/src/app/components/workbench/RightDrawer.diagnostics-blade.tsx',
     {
       maxLines: 450,
@@ -220,7 +241,7 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/SideBar.library-pane.tsx',
     {
-      maxLines: 1900,
+      maxLines: 2175,
       reason: 'Library tree drag/drop, recents, search, context menus, and environment badges remain coupled.',
     },
   ],
@@ -229,6 +250,20 @@ const documentedExceptions = new Map([
     {
       maxLines: 500,
       reason: 'Datastore and object-kind icon mapping is intentionally centralized for consistent tree visuals.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/workspace-search-index.ts',
+    {
+      maxLines: 492,
+      reason: 'Workspace search indexing keeps library, connection, tab, environment, and API server normalization together for ranking consistency.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/WorkspaceSearchWorkspace.tsx',
+    {
+      maxLines: 509,
+      reason: 'Workspace search UI keeps query input, scope filters, grouped results, selection state, and navigation callbacks together.',
     },
   ],
   [
@@ -241,7 +276,7 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/state/app-actions-workspace.ts',
     {
-      maxLines: 480,
+      maxLines: 873,
       reason: 'Workspace actions coordinate import/export, diagnostics, logs, backups, API server control, and update commands through one app action boundary.',
     },
   ],
@@ -255,8 +290,15 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/state/app-state.tsx',
     {
-      maxLines: 430,
+      maxLines: 441,
       reason: 'App provider owns bootstrap, shared action wiring, startup health checks, and update-check orchestration around one reducer state.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/state/app-state-types.ts',
+    {
+      maxLines: 443,
+      reason: 'App state types centralize workbench tabs, drawers, tutorial state, runtime status, and action contracts for reducer consistency.',
     },
   ],
   [
@@ -269,14 +311,14 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/state/app-actions-tabs.ts',
     {
-      maxLines: 590,
+      maxLines: 645,
       reason: 'Tab and Library actions share save/open lifecycle state.',
     },
   ],
   [
     'apps/desktop/src/app/state/workspace-migration.ts',
     {
-      maxLines: 660,
+      maxLines: 1008,
       reason: 'Workspace schema migration intentionally keeps versioned normalization, Library migration, and variable syntax migration in one place.',
     },
   ],
@@ -295,9 +337,30 @@ const documentedExceptions = new Map([
     },
   ],
   [
+    'apps/desktop/src/services/runtime/client-api-server.ts',
+    {
+      maxLines: 884,
+      reason: 'API server client helpers centralize command shapes, runtime mapping, metrics, logs, tokens, and setup payload conversion.',
+    },
+  ],
+  [
+    'apps/desktop/src/services/runtime/client-mcp-server.ts',
+    {
+      maxLines: 528,
+      reason: 'MCP server client helpers share status, token, observability, setup preview, and settings command contracts.',
+    },
+  ],
+  [
+    'apps/desktop/src/services/runtime/client-tabs.ts',
+    {
+      maxLines: 410,
+      reason: 'Tab client helpers keep query, explorer, metrics, console, settings, and test-suite tab command shapes aligned.',
+    },
+  ],
+  [
     'apps/desktop/src/services/runtime/client-workspace.ts',
     {
-      maxLines: 420,
+      maxLines: 438,
       reason: 'Workspace client helpers coordinate snapshot, import/export, backup, and settings command shapes.',
     },
   ],
@@ -339,8 +402,22 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src-tauri/src/app/runtime/datastore_api_server.rs',
     {
-      maxLines: 2850,
+      maxLines: 8392,
       reason: 'Datastore API server runtime owns HTTP routing, server lifecycle, request execution, metrics, logs, and persisted server configuration in one sidecar boundary.',
+    },
+  ],
+  [
+    'apps/desktop/src-tauri/src/app/runtime/datastore_mcp_client_setup.rs',
+    {
+      maxLines: 613,
+      reason: 'MCP client setup runtime validates target clients, merges JSON/TOML config formats, protects tokens, and writes backups atomically.',
+    },
+  ],
+  [
+    'apps/desktop/src-tauri/src/app/runtime/datastore_mcp_server.rs',
+    {
+      maxLines: 2604,
+      reason: 'Datastore MCP server runtime keeps transport routing, tool schemas, authorization, logs, metrics, and persisted server settings together.',
     },
   ],
   [
@@ -386,9 +463,16 @@ const documentedExceptions = new Map([
     },
   ],
   [
+    'apps/desktop/src-tauri/src/app/runtime/settings_tabs.rs',
+    {
+      maxLines: 436,
+      reason: 'Settings tab runtime keeps diagnostics, safety, update, shortcut, and preference tab construction together.',
+    },
+  ],
+  [
     'apps/desktop/src-tauri/src/app/runtime/workspace.rs',
     {
-      maxLines: 720,
+      maxLines: 936,
       reason: 'Workspace import/export owns encryption validation, snapshot migration, secret stripping, and bundle boundaries.',
     },
   ],

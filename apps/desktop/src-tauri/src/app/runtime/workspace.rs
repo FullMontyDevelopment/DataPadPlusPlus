@@ -493,7 +493,7 @@ fn normalize_api_server_base_path(value: &str) -> String {
 }
 
 fn normalize_api_server_resources(
-    resources: &mut Vec<crate::domain::models::DatastoreApiServerResourceConfig>,
+    resources: &mut [crate::domain::models::DatastoreApiServerResourceConfig],
 ) {
     let mut slugs = HashMap::<String, usize>::new();
     for (index, resource) in resources.iter_mut().enumerate() {
@@ -525,7 +525,7 @@ fn normalize_api_server_resources(
 }
 
 fn normalize_api_server_custom_endpoints(
-    endpoints: &mut Vec<crate::domain::models::DatastoreApiServerCustomEndpointConfig>,
+    endpoints: &mut [crate::domain::models::DatastoreApiServerCustomEndpointConfig],
     resources: &[crate::domain::models::DatastoreApiServerResourceConfig],
 ) {
     let mut slugs = resources

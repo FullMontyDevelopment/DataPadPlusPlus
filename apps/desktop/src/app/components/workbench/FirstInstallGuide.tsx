@@ -5,6 +5,11 @@ import type {
   QueryTabState,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
+import {
+  getGuidePopoverStyle,
+  type GuidePopoverPlacement,
+  type SpotlightState,
+} from './FirstInstallGuide.placement'
 import { CloseIcon } from './icons'
 
 type GuideStepId =
@@ -24,8 +29,6 @@ interface GuideStep {
   placement: GuidePopoverPlacement
   actionLabel?: string
 }
-
-export type GuidePopoverPlacement = 'top' | 'right' | 'bottom' | 'left'
 
 interface FirstInstallGuideProps {
   snapshot: WorkspaceSnapshot
@@ -139,18 +142,22 @@ export function FirstInstallGuide({
   const currentStep = GUIDE_STEPS[Math.min(currentStepIndex, GUIDE_STEPS.length - 1)]
 
   useEffect(() => {
-    if (!isRunning) {
-      setStartedThisSession(false)
-      return
-    }
-
-    setCurrentStepIndex((current) => {
-      if (startedThisSession && current === 0) {
-        return current
+    const timeout = window.setTimeout(() => {
+      if (!isRunning) {
+        setStartedThisSession(false)
+        return
       }
 
-      return Math.max(current, suggestedStepIndex)
-    })
+      setCurrentStepIndex((current) => {
+        if (startedThisSession && current === 0) {
+          return current
+        }
+
+        return Math.max(current, suggestedStepIndex)
+      })
+    }, 0)
+
+    return () => window.clearTimeout(timeout)
   }, [isRunning, startedThisSession, suggestedStepIndex])
 
   useEffect(() => {
@@ -158,15 +165,22 @@ export function FirstInstallGuide({
       return
     }
 
-    setLastStartRequestRevision(startRequestRevision)
-    setStartedThisSession(true)
-    setCurrentStepIndex(0)
+    const timeout = window.setTimeout(() => {
+      setLastStartRequestRevision(startRequestRevision)
+      setStartedThisSession(true)
+      setCurrentStepIndex(0)
+    }, 0)
+
+    return () => window.clearTimeout(timeout)
   }, [lastStartRequestRevision, startRequestRevision])
 
   useEffect(() => {
     if (!isRunning || !currentStep) {
-      setSpotlight(undefined)
-      return
+      const timeout = window.setTimeout(() => {
+        setSpotlight(undefined)
+      }, 0)
+
+      return () => window.clearTimeout(timeout)
     }
 
     let frame = 0
@@ -224,6 +238,7 @@ export function FirstInstallGuide({
     onOpenConnection,
     onOpenConnectionPanel,
     onOpenLibrary,
+    state.connectionDrawerOpen,
     state.connectionPanelOpen,
     state.firstConnectionId,
     state.folders,
@@ -392,13 +407,6 @@ interface GuideActions {
   onShowResults(): void
 }
 
-export interface SpotlightState {
-  top: number
-  left: number
-  width: number
-  height: number
-}
-
 function guideState(
   snapshot: WorkspaceSnapshot,
   connectionDraftOpen: boolean,
@@ -557,113 +565,4 @@ function popoverStyle(
   preferredPlacement: GuidePopoverPlacement,
 ): CSSProperties {
   return getGuidePopoverStyle(spotlight, preferredPlacement)
-}
-
-export function getGuidePopoverStyle(
-  spotlight: SpotlightState | undefined,
-  preferredPlacement: GuidePopoverPlacement = 'right',
-): CSSProperties {
-  if (!spotlight) {
-    return {
-      top: 72,
-      left: 320,
-    }
-  }
-
-  const margin = 16
-  const gap = 14
-  const width = Math.min(360, window.innerWidth - margin * 2)
-  const height = 260
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
-  const placements = fallbackPlacements(preferredPlacement)
-  const candidates = placements.map((placement) =>
-    popoverPositionForPlacement(spotlight, placement, width, height, gap),
-  )
-  const fittingCandidate = candidates.find((candidate) =>
-    popoverFitsPrimaryAxis(candidate, width, height, viewportWidth, viewportHeight, margin),
-  )
-  const position =
-    fittingCandidate ??
-    candidates[0] ??
-    popoverPositionForPlacement(spotlight, preferredPlacement, width, height, gap)
-
-  return {
-    top: clamp(position.top, margin, Math.max(margin, viewportHeight - height - margin)),
-    left: clamp(position.left, margin, Math.max(margin, viewportWidth - width - margin)),
-  }
-}
-
-function fallbackPlacements(
-  preferredPlacement: GuidePopoverPlacement,
-): GuidePopoverPlacement[] {
-  switch (preferredPlacement) {
-    case 'top':
-      return ['top', 'right', 'left', 'bottom']
-    case 'bottom':
-      return ['bottom', 'right', 'left', 'top']
-    case 'left':
-      return ['left', 'bottom', 'top', 'right']
-    case 'right':
-    default:
-      return ['right', 'bottom', 'top', 'left']
-  }
-}
-
-function popoverPositionForPlacement(
-  spotlight: SpotlightState,
-  placement: GuidePopoverPlacement,
-  width: number,
-  height: number,
-  gap: number,
-) {
-  const horizontalCenter = spotlight.left + spotlight.width / 2 - width / 2
-  const verticalCenter = spotlight.top + spotlight.height / 2 - height / 2
-
-  switch (placement) {
-    case 'top':
-      return {
-        placement,
-        top: spotlight.top - height - gap,
-        left: horizontalCenter,
-      }
-    case 'bottom':
-      return {
-        placement,
-        top: spotlight.top + spotlight.height + gap,
-        left: horizontalCenter,
-      }
-    case 'left':
-      return {
-        placement,
-        top: verticalCenter,
-        left: spotlight.left - width - gap,
-      }
-    case 'right':
-    default:
-      return {
-        placement,
-        top: verticalCenter,
-        left: spotlight.left + spotlight.width + gap,
-      }
-  }
-}
-
-function popoverFitsPrimaryAxis(
-  position: { placement: GuidePopoverPlacement; top: number; left: number },
-  width: number,
-  height: number,
-  viewportWidth: number,
-  viewportHeight: number,
-  margin: number,
-) {
-  if (position.placement === 'left' || position.placement === 'right') {
-    return position.left >= margin && position.left + width <= viewportWidth - margin
-  }
-
-  return position.top >= margin && position.top + height <= viewportHeight - margin
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value))
 }

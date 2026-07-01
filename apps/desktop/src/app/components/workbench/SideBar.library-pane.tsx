@@ -324,7 +324,11 @@ export function LibraryPane({
       return
     }
 
-    requestCreateFolder()
+    const timeout = window.setTimeout(() => {
+      requestCreateFolder()
+    }, 0)
+
+    return () => window.clearTimeout(timeout)
   }, [createFolderDialogRequestRevision, requestCreateFolder])
 
   const requestRenameNode = (node: LibraryNode) => {

@@ -357,7 +357,7 @@ fn selected_api_server_id(
 fn api_server_tab_server_id(tab: &QueryTabState) -> Option<&str> {
     let target = tab.scoped_target.as_ref()?;
     (target.kind == "api-server")
-        .then(|| target.scope.as_deref())
+        .then_some(target.scope.as_deref())
         .flatten()
 }
 
@@ -380,7 +380,7 @@ fn selected_mcp_server_id(
 fn mcp_server_tab_server_id(tab: &QueryTabState) -> Option<&str> {
     let target = tab.scoped_target.as_ref()?;
     (target.kind == "mcp-server")
-        .then(|| target.scope.as_deref())
+        .then_some(target.scope.as_deref())
         .flatten()
 }
 

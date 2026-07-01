@@ -225,13 +225,21 @@ export function McpServerWorkspace({
 
   useEffect(() => {
     if (mcpServer.enabled) {
-      void refreshStatus()
+      const timeout = window.setTimeout(() => {
+        void refreshStatus()
+      }, 0)
+
+      return () => window.clearTimeout(timeout)
     }
   }, [mcpServer.enabled, refreshStatus])
 
   useEffect(() => {
     if (serverRunning && (view === 'metrics' || view === 'logs')) {
-      void refreshObservability()
+      const timeout = window.setTimeout(() => {
+        void refreshObservability()
+      }, 0)
+
+      return () => window.clearTimeout(timeout)
     }
   }, [refreshObservability, serverRunning, view])
 

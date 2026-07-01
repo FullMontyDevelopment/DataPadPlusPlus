@@ -502,13 +502,13 @@ describe('App', () => {
     fireEvent.click(within(guide).getByRole('button', { name: 'New Connection' }))
 
     const drawer = await screen.findByLabelText('connection drawer')
-    guide = await screen.findByRole('dialog', { name: 'Test and save' })
+    await screen.findByRole('dialog', { name: 'Test and save' })
     expect(within(drawer).getByLabelText('Name')).toHaveValue('PostgreSQL connection')
 
     fireEvent.click(within(drawer).getByLabelText('Close drawer'))
 
     const reopenedDrawer = await screen.findByLabelText('connection drawer')
-    guide = await screen.findByRole('dialog', { name: 'Test and save' })
+    await screen.findByRole('dialog', { name: 'Test and save' })
     expect(within(reopenedDrawer).getByLabelText('Name')).toHaveValue('PostgreSQL connection')
 
     fireEvent.click(within(reopenedDrawer).getByRole('button', { name: 'Save Connection' }))

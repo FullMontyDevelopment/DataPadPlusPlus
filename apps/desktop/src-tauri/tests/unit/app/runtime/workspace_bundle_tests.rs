@@ -58,7 +58,6 @@ fn bundle_payload_round_trips_api_server_preferences() {
                 }],
                 ..DatastoreApiServerCustomEndpointConfig::default()
             }],
-            ..DatastoreApiServerConfig::default()
         },
     ];
 
