@@ -284,10 +284,12 @@ describe('browser tab runtime', () => {
       queryViewMode: 'builder',
       builderState: expect.objectContaining({
         kind: 'mongo-aggregation',
+        database: 'catalog',
         collection: 'products',
       }),
       scriptText: expect.stringContaining('aggregate'),
     })
+    expect(aggregationTab?.queryText).toContain('"database": "catalog"')
     expect(aggregationTab?.queryText).toContain('"operation": "aggregate"')
   })
 

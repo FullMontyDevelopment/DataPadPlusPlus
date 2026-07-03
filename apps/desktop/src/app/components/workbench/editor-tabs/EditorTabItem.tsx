@@ -10,8 +10,8 @@ import type {
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { DatastoreIcon } from '../DatastoreIcon'
-import { CloseIcon, DatabaseIcon, EnvironmentsIcon, ObjectServerIcon, RefreshIcon, SearchIcon, SettingsIcon, WarningIcon } from '../icons'
-import { colorWithAlpha, normalizeTabDisplayTitle } from './tab-title'
+import { CloseIcon, DatabaseIcon, EnvironmentsIcon, ObjectSecurityIcon, ObjectServerIcon, RefreshIcon, SearchIcon, SettingsIcon, WarningIcon } from '../icons'
+import { normalizeTabDisplayTitle } from './tab-title'
 
 export interface EditorTabDropTarget {
   tabId: string
@@ -70,7 +70,6 @@ export function EditorTabItem({
   const environmentColor = environment?.color ?? '#3794ff'
   const tabStyle = {
     '--tab-env-color': environmentColor,
-    '--tab-env-tint': colorWithAlpha(environmentColor, 0.16),
   } as CSSProperties
   const tabCanBeSaved =
     tab.tabKind !== 'explorer' &&
@@ -79,7 +78,8 @@ export function EditorTabItem({
     tab.tabKind !== 'settings' &&
     tab.tabKind !== 'api-server' &&
     tab.tabKind !== 'mcp-server' &&
-    tab.tabKind !== 'workspace-search'
+    tab.tabKind !== 'workspace-search' &&
+    tab.tabKind !== 'security-checks'
   const tabRunning = Boolean(tab.activeExecution) || tab.status === 'queued' || tab.status === 'running'
   const showUnsavedChanges = tabCanBeSaved && tab.dirty && !tabRunning
   const connectionName =
@@ -91,6 +91,8 @@ export function EditorTabItem({
       ? 'MCP server'
       : tab.tabKind === 'workspace-search'
       ? 'Workspace search'
+      : tab.tabKind === 'security-checks'
+      ? 'Security checks'
       : tab.tabKind === 'environment'
       ? 'Workspace environment'
       : connection?.name ?? 'Unknown connection'
@@ -149,6 +151,11 @@ export function EditorTabItem({
         <SearchIcon
           className="editor-tab-fallback-icon"
           aria-label="Search icon"
+        />
+      ) : tab.tabKind === 'security-checks' ? (
+        <ObjectSecurityIcon
+          className="editor-tab-fallback-icon"
+          aria-label="Security Checks icon"
         />
       ) : tab.tabKind === 'environment' ? (
         <EnvironmentsIcon

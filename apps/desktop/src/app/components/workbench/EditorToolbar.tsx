@@ -6,7 +6,6 @@ import type {
 import {
   ExplainIcon,
   PanelIcon,
-  ColumnIcon,
   ConsoleIcon,
   PlayIcon,
   SettingsIcon,
@@ -18,20 +17,16 @@ import {
   EfficiencyIcon,
 } from './icons'
 
-type ResultsDock = 'bottom' | 'right'
-
 interface EditorToolbarProps {
   executionStatus: 'idle' | 'loading' | 'ready'
   capabilities: ExecutionCapabilities
   canCancelExecution: boolean
   bottomPanelVisible: boolean
-  resultsDock?: ResultsDock
   onExecute(): void
   onExplain(): void
   onCancel(): void
   onOpenConnectionDrawer(): void
   onToggleBottomPanel(): void
-  onToggleResultsDock?(): void
   onAddDocument?(): void
   onToggleDocumentEfficiency?(): void
   canToggleBuilderView: boolean
@@ -52,13 +47,11 @@ export function EditorToolbar({
   capabilities,
   canCancelExecution,
   bottomPanelVisible,
-  resultsDock = 'bottom',
   onExecute,
   onExplain,
   onCancel,
   onOpenConnectionDrawer,
   onToggleBottomPanel,
-  onToggleResultsDock = noop,
   onAddDocument = noop,
   onToggleDocumentEfficiency = noop,
   canToggleBuilderView,
@@ -225,15 +218,6 @@ export function EditorToolbar({
         onClick={onToggleBottomPanel}
       >
         <PanelIcon className="toolbar-icon" />
-      </button>
-      <button
-        type="button"
-        className={`toolbar-icon-action${resultsDock === 'right' ? ' is-active' : ''}`}
-        aria-label={resultsDock === 'right' ? 'Dock results to bottom' : 'Dock results to right'}
-        title={resultsDock === 'right' ? 'Dock Results below the editor.' : 'Dock Results beside the editor.'}
-        onClick={onToggleResultsDock}
-      >
-        <ColumnIcon className="toolbar-icon" />
       </button>
     </div>
   )

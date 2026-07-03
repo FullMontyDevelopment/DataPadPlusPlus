@@ -2,6 +2,7 @@ import type { BootstrapPayload } from '@datapadplusplus/shared-types'
 import {
   createApiServerTabInSnapshot,
   createMcpServerTabInSnapshot,
+  createSecurityChecksTabInSnapshot,
   createSettingsTabInSnapshot,
   createWorkspaceSearchTabInSnapshot,
 } from './browser-settings-tab'
@@ -45,6 +46,16 @@ export const clientSettingsTab = {
     }
 
     const snapshot = createWorkspaceSearchTabInSnapshot(loadBrowserSnapshot())
+    saveBrowserSnapshot(snapshot)
+    return buildBrowserPayload(snapshot)
+  },
+
+  async createSecurityChecksTab(): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('create_security_checks_tab')
+    }
+
+    const snapshot = createSecurityChecksTabInSnapshot(loadBrowserSnapshot())
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
   },

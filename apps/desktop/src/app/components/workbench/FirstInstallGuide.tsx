@@ -1,25 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type {
+  FirstInstallGuideStepId,
   LibraryNode,
   QueryTabState,
+  UiState,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import {
   getGuidePopoverStyle,
   type GuidePopoverPlacement,
+  type GuidePopoverSize,
   type SpotlightState,
 } from './FirstInstallGuide.placement'
 import { CloseIcon } from './icons'
 
-type GuideStepId =
-  | 'welcome'
-  | 'folder'
-  | 'connection'
-  | 'save'
-  | 'explorer'
-  | 'query'
-  | 'settings'
+type GuideStepId = FirstInstallGuideStepId
 
 interface GuideStep {
   id: GuideStepId
@@ -34,27 +30,32 @@ interface FirstInstallGuideProps {
   snapshot: WorkspaceSnapshot
   connectionDraftOpen: boolean
   startRequestRevision: number
-  onStart(): void
+  onStart(stepId: GuideStepId): void
   onSkip(): void
   onComplete(): void
+  onStepChange(stepId: GuideStepId): void
   onOpenLibrary(): void
   onRequestCreateFolder(): void
+  onCloseCreateFolder(): void
   onOpenConnection(parentId?: string): void
   onOpenConnectionPanel(connectionId: string): void
+  onCloseConnectionPanel(): void
   onOpenExplorer(connectionId: string): void
   onOpenQuery(connectionId: string): void
   onOpenSettings(): void
   onShowResults(): void
+  onSelectTab(tabId: string): void
+  onCloseTab(tabId: string): void
+  onRestoreUiState(patch: Partial<UiState>): void
 }
 
 const GUIDE_STEPS: GuideStep[] = [
   {
     id: 'welcome',
     title: 'Welcome to DataPad++',
-    body: 'This quick tour uses the real workspace so the important buttons land where your hands expect them.',
-    anchor: 'welcome-panel',
+    body: 'This quick tour uses the real workspace and starts with the Library, where connections, folders, queries, scripts, tests, and notes live.',
+    anchor: 'library-sidebar',
     placement: 'right',
-    actionLabel: 'Show Library',
   },
   {
     id: 'folder',
@@ -106,6 +107,8 @@ const GUIDE_STEPS: GuideStep[] = [
   },
 ]
 
+const GUIDE_STEP_IDS = GUIDE_STEPS.map((step) => step.id)
+
 export function FirstInstallGuide({
   snapshot,
   connectionDraftOpen,
@@ -113,52 +116,191 @@ export function FirstInstallGuide({
   onStart,
   onSkip,
   onComplete,
+  onStepChange,
   onOpenLibrary,
   onRequestCreateFolder,
+  onCloseCreateFolder,
   onOpenConnection,
   onOpenConnectionPanel,
+  onCloseConnectionPanel,
   onOpenExplorer,
   onOpenQuery,
   onOpenSettings,
   onShowResults,
+  onSelectTab,
+  onCloseTab,
+  onRestoreUiState,
 }: FirstInstallGuideProps) {
-  const guideStatus = snapshot.preferences.firstInstallGuide?.status ?? 'unseen'
+  const guidePreferences = snapshot.preferences.firstInstallGuide
+  const guideStatus = guidePreferences?.status ?? 'unseen'
   const state = useMemo(
     () => guideState(snapshot, connectionDraftOpen),
     [connectionDraftOpen, snapshot],
   )
-  const [startedThisSession, setStartedThisSession] = useState(false)
-  const [currentStepIndex, setCurrentStepIndex] = useState(() =>
-    resumeStepIndex(state),
+  const [currentStepId, setCurrentStepId] = useState<GuideStepId>(
+    () => sanitizeGuideStepId(guidePreferences?.currentStepId) ?? 'welcome',
   )
   const [spotlight, setSpotlight] = useState<SpotlightState>()
+  const [popoverSize, setPopoverSize] = useState<GuidePopoverSize>({
+    width: 360,
+    height: 260,
+  })
   const [lastStartRequestRevision, setLastStartRequestRevision] =
     useState(startRequestRevision)
+  const popoverRef = useRef<HTMLElement | null>(null)
   const saveStepAutoOpenPending = useRef(false)
+  const autoStepTokenRef = useRef<Record<string, string>>({})
+  const ownedSurfacesRef = useRef<GuideOwnedSurfaces>({})
+  const pendingActionRef = useRef<PendingGuideAction | undefined>(undefined)
+  const persistedStepRef = useRef<GuideStepId | undefined>(undefined)
 
   const shouldPrompt = guideStatus === 'unseen' && workspaceIsEmpty(snapshot)
   const isRunning = guideStatus === 'started'
-  const suggestedStepIndex = resumeStepIndex(state)
-  const currentStep = GUIDE_STEPS[Math.min(currentStepIndex, GUIDE_STEPS.length - 1)]
+  const effectiveStepId = clampStepIdForState(currentStepId, state)
+  const currentStep = stepById(effectiveStepId)
+  const currentStepIndex = stepIndex(effectiveStepId)
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      if (!isRunning) {
-        setStartedThisSession(false)
+  const runTrackedStepAction = useCallback(
+    (stepId: GuideStepId) => {
+      if (stepId === 'folder') {
+        ownedSurfacesRef.current.folderDialogOpen = true
+      }
+
+      if ((stepId === 'connection' || stepId === 'save') && !state.connectionPanelOpen) {
+        ownedSurfacesRef.current.connectionPanelOpen = true
+      }
+
+      if (stepId === 'explorer' || stepId === 'query' || stepId === 'settings') {
+        pendingActionRef.current = createPendingGuideAction(stepId, snapshot)
+      }
+
+      runStepAction(stepId, state, {
+        onOpenLibrary,
+        onRequestCreateFolder,
+        onOpenConnection,
+        onOpenConnectionPanel,
+        onOpenExplorer,
+        onOpenQuery,
+        onOpenSettings,
+        onShowResults,
+      })
+    },
+    [
+      onOpenConnection,
+      onOpenConnectionPanel,
+      onOpenExplorer,
+      onOpenLibrary,
+      onOpenQuery,
+      onOpenSettings,
+      onRequestCreateFolder,
+      onShowResults,
+      snapshot,
+      state,
+    ],
+  )
+
+  const focusExistingQueryTab = useCallback(
+    (tabId: string) => {
+      if (!ownedSurfacesRef.current.query) {
+        ownedSurfacesRef.current.query = createOwnedTabSurface('query', tabId, snapshot, false)
+      }
+
+      if (state.activeTabId !== tabId) {
+        onSelectTab(tabId)
+      }
+
+      onShowResults()
+    },
+    [onSelectTab, onShowResults, snapshot, state.activeTabId],
+  )
+
+  const undoTabSurface = useCallback(
+    (key: GuideTabSurfaceKey) => {
+      const surface = ownedSurfacesRef.current[key]
+      if (!surface) {
         return
       }
 
-      setCurrentStepIndex((current) => {
-        if (startedThisSession && current === 0) {
-          return current
-        }
+      const tab = snapshot.tabs.find((item) => item.id === surface.tabId)
+      if (surface.createdByGuide && tab && canCloseGuideOwnedTab(tab, surface)) {
+        onCloseTab(tab.id)
+      } else if (
+        surface.previousActiveTabId &&
+        snapshot.tabs.some((item) => item.id === surface.previousActiveTabId)
+      ) {
+        onSelectTab(surface.previousActiveTabId)
+      }
 
-        return Math.max(current, suggestedStepIndex)
-      })
-    }, 0)
+      if (key === 'query') {
+        onRestoreUiState({
+          activeBottomPanelTab: surface.previousBottomPanelTab,
+          bottomPanelVisible: surface.previousBottomPanelVisible,
+        })
+      }
 
-    return () => window.clearTimeout(timeout)
-  }, [isRunning, startedThisSession, suggestedStepIndex])
+      delete ownedSurfacesRef.current[key]
+    },
+    [onCloseTab, onRestoreUiState, onSelectTab, snapshot.tabs],
+  )
+
+  const undoStep = useCallback(
+    (stepId: GuideStepId) => {
+      switch (stepId) {
+        case 'folder':
+          if (ownedSurfacesRef.current.folderDialogOpen) {
+            onCloseCreateFolder()
+            ownedSurfacesRef.current.folderDialogOpen = false
+          }
+          break
+        case 'connection':
+        case 'save':
+          if (ownedSurfacesRef.current.connectionPanelOpen) {
+            onCloseConnectionPanel()
+            ownedSurfacesRef.current.connectionPanelOpen = false
+          }
+          break
+        case 'explorer':
+          undoTabSurface('explorer')
+          break
+        case 'query':
+          undoTabSurface('query')
+          break
+        case 'settings':
+          undoTabSurface('settings')
+          break
+        default:
+          break
+      }
+    },
+    [onCloseConnectionPanel, onCloseCreateFolder, undoTabSurface],
+  )
+
+  useEffect(() => {
+    if (!isRunning || effectiveStepId === currentStepId) {
+      return
+    }
+
+    setCurrentStepId(effectiveStepId)
+  }, [effectiveStepId, currentStepId, isRunning])
+
+  useEffect(() => {
+    if (!isRunning) {
+      persistedStepRef.current = undefined
+      return
+    }
+
+    if (guidePreferences?.currentStepId === effectiveStepId) {
+      persistedStepRef.current = effectiveStepId
+      return
+    }
+
+    if (persistedStepRef.current === effectiveStepId) {
+      return
+    }
+
+    persistedStepRef.current = effectiveStepId
+    onStepChange(effectiveStepId)
+  }, [effectiveStepId, guidePreferences?.currentStepId, isRunning, onStepChange])
 
   useEffect(() => {
     if (startRequestRevision === lastStartRequestRevision) {
@@ -167,12 +309,158 @@ export function FirstInstallGuide({
 
     const timeout = window.setTimeout(() => {
       setLastStartRequestRevision(startRequestRevision)
-      setStartedThisSession(true)
-      setCurrentStepIndex(0)
+      setCurrentStepId('welcome')
+      ownedSurfacesRef.current = {}
+      pendingActionRef.current = undefined
+      autoStepTokenRef.current = {}
     }, 0)
 
     return () => window.clearTimeout(timeout)
   }, [lastStartRequestRevision, startRequestRevision])
+
+  useEffect(() => {
+    if (!isRunning) {
+      return
+    }
+
+    if (effectiveStepId === 'welcome') {
+      const token = `welcome:${state.activeSidebarPane}:${state.sidebarCollapsed}`
+      if (autoStepTokenRef.current.welcome !== token) {
+        autoStepTokenRef.current.welcome = token
+        onOpenLibrary()
+      }
+      return
+    }
+
+    if (effectiveStepId === 'save') {
+      const saveStepPanelOpen = state.firstConnectionId
+        ? state.connectionPanelOpen
+        : state.connectionDrawerOpen
+
+      if (saveStepPanelOpen) {
+        saveStepAutoOpenPending.current = false
+        return
+      }
+
+      if (!saveStepAutoOpenPending.current) {
+        saveStepAutoOpenPending.current = true
+        runTrackedStepAction('save')
+      }
+      return
+    }
+
+    saveStepAutoOpenPending.current = false
+
+    if (effectiveStepId === 'explorer' && state.firstConnectionId) {
+      const targetFocused = state.explorerTabId && state.activeTabId === state.explorerTabId
+      const token = `explorer:${state.firstConnectionId}:${state.explorerTabId ?? 'missing'}:${state.activeTabId}`
+      if (!targetFocused && autoStepTokenRef.current.explorer !== token) {
+        autoStepTokenRef.current.explorer = token
+        runTrackedStepAction('explorer')
+      }
+      return
+    }
+
+    if (effectiveStepId === 'query' && state.firstConnectionId) {
+      const token = `query:${state.firstConnectionId}:${state.queryTabId ?? 'missing'}:${state.activeTabId}:${state.bottomPanelVisible}:${state.activeBottomPanelTab}`
+      if (autoStepTokenRef.current.query === token) {
+        return
+      }
+
+      autoStepTokenRef.current.query = token
+      if (state.queryTabId) {
+        focusExistingQueryTab(state.queryTabId)
+      } else {
+        runTrackedStepAction('query')
+      }
+      return
+    }
+
+    if (effectiveStepId === 'settings') {
+      const targetFocused = state.settingsTabId && state.activeTabId === state.settingsTabId
+      const token = `settings:${state.settingsTabId ?? 'missing'}:${state.activeTabId}`
+      if (!targetFocused && autoStepTokenRef.current.settings !== token) {
+        autoStepTokenRef.current.settings = token
+        runTrackedStepAction('settings')
+      }
+    }
+  }, [
+    effectiveStepId,
+    focusExistingQueryTab,
+    isRunning,
+    onOpenLibrary,
+    runTrackedStepAction,
+    state.activeBottomPanelTab,
+    state.activeSidebarPane,
+    state.activeTabId,
+    state.bottomPanelVisible,
+    state.connectionDrawerOpen,
+    state.connectionPanelOpen,
+    state.explorerTabId,
+    state.firstConnectionId,
+    state.queryTabId,
+    state.settingsTabId,
+    state.sidebarCollapsed,
+  ])
+
+  useEffect(() => {
+    const pending = pendingActionRef.current
+    if (!pending) {
+      return
+    }
+
+    const tab = pendingTabForStep(pending, snapshot, state.firstConnectionId)
+    if (!tab) {
+      return
+    }
+
+    const surface = createOwnedTabSurface(
+      pending.stepId as GuideTabSurfaceKey,
+      tab.id,
+      snapshot,
+      !pending.beforeTabIds.has(tab.id),
+      pending,
+    )
+
+    if (pending.stepId === 'explorer') {
+      ownedSurfacesRef.current.explorer = surface
+    }
+    if (pending.stepId === 'query') {
+      ownedSurfacesRef.current.query = surface
+    }
+    if (pending.stepId === 'settings') {
+      ownedSurfacesRef.current.settings = surface
+    }
+
+    pendingActionRef.current = undefined
+  }, [snapshot, state.firstConnectionId])
+
+  useEffect(() => {
+    const element = popoverRef.current
+    if (!element || !isRunning || !currentStep) {
+      return
+    }
+
+    const measure = () => {
+      const rect = element.getBoundingClientRect()
+      setPopoverSize((current) => {
+        const nextWidth = Math.ceil(rect.width || 360)
+        const nextHeight = Math.ceil(rect.height || 260)
+        return current.width === nextWidth && current.height === nextHeight
+          ? current
+          : { width: nextWidth, height: nextHeight }
+      })
+    }
+
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      return undefined
+    }
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [currentStep, isRunning])
 
   useEffect(() => {
     if (!isRunning || !currentStep) {
@@ -196,53 +484,26 @@ export function FirstInstallGuide({
     }
 
     schedule()
+    const retry = window.setTimeout(schedule, 120)
+    const observer =
+      typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(schedule)
+    observer?.observe(document.body, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    })
     window.addEventListener('resize', schedule)
     window.addEventListener('scroll', schedule, true)
     return () => {
       if (frame) {
         window.cancelAnimationFrame(frame)
       }
+      window.clearTimeout(retry)
+      observer?.disconnect()
       window.removeEventListener('resize', schedule)
       window.removeEventListener('scroll', schedule, true)
     }
   }, [currentStep, isRunning])
-
-  useEffect(() => {
-    if (currentStep?.id !== 'save') {
-      saveStepAutoOpenPending.current = false
-      return
-    }
-
-    const saveStepPanelOpen = state.firstConnectionId
-      ? state.connectionPanelOpen
-      : state.connectionDrawerOpen
-
-    if (saveStepPanelOpen) {
-      saveStepAutoOpenPending.current = false
-      return
-    }
-
-    if (saveStepAutoOpenPending.current) {
-      return
-    }
-
-    saveStepAutoOpenPending.current = true
-    onOpenLibrary()
-    if (state.firstConnectionId) {
-      onOpenConnectionPanel(state.firstConnectionId)
-    } else {
-      onOpenConnection(state.folders[0]?.id)
-    }
-  }, [
-    currentStep?.id,
-    onOpenConnection,
-    onOpenConnectionPanel,
-    onOpenLibrary,
-    state.connectionDrawerOpen,
-    state.connectionPanelOpen,
-    state.firstConnectionId,
-    state.folders,
-  ])
 
   if (shouldPrompt) {
     return (
@@ -267,9 +528,11 @@ export function FirstInstallGuide({
               type="button"
               className="drawer-button drawer-button--primary"
               onClick={() => {
-                setStartedThisSession(true)
-                setCurrentStepIndex(0)
-                onStart()
+                setCurrentStepId('welcome')
+                ownedSurfacesRef.current = {}
+                pendingActionRef.current = undefined
+                autoStepTokenRef.current = {}
+                onStart('welcome')
               }}
             >
               Start Tutorial
@@ -287,6 +550,12 @@ export function FirstInstallGuide({
   const stepNumber = currentStepIndex + 1
   const isFinalStep = currentStepIndex >= GUIDE_STEPS.length - 1
   const stepComplete = stepIsComplete(currentStep.id, state)
+  const canAdvance = stepCanAdvance(currentStep.id, state)
+  const actionDisabled = stepActionDisabled(currentStep.id, state)
+  const helperText = stepComplete
+    ? 'Done. You can keep moving.'
+    : stepBlockingReason(currentStep.id, state)
+  const actionIsPrimary = Boolean(currentStep.actionLabel && !canAdvance)
 
   return (
     <div className="first-install-guide-layer" aria-live="polite">
@@ -298,8 +567,9 @@ export function FirstInstallGuide({
         />
       ) : null}
       <section
-        className="first-install-guide-popover"
-        style={popoverStyle(spotlight, currentStep.placement)}
+        ref={popoverRef}
+        className={`first-install-guide-popover${spotlight ? '' : ' is-unanchored'}`}
+        style={popoverStyle(spotlight, currentStep.placement, popoverSize)}
         role="dialog"
         aria-modal="false"
         aria-labelledby="first-install-guide-title"
@@ -318,15 +588,24 @@ export function FirstInstallGuide({
         </p>
         <h2 id="first-install-guide-title">{currentStep.title}</h2>
         <p>{currentStep.body}</p>
-        {stepComplete ? (
-          <p className="first-install-guide-done">Done. You can keep moving.</p>
-        ) : null}
+        <p
+          className={
+            stepComplete
+              ? 'first-install-guide-done'
+              : 'first-install-guide-hint'
+          }
+        >
+          {helperText}
+        </p>
         <div className="first-install-guide-actions">
           <button
             type="button"
             className="drawer-button"
             disabled={currentStepIndex === 0}
-            onClick={() => setCurrentStepIndex((current) => Math.max(0, current - 1))}
+            onClick={() => {
+              undoStep(currentStep.id)
+              setCurrentStepId(previousStepId(effectiveStepId))
+            }}
           >
             Back
           </button>
@@ -336,24 +615,9 @@ export function FirstInstallGuide({
           {currentStep.actionLabel ? (
             <button
               type="button"
-              className="drawer-button"
-              onClick={() => {
-                runStepAction(currentStep.id, state, {
-                  onOpenLibrary,
-                  onRequestCreateFolder,
-                  onOpenConnection,
-                  onOpenConnectionPanel,
-                  onOpenExplorer,
-                  onOpenQuery,
-                  onOpenSettings,
-                  onShowResults,
-                })
-                if (currentStep.id === 'welcome') {
-                  setCurrentStepIndex((current) =>
-                    Math.min(GUIDE_STEPS.length - 1, current + 1),
-                  )
-                }
-              }}
+              className={`drawer-button${actionIsPrimary ? ' drawer-button--primary' : ''}`}
+              disabled={actionDisabled}
+              onClick={() => runTrackedStepAction(currentStep.id)}
             >
               {currentStep.actionLabel}
             </button>
@@ -362,6 +626,7 @@ export function FirstInstallGuide({
             <button
               type="button"
               className="drawer-button drawer-button--primary"
+              disabled={!stepComplete}
               onClick={onComplete}
             >
               Finish
@@ -369,13 +634,9 @@ export function FirstInstallGuide({
           ) : (
             <button
               type="button"
-              className="drawer-button drawer-button--primary"
-              disabled={!stepCanAdvance(currentStep.id, state)}
-              onClick={() =>
-                setCurrentStepIndex((current) =>
-                  Math.min(GUIDE_STEPS.length - 1, current + 1),
-                )
-              }
+              className={`drawer-button${actionIsPrimary ? '' : ' drawer-button--primary'}`}
+              disabled={!canAdvance}
+              onClick={() => setCurrentStepId(nextStepId(effectiveStepId))}
             >
               Next
             </button>
@@ -389,11 +650,19 @@ export function FirstInstallGuide({
 interface GuideRuntimeState {
   folders: LibraryNode[]
   firstConnectionId?: string
+  explorerTabId?: string
+  queryTabId?: string
+  settingsTabId?: string
   hasExplorerTab: boolean
   hasQueryTab: boolean
   hasSettingsTab: boolean
   connectionPanelOpen: boolean
   connectionDrawerOpen: boolean
+  activeTabId: string
+  activeSidebarPane: string
+  sidebarCollapsed: boolean
+  activeBottomPanelTab: UiState['activeBottomPanelTab']
+  bottomPanelVisible: boolean
 }
 
 interface GuideActions {
@@ -407,18 +676,59 @@ interface GuideActions {
   onShowResults(): void
 }
 
+interface PendingGuideAction {
+  stepId: Extract<GuideStepId, 'explorer' | 'query' | 'settings'>
+  beforeTabIds: Set<string>
+  previousActiveTabId?: string
+  previousBottomPanelVisible: boolean
+  previousBottomPanelTab: UiState['activeBottomPanelTab']
+}
+
+type GuideTabSurfaceKey = 'explorer' | 'query' | 'settings'
+
+interface OwnedTabSurface {
+  tabId: string
+  createdByGuide: boolean
+  previousActiveTabId?: string
+  previousBottomPanelVisible: boolean
+  previousBottomPanelTab: UiState['activeBottomPanelTab']
+  initialQueryText?: string
+  initialScriptText?: string
+  initialHistoryLength: number
+}
+
+interface GuideOwnedSurfaces {
+  folderDialogOpen?: boolean
+  connectionPanelOpen?: boolean
+  explorer?: OwnedTabSurface
+  query?: OwnedTabSurface
+  settings?: OwnedTabSurface
+}
+
 function guideState(
   snapshot: WorkspaceSnapshot,
   connectionDraftOpen: boolean,
 ): GuideRuntimeState {
+  const explorerTab = snapshot.tabs.find((tab) => tab.tabKind === 'explorer')
+  const queryTab = snapshot.tabs.find(isQueryTab)
+  const settingsTab = snapshot.tabs.find((tab) => tab.tabKind === 'settings')
+
   return {
     folders: snapshot.libraryNodes.filter((node) => node.kind === 'folder'),
     firstConnectionId: snapshot.connections[0]?.id,
-    hasExplorerTab: snapshot.tabs.some((tab) => tab.tabKind === 'explorer'),
-    hasQueryTab: snapshot.tabs.some(isQueryTab),
-    hasSettingsTab: snapshot.tabs.some((tab) => tab.tabKind === 'settings'),
+    explorerTabId: explorerTab?.id,
+    queryTabId: queryTab?.id,
+    settingsTabId: settingsTab?.id,
+    hasExplorerTab: Boolean(explorerTab),
+    hasQueryTab: Boolean(queryTab),
+    hasSettingsTab: Boolean(settingsTab),
     connectionPanelOpen: snapshot.ui.rightDrawer === 'connection',
     connectionDrawerOpen: snapshot.ui.rightDrawer === 'connection' && connectionDraftOpen,
+    activeTabId: snapshot.ui.activeTabId,
+    activeSidebarPane: snapshot.ui.activeSidebarPane,
+    sidebarCollapsed: snapshot.ui.sidebarCollapsed,
+    activeBottomPanelTab: snapshot.ui.activeBottomPanelTab,
+    bottomPanelVisible: snapshot.ui.bottomPanelVisible,
   }
 }
 
@@ -430,32 +740,26 @@ function workspaceIsEmpty(snapshot: WorkspaceSnapshot) {
   )
 }
 
-function resumeStepIndex(state: GuideRuntimeState) {
-  if (state.folders.length === 0) {
-    return 1
+function clampStepIdForState(stepId: GuideStepId, state: GuideRuntimeState): GuideStepId {
+  const index = stepIndex(stepId)
+
+  if (index > stepIndex('welcome') && state.folders.length === 0) {
+    return 'folder'
   }
 
-  if (!state.firstConnectionId && !state.connectionDrawerOpen) {
-    return 2
+  if (index > stepIndex('save') && !state.firstConnectionId) {
+    return 'save'
   }
 
-  if (!state.firstConnectionId) {
-    return 3
+  if (index > stepIndex('explorer') && !state.hasExplorerTab) {
+    return 'explorer'
   }
 
-  if (!state.hasExplorerTab) {
-    return 4
+  if (index > stepIndex('query') && !state.hasQueryTab) {
+    return 'query'
   }
 
-  if (!state.hasQueryTab) {
-    return 5
-  }
-
-  if (!state.hasSettingsTab) {
-    return 6
-  }
-
-  return 6
+  return stepId
 }
 
 function stepIsComplete(stepId: GuideStepId, state: GuideRuntimeState) {
@@ -485,6 +789,35 @@ function stepCanAdvance(stepId: GuideStepId, state: GuideRuntimeState) {
   }
 
   return stepIsComplete(stepId, state)
+}
+
+function stepActionDisabled(stepId: GuideStepId, state: GuideRuntimeState) {
+  return (stepId === 'explorer' || stepId === 'query') && !state.firstConnectionId
+}
+
+function stepBlockingReason(stepId: GuideStepId, state: GuideRuntimeState) {
+  switch (stepId) {
+    case 'folder':
+      return 'Create a folder to keep the tour moving.'
+    case 'connection':
+      return 'Open the connection drawer to continue.'
+    case 'save':
+      return state.connectionPanelOpen || state.connectionDrawerOpen
+        ? 'Save the connection when it is ready. Testing is optional.'
+        : 'The connection panel will open here so you can test and save.'
+    case 'explorer':
+      return state.firstConnectionId
+        ? 'Explorer is opening for the saved connection.'
+        : 'Save a connection before opening Explorer.'
+    case 'query':
+      return state.firstConnectionId
+        ? 'A query tab is opening for the saved connection.'
+        : 'Save a connection before opening a query tab.'
+    case 'settings':
+      return 'Settings is opening so you can review safety options.'
+    default:
+      return ''
+  }
 }
 
 function isQueryTab(tab: QueryTabState) {
@@ -535,6 +868,120 @@ function runStepAction(
   }
 }
 
+function createPendingGuideAction(
+  stepId: Extract<GuideStepId, 'explorer' | 'query' | 'settings'>,
+  snapshot: WorkspaceSnapshot,
+): PendingGuideAction {
+  return {
+    stepId,
+    beforeTabIds: new Set(snapshot.tabs.map((tab) => tab.id)),
+    previousActiveTabId: snapshot.ui.activeTabId || undefined,
+    previousBottomPanelVisible: snapshot.ui.bottomPanelVisible,
+    previousBottomPanelTab: snapshot.ui.activeBottomPanelTab,
+  }
+}
+
+function pendingTabForStep(
+  pending: PendingGuideAction,
+  snapshot: WorkspaceSnapshot,
+  connectionId?: string,
+) {
+  if (pending.stepId === 'explorer') {
+    return (
+      snapshot.tabs.find(
+        (tab) =>
+          tab.tabKind === 'explorer' &&
+          (!connectionId || tab.connectionId === connectionId) &&
+          tab.id === snapshot.ui.activeTabId,
+      ) ??
+      snapshot.tabs.find(
+        (tab) =>
+          tab.tabKind === 'explorer' &&
+          (!connectionId || tab.connectionId === connectionId) &&
+          !pending.beforeTabIds.has(tab.id),
+      ) ??
+      snapshot.tabs.find(
+        (tab) => tab.tabKind === 'explorer' && (!connectionId || tab.connectionId === connectionId),
+      )
+    )
+  }
+
+  if (pending.stepId === 'query') {
+    return (
+      snapshot.tabs.find(
+        (tab) => isQueryTab(tab) && tab.id === snapshot.ui.activeTabId,
+      ) ??
+      snapshot.tabs.find((tab) => isQueryTab(tab) && !pending.beforeTabIds.has(tab.id)) ??
+      snapshot.tabs.find(isQueryTab)
+    )
+  }
+
+  return (
+    snapshot.tabs.find((tab) => tab.tabKind === 'settings' && tab.id === snapshot.ui.activeTabId) ??
+    snapshot.tabs.find((tab) => tab.tabKind === 'settings' && !pending.beforeTabIds.has(tab.id)) ??
+    snapshot.tabs.find((tab) => tab.tabKind === 'settings')
+  )
+}
+
+function createOwnedTabSurface(
+  stepId: GuideTabSurfaceKey,
+  tabId: string,
+  snapshot: WorkspaceSnapshot,
+  createdByGuide: boolean,
+  pending?: PendingGuideAction,
+): OwnedTabSurface {
+  const tab = snapshot.tabs.find((item) => item.id === tabId)
+
+  return {
+    tabId,
+    createdByGuide,
+    previousActiveTabId:
+      pending?.previousActiveTabId ?? (snapshot.ui.activeTabId || undefined),
+    previousBottomPanelVisible: pending?.previousBottomPanelVisible ?? snapshot.ui.bottomPanelVisible,
+    previousBottomPanelTab: pending?.previousBottomPanelTab ?? snapshot.ui.activeBottomPanelTab,
+    initialQueryText: stepId === 'query' ? tab?.queryText : undefined,
+    initialScriptText: stepId === 'query' ? tab?.scriptText : undefined,
+    initialHistoryLength: tab?.history.length ?? 0,
+  }
+}
+
+function canCloseGuideOwnedTab(tab: QueryTabState, surface: OwnedTabSurface) {
+  if (!tab.dirty) {
+    return true
+  }
+
+  return (
+    tab.queryText === surface.initialQueryText &&
+    tab.scriptText === surface.initialScriptText &&
+    tab.history.length === surface.initialHistoryLength &&
+    tab.status === 'idle' &&
+    !tab.result
+  )
+}
+
+function sanitizeGuideStepId(stepId: string | undefined): GuideStepId | undefined {
+  return GUIDE_STEP_IDS.includes(stepId as GuideStepId)
+    ? (stepId as GuideStepId)
+    : undefined
+}
+
+function stepById(stepId: GuideStepId) {
+  return GUIDE_STEPS[stepIndex(stepId)]
+}
+
+function stepIndex(stepId: GuideStepId) {
+  const index = GUIDE_STEPS.findIndex((step) => step.id === stepId)
+  return index >= 0 ? index : 0
+}
+
+function previousStepId(stepId: GuideStepId): GuideStepId {
+  return GUIDE_STEPS[Math.max(0, stepIndex(stepId) - 1)]?.id ?? 'welcome'
+}
+
+function nextStepId(stepId: GuideStepId): GuideStepId {
+  return GUIDE_STEPS[Math.min(GUIDE_STEPS.length - 1, stepIndex(stepId) + 1)]?.id ?? 'settings'
+}
+
 function resolveSpotlight(anchor: string): SpotlightState | undefined {
   const target = document.querySelector<HTMLElement>(`[data-tour-id="${anchor}"]`)
   const rect = target?.getBoundingClientRect()
@@ -563,6 +1010,7 @@ function spotlightStyle(spotlight: SpotlightState): CSSProperties {
 function popoverStyle(
   spotlight: SpotlightState | undefined,
   preferredPlacement: GuidePopoverPlacement,
+  popoverSize: GuidePopoverSize,
 ): CSSProperties {
-  return getGuidePopoverStyle(spotlight, preferredPlacement)
+  return getGuidePopoverStyle(spotlight, preferredPlacement, popoverSize)
 }

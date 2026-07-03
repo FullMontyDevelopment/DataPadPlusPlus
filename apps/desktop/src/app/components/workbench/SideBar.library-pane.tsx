@@ -6,13 +6,14 @@ import type {
 } from 'react'
 import type {
   AdapterManifest,
-  ClosedQueryTabSnapshot,
   ConnectionProfile,
   DatastoreApiServerInstanceStatus,
   EnvironmentProfile,
   ExplorerNode,
   LibraryNode,
   ScopedQueryTarget,
+  WorkspaceSummary,
+  WorkspaceSwitcherStatus,
 } from '@datapadplusplus/shared-types'
 import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 import type { ConnectionHealth } from '../../state/connection-health'
@@ -53,7 +54,6 @@ interface LibraryPaneProps {
   activeConnectionId?: string
   activeEnvironmentId?: string
   adapterManifests?: AdapterManifest[]
-  closedTabs: ClosedQueryTabSnapshot[]
   connections?: ConnectionProfile[]
   environments: EnvironmentProfile[]
   explorerStatus?: 'idle' | 'loading' | 'ready'
@@ -63,7 +63,9 @@ interface LibraryPaneProps {
   apiServers?: DatastoreApiServerInstanceStatus[]
   workspaceSearchEnabled?: boolean
   activeWorkspaceSearch?: boolean
+  workspaceSwitcherStatus?: WorkspaceSwitcherStatus
   createFolderDialogRequestRevision?: number
+  closeFolderDialogRequestRevision?: number
   getConnectionExplorerItems?(
     connectionId: string,
     environmentId?: string,
@@ -83,6 +85,7 @@ interface LibraryPaneProps {
   ): boolean
   libraryFilter: string
   libraryNodes: LibraryNode[]
+  explorerFolderOrders?: Record<string, string[]>
   sectionStates: Record<string, boolean>
   onCloneEnvironment?(environmentId: string): void
   onCollapseSidebar?(): void
@@ -91,6 +94,7 @@ interface LibraryPaneProps {
   onCreateFolder(parentId: string | undefined, name: string): void
   onCreateTab?(connectionId?: string): void
   onCreateTestSuite?(connectionId?: string): void
+  onCreateWorkspace?(name: string): void
   onDeleteNode(nodeId: string): void
   onDeleteConnection?(connectionId: string): void
   onDeleteEnvironment?(environmentId: string): void
@@ -119,11 +123,13 @@ interface LibraryPaneProps {
   onDeleteApiServer?(serverId: string): void
   onOpenLibraryItem(nodeId: string): void
   onRenameNode(nodeId: string, name: string): void
-  onReopenClosedTab(closedTabId: string): void
+  onRenameWorkspace?(workspaceId: string, name: string): void
   onSelectConnection?(connectionId: string): void
   onSelectEnvironment?(environmentId: string): void
   onSetNodeEnvironment(nodeId: string, environmentId?: string): void
+  onSetExplorerFolderOrder?(orderKey: string, orderedNodeKeys: string[]): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
+  onSwitchWorkspace?(workspaceId: string): void
   onTestConnection?(connectionId: string, environmentId?: string): void
 }
 
@@ -172,6 +178,10 @@ interface MoveNodeDialogState {
   initialPath: string
 }
 
+type WorkspaceDialogState =
+  | { mode: 'create' }
+  | { mode: 'rename'; workspace: WorkspaceSummary }
+
 interface LibraryEnvironmentState {
   environment: EnvironmentProfile
   source: 'direct' | 'inherited'
@@ -179,12 +189,9 @@ interface LibraryEnvironmentState {
 }
 
 const POINTER_DRAG_THRESHOLD = 4
-const RECENTS_SECTION_ID = 'library:recents'
+const WORKSPACES_SECTION_ID = 'library:workspaces'
 const API_SERVER_SECTION_ID = 'library:api-server'
 const ENVIRONMENTS_SECTION_ID = 'library:environments'
-const DEFAULT_RECENTS_HEIGHT = 180
-const MIN_RECENTS_HEIGHT = 92
-const MAX_RECENTS_HEIGHT = 360
 
 function noop() {
   // Optional Library pane callbacks are supplied by the full app shell.
@@ -198,7 +205,6 @@ export function LibraryPane({
   activeConnectionId = '',
   activeEnvironmentId = '',
   adapterManifests = [],
-  closedTabs,
   connections = [],
   environments,
   explorerStatus = 'idle',
@@ -208,13 +214,16 @@ export function LibraryPane({
   apiServers = [],
   workspaceSearchEnabled = false,
   activeWorkspaceSearch = false,
+  workspaceSwitcherStatus,
   createFolderDialogRequestRevision,
+  closeFolderDialogRequestRevision,
   getConnectionExplorerItems = () => undefined,
   getConnectionExplorerStatus = () => 'idle',
   getConnectionHealth = () => undefined,
   isExplorerScopeLoading = () => false,
   libraryFilter,
   libraryNodes,
+  explorerFolderOrders,
   sectionStates,
   onCloneEnvironment = noop,
   onCollapseSidebar = noop,
@@ -223,6 +232,7 @@ export function LibraryPane({
   onCreateFolder,
   onCreateTab = noop,
   onCreateTestSuite = noop,
+  onCreateWorkspace = noop,
   onDeleteConnection = noop,
   onDeleteEnvironment = noop,
   onDeleteNode,
@@ -247,11 +257,13 @@ export function LibraryPane({
   onDeleteApiServer = noop,
   onOpenLibraryItem,
   onRenameNode,
-  onReopenClosedTab,
+  onRenameWorkspace = noop,
   onSelectConnection = noop,
   onSelectEnvironment = noop,
   onSetNodeEnvironment,
+  onSetExplorerFolderOrder = noop,
   onSidebarSectionExpandedChange,
+  onSwitchWorkspace = noop,
   onTestConnection = noop,
 }: LibraryPaneProps) {
   const [contextMenu, setContextMenu] = useState<LibraryContextMenuState>()
@@ -263,26 +275,22 @@ export function LibraryPane({
     useState<ApiServerContextMenuState>()
   const [moveNodeDialog, setMoveNodeDialog] = useState<MoveNodeDialogState>()
   const [renameNodeDialog, setRenameNodeDialog] = useState<LibraryNode>()
+  const [workspaceDialog, setWorkspaceDialog] =
+    useState<WorkspaceDialogState>()
   const [draggedNodeId, setDraggedNodeId] = useState<string>()
   const pointerDragRef = useRef<LibraryPointerDragState | undefined>(undefined)
   const suppressOpenClickNodeIdRef = useRef<string | undefined>(undefined)
   const [rootDragActive, setRootDragActive] = useState(false)
   const [folderDropTargetId, setFolderDropTargetId] = useState<string>()
-  const [recentsHeight, setRecentsHeight] = useState(readInitialRecentsHeight)
-  const [isResizingRecents, setIsResizingRecents] = useState(false)
-  const lastRecentsPointerY = useRef(0)
   const filteredNodes = useMemo(
     () => filterLibraryNodes(libraryNodes, libraryFilter),
     [libraryFilter, libraryNodes],
   )
   const tree = useMemo(() => buildLibraryTree(filteredNodes), [filteredNodes])
   const hasLibraryNodes = filteredNodes.length > 0
-  const recentLibraryItems = useMemo(
-    () => recentLibraryNodes(libraryNodes),
-    [libraryNodes],
-  )
-  const recentsCount = recentLibraryItems.length + closedTabs.length
-  const recentsExpanded = sectionStates[RECENTS_SECTION_ID] ?? true
+  const workspacesExpanded = sectionStates[WORKSPACES_SECTION_ID] ?? true
+  const workspaceSwitcherEnabled = Boolean(workspaceSwitcherStatus?.enabled)
+  const workspaceRows = workspaceSwitcherStatus?.workspaces ?? []
   const apiServerExpanded = sectionStates[API_SERVER_SECTION_ID] ?? true
   const environmentsExpanded = sectionStates[ENVIRONMENTS_SECTION_ID] ?? true
   const displayedApiServers = apiServers
@@ -330,6 +338,18 @@ export function LibraryPane({
 
     return () => window.clearTimeout(timeout)
   }, [createFolderDialogRequestRevision, requestCreateFolder])
+
+  useEffect(() => {
+    if (!closeFolderDialogRequestRevision) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      setCreateFolderDialog(undefined)
+    }, 0)
+
+    return () => window.clearTimeout(timeout)
+  }, [closeFolderDialogRequestRevision])
 
   const requestRenameNode = (node: LibraryNode) => {
     setContextMenu(undefined)
@@ -472,14 +492,6 @@ export function LibraryPane({
     return true
   }
 
-  const resizeRecents = (nextHeight: number) => {
-    const clamped = clamp(nextHeight, MIN_RECENTS_HEIGHT, MAX_RECENTS_HEIGHT)
-    setRecentsHeight(clamped)
-    window.localStorage.setItem(
-      'datapadplusplus.library.recentsHeight',
-      String(clamped),
-    )
-  }
   const contextMenuConnection =
     contextMenu?.node.kind === 'connection' && contextMenu.node.connectionId
       ? connectionById.get(contextMenu.node.connectionId)
@@ -572,7 +584,7 @@ export function LibraryPane({
           }`}
           data-library-drop-root="true"
         >
-          {!hasLibraryNodes && recentsCount === 0 ? (
+          {!hasLibraryNodes ? (
             <div className="sidebar-empty library-empty-placeholder">
               <DatabaseIcon className="empty-icon" />
               <strong>Start your workspace</strong>
@@ -625,6 +637,7 @@ export function LibraryPane({
                 getConnectionHealth={getConnectionHealth}
                 isExplorerScopeLoading={isExplorerScopeLoading}
                 libraryNodes={libraryNodes}
+                explorerFolderOrders={explorerFolderOrders}
                 draggedNodeId={draggedNodeId}
                 folderDropTargetId={folderDropTargetId}
                 sectionStates={sectionStates}
@@ -654,6 +667,7 @@ export function LibraryPane({
                 onRenameNode={requestRenameNode}
                 onSelectConnection={onSelectConnection}
                 onSelectEnvironment={onSelectEnvironment}
+                onSetExplorerFolderOrder={onSetExplorerFolderOrder}
                 onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
                 onTestConnection={onTestConnection}
                 shouldSuppressOpenClick={shouldSuppressOpenClick}
@@ -662,132 +676,84 @@ export function LibraryPane({
           </div>
         </div>
 
-        {recentsCount > 0 ? (
+        {workspaceSwitcherEnabled ? (
           <section
-            className={`library-recents-panel sidebar-section${
-              recentsExpanded ? ' is-expanded' : ' is-collapsed'
-            }${isResizingRecents ? ' is-resizing' : ''}`}
+            className={`library-workspaces-panel sidebar-section${
+              workspacesExpanded ? ' is-expanded' : ' is-collapsed'
+            }`}
           >
-            {recentsExpanded ? (
-              <div
-                role="separator"
-                aria-label="Resize Recents"
-                aria-orientation="horizontal"
-                aria-valuemin={MIN_RECENTS_HEIGHT}
-                aria-valuemax={MAX_RECENTS_HEIGHT}
-                aria-valuenow={recentsHeight}
-                className="library-recents-resize-handle"
-                tabIndex={0}
-                onPointerDown={(event) => {
-                  event.currentTarget.setPointerCapture?.(event.pointerId)
-                  lastRecentsPointerY.current = event.clientY
-                  setIsResizingRecents(true)
-                }}
-                onPointerMove={(event) => {
-                  if (!isResizingRecents) {
-                    return
-                  }
-                  const delta = lastRecentsPointerY.current - event.clientY
-                  lastRecentsPointerY.current = event.clientY
-                  resizeRecents(recentsHeight + delta)
-                }}
-                onPointerUp={(event) => {
-                  event.currentTarget.releasePointerCapture?.(event.pointerId)
-                  setIsResizingRecents(false)
-                }}
-                onPointerCancel={() => setIsResizingRecents(false)}
-                onKeyDown={(event) => {
-                  if (event.key === 'ArrowUp') {
-                    event.preventDefault()
-                    resizeRecents(recentsHeight + 16)
-                  }
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault()
-                    resizeRecents(recentsHeight - 16)
-                  }
-                }}
-              />
-            ) : null}
-            <button
-              type="button"
-              className="sidebar-section-header sidebar-section-header--button"
-              aria-label={`${recentsExpanded ? 'Collapse' : 'Expand'} Recents section (${recentsCount})`}
-              aria-expanded={recentsExpanded}
-              aria-controls="library-recents-body"
-              onClick={() =>
-                onSidebarSectionExpandedChange(
-                  RECENTS_SECTION_ID,
-                  !recentsExpanded,
-                )
-              }
-            >
-              <span className="sidebar-section-title">
-                {recentsExpanded ? (
-                  <ChevronDownIcon className="sidebar-section-chevron" />
-                ) : (
-                  <ChevronRightIcon className="sidebar-section-chevron" />
-                )}
-                <span>Recents</span>
-              </span>
-              <span>{recentsCount}</span>
-            </button>
-
-            {recentsExpanded ? (
-              <div
-                id="library-recents-body"
-                className="library-recents-body"
-                style={{ height: recentsHeight }}
+            <div className="sidebar-section-action-header">
+              <button
+                type="button"
+                className="sidebar-section-header sidebar-section-header--button sidebar-section-action-toggle"
+                aria-label={`${workspacesExpanded ? 'Collapse' : 'Expand'} Workspaces section`}
+                aria-expanded={workspacesExpanded}
+                aria-controls="library-workspaces-body"
+                onClick={() =>
+                  onSidebarSectionExpandedChange(
+                    WORKSPACES_SECTION_ID,
+                    !workspacesExpanded,
+                  )
+                }
               >
-                {recentLibraryItems.map((node) => (
-                  <div key={`recent-${node.id}`} className="saved-work-row">
-                    <div className="saved-work-title-row">
-                      <strong>{node.name}</strong>
-                      <span>{node.kind}</span>
-                    </div>
-                    <p>{formatRecentAt(node.lastOpenedAt)}</p>
-                    <div className="saved-work-meta-row">
-                      <small>{node.language ?? 'text'} / Library</small>
-                      <span className="saved-work-actions">
-                        <button
-                          type="button"
-                          className="sidebar-icon-button sidebar-icon-button--inline"
-                          aria-label={`Open recent library item ${node.name}`}
-                          title={`Open ${node.name}.`}
-                          onClick={() => onOpenLibraryItem(node.id)}
-                        >
-                          <PlayIcon className="sidebar-icon" />
-                        </button>
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                <span className="sidebar-section-title">
+                  {workspacesExpanded ? (
+                    <ChevronDownIcon className="sidebar-section-chevron" />
+                  ) : (
+                    <ChevronRightIcon className="sidebar-section-chevron" />
+                  )}
+                  <span>Workspaces</span>
+                </span>
+                <span>{workspaceRows.length}</span>
+              </button>
+              <button
+                type="button"
+                className="sidebar-icon-button"
+                aria-label="New workspace"
+                title="New workspace"
+                onClick={() => setWorkspaceDialog({ mode: 'create' })}
+              >
+                <PlusIcon className="sidebar-icon" />
+              </button>
+            </div>
 
-                {closedTabs.slice(0, 8).map((tab) => (
-                  <div
-                    key={`${tab.id}-${tab.closedAt}`}
-                    className="saved-work-row"
-                  >
-                    <div className="saved-work-title-row">
-                      <strong>{tab.title}</strong>
-                      <span>{tab.dirty ? 'edited' : 'closed'}</span>
+            {workspacesExpanded ? (
+              <div
+                id="library-workspaces-body"
+                className="library-workspaces-body"
+              >
+                {workspaceRows.map((workspace) => {
+                  const active =
+                    workspace.id === workspaceSwitcherStatus?.activeWorkspaceId
+                  return (
+                    <div
+                      key={workspace.id}
+                      className={`workspace-switcher-row${active ? ' is-active' : ''}`}
+                    >
+                      <button
+                        type="button"
+                        className="workspace-switcher-main"
+                        disabled={active}
+                        aria-current={active ? 'true' : undefined}
+                        onClick={() => onSwitchWorkspace(workspace.id)}
+                      >
+                        <strong>{workspace.name}</strong>
+                        <span>{formatWorkspaceCounts(workspace)}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="sidebar-icon-button sidebar-icon-button--inline"
+                        aria-label={`Rename workspace ${workspace.name}`}
+                        title={`Rename ${workspace.name}`}
+                        onClick={() =>
+                          setWorkspaceDialog({ mode: 'rename', workspace })
+                        }
+                      >
+                        <RenameIcon className="sidebar-icon" />
+                      </button>
                     </div>
-                    <p>{formatClosedAt(tab.closedAt)}</p>
-                    <div className="saved-work-meta-row">
-                      <small>{tab.language} / recovery</small>
-                      <span className="saved-work-actions">
-                        <button
-                          type="button"
-                          className="sidebar-icon-button sidebar-icon-button--inline"
-                          aria-label={`Reopen closed tab ${tab.title}`}
-                          title={`Recover recently closed tab ${tab.title}.`}
-                          onClick={() => onReopenClosedTab(tab.id)}
-                        >
-                          <PlayIcon className="sidebar-icon" />
-                        </button>
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             ) : null}
           </section>
@@ -1436,6 +1402,39 @@ export function LibraryPane({
           </button>
         </div>
       ) : null}
+      {workspaceDialog ? (
+        <LibraryTextInputDialog
+          title={
+            workspaceDialog.mode === 'create'
+              ? 'New workspace'
+              : `Rename ${workspaceDialog.workspace.name}`
+          }
+          body={
+            workspaceDialog.mode === 'create'
+              ? 'Create a local workspace profile. DataPad++ saves the current workspace before switching.'
+              : 'Choose a short workspace name. The workspace contents stay unchanged.'
+          }
+          inputLabel="Workspace name"
+          initialValue={
+            workspaceDialog.mode === 'rename'
+              ? workspaceDialog.workspace.name
+              : undefined
+          }
+          placeholder="Workspace name"
+          confirmLabel={workspaceDialog.mode === 'create' ? 'Create' : 'Rename'}
+          validate={validateRequiredLibraryInput}
+          onCancel={() => setWorkspaceDialog(undefined)}
+          onConfirm={(value) => {
+            const name = value.trim()
+            if (workspaceDialog.mode === 'create') {
+              onCreateWorkspace(name)
+            } else {
+              onRenameWorkspace(workspaceDialog.workspace.id, name)
+            }
+            setWorkspaceDialog(undefined)
+          }}
+        />
+      ) : null}
       {createFolderDialog ? (
         <LibraryTextInputDialog
           title="New folder"
@@ -1524,6 +1523,7 @@ function LibraryTreeItem({
   getConnectionHealth,
   isExplorerScopeLoading,
   libraryNodes,
+  explorerFolderOrders,
   draggedNodeId,
   folderDropTargetId,
   sectionStates,
@@ -1553,6 +1553,7 @@ function LibraryTreeItem({
   onRenameNode,
   onSelectConnection,
   onSelectEnvironment,
+  onSetExplorerFolderOrder,
   onSidebarSectionExpandedChange,
   onTestConnection,
   shouldSuppressOpenClick,
@@ -1582,6 +1583,7 @@ function LibraryTreeItem({
     environmentId?: string,
   ): boolean
   libraryNodes: LibraryNode[]
+  explorerFolderOrders?: Record<string, string[]>
   draggedNodeId?: string
   folderDropTargetId?: string
   sectionStates: Record<string, boolean>
@@ -1618,6 +1620,7 @@ function LibraryTreeItem({
   onRenameNode(node: LibraryNode): void
   onSelectConnection(connectionId: string): void
   onSelectEnvironment(environmentId: string): void
+  onSetExplorerFolderOrder(orderKey: string, orderedNodeKeys: string[]): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
   onTestConnection(connectionId: string, environmentId?: string): void
   shouldSuppressOpenClick(nodeId: string): boolean
@@ -1847,6 +1850,7 @@ function LibraryTreeItem({
               connectionEnvironmentId,
             )}
             explorerStatus={connectionExplorerStatus}
+            explorerFolderOrders={explorerFolderOrders}
             isExplorerScopeLoading={(connectionId, scope) =>
               isExplorerScopeLoading(
                 connectionId,
@@ -1863,6 +1867,7 @@ function LibraryTreeItem({
             onAddToApiServer={onAddNodeToApiServer}
             onOpenObjectView={onOpenObjectView}
             onOpenScopedQuery={onOpenScopedQuery}
+            onSetExplorerFolderOrder={onSetExplorerFolderOrder}
           />
         </>
       ) : null}
@@ -1883,6 +1888,7 @@ function LibraryTreeItem({
               getConnectionHealth={getConnectionHealth}
               isExplorerScopeLoading={isExplorerScopeLoading}
               libraryNodes={libraryNodes}
+              explorerFolderOrders={explorerFolderOrders}
               draggedNodeId={draggedNodeId}
               folderDropTargetId={folderDropTargetId}
               sectionStates={sectionStates}
@@ -1912,6 +1918,7 @@ function LibraryTreeItem({
               onRenameNode={onRenameNode}
               onSelectConnection={onSelectConnection}
               onSelectEnvironment={onSelectEnvironment}
+              onSetExplorerFolderOrder={onSetExplorerFolderOrder}
               onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
               onTestConnection={onTestConnection}
               shouldSuppressOpenClick={shouldSuppressOpenClick}
@@ -1998,17 +2005,6 @@ function sortLibraryNodes(left: LibraryNode, right: LibraryNode) {
     return 1
   }
   return left.name.localeCompare(right.name)
-}
-
-function recentLibraryNodes(nodes: LibraryNode[]) {
-  return nodes
-    .filter((node) => node.kind !== 'folder' && Boolean(node.lastOpenedAt))
-    .slice()
-    .sort(
-      (left, right) =>
-        timestampValue(right.lastOpenedAt) - timestampValue(left.lastOpenedAt),
-    )
-    .slice(0, 8)
 }
 
 function dropTargetFromPoint(
@@ -2125,50 +2121,19 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }
 
-function readInitialRecentsHeight() {
-  const raw = window.localStorage.getItem(
-    'datapadplusplus.library.recentsHeight',
-  )
-  const parsed = raw ? Number(raw) : DEFAULT_RECENTS_HEIGHT
-  return clamp(parsed, MIN_RECENTS_HEIGHT, MAX_RECENTS_HEIGHT)
+function formatWorkspaceCounts(workspace: WorkspaceSummary) {
+  const parts = [
+    countLabel(workspace.counts.connections, 'connection'),
+    countLabel(workspace.counts.libraryItems, 'library item'),
+  ]
+
+  if (workspace.counts.openTabs > 0) {
+    parts.push(countLabel(workspace.counts.openTabs, 'open tab'))
+  }
+
+  return parts.join(' / ')
 }
 
-function clamp(value: number, min: number, max: number) {
-  if (!Number.isFinite(value)) {
-    return min
-  }
-  return Math.max(min, Math.min(max, value))
-}
-
-function formatClosedAt(closedAt: string) {
-  const date = new Date(closedAt)
-
-  if (Number.isNaN(date.getTime())) {
-    return 'Closed recently'
-  }
-
-  return `Closed ${date.toLocaleString()}`
-}
-
-function formatRecentAt(openedAt: string | undefined) {
-  if (!openedAt) {
-    return 'Opened recently'
-  }
-
-  const date = new Date(openedAt)
-
-  if (Number.isNaN(date.getTime())) {
-    return 'Opened recently'
-  }
-
-  return `Opened ${date.toLocaleString()}`
-}
-
-function timestampValue(value: string | undefined) {
-  if (!value) {
-    return 0
-  }
-
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime()
+function countLabel(count: number, label: string) {
+  return `${count} ${label}${count === 1 ? '' : 's'}`
 }

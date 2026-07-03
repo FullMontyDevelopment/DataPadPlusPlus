@@ -36,6 +36,7 @@ const defaultActions: Actions = {
   createApiServerTab: noop,
   createMcpServerTab: noop,
   createWorkspaceSearchTab: noop,
+  createSecurityChecksTab: noop,
   refreshMetricsTab: noop,
   createObjectViewTab: noop,
   refreshObjectViewTab: noop,
@@ -87,6 +88,7 @@ const defaultActions: Actions = {
   setSafeModeEnabled: noop,
   setKeyboardShortcut: noop,
   setFirstInstallGuideStatus: noop,
+  setExplorerFolderOrder: noop,
   updateUiState: noop,
   refreshDiagnostics: noop,
   listAppLogFiles: async () => undefined,
@@ -98,8 +100,16 @@ const defaultActions: Actions = {
   importWorkspace: noop,
   exportWorkspaceFile: async () => undefined,
   importWorkspaceFile: noop,
+  getWorkspaceSwitcherStatus: async () => undefined,
+  setWorkspaceSwitcherEnabled: noopFalse,
+  createWorkspace: noopFalse,
+  renameWorkspace: noopFalse,
+  switchWorkspace: noopFalse,
   updateWorkspaceBackupSettings: noopFalse,
   updateWorkspaceSearchSettings: noopFalse,
+  getDatastoreSecurityCheckStatus: async () => undefined,
+  updateDatastoreSecurityCheckSettings: noopFalse,
+  refreshDatastoreSecurityChecks: noopFalse,
   getDatastoreApiServerStatus: async () => undefined,
   getDatastoreApiServerMetrics: async () => undefined,
   getDatastoreApiServerLogs: async () => undefined,
@@ -186,6 +196,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       .then((payload) => {
         if (mounted) {
           dispatch({ type: 'BOOTSTRAP_SUCCESS', payload })
+          void desktopClient
+            .getWorkspaceSwitcherStatus()
+            .then((status) => {
+              if (mounted) {
+                dispatch({ type: 'WORKSPACE_SWITCHER_STATUS_READY', status })
+              }
+            })
+            .catch(() => {
+              // Older desktop runtimes may not have workspace switcher commands yet.
+            })
         }
       })
       .catch((error: unknown) => {

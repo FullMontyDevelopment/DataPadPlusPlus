@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { ExplorerNode } from '@datapadplusplus/shared-types'
 import { createBlankSnapshot } from '../../../src/app/data/workspace-factory'
 import { clientApiServer } from '../../../src/services/runtime/client-api-server'
 import { loadBrowserSnapshot, saveBrowserSnapshot } from '../../../src/services/runtime/browser-store'
@@ -178,6 +179,60 @@ describe('clientApiServer browser preview', () => {
       'library-prod',
     ])
   })
+
+  it('discovers and adds duplicate Mongo collection names from separate databases', async () => {
+    const snapshot = createBlankSnapshot()
+    snapshot.preferences.datastoreApiServer = {
+      enabled: true,
+      host: '127.0.0.1',
+      port: 17640,
+      autoStart: false,
+      activeServerId: 'api-server-default',
+      servers: [{
+        id: 'api-server-default',
+        name: 'Local API Server',
+        host: '127.0.0.1',
+        port: 17640,
+        autoStart: false,
+        protocol: 'rest',
+        basePath: '',
+        connectionId: 'conn-mongo',
+        environmentId: 'env-local',
+        resources: [],
+        customEndpoints: [],
+      }],
+    }
+    snapshot.explorerNodes = [
+      mongoCollectionNode('db-sales-users', 'sales'),
+      mongoCollectionNode('db-support-users', 'support'),
+    ]
+    saveBrowserSnapshot(snapshot)
+
+    const discovered = await clientApiServer.discoverDatastoreApiServerResources({
+      connectionId: 'conn-mongo',
+      environmentId: 'env-local',
+    })
+
+    expect(discovered.resources).toHaveLength(2)
+    expect(discovered.resources.map((resource) => resource.path)).toEqual([
+      ['sales', 'Collections'],
+      ['support', 'Collections'],
+    ])
+    expect(new Set(discovered.resources.map((resource) => resource.id)).size).toBe(2)
+
+    await clientApiServer.addDatastoreApiServerResources({
+      serverId: 'api-server-default',
+      resources: discovered.resources,
+    })
+
+    const resources =
+      loadBrowserSnapshot().preferences.datastoreApiServer?.servers[0]?.resources ?? []
+    expect(resources.map((resource) => resource.endpointSlug)).toEqual(['users', 'users-2'])
+    expect(resources.map((resource) => resource.path)).toEqual([
+      ['sales', 'Collections'],
+      ['support', 'Collections'],
+    ])
+  })
 })
 
 function savedQuery(
@@ -198,5 +253,18 @@ function savedQuery(
     language: 'sql' as const,
     queryText: 'select * from users where email = {{api.email}}',
     queryViewMode: 'raw' as const,
+  }
+}
+
+function mongoCollectionNode(id: string, database: string): ExplorerNode {
+  return {
+    id,
+    label: 'users',
+    kind: 'collection',
+    detail: 'collection',
+    family: 'document',
+    path: [database, 'Collections'],
+    scope: `collection:${database}:users`,
+    expandable: true,
   }
 }

@@ -133,6 +133,11 @@ const WorkspaceSearchWorkspace = lazy(() =>
     default: module.WorkspaceSearchWorkspace,
   })),
 )
+const SecurityChecksWorkspace = lazy(() =>
+  import('./components/workbench/SecurityChecksWorkspace').then((module) => ({
+    default: module.SecurityChecksWorkspace,
+  })),
+)
 const MetricsWorkspace = lazy(() =>
   import('./components/workbench/MetricsWorkspace').then((module) => ({
     default: module.MetricsWorkspace,
@@ -173,6 +178,8 @@ const TestSuiteWorkspace = lazy(() =>
     default: module.TestSuiteWorkspace,
   })),
 )
+
+const EMPTY_STRING_ARRAY: string[] = []
 
 export function App() {
   return (
@@ -316,6 +323,7 @@ function GlobalShortcutHandler({
   activeTabIsEnvironment,
   activeTabIsApiServer,
   activeTabIsMcpServer,
+  activeTabIsSecurityChecks,
   activeTabIsExplorer,
   activeTabIsMetrics,
   activeTabIsObjectView,
@@ -336,6 +344,7 @@ function GlobalShortcutHandler({
   activeTabIsEnvironment: boolean
   activeTabIsApiServer: boolean
   activeTabIsMcpServer: boolean
+  activeTabIsSecurityChecks: boolean
   activeTabIsExplorer: boolean
   activeTabIsMetrics: boolean
   activeTabIsObjectView: boolean
@@ -355,7 +364,7 @@ function GlobalShortcutHandler({
       if (shortcutMatchesEvent(event, keyboardShortcuts.refresh)) {
         event.preventDefault()
 
-        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch) {
+        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
           runCurrentTabQuery()
         }
 
@@ -368,7 +377,7 @@ function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.saveQuery)) {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch) {
+        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
           requestSaveQuery(activeTab.id)
         }
         return
@@ -376,7 +385,7 @@ function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.runQuery)) {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch) {
+        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
           runCurrentTabQuery()
         }
         return
@@ -432,7 +441,8 @@ function GlobalShortcutHandler({
           !activeTabIsSettings &&
           !activeTabIsApiServer &&
           !activeTabIsMcpServer &&
-          !activeTabIsWorkspaceSearch
+          !activeTabIsWorkspaceSearch &&
+          !activeTabIsSecurityChecks
         ) {
           runCurrentTabQuery('explain')
         }
@@ -447,6 +457,7 @@ function GlobalShortcutHandler({
     activeTab,
     activeTabIsApiServer,
     activeTabIsMcpServer,
+    activeTabIsSecurityChecks,
     activeTabIsEnvironment,
     activeTabIsExplorer,
     activeTabIsMetrics,
@@ -493,6 +504,7 @@ function DesktopWorkspace() {
     appUpdateInstallStatus,
     appUpdateSettings,
     appUpdateStatus,
+    workspaceSwitcherStatus,
     actions,
   } = useAppState()
   const [exportPassphrase, setExportPassphrase] = useState('')
@@ -509,6 +521,7 @@ function DesktopWorkspace() {
   }>({ revision: 0, section: 'appearance' })
   const [guideStartRequestRevision, setGuideStartRequestRevision] = useState(0)
   const [guideFolderDialogRequestRevision, setGuideFolderDialogRequestRevision] = useState(0)
+  const [guideFolderDialogCloseRequestRevision, setGuideFolderDialogCloseRequestRevision] = useState(0)
   const [connectionDraft, setConnectionDraft] = useState<ConnectionProfile | undefined>()
   const [connectionDraftParentId, setConnectionDraftParentId] = useState<string | undefined>()
   const [environmentDrafts, setEnvironmentDrafts] = useState<
@@ -602,6 +615,7 @@ function DesktopWorkspace() {
         item.tabKind === 'api-server' ||
         item.tabKind === 'mcp-server' ||
         item.tabKind === 'workspace-search' ||
+        item.tabKind === 'security-checks' ||
         item.tabKind === 'settings' ||
         !activeConnection ||
         item.connectionId === activeConnection.id),
@@ -626,6 +640,7 @@ function DesktopWorkspace() {
   const activeTabIsApiServer = activeTab?.tabKind === 'api-server'
   const activeTabIsMcpServer = activeTab?.tabKind === 'mcp-server'
   const activeTabIsWorkspaceSearch = activeTab?.tabKind === 'workspace-search'
+  const activeTabIsSecurityChecks = activeTab?.tabKind === 'security-checks'
   const activeEnvironment =
     snapshot?.environments.find((item) => item.id === snapshot.ui.activeEnvironmentId) ??
     snapshot?.environments[0]
@@ -685,6 +700,43 @@ function DesktopWorkspace() {
     effectiveApiServerStatus?.activeServerId ??
     apiServerPreferences?.activeServerId ??
     apiServerInstances[0]?.id
+  const runningApiServerCount = apiServerInstances.filter((server) => server.running).length
+  const apiServerStatusTargetId =
+    apiServerInstances.find((server) => server.running)?.id ??
+    activeApiServerId ??
+    apiServerInstances[0]?.id
+  const showApiServerStatusIndicator =
+    Boolean(apiServerPreferences?.enabled) || runningApiServerCount > 0
+  const mutedSecurityFindingIds =
+    snapshot?.preferences.datastoreSecurityChecks?.mutedFindingIds ?? EMPTY_STRING_ARRAY
+  const securityStatusCounts = useMemo(() => {
+    if (!snapshot?.preferences.datastoreSecurityChecks?.enabled) {
+      return undefined
+    }
+
+    const mutedFindingIds = new Set(mutedSecurityFindingIds)
+    let criticalCount = 0
+    let highCount = 0
+
+    for (const finding of snapshot.datastoreSecurityChecks?.findings ?? []) {
+      if (mutedFindingIds.has(finding.id)) {
+        continue
+      }
+      if (finding.severity === 'CRITICAL') {
+        criticalCount += 1
+      } else if (finding.severity === 'HIGH') {
+        highCount += 1
+      }
+    }
+
+    return criticalCount > 0 || highCount > 0
+      ? { criticalCount, highCount }
+      : undefined
+  }, [
+    mutedSecurityFindingIds,
+    snapshot?.datastoreSecurityChecks?.findings,
+    snapshot?.preferences.datastoreSecurityChecks?.enabled,
+  ])
   const getApiServerStatus = useCallback(
     async () => refreshApiServerStatus(),
     [refreshApiServerStatus],
@@ -773,6 +825,13 @@ function DesktopWorkspace() {
     effectiveMcpServerStatus?.activeServerId ??
     mcpServerPreferences?.activeServerId ??
     mcpServerInstances[0]?.id
+  const mcpServerRunning = mcpServerInstances.some((server) => server.running)
+  const mcpServerStatusTargetId =
+    mcpServerInstances.find((server) => server.running)?.id ??
+    activeMcpServerId ??
+    mcpServerInstances[0]?.id
+  const showMcpServerStatusIndicator =
+    Boolean(mcpServerPreferences?.enabled) || mcpServerRunning
   const getMcpServerStatus = useCallback(
     async () => refreshMcpServerStatus(),
     [refreshMcpServerStatus],
@@ -942,6 +1001,7 @@ function DesktopWorkspace() {
     !activeTabIsApiServer &&
     !activeTabIsMcpServer &&
     !activeTabIsWorkspaceSearch &&
+    !activeTabIsSecurityChecks &&
     activeConnection
       ? builderStateForTab(activeTab, activeConnection, builderStateDrafts)
       : undefined
@@ -1032,7 +1092,8 @@ function DesktopWorkspace() {
       activeTabIsSettings ||
       activeTabIsApiServer ||
       activeTabIsMcpServer ||
-      activeTabIsWorkspaceSearch
+      activeTabIsWorkspaceSearch ||
+      activeTabIsSecurityChecks
     ) {
       return undefined
     }
@@ -1057,6 +1118,7 @@ function DesktopWorkspace() {
     activeTabIsEnvironment,
     activeTabIsApiServer,
     activeTabIsMcpServer,
+    activeTabIsSecurityChecks,
     activeTabIsSettings,
     activeTabIsWorkspaceSearch,
     intellisenseCatalog,
@@ -1212,7 +1274,8 @@ function DesktopWorkspace() {
       activeTabIsSettings ||
       activeTabIsApiServer ||
       activeTabIsMcpServer ||
-      activeTabIsWorkspaceSearch
+      activeTabIsWorkspaceSearch ||
+      activeTabIsSecurityChecks
     ) {
       return
     }
@@ -1226,6 +1289,7 @@ function DesktopWorkspace() {
     activeTabIsObjectView,
     activeTabIsApiServer,
     activeTabIsMcpServer,
+    activeTabIsSecurityChecks,
     activeTabIsSettings,
     activeTabIsTestSuite,
     activeTabIsWorkspaceSearch,
@@ -1558,7 +1622,8 @@ function DesktopWorkspace() {
         tab.tabKind === 'settings' ||
         tab.tabKind === 'api-server' ||
         tab.tabKind === 'mcp-server' ||
-        tab.tabKind === 'workspace-search'
+        tab.tabKind === 'workspace-search' ||
+        tab.tabKind === 'security-checks'
       ) {
         return
       }
@@ -1705,7 +1770,8 @@ function DesktopWorkspace() {
       activeTabIsSettings ||
       activeTabIsApiServer ||
       activeTabIsMcpServer ||
-      activeTabIsWorkspaceSearch
+      activeTabIsWorkspaceSearch ||
+      activeTabIsSecurityChecks
     ) {
       return
     }
@@ -1734,6 +1800,7 @@ function DesktopWorkspace() {
     activeTabIsObjectView,
     activeTabIsApiServer,
     activeTabIsMcpServer,
+    activeTabIsSecurityChecks,
     activeTabIsEnvironment,
     activeTabIsTestSuite,
     activeTabIsSettings,
@@ -1930,6 +1997,7 @@ function DesktopWorkspace() {
   const showingApiServerWorkspace = activeTabIsApiServer
   const showingMcpServerWorkspace = activeTabIsMcpServer
   const showingWorkspaceSearchWorkspace = activeTabIsWorkspaceSearch
+  const showingSecurityChecksWorkspace = activeTabIsSecurityChecks
   const availableAppUpdate = appUpdateCheckResult?.status === 'available'
     ? appUpdateCheckResult.candidate
     : undefined
@@ -1945,7 +2013,8 @@ function DesktopWorkspace() {
       !activeTabIsSettings &&
       !activeTabIsApiServer &&
       !activeTabIsMcpServer &&
-      !activeTabIsWorkspaceSearch,
+      !activeTabIsWorkspaceSearch &&
+      !activeTabIsSecurityChecks,
   )
   const isMessagePanelRequested = snapshot.ui.activeBottomPanelTab === 'messages'
   const isExplorerDetailsRequested =
@@ -1961,6 +2030,7 @@ function DesktopWorkspace() {
         !showingApiServerWorkspace &&
         !showingMcpServerWorkspace &&
         !showingWorkspaceSearchWorkspace &&
+        !showingSecurityChecksWorkspace &&
         hasActiveQueryContext))
   const resultsDock = snapshot.ui.resultsDock ?? 'bottom'
   const resultsDockRight = resultsDock === 'right'
@@ -2104,9 +2174,13 @@ function DesktopWorkspace() {
     setGuideFolderDialogRequestRevision((current) => current + 1)
   }
 
+  const closeGuideFolderDialog = () => {
+    setGuideFolderDialogCloseRequestRevision((current) => current + 1)
+  }
+
   const startFirstInstallGuide = () => {
     setGuideStartRequestRevision((current) => current + 1)
-    void actions.setFirstInstallGuideStatus('started')
+    void actions.setFirstInstallGuideStatus('started', 'welcome')
   }
 
   const closeDrawer = () => {
@@ -2553,6 +2627,7 @@ function DesktopWorkspace() {
         activeTab={activeTab}
         activeTabIsApiServer={activeTabIsApiServer}
         activeTabIsMcpServer={activeTabIsMcpServer}
+        activeTabIsSecurityChecks={activeTabIsSecurityChecks}
         activeTabIsEnvironment={activeTabIsEnvironment}
         activeTabIsExplorer={activeTabIsExplorer}
         activeTabIsMetrics={activeTabIsMetrics}
@@ -2692,8 +2767,8 @@ function DesktopWorkspace() {
               adapterManifests={snapshot.adapterManifests}
               environments={snapshot.environments}
               libraryNodes={snapshot.libraryNodes}
-              closedTabs={snapshot.closedTabs}
               explorerItems={explorerItems}
+              explorerFolderOrders={snapshot.preferences.explorerFolderOrders}
               getConnectionExplorerItems={getConnectionExplorerItems}
               getConnectionExplorerStatus={getConnectionExplorerStatus}
               getConnectionHealth={getConnectionHealth}
@@ -2705,7 +2780,9 @@ function DesktopWorkspace() {
               apiServers={apiServerInstances}
               workspaceSearchEnabled={Boolean(snapshot.preferences.workspaceSearch?.enabled)}
               activeWorkspaceSearch={activeTabIsWorkspaceSearch}
+              workspaceSwitcherStatus={workspaceSwitcherStatus}
               createFolderDialogRequestRevision={guideFolderDialogRequestRevision}
+              closeFolderDialogRequestRevision={guideFolderDialogCloseRequestRevision}
               isExplorerScopeLoading={isConnectionExplorerScopeLoading}
               activeConnectionId={activeConnection?.id ?? ''}
               activeEnvironmentId={activeEnvironment?.id ?? ''}
@@ -2772,6 +2849,7 @@ function DesktopWorkspace() {
               onStopApiServer={stopApiServerFromSidebar}
               onDeleteApiServer={deleteApiServerFromSidebar}
               onCreateTestSuite={(connectionId) => openTestSuite(connectionId)}
+              onCreateWorkspace={(name) => void actions.createWorkspace({ name })}
               onOpenTestSuiteTemplate={(connectionId, templateId) =>
                 openTestSuite(connectionId, templateId)
               }
@@ -2780,8 +2858,16 @@ function DesktopWorkspace() {
               onMoveLibraryNode={moveLibraryNode}
               onOpenLibraryItem={(nodeId) => void actions.openLibraryItem(nodeId)}
               onRenameLibraryNode={renameLibraryNode}
+              onRenameWorkspace={(workspaceId, name) =>
+                void actions.renameWorkspace({ workspaceId, name })
+              }
               onSetLibraryNodeEnvironment={setLibraryNodeEnvironment}
-              onReopenClosedTab={(closedTabId) => void actions.reopenClosedTab(closedTabId)}
+              onSetExplorerFolderOrder={(orderKey, orderedNodeKeys) =>
+                void actions.setExplorerFolderOrder({ orderKey, orderedNodeKeys })
+              }
+              onSwitchWorkspace={(workspaceId) =>
+                void actions.switchWorkspace({ workspaceId })
+              }
               onExplorerFilterChange={(value) =>
                 void actions.updateUiState({ explorerFilter: value })
               }
@@ -2859,6 +2945,7 @@ function DesktopWorkspace() {
                     health={payload.health}
                     initialSection={settingsInitialSectionRequest.section}
                     preferences={snapshot.preferences}
+                    workspaceSwitcherStatus={workspaceSwitcherStatus}
                     updateCheckResult={appUpdateCheckResult}
                     updateDownload={appUpdateDownload}
                     updateError={appUpdateError}
@@ -2898,10 +2985,13 @@ function DesktopWorkspace() {
                     onOpenApiServer={() => void actions.createApiServerTab()}
                     onOpenMcpServer={() => void actions.createMcpServerTab()}
                     onOpenWorkspaceSearch={() => void actions.createWorkspaceSearchTab()}
+                    onOpenSecurityChecks={() => void actions.createSecurityChecksTab()}
                     onUpdateApiServerSettings={actions.updateDatastoreApiServerSettings}
                     onUpdateMcpServerSettings={actions.updateDatastoreMcpServerSettings}
                     onUpdateBackupSettings={actions.updateWorkspaceBackupSettings}
+                    onUpdateWorkspaceSwitcherSettings={actions.setWorkspaceSwitcherEnabled}
                     onUpdateWorkspaceSearchSettings={actions.updateWorkspaceSearchSettings}
+                    onUpdateSecurityCheckSettings={actions.updateDatastoreSecurityCheckSettings}
                   />
                 ) : activeTabIsApiServer && activeTab ? (
                   <ApiServerWorkspace
@@ -2963,6 +3053,22 @@ function DesktopWorkspace() {
                     onOpenLibraryItem={(nodeId) => void actions.openLibraryItem(nodeId)}
                     onSelectTab={(tabId) => void actions.selectTab(tabId)}
                     onReopenClosedTab={(closedTabId) => void actions.reopenClosedTab(closedTabId)}
+                  />
+                ) : activeTabIsSecurityChecks && activeTab ? (
+                  <SecurityChecksWorkspace
+                    key={activeTab.id}
+                    snapshot={snapshot}
+                    enabled={Boolean(snapshot.preferences.datastoreSecurityChecks?.enabled)}
+                    onOpenExperimentalSettings={() => openDiagnosticsDrawer('experimental')}
+                    onMutedFindingIdsChange={(mutedFindingIds) =>
+                      actions.updateDatastoreSecurityCheckSettings({
+                        enabled: Boolean(snapshot.preferences.datastoreSecurityChecks?.enabled),
+                        refreshIntervalDays:
+                          snapshot.preferences.datastoreSecurityChecks?.refreshIntervalDays ?? 7,
+                        mutedFindingIds,
+                      })
+                    }
+                    onRefresh={actions.refreshDatastoreSecurityChecks}
                   />
                 ) : activeTabIsEnvironment && activeTab ? (
                   <EnvironmentWorkspace
@@ -3086,7 +3192,6 @@ function DesktopWorkspace() {
                       capabilities={runtimeCapabilities}
                       canCancelExecution={canCancelExecution}
                       bottomPanelVisible={snapshot.ui.bottomPanelVisible}
-                      resultsDock={resultsDock}
                       onExecute={() => runCurrentTabQuery()}
                       onExplain={() => runCurrentTabQuery('explain')}
                       onCancel={() =>
@@ -3192,12 +3297,6 @@ function DesktopWorkspace() {
                       onToggleBottomPanel={() =>
                         void actions.updateUiState({
                           bottomPanelVisible: !snapshot.ui.bottomPanelVisible,
-                        })
-                      }
-                      onToggleResultsDock={() =>
-                        void actions.updateUiState({
-                          bottomPanelVisible: true,
-                          resultsDock: resultsDockRight ? 'bottom' : 'right',
                         })
                       }
                     />
@@ -3468,10 +3567,13 @@ function DesktopWorkspace() {
         onStart={startFirstInstallGuide}
         onSkip={() => void actions.setFirstInstallGuideStatus('skipped')}
         onComplete={() => void actions.setFirstInstallGuideStatus('completed')}
+        onStepChange={(stepId) => void actions.setFirstInstallGuideStatus('started', stepId)}
         onOpenLibrary={openLibraryForGuide}
         onRequestCreateFolder={requestGuideFolderDialog}
+        onCloseCreateFolder={closeGuideFolderDialog}
         onOpenConnection={openNewConnectionDraft}
         onOpenConnectionPanel={openConnectionDrawerFor}
+        onCloseConnectionPanel={closeDrawer}
         onOpenExplorer={openConnectionExplorer}
         onOpenQuery={openQueryTab}
         onOpenSettings={() => openDiagnosticsDrawer('security')}
@@ -3481,15 +3583,36 @@ function DesktopWorkspace() {
             bottomPanelVisible: true,
           })
         }
+        onSelectTab={(tabId) => void actions.selectTab(tabId)}
+        onCloseTab={(tabId) => void actions.closeTab(tabId)}
+        onRestoreUiState={(patch) => void actions.updateUiState(patch)}
       />
 
       <StatusBar
         activeConnection={activeConnection}
         activeEnvironment={activeEnvironment}
         activeTab={activeTab}
+        apiServerIndicator={{
+          visible: showApiServerStatusIndicator,
+          runningCount: runningApiServerCount,
+          onOpen: () => void actions.createApiServerTab(apiServerStatusTargetId),
+        }}
         availableUpdateVersion={availableAppUpdate?.version}
         bottomPanelVisible={snapshot.ui.bottomPanelVisible}
+        mcpServerIndicator={{
+          visible: showMcpServerStatusIndicator,
+          running: mcpServerRunning,
+          onOpen: () => void actions.createMcpServerTab(mcpServerStatusTargetId),
+        }}
         messageCount={workbenchMessages.length}
+        securityChecksIndicator={
+          securityStatusCounts
+            ? {
+                ...securityStatusCounts,
+                onOpen: () => void actions.createSecurityChecksTab(),
+              }
+            : undefined
+        }
         updateInstallStatus={appUpdateInstallStatus}
         updateStatus={appUpdateStatus}
         onInstallUpdate={() => void actions.installAppUpdate()}

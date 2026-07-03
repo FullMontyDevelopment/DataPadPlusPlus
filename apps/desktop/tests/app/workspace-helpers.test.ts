@@ -68,7 +68,12 @@ describe('workspace query helpers', () => {
 
     const state = builderStateForTab(tab, connection!, { [tab.id]: draft })
 
-    expect(state).toBe(draft)
+    expect(state).toMatchObject({
+      kind: 'mongo-find',
+      collection: 'inventory',
+      limit: 50,
+      database: connection?.database,
+    })
   })
 
   it('builds a SQL SELECT builder from table-shaped SQL query text', () => {

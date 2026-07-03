@@ -219,4 +219,30 @@ describe('browser execution runtime', () => {
     expect(executed.tabs.find((item) => item.id === tab.id)?.status).toBe('blocked')
     expect(JSON.stringify(response)).not.toContain('********')
   })
+
+  it('does not add confirmation-only guardrails to Messages', () => {
+    const snapshot = createSeedSnapshot()
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-sql-ops')
+
+    if (!tab) {
+      throw new Error('Expected seed query tab.')
+    }
+
+    snapshot.preferences.globalSafeMode = true
+    snapshot.ui.bottomPanelVisible = false
+    snapshot.ui.activeBottomPanelTab = 'results'
+
+    const { response, snapshot: executed } = applyExecutionRequestLocally(snapshot, {
+      tabId: tab.id,
+      connectionId: tab.connectionId,
+      environmentId: tab.environmentId,
+      language: tab.language,
+      queryText: 'update accounts set status = "inactive" where id = 1;',
+    })
+
+    expect(response.guardrail.status).toBe('confirm')
+    expect(response.diagnostics).toEqual([])
+    expect(executed.ui.bottomPanelVisible).toBe(false)
+    expect(executed.ui.activeBottomPanelTab).toBe('results')
+  })
 })

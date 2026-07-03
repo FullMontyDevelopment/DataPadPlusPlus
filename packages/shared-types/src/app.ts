@@ -4,7 +4,12 @@ import type {
   EnvironmentProfile,
   ResolvedEnvironment,
 } from './connection'
-import type { AppPreferences, GuardrailDecision, LockState } from './security'
+import type {
+  AppPreferences,
+  DatastoreSecurityCheckSnapshot,
+  GuardrailDecision,
+  LockState,
+} from './security'
 import type {
   ClosedQueryTabSnapshot,
   DiagnosticsReport,
@@ -94,6 +99,7 @@ export interface WorkspaceSnapshot {
   explorerNodes: ExplorerNode[]
   adapterManifests: AdapterManifest[]
   preferences: AppPreferences
+  datastoreSecurityChecks?: DatastoreSecurityCheckSnapshot
   guardrails: GuardrailDecision[]
   lockState: LockState
   ui: UiState

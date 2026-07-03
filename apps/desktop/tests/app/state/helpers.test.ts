@@ -50,7 +50,7 @@ describe('evaluateGuardrails', () => {
     expect(decision.status).toBe('block')
   })
 
-  it('requires confirmation for critical production work before execution', () => {
+  it('allows critical production reads without confirmation', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-analytics')
     const environment = snapshot.environments.find((item) => item.id === 'env-prod')
@@ -64,6 +64,26 @@ describe('evaluateGuardrails', () => {
       environment!,
       resolved,
       'select * from observability.table_health;',
+      true,
+    )
+
+    expect(decision.status).toBe('allow')
+  })
+
+  it('requires confirmation for critical production writes before execution', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-analytics')
+    const environment = snapshot.environments.find((item) => item.id === 'env-prod')
+    const resolved = resolveEnvironment(snapshot.environments, 'env-prod')
+
+    expect(connection).toBeDefined()
+    expect(environment).toBeDefined()
+
+    const decision = evaluateGuardrails(
+      connection!,
+      environment!,
+      resolved,
+      'delete from observability.table_health where status = "stale";',
       true,
     )
 
@@ -93,6 +113,62 @@ describe('evaluateGuardrails', () => {
       'Global safe mode requires confirmation for risky work.',
     )
   })
+
+  it('allows Mongo and Redis reads while global safe mode is enabled', () => {
+    const snapshot = createSeedSnapshot()
+    const mongoConnection = snapshot.connections.find((item) => item.id === 'conn-catalog')
+    const redisConnection = {
+      ...snapshot.connections.find((item) => item.engine === 'redis')!,
+      readOnly: false,
+    }
+    const environment = snapshot.environments.find((item) => item.id === 'env-dev')
+    const resolved = resolveEnvironment(snapshot.environments, 'env-dev')
+
+    expect(mongoConnection).toBeDefined()
+    expect(environment).toBeDefined()
+
+    expect(
+      evaluateGuardrails(
+        mongoConnection!,
+        environment!,
+        resolved,
+        '{ "database": "catalog", "collection": "products", "filter": {}, "limit": 20 }',
+        true,
+      ).status,
+    ).toBe('allow')
+    expect(
+      evaluateGuardrails(redisConnection!, environment!, resolved, 'GET session:1', true)
+        .status,
+    ).toBe('allow')
+  })
+
+  it('requires confirmation for Mongo and Redis writes while global safe mode is enabled', () => {
+    const snapshot = createSeedSnapshot()
+    const mongoConnection = snapshot.connections.find((item) => item.id === 'conn-catalog')
+    const redisConnection = {
+      ...snapshot.connections.find((item) => item.engine === 'redis')!,
+      readOnly: false,
+    }
+    const environment = snapshot.environments.find((item) => item.id === 'env-dev')
+    const resolved = resolveEnvironment(snapshot.environments, 'env-dev')
+
+    expect(mongoConnection).toBeDefined()
+    expect(environment).toBeDefined()
+
+    expect(
+      evaluateGuardrails(
+        mongoConnection!,
+        environment!,
+        resolved,
+        '{ "operation": "deleteMany", "database": "catalog", "collection": "products", "filter": {} }',
+        true,
+      ).status,
+    ).toBe('confirm')
+    expect(
+      evaluateGuardrails(redisConnection, environment!, resolved, 'DEL session:1', true)
+        .status,
+    ).toBe('confirm')
+  })
 })
 
 describe('migrateWorkspaceSnapshot', () => {
@@ -100,6 +176,7 @@ describe('migrateWorkspaceSnapshot', () => {
     const snapshot = createBlankBootstrapPayload().snapshot
 
     expect(snapshot.preferences.firstInstallGuide).toEqual({ status: 'unseen' })
+    expect(snapshot.preferences.explorerFolderOrders).toEqual({})
   })
 
   it('normalizes first install guide preferences during migration', () => {
@@ -138,6 +215,45 @@ describe('migrateWorkspaceSnapshot', () => {
       status: 'completed',
       updatedAt: '2026-06-30T01:00:00.000Z',
       completedAt: '2026-06-30T01:01:00.000Z',
+    })
+
+    const started = migrateWorkspaceSnapshot({
+      ...snapshot,
+      preferences: {
+        ...snapshot.preferences,
+        firstInstallGuide: {
+          status: 'started',
+          currentStepId: 'explorer',
+          updatedAt: '2026-06-30T02:00:00.000Z',
+          completedAt: '2026-06-30T02:01:00.000Z',
+        },
+      },
+    }).preferences.firstInstallGuide
+
+    expect(started).toEqual({
+      status: 'started',
+      currentStepId: 'explorer',
+      updatedAt: '2026-06-30T02:00:00.000Z',
+      completedAt: undefined,
+    })
+  })
+
+  it('normalizes Explorer folder order preferences during migration', () => {
+    const snapshot = createSeedSnapshot()
+    const migrated = migrateWorkspaceSnapshot({
+      ...snapshot,
+      preferences: {
+        ...snapshot.preferences,
+        explorerFolderOrders: {
+          ' connection\u001fenv\u001froot ': [' alpha ', 'beta', 'alpha', '', 'beta'],
+          ' ': ['ignored'],
+          empty: [],
+        },
+      },
+    })
+
+    expect(migrated.preferences.explorerFolderOrders).toEqual({
+      'connection\u001fenv\u001froot': ['alpha', 'beta'],
     })
   })
 

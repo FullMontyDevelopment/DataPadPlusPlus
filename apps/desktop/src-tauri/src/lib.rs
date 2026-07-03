@@ -97,6 +97,9 @@ pub fn run() {
             app.manage(std::sync::Mutex::new(
                 app::runtime::datastore_mcp_server::DatastoreMcpServerManager::default(),
             ));
+            app.manage(
+                app::runtime::datastore_security_checks::DatastoreSecurityCheckManager::default(),
+            );
             {
                 let app_handle = app.handle().clone();
                 let state = app.state::<app::runtime::SharedAppState>();
@@ -189,6 +192,7 @@ pub fn run() {
             commands::workspace::collect_adapter_diagnostics,
             commands::workspace::create_library_folder,
             commands::workspace::create_local_database,
+            commands::workspace::create_workspace,
             commands::workspace::create_workspace_backup_now,
             commands::workspace::create_environment_tab,
             commands::workspace::create_explorer_tab,
@@ -201,6 +205,7 @@ pub fn run() {
             commands::workspace::create_query_tab,
             commands::workspace::create_scoped_query_tab,
             commands::workspace::create_settings_tab,
+            commands::workspace::create_security_checks_tab,
             commands::workspace::create_test_suite_tab,
             commands::workspace::create_workspace_search_tab,
             commands::workspace::delete_connection_profile,
@@ -229,6 +234,8 @@ pub fn run() {
             commands::workspace::get_datastore_mcp_server_logs,
             commands::workspace::get_datastore_mcp_server_metrics,
             commands::workspace::get_datastore_mcp_server_status,
+            commands::workspace::get_datastore_security_check_status,
+            commands::workspace::get_workspace_switcher_status,
             commands::workspace::import_workspace_bundle,
             commands::workspace::import_workspace_bundle_file,
             commands::workspace::inspect_explorer_node,
@@ -253,13 +260,17 @@ pub fn run() {
             commands::workspace::reopen_closed_query_tab,
             commands::workspace::rename_query_tab,
             commands::workspace::rename_library_node,
+            commands::workspace::rename_workspace,
             commands::workspace::restore_workspace_backup,
+            commands::workspace::refresh_datastore_security_checks,
             commands::workspace::save_query_tab_to_library,
             commands::workspace::save_query_tab_to_local_file,
             commands::workspace::save_query_tab,
             commands::workspace::scan_redis_keys,
             commands::workspace::set_active_connection,
             commands::workspace::set_active_tab,
+            commands::workspace::set_workspace_switcher_enabled,
+            commands::workspace::set_explorer_folder_order,
             commands::workspace::set_first_install_guide_status,
             commands::workspace::set_keyboard_shortcut,
             commands::workspace::set_library_node_environment,
@@ -271,6 +282,7 @@ pub fn run() {
             commands::workspace::start_datastore_mcp_server,
             commands::workspace::stop_datastore_api_server,
             commands::workspace::stop_datastore_mcp_server,
+            commands::workspace::switch_workspace,
             commands::workspace::test_connection,
             commands::workspace::unlock_app,
             commands::workspace::add_datastore_api_server_custom_endpoint,
@@ -283,6 +295,7 @@ pub fn run() {
             commands::workspace::update_datastore_api_server_settings,
             commands::workspace::update_datastore_mcp_server,
             commands::workspace::update_datastore_mcp_server_settings,
+            commands::workspace::update_datastore_security_check_settings,
             commands::workspace::create_datastore_mcp_server_token,
             commands::workspace::update_query_builder_state,
             commands::workspace::update_query_tab,

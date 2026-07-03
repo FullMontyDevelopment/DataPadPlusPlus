@@ -1,7 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
-import type { ConnectionProfile, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import type {
+  ConnectionProfile,
+  FirstInstallGuideStepId,
+  WorkspaceSnapshot,
+} from '@datapadplusplus/shared-types'
 import { createBlankBootstrapPayload } from '../../../../src/app/data/workspace-factory'
 import { FirstInstallGuide } from '../../../../src/app/components/workbench/FirstInstallGuide'
 import {
@@ -58,6 +62,41 @@ describe('FirstInstallGuide placement', () => {
 })
 
 describe('FirstInstallGuide save step', () => {
+  it('resumes legacy started guides at the welcome step', async () => {
+    const snapshot = createGuideSaveStepSnapshot()
+    snapshot.preferences.firstInstallGuide = { status: 'started' }
+
+    render(
+      <FirstInstallGuide
+        {...guideProps()}
+        snapshot={snapshot}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Welcome to DataPad++' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Step 1 of 7')).toBeInTheDocument()
+  })
+
+  it('clamps later persisted steps back to the connection save step without a saved connection', async () => {
+    const onOpenConnection = vi.fn()
+    const snapshot = createGuideSaveStepSnapshot()
+    snapshot.preferences.firstInstallGuide = { status: 'started', currentStepId: 'query' }
+
+    render(
+      <FirstInstallGuide
+        {...guideProps({ onOpenConnection })}
+        snapshot={snapshot}
+      />,
+    )
+
+    expect(await screen.findByRole('dialog', { name: 'Test and save' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(onOpenConnection).toHaveBeenCalledWith('folder-guide')
+    })
+  })
+
   it('opens a missing connection draft panel automatically', async () => {
     const onOpenConnection = vi.fn()
     const openedSnapshot = createGuideSaveStepSnapshot()
@@ -117,11 +156,64 @@ describe('FirstInstallGuide save step', () => {
       expect(onOpenConnectionPanel).toHaveBeenCalledWith('conn-guide')
     })
   })
+
+  it('backs out of a guide-opened folder dialog', async () => {
+    const onCloseCreateFolder = vi.fn()
+
+    render(
+      <FirstInstallGuide
+        {...guideProps({ onCloseCreateFolder })}
+        snapshot={createGuideSaveStepSnapshot('folder')}
+      />,
+    )
+
+    const guide = await screen.findByRole('dialog', { name: 'Organize the Library' })
+    fireEvent.click(within(guide).getByRole('button', { name: 'Create Folder' }))
+    fireEvent.click(within(guide).getByRole('button', { name: 'Back' }))
+
+    expect(onCloseCreateFolder).toHaveBeenCalled()
+    expect(await screen.findByRole('dialog', { name: 'Welcome to DataPad++' })).toBeInTheDocument()
+  })
+
+  it('backs out of a guide-opened connection panel', async () => {
+    const onOpenConnection = vi.fn()
+    const onCloseConnectionPanel = vi.fn()
+    const snapshot = createGuideSaveStepSnapshot('save')
+
+    const { rerender } = render(
+      <FirstInstallGuide
+        {...guideProps({ onCloseConnectionPanel, onOpenConnection })}
+        snapshot={snapshot}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(onOpenConnection).toHaveBeenCalledWith('folder-guide')
+    })
+
+    const openedSnapshot = createGuideSaveStepSnapshot('save')
+    openedSnapshot.ui.rightDrawer = 'connection'
+    rerender(
+      <FirstInstallGuide
+        {...guideProps({ onCloseConnectionPanel, onOpenConnection })}
+        snapshot={openedSnapshot}
+        connectionDraftOpen
+      />,
+    )
+
+    const guide = await screen.findByRole('dialog', { name: 'Test and save' })
+    fireEvent.click(within(guide).getByRole('button', { name: 'Back' }))
+
+    expect(onCloseConnectionPanel).toHaveBeenCalled()
+    expect(await screen.findByRole('dialog', { name: 'Create a connection' })).toBeInTheDocument()
+  })
 })
 
-function createGuideSaveStepSnapshot(): WorkspaceSnapshot {
+function createGuideSaveStepSnapshot(
+  currentStepId: FirstInstallGuideStepId = 'save',
+): WorkspaceSnapshot {
   const snapshot = createBlankBootstrapPayload().snapshot
-  snapshot.preferences.firstInstallGuide = { status: 'started' }
+  snapshot.preferences.firstInstallGuide = { status: 'started', currentStepId }
   snapshot.libraryNodes = [
     {
       id: 'folder-guide',
@@ -145,14 +237,20 @@ function guideProps(
     onStart: vi.fn(),
     onSkip: vi.fn(),
     onComplete: vi.fn(),
+    onStepChange: vi.fn(),
     onOpenLibrary: vi.fn(),
     onRequestCreateFolder: vi.fn(),
+    onCloseCreateFolder: vi.fn(),
     onOpenConnection: vi.fn(),
     onOpenConnectionPanel: vi.fn(),
+    onCloseConnectionPanel: vi.fn(),
     onOpenExplorer: vi.fn(),
     onOpenQuery: vi.fn(),
     onOpenSettings: vi.fn(),
     onShowResults: vi.fn(),
+    onSelectTab: vi.fn(),
+    onCloseTab: vi.fn(),
+    onRestoreUiState: vi.fn(),
     ...overrides,
   }
 }

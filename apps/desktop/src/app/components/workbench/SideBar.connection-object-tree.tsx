@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import type { MouseEvent } from 'react'
+import type { DragEvent, MouseEvent } from 'react'
 import type {
   AdapterManifest,
   ConnectionProfile,
@@ -34,6 +34,12 @@ import { ExplorerNodeIcon } from './SideBar.node-icons'
 import type { ConnectionTreeAction, ConnectionTreeNode } from './SideBar.helpers'
 
 export const CONNECTION_OBJECT_CHILD_BATCH_SIZE = 100
+const CONNECTION_OBJECT_ROOT_PARENT_KEY = '__root__'
+
+interface ConnectionObjectFolderDragState {
+  parentNodeKey: string
+  nodeKey: string
+}
 
 export function ConnectionObjectTree({
   connection,
@@ -50,6 +56,8 @@ export function ConnectionObjectTree({
   onAddToApiServer,
   onOpenObjectView,
   onOpenScopedQuery,
+  explorerFolderOrders,
+  onSetExplorerFolderOrder,
 }: {
   connection: ConnectionProfile
   adapterManifest?: AdapterManifest
@@ -65,7 +73,10 @@ export function ConnectionObjectTree({
   onAddToApiServer?(connectionId: string, node: ExplorerNode): void
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
+  explorerFolderOrders?: Record<string, string[]>
+  onSetExplorerFolderOrder?(orderKey: string, orderedNodeKeys: string[]): void
 }) {
+  const environmentId = environment?.id ?? ''
   const structuralNodes = useMemo(
     () => nodesOverride ?? buildConnectionObjectTree(connection, adapterManifest),
     [adapterManifest, connection, nodesOverride],
@@ -79,7 +90,7 @@ export function ConnectionObjectTree({
     [connection, explorerNodes],
   )
   const usingLiveExplorer = explorerNodes !== undefined
-  const nodes = useMemo(() => {
+  const rawNodes = useMemo(() => {
     if (!usingLiveExplorer) {
       return structuralNodes
     }
@@ -94,11 +105,27 @@ export function ConnectionObjectTree({
 
     return liveNodes ?? []
   }, [connection, hasStructuralManifest, liveNodes, structuralNodes, usingLiveExplorer])
+  const nodes = useMemo(
+    () =>
+      orderConnectionTreeNodes(
+        connection,
+        environmentId,
+        rawNodes,
+        explorerFolderOrders,
+      ),
+    [connection, environmentId, explorerFolderOrders, rawNodes],
+  )
+  const environmentStyle = environmentAccentVariables(environment)
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({})
   const [visibleChildCounts, setVisibleChildCounts] = useState<Record<string, number>>({})
   const [contextMenu, setContextMenu] = useState<ConnectionObjectContextMenuState>()
+  const [draggedFolder, setDraggedFolder] = useState<ConnectionObjectFolderDragState>()
+  const [folderDropTarget, setFolderDropTarget] = useState<string>()
   const autoLoadedScopesRef = useRef(new Set<string>())
-  const environmentId = environment?.id ?? ''
+  const rootOrderableNodeKeys = useMemo(
+    () => folderOrderableNodeKeys(connection, nodes, CONNECTION_OBJECT_ROOT_PARENT_KEY),
+    [connection, nodes],
+  )
   const toggleNode = (nodeKey: string) =>
     setExpandedNodes((current) => ({
       ...current,
@@ -127,6 +154,64 @@ export function ConnectionObjectTree({
         (current[nodeKey] ?? CONNECTION_OBJECT_CHILD_BATCH_SIZE) +
         CONNECTION_OBJECT_CHILD_BATCH_SIZE,
     }))
+  const setFolderOrder = useCallback(
+    (parentNodeKey: string, orderedNodeKeys: string[]) => {
+      onSetExplorerFolderOrder?.(
+        explorerFolderOrderKey(connection.id, environmentId, parentNodeKey),
+        orderedNodeKeys,
+      )
+    },
+    [connection.id, environmentId, onSetExplorerFolderOrder],
+  )
+  const beginFolderDrag = useCallback((parentNodeKey: string, nodeKey: string) => {
+    setDraggedFolder({ parentNodeKey, nodeKey })
+    setFolderDropTarget(undefined)
+  }, [])
+  const clearFolderDrag = useCallback(() => {
+    setDraggedFolder(undefined)
+    setFolderDropTarget(undefined)
+  }, [])
+  const dragFolderOver = useCallback(
+    (parentNodeKey: string, nodeKey: string) => {
+      if (draggedFolder?.parentNodeKey !== parentNodeKey || draggedFolder.nodeKey === nodeKey) {
+        return
+      }
+
+      setFolderDropTarget(nodeKey)
+    },
+    [draggedFolder],
+  )
+  const dropFolderNode = useCallback(
+    (
+      parentNodeKey: string,
+      sourceNodeKey: string,
+      targetNodeKey: string,
+      siblingOrderKeys: string[],
+      placement: 'before' | 'after',
+    ) => {
+      if (
+        draggedFolder?.parentNodeKey !== parentNodeKey ||
+        !siblingOrderKeys.includes(sourceNodeKey) ||
+        !siblingOrderKeys.includes(targetNodeKey)
+      ) {
+        clearFolderDrag()
+        return
+      }
+
+      const nextOrder = moveNodeKey(
+        siblingOrderKeys,
+        sourceNodeKey,
+        targetNodeKey,
+        placement,
+      )
+      clearFolderDrag()
+
+      if (nextOrder.join('\u001f') !== siblingOrderKeys.join('\u001f')) {
+        setFolderOrder(parentNodeKey, nextOrder)
+      }
+    },
+    [clearFolderDrag, draggedFolder, setFolderOrder],
+  )
   const openNodeQuery = (node: ConnectionTreeNode) => {
     if (!isScopedQueryable(node)) {
       return
@@ -229,10 +314,10 @@ export function ConnectionObjectTree({
       <div className="connection-object-tree" role="tree" aria-label={`${connection.name} objects`}>
         {usingLiveExplorer && nodes.length === 0 && explorerStatus === 'ready' ? (
           <div
-            className="connection-object-empty"
+            className={`connection-object-empty${environment ? ' has-environment-accent' : ''}`}
             role="treeitem"
             aria-level={1}
-            style={{ '--tree-depth': 1 + visualDepthOffset } as CSSProperties}
+            style={{ '--tree-depth': 1 + visualDepthOffset, ...environmentStyle } as CSSProperties}
           >
             No live metadata objects found.
           </div>
@@ -250,6 +335,10 @@ export function ConnectionObjectTree({
               environment={environment}
               node={node}
               nodeKey={nodeKey}
+              parentNodeKey={CONNECTION_OBJECT_ROOT_PARENT_KEY}
+              siblingOrderKeys={rootOrderableNodeKeys}
+              draggedFolder={draggedFolder}
+              folderDropTarget={folderDropTarget}
               canAddToApiServer={Boolean(onAddToApiServer)}
               canCreateApiServer={Boolean(onCreateApiServer)}
               explorerStatus={explorerStatus}
@@ -263,6 +352,10 @@ export function ConnectionObjectTree({
               onOpenQuery={openNodeQuery}
               onRequestAutoLoadScope={requestAutoLoadScope}
               onToggleNode={toggleNode}
+              onBeginFolderDrag={beginFolderDrag}
+              onClearFolderDrag={clearFolderDrag}
+              onFolderDragOver={dragFolderOver}
+              onFolderDrop={dropFolderNode}
             />
           )
         })}
@@ -430,6 +523,143 @@ function connectionTreeNodeKey(connection: ConnectionProfile, node: ConnectionTr
   return normalized || node.id
 }
 
+function connectionTreeRenderNodeKey(
+  connection: ConnectionProfile,
+  node: ConnectionTreeNode,
+  parentNodeKey: string,
+) {
+  const nodeKey = connectionTreeNodeKey(connection, node)
+  return parentNodeKey === CONNECTION_OBJECT_ROOT_PARENT_KEY
+    ? nodeKey
+    : `${parentNodeKey}/${nodeKey}`
+}
+
+export function explorerFolderOrderKey(
+  connectionId: string,
+  environmentId: string | undefined,
+  parentNodeKey: string,
+) {
+  return [
+    'connection-object-tree',
+    connectionId.trim(),
+    environmentId?.trim() || 'default',
+    parentNodeKey.trim() || CONNECTION_OBJECT_ROOT_PARENT_KEY,
+  ].join('\u001f')
+}
+
+function orderConnectionTreeNodes(
+  connection: ConnectionProfile,
+  environmentId: string,
+  nodes: ConnectionTreeNode[],
+  explorerFolderOrders: Record<string, string[]> | undefined,
+  parentNodeKey = CONNECTION_OBJECT_ROOT_PARENT_KEY,
+): ConnectionTreeNode[] {
+  const orderKey = explorerFolderOrderKey(connection.id, environmentId, parentNodeKey)
+  const folderOrder = new Map(
+    (explorerFolderOrders?.[orderKey] ?? []).map((nodeKey, index) => [nodeKey, index]),
+  )
+
+  return nodes
+    .map((node) => {
+      const nodeKey = connectionTreeRenderNodeKey(connection, node, parentNodeKey)
+      const children = node.children?.length
+        ? orderConnectionTreeNodes(
+            connection,
+            environmentId,
+            node.children,
+            explorerFolderOrders,
+            nodeKey,
+          )
+        : node.children
+
+      return children === node.children ? node : { ...node, children }
+    })
+    .sort((left, right) =>
+      compareConnectionTreeNodes(connection, parentNodeKey, folderOrder, left, right),
+    )
+}
+
+function compareConnectionTreeNodes(
+  connection: ConnectionProfile,
+  parentNodeKey: string,
+  folderOrder: Map<string, number>,
+  left: ConnectionTreeNode,
+  right: ConnectionTreeNode,
+) {
+  const leftKey = connectionTreeRenderNodeKey(connection, left, parentNodeKey)
+  const rightKey = connectionTreeRenderNodeKey(connection, right, parentNodeKey)
+  const leftFolder = isConnectionFolderOrderableNode(left)
+  const rightFolder = isConnectionFolderOrderableNode(right)
+
+  if (leftFolder && rightFolder) {
+    const leftOrder = folderOrder.get(leftKey)
+    const rightOrder = folderOrder.get(rightKey)
+
+    if (leftOrder !== undefined || rightOrder !== undefined) {
+      if (leftOrder === undefined) return 1
+      if (rightOrder === undefined) return -1
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder
+    }
+  }
+
+  return (
+    left.label.localeCompare(right.label, undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    }) ||
+    left.kind.localeCompare(right.kind, undefined, { sensitivity: 'base' }) ||
+    leftKey.localeCompare(rightKey)
+  )
+}
+
+function folderOrderableNodeKeys(
+  connection: ConnectionProfile,
+  nodes: ConnectionTreeNode[],
+  parentNodeKey: string,
+) {
+  return nodes
+    .filter(isConnectionFolderOrderableNode)
+    .map((node) => connectionTreeRenderNodeKey(connection, node, parentNodeKey))
+}
+
+function isConnectionFolderOrderableNode(node: ConnectionTreeNode) {
+  return (
+    !isScopedQueryable(node) &&
+    (Boolean(node.category) ||
+      Boolean(node.children?.length) ||
+      Boolean(node.expandable))
+  )
+}
+
+function moveNodeKey(
+  orderedNodeKeys: string[],
+  sourceNodeKey: string,
+  targetNodeKey: string,
+  placement: 'before' | 'after',
+) {
+  if (sourceNodeKey === targetNodeKey) {
+    return orderedNodeKeys
+  }
+
+  const withoutSource = orderedNodeKeys.filter((nodeKey) => nodeKey !== sourceNodeKey)
+  const targetIndex = withoutSource.indexOf(targetNodeKey)
+
+  if (targetIndex < 0) {
+    return orderedNodeKeys
+  }
+
+  return [
+    ...withoutSource.slice(0, placement === 'after' ? targetIndex + 1 : targetIndex),
+    sourceNodeKey,
+    ...withoutSource.slice(placement === 'after' ? targetIndex + 1 : targetIndex),
+  ]
+}
+
+function folderDropPlacement(event: DragEvent<HTMLElement>): 'before' | 'after' {
+  const rect = event.currentTarget.getBoundingClientRect()
+  return event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+}
+
 function ConnectionObjectTreeNode({
   canInspectNode,
   canCreateApiServer,
@@ -441,6 +671,10 @@ function ConnectionObjectTreeNode({
   environment,
   node,
   nodeKey,
+  parentNodeKey,
+  siblingOrderKeys,
+  draggedFolder,
+  folderDropTarget,
   explorerStatus,
   isExplorerScopeLoading,
   visibleChildCounts,
@@ -451,6 +685,10 @@ function ConnectionObjectTreeNode({
   onOpenObjectView,
   onRequestAutoLoadScope,
   onToggleNode,
+  onBeginFolderDrag,
+  onClearFolderDrag,
+  onFolderDragOver,
+  onFolderDrop,
 }: {
   canInspectNode: boolean
   canCreateApiServer: boolean
@@ -464,6 +702,10 @@ function ConnectionObjectTreeNode({
   isExplorerScopeLoading(connectionId: string, scope?: string): boolean
   node: ConnectionTreeNode
   nodeKey: string
+  parentNodeKey: string
+  siblingOrderKeys: string[]
+  draggedFolder?: ConnectionObjectFolderDragState
+  folderDropTarget?: string
   visibleChildCounts: Record<string, number>
   onContextMenu(event: MouseEvent<HTMLElement>, node: ConnectionTreeNode, nodeKey: string): void
   onLoadExplorerScope?(connectionId: string, scope?: string): void
@@ -472,6 +714,16 @@ function ConnectionObjectTreeNode({
   onOpenObjectView?(node: ConnectionTreeNode): void
   onRequestAutoLoadScope(scope: string | undefined): void
   onToggleNode(nodeKey: string): void
+  onBeginFolderDrag(parentNodeKey: string, nodeKey: string): void
+  onClearFolderDrag(): void
+  onFolderDragOver(parentNodeKey: string, nodeKey: string): void
+  onFolderDrop(
+    parentNodeKey: string,
+    sourceNodeKey: string,
+    targetNodeKey: string,
+    siblingOrderKeys: string[],
+    placement: 'before' | 'after',
+  ): void
 }) {
   const children = node.children ?? []
   const visibleChildCount =
@@ -489,6 +741,14 @@ function ConnectionObjectTreeNode({
   )
   const queryable = isScopedQueryable(node)
   const objectViewable = isObjectViewNode(connection, node)
+  const orderableChildKeys = useMemo(
+    () => folderOrderableNodeKeys(connection, children, nodeKey),
+    [children, connection, nodeKey],
+  )
+  const canDragFolder = isConnectionFolderOrderableNode(node) && siblingOrderKeys.length > 1
+  const isDraggingFolder = draggedFolder?.nodeKey === nodeKey
+  const isFolderDropTarget =
+    folderDropTarget === nodeKey && draggedFolder?.parentNodeKey === parentNodeKey
   const hasObjectMenu = hasAvailableObjectMenuItems(connection, node, {
     canInspectNode,
     canOpenObjectView: Boolean(onOpenObjectView),
@@ -531,9 +791,53 @@ function ConnectionObjectTreeNode({
         tabIndex={canExpand || queryable || objectViewable ? 0 : undefined}
         aria-expanded={canExpand ? expanded : undefined}
         aria-level={depth}
-        className={`tree-item connection-object-item${canExpand ? ' is-branch' : ''}${queryable || objectViewable ? ' is-queryable' : ''}${environment ? ' has-environment-accent' : ''}`}
+        draggable={canDragFolder}
+        className={`tree-item connection-object-item${canExpand ? ' is-branch' : ''}${queryable || objectViewable ? ' is-queryable' : ''}${environment ? ' has-environment-accent' : ''}${canDragFolder ? ' is-folder-orderable' : ''}${isDraggingFolder ? ' is-folder-dragging' : ''}${isFolderDropTarget ? ' is-folder-drop-target' : ''}`}
         style={{ '--tree-depth': visualDepth, ...environmentStyle } as CSSProperties}
         title={objectNodeTitle(connection, node, queryable, objectViewable, canExpand)}
+        onDragStart={(event: DragEvent<HTMLElement>) => {
+          if (!canDragFolder) {
+            return
+          }
+
+          event.stopPropagation()
+          event.dataTransfer.effectAllowed = 'move'
+          event.dataTransfer.setData('text/plain', nodeKey)
+          onBeginFolderDrag(parentNodeKey, nodeKey)
+        }}
+        onDragOver={(event: DragEvent<HTMLElement>) => {
+          if (
+            !canDragFolder ||
+            draggedFolder?.parentNodeKey !== parentNodeKey ||
+            draggedFolder.nodeKey === nodeKey
+          ) {
+            return
+          }
+
+          event.preventDefault()
+          event.stopPropagation()
+          event.dataTransfer.dropEffect = 'move'
+          onFolderDragOver(parentNodeKey, nodeKey)
+        }}
+        onDrop={(event: DragEvent<HTMLElement>) => {
+          if (!canDragFolder || draggedFolder?.parentNodeKey !== parentNodeKey) {
+            return
+          }
+
+          event.preventDefault()
+          event.stopPropagation()
+          const sourceNodeKey = draggedFolder.nodeKey || event.dataTransfer.getData('text/plain')
+          if (sourceNodeKey) {
+            onFolderDrop(
+              parentNodeKey,
+              sourceNodeKey,
+              nodeKey,
+              siblingOrderKeys,
+              folderDropPlacement(event),
+            )
+          }
+        }}
+        onDragEnd={onClearFolderDrag}
         onClick={() => {
           if (canExpand) {
             toggleNode()
@@ -638,7 +942,7 @@ function ConnectionObjectTreeNode({
 
       {expanded
         ? visibleChildren.map((child) => {
-            const childKey = `${nodeKey}/${connectionTreeNodeKey(connection, child)}`
+            const childKey = connectionTreeRenderNodeKey(connection, child, nodeKey)
 
             return (
               <ConnectionObjectTreeNode
@@ -652,6 +956,10 @@ function ConnectionObjectTreeNode({
                 isExplorerScopeLoading={isExplorerScopeLoading}
                 node={child}
                 nodeKey={childKey}
+                parentNodeKey={nodeKey}
+                siblingOrderKeys={orderableChildKeys}
+                draggedFolder={draggedFolder}
+                folderDropTarget={folderDropTarget}
                 visibleChildCounts={visibleChildCounts}
                 canInspectNode={canInspectNode}
                 canCreateApiServer={canCreateApiServer}
@@ -663,13 +971,17 @@ function ConnectionObjectTreeNode({
                 onOpenQuery={onOpenQuery}
                 onRequestAutoLoadScope={onRequestAutoLoadScope}
                 onToggleNode={onToggleNode}
+                onBeginFolderDrag={onBeginFolderDrag}
+                onClearFolderDrag={onClearFolderDrag}
+                onFolderDragOver={onFolderDragOver}
+                onFolderDrop={onFolderDrop}
               />
             )
           })
         : null}
       {expanded && canLoadChildren && children.length === 0 && !branchLoading && explorerStatus === 'ready' ? (
         <div
-          className="connection-object-empty"
+          className={`connection-object-empty${environment ? ' has-environment-accent' : ''}`}
           role="treeitem"
           aria-level={depth + 1}
           style={{ '--tree-depth': visualDepth + 1, ...environmentStyle } as CSSProperties}
@@ -680,7 +992,7 @@ function ConnectionObjectTreeNode({
       {expanded && remainingChildren > 0 ? (
         <button
           type="button"
-          className="connection-object-load-more"
+          className={`connection-object-load-more${environment ? ' has-environment-accent' : ''}`}
           style={{ '--tree-depth': visualDepth + 1, ...environmentStyle } as CSSProperties}
           aria-label={`Load more ${node.label} items`}
           onClick={(event) => {

@@ -293,7 +293,6 @@ describe('sidebar connection tree helpers', () => {
     }) as Record<string, string>
 
     expect(style['--connection-env-color']).toBe('#22ddbb')
-    expect(style['--connection-env-tint']).toBe('rgba(34, 221, 187, 0.09)')
     expect(style['--connection-env-border']).toBe('rgba(34, 221, 187, 0.5)')
   })
 

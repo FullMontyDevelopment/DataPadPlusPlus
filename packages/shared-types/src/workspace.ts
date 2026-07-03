@@ -87,7 +87,7 @@ export type QuerySaveTarget =
 export interface QueryTabDefinition {
   id: string
   title: string
-  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics' | 'object-view' | 'environment' | 'settings' | 'api-server' | 'mcp-server' | 'workspace-search'
+  tabKind?: 'query' | 'explorer' | 'test-suite' | 'metrics' | 'object-view' | 'environment' | 'settings' | 'api-server' | 'mcp-server' | 'workspace-search' | 'security-checks'
   connectionId: string
   environmentId: string
   family: DatastoreFamily
@@ -210,6 +210,7 @@ export interface MongoFindSortRow {
 
 export interface MongoFindBuilderState {
   kind: 'mongo-find'
+  database?: string
   collection: string
   filters: MongoFindFilterRow[]
   filterGroups?: MongoFindFilterGroup[]
@@ -230,6 +231,7 @@ export interface MongoAggregationStageRow {
 
 export interface MongoAggregationBuilderState {
   kind: 'mongo-aggregation'
+  database?: string
   collection: string
   stages: MongoAggregationStageRow[]
   limit?: number
@@ -946,6 +948,7 @@ export interface LibraryNode {
   queryText?: string
   queryViewMode?: QueryViewMode
   documentEfficiencyMode?: boolean
+  scopedTarget?: ScopedQueryTarget
   builderState?: QueryBuilderState
   scriptText?: string
   testSuite?: DatastoreTestSuiteDefinition
@@ -1018,6 +1021,43 @@ export interface WorkspaceBundleFileExportResponse {
 
 export interface WorkspaceBundleFileImportRequest {
   passphrase: string
+}
+
+export interface WorkspaceSummary {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  lastOpenedAt?: string
+  counts: {
+    connections: number
+    environments: number
+    libraryItems: number
+    openTabs: number
+  }
+}
+
+export interface WorkspaceSwitcherStatus {
+  enabled: boolean
+  activeWorkspaceId: string
+  workspaces: WorkspaceSummary[]
+}
+
+export interface WorkspaceSwitcherSettingsRequest {
+  enabled: boolean
+}
+
+export interface WorkspaceCreateRequest {
+  name: string
+}
+
+export interface WorkspaceRenameRequest {
+  workspaceId: string
+  name: string
+}
+
+export interface WorkspaceSwitchRequest {
+  workspaceId: string
 }
 
 export interface WorkspaceBackupSettingsRequest {

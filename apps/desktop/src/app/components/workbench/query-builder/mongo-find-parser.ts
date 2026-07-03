@@ -22,12 +22,19 @@ export function parseMongoFindQueryText(queryText: string): MongoFindBuilderStat
   }
 
   const query = parsed as Record<string, unknown>
+  const database =
+    typeof query.database === 'string'
+      ? query.database
+      : typeof query.db === 'string'
+        ? query.db
+        : undefined
   const collection = typeof query.collection === 'string' ? query.collection : ''
   const filters = filterRowsFromQuery(query.filter)
   const projection = projectionFromQuery(query.projection)
 
   return {
     kind: 'mongo-find',
+    ...(database?.trim() ? { database: database.trim() } : {}),
     collection,
     filters: filters.map((filter) => ({
       ...filter,

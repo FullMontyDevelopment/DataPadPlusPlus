@@ -221,8 +221,13 @@ export function applyExecutionToPayload(
   if (isActiveTab) {
     next.snapshot.ui.activeConnectionId = executionTab.connectionId
     next.snapshot.ui.activeEnvironmentId = executionTab.environmentId
-    next.snapshot.ui.bottomPanelVisible = true
-    next.snapshot.ui.activeBottomPanelTab = executionTab.result ? 'results' : 'messages'
+    if (executionTab.result) {
+      next.snapshot.ui.bottomPanelVisible = true
+      next.snapshot.ui.activeBottomPanelTab = 'results'
+    } else if (execution.guardrail.status !== 'confirm') {
+      next.snapshot.ui.bottomPanelVisible = true
+      next.snapshot.ui.activeBottomPanelTab = 'messages'
+    }
   }
   next.snapshot.updatedAt = new Date().toISOString()
   return next

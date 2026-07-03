@@ -216,3 +216,43 @@ export function createWorkspaceSearchTabInSnapshot(snapshot: WorkspaceSnapshot):
   focused.ui.rightDrawer = 'none'
   return focused
 }
+
+export function createSecurityChecksTabInSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  const next = cloneSnapshot(snapshot)
+  const existingSecurityTab = next.tabs.find((tab) => tab.tabKind === 'security-checks')
+
+  if (existingSecurityTab) {
+    const focused = upsertTab(next, existingSecurityTab)
+    focused.ui.activeActivity = 'library'
+    focused.ui.activeSidebarPane = 'library'
+    focused.ui.rightDrawer = 'none'
+    return focused
+  }
+
+  const connection =
+    next.connections.find((item) => item.id === next.ui.activeConnectionId) ?? next.connections[0]
+  const environment =
+    next.environments.find((item) => item.id === next.ui.activeEnvironmentId) ?? next.environments[0]
+  const tab: QueryTabState = {
+    id: createId('security-checks-tab'),
+    title: 'Security Checks',
+    tabKind: 'security-checks',
+    connectionId: connection?.id ?? '',
+    environmentId: environment?.id ?? '',
+    family: connection?.family ?? 'sql',
+    language: 'json',
+    editorLabel: 'Security Checks',
+    queryText: '',
+    queryViewMode: undefined,
+    scriptText: undefined,
+    status: 'idle',
+    dirty: false,
+    history: [],
+  }
+
+  const focused = upsertTab(next, tab)
+  focused.ui.activeActivity = 'library'
+  focused.ui.activeSidebarPane = 'library'
+  focused.ui.rightDrawer = 'none'
+  return focused
+}

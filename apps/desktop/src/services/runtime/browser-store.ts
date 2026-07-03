@@ -1,15 +1,46 @@
-import type { BootstrapPayload, ConnectionProfile, EnvironmentProfile, ExecutionCapabilities, QueryTabState, UpdateUiStateRequest, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
-import { createBlankBootstrapPayload, createBrowserPreviewHealth, createDiagnosticsReport } from '../../app/data/workspace-factory'
+import type {
+  BootstrapPayload,
+  ConnectionProfile,
+  EnvironmentProfile,
+  ExecutionCapabilities,
+  QueryTabState,
+  UpdateUiStateRequest,
+  WorkspaceCreateRequest,
+  WorkspaceRenameRequest,
+  WorkspaceSnapshot,
+  WorkspaceSummary,
+  WorkspaceSwitcherSettingsRequest,
+  WorkspaceSwitcherStatus,
+  WorkspaceSwitchRequest,
+} from '@datapadplusplus/shared-types'
+import { createBlankBootstrapPayload, createBlankSnapshot, createBrowserPreviewHealth, createDiagnosticsReport } from '../../app/data/workspace-factory'
 import { sanitizeEnvironmentProfile } from '../../app/state/environment-variables'
 import { defaultRowLimitForConnection, editorLanguageForConnection, migrateWorkspaceSnapshot, resolveEnvironment } from '../../app/state/helpers'
 
 const STORAGE_KEY = 'datapadplusplus.workspace.v2'
+const WORKSPACE_REGISTRY_STORAGE_KEY = 'datapadplusplus.workspaces.registry.v1'
+const WORKSPACE_SNAPSHOT_STORAGE_PREFIX = 'datapadplusplus.workspace.snapshot.v1.'
+const DEFAULT_WORKSPACE_ID = 'default'
+const DEFAULT_WORKSPACE_NAME = 'Default Workspace'
+
+interface BrowserWorkspaceRegistry {
+  enabled: boolean
+  activeWorkspaceId: string
+  workspaces: WorkspaceSummary[]
+}
 
 export function loadBrowserSnapshot(): WorkspaceSnapshot {
+  if (typeof window === 'undefined') {
+    return createBlankBootstrapPayload().snapshot
+  }
+
+  const registry = ensureBrowserWorkspaceRegistry()
+  const activeWorkspaceId = registry.activeWorkspaceId || DEFAULT_WORKSPACE_ID
   const stored =
-    typeof window !== 'undefined'
+    window.localStorage.getItem(workspaceSnapshotStorageKey(activeWorkspaceId)) ??
+    (activeWorkspaceId === DEFAULT_WORKSPACE_ID
       ? window.localStorage.getItem(STORAGE_KEY)
-      : null
+      : null)
 
   if (!stored) {
     return createBlankBootstrapPayload().snapshot
@@ -26,11 +57,118 @@ export function loadBrowserSnapshot(): WorkspaceSnapshot {
 
 export function saveBrowserSnapshot(snapshot: WorkspaceSnapshot) {
   if (typeof window !== 'undefined') {
+    const registry = ensureBrowserWorkspaceRegistry(snapshot)
+    const activeWorkspaceId = registry.activeWorkspaceId || DEFAULT_WORKSPACE_ID
+    const sanitized = sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(snapshot))
     window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(snapshot))),
+      workspaceSnapshotStorageKey(activeWorkspaceId),
+      JSON.stringify(sanitized),
+    )
+    if (activeWorkspaceId === DEFAULT_WORKSPACE_ID) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized))
+    }
+    saveBrowserWorkspaceRegistry(
+      updateBrowserWorkspaceSummary(registry, activeWorkspaceId, sanitized),
     )
   }
+}
+
+export function getBrowserWorkspaceSwitcherStatus(): WorkspaceSwitcherStatus {
+  return registryToStatus(ensureBrowserWorkspaceRegistry())
+}
+
+export function setBrowserWorkspaceSwitcherEnabled(
+  request: WorkspaceSwitcherSettingsRequest,
+): WorkspaceSwitcherStatus {
+  const registry = ensureBrowserWorkspaceRegistry()
+  registry.enabled = Boolean(request.enabled)
+  saveBrowserWorkspaceRegistry(registry)
+  return registryToStatus(registry)
+}
+
+export function createBrowserWorkspace(request: WorkspaceCreateRequest): WorkspaceSnapshot {
+  let registry = ensureBrowserWorkspaceRegistry()
+  const current = loadBrowserSnapshot()
+  saveBrowserSnapshot(current)
+  registry = ensureBrowserWorkspaceRegistry()
+
+  const timestamp = new Date().toISOString()
+  const workspaceId = browserWorkspaceId()
+  const snapshot = createBlankSnapshot()
+  snapshot.updatedAt = timestamp
+  const name = normalizeWorkspaceName(request.name)
+
+  const nextRegistry: BrowserWorkspaceRegistry = {
+    ...registry,
+    activeWorkspaceId: workspaceId,
+    workspaces: [
+      ...registry.workspaces,
+      {
+        id: workspaceId,
+        name,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        lastOpenedAt: timestamp,
+        counts: workspaceCounts(snapshot),
+      },
+    ],
+  }
+
+  saveBrowserWorkspaceRegistry(nextRegistry)
+  saveBrowserSnapshot(snapshot)
+  return snapshot
+}
+
+export function renameBrowserWorkspace(request: WorkspaceRenameRequest): WorkspaceSwitcherStatus {
+  const registry = ensureBrowserWorkspaceRegistry()
+  const name = normalizeWorkspaceName(request.name)
+  const next = {
+    ...registry,
+    workspaces: registry.workspaces.map((workspace) =>
+      workspace.id === request.workspaceId
+        ? { ...workspace, name }
+        : workspace,
+    ),
+  }
+
+  if (!next.workspaces.some((workspace) => workspace.id === request.workspaceId)) {
+    throw new Error('Workspace was not found.')
+  }
+
+  saveBrowserWorkspaceRegistry(next)
+  return registryToStatus(next)
+}
+
+export function switchBrowserWorkspace(request: WorkspaceSwitchRequest): WorkspaceSnapshot {
+  let registry = ensureBrowserWorkspaceRegistry()
+  let workspace = registry.workspaces.find((item) => item.id === request.workspaceId)
+
+  if (!workspace) {
+    throw new Error('Workspace was not found.')
+  }
+
+  saveBrowserSnapshot(loadBrowserSnapshot())
+  registry = ensureBrowserWorkspaceRegistry()
+  workspace = registry.workspaces.find((item) => item.id === request.workspaceId)
+  if (!workspace) {
+    throw new Error('Workspace was not found.')
+  }
+  const timestamp = new Date().toISOString()
+  const nextRegistry: BrowserWorkspaceRegistry = {
+    ...registry,
+    activeWorkspaceId: workspace.id,
+    workspaces: registry.workspaces.map((item) =>
+      item.id === workspace.id ? { ...item, lastOpenedAt: timestamp } : item,
+    ),
+  }
+  saveBrowserWorkspaceRegistry(nextRegistry)
+
+  const stored = window.localStorage.getItem(workspaceSnapshotStorageKey(workspace.id))
+  const snapshot = stored
+    ? sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot))
+    : createBlankSnapshot()
+  saveBrowserSnapshot(snapshot)
+  return snapshot
 }
 
 function sanitizeBrowserSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
@@ -41,6 +179,170 @@ function sanitizeBrowserSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot
 
 export function cloneSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
   return JSON.parse(JSON.stringify(snapshot)) as WorkspaceSnapshot
+}
+
+function ensureBrowserWorkspaceRegistry(seedSnapshot?: WorkspaceSnapshot): BrowserWorkspaceRegistry {
+  if (typeof window === 'undefined') {
+    return defaultBrowserWorkspaceRegistry(seedSnapshot ?? createBlankSnapshot())
+  }
+
+  const stored = window.localStorage.getItem(WORKSPACE_REGISTRY_STORAGE_KEY)
+  if (stored) {
+    try {
+      const registry = normalizeBrowserWorkspaceRegistry(JSON.parse(stored) as Partial<BrowserWorkspaceRegistry>)
+      if (registry.workspaces.length) {
+        saveBrowserWorkspaceRegistry(registry)
+        return registry
+      }
+    } catch {
+      // Fall back to default registry below.
+    }
+  }
+
+  const legacyStored = window.localStorage.getItem(STORAGE_KEY)
+  let snapshot = seedSnapshot ?? createBlankSnapshot()
+  if (legacyStored) {
+    try {
+      snapshot = sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(JSON.parse(legacyStored) as WorkspaceSnapshot))
+    } catch {
+      snapshot = seedSnapshot ?? createBlankSnapshot()
+    }
+  }
+  const registry = defaultBrowserWorkspaceRegistry(snapshot)
+  window.localStorage.setItem(
+    workspaceSnapshotStorageKey(DEFAULT_WORKSPACE_ID),
+    JSON.stringify(sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(snapshot))),
+  )
+  saveBrowserWorkspaceRegistry(registry)
+  return registry
+}
+
+function defaultBrowserWorkspaceRegistry(snapshot: WorkspaceSnapshot): BrowserWorkspaceRegistry {
+  const timestamp = snapshot.updatedAt || new Date().toISOString()
+
+  return {
+    enabled: false,
+    activeWorkspaceId: DEFAULT_WORKSPACE_ID,
+    workspaces: [
+      {
+        id: DEFAULT_WORKSPACE_ID,
+        name: DEFAULT_WORKSPACE_NAME,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        lastOpenedAt: timestamp,
+        counts: workspaceCounts(snapshot),
+      },
+    ],
+  }
+}
+
+function normalizeBrowserWorkspaceRegistry(
+  registry: Partial<BrowserWorkspaceRegistry>,
+): BrowserWorkspaceRegistry {
+  const workspaces = Array.isArray(registry.workspaces)
+    ? registry.workspaces
+        .filter((workspace): workspace is WorkspaceSummary =>
+          Boolean(workspace?.id && workspace.name),
+        )
+        .map((workspace) => ({
+          id: workspace.id,
+          name: workspace.name.trim() || DEFAULT_WORKSPACE_NAME,
+          createdAt: workspace.createdAt || new Date().toISOString(),
+          updatedAt: workspace.updatedAt || workspace.createdAt || new Date().toISOString(),
+          lastOpenedAt: workspace.lastOpenedAt,
+          counts: {
+            connections: Math.max(0, Math.round(workspace.counts?.connections ?? 0)),
+            environments: Math.max(0, Math.round(workspace.counts?.environments ?? 0)),
+            libraryItems: Math.max(0, Math.round(workspace.counts?.libraryItems ?? 0)),
+            openTabs: Math.max(0, Math.round(workspace.counts?.openTabs ?? 0)),
+          },
+        }))
+    : []
+  const activeWorkspaceId =
+    typeof registry.activeWorkspaceId === 'string' &&
+    workspaces.some((workspace) => workspace.id === registry.activeWorkspaceId)
+      ? registry.activeWorkspaceId
+      : workspaces[0]?.id ?? DEFAULT_WORKSPACE_ID
+
+  return {
+    enabled: Boolean(registry.enabled),
+    activeWorkspaceId,
+    workspaces: workspaces.length ? workspaces : defaultBrowserWorkspaceRegistry(createBlankSnapshot()).workspaces,
+  }
+}
+
+function saveBrowserWorkspaceRegistry(registry: BrowserWorkspaceRegistry) {
+  window.localStorage.setItem(
+    WORKSPACE_REGISTRY_STORAGE_KEY,
+    JSON.stringify(normalizeBrowserWorkspaceRegistry(registry)),
+  )
+}
+
+function updateBrowserWorkspaceSummary(
+  registry: BrowserWorkspaceRegistry,
+  workspaceId: string,
+  snapshot: WorkspaceSnapshot,
+): BrowserWorkspaceRegistry {
+  const timestamp = snapshot.updatedAt || new Date().toISOString()
+  const workspaces = registry.workspaces.map((workspace) =>
+    workspace.id === workspaceId
+      ? {
+          ...workspace,
+          updatedAt: timestamp,
+          counts: workspaceCounts(snapshot),
+        }
+      : workspace,
+  )
+
+  return {
+    ...registry,
+    workspaces,
+  }
+}
+
+function workspaceCounts(snapshot: WorkspaceSnapshot): WorkspaceSummary['counts'] {
+  return {
+    connections: snapshot.connections.length,
+    environments: snapshot.environments.length,
+    libraryItems: snapshot.libraryNodes.length,
+    openTabs: snapshot.tabs.length,
+  }
+}
+
+function registryToStatus(registry: BrowserWorkspaceRegistry): WorkspaceSwitcherStatus {
+  return {
+    enabled: registry.enabled,
+    activeWorkspaceId: registry.activeWorkspaceId,
+    workspaces: [...registry.workspaces].sort(compareWorkspaceSummaries),
+  }
+}
+
+function compareWorkspaceSummaries(left: WorkspaceSummary, right: WorkspaceSummary) {
+  if (left.id === DEFAULT_WORKSPACE_ID) return -1
+  if (right.id === DEFAULT_WORKSPACE_ID) return 1
+  return left.name.localeCompare(right.name, undefined, {
+    sensitivity: 'base',
+    numeric: true,
+  })
+}
+
+function workspaceSnapshotStorageKey(workspaceId: string) {
+  return `${WORKSPACE_SNAPSHOT_STORAGE_PREFIX}${workspaceId}`
+}
+
+function normalizeWorkspaceName(name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    throw new Error('Enter a workspace name.')
+  }
+  return trimmed.slice(0, 80)
+}
+
+function browserWorkspaceId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return `workspace-${crypto.randomUUID()}`
+  }
+  return `workspace-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 

@@ -43,12 +43,18 @@ export function createDefaultPreferences(): AppPreferences {
       activeServerId: undefined,
       servers: [],
     },
+    datastoreSecurityChecks: {
+      enabled: false,
+      refreshIntervalDays: 7,
+      mutedFindingIds: [],
+    },
     workspaceSearch: {
       enabled: false,
     },
     firstInstallGuide: {
       status: 'unseen',
     },
+    explorerFolderOrders: {},
   }
 }
 

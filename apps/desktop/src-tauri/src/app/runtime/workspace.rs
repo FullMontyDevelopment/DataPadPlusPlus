@@ -26,9 +26,11 @@ use crate::{
         models::{
             AppHealth, AppPreferences, BootstrapPayload, DatastoreApiServerConfig,
             DatastoreApiServerPreferences, DatastoreMcpServerPreferences,
-            DatastoreMcpServerTokenConfig, DiagnosticsCounts, DiagnosticsReport, ExportBundle,
-            LockState, ResolvedEnvironment, UiState, WorkspaceSearchSettingsRequest,
-            WorkspaceSnapshot,
+            DatastoreMcpServerTokenConfig, DatastoreSecurityChecksPreferences, DiagnosticsCounts,
+            DiagnosticsReport, ExportBundle, LockState, ResolvedEnvironment, UiState,
+            WorkspaceCreateRequest, WorkspaceRenameRequest, WorkspaceSearchSettingsRequest,
+            WorkspaceSnapshot, WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus,
+            WorkspaceSwitchRequest,
         },
     },
     infrastructure, persistence, security,
@@ -203,6 +205,87 @@ impl ManagedAppState {
         self.persist()?;
         Ok(self.bootstrap_payload())
     }
+
+    pub fn workspace_switcher_status(&self) -> Result<WorkspaceSwitcherStatus, CommandError> {
+        persistence::workspace_switcher_status(&self.app, &self.snapshot)
+    }
+
+    pub fn set_workspace_switcher_enabled(
+        &self,
+        request: WorkspaceSwitcherSettingsRequest,
+    ) -> Result<WorkspaceSwitcherStatus, CommandError> {
+        persistence::set_workspace_switcher_enabled(&self.app, &self.snapshot, request.enabled)
+    }
+
+    pub fn create_workspace(
+        &mut self,
+        request: WorkspaceCreateRequest,
+    ) -> Result<BootstrapPayload, CommandError> {
+        self.ensure_unlocked()?;
+        let name = normalize_workspace_profile_name(&request.name)?;
+        let workspace_id = generate_id("workspace");
+        let mut snapshot = blank_workspace_snapshot();
+        snapshot.updated_at = timestamp_now();
+        persistence::create_workspace_profile(
+            &self.app,
+            &sanitize_snapshot(&self.snapshot, true),
+            &workspace_id,
+            &name,
+            &sanitize_snapshot(&snapshot, true),
+        )?;
+        self.snapshot = migrate_snapshot(snapshot);
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
+    pub fn rename_workspace(
+        &self,
+        request: WorkspaceRenameRequest,
+    ) -> Result<WorkspaceSwitcherStatus, CommandError> {
+        let workspace_id = normalize_workspace_profile_id(&request.workspace_id)?;
+        let name = normalize_workspace_profile_name(&request.name)?;
+        persistence::rename_workspace_profile(&self.app, &self.snapshot, &workspace_id, &name)
+    }
+
+    pub fn switch_workspace(
+        &mut self,
+        request: WorkspaceSwitchRequest,
+    ) -> Result<BootstrapPayload, CommandError> {
+        self.ensure_unlocked()?;
+        let workspace_id = normalize_workspace_profile_id(&request.workspace_id)?;
+        let snapshot = persistence::switch_workspace_profile(
+            &self.app,
+            &sanitize_snapshot(&self.snapshot, true),
+            &workspace_id,
+        )?;
+        self.snapshot = migrate_snapshot(snapshot);
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+}
+
+fn normalize_workspace_profile_name(value: &str) -> Result<String, CommandError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(CommandError::new(
+            "workspace-name-required",
+            "Enter a workspace name.",
+        ));
+    }
+
+    Ok(trimmed.chars().take(80).collect())
+}
+
+fn normalize_workspace_profile_id(value: &str) -> Result<String, CommandError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(CommandError::new(
+            "workspace-id-required",
+            "Choose a workspace.",
+        ));
+    }
+
+    Ok(trimmed.into())
 }
 
 pub(super) fn sanitize_snapshot(
@@ -263,7 +346,11 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     migrate_connection_modes(&mut snapshot);
     normalize_datastore_api_server_preferences(&mut snapshot.preferences.datastore_api_server);
     normalize_datastore_mcp_server_preferences(&mut snapshot.preferences.datastore_mcp_server);
+    normalize_datastore_security_checks_preferences(
+        &mut snapshot.preferences.datastore_security_checks,
+    );
     normalize_first_install_guide_preferences(&mut snapshot.preferences.first_install_guide);
+    normalize_explorer_folder_orders(&mut snapshot.preferences.explorer_folder_orders);
     ensure_library_nodes(&mut snapshot);
 
     for tab in &mut snapshot.tabs {
@@ -452,9 +539,22 @@ fn normalize_first_install_guide_preferences(
         _ => preferences.status = "unseen".into(),
     }
 
+    if preferences.status != "started"
+        || !is_first_install_guide_step_id(preferences.current_step_id.as_deref())
+    {
+        preferences.current_step_id = None;
+    }
+
     if preferences.status != "completed" {
         preferences.completed_at = None;
     }
+}
+
+fn is_first_install_guide_step_id(step_id: Option<&str>) -> bool {
+    matches!(
+        step_id,
+        Some("welcome" | "folder" | "connection" | "save" | "explorer" | "query" | "settings")
+    )
 }
 
 fn is_default_api_server_placeholder(server: &DatastoreApiServerConfig) -> bool {
@@ -643,6 +743,29 @@ fn default_api_server_name(port: u16) -> String {
     }
 }
 
+fn normalize_explorer_folder_orders(orders: &mut HashMap<String, Vec<String>>) {
+    orders.retain(|key, ordered_node_keys| {
+        let normalized_key = key.trim();
+        if normalized_key.is_empty() || normalized_key.len() > 512 {
+            return false;
+        }
+
+        let mut normalized = Vec::new();
+        for node_key in ordered_node_keys
+            .iter()
+            .map(|node_key| node_key.trim())
+            .filter(|node_key| !node_key.is_empty() && node_key.len() <= 512)
+        {
+            if !normalized.iter().any(|existing| existing == node_key) {
+                normalized.push(node_key.to_string());
+            }
+        }
+
+        *ordered_node_keys = normalized;
+        !ordered_node_keys.is_empty()
+    });
+}
+
 fn normalize_datastore_mcp_server_preferences(preferences: &mut DatastoreMcpServerPreferences) {
     let mut servers = preferences.servers.clone();
 
@@ -685,6 +808,20 @@ fn normalize_datastore_mcp_server_preferences(preferences: &mut DatastoreMcpServ
     }
 
     preferences.servers = servers;
+}
+
+fn normalize_datastore_security_checks_preferences(
+    preferences: &mut DatastoreSecurityChecksPreferences,
+) {
+    preferences.refresh_interval_days = preferences.refresh_interval_days.clamp(1, 30);
+    preferences
+        .muted_finding_ids
+        .retain(|finding_id| !finding_id.trim().is_empty());
+    for finding_id in &mut preferences.muted_finding_ids {
+        *finding_id = finding_id.trim().to_string();
+    }
+    preferences.muted_finding_ids.sort();
+    preferences.muted_finding_ids.dedup();
 }
 
 fn normalize_mcp_server_tokens(tokens: &mut Vec<DatastoreMcpServerTokenConfig>) {
@@ -853,9 +990,12 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
                     workspace_backups: Default::default(),
                     datastore_api_server: Default::default(),
                     datastore_mcp_server: Default::default(),
+                    datastore_security_checks: Default::default(),
                     workspace_search: Default::default(),
                     first_install_guide: Default::default(),
+                    explorer_folder_orders: HashMap::new(),
                 },
+                datastore_security_checks: None,
                 guardrails: Vec::new(),
                 lock_state: LockState {
                     is_locked: false,
@@ -898,9 +1038,12 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
             workspace_backups: Default::default(),
             datastore_api_server: Default::default(),
             datastore_mcp_server: Default::default(),
+            datastore_security_checks: Default::default(),
             workspace_search: Default::default(),
             first_install_guide: Default::default(),
+            explorer_folder_orders: HashMap::new(),
         },
+        datastore_security_checks: None,
         guardrails: Vec::new(),
         lock_state: LockState {
             is_locked: false,

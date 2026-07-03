@@ -383,6 +383,11 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         ...state,
         workbenchMessages: [],
       }
+    case 'WORKSPACE_SWITCHER_STATUS_READY':
+      return {
+        ...state,
+        workspaceSwitcherStatus: action.status,
+      }
     default:
       return state
   }

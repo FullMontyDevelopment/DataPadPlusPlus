@@ -59,7 +59,11 @@ export function MongoAggregationBuilder({
   const stageIdCounter = useRef(draft.stages.length)
 
   const updateDraft = (patch: Partial<MongoAggregationBuilderState>) => {
-    const nextDraft = { ...draft, ...patch }
+    const nextDraft = {
+      ...draft,
+      ...(scope?.database ? { database: scope.database } : {}),
+      ...patch,
+    }
     onBuilderStateChange?.(tab.id, {
       ...nextDraft,
       lastAppliedQueryText: buildMongoAggregationQueryText(nextDraft, {

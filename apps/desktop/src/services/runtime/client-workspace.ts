@@ -11,13 +11,24 @@ import type {
   WorkspaceBundleFileExportRequest,
   WorkspaceBundleFileExportResponse,
   WorkspaceBundleFileImportRequest,
+  WorkspaceCreateRequest,
+  WorkspaceRenameRequest,
+  DatastoreSecurityCheckSnapshot,
+  DatastoreSecurityChecksRefreshRequest,
+  DatastoreSecurityChecksSettingsRequest,
+  DatastoreSecurityChecksStatus,
   UpdateUiStateRequest,
   WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
+  WorkspaceSwitcherSettingsRequest,
+  WorkspaceSwitcherStatus,
+  WorkspaceSwitchRequest,
   AppLogFileContent,
   AppLogFileSummary,
   AppShortcutId,
+  ExplorerFolderOrderRequest,
   FirstInstallGuidePersistedStatus,
+  FirstInstallGuideStepId,
 } from '@datapadplusplus/shared-types'
 import { createBrowserPreviewHealth } from '../../app/data/workspace-factory'
 import { buildDiagnosticsReport, migrateWorkspaceSnapshot } from '../../app/state/helpers'
@@ -25,9 +36,14 @@ import { redactErrorMessage } from '../../app/state/security-redaction'
 import {
   buildBrowserPayload,
   cloneSnapshot,
+  createBrowserWorkspace,
+  getBrowserWorkspaceSwitcherStatus,
   loadBrowserSnapshot,
   normalizeUiStatePatch,
+  renameBrowserWorkspace,
   saveBrowserSnapshot,
+  setBrowserWorkspaceSwitcherEnabled,
+  switchBrowserWorkspace,
   updateUiStateLocally,
 } from './browser-store'
 import {
@@ -44,6 +60,40 @@ import {
 import { createBrowserWorkspaceBundlePayloadText } from './client-workspace-integrity'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 
+const FIRST_INSTALL_GUIDE_STEP_IDS: FirstInstallGuideStepId[] = [
+  'welcome',
+  'folder',
+  'connection',
+  'save',
+  'explorer',
+  'query',
+  'settings',
+]
+
+function isFirstInstallGuideStepId(
+  value: FirstInstallGuideStepId | undefined,
+): value is FirstInstallGuideStepId {
+  return typeof value === 'string' && FIRST_INSTALL_GUIDE_STEP_IDS.includes(value)
+}
+
+function browserSecurityCheckStatus(
+  snapshot: WorkspaceSnapshot,
+): DatastoreSecurityChecksStatus {
+  const preferences = snapshot.preferences.datastoreSecurityChecks ?? {
+    enabled: false,
+    refreshIntervalDays: 7,
+  }
+  return {
+    supported: false,
+    enabled: Boolean(preferences.enabled),
+    message: 'Datastore Security Checks require the desktop app.',
+    canRefresh: false,
+    refreshBlockedReason: 'Network-backed security checks are disabled in browser preview.',
+    preferences,
+    snapshot: snapshot.datastoreSecurityChecks,
+  }
+}
+
 export const clientWorkspace = {
   async bootstrapApp(): Promise<BootstrapPayload> {
     if (isTauriRuntime()) {
@@ -55,6 +105,48 @@ export const clientWorkspace = {
     }
 
     return buildBrowserPayload(loadBrowserSnapshot())
+  },
+
+  async getWorkspaceSwitcherStatus(): Promise<WorkspaceSwitcherStatus> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<WorkspaceSwitcherStatus>('get_workspace_switcher_status')
+    }
+
+    return getBrowserWorkspaceSwitcherStatus()
+  },
+
+  async setWorkspaceSwitcherEnabled(
+    request: WorkspaceSwitcherSettingsRequest,
+  ): Promise<WorkspaceSwitcherStatus> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<WorkspaceSwitcherStatus>('set_workspace_switcher_enabled', { request })
+    }
+
+    return setBrowserWorkspaceSwitcherEnabled(request)
+  },
+
+  async createWorkspace(request: WorkspaceCreateRequest): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('create_workspace', { request })
+    }
+
+    return buildBrowserPayload(createBrowserWorkspace(request))
+  },
+
+  async renameWorkspace(request: WorkspaceRenameRequest): Promise<WorkspaceSwitcherStatus> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<WorkspaceSwitcherStatus>('rename_workspace', { request })
+    }
+
+    return renameBrowserWorkspace(request)
+  },
+
+  async switchWorkspace(request: WorkspaceSwitchRequest): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('switch_workspace', { request })
+    }
+
+    return buildBrowserPayload(switchBrowserWorkspace(request))
   },
 
   async setTheme(theme: WorkspaceSnapshot['preferences']['theme']): Promise<BootstrapPayload> {
@@ -104,19 +196,57 @@ export const clientWorkspace = {
 
   async setFirstInstallGuideStatus(
     status: FirstInstallGuidePersistedStatus,
+    currentStepId?: FirstInstallGuideStepId,
   ): Promise<BootstrapPayload> {
+    const normalizedCurrentStepId =
+      status === 'started' && isFirstInstallGuideStepId(currentStepId)
+        ? currentStepId
+        : undefined
+
     if (isTauriRuntime()) {
-      return invokeDesktop<BootstrapPayload>('set_first_install_guide_status', { status })
+      return invokeDesktop<BootstrapPayload>('set_first_install_guide_status', {
+        status,
+        currentStepId: normalizedCurrentStepId,
+      })
     }
 
     const now = new Date().toISOString()
     const next = cloneSnapshot(loadBrowserSnapshot())
     next.preferences.firstInstallGuide = {
       status,
+      ...(normalizedCurrentStepId ? { currentStepId: normalizedCurrentStepId } : {}),
       updatedAt: now,
       completedAt: status === 'completed' ? now : undefined,
     }
     next.updatedAt = now
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async setExplorerFolderOrder(
+    request: ExplorerFolderOrderRequest,
+  ): Promise<BootstrapPayload> {
+    const orderKey = request.orderKey.trim()
+    const orderedNodeKeys = [...new Set(
+      request.orderedNodeKeys.map((nodeKey) => nodeKey.trim()).filter(Boolean),
+    )]
+
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('set_explorer_folder_order', {
+        request: { orderKey, orderedNodeKeys },
+      })
+    }
+
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    next.preferences.explorerFolderOrders = {
+      ...(next.preferences.explorerFolderOrders ?? {}),
+    }
+    if (orderedNodeKeys.length) {
+      next.preferences.explorerFolderOrders[orderKey] = orderedNodeKeys
+    } else {
+      delete next.preferences.explorerFolderOrders[orderKey]
+    }
+    next.updatedAt = new Date().toISOString()
     saveBrowserSnapshot(next)
     return buildBrowserPayload(next)
   },
@@ -336,6 +466,91 @@ export const clientWorkspace = {
       enabled: Boolean(request.enabled),
     }
     next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async getDatastoreSecurityCheckStatus(): Promise<DatastoreSecurityChecksStatus> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<DatastoreSecurityChecksStatus>(
+        'get_datastore_security_check_status',
+      )
+    }
+
+    const snapshot = loadBrowserSnapshot()
+    return browserSecurityCheckStatus(snapshot)
+  },
+
+  async updateDatastoreSecurityCheckSettings(
+    request: DatastoreSecurityChecksSettingsRequest,
+  ): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('update_datastore_security_check_settings', {
+        request,
+      })
+    }
+
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    next.preferences.datastoreSecurityChecks = {
+      enabled: Boolean(request.enabled),
+      refreshIntervalDays: Math.min(
+        30,
+        Math.max(1, Math.round(request.refreshIntervalDays ?? 7)),
+      ),
+      mutedFindingIds: Array.isArray(request.mutedFindingIds)
+        ? Array.from(
+            new Set(
+              request.mutedFindingIds
+                .filter((id) => typeof id === 'string' && id.trim())
+                .map((id) => id.trim()),
+            ),
+          ).sort()
+        : (next.preferences.datastoreSecurityChecks?.mutedFindingIds ?? []),
+      lastRefreshAttemptAt:
+        next.preferences.datastoreSecurityChecks?.lastRefreshAttemptAt,
+      lastSuccessfulRefreshAt:
+        next.preferences.datastoreSecurityChecks?.lastSuccessfulRefreshAt,
+      nextManualRefreshAllowedAt:
+        next.preferences.datastoreSecurityChecks?.nextManualRefreshAllowedAt,
+    }
+    next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async refreshDatastoreSecurityChecks(
+    request: DatastoreSecurityChecksRefreshRequest = { manual: true },
+  ): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('refresh_datastore_security_checks', { request })
+    }
+
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    const now = new Date()
+    const snapshot: DatastoreSecurityCheckSnapshot = {
+      status: 'unsupported',
+      checkedAt: now.toISOString(),
+      sourceMetadata: [],
+      targets: [],
+      findings: [],
+      warnings: [],
+      errors: ['Datastore Security Checks require the desktop app.'],
+    }
+    next.preferences.datastoreSecurityChecks = {
+      enabled: Boolean(next.preferences.datastoreSecurityChecks?.enabled),
+      refreshIntervalDays:
+        next.preferences.datastoreSecurityChecks?.refreshIntervalDays ?? 7,
+      mutedFindingIds:
+        next.preferences.datastoreSecurityChecks?.mutedFindingIds ?? [],
+      lastRefreshAttemptAt: now.toISOString(),
+      lastSuccessfulRefreshAt:
+        next.preferences.datastoreSecurityChecks?.lastSuccessfulRefreshAt,
+      nextManualRefreshAllowedAt: request.manual
+        ? new Date(now.getTime() + 60_000).toISOString()
+        : next.preferences.datastoreSecurityChecks?.nextManualRefreshAllowedAt,
+    }
+    next.datastoreSecurityChecks = snapshot
+    next.updatedAt = now.toISOString()
     saveBrowserSnapshot(next)
     return buildBrowserPayload(next)
   },

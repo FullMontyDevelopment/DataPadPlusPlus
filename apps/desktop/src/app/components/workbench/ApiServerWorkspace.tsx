@@ -462,11 +462,14 @@ export function ApiServerWorkspace({
           limit: 500,
         }),
       )
-      const existingIds = new Set(
-        (server.resources ?? []).map((resource) => resource.id),
+      const existingIds = new Set((server.resources ?? []).map((resource) => resource.id))
+      const existingIdentities = new Set(
+        (server.resources ?? []).map(apiResourceIdentity),
       )
       const candidates = (discovered?.resources ?? []).filter(
-        (resource) => !existingIds.has(resource.id),
+        (resource) =>
+          !existingIds.has(resource.id) &&
+          !existingIdentities.has(apiResourceIdentity(resource)),
       )
       setResourcePicker(candidates)
       setSelectedResourceIds(new Set(candidates.map((resource) => resource.id)))
@@ -1067,7 +1070,31 @@ export function ApiServerWorkspace({
                     <strong>Select Resources</strong>
                     <span>Choose the objects this server should expose.</span>
                   </div>
-                  <span>{resourcePicker.length} available</span>
+                  <div className="api-server-picker-actions">
+                    <span>{resourcePicker.length} available</span>
+                    {resourcePicker.length ? (
+                      <>
+                        <button
+                          type="button"
+                          className="drawer-button drawer-button--compact"
+                          onClick={() =>
+                            setSelectedResourceIds(
+                              new Set(resourcePicker.map((resource) => resource.id)),
+                            )
+                          }
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          className="drawer-button drawer-button--compact"
+                          onClick={() => setSelectedResourceIds(new Set())}
+                        >
+                          Deselect all
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
                 {resourcePicker.length ? (
                   <div className="api-server-resource-grid">
@@ -2078,6 +2105,19 @@ async function withResourceDiscoveryTimeout<T>(
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+function apiResourceIdentity(resource: DatastoreApiServerResourceConfig) {
+  return [
+    resource.kind,
+    resource.nodeId,
+    resource.scope,
+    ...(resource.path ?? []),
+    resource.label,
+  ]
+    .map((part) => part?.trim().toLowerCase())
+    .filter(Boolean)
+    .join('\u001f')
 }
 
 function mergeStatusIntoServer(

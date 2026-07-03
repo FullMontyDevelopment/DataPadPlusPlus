@@ -198,7 +198,11 @@ function MongoFindBuilder({
   })
 
   const updateDraft = useCallback((patch: Partial<MongoFindBuilderState>) => {
-    const nextDraft = { ...draft, ...patch }
+    const nextDraft = {
+      ...draft,
+      ...(scope?.database ? { database: scope.database } : {}),
+      ...patch,
+    }
     const next = {
       ...nextDraft,
       lastAppliedQueryText: buildMongoFindQueryText(nextDraft, { database: scope?.database }),

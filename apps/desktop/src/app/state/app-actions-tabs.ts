@@ -18,6 +18,7 @@ type QueryTabActions = Pick<
   | 'createApiServerTab'
   | 'createMcpServerTab'
   | 'createWorkspaceSearchTab'
+  | 'createSecurityChecksTab'
   | 'refreshMetricsTab'
   | 'createObjectViewTab'
   | 'refreshObjectViewTab'
@@ -228,6 +229,17 @@ export function useQueryTabActions({
     async () => {
       try {
         applyPayload(await desktopClient.createWorkspaceSearchTab())
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
+  const createSecurityChecksTab = useCallback<Actions['createSecurityChecksTab']>(
+    async () => {
+      try {
+        applyPayload(await desktopClient.createSecurityChecksTab())
       } catch (error) {
         handleError(error)
       }
@@ -580,6 +592,7 @@ export function useQueryTabActions({
       createApiServerTab,
       createMcpServerTab,
       createWorkspaceSearchTab,
+      createSecurityChecksTab,
       createObjectViewTab,
       refreshMetricsTab,
       refreshObjectViewTab,
@@ -611,6 +624,7 @@ export function useQueryTabActions({
       createEnvironmentTab,
       createMcpServerTab,
       createWorkspaceSearchTab,
+      createSecurityChecksTab,
       createLibraryFolder,
       createExplorerTab,
       createMetricsTab,

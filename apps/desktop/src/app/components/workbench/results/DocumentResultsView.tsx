@@ -18,6 +18,7 @@ import {
   DocumentResultsToolbar,
 } from './DocumentResultsChrome'
 import {
+  buildDocumentDeleteRequest,
   buildDocumentEditRequest,
   pathSegments,
   valueTypeName,
@@ -91,6 +92,11 @@ interface PendingFieldDeleteState {
   row: DocumentGridRow
 }
 
+interface PendingDocumentDeleteState {
+  source: Array<Record<string, unknown>>
+  row: DocumentGridRow
+}
+
 export function DocumentResultsView({
   connection,
   editContext,
@@ -119,6 +125,7 @@ export function DocumentResultsView({
   const [searchText, setSearchText] = useState('')
   const [inspectorRowId, setInspectorRowId] = useState<string>()
   const [pendingFieldDelete, setPendingFieldDelete] = useState<PendingFieldDeleteState>()
+  const [pendingDocumentDelete, setPendingDocumentDelete] = useState<PendingDocumentDeleteState>()
   const [hydratingRows, setHydratingRows] = useState<SourceScopedRowIds>(() => ({
     source: documents,
     ids: new Set(),
@@ -137,6 +144,9 @@ export function DocumentResultsView({
     : EMPTY_ROW_ID_SET
   const pendingFieldDeleteRow = pendingFieldDelete?.source === documents
     ? pendingFieldDelete.row
+    : undefined
+  const pendingDocumentDeleteRow = pendingDocumentDelete?.source === documents
+    ? pendingDocumentDelete.row
     : undefined
   const copyTimer = useRef<number | undefined>(undefined)
   const searchPending = searchInput.trim() !== searchText.trim()
@@ -182,6 +192,15 @@ export function DocumentResultsView({
   const inspectorPermissions = inspectorRow
     ? editablePermissions(inspectorRow, behavior)
     : undefined
+  const activeDocumentDeleteRequest =
+    activeContextMenu && connection && editContext
+      ? buildDocumentDeleteRequest(
+          connection,
+          editContext,
+          draftDocuments,
+          activeContextMenu.row,
+        )
+      : undefined
   const documentCountLabel = documentCountText(
     resultSummary,
     draftDocuments.length,
@@ -504,6 +523,48 @@ export function DocumentResultsView({
     )
   }
 
+  const deleteDocument = (row: DocumentGridRow) => {
+    void (async () => {
+      if (!onExecuteDataEdit || !editContext || !connection) {
+        setCopyMessage('Delete unavailable; data edit execution is unavailable.')
+        return
+      }
+
+      const request = buildDocumentDeleteRequest(connection, editContext, draftDocuments, row)
+
+      if (!request) {
+        setCopyMessage('Delete unavailable; DataPad++ needs a collection and stable _id.')
+        return
+      }
+
+      try {
+        const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+          actionLabel: 'Delete this document.',
+          confirm: confirmDataEdit,
+          confirmationTitle: 'Delete this document?',
+        })
+        const failureMessage = dataEditStatusMessage(
+          response,
+          'Datastore did not confirm the delete.',
+        )
+
+        if (!response?.executed) {
+          setCopyMessage(failureMessage)
+          return
+        }
+
+        stopEditing()
+        setInspectorRowId(undefined)
+        updateDraftDocuments((current) =>
+          current.filter((_document, index) => index !== row.documentIndex),
+        )
+        setCopyMessage(response.messages.at(-1) ?? 'Deleted document.')
+      } catch {
+        setCopyMessage('Document delete failed.')
+      }
+    })()
+  }
+
   const changeRowType = (row: DocumentGridRow, nextType: DocumentValueType) => {
     updateRowValue(row, coerceValue(row.value, nextType), 'change-field-type')
   }
@@ -584,6 +645,15 @@ export function DocumentResultsView({
             setPendingFieldDelete({ source: documents, row: activeContextMenu.row })
             setContextMenu(undefined)
           }}
+          onDeleteDocument={() => {
+            setPendingDocumentDelete({ source: documents, row: activeContextMenu.row })
+            setContextMenu(undefined)
+          }}
+          documentDeleteUnavailableReason={
+            activeContextMenu.row.path.length === 0 && !activeDocumentDeleteRequest
+              ? 'DataPad++ needs a collection and stable _id before it can delete this document.'
+              : undefined
+          }
           onEditValue={() => {
             beginEditing(activeContextMenu.row, 'value')
           }}
@@ -602,6 +672,18 @@ export function DocumentResultsView({
             const row = pendingFieldDeleteRow
             setPendingFieldDelete(undefined)
             deleteRowField(row)
+          }}
+        />
+      ) : null}
+      {pendingDocumentDeleteRow ? (
+        <DeleteConfirmationPanel
+          title={`Delete document ${pendingDocumentDeleteRow.label}?`}
+          body="DataPad++ will run this guarded document delete with confirmation."
+          onCancel={() => setPendingDocumentDelete(undefined)}
+          onConfirm={() => {
+            const row = pendingDocumentDeleteRow
+            setPendingDocumentDelete(undefined)
+            deleteDocument(row)
           }}
         />
       ) : null}

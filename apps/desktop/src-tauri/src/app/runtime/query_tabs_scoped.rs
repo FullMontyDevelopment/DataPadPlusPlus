@@ -25,6 +25,7 @@ pub(super) fn build_scoped_query_tab(
 ) -> QueryTabState {
     let builder_kind = scoped_builder_kind(connection, &request.target);
     let target_object_name = scoped_target_object_name(&request.target, connection);
+    let target_database = scoped_target_database(&request.target, connection);
     let target_label =
         scoped_target_object_label(&request.target, connection, target_object_name.as_deref());
     let limit = 20;
@@ -32,13 +33,13 @@ pub(super) fn build_scoped_query_tab(
         mongo_find_query_text(
             target_object_name.as_deref().unwrap_or_default(),
             limit,
-            connection.database.as_deref().map(str::trim),
+            target_database.as_deref().map(str::trim),
         )
     } else if builder_kind.as_deref() == Some("mongo-aggregation") {
         mongo_aggregation_query_text(
             target_object_name.as_deref().unwrap_or_default(),
             limit,
-            connection.database.as_deref().map(str::trim),
+            target_database.as_deref().map(str::trim),
         )
     } else if builder_kind.as_deref() == Some("redis-key-browser") {
         redis_key_browser_query_text(
@@ -56,11 +57,13 @@ pub(super) fn build_scoped_query_tab(
     let builder_state = match builder_kind.as_deref() {
         Some("mongo-find") => Some(mongo_find_builder_state(
             target_object_name.as_deref().unwrap_or_default(),
+            target_database.as_deref(),
             &query_text,
             limit,
         )),
         Some("mongo-aggregation") => Some(mongo_aggregation_builder_state(
             target_object_name.as_deref().unwrap_or_default(),
+            target_database.as_deref(),
             &query_text,
             limit,
         )),
@@ -245,6 +248,39 @@ fn scoped_target_object_name(
         .and_then(|value| non_empty_object_name(value))
 }
 
+fn scoped_target_database(
+    target: &ScopedQueryTarget,
+    connection: &ConnectionProfile,
+) -> Option<String> {
+    if connection.engine != "mongodb" {
+        return connection.database.clone();
+    }
+
+    if let Some(scope) = target.scope.as_deref() {
+        let parts: Vec<&str> = scope.split(':').filter(|part| !part.is_empty()).collect();
+        let scope_kind = parts.first().copied().unwrap_or_default();
+        if parts.len() >= 3
+            && matches!(
+                scope_kind,
+                "collection" | "documents" | "aggregation" | "view" | "gridfs"
+            )
+        {
+            return non_empty_object_name(parts[1]).or_else(|| connection.database.clone());
+        }
+    }
+
+    let object_container_index = ["Collections", "Views", "GridFS"]
+        .iter()
+        .filter_map(|container| target.path.iter().position(|part| part == container))
+        .min();
+
+    object_container_index
+        .filter(|index| *index > 0)
+        .and_then(|index| target.path.get(index - 1))
+        .and_then(|value| non_empty_object_name(value))
+        .or_else(|| connection.database.clone())
+}
+
 fn non_empty_object_name(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -272,8 +308,13 @@ fn mongo_find_query_text(collection: &str, limit: u32, database: Option<&str>) -
     })
 }
 
-fn mongo_find_builder_state(collection: &str, query_text: &str, limit: u32) -> serde_json::Value {
-    json!({
+fn mongo_find_builder_state(
+    collection: &str,
+    database: Option<&str>,
+    query_text: &str,
+    limit: u32,
+) -> serde_json::Value {
+    let mut state = json!({
         "kind": "mongo-find",
         "collection": collection,
         "filters": [],
@@ -283,7 +324,11 @@ fn mongo_find_builder_state(collection: &str, query_text: &str, limit: u32) -> s
         "skip": 0,
         "limit": limit,
         "lastAppliedQueryText": query_text,
-    })
+    });
+    if let Some(database) = database.filter(|value| !value.trim().is_empty()) {
+        state["database"] = json!(database.trim());
+    }
+    state
 }
 
 fn mongo_aggregation_query_text(collection: &str, limit: u32, database: Option<&str>) -> String {
@@ -309,10 +354,11 @@ fn mongo_aggregation_query_text(collection: &str, limit: u32, database: Option<&
 
 fn mongo_aggregation_builder_state(
     collection: &str,
+    database: Option<&str>,
     query_text: &str,
     limit: u32,
 ) -> serde_json::Value {
-    json!({
+    let mut state = json!({
         "kind": "mongo-aggregation",
         "collection": collection,
         "stages": [
@@ -320,5 +366,9 @@ fn mongo_aggregation_builder_state(
         ],
         "limit": limit,
         "lastAppliedQueryText": query_text,
-    })
+    });
+    if let Some(database) = database.filter(|value| !value.trim().is_empty()) {
+        state["database"] = json!(database.trim());
+    }
+    state
 }

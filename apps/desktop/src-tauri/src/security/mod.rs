@@ -449,7 +449,7 @@ pub fn evaluate_guardrails(
 ) -> GuardrailDecision {
     let query_risk = classify_query_risk(connection, query_text);
     let looks_write = query_risk.looks_write;
-    let risky_query = looks_write || matches!(environment.risk.as_str(), "high" | "critical");
+    let safe_mode_applied = looks_write && (safe_mode_enabled || environment.safe_mode);
 
     if !resolved_environment.unresolved_keys.is_empty() {
         return GuardrailDecision {
@@ -458,7 +458,7 @@ pub fn evaluate_guardrails(
             reasons: vec![
                 "Unresolved environment variables must be fixed before execution.".into(),
             ],
-            safe_mode_applied: safe_mode_enabled || environment.safe_mode,
+            safe_mode_applied,
             required_confirmation_text: None,
         };
     }
@@ -468,13 +468,13 @@ pub fn evaluate_guardrails(
             id: None,
             status: "block".into(),
             reasons: vec!["This connection is marked read-only.".into()],
-            safe_mode_applied: safe_mode_enabled || environment.safe_mode,
+            safe_mode_applied,
             required_confirmation_text: None,
         };
     }
 
     let mut confirmation_reasons =
-        environment_risky_confirmation_reasons(environment, safe_mode_enabled, risky_query);
+        environment_risky_confirmation_reasons(environment, safe_mode_enabled, looks_write);
     if let Some(reason) = query_risk.always_confirm_reason {
         confirmation_reasons.push(reason.into());
     }
@@ -483,7 +483,7 @@ pub fn evaluate_guardrails(
             id: None,
             status: "confirm".into(),
             reasons: confirmation_reasons,
-            safe_mode_applied: safe_mode_enabled || environment.safe_mode,
+            safe_mode_applied,
             required_confirmation_text: Some(environment_confirmation_text(environment)),
         };
     }
@@ -492,7 +492,7 @@ pub fn evaluate_guardrails(
         id: None,
         status: "allow".into(),
         reasons: vec!["Guardrails cleared for the current query.".into()],
-        safe_mode_applied: safe_mode_enabled || environment.safe_mode,
+        safe_mode_applied,
         required_confirmation_text: None,
     }
 }

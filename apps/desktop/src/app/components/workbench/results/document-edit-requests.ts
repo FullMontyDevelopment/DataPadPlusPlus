@@ -31,6 +31,9 @@ export function buildDocumentEditRequest(
     connectionId: editContext.connectionId,
     environmentId: editContext.environmentId,
     editKind,
+    ...(editKind === 'delete-document'
+      ? { confirmationText: documentConfirmationText(connection, editKind) }
+      : {}),
     target: {
       objectKind: 'document',
       path: pathSegments(row.path),
@@ -40,6 +43,26 @@ export function buildDocumentEditRequest(
     },
     changes,
   }
+}
+
+export function buildDocumentDeleteRequest(
+  connection: ConnectionProfile,
+  editContext: DocumentEditContext,
+  documents: Array<Record<string, unknown>>,
+  row: DocumentGridRow,
+) {
+  if (row.path.length > 0) {
+    return undefined
+  }
+
+  return buildDocumentEditRequest(
+    connection,
+    editContext,
+    documents,
+    row,
+    'delete-document',
+    [],
+  )
 }
 
 export function pathSegments(path: Array<string | number>) {
@@ -78,4 +101,11 @@ function databaseFromQueryText(queryText: string) {
   } catch {
     return undefined
   }
+}
+
+function documentConfirmationText(
+  connection: ConnectionProfile,
+  editKind: Extract<DataEditKind, 'delete-document'>,
+) {
+  return `CONFIRM ${connection.engine.toUpperCase()} ${editKind.toUpperCase()}`
 }

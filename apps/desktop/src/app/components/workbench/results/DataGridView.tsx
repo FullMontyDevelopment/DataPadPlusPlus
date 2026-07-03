@@ -106,7 +106,6 @@ export function DataGridView({
   )
   const {
     beginEdit,
-    canDeleteRow,
     canEditCell,
     canInsertRow,
     cancelEdit,
@@ -127,6 +126,22 @@ export function DataGridView({
     onExecuteDataEdit,
   })
   const activeEditingCell = editingCell?.version === rowsVersion ? editingCell : undefined
+  const activeDeleteRequest = activeContextMenu
+    ? buildDataGridRowDeleteRequest({
+        columns,
+        connection,
+        editContext,
+        row: draftRows[activeContextMenu.sourceIndex] ?? [],
+      })
+    : undefined
+  const showDeleteContextMenu = Boolean(
+    activeContextMenu &&
+      onExecuteDataEdit &&
+      connection &&
+      editContext &&
+      !connection.readOnly &&
+      isDataGridDeleteSurface(connection),
+  )
 
   const visibleRows = useMemo(
     () => buildVisibleGridRows(draftRows, filter, sort),
@@ -432,9 +447,11 @@ export function DataGridView({
           />
         </div>
       </div>
-      {activeContextMenu && canDeleteRow(activeContextMenu.sourceIndex) ? (
+      {activeContextMenu && showDeleteContextMenu ? (
         <DataGridContextMenu
-          canDelete={canDeleteRow(activeContextMenu.sourceIndex)}
+          canDelete={Boolean(activeDeleteRequest)}
+          deleteLabel={dataGridDeleteLabel(activeDeleteRequest?.editKind, connection)}
+          disabledReason={activeDeleteRequest ? undefined : dataGridDeleteUnavailableReason(connection)}
           x={activeContextMenu.x}
           y={activeContextMenu.y}
           onClose={() => setContextMenu(undefined)}
@@ -446,3 +463,31 @@ export function DataGridView({
 }
 
 const EMPTY_DATA_GRID_ROW_PATCHES: DataGridRowPatches = {}
+
+function isDataGridDeleteSurface(connection: ConnectionProfile) {
+  return (
+    connection.family === 'sql' ||
+    connection.family === 'embedded-olap' ||
+    connection.engine === 'timescaledb' ||
+    connection.engine === 'dynamodb'
+  )
+}
+
+function dataGridDeleteLabel(
+  editKind: DataEditExecutionRequest['editKind'] | undefined,
+  connection?: ConnectionProfile,
+) {
+  if (editKind === 'delete-item' || connection?.engine === 'dynamodb') {
+    return 'Delete Item'
+  }
+
+  return 'Delete Row'
+}
+
+function dataGridDeleteUnavailableReason(connection?: ConnectionProfile) {
+  if (connection?.engine === 'dynamodb') {
+    return 'DataPad++ needs a complete item key before it can delete this item.'
+  }
+
+  return 'DataPad++ needs a complete primary key before it can delete this row.'
+}

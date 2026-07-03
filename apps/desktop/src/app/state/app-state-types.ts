@@ -55,6 +55,9 @@ import type {
   DatastoreMcpServerTokenCreateResponse,
   DatastoreMcpServerTokenDeleteRequest,
   DatastoreMcpServerUpdateRequest,
+  DatastoreSecurityChecksRefreshRequest,
+  DatastoreSecurityChecksSettingsRequest,
+  DatastoreSecurityChecksStatus,
   DiagnosticsReport,
   DocumentNodeChildrenRequest,
   DocumentNodeChildrenResponse,
@@ -66,10 +69,12 @@ import type {
   ExecuteTestSuiteRequest,
   ExecuteTestSuiteResponse,
   ExportBundle,
+  ExplorerFolderOrderRequest,
   ExplorerInspectResponse,
   ExplorerRequest,
   ExplorerResponse,
   FirstInstallGuidePersistedStatus,
+  FirstInstallGuideStepId,
   LibraryCreateFolderRequest,
   LibraryDeleteNodeRequest,
   LibraryMoveNodeRequest,
@@ -107,8 +112,13 @@ import type {
   WorkspaceBundleFileExportRequest,
   WorkspaceBundleFileExportResponse,
   WorkspaceBundleFileImportRequest,
+  WorkspaceCreateRequest,
+  WorkspaceRenameRequest,
   WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
+  WorkspaceSwitcherSettingsRequest,
+  WorkspaceSwitcherStatus,
+  WorkspaceSwitchRequest,
 } from '@datapadplusplus/shared-types'
 import type {
   ConnectionHealth,
@@ -172,6 +182,7 @@ export interface StateShape {
     contentLength?: number
   }
   appUpdateError?: string
+  workspaceSwitcherStatus?: WorkspaceSwitcherStatus
 }
 
 export type AppAction =
@@ -247,6 +258,7 @@ export type AppAction =
   | { type: 'APP_UPDATE_DOWNLOAD_EVENT'; event: AppUpdateDownloadEvent }
   | { type: 'APP_UPDATE_INSTALLED' }
   | { type: 'APP_UPDATE_INSTALL_ERROR'; message: string }
+  | { type: 'WORKSPACE_SWITCHER_STATUS_READY'; status: WorkspaceSwitcherStatus }
 
 export interface Actions {
   selectConnection(connectionId: string): Promise<void>
@@ -267,6 +279,7 @@ export interface Actions {
   createApiServerTab(serverId?: string): Promise<void>
   createMcpServerTab(serverId?: string): Promise<void>
   createWorkspaceSearchTab(): Promise<void>
+  createSecurityChecksTab(): Promise<void>
   refreshMetricsTab(tabId: string): Promise<void>
   createObjectViewTab(request: CreateObjectViewTabRequest): Promise<void>
   refreshObjectViewTab(tabId: string): Promise<void>
@@ -351,7 +364,11 @@ export interface Actions {
   setTheme(theme: WorkspaceSnapshot['preferences']['theme']): Promise<void>
   setSafeModeEnabled(enabled: boolean): Promise<void>
   setKeyboardShortcut(shortcutId: AppShortcutId, shortcut: string): Promise<void>
-  setFirstInstallGuideStatus(status: FirstInstallGuidePersistedStatus): Promise<void>
+  setFirstInstallGuideStatus(
+    status: FirstInstallGuidePersistedStatus,
+    currentStepId?: FirstInstallGuideStepId,
+  ): Promise<void>
+  setExplorerFolderOrder(request: ExplorerFolderOrderRequest): Promise<void>
   updateUiState(patch: UpdateUiStateRequest): Promise<void>
   refreshDiagnostics(): Promise<void>
   listAppLogFiles(): Promise<AppLogFileSummary[] | undefined>
@@ -367,8 +384,20 @@ export interface Actions {
     request: WorkspaceBundleFileExportRequest,
   ): Promise<WorkspaceBundleFileExportResponse | undefined>
   importWorkspaceFile(request: WorkspaceBundleFileImportRequest): Promise<void>
+  getWorkspaceSwitcherStatus(): Promise<WorkspaceSwitcherStatus | undefined>
+  setWorkspaceSwitcherEnabled(request: WorkspaceSwitcherSettingsRequest): Promise<boolean>
+  createWorkspace(request: WorkspaceCreateRequest): Promise<boolean>
+  renameWorkspace(request: WorkspaceRenameRequest): Promise<boolean>
+  switchWorkspace(request: WorkspaceSwitchRequest): Promise<boolean>
   updateWorkspaceBackupSettings(request: WorkspaceBackupSettingsRequest): Promise<boolean>
   updateWorkspaceSearchSettings(request: WorkspaceSearchSettingsRequest): Promise<boolean>
+  getDatastoreSecurityCheckStatus(): Promise<DatastoreSecurityChecksStatus | undefined>
+  updateDatastoreSecurityCheckSettings(
+    request: DatastoreSecurityChecksSettingsRequest,
+  ): Promise<boolean>
+  refreshDatastoreSecurityChecks(
+    request?: DatastoreSecurityChecksRefreshRequest,
+  ): Promise<boolean>
   getDatastoreApiServerStatus(): Promise<DatastoreApiServerStatus | undefined>
   getDatastoreApiServerMetrics(): Promise<DatastoreApiServerMetrics | undefined>
   getDatastoreApiServerLogs(request?: DatastoreApiServerLogsRequest): Promise<DatastoreApiServerLogs | undefined>

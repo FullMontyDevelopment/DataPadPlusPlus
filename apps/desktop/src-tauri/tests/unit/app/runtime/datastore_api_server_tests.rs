@@ -139,6 +139,41 @@ fn query_source_discovery_includes_all_saved_queries_for_server_connection() {
     );
 }
 
+#[test]
+fn resource_configs_keep_duplicate_labels_from_distinct_scopes() {
+    let sales_users = resource_config_for_node(
+        "collection".into(),
+        "users".into(),
+        "collection:sales:users".into(),
+        "collection".into(),
+        Some(vec!["sales".into(), "Collections".into()]),
+        Some("collection:sales:users".into()),
+    )
+    .unwrap();
+    let support_users = resource_config_for_node(
+        "collection".into(),
+        "users".into(),
+        "collection:support:users".into(),
+        "collection".into(),
+        Some(vec!["support".into(), "Collections".into()]),
+        Some("collection:support:users".into()),
+    )
+    .unwrap();
+
+    assert_ne!(sales_users.id, support_users.id);
+    assert_ne!(
+        api_server_resource_identity(&sales_users),
+        api_server_resource_identity(&support_users)
+    );
+
+    let resources = normalize_resource_configs(vec![sales_users, support_users]);
+    assert_eq!(resources.len(), 2);
+    assert_eq!(resources[0].endpoint_slug, "users");
+    assert_eq!(resources[1].endpoint_slug, "users-2");
+    assert_eq!(resources[0].path, vec!["sales", "Collections"]);
+    assert_eq!(resources[1].path, vec!["support", "Collections"]);
+}
+
 fn saved_query_node(
     id: &str,
     name: &str,
@@ -162,6 +197,7 @@ fn saved_query_node(
         query_text: Some("select * from users where email = {{api.email}}".into()),
         query_view_mode: Some("raw".into()),
         document_efficiency_mode: None,
+        scoped_target: None,
         builder_state: None,
         script_text: None,
         test_suite: None,

@@ -75,7 +75,7 @@ export function applyExecutionRequestLocally(
       reasons: [
         `Secret variable ${referencedSecrets[0]} cannot be resolved in browser preview.`,
       ],
-      safeModeApplied: next.preferences.safeModeEnabled || environment.safeMode,
+      safeModeApplied: false,
       status: 'block',
     }
     next.guardrails = [guardrail]
@@ -144,8 +144,6 @@ export function applyExecutionRequestLocally(
       }
       tab.result = undefined
       next.guardrails = [guardrail]
-      next.ui.bottomPanelVisible = true
-      next.ui.activeBottomPanelTab = 'messages'
       next.updatedAt = new Date().toISOString()
 
       return {
@@ -155,7 +153,7 @@ export function applyExecutionRequestLocally(
           tab,
           result: undefined,
           guardrail,
-          diagnostics: ['Execution requires explicit confirmation before running.'],
+          diagnostics: [],
         },
       }
     }
@@ -246,10 +244,6 @@ export function applyExecutionRequestLocally(
         ...result.payloads.filter((payload) => payload.renderer !== 'profile'),
       ],
     }
-  }
-
-  if (guardrail.status === 'confirm') {
-    diagnostics.push(guardrail.reasons[0] ?? 'Confirmation required for this query.')
   }
 
   result = redactExecutionResultForEnvironment(result, resolvedEnvironment)

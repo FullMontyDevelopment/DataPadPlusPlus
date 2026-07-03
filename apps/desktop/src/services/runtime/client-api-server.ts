@@ -302,7 +302,11 @@ export const clientApiServer = {
             resources: normalizeBrowserResources([
               ...(server.resources ?? []),
               ...request.resources.filter(
-                (resource) => !(server.resources ?? []).some((existing) => existing.id === resource.id),
+                (resource) => !(server.resources ?? []).some(
+                  (existing) =>
+                    existing.id === resource.id ||
+                    browserResourceIdentity(existing) === browserResourceIdentity(resource),
+                ),
               ),
             ]),
           }, index)
@@ -856,7 +860,7 @@ function browserResourceFromExplorerNode(
   if (!kind) return undefined
   const slug = browserSlug(node.label)
   return {
-    id: `api-resource-${slug}`,
+    id: `api-resource-${browserSlug([kind, node.id, node.scope, ...(node.path ?? [])].filter(Boolean).join(' '))}`,
     kind,
     label: node.label,
     nodeId: node.id,
@@ -875,6 +879,19 @@ function browserCrudKindForNode(kind: string): DatastoreApiServerResourceConfig[
   if (kind === 'item') return 'item'
   if (kind === 'index') return 'index'
   return undefined
+}
+
+function browserResourceIdentity(resource: DatastoreApiServerResourceConfig) {
+  return [
+    resource.kind,
+    resource.nodeId,
+    resource.scope,
+    ...(resource.path ?? []),
+    resource.label,
+  ]
+    .map((part) => part?.trim().toLowerCase())
+    .filter(Boolean)
+    .join('\u001f')
 }
 
 function defaultBrowserServerName(port: number) {

@@ -12,6 +12,7 @@ type WorkspaceActions = Pick<
   | 'setSafeModeEnabled'
   | 'setKeyboardShortcut'
   | 'setFirstInstallGuideStatus'
+  | 'setExplorerFolderOrder'
   | 'updateUiState'
   | 'refreshDiagnostics'
   | 'listAppLogFiles'
@@ -23,8 +24,16 @@ type WorkspaceActions = Pick<
   | 'importWorkspace'
   | 'exportWorkspaceFile'
   | 'importWorkspaceFile'
+  | 'getWorkspaceSwitcherStatus'
+  | 'setWorkspaceSwitcherEnabled'
+  | 'createWorkspace'
+  | 'renameWorkspace'
+  | 'switchWorkspace'
   | 'updateWorkspaceBackupSettings'
   | 'updateWorkspaceSearchSettings'
+  | 'getDatastoreSecurityCheckStatus'
+  | 'updateDatastoreSecurityCheckSettings'
+  | 'refreshDatastoreSecurityChecks'
   | 'getDatastoreApiServerStatus'
   | 'getDatastoreApiServerMetrics'
   | 'getDatastoreApiServerLogs'
@@ -122,9 +131,20 @@ export function useWorkspaceActions({
   )
 
   const setFirstInstallGuideStatus = useCallback<Actions['setFirstInstallGuideStatus']>(
-    async (status) => {
+    async (status, currentStepId) => {
       try {
-        applyPayload(await desktopClient.setFirstInstallGuideStatus(status))
+        applyPayload(await desktopClient.setFirstInstallGuideStatus(status, currentStepId))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
+  const setExplorerFolderOrder = useCallback<Actions['setExplorerFolderOrder']>(
+    async (request) => {
+      try {
+        applyPayload(await desktopClient.setExplorerFolderOrder(request))
       } catch (error) {
         handleError(error)
       }
@@ -275,6 +295,83 @@ export function useWorkspaceActions({
     [applyPayload, handleError, state.payload],
   )
 
+  const getWorkspaceSwitcherStatus = useCallback<Actions['getWorkspaceSwitcherStatus']>(
+    async () => {
+      try {
+        const status = await desktopClient.getWorkspaceSwitcherStatus()
+        dispatch({ type: 'WORKSPACE_SWITCHER_STATUS_READY', status })
+        return status
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [dispatch, handleError],
+  )
+
+  const refreshWorkspaceSwitcherStatus = useCallback(async () => {
+    const status = await desktopClient.getWorkspaceSwitcherStatus()
+    dispatch({ type: 'WORKSPACE_SWITCHER_STATUS_READY', status })
+  }, [dispatch])
+
+  const setWorkspaceSwitcherEnabled = useCallback<Actions['setWorkspaceSwitcherEnabled']>(
+    async (request) => {
+      try {
+        const status = await desktopClient.setWorkspaceSwitcherEnabled(request)
+        dispatch({ type: 'WORKSPACE_SWITCHER_STATUS_READY', status })
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [dispatch, handleError],
+  )
+
+  const createWorkspace = useCallback<Actions['createWorkspace']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.createWorkspace(request))
+        await refreshWorkspaceSwitcherStatus()
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, refreshWorkspaceSwitcherStatus, state.payload],
+  )
+
+  const renameWorkspace = useCallback<Actions['renameWorkspace']>(
+    async (request) => {
+      try {
+        const status = await desktopClient.renameWorkspace(request)
+        dispatch({ type: 'WORKSPACE_SWITCHER_STATUS_READY', status })
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [dispatch, handleError],
+  )
+
+  const switchWorkspace = useCallback<Actions['switchWorkspace']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.switchWorkspace(request))
+        await refreshWorkspaceSwitcherStatus()
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, refreshWorkspaceSwitcherStatus, state.payload],
+  )
+
   const updateWorkspaceBackupSettings = useCallback<Actions['updateWorkspaceBackupSettings']>(
     async (request) => {
       try {
@@ -294,6 +391,52 @@ export function useWorkspaceActions({
       try {
         ensureWorkspaceUnlocked(state.payload)
         applyPayload(await desktopClient.updateWorkspaceSearchSettings(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const getDatastoreSecurityCheckStatus = useCallback<
+    Actions['getDatastoreSecurityCheckStatus']
+  >(
+    async () => {
+      try {
+        return await desktopClient.getDatastoreSecurityCheckStatus()
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError],
+  )
+
+  const updateDatastoreSecurityCheckSettings = useCallback<
+    Actions['updateDatastoreSecurityCheckSettings']
+  >(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.updateDatastoreSecurityCheckSettings(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const refreshDatastoreSecurityChecks = useCallback<
+    Actions['refreshDatastoreSecurityChecks']
+  >(
+    async (request = { manual: true }) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.refreshDatastoreSecurityChecks(request))
         return true
       } catch (error) {
         handleError(error)
@@ -754,6 +897,7 @@ export function useWorkspaceActions({
       setSafeModeEnabled,
       setKeyboardShortcut,
       setFirstInstallGuideStatus,
+      setExplorerFolderOrder,
       updateUiState,
       refreshDiagnostics,
       listAppLogFiles,
@@ -765,8 +909,16 @@ export function useWorkspaceActions({
       importWorkspace,
       exportWorkspaceFile,
       importWorkspaceFile,
+      getWorkspaceSwitcherStatus,
+      setWorkspaceSwitcherEnabled,
+      createWorkspace,
+      renameWorkspace,
+      switchWorkspace,
       updateWorkspaceBackupSettings,
       updateWorkspaceSearchSettings,
+      getDatastoreSecurityCheckStatus,
+      updateDatastoreSecurityCheckSettings,
+      refreshDatastoreSecurityChecks,
       getDatastoreApiServerStatus,
       getDatastoreApiServerMetrics,
       getDatastoreApiServerLogs,
@@ -805,13 +957,18 @@ export function useWorkspaceActions({
     [
       clearWorkbenchMessages,
       dismissWorkbenchMessage,
+      createWorkspace,
       exportWorkspace,
       exportResultFile,
       exportWorkspaceFile,
+      getWorkspaceSwitcherStatus,
       importWorkspace,
       importWorkspaceFile,
       updateWorkspaceBackupSettings,
       updateWorkspaceSearchSettings,
+      getDatastoreSecurityCheckStatus,
+      updateDatastoreSecurityCheckSettings,
+      refreshDatastoreSecurityChecks,
       getDatastoreApiServerStatus,
       getDatastoreApiServerMetrics,
       getDatastoreApiServerLogs,
@@ -845,6 +1002,7 @@ export function useWorkspaceActions({
       listWorkspaceBackups,
       createWorkspaceBackupNow,
       restoreWorkspaceBackup,
+      renameWorkspace,
       deleteWorkspaceBackup,
       openWorkbenchMessages,
       refreshDiagnostics,
@@ -855,7 +1013,10 @@ export function useWorkspaceActions({
       setSafeModeEnabled,
       setKeyboardShortcut,
       setFirstInstallGuideStatus,
+      setExplorerFolderOrder,
+      setWorkspaceSwitcherEnabled,
       setTheme,
+      switchWorkspace,
       updateUiState,
     ],
   )

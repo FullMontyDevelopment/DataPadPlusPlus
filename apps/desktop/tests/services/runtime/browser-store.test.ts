@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { createBlankSnapshot } from '../../../src/app/data/workspace-factory'
 import {
+  createBrowserWorkspace,
   findConnection,
   findEnvironment,
   findTab,
+  getBrowserWorkspaceSwitcherStatus,
   loadBrowserSnapshot,
   normalizeUiStatePatch,
+  renameBrowserWorkspace,
   saveBrowserSnapshot,
+  setBrowserWorkspaceSwitcherEnabled,
+  switchBrowserWorkspace,
   updateUiStateLocally,
 } from '../../../src/services/runtime/browser-store'
 
@@ -209,4 +214,70 @@ describe('browser workspace storage', () => {
     expect(next.ui.bottomPanelHeight).toBe(320)
     expect(next.ui.sidebarWidth).toBe(300)
   })
+
+  it('migrates the legacy browser snapshot into a default workspace registry', () => {
+    const snapshot = createBlankSnapshot()
+    snapshot.libraryNodes.push(libraryFolder('folder-default', 'Default folder'))
+    window.localStorage.setItem('datapadplusplus.workspace.v2', JSON.stringify(snapshot))
+
+    const status = getBrowserWorkspaceSwitcherStatus()
+
+    expect(status.enabled).toBe(false)
+    expect(status.activeWorkspaceId).toBe('default')
+    expect(status.workspaces).toHaveLength(1)
+    expect(status.workspaces[0]).toMatchObject({
+      id: 'default',
+      name: 'Default Workspace',
+      counts: {
+        libraryItems: 1,
+      },
+    })
+    expect(
+      window.localStorage.getItem('datapadplusplus.workspace.snapshot.v1.default'),
+    ).toContain('Default folder')
+    expect(loadBrowserSnapshot().libraryNodes[0]?.name).toBe('Default folder')
+  })
+
+  it('saves, renames, and switches browser workspace snapshots', () => {
+    const first = createBlankSnapshot()
+    first.libraryNodes.push(libraryFolder('folder-first', 'First workspace'))
+    saveBrowserSnapshot(first)
+    setBrowserWorkspaceSwitcherEnabled({ enabled: true })
+
+    createBrowserWorkspace({ name: 'Second workspace' })
+    let status = getBrowserWorkspaceSwitcherStatus()
+    const secondWorkspaceId = status.activeWorkspaceId
+    expect(secondWorkspaceId).not.toBe('default')
+    expect(loadBrowserSnapshot().libraryNodes).toHaveLength(0)
+
+    const second = loadBrowserSnapshot()
+    second.libraryNodes.push(libraryFolder('folder-second', 'Second workspace'))
+    saveBrowserSnapshot(second)
+    renameBrowserWorkspace({
+      workspaceId: secondWorkspaceId,
+      name: 'QA workspace',
+    })
+
+    switchBrowserWorkspace({ workspaceId: 'default' })
+    expect(loadBrowserSnapshot().libraryNodes[0]?.name).toBe('First workspace')
+
+    switchBrowserWorkspace({ workspaceId: secondWorkspaceId })
+    expect(loadBrowserSnapshot().libraryNodes[0]?.name).toBe('Second workspace')
+    status = getBrowserWorkspaceSwitcherStatus()
+    expect(status.enabled).toBe(true)
+    expect(
+      status.workspaces.find((workspace) => workspace.id === secondWorkspaceId)?.name,
+    ).toBe('QA workspace')
+  })
 })
+
+function libraryFolder(id: string, name: string) {
+  return {
+    id,
+    kind: 'folder' as const,
+    name,
+    tags: [],
+    createdAt: '2026-05-20T00:00:00.000Z',
+    updatedAt: '2026-05-20T00:00:00.000Z',
+  }
+}

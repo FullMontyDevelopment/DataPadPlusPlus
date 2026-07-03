@@ -14,9 +14,9 @@ use tauri_plugin_dialog::{DialogExt, FilePath};
 use crate::{
     adapters,
     app::runtime::{
-        datastore_api_server, datastore_mcp_client_setup, datastore_mcp_server, generate_id,
-        timestamp_now, ActiveExecutionRegistry, ManagedAppState, SharedAppState,
-        SharedExecutionRegistry,
+        datastore_api_server, datastore_mcp_client_setup, datastore_mcp_server,
+        datastore_security_checks, generate_id, timestamp_now, ActiveExecutionRegistry,
+        ManagedAppState, SharedAppState, SharedExecutionRegistry,
     },
     domain::{
         error::CommandError,
@@ -46,25 +46,30 @@ use crate::{
             DatastoreMcpServerStatus, DatastoreMcpServerStopRequest,
             DatastoreMcpServerTokenCreateRequest, DatastoreMcpServerTokenCreateResponse,
             DatastoreMcpServerTokenDeleteRequest, DatastoreMcpServerUpdateRequest,
-            DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, EnvironmentProfile,
-            ExecuteTestSuiteRequest, ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse,
-            ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse,
-            ExportBundle, ExportResultFileRequest, ExportResultFileResponse, GuardrailDecision,
-            LibraryCreateFolderRequest, LibraryDeleteNodeRequest, LibraryMoveNodeRequest,
-            LibraryRenameNodeRequest, LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest,
-            LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult,
-            OpenTestSuiteTemplateRequest, OperationExecutionRequest, OperationExecutionResponse,
-            OperationManifestRequest, OperationManifestResponse, OperationPlanRequest,
-            OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse,
-            QueryHistoryEntry, QueryTabActiveExecution, QueryTabReorderRequest,
-            RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest,
-            ResultPageResponse, SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest,
-            SavedWorkItem, StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
+            DatastoreSecurityChecksRefreshRequest, DatastoreSecurityChecksSettingsRequest,
+            DatastoreSecurityChecksStatus, DocumentNodeChildrenRequest,
+            DocumentNodeChildrenResponse, EnvironmentProfile, ExecuteTestSuiteRequest,
+            ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse,
+            ExplorerFolderOrderRequest, ExplorerInspectRequest, ExplorerInspectResponse,
+            ExplorerRequest, ExplorerResponse, ExportBundle, ExportResultFileRequest,
+            ExportResultFileResponse, GuardrailDecision, LibraryCreateFolderRequest,
+            LibraryDeleteNodeRequest, LibraryMoveNodeRequest, LibraryRenameNodeRequest,
+            LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest, LocalDatabaseCreateResult,
+            LocalDatabasePickRequest, LocalDatabasePickResult, OpenTestSuiteTemplateRequest,
+            OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest,
+            OperationManifestResponse, OperationPlanRequest, OperationPlanResponse,
+            PermissionInspectionRequest, PermissionInspectionResponse, QueryHistoryEntry,
+            QueryTabActiveExecution, QueryTabReorderRequest, RedisKeyInspectRequest,
+            RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest, ResultPageResponse,
+            SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
+            StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
             UpdateTestSuiteTabRequest, UpdateUiStateRequest, UserFacingError,
             WorkspaceBackupDeleteRequest, WorkspaceBackupRestoreRequest, WorkspaceBackupRunRequest,
             WorkspaceBackupRunResponse, WorkspaceBackupSettingsRequest, WorkspaceBackupSummary,
             WorkspaceBundleFileExportRequest, WorkspaceBundleFileExportResponse,
-            WorkspaceBundleFileImportRequest, WorkspaceSearchSettingsRequest,
+            WorkspaceBundleFileImportRequest, WorkspaceCreateRequest, WorkspaceRenameRequest,
+            WorkspaceSearchSettingsRequest, WorkspaceSwitcherSettingsRequest,
+            WorkspaceSwitcherStatus, WorkspaceSwitchRequest,
         },
     },
     infrastructure,
@@ -471,6 +476,14 @@ pub fn create_workspace_search_tab(
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
     state.create_workspace_search_tab()
+}
+
+#[tauri::command]
+pub fn create_security_checks_tab(
+    state: State<'_, SharedAppState>,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.create_security_checks_tab()
 }
 
 #[tauri::command]
@@ -1783,9 +1796,19 @@ pub fn set_keyboard_shortcut(
 pub fn set_first_install_guide_status(
     state: State<'_, SharedAppState>,
     status: String,
+    current_step_id: Option<String>,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
-    state.set_first_install_guide_status(&status)
+    state.set_first_install_guide_status(&status, current_step_id.as_deref())
+}
+
+#[tauri::command]
+pub fn set_explorer_folder_order(
+    state: State<'_, SharedAppState>,
+    request: ExplorerFolderOrderRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.set_explorer_folder_order(request)
 }
 
 #[tauri::command]
@@ -1923,6 +1946,76 @@ pub fn update_workspace_search_settings(
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
     state.update_workspace_search_settings(request)
+}
+
+#[tauri::command]
+pub fn get_workspace_switcher_status(
+    state: State<'_, SharedAppState>,
+) -> Result<WorkspaceSwitcherStatus, CommandError> {
+    let state = lock_state(&state)?;
+    state.workspace_switcher_status()
+}
+
+#[tauri::command]
+pub fn set_workspace_switcher_enabled(
+    state: State<'_, SharedAppState>,
+    request: WorkspaceSwitcherSettingsRequest,
+) -> Result<WorkspaceSwitcherStatus, CommandError> {
+    let state = lock_state(&state)?;
+    state.set_workspace_switcher_enabled(request)
+}
+
+#[tauri::command]
+pub fn create_workspace(
+    state: State<'_, SharedAppState>,
+    request: WorkspaceCreateRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.create_workspace(request)
+}
+
+#[tauri::command]
+pub fn rename_workspace(
+    state: State<'_, SharedAppState>,
+    request: WorkspaceRenameRequest,
+) -> Result<WorkspaceSwitcherStatus, CommandError> {
+    let state = lock_state(&state)?;
+    state.rename_workspace(request)
+}
+
+#[tauri::command]
+pub fn switch_workspace(
+    state: State<'_, SharedAppState>,
+    request: WorkspaceSwitchRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.switch_workspace(request)
+}
+
+#[tauri::command]
+pub fn get_datastore_security_check_status(
+    state: State<'_, SharedAppState>,
+) -> Result<DatastoreSecurityChecksStatus, CommandError> {
+    let state = lock_state(&state)?;
+    Ok(datastore_security_checks::status(&state))
+}
+
+#[tauri::command]
+pub fn update_datastore_security_check_settings(
+    state: State<'_, SharedAppState>,
+    request: DatastoreSecurityChecksSettingsRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    datastore_security_checks::update_settings(&mut state, request)
+}
+
+#[tauri::command]
+pub async fn refresh_datastore_security_checks(
+    state: State<'_, SharedAppState>,
+    manager: State<'_, datastore_security_checks::SharedDatastoreSecurityChecks>,
+    request: DatastoreSecurityChecksRefreshRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    datastore_security_checks::refresh(manager, state, request).await
 }
 
 #[tauri::command]

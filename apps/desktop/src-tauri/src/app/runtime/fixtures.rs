@@ -116,9 +116,12 @@ pub(super) fn fixture_workspace_seed_for_profile(
             workspace_backups: Default::default(),
             datastore_api_server: Default::default(),
             datastore_mcp_server: Default::default(),
+            datastore_security_checks: Default::default(),
             workspace_search: Default::default(),
             first_install_guide: Default::default(),
+            explorer_folder_orders: HashMap::new(),
         },
+        datastore_security_checks: None,
         guardrails: Vec::new(),
         lock_state: LockState {
             is_locked: false,

@@ -11,9 +11,12 @@ interface MongoQueryTextContext {
 export function createDefaultMongoAggregationBuilderState(
   collection: string,
   limit = 20,
+  database?: string,
 ): MongoAggregationBuilderState {
+  const normalizedDatabase = database?.trim() || undefined
   const state: MongoAggregationBuilderState = {
     kind: 'mongo-aggregation',
+    ...(normalizedDatabase ? { database: normalizedDatabase } : {}),
     collection,
     stages: [
       { id: 'stage-match', enabled: true, stage: '$match', body: '{}' },
@@ -37,7 +40,7 @@ export function buildMongoAggregationQueryText(
   state: MongoAggregationBuilderState,
   context: MongoQueryTextContext = {},
 ): string {
-  const database = context.database?.trim()
+  const database = context.database?.trim() || state.database?.trim()
   const pipeline = state.stages
     .filter((stage) => stage.enabled ?? true)
     .map(stageToPipelineItem)
@@ -61,6 +64,8 @@ export function parseMongoAggregationQueryText(
 ): MongoAggregationBuilderState | undefined {
   try {
     const parsed = JSON.parse(queryText) as {
+      database?: unknown
+      db?: unknown
       collection?: unknown
       pipeline?: unknown
       limit?: unknown
@@ -100,6 +105,11 @@ export function parseMongoAggregationQueryText(
         : pipelineLimit
     const state: MongoAggregationBuilderState = {
       kind: 'mongo-aggregation',
+      ...(typeof parsed.database === 'string' && parsed.database.trim()
+        ? { database: parsed.database.trim() }
+        : typeof parsed.db === 'string' && parsed.db.trim()
+          ? { database: parsed.db.trim() }
+          : {}),
       collection: parsed.collection,
       stages,
       limit,

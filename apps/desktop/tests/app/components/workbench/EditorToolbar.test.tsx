@@ -136,4 +136,34 @@ describe('EditorToolbar', () => {
     fireEvent.click(toggle)
     expect(onToggleDocumentEfficiency).toHaveBeenCalledTimes(1)
   })
+
+  it('keeps the results panel toggle and omits the dock-position toggle', () => {
+    const onToggleBottomPanel = vi.fn()
+    render(
+      <EditorToolbar
+        executionStatus="idle"
+        capabilities={baseCapabilities}
+        canCancelExecution={false}
+        bottomPanelVisible={false}
+        canToggleBuilderView={false}
+        queryWindowMode="raw"
+        onExecute={vi.fn()}
+        onExplain={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenConnectionDrawer={vi.fn()}
+        onToggleBottomPanel={onToggleBottomPanel}
+        onToggleQueryWindowMode={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show results panel' }))
+
+    expect(onToggleBottomPanel).toHaveBeenCalledOnce()
+    expect(
+      screen.queryByRole('button', { name: 'Dock results to right' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Dock results to bottom' }),
+    ).not.toBeInTheDocument()
+  })
 })

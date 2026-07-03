@@ -27,9 +27,12 @@ const COMPARISON_OPERATOR_MAP: Partial<Record<MongoFilterOperator, string>> = {
 export function createDefaultMongoFindBuilderState(
   collection: string,
   limit = 20,
+  database?: string,
 ): MongoFindBuilderState {
-  const queryText = buildMongoFindQueryText({
+  const normalizedDatabase = database?.trim() || undefined
+  const state: MongoFindBuilderState = {
     kind: 'mongo-find',
+    ...(normalizedDatabase ? { database: normalizedDatabase } : {}),
     collection,
     filters: [],
     filterGroups: [],
@@ -38,18 +41,11 @@ export function createDefaultMongoFindBuilderState(
     sort: [],
     skip: 0,
     limit,
-  })
+  }
+  const queryText = buildMongoFindQueryText(state)
 
   return {
-    kind: 'mongo-find',
-    collection,
-    filters: [],
-    filterGroups: [],
-    projectionMode: 'all',
-    projectionFields: [],
-    sort: [],
-    skip: 0,
-    limit,
+    ...state,
     lastAppliedQueryText: queryText,
   }
 }
@@ -64,7 +60,7 @@ export function buildMongoFindQueryText(
   state: MongoFindBuilderState,
   context: MongoQueryTextContext = {},
 ): string {
-  const database = context.database?.trim()
+  const database = context.database?.trim() || state.database?.trim()
   const query: Record<string, unknown> = {
     ...(database ? { database } : {}),
     collection: state.collection.trim(),

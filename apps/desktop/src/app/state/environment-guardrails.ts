@@ -85,19 +85,16 @@ export function evaluateGuardrails(
   safeModeEnabled: boolean,
 ): GuardrailDecision {
   const reasons: string[] = []
-  const normalized = queryText.toLowerCase()
-  const looksWrite = /(insert|update|delete|drop|truncate|alter|create|flushdb|flushall|set )/.test(
-    normalized,
-  )
-  const riskyQuery =
-    looksWrite || environment.risk === 'high' || environment.risk === 'critical'
+  const queryRisk = classifyQueryRisk(connection, queryText)
+  const looksWrite = queryRisk.looksWrite
+  const safeModeApplied = looksWrite && (safeModeEnabled || environment.safeMode)
 
   if (resolvedEnvironment.unresolvedKeys.length > 0) {
     reasons.push('Unresolved environment variables must be fixed before execution.')
     return {
       status: 'block',
       reasons,
-      safeModeApplied: safeModeEnabled || environment.safeMode,
+      safeModeApplied,
     }
   }
 
@@ -106,11 +103,11 @@ export function evaluateGuardrails(
     return {
       status: 'block',
       reasons,
-      safeModeApplied: safeModeEnabled || environment.safeMode,
+      safeModeApplied,
     }
   }
 
-  if (riskyQuery) {
+  if (looksWrite) {
     if (safeModeEnabled) {
       reasons.push('Global safe mode requires confirmation for risky work.')
     }
@@ -130,11 +127,15 @@ export function evaluateGuardrails(
     }
   }
 
+  if (queryRisk.alwaysConfirmReason) {
+    reasons.push(queryRisk.alwaysConfirmReason)
+  }
+
   if (reasons.length > 0) {
     return {
       status: 'confirm',
       reasons,
-      safeModeApplied: safeModeEnabled || environment.safeMode,
+      safeModeApplied,
       requiredConfirmationText: `CONFIRM ${environment.label}`,
     }
   }
@@ -144,8 +145,168 @@ export function evaluateGuardrails(
   return {
     status: 'allow',
     reasons,
-    safeModeApplied: safeModeEnabled || environment.safeMode,
+    safeModeApplied,
   }
+}
+
+interface QueryRisk {
+  looksWrite: boolean
+  alwaysConfirmReason?: string
+}
+
+function classifyQueryRisk(connection: ConnectionProfile, queryText: string): QueryRisk {
+  if (connection.engine === 'mongodb') {
+    return classifyMongoQueryRisk(queryText)
+  }
+
+  if (connection.engine === 'redis' || connection.engine === 'valkey') {
+    return classifyRedisQueryRisk(queryText)
+  }
+
+  return classifyTokenizedQueryRisk(queryText)
+}
+
+function classifyMongoQueryRisk(queryText: string): QueryRisk {
+  try {
+    const input = JSON.parse(queryText) as Record<string, unknown>
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      return classifyTokenizedQueryRisk(queryText)
+    }
+
+    const operation = normalizeOperation(
+      stringValue(input.operation) ??
+        stringValue(input.op) ??
+        (input.command && typeof input.command === 'object' ? 'runcommand' : 'find'),
+    )
+
+    if ([
+      'insertone',
+      'insertmany',
+      'updateone',
+      'updatemany',
+      'replaceone',
+      'deleteone',
+      'deletemany',
+      'bulkwrite',
+    ].includes(operation)) {
+      return {
+        looksWrite: true,
+        alwaysConfirmReason: 'MongoDB raw write operations require confirmation before execution.',
+      }
+    }
+
+    if (operation === 'runcommand') {
+      const command = input.command
+      const commandName =
+        command && typeof command === 'object' && !Array.isArray(command)
+          ? Object.keys(command)[0]?.toLowerCase()
+          : undefined
+
+      if (
+        commandName &&
+        ['drop', 'dropdatabase', 'collmod', 'create', 'createindexes', 'dropindexes']
+          .includes(commandName)
+      ) {
+        return {
+          looksWrite: true,
+          alwaysConfirmReason:
+            'MongoDB administrative commands require confirmation before execution.',
+        }
+      }
+    }
+
+    return { looksWrite: false }
+  } catch {
+    return classifyTokenizedQueryRisk(queryText)
+  }
+}
+
+function classifyRedisQueryRisk(queryText: string): QueryRisk {
+  const command = queryTokens(queryText)[0] ?? ''
+
+  if (!command) {
+    return { looksWrite: false }
+  }
+
+  if (['del', 'unlink', 'flushdb', 'flushall', 'restore', 'rename', 'renamenx'].includes(command)) {
+    return {
+      looksWrite: true,
+      alwaysConfirmReason: 'Redis destructive keyspace operations require confirmation before execution.',
+    }
+  }
+
+  return {
+    looksWrite: [
+      'set',
+      'mset',
+      'setex',
+      'psetex',
+      'hset',
+      'hmset',
+      'hdel',
+      'lpush',
+      'rpush',
+      'lset',
+      'lrem',
+      'sadd',
+      'srem',
+      'zadd',
+      'zrem',
+      'xadd',
+      'xdel',
+      'expire',
+      'pexpire',
+      'persist',
+      'json.set',
+      'json.del',
+    ].includes(command),
+  }
+}
+
+function classifyTokenizedQueryRisk(queryText: string): QueryRisk {
+  const tokens = queryTokens(queryText)
+  const looksWrite = tokens.some((token) =>
+    [
+      'insert',
+      'update',
+      'delete',
+      'drop',
+      'truncate',
+      'alter',
+      'create',
+      'merge',
+      'replace',
+      'grant',
+      'revoke',
+      'flushdb',
+      'flushall',
+    ].includes(token),
+  )
+  const destructive = tokens.some((token) =>
+    ['delete', 'drop', 'truncate', 'flushdb', 'flushall'].includes(token),
+  )
+
+  return {
+    looksWrite,
+    alwaysConfirmReason: destructive
+      ? 'Destructive operations require confirmation before execution.'
+      : undefined,
+  }
+}
+
+function queryTokens(queryText: string) {
+  return queryText
+    .split(/[^A-Za-z0-9_.]+/)
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function normalizeOperation(value: string) {
+  return value.replace(/[_\-\s]/g, '').toLowerCase()
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
 export function buildDiagnosticsReport(

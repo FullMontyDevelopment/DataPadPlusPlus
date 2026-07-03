@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import type {
-  ClosedQueryTabSnapshot,
   AdapterManifest,
   ConnectionGroupMode,
   ConnectionProfile,
@@ -10,6 +9,7 @@ import type {
   LibraryNode,
   ScopedQueryTarget,
   UiState,
+  WorkspaceSwitcherStatus,
 } from '@datapadplusplus/shared-types'
 import type { ConnectionHealth } from '../../state/connection-health'
 import { ExplorerPane } from './SideBar.explorer-pane'
@@ -22,8 +22,8 @@ interface SideBarProps {
   adapterManifests: AdapterManifest[]
   environments: EnvironmentProfile[]
   libraryNodes: LibraryNode[]
-  closedTabs: ClosedQueryTabSnapshot[]
   explorerItems: ExplorerNode[]
+  explorerFolderOrders?: Record<string, string[]>
   getConnectionExplorerItems?(connectionId: string, environmentId?: string): ExplorerNode[] | undefined
   getConnectionExplorerStatus?(connectionId: string, environmentId?: string): 'idle' | 'loading' | 'ready'
   getConnectionHealth?(connectionId: string, environmentId?: string): ConnectionHealth | undefined
@@ -35,7 +35,9 @@ interface SideBarProps {
   apiServers?: DatastoreApiServerInstanceStatus[]
   workspaceSearchEnabled?: boolean
   activeWorkspaceSearch?: boolean
+  workspaceSwitcherStatus?: WorkspaceSwitcherStatus
   createFolderDialogRequestRevision?: number
+  closeFolderDialogRequestRevision?: number
   isExplorerScopeLoading?(connectionId: string, scope?: string, environmentId?: string): boolean
   activeConnectionId: string
   activeEnvironmentId: string
@@ -67,14 +69,17 @@ interface SideBarProps {
   onStopApiServer?(serverId: string): void
   onDeleteApiServer?(serverId: string): void
   onCreateTestSuite(connectionId?: string): void
+  onCreateWorkspace(name: string): void
   onOpenTestSuiteTemplate(connectionId: string, templateId: string): void
   onCreateLibraryFolder(parentId: string | undefined, name: string): void
   onDeleteLibraryNode(nodeId: string): void
   onMoveLibraryNode(nodeId: string, parentId?: string): void
   onOpenLibraryItem(nodeId: string): void
   onRenameLibraryNode(nodeId: string, name: string): void
+  onRenameWorkspace(workspaceId: string, name: string): void
   onSetLibraryNodeEnvironment(nodeId: string, environmentId?: string): void
-  onReopenClosedTab(closedTabId: string): void
+  onSetExplorerFolderOrder(orderKey: string, orderedNodeKeys: string[]): void
+  onSwitchWorkspace(workspaceId: string): void
   onExplorerFilterChange(value: string): void
   onRefreshExplorer(): void
   onSelectExplorerNode(node: ExplorerNode): void
@@ -90,8 +95,8 @@ export function SideBar({
   adapterManifests,
   environments,
   libraryNodes,
-  closedTabs,
   explorerItems,
+  explorerFolderOrders,
   getConnectionExplorerItems,
   getConnectionExplorerStatus,
   getConnectionHealth,
@@ -103,7 +108,9 @@ export function SideBar({
   apiServers,
   workspaceSearchEnabled = false,
   activeWorkspaceSearch = false,
+  workspaceSwitcherStatus,
   createFolderDialogRequestRevision,
+  closeFolderDialogRequestRevision,
   isExplorerScopeLoading,
   activeConnectionId,
   activeEnvironmentId,
@@ -134,13 +141,16 @@ export function SideBar({
   onStopApiServer,
   onDeleteApiServer,
   onCreateTestSuite,
+  onCreateWorkspace,
   onCreateLibraryFolder,
   onDeleteLibraryNode,
   onMoveLibraryNode,
   onOpenLibraryItem,
   onRenameLibraryNode,
+  onRenameWorkspace,
   onSetLibraryNodeEnvironment,
-  onReopenClosedTab,
+  onSetExplorerFolderOrder,
+  onSwitchWorkspace,
   onExplorerFilterChange,
   onRefreshExplorer,
   onSelectExplorerNode,
@@ -283,7 +293,6 @@ export function SideBar({
           activeConnectionId={activeConnectionId}
           activeEnvironmentId={activeEnvironmentId}
           adapterManifests={adapterManifests}
-          closedTabs={closedTabs}
           getConnectionExplorerItems={getConnectionExplorerItems}
           getConnectionExplorerStatus={getConnectionExplorerStatus}
           getConnectionHealth={getConnectionHealth}
@@ -296,10 +305,13 @@ export function SideBar({
           apiServers={apiServers}
           workspaceSearchEnabled={workspaceSearchEnabled}
           activeWorkspaceSearch={activeWorkspaceSearch}
+          workspaceSwitcherStatus={workspaceSwitcherStatus}
           createFolderDialogRequestRevision={createFolderDialogRequestRevision}
+          closeFolderDialogRequestRevision={closeFolderDialogRequestRevision}
           isExplorerScopeLoading={isExplorerScopeLoading}
           libraryFilter={libraryFilter}
           libraryNodes={libraryNodes}
+          explorerFolderOrders={explorerFolderOrders}
           sectionStates={sidebarSectionStates}
           onCloneEnvironment={onCloneEnvironment}
           onCreateConnection={onCreateConnection}
@@ -313,6 +325,7 @@ export function SideBar({
           onStopApiServer={onStopApiServer}
           onDeleteApiServer={onDeleteApiServer}
           onCreateTestSuite={onCreateTestSuite}
+          onCreateWorkspace={onCreateWorkspace}
           onDeleteConnection={onDeleteConnection}
           onDeleteEnvironment={onDeleteEnvironment}
           onDeleteNode={onDeleteLibraryNode}
@@ -330,8 +343,10 @@ export function SideBar({
           onOpenScopedQuery={onOpenScopedQuery}
           onOpenLibraryItem={onOpenLibraryItem}
           onRenameNode={onRenameLibraryNode}
+          onRenameWorkspace={onRenameWorkspace}
           onSetNodeEnvironment={onSetLibraryNodeEnvironment}
-          onReopenClosedTab={onReopenClosedTab}
+          onSetExplorerFolderOrder={onSetExplorerFolderOrder}
+          onSwitchWorkspace={onSwitchWorkspace}
           onSelectConnection={onSelectConnection}
           onSelectEnvironment={onSelectEnvironment}
           onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}

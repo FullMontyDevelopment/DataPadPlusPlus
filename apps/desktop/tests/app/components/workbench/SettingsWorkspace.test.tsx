@@ -1,7 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
-import type { AppHealth, DiagnosticsReport, WorkspaceBackupSummary } from '@datapadplusplus/shared-types'
+import type {
+  AppHealth,
+  DiagnosticsReport,
+  WorkspaceBackupSummary,
+  WorkspaceSwitcherStatus,
+} from '@datapadplusplus/shared-types'
 import { createSeedSnapshot } from '../../../fixtures/seed-workspace'
 import { SettingsWorkspace } from '../../../../src/app/components/workbench/SettingsWorkspace'
 
@@ -28,12 +33,33 @@ const diagnostics: DiagnosticsReport = {
   },
 }
 
+const workspaceSwitcherStatus: WorkspaceSwitcherStatus = {
+  enabled: false,
+  activeWorkspaceId: 'default',
+  workspaces: [
+    {
+      id: 'default',
+      name: 'Default Workspace',
+      createdAt: '2026-05-29T00:00:00.000Z',
+      updatedAt: '2026-05-29T00:00:00.000Z',
+      lastOpenedAt: '2026-05-29T00:00:00.000Z',
+      counts: {
+        connections: 2,
+        environments: 1,
+        libraryItems: 3,
+        openTabs: 1,
+      },
+    },
+  ],
+}
+
 function renderSettings(overrides: Partial<ComponentProps<typeof SettingsWorkspace>> = {}) {
   const preferences = createSeedSnapshot().preferences
   const props: ComponentProps<typeof SettingsWorkspace> = {
     diagnostics,
     health,
     preferences,
+    workspaceSwitcherStatus,
     updateInstallStatus: 'idle',
     updateSettings: {
       includePrereleases: false,
@@ -79,10 +105,15 @@ function renderSettings(overrides: Partial<ComponentProps<typeof SettingsWorkspa
     onSetTheme: vi.fn(),
     onSetUpdatePrereleases: vi.fn(),
     onOpenApiServer: vi.fn(),
+    onOpenMcpServer: vi.fn(),
     onOpenWorkspaceSearch: vi.fn(),
+    onOpenSecurityChecks: vi.fn(),
     onUpdateApiServerSettings: vi.fn().mockResolvedValue(true),
+    onUpdateMcpServerSettings: vi.fn().mockResolvedValue(true),
     onUpdateBackupSettings: vi.fn().mockResolvedValue(true),
+    onUpdateWorkspaceSwitcherSettings: vi.fn().mockResolvedValue(true),
     onUpdateWorkspaceSearchSettings: vi.fn().mockResolvedValue(true),
+    onUpdateSecurityCheckSettings: vi.fn().mockResolvedValue(true),
     ...overrides,
   }
 
@@ -190,6 +221,25 @@ describe('SettingsWorkspace', () => {
       expect(onUpdateWorkspaceSearchSettings).toHaveBeenCalledWith({ enabled: true })
     })
     expect(props.onOpenWorkspaceSearch).not.toHaveBeenCalled()
+  })
+
+  it('gates Workspaces behind app-wide Experimental settings', async () => {
+    const onUpdateWorkspaceSwitcherSettings = vi.fn().mockResolvedValue(true)
+    const props = renderSettings({
+      initialSection: 'experimental',
+      onUpdateWorkspaceSwitcherSettings,
+    })
+
+    const workspacesGroup = screen.getByRole('region', { name: 'Workspaces' })
+    expect(within(workspacesGroup).getByText('Experimental')).toBeInTheDocument()
+    expect(within(workspacesGroup).getByLabelText('Workspaces switcher')).not.toBeChecked()
+
+    fireEvent.click(within(workspacesGroup).getByLabelText('Workspaces switcher'))
+
+    await waitFor(() => {
+      expect(onUpdateWorkspaceSwitcherSettings).toHaveBeenCalledWith({ enabled: true })
+    })
+    expect(props.onUpdateWorkspaceSearchSettings).not.toHaveBeenCalled()
   })
 
   it('opens Workspace Search when enabled', () => {

@@ -29,7 +29,9 @@ export function mongoQueryScopeForTab({
     return undefined
   }
 
-  const builderCollection = mongoBuilderCollection(builderState ?? tab.builderState)
+  const resolvedBuilderState = builderState ?? tab.builderState
+  const builderDatabase = mongoBuilderDatabase(resolvedBuilderState)
+  const builderCollection = mongoBuilderCollection(resolvedBuilderState)
   const queryScope = mongoScopeFromQueryText(queryText ?? tab.queryText)
   const scriptScope = mongoScopeFromScriptText(scriptText ?? tab.scriptText)
   const scopedTargetScope = mongoScopeFromScopedTarget(tab.scopedTarget)
@@ -37,6 +39,7 @@ export function mongoQueryScopeForTab({
 
   return {
     database:
+      builderDatabase ??
       queryScope.database ??
       scopedTargetScope.database ??
       connectionDatabase,
@@ -46,6 +49,17 @@ export function mongoQueryScopeForTab({
       scriptScope.collection ??
       scopedTargetScope.collection,
   }
+}
+
+function mongoBuilderDatabase(builderState?: QueryBuilderState) {
+  if (
+    isMongoFindBuilderState(builderState) ||
+    isMongoAggregationBuilderState(builderState)
+  ) {
+    return builderState.database?.trim() || undefined
+  }
+
+  return undefined
 }
 
 function mongoBuilderCollection(builderState?: QueryBuilderState) {

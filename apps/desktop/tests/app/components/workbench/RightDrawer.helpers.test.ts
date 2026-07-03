@@ -85,7 +85,6 @@ describe('right drawer helper behavior', () => {
     }) as Record<string, string>
 
     expect(style['--connection-env-color']).toBe('#33aaff')
-    expect(style['--connection-env-tint']).toBe('rgba(51, 170, 255, 0.1)')
     expect(style['--connection-env-border']).toBe('rgba(51, 170, 255, 0.45)')
   })
 })

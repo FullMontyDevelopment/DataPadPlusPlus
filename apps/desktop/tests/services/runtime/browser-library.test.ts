@@ -148,6 +148,7 @@ describe('browser Library runtime', () => {
     const snapshot = workspaceSnapshot()
     const builderState = {
       kind: 'mongo-find' as const,
+      database: 'catalog',
       collection: 'products',
       filters: [
         {
@@ -163,7 +164,7 @@ describe('browser Library runtime', () => {
       sort: [],
       limit: 20,
       lastAppliedQueryText:
-        '{\n  "collection": "products",\n  "filter": {\n    "status": "active"\n  },\n  "limit": 20\n}',
+        '{\n  "database": "catalog",\n  "collection": "products",\n  "filter": {\n    "status": "active"\n  },\n  "limit": 20\n}',
     }
 
     snapshot.connections[0] = {
@@ -177,6 +178,13 @@ describe('browser Library runtime', () => {
       language: 'mongodb',
       queryText: builderState.lastAppliedQueryText,
       builderState,
+      scopedTarget: {
+        kind: 'collection',
+        label: 'products',
+        path: ['Catalog Mongo', 'catalog', 'Collections'],
+        scope: 'collection:catalog:products',
+        preferredBuilder: 'mongo-find',
+      },
       dirty: true,
     }
 
@@ -191,7 +199,12 @@ describe('browser Library runtime', () => {
     expect(saved.libraryNodes[0]).toMatchObject({
       builderState: expect.objectContaining({
         kind: 'mongo-find',
+        database: 'catalog',
+        collection: 'products',
         filters: [expect.objectContaining({ field: 'status', value: 'active' })],
+      }),
+      scopedTarget: expect.objectContaining({
+        scope: 'collection:catalog:products',
       }),
     })
 
@@ -200,8 +213,14 @@ describe('browser Library runtime', () => {
 
     expect(reopened.tabs[0]?.builderState).toMatchObject({
       kind: 'mongo-find',
+      database: 'catalog',
+      collection: 'products',
       filters: [expect.objectContaining({ field: 'status', value: 'active' })],
     })
+    expect(reopened.tabs[0]?.scopedTarget).toMatchObject({
+      scope: 'collection:catalog:products',
+    })
+    expect(reopened.tabs[0]?.queryText).toContain('"database": "catalog"')
   })
 
   it('saves and reopens document efficiency mode with Library queries', () => {

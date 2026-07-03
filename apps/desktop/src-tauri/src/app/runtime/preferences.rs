@@ -1,7 +1,7 @@
 use super::{timestamp_now, ManagedAppState};
 use crate::domain::{
     error::CommandError,
-    models::{BootstrapPayload, UpdateUiStateRequest},
+    models::{BootstrapPayload, ExplorerFolderOrderRequest, UpdateUiStateRequest},
 };
 
 use super::ui::{
@@ -62,6 +62,7 @@ impl ManagedAppState {
     pub fn set_first_install_guide_status(
         &mut self,
         status: &str,
+        current_step_id: Option<&str>,
     ) -> Result<BootstrapPayload, CommandError> {
         if !matches!(status, "started" | "skipped" | "completed") {
             return Err(CommandError::new(
@@ -69,13 +70,83 @@ impl ManagedAppState {
                 "First install guide status is invalid.",
             ));
         }
+        if status == "started"
+            && current_step_id.is_some()
+            && !matches!(
+                current_step_id,
+                Some(
+                    "welcome"
+                        | "folder"
+                        | "connection"
+                        | "save"
+                        | "explorer"
+                        | "query"
+                        | "settings"
+                )
+            )
+        {
+            return Err(CommandError::new(
+                "invalid-first-install-guide-step",
+                "First install guide step is invalid.",
+            ));
+        }
 
         let timestamp = timestamp_now();
         self.snapshot.preferences.first_install_guide.status = status.into();
+        self.snapshot
+            .preferences
+            .first_install_guide
+            .current_step_id = (status == "started")
+            .then(|| current_step_id.map(str::to_owned))
+            .flatten();
         self.snapshot.preferences.first_install_guide.updated_at = Some(timestamp.clone());
         self.snapshot.preferences.first_install_guide.completed_at =
             (status == "completed").then_some(timestamp.clone());
         self.snapshot.updated_at = timestamp;
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
+    pub fn set_explorer_folder_order(
+        &mut self,
+        request: ExplorerFolderOrderRequest,
+    ) -> Result<BootstrapPayload, CommandError> {
+        let order_key = request.order_key.trim();
+        if order_key.is_empty() || order_key.len() > 512 {
+            return Err(CommandError::new(
+                "invalid-explorer-folder-order-key",
+                "Explorer folder order scope is invalid.",
+            ));
+        }
+
+        let mut ordered_node_keys = Vec::new();
+        for node_key in request
+            .ordered_node_keys
+            .iter()
+            .map(|node_key| node_key.trim())
+            .filter(|node_key| !node_key.is_empty() && node_key.len() <= 512)
+        {
+            if !ordered_node_keys
+                .iter()
+                .any(|existing| existing == node_key)
+            {
+                ordered_node_keys.push(node_key.to_string());
+            }
+        }
+
+        if ordered_node_keys.is_empty() {
+            self.snapshot
+                .preferences
+                .explorer_folder_orders
+                .remove(order_key);
+        } else {
+            self.snapshot
+                .preferences
+                .explorer_folder_orders
+                .insert(order_key.into(), ordered_node_keys);
+        }
+
+        self.snapshot.updated_at = timestamp_now();
         self.persist()?;
         Ok(self.bootstrap_payload())
     }

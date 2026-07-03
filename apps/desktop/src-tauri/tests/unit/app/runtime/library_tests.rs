@@ -96,6 +96,7 @@ fn test_node(id: &str, parent_id: Option<&str>, environment_id: Option<&str>) ->
         query_text: None,
         query_view_mode: None,
         document_efficiency_mode: None,
+        scoped_target: None,
         builder_state: None,
         script_text: None,
         test_suite: None,

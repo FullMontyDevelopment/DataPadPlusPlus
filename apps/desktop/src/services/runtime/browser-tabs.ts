@@ -269,6 +269,7 @@ export function createScopedQueryTabInSnapshot(
   }
 
   const targetObjectName = scopedTargetObjectName(request.target, connection)
+  const targetDatabase = scopedTargetDatabase(request.target, connection)
   const targetLabel = scopedTargetObjectLabel(request.target, connection, targetObjectName)
   const builderKind = scopedBuilderKind(connection, request.target)
   const legacyTitle = scopedQueryTitleCandidate(
@@ -290,9 +291,9 @@ export function createScopedQueryTabInSnapshot(
 
   const queryText =
     builderKind === 'mongo-find'
-      ? mongoFindQueryText(targetObjectName ?? '', 20, connection.database)
+      ? mongoFindQueryText(targetObjectName ?? '', 20, targetDatabase)
       : builderKind === 'mongo-aggregation'
-        ? mongoAggregationQueryText(targetObjectName ?? '', 20, connection.database)
+        ? mongoAggregationQueryText(targetObjectName ?? '', 20, targetDatabase)
       : builderKind === 'redis-key-browser'
         ? redisKeyBrowserQueryText(
             redisPatternFromTarget(request.target),
@@ -333,6 +334,7 @@ export function createScopedQueryTabInSnapshot(
       builderKind === 'mongo-find'
         ? {
             kind: 'mongo-find',
+            ...(targetDatabase ? { database: targetDatabase } : {}),
             collection: targetObjectName ?? '',
             filters: [],
             projectionMode: 'all',
@@ -345,6 +347,7 @@ export function createScopedQueryTabInSnapshot(
         : builderKind === 'mongo-aggregation'
           ? {
               kind: 'mongo-aggregation',
+              ...(targetDatabase ? { database: targetDatabase } : {}),
               collection: targetObjectName ?? '',
               stages: [
                 { id: 'stage-match', enabled: true, stage: '$match', body: '{}' },
@@ -556,6 +559,33 @@ function scopedTargetObjectName(
   }
 
   return undefined
+}
+
+function scopedTargetDatabase(
+  target: ScopedQueryTarget,
+  connection: ConnectionProfile,
+) {
+  if (connection.engine !== 'mongodb') {
+    return connection.database
+  }
+
+  const scopeParts = target.scope?.split(':').filter(Boolean) ?? []
+  const scopeKind = scopeParts[0]
+  if (
+    scopeParts.length >= 3 &&
+    scopeKind &&
+    ['collection', 'documents', 'aggregation', 'view', 'gridfs'].includes(scopeKind)
+  ) {
+    return normalizeOptionalObjectName(scopeParts[1]) ?? connection.database
+  }
+
+  const path = target.path ?? []
+  const objectContainerIndex = firstExistingIndex(path, ['Collections', 'Views', 'GridFS'])
+  if (objectContainerIndex > 0) {
+    return normalizeOptionalObjectName(path[objectContainerIndex - 1]) ?? connection.database
+  }
+
+  return connection.database
 }
 
 function firstExistingIndex(values: string[], candidates: string[]) {

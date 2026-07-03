@@ -103,7 +103,6 @@ export function environmentAccentVariables(
 
   return {
     '--connection-env-color': color,
-    '--connection-env-tint': hexToRgba(color, 0.1),
     '--connection-env-border': hexToRgba(color, 0.45),
   } as CSSProperties
 }

@@ -314,4 +314,31 @@ describe('client workspace import validation', () => {
 
     expect(loadBrowserSnapshot().preferences.safeModeEnabled).toBe(false)
   })
+
+  it('persists Explorer folder order changes in browser preview', async () => {
+    await expect(
+      clientWorkspace.setExplorerFolderOrder({
+        orderKey: 'connection-object-tree\u001fconn-mongo\u001fdefault\u001f__root__',
+        orderedNodeKeys: [' beta ', 'alpha', 'beta', ''],
+      }),
+    ).resolves.toMatchObject({
+      snapshot: {
+        preferences: expect.objectContaining({
+          explorerFolderOrders: {
+            'connection-object-tree\u001fconn-mongo\u001fdefault\u001f__root__': [
+              'beta',
+              'alpha',
+            ],
+          },
+        }),
+      },
+    })
+
+    await clientWorkspace.setExplorerFolderOrder({
+      orderKey: 'connection-object-tree\u001fconn-mongo\u001fdefault\u001f__root__',
+      orderedNodeKeys: [],
+    })
+
+    expect(loadBrowserSnapshot().preferences.explorerFolderOrders).toEqual({})
+  })
 })

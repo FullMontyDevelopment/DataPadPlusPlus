@@ -383,6 +383,20 @@ describe('ApiServerWorkspace', () => {
           },
         ],
       }),
+      onDiscoverResources: vi.fn().mockResolvedValue({
+        resources: [
+          usersResource,
+          {
+            ...usersResource,
+            id: 'api-resource:table:orders',
+            label: 'orders',
+            nodeId: 'orders',
+            path: ['public', 'orders'],
+            endpointSlug: 'orders',
+          },
+        ],
+        warnings: [],
+      }),
     })
 
     expect(await screen.findByText('Resources')).toBeInTheDocument()
@@ -403,13 +417,36 @@ describe('ApiServerWorkspace', () => {
       })
     })
     expect(await screen.findByText('Select Resources')).toBeInTheDocument()
+    const picker = screen.getByText('Select Resources').closest('section')
+    if (!(picker instanceof HTMLElement)) {
+      throw new Error('Expected resource picker section.')
+    }
+    const pickerControls = within(picker)
+    const resourceCheckboxes = () => pickerControls.getAllByRole('checkbox')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add Selected' }))
+    fireEvent.click(pickerControls.getByRole('button', { name: 'Deselect all' }))
+    expect(resourceCheckboxes()).toHaveLength(2)
+    expect(
+      resourceCheckboxes().every((checkbox) => !(checkbox as HTMLInputElement).checked),
+    ).toBe(true)
+
+    fireEvent.click(pickerControls.getByRole('button', { name: 'Select all' }))
+    expect(
+      resourceCheckboxes().every((checkbox) => (checkbox as HTMLInputElement).checked),
+    ).toBe(true)
+
+    fireEvent.click(pickerControls.getByRole('button', { name: 'Add Selected' }))
 
     await waitFor(() => {
       expect(props.onAddResources).toHaveBeenCalledWith({
         serverId: 'api-server-default',
-        resources: [usersResource],
+        resources: [
+          usersResource,
+          expect.objectContaining({
+            id: 'api-resource:table:orders',
+            label: 'orders',
+          }),
+        ],
       })
     })
     await waitFor(() => {

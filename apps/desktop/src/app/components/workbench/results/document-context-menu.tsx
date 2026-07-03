@@ -11,10 +11,12 @@ interface DocumentContextMenuProps {
   onCopyPath(): void
   onCopyValue(): void
   onDelete(): void
+  onDeleteDocument(): void
   onEditValue(): void
   onRename(): void
   onViewRawJson(): void
   row: DocumentGridRow
+  documentDeleteUnavailableReason?: string
   x: number
   y: number
 }
@@ -26,14 +28,17 @@ export function DocumentContextMenu({
   onCopyPath,
   onCopyValue,
   onDelete,
+  onDeleteDocument,
   onEditValue,
   onRename,
   onViewRawJson,
   row,
+  documentDeleteUnavailableReason,
   x,
   y,
 }: DocumentContextMenuProps) {
   const permissions = editablePermissions(row, behavior)
+  const rootDocument = row.path.length === 0
 
   return (
     <div
@@ -74,6 +79,16 @@ export function DocumentContextMenu({
         <span role="menuitem" className="document-context-menu-note">
           Double-click type to change
         </span>
+      ) : null}
+      {behavior.contextActions.deleteDocument && rootDocument && !documentDeleteUnavailableReason ? (
+        <button type="button" role="menuitem" className="document-context-menu-danger" onClick={() => { onDeleteDocument(); onClose() }}>
+          Delete Document
+        </button>
+      ) : null}
+      {behavior.contextActions.deleteDocument && rootDocument && documentDeleteUnavailableReason ? (
+        <button type="button" role="menuitem" disabled title={documentDeleteUnavailableReason}>
+          Delete Document unavailable
+        </button>
       ) : null}
       {behavior.contextActions.deleteField && permissions.canDeleteField ? (
         <button type="button" role="menuitem" onClick={() => { onDelete(); onClose() }}>

@@ -39,6 +39,11 @@ fn blank_workspace_defaults_first_install_guide_to_unseen() {
     assert!(snapshot
         .preferences
         .first_install_guide
+        .current_step_id
+        .is_none());
+    assert!(snapshot
+        .preferences
+        .first_install_guide
         .updated_at
         .is_none());
     assert!(snapshot
@@ -53,6 +58,7 @@ fn migration_normalizes_first_install_guide_preferences() {
     let mut snapshot = blank_workspace_snapshot();
     snapshot.preferences.first_install_guide = FirstInstallGuidePreferences {
         status: "unknown".into(),
+        current_step_id: Some("query".into()),
         updated_at: Some("2026-06-30T00:00:00.000Z".into()),
         completed_at: Some("2026-06-30T00:01:00.000Z".into()),
     };
@@ -71,12 +77,18 @@ fn migration_normalizes_first_install_guide_preferences() {
     assert!(migrated
         .preferences
         .first_install_guide
+        .current_step_id
+        .is_none());
+    assert!(migrated
+        .preferences
+        .first_install_guide
         .completed_at
         .is_none());
 
     let mut completed = blank_workspace_snapshot();
     completed.preferences.first_install_guide = FirstInstallGuidePreferences {
         status: "completed".into(),
+        current_step_id: Some("settings".into()),
         updated_at: Some("2026-06-30T01:00:00.000Z".into()),
         completed_at: Some("2026-06-30T01:01:00.000Z".into()),
     };
@@ -87,6 +99,11 @@ fn migration_normalizes_first_install_guide_preferences() {
         migrated_completed.preferences.first_install_guide.status,
         "completed"
     );
+    assert!(migrated_completed
+        .preferences
+        .first_install_guide
+        .current_step_id
+        .is_none());
     assert_eq!(
         migrated_completed
             .preferences
@@ -95,6 +112,30 @@ fn migration_normalizes_first_install_guide_preferences() {
             .as_deref(),
         Some("2026-06-30T01:01:00.000Z")
     );
+
+    let mut started = blank_workspace_snapshot();
+    started.preferences.first_install_guide = FirstInstallGuidePreferences {
+        status: "started".into(),
+        current_step_id: Some("explorer".into()),
+        updated_at: Some("2026-06-30T02:00:00.000Z".into()),
+        completed_at: Some("2026-06-30T02:01:00.000Z".into()),
+    };
+
+    let migrated_started = migrate_snapshot(started);
+
+    assert_eq!(
+        migrated_started
+            .preferences
+            .first_install_guide
+            .current_step_id
+            .as_deref(),
+        Some("explorer")
+    );
+    assert!(migrated_started
+        .preferences
+        .first_install_guide
+        .completed_at
+        .is_none());
 }
 
 #[test]

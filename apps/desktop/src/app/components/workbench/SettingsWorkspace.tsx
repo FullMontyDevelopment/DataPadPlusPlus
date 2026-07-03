@@ -7,11 +7,14 @@ import type {
   AppShortcutId,
   DatastoreApiServerSettingsRequest,
   DatastoreMcpServerSettingsRequest,
+  DatastoreSecurityChecksSettingsRequest,
   DiagnosticsReport,
   WorkspaceBackupRunResponse,
   WorkspaceBackupSummary,
   WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
+  WorkspaceSwitcherSettingsRequest,
+  WorkspaceSwitcherStatus,
 } from '@datapadplusplus/shared-types'
 import { SettingsIcon, ThemeIcon } from './icons'
 import { SettingsAboutPanel } from './SettingsAboutPanel'
@@ -40,6 +43,7 @@ export function SettingsWorkspace({
   updateInstallStatus,
   updateSettings,
   updateStatus,
+  workspaceSwitcherStatus,
   onCheckForUpdates,
   onClearLogFile,
   onCreateBackup,
@@ -59,15 +63,19 @@ export function SettingsWorkspace({
   onOpenApiServer,
   onOpenMcpServer,
   onOpenWorkspaceSearch,
+  onOpenSecurityChecks,
   onUpdateApiServerSettings,
   onUpdateMcpServerSettings,
   onUpdateBackupSettings,
+  onUpdateWorkspaceSwitcherSettings,
   onUpdateWorkspaceSearchSettings,
+  onUpdateSecurityCheckSettings,
 }: {
   diagnostics?: DiagnosticsReport
   health: AppHealth
   initialSection?: LegacySettingsSection
   preferences: WorkspaceSnapshot['preferences']
+  workspaceSwitcherStatus?: WorkspaceSwitcherStatus
   onClearLogFile(fileName: string): Promise<AppLogFileContent | undefined>
   onCreateBackup(automatic?: boolean): Promise<WorkspaceBackupRunResponse | undefined>
   onDeleteBackup(backupId: string): Promise<WorkspaceBackupSummary[] | undefined>
@@ -91,14 +99,21 @@ export function SettingsWorkspace({
   onOpenApiServer(): void
   onOpenMcpServer(): void
   onOpenWorkspaceSearch(): void
+  onOpenSecurityChecks(): void
   onUpdateApiServerSettings(
     request: DatastoreApiServerSettingsRequest,
   ): Promise<boolean>
   onUpdateMcpServerSettings(
     request: DatastoreMcpServerSettingsRequest,
   ): Promise<boolean>
+  onUpdateWorkspaceSwitcherSettings(
+    request: WorkspaceSwitcherSettingsRequest,
+  ): Promise<boolean>
   onUpdateWorkspaceSearchSettings(
     request: WorkspaceSearchSettingsRequest,
+  ): Promise<boolean>
+  onUpdateSecurityCheckSettings(
+    request: DatastoreSecurityChecksSettingsRequest,
   ): Promise<boolean>
 } & SettingsUpdatesProps) {
   const [section, setSection] = useState<SettingsSection>(
@@ -196,9 +211,13 @@ export function SettingsWorkspace({
             onOpenApiServer={onOpenApiServer}
             onOpenMcpServer={onOpenMcpServer}
             onOpenWorkspaceSearch={onOpenWorkspaceSearch}
+            onOpenSecurityChecks={onOpenSecurityChecks}
+            workspaceSwitcherStatus={workspaceSwitcherStatus}
             onUpdateApiServerSettings={onUpdateApiServerSettings}
             onUpdateMcpServerSettings={onUpdateMcpServerSettings}
+            onUpdateWorkspaceSwitcherSettings={onUpdateWorkspaceSwitcherSettings}
             onUpdateWorkspaceSearchSettings={onUpdateWorkspaceSearchSettings}
+            onUpdateSecurityCheckSettings={onUpdateSecurityCheckSettings}
           />
         ) : null}
 

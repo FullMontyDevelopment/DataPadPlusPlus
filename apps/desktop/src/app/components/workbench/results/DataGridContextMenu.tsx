@@ -1,5 +1,7 @@
 interface DataGridContextMenuProps {
   canDelete: boolean
+  deleteLabel: string
+  disabledReason?: string
   onClose(): void
   onDeleteRow(): void
   x: number
@@ -8,6 +10,8 @@ interface DataGridContextMenuProps {
 
 export function DataGridContextMenu({
   canDelete,
+  deleteLabel,
+  disabledReason,
   onClose,
   onDeleteRow,
   x,
@@ -27,7 +31,11 @@ export function DataGridContextMenu({
           className="document-context-menu-danger"
           onClick={() => { onDeleteRow(); onClose() }}
         >
-          Delete Row
+          {deleteLabel}
+        </button>
+      ) : disabledReason ? (
+        <button type="button" role="menuitem" disabled title={disabledReason}>
+          {deleteLabel} unavailable
         </button>
       ) : null}
     </div>

@@ -94,7 +94,7 @@ fn safe_mode_requires_confirmation_for_risky_queries() {
 }
 
 #[test]
-fn high_risk_environment_requires_confirmation_even_for_reads() {
+fn high_risk_environment_allows_reads_without_confirmation() {
     let decision = evaluate_guardrails(
         &connection(false),
         &environment("high", false, false),
@@ -103,11 +103,80 @@ fn high_risk_environment_requires_confirmation_even_for_reads() {
         false,
     );
 
+    assert_eq!(decision.status, "allow");
+}
+
+#[test]
+fn high_risk_environment_requires_confirmation_for_writes() {
+    let decision = evaluate_guardrails(
+        &connection(false),
+        &environment("high", false, false),
+        &resolved_environment(Vec::new()),
+        "delete from accounts where id = 1",
+        false,
+    );
+
     assert_eq!(decision.status, "confirm");
     assert!(decision
         .reasons
         .iter()
         .any(|reason| reason.contains("high risk")));
+}
+
+#[test]
+fn safe_mode_allows_mongo_and_redis_reads() {
+    let mut mongo = connection(false);
+    mongo.engine = "mongodb".into();
+    mongo.family = "document".into();
+    let mut redis = connection(false);
+    redis.engine = "redis".into();
+    redis.family = "key-value".into();
+
+    let mongo_decision = evaluate_guardrails(
+        &mongo,
+        &environment("low", false, false),
+        &resolved_environment(Vec::new()),
+        r#"{ "database": "catalog", "collection": "products", "filter": {}, "limit": 20 }"#,
+        true,
+    );
+    let redis_decision = evaluate_guardrails(
+        &redis,
+        &environment("low", false, false),
+        &resolved_environment(Vec::new()),
+        "GET session:1",
+        true,
+    );
+
+    assert_eq!(mongo_decision.status, "allow");
+    assert_eq!(redis_decision.status, "allow");
+}
+
+#[test]
+fn safe_mode_requires_confirmation_for_mongo_and_redis_writes() {
+    let mut mongo = connection(false);
+    mongo.engine = "mongodb".into();
+    mongo.family = "document".into();
+    let mut redis = connection(false);
+    redis.engine = "redis".into();
+    redis.family = "key-value".into();
+
+    let mongo_decision = evaluate_guardrails(
+        &mongo,
+        &environment("low", false, false),
+        &resolved_environment(Vec::new()),
+        r#"{ "operation": "deleteMany", "database": "catalog", "collection": "products", "filter": {} }"#,
+        true,
+    );
+    let redis_decision = evaluate_guardrails(
+        &redis,
+        &environment("low", false, false),
+        &resolved_environment(Vec::new()),
+        "DEL session:1",
+        true,
+    );
+
+    assert_eq!(mongo_decision.status, "confirm");
+    assert_eq!(redis_decision.status, "confirm");
 }
 
 #[test]

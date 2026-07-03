@@ -442,6 +442,7 @@ describe('App', () => {
     expect(await screen.findByText('Step 1 of 7')).toBeInTheDocument()
     await waitFor(() => {
       expect(loadBrowserSnapshot().preferences.firstInstallGuide?.status).toBe('started')
+      expect(loadBrowserSnapshot().preferences.firstInstallGuide?.currentStepId).toBe('welcome')
     })
 
     unmount()
@@ -481,7 +482,7 @@ describe('App', () => {
     fireEvent.click(within(prompt).getByRole('button', { name: 'Start Tutorial' }))
 
     let guide = await screen.findByRole('dialog', { name: 'Welcome to DataPad++' })
-    fireEvent.click(within(guide).getByRole('button', { name: 'Show Library' }))
+    fireEvent.click(within(guide).getByRole('button', { name: 'Next' }))
 
     guide = await screen.findByRole('dialog', { name: 'Organize the Library' })
     fireEvent.click(within(guide).getByRole('button', { name: 'Create Folder' }))
@@ -492,19 +493,24 @@ describe('App', () => {
     })
     fireEvent.click(within(folderDialog).getByRole('button', { name: 'Create Folder' }))
 
-    guide = await screen.findByRole('dialog', { name: 'Create a connection' })
+    guide = await screen.findByRole('dialog', { name: 'Organize the Library' })
     await waitFor(() => {
       expect(
         loadBrowserSnapshot().libraryNodes.some((node) => node.name === 'Getting Started'),
       ).toBe(true)
+      expect(within(guide).getByRole('button', { name: 'Next' })).not.toBeDisabled()
     })
+    fireEvent.click(within(guide).getByRole('button', { name: 'Next' }))
 
+    guide = await screen.findByRole('dialog', { name: 'Create a connection' })
     fireEvent.click(within(guide).getByRole('button', { name: 'New Connection' }))
 
     const drawer = await screen.findByLabelText('connection drawer')
-    await screen.findByRole('dialog', { name: 'Test and save' })
+    guide = await screen.findByRole('dialog', { name: 'Create a connection' })
     expect(within(drawer).getByLabelText('Name')).toHaveValue('PostgreSQL connection')
+    fireEvent.click(within(guide).getByRole('button', { name: 'Next' }))
 
+    await screen.findByRole('dialog', { name: 'Test and save' })
     fireEvent.click(within(drawer).getByLabelText('Close drawer'))
 
     const reopenedDrawer = await screen.findByLabelText('connection drawer')
@@ -513,16 +519,17 @@ describe('App', () => {
 
     fireEvent.click(within(reopenedDrawer).getByRole('button', { name: 'Save Connection' }))
 
-    guide = await screen.findByRole('dialog', { name: 'Browse metadata' })
+    guide = await screen.findByRole('dialog', { name: 'Test and save' })
     await waitFor(() => {
       expect(
         loadBrowserSnapshot().connections.some(
           (connection) => connection.name === 'PostgreSQL connection',
         ),
       ).toBe(true)
+      expect(within(guide).getByRole('button', { name: 'Next' })).not.toBeDisabled()
     })
-
-    fireEvent.click(within(guide).getByRole('button', { name: 'Open Explorer' }))
+    fireEvent.click(within(guide).getByRole('button', { name: 'Next' }))
+    guide = await screen.findByRole('dialog', { name: 'Browse metadata' })
 
     expect(
       await screen.findByRole(
@@ -532,25 +539,28 @@ describe('App', () => {
       ),
     ).toBeInTheDocument()
     expect(document.querySelector('[data-tour-id="explorer-metadata"]')).toBeInTheDocument()
+    fireEvent.click(within(guide).getByRole('button', { name: 'Next' }))
     guide = await screen.findByRole('dialog', { name: 'Query and review results' })
-
-    fireEvent.click(within(guide).getByRole('button', { name: 'Open Query Tab' }))
 
     expect(
       await screen.findByRole('tab', { name: /Query 1/i }, { timeout: 4000 }),
     ).toBeInTheDocument()
-    guide = await screen.findByRole('dialog', { name: 'Check safety settings' })
+    fireEvent.click(within(guide).getByRole('button', { name: 'Next' }))
 
-    fireEvent.click(within(guide).getByRole('button', { name: 'Open Settings' }))
+    guide = await screen.findByRole('dialog', { name: 'Check safety settings' })
 
     await waitFor(() => {
       expect(loadBrowserSnapshot().tabs.some((tab) => tab.tabKind === 'settings')).toBe(true)
     }, { timeout: 4000 })
     guide = await screen.findByRole('dialog', { name: 'Check safety settings' })
+    await waitFor(() => {
+      expect(within(guide).getByRole('button', { name: 'Finish' })).not.toBeDisabled()
+    })
     fireEvent.click(within(guide).getByRole('button', { name: 'Finish' }))
 
     await waitFor(() => {
       expect(loadBrowserSnapshot().preferences.firstInstallGuide?.status).toBe('completed')
+      expect(loadBrowserSnapshot().preferences.firstInstallGuide?.currentStepId).toBeUndefined()
     })
     await waitFor(() => {
       expect(
@@ -2110,10 +2120,11 @@ describe('App', () => {
     })
   })
 
-  it('closes ephemeral tabs and keeps a recoverable closed-tab history', async () => {
+  it('closes ephemeral tabs and keeps keyboard closed-tab recovery without Library Recents', async () => {
     render(<App />)
 
     await createFirstConnection()
+    await openNewQueryFromConnection('PostgreSQL connection', /Query 2/i)
     fireEvent.click(
       screen.getByRole('button', {
         name: /Close tab Query 1/i,
@@ -2125,22 +2136,11 @@ describe('App', () => {
         screen.queryByRole('tab', { name: /Query 1/i }),
       ).not.toBeInTheDocument()
     })
+    expect(screen.getByRole('tab', { name: /Query 2/i })).toBeInTheDocument()
 
-    await waitFor(() => {
-      expect(screen.getByText('Recents')).toBeInTheDocument()
-    })
-    const expandClosedTabs = screen.queryByRole('button', {
-      name: /Expand Recents section/i,
-    })
-    if (expandClosedTabs) {
-      fireEvent.click(expandClosedTabs)
-    }
+    expect(screen.queryByText('Recents')).not.toBeInTheDocument()
 
-    fireEvent.click(
-      await screen.findByRole('button', {
-        name: /Reopen closed tab Query 1/i,
-      }),
-    )
+    fireEvent.keyDown(window, { key: 'T', ctrlKey: true, shiftKey: true })
 
     await waitFor(() => {
       expect(
@@ -2215,8 +2215,11 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save and Close' }))
 
     await waitFor(() => {
-      expect(screen.getByText('Recents')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('tab', { name: /Query 1/i }),
+      ).not.toBeInTheDocument()
     })
+    expect(screen.queryByText('Recents')).not.toBeInTheDocument()
   })
 
   it('does not expose workspace locking in the workbench shell', async () => {

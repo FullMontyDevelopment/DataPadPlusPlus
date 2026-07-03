@@ -9,21 +9,28 @@ export interface SpotlightState {
   height: number
 }
 
+export interface GuidePopoverSize {
+  width: number
+  height: number
+}
+
 export function getGuidePopoverStyle(
   spotlight: SpotlightState | undefined,
   preferredPlacement: GuidePopoverPlacement = 'right',
+  popoverSize: GuidePopoverSize = { width: 360, height: 260 },
 ): CSSProperties {
+  const margin = 16
+  const width = Math.min(popoverSize.width, window.innerWidth - margin * 2)
+  const height = Math.min(popoverSize.height, window.innerHeight - margin * 2)
+
   if (!spotlight) {
     return {
-      top: 72,
-      left: 320,
+      top: clamp((window.innerHeight - height) / 2, margin, Math.max(margin, window.innerHeight - height - margin)),
+      left: clamp((window.innerWidth - width) / 2, margin, Math.max(margin, window.innerWidth - width - margin)),
     }
   }
 
-  const margin = 16
   const gap = 14
-  const width = Math.min(360, window.innerWidth - margin * 2)
-  const height = 260
   const viewportWidth = window.innerWidth
   const viewportHeight = window.innerHeight
   const placements = fallbackPlacements(preferredPlacement)

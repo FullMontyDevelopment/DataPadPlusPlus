@@ -1,13 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import type {
-  ClosedQueryTabSnapshot,
   ConnectionProfile,
   DatastoreApiServerInstanceStatus,
   EnvironmentProfile,
   ExplorerNode,
   LibraryNode,
+  WorkspaceSwitcherStatus,
 } from '@datapadplusplus/shared-types'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ConnectionHealth } from '../../../../src/app/state/connection-health'
 import { LibraryPane } from '../../../../src/app/components/workbench/SideBar.library-pane'
 import { sidebarSectionId } from '../../../../src/app/components/workbench/SideBar.helpers'
@@ -21,10 +21,6 @@ const nodes: LibraryNode[] = [
 ]
 
 describe('LibraryPane', () => {
-  beforeEach(() => {
-    window.localStorage.removeItem('datapadplusplus.library.recentsHeight')
-  })
-
   afterEach(() => {
     vi.restoreAllMocks()
   })
@@ -321,9 +317,8 @@ describe('LibraryPane', () => {
     expect(onMoveNode).not.toHaveBeenCalled()
   })
 
-  it('shows recent library files and closed tabs in a resizable bottom Recents panel', () => {
+  it('does not render the removed Recents recovery panel', () => {
     renderLibraryPane(vi.fn(), {
-      closedTabs: [closedTab('closed-tab-1', 'Closed scratch')],
       libraryNodes: [
         ...nodes,
         {
@@ -333,18 +328,48 @@ describe('LibraryPane', () => {
       ],
     })
 
-    expect(screen.getByRole('button', { name: /Collapse Recents section/i })).toBeInTheDocument()
-    expect(screen.getAllByText('Recent report').length).toBeGreaterThan(0)
-    expect(screen.getByText('Closed scratch')).toBeInTheDocument()
+    expect(screen.queryByText('Recents')).not.toBeInTheDocument()
+    expect(screen.queryByText('Recent report')).toBeInTheDocument()
+    expect(screen.queryByRole('separator', { name: 'Resize Recents' })).not.toBeInTheDocument()
+  })
 
-    const resizeHandle = screen.getByRole('separator', { name: 'Resize Recents' })
-    const body = document.querySelector('#library-recents-body')
+  it('hides Workspaces until the experimental feature is enabled', () => {
+    renderLibraryPane(vi.fn())
 
-    fireEvent.pointerDown(resizeHandle, { pointerId: 1, clientY: 100 })
-    fireEvent.pointerMove(resizeHandle, { pointerId: 1, clientY: 70 })
-    fireEvent.pointerUp(resizeHandle, { pointerId: 1, clientY: 70 })
+    expect(screen.queryByText('Workspaces')).not.toBeInTheDocument()
+  })
 
-    expect(body).toHaveStyle({ height: '210px' })
+  it('shows workspace rows and calls create rename and switch actions', () => {
+    const onCreateWorkspace = vi.fn()
+    const onRenameWorkspace = vi.fn()
+    const onSwitchWorkspace = vi.fn()
+
+    renderLibraryPane(vi.fn(), {
+      onCreateWorkspace,
+      onRenameWorkspace,
+      onSwitchWorkspace,
+      workspaceSwitcherStatus: workspaceSwitcherStatus(),
+    })
+
+    expect(screen.getByRole('button', { name: /Collapse Workspaces section/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Default Workspace/ })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Project QA/ }))
+    expect(onSwitchWorkspace).toHaveBeenCalledWith('workspace-qa')
+
+    fireEvent.click(screen.getByRole('button', { name: 'New workspace' }))
+    fireEvent.change(screen.getByLabelText('Workspace name'), {
+      target: { value: 'Scratch' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    expect(onCreateWorkspace).toHaveBeenCalledWith('Scratch')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename workspace Project QA' }))
+    fireEvent.change(screen.getByLabelText('Workspace name'), {
+      target: { value: 'QA renamed' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+    expect(onRenameWorkspace).toHaveBeenCalledWith('workspace-qa', 'QA renamed')
   })
 
   it('hides Workspace Search until the experimental feature is enabled', () => {
@@ -545,7 +570,6 @@ describe('LibraryPane', () => {
 function renderLibraryPane(
   onMoveNode: (nodeId: string, parentId?: string) => void,
   overrides: Partial<{
-    closedTabs: ClosedQueryTabSnapshot[]
     activeConnectionId: string
     activeEnvironmentId: string
     connectionExplorerItems: ExplorerNode[]
@@ -565,6 +589,9 @@ function renderLibraryPane(
     onLoadExplorerScope: (connectionId: string, scope?: string, environmentId?: string) => void
     onRenameNode: (nodeId: string, name: string) => void
     onOpenWorkspaceSearch: () => void
+    onCreateWorkspace: (name: string) => void
+    onRenameWorkspace: (workspaceId: string, name: string) => void
+    onSwitchWorkspace: (workspaceId: string) => void
     onSelectEnvironment: (environmentId: string) => void
     onSelectConnection: (connectionId: string) => void
     onSetEnvironment: (nodeId: string, environmentId?: string) => void
@@ -575,13 +602,13 @@ function renderLibraryPane(
     apiServerEnabled: boolean
     apiServers: DatastoreApiServerInstanceStatus[]
     onCreateApiServer: () => void
+    workspaceSwitcherStatus: WorkspaceSwitcherStatus
   }> = {},
 ) {
   return render(
     <LibraryPane
       activeConnectionId={overrides.activeConnectionId ?? ''}
       activeEnvironmentId={overrides.activeEnvironmentId ?? ''}
-      closedTabs={overrides.closedTabs ?? []}
       getConnectionExplorerItems={
         overrides.getConnectionExplorerItems ??
         (() => overrides.connectionExplorerItems)
@@ -596,6 +623,7 @@ function renderLibraryPane(
       explorerStatus={overrides.explorerStatus ?? 'idle'}
       apiServerEnabled={overrides.apiServerEnabled ?? false}
       apiServers={overrides.apiServers ?? []}
+      workspaceSwitcherStatus={overrides.workspaceSwitcherStatus}
       workspaceSearchEnabled={overrides.workspaceSearchEnabled ?? false}
       activeWorkspaceSearch={overrides.activeWorkspaceSearch ?? false}
       libraryFilter=""
@@ -604,6 +632,7 @@ function renderLibraryPane(
       onCreateConnection={overrides.onCreateConnection ?? vi.fn()}
       onCreateEnvironment={overrides.onCreateEnvironment ?? vi.fn()}
       onCreateApiServer={overrides.onCreateApiServer ?? vi.fn()}
+      onCreateWorkspace={overrides.onCreateWorkspace ?? vi.fn()}
       onCloneEnvironment={overrides.onCloneEnvironment ?? vi.fn()}
       onCreateFolder={overrides.onCreateFolder ?? vi.fn()}
       onDeleteEnvironment={overrides.onDeleteEnvironment ?? vi.fn()}
@@ -615,7 +644,8 @@ function renderLibraryPane(
       onOpenWorkspaceSearch={overrides.onOpenWorkspaceSearch ?? vi.fn()}
       onOpenLibraryItem={vi.fn()}
       onRenameNode={overrides.onRenameNode ?? vi.fn()}
-      onReopenClosedTab={vi.fn()}
+      onRenameWorkspace={overrides.onRenameWorkspace ?? vi.fn()}
+      onSwitchWorkspace={overrides.onSwitchWorkspace ?? vi.fn()}
       onSelectConnection={overrides.onSelectConnection ?? vi.fn()}
       onSelectEnvironment={overrides.onSelectEnvironment ?? vi.fn()}
       onTestConnection={overrides.onTestConnection ?? vi.fn()}
@@ -810,20 +840,37 @@ function connection(): ConnectionProfile {
   }
 }
 
-function closedTab(id: string, title: string): ClosedQueryTabSnapshot {
+function workspaceSwitcherStatus(): WorkspaceSwitcherStatus {
   return {
-    id,
-    title,
-    connectionId: 'connection-1',
-    environmentId: 'environment-1',
-    family: 'sql',
-    language: 'sql',
-    editorLabel: 'SQL',
-    queryText: 'select 1;',
-    status: 'idle',
-    dirty: false,
-    history: [],
-    closedAt: '2026-05-14T11:00:00.000Z',
-    closeReason: 'user',
+    enabled: true,
+    activeWorkspaceId: 'default',
+    workspaces: [
+      {
+        id: 'default',
+        name: 'Default Workspace',
+        createdAt: '2026-05-14T00:00:00.000Z',
+        updatedAt: '2026-05-14T00:00:00.000Z',
+        lastOpenedAt: '2026-05-14T00:00:00.000Z',
+        counts: {
+          connections: 1,
+          environments: 1,
+          libraryItems: 2,
+          openTabs: 0,
+        },
+      },
+      {
+        id: 'workspace-qa',
+        name: 'Project QA',
+        createdAt: '2026-05-15T00:00:00.000Z',
+        updatedAt: '2026-05-15T00:00:00.000Z',
+        lastOpenedAt: '2026-05-15T00:00:00.000Z',
+        counts: {
+          connections: 2,
+          environments: 3,
+          libraryItems: 4,
+          openTabs: 1,
+        },
+      },
+    ],
   }
 }

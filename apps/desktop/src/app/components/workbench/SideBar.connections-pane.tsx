@@ -43,6 +43,7 @@ export function ConnectionsPane({
   environments,
   explorerNodes,
   explorerStatus,
+  explorerFolderOrders,
   isExplorerScopeLoading = () => false,
   getConnectionHealth = () => undefined,
   sectionStates,
@@ -60,6 +61,7 @@ export function ConnectionsPane({
   onOpenScopedQuery,
   onCreateTab,
   onSelectConnection,
+  onSetExplorerFolderOrder,
 }: {
   activeConnectionId: string
   adapterManifests: AdapterManifest[]
@@ -69,6 +71,7 @@ export function ConnectionsPane({
   environments: EnvironmentProfile[]
   explorerNodes?: ExplorerNode[]
   explorerStatus: 'idle' | 'loading' | 'ready'
+  explorerFolderOrders?: Record<string, string[]>
   isExplorerScopeLoading?(connectionId: string, scope?: string): boolean
   getConnectionHealth?(connectionId: string, environmentId?: string): ConnectionHealth | undefined
   sectionStates: Record<string, boolean>
@@ -86,6 +89,7 @@ export function ConnectionsPane({
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onCreateTab(connectionId?: string): void
   onSelectConnection(connectionId: string): void
+  onSetExplorerFolderOrder?(orderKey: string, orderedNodeKeys: string[]): void
 }) {
   const [expandedConnections, setExpandedConnections] = useState<Record<string, boolean>>({})
   const [contextMenu, setContextMenu] = useState<ConnectionContextMenuState>()
@@ -301,10 +305,12 @@ export function ConnectionsPane({
                         explorerStatus={
                           connection.id === activeConnectionId ? explorerStatus : 'idle'
                         }
+                        explorerFolderOrders={explorerFolderOrders}
                         isExplorerScopeLoading={isExplorerScopeLoading}
                         onLoadExplorerScope={onLoadExplorerScope}
                         onOpenObjectView={onOpenObjectView}
                         onOpenScopedQuery={onOpenScopedQuery}
+                        onSetExplorerFolderOrder={onSetExplorerFolderOrder}
                       />
                     ) : null}
                   </div>

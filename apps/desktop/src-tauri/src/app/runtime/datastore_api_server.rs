@@ -900,7 +900,10 @@ pub fn add_resources(
         })?;
     let mut resources = server.resources.clone();
     for resource in request.resources {
-        if !resources.iter().any(|existing| existing.id == resource.id) {
+        let identity = api_server_resource_identity(&resource);
+        if !resources.iter().any(|existing| {
+            existing.id == resource.id || api_server_resource_identity(existing) == identity
+        }) {
             resources.push(resource);
         }
     }
@@ -3514,19 +3517,36 @@ fn resource_config_for_node(
 ) -> Option<DatastoreApiServerResourceConfig> {
     let crud_kind = crud_kind_for_node(&kind)?;
     let slug = api_server_slug(&label);
-    let id_slug = api_server_slug(&format!("{crud_kind} {node_id} {slug}"));
+    let normalized_path = path.unwrap_or_default();
+    let mut id_parts = vec![crud_kind.clone(), node_id.clone(), slug.clone()];
+    if let Some(scope) = scope.as_ref().filter(|value| !value.trim().is_empty()) {
+        id_parts.push(scope.clone());
+    }
+    id_parts.extend(normalized_path.iter().cloned());
+    let id_slug = api_server_slug(&id_parts.join(" "));
     Some(DatastoreApiServerResourceConfig {
         id: format!("api-resource-{id_slug}"),
         kind: crud_kind,
         label,
         node_id,
-        path: path.unwrap_or_default(),
+        path: normalized_path,
         scope,
         endpoint_slug: slug,
         enabled: true,
         detail: Some(detail),
         metadata: HashMap::new(),
     })
+}
+
+fn api_server_resource_identity(resource: &DatastoreApiServerResourceConfig) -> String {
+    let mut parts = vec![
+        resource.kind.trim().to_string(),
+        resource.node_id.trim().to_string(),
+        resource.scope.as_deref().unwrap_or("").trim().to_string(),
+        resource.label.trim().to_string(),
+    ];
+    parts.extend(resource.path.iter().map(|part| part.trim().to_string()));
+    parts.join("\u{1f}").to_lowercase()
 }
 
 async fn execute_custom_endpoint(

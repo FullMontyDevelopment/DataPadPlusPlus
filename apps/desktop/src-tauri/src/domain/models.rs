@@ -882,6 +882,8 @@ pub struct LibraryNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_efficiency_mode: Option<bool>,
     #[serde(default)]
+    pub scoped_target: Option<ScopedQueryTarget>,
+    #[serde(default)]
     pub builder_state: Option<Value>,
     pub script_text: Option<String>,
     #[serde(default)]
@@ -946,6 +948,14 @@ pub struct SaveQueryTabToLocalFileRequest {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct ExplorerFolderOrderRequest {
+    pub order_key: String,
+    #[serde(default)]
+    pub ordered_node_keys: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportResultFileRequest {
     pub suggested_file_name: String,
     pub extension: String,
@@ -983,6 +993,60 @@ pub struct WorkspaceBundleFileExportResponse {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceBundleFileImportRequest {
     pub passphrase: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSummaryCounts {
+    pub connections: usize,
+    pub environments: usize,
+    pub library_items: usize,
+    pub open_tabs: usize,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSummary {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_opened_at: Option<String>,
+    pub counts: WorkspaceSummaryCounts,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSwitcherStatus {
+    pub enabled: bool,
+    pub active_workspace_id: String,
+    pub workspaces: Vec<WorkspaceSummary>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSwitcherSettingsRequest {
+    pub enabled: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceCreateRequest {
+    pub name: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRenameRequest {
+    pub workspace_id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSwitchRequest {
+    pub workspace_id: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -2360,8 +2424,187 @@ pub struct WorkspaceSearchPreferences {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
+pub struct DatastoreSecurityChecksPreferences {
+    pub enabled: bool,
+    pub refresh_interval_days: u32,
+    pub muted_finding_ids: Vec<String>,
+    pub last_refresh_attempt_at: Option<String>,
+    pub last_successful_refresh_at: Option<String>,
+    pub next_manual_refresh_allowed_at: Option<String>,
+}
+
+impl Default for DatastoreSecurityChecksPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            refresh_interval_days: 7,
+            muted_finding_ids: Vec::new(),
+            last_refresh_attempt_at: None,
+            last_successful_refresh_at: None,
+            next_manual_refresh_allowed_at: None,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecurityCpeCandidate {
+    pub cpe_name: String,
+    pub source: String,
+    pub confidence: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecurityTarget {
+    pub id: String,
+    pub connection_id: String,
+    pub environment_id: String,
+    pub connection_name: String,
+    pub environment_name: String,
+    pub engine: String,
+    pub family: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detected_product: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detected_version: Option<String>,
+    #[serde(default)]
+    pub cpe_candidates: Vec<DatastoreSecurityCpeCandidate>,
+    pub finding_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub highest_severity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_checked_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecurityKevDetails {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_added: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known_ransomware_campaign_use: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecurityFindingReference {
+    pub label: String,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecurityFinding {
+    pub id: String,
+    #[serde(default)]
+    pub target_ids: Vec<String>,
+    pub cve_id: String,
+    pub title: String,
+    pub summary: String,
+    pub severity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cvss_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cvss_vector: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<String>,
+    pub affected_product: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub affected_version: Option<String>,
+    pub remediation: String,
+    #[serde(default)]
+    pub references: Vec<DatastoreSecurityFindingReference>,
+    #[serde(default)]
+    pub cwes: Vec<String>,
+    pub known_exploited: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kev: Option<DatastoreSecurityKevDetails>,
+    #[serde(default)]
+    pub source_urls: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecuritySourceMetadata {
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<String>,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_count: Option<usize>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecurityCheckSnapshot {
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub source_metadata: Vec<DatastoreSecuritySourceMetadata>,
+    #[serde(default)]
+    pub targets: Vec<DatastoreSecurityTarget>,
+    #[serde(default)]
+    pub findings: Vec<DatastoreSecurityFinding>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub errors: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecurityChecksSettingsRequest {
+    pub enabled: bool,
+    pub refresh_interval_days: Option<u32>,
+    pub muted_finding_ids: Option<Vec<String>>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecurityChecksRefreshRequest {
+    #[serde(default)]
+    pub manual: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecurityChecksStatus {
+    pub supported: bool,
+    pub enabled: bool,
+    pub message: String,
+    pub can_refresh: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_blocked_reason: Option<String>,
+    pub preferences: DatastoreSecurityChecksPreferences,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<DatastoreSecurityCheckSnapshot>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct FirstInstallGuidePreferences {
     pub status: String,
+    pub current_step_id: Option<String>,
     pub updated_at: Option<String>,
     pub completed_at: Option<String>,
 }
@@ -2370,6 +2613,7 @@ impl Default for FirstInstallGuidePreferences {
     fn default() -> Self {
         Self {
             status: "unseen".into(),
+            current_step_id: None,
             updated_at: None,
             completed_at: None,
         }
@@ -2398,9 +2642,13 @@ pub struct AppPreferences {
     #[serde(default)]
     pub datastore_mcp_server: DatastoreMcpServerPreferences,
     #[serde(default)]
+    pub datastore_security_checks: DatastoreSecurityChecksPreferences,
+    #[serde(default)]
     pub workspace_search: WorkspaceSearchPreferences,
     #[serde(default)]
     pub first_install_guide: FirstInstallGuidePreferences,
+    #[serde(default)]
+    pub explorer_folder_orders: HashMap<String, Vec<String>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -2499,6 +2747,8 @@ pub struct WorkspaceSnapshot {
     pub explorer_nodes: Vec<ExplorerNode>,
     pub adapter_manifests: Vec<AdapterManifest>,
     pub preferences: AppPreferences,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub datastore_security_checks: Option<DatastoreSecurityCheckSnapshot>,
     pub guardrails: Vec<GuardrailDecision>,
     pub lock_state: LockState,
     pub ui: UiState,

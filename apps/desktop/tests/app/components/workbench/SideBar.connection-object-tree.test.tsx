@@ -3,7 +3,10 @@ import type { AdapterManifest, ConnectionProfile, EnvironmentProfile } from '@da
 import { datastoreTreeForEngine } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import type { ConnectionTreeNode } from '../../../../src/app/components/workbench/SideBar.helpers'
-import { ConnectionObjectTree } from '../../../../src/app/components/workbench/SideBar.connection-object-tree'
+import {
+  ConnectionObjectTree,
+  explorerFolderOrderKey,
+} from '../../../../src/app/components/workbench/SideBar.connection-object-tree'
 
 describe('ConnectionObjectTree', () => {
   it('renders adapter-manifest structural folders while live metadata is unavailable', () => {
@@ -42,6 +45,24 @@ describe('ConnectionObjectTree', () => {
 
     expect(screen.getByText('No live metadata objects found.')).toBeInTheDocument()
     expect(screen.queryByText('catalog')).not.toBeInTheDocument()
+  })
+
+  it('keeps the environment accent on empty live metadata rows', () => {
+    render(
+      <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(mongoConnection())}
+        connection={mongoConnection()}
+        environment={localEnvironment()}
+        explorerNodes={[]}
+        explorerStatus="ready"
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    const emptyRow = screen.getByText('No live metadata objects found.')
+
+    expect(emptyRow).toHaveClass('has-environment-accent')
+    expect(emptyRow.style.getPropertyValue('--connection-env-color')).toBe('#22c55e')
   })
 
   it('uses adapter-manifest Object Explorer folders for SQL Server', () => {
@@ -2928,6 +2949,82 @@ describe('ConnectionObjectTree', () => {
 
     expect(onLoadExplorerScope).toHaveBeenCalledWith('conn-mongo', 'collection:catalog:customers')
   })
+
+  it('applies environment color variables to nested datastore explorer children', () => {
+    render(
+      <ConnectionObjectTree
+        connection={mongoConnection()}
+        environment={localEnvironment()}
+        explorerNodes={mongoExplorerNodes()}
+        explorerStatus="ready"
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandMongoDatabase()
+    expandTreeItem('Collections')
+    expandTreeItem('products')
+
+    for (const label of ['catalog', 'Collections', 'products', 'Documents']) {
+      const row = treeItemForLabel(label)
+
+      expect(row).toHaveClass('has-environment-accent')
+      expect(row.style.getPropertyValue('--connection-env-color')).toBe('#22c55e')
+      expect(row.style.getPropertyValue('--connection-env-border')).toBe(
+        'rgba(34, 197, 94, 0.5)',
+      )
+    }
+  })
+
+  it('orders Explorer children alphabetically and keeps duplicate labels visible', () => {
+    render(
+      <ConnectionObjectTree
+        connection={mongoConnection()}
+        nodes={[
+          folderNode('folder-zeta', 'Zeta'),
+          folderNode('folder-alpha-secondary', 'Alpha', ['Secondary Alpha']),
+          folderNode('folder-alpha', 'Alpha'),
+        ]}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    const labels = screen
+      .getAllByRole('treeitem')
+      .map((row) => row.textContent?.trim())
+
+    expect(labels).toEqual(['Alpha', 'Alpha', 'Zeta'])
+  })
+
+  it('persists manual ordering for folder siblings after drag and drop', () => {
+    const onSetExplorerFolderOrder = vi.fn()
+    render(
+      <ConnectionObjectTree
+        connection={mongoConnection()}
+        nodes={[
+          folderNode('folder-alpha', 'Alpha'),
+          folderNode('folder-beta', 'Beta'),
+          folderNode('folder-gamma', 'Gamma'),
+        ]}
+        onOpenScopedQuery={vi.fn()}
+        onSetExplorerFolderOrder={onSetExplorerFolderOrder}
+      />,
+    )
+    const dataTransfer = {
+      effectAllowed: '',
+      dropEffect: '',
+      setData: vi.fn(),
+      getData: vi.fn(() => 'gamma'),
+    }
+
+    fireEvent.dragStart(treeItemForLabel('Gamma'), { dataTransfer })
+    fireEvent.drop(treeItemForLabel('Alpha'), { dataTransfer, clientY: 0 })
+
+    expect(onSetExplorerFolderOrder).toHaveBeenCalledWith(
+      explorerFolderOrderKey('conn-mongo', undefined, '__root__'),
+      ['gamma', 'alpha', 'beta'],
+    )
+  })
 })
 
 function expandTreeItem(label: string) {
@@ -2937,6 +3034,17 @@ function expandTreeItem(label: string) {
 function expandMongoDatabase(database = 'catalog') {
   expandTreeItem('Databases')
   expandTreeItem(database)
+}
+
+function folderNode(id: string, label: string, path?: string[]): ConnectionTreeNode {
+  return {
+    id,
+    label,
+    kind: 'folder',
+    path: path ?? [label],
+    category: true,
+    expandable: true,
+  }
 }
 
 function postgresConnection(): ConnectionProfile {

@@ -724,6 +724,184 @@ describe('ResultPayloadView', () => {
     confirmSpy.mockRestore()
   })
 
+  it('deletes Mongo documents from the root row context menu after confirmation', async () => {
+    const executeDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> => ({
+      connectionId: 'conn-mongo',
+      environmentId: 'env-dev',
+      editKind: 'delete-document',
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: 'mongodb.data-edit.delete-document',
+        engine: 'mongodb',
+        summary: 'Deleted document.',
+        generatedRequest: '{}',
+        requestLanguage: 'mongodb',
+        destructive: true,
+        confirmationText: 'CONFIRM MONGODB DELETE-DOCUMENT',
+        requiredPermissions: ['delete collection document'],
+        warnings: [],
+      },
+      messages: ['Deleted document.'],
+      warnings: [],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "database": "catalog", "collection": "products", "filter": {}, "limit": 20 }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [
+            { _id: 'account-1', status: 'active' },
+            { _id: 'account-2', status: 'paused' },
+          ],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByText('account-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Document' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-mongo',
+        environmentId: 'env-dev',
+        editKind: 'delete-document',
+        confirmationText: 'CONFIRM MONGODB DELETE-DOCUMENT',
+        target: {
+          objectKind: 'document',
+          path: [],
+          database: 'catalog',
+          collection: 'products',
+          documentId: 'account-1',
+        },
+        changes: [],
+      })
+    })
+    expect(screen.queryByText('account-1')).not.toBeInTheDocument()
+    expect(screen.getByText('account-2')).toBeInTheDocument()
+  })
+
+  it('keeps Mongo child field deletion separate from root document deletion', () => {
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "collection": "products", "filter": {}, "limit": 20 }',
+        }}
+        onExecuteDataEdit={vi.fn()}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-1', status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
+
+    expect(screen.getByRole('menuitem', { name: 'Delete Field' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Delete Document' })).not.toBeInTheDocument()
+  })
+
+  it('does not execute Mongo document deletes when the root document lacks a stable id', () => {
+    const executeDataEdit = vi.fn()
+
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "collection": "products", "filter": {}, "limit": 20 }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByText('status: active'))
+    const deleteItem = screen.getByRole('menuitem', { name: 'Delete Document unavailable' })
+
+    expect(deleteItem).toBeDisabled()
+    fireEvent.click(deleteItem)
+    expect(executeDataEdit).not.toHaveBeenCalled()
+  })
+
+  it('retries Mongo document deletes when Safe Mode supplies a different confirmation text', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: 'conn-mongo',
+      environmentId: 'env-qa',
+      editKind: 'delete-document',
+      executionSupport: 'live',
+      executed: request.confirmationText === 'CONFIRM QA',
+      plan: {
+        operationId: 'mongodb.data-edit.delete-document',
+        engine: 'mongodb',
+        summary: 'Deleted document.',
+        generatedRequest: '{}',
+        requestLanguage: 'mongodb',
+        destructive: true,
+        confirmationText: 'CONFIRM QA',
+        requiredPermissions: ['delete collection document'],
+        warnings: ['QA requires confirmation for risky work.'],
+      },
+      messages: request.confirmationText === 'CONFIRM QA' ? ['Deleted document.'] : [],
+      warnings: request.confirmationText === 'CONFIRM QA'
+        ? []
+        : ['This data edit needs confirmation before it can run.'],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-qa',
+          queryText: '{ "collection": "products", "filter": {}, "limit": 20 }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-1', status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByText('account-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Document' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'Delete this document?' })).toBeInTheDocument()
+    })
+    expect(screen.getByText('account-1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledTimes(2)
+    })
+    expect(executeDataEdit).toHaveBeenLastCalledWith(expect.objectContaining({
+      confirmationText: 'CONFIRM QA',
+    }))
+    expect(screen.queryByText('account-1')).not.toBeInTheDocument()
+  })
+
   it('clears stale document field confirmations when a new document payload arrives', () => {
     const executeDataEdit = vi.fn()
     const { rerender } = render(
@@ -1291,6 +1469,34 @@ describe('ResultPayloadView', () => {
     expect(executeDataEdit).not.toHaveBeenCalled()
   })
 
+  it('shows SQL row delete as unavailable when no stable primary key can be inferred', () => {
+    const executeDataEdit = vi.fn()
+
+    render(
+      <ResultPayloadView
+        connection={sqlConnection()}
+        editContext={{
+          connectionId: 'conn-sql',
+          environmentId: 'env-dev',
+          queryText: 'select status from dbo.orders',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'table',
+          columns: ['status'],
+          rows: [['processing']],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'processing' }))
+    const deleteItem = screen.getByRole('menuitem', { name: 'Delete Row unavailable' })
+
+    expect(deleteItem).toBeDisabled()
+    fireEvent.click(deleteItem)
+    expect(executeDataEdit).not.toHaveBeenCalled()
+  })
+
   it('executes DynamoDB table cell edits through safe update-item requests', async () => {
     const executeDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> => ({
       connectionId: 'conn-dynamodb',
@@ -1403,7 +1609,7 @@ describe('ResultPayloadView', () => {
     )
 
     fireEvent.contextMenu(screen.getByRole('button', { name: 'open' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Row' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Item' }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {

@@ -17,10 +17,12 @@ import {
   parseDynamoDbKeyConditionQueryText,
 } from './components/workbench/query-builder/dynamodb-key-condition'
 import {
+  buildMongoFindQueryText,
   createDefaultMongoFindBuilderState,
   isMongoFindBuilderState,
 } from './components/workbench/query-builder/mongo-find'
 import {
+  buildMongoAggregationQueryText,
   createDefaultMongoAggregationBuilderState,
   isMongoAggregationBuilderState,
   parseMongoAggregationQueryText,
@@ -64,29 +66,32 @@ export function builderStateForTab(
 
   if (connection.engine === 'mongodb') {
     if (isMongoAggregationBuilderState(draftState)) {
-      return draftState
+      return withMongoBuilderDatabase(draftState, tab, connection)
     }
 
     if (isMongoFindBuilderState(draftState)) {
-      return draftState
+      return withMongoBuilderDatabase(draftState, tab, connection)
     }
 
     if (isMongoAggregationBuilderState(tab.builderState)) {
-      return tab.builderState
+      return withMongoBuilderDatabase(tab.builderState, tab, connection)
     }
 
     if (isMongoFindBuilderState(tab.builderState)) {
-      return tab.builderState
+      return withMongoBuilderDatabase(tab.builderState, tab, connection)
     }
 
     const aggregation = parseMongoAggregationQueryText(tab.queryText)
     if (aggregation) {
-      return aggregation
+      return withMongoBuilderDatabase(aggregation, tab, connection)
     }
 
     return createDefaultMongoFindBuilderState(
       mongoCollectionFromQueryText(tab.queryText),
       mongoLimitFromQueryText(tab.queryText),
+      mongoDatabaseFromQueryText(tab.queryText) ??
+        mongoDatabaseFromScopedTarget(tab.scopedTarget) ??
+        connection.database,
     )
   }
 
@@ -153,6 +158,38 @@ export function builderStateForTab(
   }
 
   return undefined
+}
+
+function withMongoBuilderDatabase<T extends QueryBuilderState>(
+  builderState: T,
+  tab: QueryTabState,
+  connection: ConnectionProfile,
+): T {
+  if (!isMongoFindBuilderState(builderState) && !isMongoAggregationBuilderState(builderState)) {
+    return builderState
+  }
+
+  const database =
+    builderState.database?.trim() ||
+    mongoDatabaseFromQueryText(builderState.lastAppliedQueryText ?? tab.queryText) ||
+    mongoDatabaseFromScopedTarget(tab.scopedTarget) ||
+    connection.database?.trim()
+
+  if (!database || builderState.database === database) {
+    return builderState
+  }
+
+  const nextBuilderState = {
+    ...builderState,
+    database,
+  }
+
+  return {
+    ...nextBuilderState,
+    lastAppliedQueryText: isMongoFindBuilderState(nextBuilderState)
+      ? buildMongoFindQueryText(nextBuilderState)
+      : buildMongoAggregationQueryText(nextBuilderState),
+  } as T
 }
 
 export function queryBuilderObjectOptions(
@@ -321,6 +358,45 @@ function mongoCollectionFromQueryText(queryText: string) {
   } catch {
     return ''
   }
+}
+
+function mongoDatabaseFromQueryText(queryText: string) {
+  try {
+    const parsed = JSON.parse(queryText) as { database?: unknown; db?: unknown }
+    const database =
+      typeof parsed.database === 'string'
+        ? parsed.database
+        : typeof parsed.db === 'string'
+          ? parsed.db
+          : undefined
+    return database?.trim() || ''
+  } catch {
+    return ''
+  }
+}
+
+function mongoDatabaseFromScopedTarget(target: QueryTabState['scopedTarget']) {
+  if (!target) {
+    return ''
+  }
+
+  const scopeParts = target.scope?.split(':').filter(Boolean) ?? []
+  if (
+    scopeParts.length >= 3 &&
+    ['collection', 'aggregation', 'view', 'gridfs'].includes(scopeParts[0] ?? '')
+  ) {
+    return scopeParts[1] ?? ''
+  }
+
+  const path = target.path ?? []
+  const collectionContainerIndex = ['Collections', 'Views', 'GridFS']
+    .map((container) => path.indexOf(container))
+    .filter((index) => index >= 0)
+    .sort((left, right) => left - right)[0]
+
+  return collectionContainerIndex && collectionContainerIndex > 0
+    ? path[collectionContainerIndex - 1] ?? ''
+    : ''
 }
 
 function mongoLimitFromQueryText(queryText: string) {

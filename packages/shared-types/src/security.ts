@@ -164,13 +164,154 @@ export interface WorkspaceSearchPreferences {
   enabled: boolean
 }
 
+export interface DatastoreSecurityChecksPreferences {
+  enabled: boolean
+  refreshIntervalDays: number
+  mutedFindingIds?: string[]
+  lastRefreshAttemptAt?: string
+  lastSuccessfulRefreshAt?: string
+  nextManualRefreshAllowedAt?: string
+}
+
+export type DatastoreSecurityCheckStatusValue =
+  | 'idle'
+  | 'refreshing'
+  | 'ready'
+  | 'stale'
+  | 'error'
+  | 'unsupported'
+
+export type DatastoreSecurityTargetStatus =
+  | 'pending'
+  | 'checked'
+  | 'notApplicable'
+  | 'versionUnavailable'
+  | 'mappingUnavailable'
+  | 'error'
+
+export type DatastoreSecuritySeverity =
+  | 'CRITICAL'
+  | 'HIGH'
+  | 'MEDIUM'
+  | 'LOW'
+  | 'NONE'
+  | 'UNKNOWN'
+
+export interface DatastoreSecurityCpeCandidate {
+  cpeName: string
+  source: 'curated' | 'nvd'
+  confidence: 'exact' | 'version-normalized' | 'product'
+}
+
+export interface DatastoreSecurityTarget {
+  id: string
+  connectionId: string
+  environmentId: string
+  connectionName: string
+  environmentName: string
+  engine: string
+  family: string
+  status: DatastoreSecurityTargetStatus
+  detectedProduct?: string
+  detectedVersion?: string
+  cpeCandidates: DatastoreSecurityCpeCandidate[]
+  findingCount: number
+  highestSeverity?: DatastoreSecuritySeverity
+  lastCheckedAt?: string
+  message?: string
+  warnings: string[]
+}
+
+export interface DatastoreSecurityKevDetails {
+  dateAdded?: string
+  requiredAction?: string
+  dueDate?: string
+  knownRansomwareCampaignUse?: string
+  notes?: string
+}
+
+export interface DatastoreSecurityFinding {
+  id: string
+  targetIds: string[]
+  cveId: string
+  title: string
+  summary: string
+  severity: DatastoreSecuritySeverity
+  cvssScore?: number
+  cvssVector?: string
+  publishedAt?: string
+  modifiedAt?: string
+  affectedProduct: string
+  affectedVersion?: string
+  remediation: string
+  references: Array<{
+    label: string
+    url: string
+    source?: string
+  }>
+  cwes: string[]
+  knownExploited: boolean
+  kev?: DatastoreSecurityKevDetails
+  sourceUrls: string[]
+}
+
+export interface DatastoreSecurityCheckSnapshot {
+  status: DatastoreSecurityCheckStatusValue
+  checkedAt?: string
+  expiresAt?: string
+  sourceMetadata: Array<{
+    source: 'nvd' | 'cisa-kev'
+    fetchedAt?: string
+    url: string
+    recordCount?: number
+  }>
+  targets: DatastoreSecurityTarget[]
+  findings: DatastoreSecurityFinding[]
+  warnings: string[]
+  errors: string[]
+}
+
+export interface DatastoreSecurityChecksSettingsRequest {
+  enabled: boolean
+  refreshIntervalDays?: number
+  mutedFindingIds?: string[]
+}
+
+export interface DatastoreSecurityChecksRefreshRequest {
+  manual?: boolean
+}
+
+export interface DatastoreSecurityChecksStatus {
+  supported: boolean
+  enabled: boolean
+  message: string
+  canRefresh: boolean
+  refreshBlockedReason?: string
+  preferences: DatastoreSecurityChecksPreferences
+  snapshot?: DatastoreSecurityCheckSnapshot
+}
+
 export type FirstInstallGuideStatus = 'unseen' | 'started' | 'skipped' | 'completed'
 export type FirstInstallGuidePersistedStatus = Exclude<FirstInstallGuideStatus, 'unseen'>
+export type FirstInstallGuideStepId =
+  | 'welcome'
+  | 'folder'
+  | 'connection'
+  | 'save'
+  | 'explorer'
+  | 'query'
+  | 'settings'
 
 export interface FirstInstallGuidePreferences {
   status: FirstInstallGuideStatus
+  currentStepId?: FirstInstallGuideStepId
   updatedAt?: string
   completedAt?: string
+}
+
+export interface ExplorerFolderOrderRequest {
+  orderKey: string
+  orderedNodeKeys: string[]
 }
 
 export interface GuardrailPolicy {
@@ -207,8 +348,10 @@ export interface AppPreferences {
   workspaceBackups?: WorkspaceBackupPreferences
   datastoreApiServer?: DatastoreApiServerPreferences
   datastoreMcpServer?: DatastoreMcpServerPreferences
+  datastoreSecurityChecks?: DatastoreSecurityChecksPreferences
   workspaceSearch?: WorkspaceSearchPreferences
   firstInstallGuide?: FirstInstallGuidePreferences
+  explorerFolderOrders?: Record<string, string[]>
 }
 
 export interface LockState {

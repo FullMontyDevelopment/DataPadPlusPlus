@@ -12,6 +12,7 @@ export interface DocumentResultBehavior {
     editValue: boolean
     changeType: boolean
     deleteField: boolean
+    deleteDocument: boolean
   }
   editModeLabel: string
 }
@@ -28,6 +29,7 @@ const READ_ONLY_BEHAVIOR: DocumentResultBehavior = {
     editValue: false,
     changeType: false,
     deleteField: false,
+    deleteDocument: false,
   },
   editModeLabel: 'Read-only result',
 }
@@ -44,6 +46,7 @@ const MONGO_DOCUMENT_BEHAVIOR: DocumentResultBehavior = {
     editValue: true,
     changeType: true,
     deleteField: true,
+    deleteDocument: true,
   },
   editModeLabel: 'MongoDB editable document result',
 }
