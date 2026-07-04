@@ -707,10 +707,14 @@ function DesktopWorkspace() {
     apiServerInstances[0]?.id
   const showApiServerStatusIndicator =
     Boolean(apiServerPreferences?.enabled) || runningApiServerCount > 0
+  const securityChecksEnabled = Boolean(snapshot?.preferences.datastoreSecurityChecks?.enabled)
+  const securityFindings = snapshot?.datastoreSecurityChecks?.findings
+  const securityPostureChecks = snapshot?.datastoreSecurityChecks?.postureChecks
+  const securityTargets = snapshot?.datastoreSecurityChecks?.targets
   const mutedSecurityFindingIds =
     snapshot?.preferences.datastoreSecurityChecks?.mutedFindingIds ?? EMPTY_STRING_ARRAY
   const securityStatusCounts = useMemo(() => {
-    if (!snapshot?.preferences.datastoreSecurityChecks?.enabled) {
+    if (!securityChecksEnabled) {
       return undefined
     }
 
@@ -720,7 +724,7 @@ function DesktopWorkspace() {
     let postureIssueCount = 0
     const attentionTargetIds = new Set<string>()
 
-    for (const finding of snapshot.datastoreSecurityChecks?.findings ?? []) {
+    for (const finding of securityFindings ?? []) {
       if (mutedFindingIds.has(finding.id)) {
         continue
       }
@@ -733,7 +737,7 @@ function DesktopWorkspace() {
         highCount += 1
       }
     }
-    for (const check of snapshot.datastoreSecurityChecks?.postureChecks ?? []) {
+    for (const check of securityPostureChecks ?? []) {
       if (
         mutedFindingIds.has(check.id) ||
         (check.status !== 'fail' && check.status !== 'warn' && check.status !== 'unknown')
@@ -750,7 +754,7 @@ function DesktopWorkspace() {
         highCount += 1
       }
     }
-    for (const target of snapshot.datastoreSecurityChecks?.targets ?? []) {
+    for (const target of securityTargets ?? []) {
       if (
         ['versionUnavailable', 'mappingUnavailable', 'error'].includes(target.status) ||
         target.versionStatus === 'updateAvailable' ||
@@ -766,10 +770,10 @@ function DesktopWorkspace() {
       : undefined
   }, [
     mutedSecurityFindingIds,
-    snapshot?.datastoreSecurityChecks?.findings,
-    snapshot?.datastoreSecurityChecks?.postureChecks,
-    snapshot?.datastoreSecurityChecks?.targets,
-    snapshot?.preferences.datastoreSecurityChecks?.enabled,
+    securityChecksEnabled,
+    securityFindings,
+    securityPostureChecks,
+    securityTargets,
   ])
   const getApiServerStatus = useCallback(
     async () => refreshApiServerStatus(),
