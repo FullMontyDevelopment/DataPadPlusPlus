@@ -196,22 +196,23 @@ function MongoFindBuilder({
     connection,
     tab,
   })
+  const scopedDatabase = scope?.database
 
   const updateDraft = useCallback((patch: Partial<MongoFindBuilderState>) => {
     const nextDraft = {
       ...draft,
-      ...(scope?.database ? { database: scope.database } : {}),
+      ...(scopedDatabase ? { database: scopedDatabase } : {}),
       ...patch,
     }
     const next = {
       ...nextDraft,
-      lastAppliedQueryText: buildMongoFindQueryText(nextDraft, { database: scope?.database }),
+      lastAppliedQueryText: buildMongoFindQueryText(nextDraft, { database: scopedDatabase }),
     }
 
     if (onBuilderStateChange) {
       onBuilderStateChange(tab.id, next)
     }
-  }, [draft, onBuilderStateChange, scope?.database, tab.id])
+  }, [draft, onBuilderStateChange, scopedDatabase, tab.id])
 
   const addDroppedFilter = useCallback((payload: FieldDragPayload, groupId?: string) => {
     updateDraft({

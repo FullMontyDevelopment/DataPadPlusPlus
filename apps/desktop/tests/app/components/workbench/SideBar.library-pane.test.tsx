@@ -357,7 +357,15 @@ describe('LibraryPane', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Project QA/ }))
     expect(onSwitchWorkspace).toHaveBeenCalledWith('workspace-qa')
 
-    fireEvent.click(screen.getByRole('button', { name: 'New workspace' }))
+    const addWorkspaceButton = screen.getByRole('button', {
+      name: 'New workspace',
+    })
+    expect(
+      addWorkspaceButton.closest('.sidebar-section-action-header'),
+    ).toBeInTheDocument()
+    expect(addWorkspaceButton).toHaveClass('sidebar-section-add-button')
+
+    fireEvent.click(addWorkspaceButton)
     fireEvent.change(screen.getByLabelText('Workspace name'), {
       target: { value: 'Scratch' },
     })

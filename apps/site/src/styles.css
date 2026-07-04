@@ -762,8 +762,47 @@ button {
   line-height: 1.6;
 }
 
+.coverage-summary,
 .coverage-grid {
   padding-bottom: 4rem;
+}
+
+.coverage-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.coverage-summary div {
+  min-height: 13rem;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(83, 240, 93, 0.07), transparent 42%),
+    rgba(255, 255, 255, 0.032);
+}
+
+.coverage-summary strong {
+  display: block;
+  color: var(--green);
+  font-size: clamp(2.4rem, 4vw, 4.4rem);
+  line-height: 1;
+}
+
+.coverage-summary span {
+  display: block;
+  margin-top: 0.75rem;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.coverage-summary p {
+  margin: 0.9rem 0 0;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .coverage-group {
@@ -1279,6 +1318,7 @@ button {
 
   .doc-card-grid,
   .download-grid,
+  .coverage-summary,
   .coverage-grid,
   .datastore-card-grid,
   .media-strip {
@@ -1325,6 +1365,7 @@ button {
 
   .doc-card-grid,
   .download-grid,
+  .coverage-summary,
   .coverage-grid,
   .datastore-card-grid,
   .media-strip,

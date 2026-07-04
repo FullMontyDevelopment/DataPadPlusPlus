@@ -300,6 +300,36 @@ export const docArticles: DocArticle[] = [
     ],
   },
   {
+    slug: 'result-export',
+    title: 'Export Result Files',
+    description: 'Save query and object-view results in formats that match the current payload.',
+    category: 'Core workflows',
+    readingTime: '5 min',
+    screenshots: ['result-export', 'sql-query-results'],
+    steps: [
+      {
+        title: 'Run or open the result you need',
+        body: 'Start from a query, object view, key browser, document browser, diagnostic panel, or saved workflow that has a concrete result payload.',
+      },
+      {
+        title: 'Open Export from the Results panel',
+        body: 'Use the result toolbar export action. DataPad++ chooses sensible defaults from the renderer instead of asking you to guess the file format first.',
+      },
+      {
+        title: 'Choose a payload-aware format',
+        body: 'Tables can export as CSV or JSON. Documents commonly use JSON or NDJSON. Raw values can export as text, and graph or key-value payloads keep structured JSON available.',
+      },
+      {
+        title: 'Review redaction and shape',
+        body: 'Export serializers sanitize secret-looking fields and preserve the shape needed for downstream analysis, fixtures, or support handoffs.',
+      },
+      {
+        title: 'Save through the desktop file picker',
+        body: 'Pick the target path with the operating system save dialog, then keep large or sensitive exports in the environment-specific location your team expects.',
+      },
+    ],
+  },
+  {
     slug: 'settings-workspace-backups',
     title: 'Settings, Workspace Bundles, And Backups',
     description: 'Configure appearance, workspace security, encrypted exports, and automatic backups.',
@@ -330,6 +360,249 @@ export const docArticles: DocArticle[] = [
       {
         title: 'Verify import before relying on backups',
         body: 'Test import with a non-critical workspace so you know the passphrase and integrity checks behave as expected.',
+      },
+    ],
+  },
+  {
+    slug: 'api-server',
+    title: 'Run A Local API Server',
+    description: 'Expose selected datastore resources and saved queries as local REST, GraphQL, or gRPC endpoints.',
+    category: 'Plugin workflows',
+    readingTime: '8 min',
+    screenshots: ['api-server', 'safety-preview'],
+    steps: [
+      {
+        title: 'Enable API Server in Plugins settings',
+        body: 'The API Server is a desktop-only experimental plugin. Open Settings, choose Plugins, enable API Server, then open the API Server workspace.',
+      },
+      {
+        title: 'Choose a datastore and environment',
+        body: 'Each server needs a connection and environment so DataPad++ can keep target identity, read-only posture, variables, and risk context visible.',
+      },
+      {
+        title: 'Discover and select resources',
+        body: 'Use resource discovery to add tables, collections, indexes, items, or keys deliberately. Disabled resources stay configured but are not exposed.',
+      },
+      {
+        title: 'Add saved-query endpoints when useful',
+        body: 'Custom endpoints come from saved Library queries. Tokens like {{api.email}} become typed endpoint parameters with required flags and serialization rules.',
+      },
+      {
+        title: 'Start locally and inspect docs',
+        body: 'Started servers bind to 127.0.0.1. REST servers expose OpenAPI docs, GraphQL servers expose GraphQL endpoints, and gRPC servers expose proto-oriented entry points.',
+      },
+      {
+        title: 'Watch metrics, logs, and exports',
+        body: 'Use the Metrics and Logs tabs to review local traffic, then export a starter Rust or .NET project when you want code outside the desktop app.',
+      },
+    ],
+    notes: [
+      'API Server is designed for local development and integration experiments, not public hosting.',
+      'Secrets are referenced through environment variables; exported projects do not include DataPad++ secret values.',
+    ],
+  },
+  {
+    slug: 'mcp-server',
+    title: 'Connect Local MCP Clients',
+    description: 'Use the desktop-only MCP Server with scoped tokens, setup snippets, metrics, and logs.',
+    category: 'Plugin workflows',
+    readingTime: '8 min',
+    screenshots: ['mcp-server', 'settings-backups'],
+    steps: [
+      {
+        title: 'Enable MCP Server in Plugins settings',
+        body: 'Open Settings, choose Plugins, enable the experimental MCP Server plugin, then open the MCP Server workspace. The listener is local-only and does not auto-start unless configured.',
+      },
+      {
+        title: 'Create or choose a server profile',
+        body: 'Server profiles use 127.0.0.1, a local port, optional allowlisted origins, and explicit datastore or workspace scope choices.',
+      },
+      {
+        title: 'Create a scoped auth token',
+        body: 'Tokens are shown only once. Store the raw token in an environment variable such as DATAPAD_MCP_TOKEN and rotate it if it is lost.',
+      },
+      {
+        title: 'Copy or apply client setup',
+        body: 'Use generated snippets for OpenAI Codex, VS Code and GitHub Copilot, Cursor, Claude Code, or Gemini CLI. Desktop automatic setup previews config changes and creates backups.',
+      },
+      {
+        title: 'Start the endpoint and test access',
+        body: 'MCP uses Streamable HTTP at /mcp. Requests need Authorization headers, and write, destructive, admin, and costly operations remain blocked in the current scope.',
+      },
+      {
+        title: 'Review observability',
+        body: 'Use server status, metrics, and logs to verify which clients connected and which scopes they used before keeping the server enabled.',
+      },
+    ],
+  },
+  {
+    slug: 'datastore-security-checks',
+    title: 'Review Datastore Security Checks',
+    description: 'Scan datastore versions for vulnerabilities and review local/read-only posture checks.',
+    category: 'Plugin workflows',
+    readingTime: '8 min',
+    screenshots: ['settings-backups', 'safety-preview'],
+    steps: [
+      {
+        title: 'Enable Security Checks',
+        body: 'Open Settings, choose Plugins, enable Datastore Security Checks, then open the Security Checks workspace from the workbench.',
+      },
+      {
+        title: 'Refresh saved connections',
+        body: 'The desktop app resolves connection profiles, detects product versions with read-only probes where possible, checks mapped CPE candidates against NVD and CISA KEV, and runs local posture checks.',
+      },
+      {
+        title: 'Switch between lanes',
+        body: 'Use Vulnerabilities for CVE and KEV findings. Use Posture for advisory checks covering TLS, auth mode, read-only/environment guardrails, secret storage, privilege breadth, durability, and risky settings.',
+      },
+      {
+        title: 'Inspect CVE details',
+        body: 'Finding details include severity, CVSS, references, KEV action data when available, and NVD affected-version or fixed-version hints when the response provides version bounds.',
+      },
+      {
+        title: 'Inspect posture details',
+        body: 'Posture details show pass, warn, fail, unknown, or not-applicable status, sanitized evidence, source type, remediation, and official references without storing raw secret-bearing payloads.',
+      },
+      {
+        title: 'Read the coverage boundary',
+        body: 'Deep posture checks target PostgreSQL, CockroachDB, TimescaleDB, MySQL, MariaDB, SQL Server, Azure SQL, MongoDB, Redis, Valkey, Elasticsearch, OpenSearch, SQLite, and DuckDB. Other declared datastores receive profile-only checks.',
+      },
+      {
+        title: 'Treat guidance as advisory',
+        body: 'The bundled catalog is updated with app releases and avoids extra release-feed calls during a scan. Posture checks do not call cloud-provider APIs and are not compliance certification.',
+      },
+    ],
+    notes: [
+      'Browser preview cannot run network-backed security scans; use the desktop app.',
+      'Catalog guidance is intentionally labeled as known newer or recommended, not as a guaranteed live latest version.',
+      'Unknown posture results usually mean the current account lacks metadata visibility or the engine/runtime cannot expose that signal safely.',
+    ],
+  },
+  {
+    slug: 'workspace-search',
+    title: 'Search The Workspace',
+    description: 'Find connections, Library work, open tabs, closed tabs, scripts, queries, and test suites quickly.',
+    category: 'Plugin workflows',
+    readingTime: '5 min',
+    screenshots: ['workspace-search', 'library-environments'],
+    steps: [
+      {
+        title: 'Enable Workspace Search',
+        body: 'Open Settings, choose Plugins, enable Workspace Search, then open the Search workspace from the workbench.',
+      },
+      {
+        title: 'Type the thing you remember',
+        body: 'Search indexes the current workspace snapshot, including connection names, Library items, open tabs, recently closed tabs, scripts, queries, and tests.',
+      },
+      {
+        title: 'Filter by result type',
+        body: 'Toggle Connections, Folders, Queries, Scripts, Tests, Library, Open tabs, and Closed results to keep large workspaces easy to scan.',
+      },
+      {
+        title: 'Use matching options',
+        body: 'Match case and whole-word controls help narrow noisy searches without changing the saved workspace content.',
+      },
+      {
+        title: 'Open results in place',
+        body: 'Selecting a result opens the connection, Library item, tab, or recently closed tab so you can return to work without rebuilding context.',
+      },
+    ],
+  },
+  {
+    slug: 'test-suites',
+    title: 'Build Datastore Test Suites',
+    description: 'Capture repeatable setup, execute, assertion, and teardown checks beside the datastore they validate.',
+    category: 'Advanced workflows',
+    readingTime: '7 min',
+    screenshots: ['test-suites', 'library-environments'],
+    steps: [
+      {
+        title: 'Create or open a test suite',
+        body: 'Test suites live with saved work in the Library and keep the target engine, connection, environment, and variables visible.',
+      },
+      {
+        title: 'Choose the editor mode',
+        body: 'Use the visual editor, raw JSON, or both. The visual mode is easier for common checks, while raw JSON keeps the full test definition inspectable.',
+      },
+      {
+        title: 'Define setup and execute steps',
+        body: 'Add query or request steps for setup, execution, and teardown. SQL suites default to select 1, while MongoDB suites start with JSON-shaped reads.',
+      },
+      {
+        title: 'Add assertions',
+        body: 'Use assertions such as row count, document count, key existence, key type, search-hit count, JSON path, no-error, or duration-under.',
+      },
+      {
+        title: 'Run and cancel safely',
+        body: 'Run the suite from the toolbar and cancel active runs when needed. The same environment and guardrail model applies to test execution.',
+      },
+      {
+        title: 'Save tests near the target',
+        body: 'Keep suites in the same Library folder as the connection or saved query they prove so inherited environment context remains obvious.',
+      },
+    ],
+  },
+  {
+    slug: 'relationship-explorer',
+    title: 'Use SQL Relationship Diagrams',
+    description: 'Understand table shape, joins, and schema boundaries before writing broad SQL.',
+    category: 'Advanced workflows',
+    readingTime: '6 min',
+    screenshots: ['relationship-explorer', 'explorer-tree'],
+    steps: [
+      {
+        title: 'Open Structure from a SQL connection',
+        body: 'Use a SQL-family connection or Explorer action to open the structure workspace for the schemas and tables you want to understand.',
+      },
+      {
+        title: 'Filter before loading broadly',
+        body: 'Large enterprise schemas should be explored in focused slices. Filter schemas or tables before expecting a useful diagram.',
+      },
+      {
+        title: 'Read table cards and columns',
+        body: 'Each card summarizes a table and its columns so primary keys, foreign keys, and interesting fields stay visible together.',
+      },
+      {
+        title: 'Inspect relationship ends',
+        body: 'Relationship labels distinguish declared links from inferred links and show the direction and cardinality DataPad++ can explain.',
+      },
+      {
+        title: 'Use the diagram as a query aid',
+        body: 'Open scoped object actions or copy relationship context into SQL builders after you have verified the join path.',
+      },
+      {
+        title: 'Keep risky schema work preview-first',
+        body: 'Schema operations, inferred links, and admin actions should remain reviewable plans until the target and environment are proven.',
+      },
+    ],
+  },
+  {
+    slug: 'datastore-coverage-maturity',
+    title: 'Understand Datastore Coverage',
+    description: 'Read native-complete, contract-complete, fixture-backed, and preview-first claims without overestimating live readiness.',
+    category: 'Administration',
+    readingTime: '7 min',
+    screenshots: ['search-diagnostics', 'safety-preview'],
+    steps: [
+      {
+        title: 'Start with the datastore directory',
+        body: 'The datastore docs list every declared engine and describe connection fields, object models, query modes, result views, diagnostics, import/export, and safety boundaries.',
+      },
+      {
+        title: 'Distinguish native-complete from contract-complete',
+        body: 'Native-complete means the scoped release claim has live or fixture-backed evidence. Contract-complete means the UX, contracts, plans, and residual risks are covered, while live validation may still be optional.',
+      },
+      {
+        title: 'Read residual-risk wording',
+        body: 'Cloud auth, driver-specific modes, high-cost operations, destructive admin flows, and broader import/export execution can remain outside a scoped claim.',
+      },
+      {
+        title: 'Check fixture evidence',
+        body: 'Use the testing docs when you need to verify PostgreSQL, MongoDB, Redis/Valkey, Oracle, DynamoDB, search, DuckDB, LiteDB, or other optional fixture evidence locally.',
+      },
+      {
+        title: 'Use read-only first',
+        body: 'Even native-complete workflows should begin with local, fixture-backed, or read-only profiles until you trust the target, credentials, and environment guardrails.',
       },
     ],
   },

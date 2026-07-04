@@ -126,6 +126,8 @@ describe('SettingsWorkspace', () => {
     renderSettings()
 
     expect(screen.getByRole('heading', { name: 'Appearance' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Plugins' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Experimental' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Security' }))
 
     expect(screen.getByRole('heading', { name: 'Security' })).toBeInTheDocument()
@@ -146,15 +148,19 @@ describe('SettingsWorkspace', () => {
     expect(props.onSetSafeMode).toHaveBeenCalledWith(false)
   })
 
-  it('gates the API Server workspace behind Experimental settings', async () => {
+  it('gates the API Server workspace behind Plugins settings', async () => {
     const onUpdateApiServerSettings = vi.fn().mockResolvedValue(true)
     const props = renderSettings({
       initialSection: 'experimental',
       onUpdateApiServerSettings,
     })
 
-    expect(screen.getByRole('heading', { name: 'Experimental' })).toBeInTheDocument()
-    const apiServerGroup = screen.getByRole('region', { name: 'API Server' })
+    expect(screen.getByRole('button', { name: 'Plugins' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { name: 'Plugins' }).length).toBeGreaterThan(0)
+    const experimentalPluginsGroup = screen.getByRole('region', {
+      name: 'Experimental Plugins',
+    })
+    const apiServerGroup = within(experimentalPluginsGroup).getByRole('region', { name: 'API Server' })
     expect(within(apiServerGroup).getByText('Experimental')).toBeInTheDocument()
     expect(within(apiServerGroup).getByLabelText('Datastore API server')).not.toBeChecked()
     expect(within(apiServerGroup).getByRole('button', { name: 'Open API Server' })).toBeDisabled()
@@ -203,15 +209,17 @@ describe('SettingsWorkspace', () => {
     expect(props.onOpenApiServer).toHaveBeenCalled()
   })
 
-  it('gates Workspace Search behind Experimental settings', async () => {
+  it('shows Workspace Search as a non-experimental plugin', async () => {
     const onUpdateWorkspaceSearchSettings = vi.fn().mockResolvedValue(true)
     const props = renderSettings({
       initialSection: 'experimental',
       onUpdateWorkspaceSearchSettings,
     })
 
-    const searchGroup = screen.getByRole('region', { name: 'Workspace Search' })
-    expect(within(searchGroup).getByText('Experimental')).toBeInTheDocument()
+    const pluginsGroup = screen.getByRole('region', { name: 'Plugins' })
+    const searchGroup = within(pluginsGroup).getByRole('region', { name: 'Workspace Search' })
+    expect(within(searchGroup).queryByText('Experimental')).not.toBeInTheDocument()
+    expect(within(searchGroup).getByText('Plugin')).toBeInTheDocument()
     expect(within(searchGroup).getByLabelText('Workspace Search')).not.toBeChecked()
     expect(within(searchGroup).getByRole('button', { name: /Open Search/i })).toBeDisabled()
 
@@ -223,14 +231,17 @@ describe('SettingsWorkspace', () => {
     expect(props.onOpenWorkspaceSearch).not.toHaveBeenCalled()
   })
 
-  it('gates Workspaces behind app-wide Experimental settings', async () => {
+  it('gates Workspaces behind app-wide experimental Plugins settings', async () => {
     const onUpdateWorkspaceSwitcherSettings = vi.fn().mockResolvedValue(true)
     const props = renderSettings({
       initialSection: 'experimental',
       onUpdateWorkspaceSwitcherSettings,
     })
 
-    const workspacesGroup = screen.getByRole('region', { name: 'Workspaces' })
+    const experimentalPluginsGroup = screen.getByRole('region', {
+      name: 'Experimental Plugins',
+    })
+    const workspacesGroup = within(experimentalPluginsGroup).getByRole('region', { name: 'Workspaces' })
     expect(within(workspacesGroup).getByText('Experimental')).toBeInTheDocument()
     expect(within(workspacesGroup).getByLabelText('Workspaces switcher')).not.toBeChecked()
 
@@ -240,6 +251,21 @@ describe('SettingsWorkspace', () => {
       expect(onUpdateWorkspaceSwitcherSettings).toHaveBeenCalledWith({ enabled: true })
     })
     expect(props.onUpdateWorkspaceSearchSettings).not.toHaveBeenCalled()
+  })
+
+  it('marks MCP Server and Datastore Security Checks as experimental plugins', () => {
+    renderSettings({ initialSection: 'experimental' })
+
+    const experimentalPluginsGroup = screen.getByRole('region', {
+      name: 'Experimental Plugins',
+    })
+    const mcpGroup = within(experimentalPluginsGroup).getByRole('region', { name: 'MCP Server' })
+    const securityChecksGroup = within(experimentalPluginsGroup).getByRole('region', {
+      name: 'Datastore Security Checks',
+    })
+
+    expect(within(mcpGroup).getByText('Experimental')).toBeInTheDocument()
+    expect(within(securityChecksGroup).getByText('Experimental')).toBeInTheDocument()
   })
 
   it('opens Workspace Search when enabled', () => {

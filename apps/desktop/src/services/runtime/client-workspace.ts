@@ -533,6 +533,7 @@ export const clientWorkspace = {
       sourceMetadata: [],
       targets: [],
       findings: [],
+      postureChecks: [],
       warnings: [],
       errors: ['Datastore Security Checks require the desktop app.'],
     }

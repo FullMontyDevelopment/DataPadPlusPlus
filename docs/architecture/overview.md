@@ -16,6 +16,8 @@ The React desktop shell owns:
 - query tabs, query toolbar controls, raw editors, and visual query builders
 - result renderers for table, document, JSON, key-value, search, graph, raw, schema, plans, profiles, metrics, and history
 - interactive result-export dialogs and payload serializers
+- Workspace Search, datastore test-suite editors, SQL relationship diagrams, and first-install guide surfaces
+- experimental API Server and MCP Server plugins, including setup, status, metrics, logs, and guarded configuration UI
 - user-facing guardrail states such as read-only badges, disabled reasons, and operation previews
 
 The shell should remain capability-aware through adapter and experience manifests. Engine-specific labels are fine at the edge of the UI, but behavior should not be scattered across arbitrary engine-name checks.
@@ -30,9 +32,11 @@ The application layer coordinates:
 - environment variable resolution and sensitive-value redaction
 - query execution requests, result paging, result history, and query history
 - per-tab execution state, stale-result protection, visible render timing, and concurrent tab execution
+- workspace search indexing, closed-tab recovery, and test-suite execution orchestration
 - safe edit planning/execution and guarded operation previews
 - explorer loading, diagnostics loading, permission inspection, and unavailable-action reasons
 - workspace bundle file export/import, encrypted integrity verification, and auto-backup preferences
+- API Server and MCP Server plugin preferences, profile selection, token metadata, setup previews, local status, metrics, and logs
 
 Opening a query tab is intentionally a pure editor action. Selecting a connection should not create a tab or open the connection drawer; connection editing is explicit.
 
@@ -46,6 +50,7 @@ The shared TypeScript contracts define:
 - query tab state, builder state, scoped query targets, and Library nodes
 - result payloads, messages, diagnostics, permissions, operation manifests, operation plans, and safe edit requests
 - datastore experience manifests for object kinds, object actions, builders, editable scopes, diagnostics tabs, and safety rules
+- API Server, MCP Server, Workspace Search plugin, first-install guide, workspace bundle, and test-suite contracts
 
 The shared contracts are the stable bridge between the frontend and Rust host. Prefer additive contract changes when expanding features.
 
@@ -75,6 +80,7 @@ The Tauri native host and infrastructure modules provide:
 - workspace persistence, migrations, fixture bootstrap, and local file selection
 - encrypted workspace import/export and filesystem access
 - logging, redaction, diagnostics, and app locking
+- local-only API Server and MCP Server plugin listeners, auth-token verification, setup file backups, and observability payloads
 - release, updater, signing, and OS integration hooks
 - long-running task execution without freezing the UI
 

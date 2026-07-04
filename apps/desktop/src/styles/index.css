@@ -3399,7 +3399,7 @@ button:disabled:hover {
 
 .security-checks-summary {
   display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  grid-template-columns: repeat(7, minmax(110px, 1fr));
   gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
@@ -3500,6 +3500,65 @@ button:disabled:hover {
   font-size: 12px;
 }
 
+.security-checks-panel-title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.security-checks-view-toggle {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--editor-bg);
+}
+
+.security-checks-view-toggle button {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.security-checks-view-toggle button:last-child {
+  border-right: 0;
+}
+
+.security-checks-view-toggle button:hover,
+.security-checks-view-toggle button:focus-visible,
+.security-checks-view-toggle button.is-active {
+  background: var(--activity-hover-bg);
+  color: var(--heading);
+  outline: 0;
+}
+
+.security-checks-view-count {
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1;
+  background: var(--activity-hover-bg);
+}
+
+.security-checks-view-toggle button.is-active .security-checks-view-count {
+  border-color: var(--accent);
+  color: var(--heading);
+  background: var(--accent-soft);
+}
+
 .security-checks-table,
 .security-checks-connections {
   min-height: 0;
@@ -3553,6 +3612,68 @@ button:disabled:hover {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.security-checks-version-stack {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.security-checks-version-stack strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.security-checks-version-stack small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.security-checks-guidance-trigger {
+  margin: -2px;
+  padding: 2px;
+  border-radius: 4px;
+  cursor: help;
+}
+
+.security-checks-guidance-trigger:hover,
+.security-checks-guidance-trigger:focus-visible {
+  background: var(--activity-hover-bg);
+  outline: 1px solid var(--border-strong);
+  outline-offset: 1px;
+}
+
+.security-checks-guidance-tooltip {
+  position: fixed;
+  z-index: 10000;
+  display: grid;
+  gap: 4px;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 9px 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-bg-elevated);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  white-space: normal;
+}
+
+.security-checks-guidance-tooltip span:first-child {
+  color: var(--heading);
+  font-weight: 700;
 }
 
 .security-checks-empty-row {
@@ -3686,6 +3807,23 @@ button:disabled:hover {
   color: #91d18b;
 }
 
+.status-fail {
+  color: #ff8b8b;
+}
+
+.status-warn {
+  color: #f2d06b;
+}
+
+.status-unknown {
+  color: #c7ced8;
+}
+
+.status-pass,
+.status-notApplicable {
+  color: #91d18b;
+}
+
 .security-checks-detail {
   min-height: 0;
   overflow: hidden;
@@ -3781,6 +3919,12 @@ button:disabled:hover {
   }
 
   .security-checks-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .security-checks-panel > header,
+  .security-checks-panel-title {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -11108,37 +11252,110 @@ td {
   max-width: 420px;
 }
 
-.settings-experimental-list {
-  display: grid;
-  gap: 12px;
-  max-width: 560px;
+.settings-plugin-intro {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
-.settings-experimental-feature {
+.settings-plugin-catalog {
   display: grid;
+  gap: 18px;
+  max-width: 920px;
+}
+
+.settings-plugin-group {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-plugin-group-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-plugin-group-header h3 {
+  margin: 0;
+  color: var(--heading);
+  font-size: 13px;
+}
+
+.settings-plugin-group-header span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.settings-plugin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.settings-plugin-card {
+  min-width: 0;
+  display: grid;
+  align-content: start;
   gap: 12px;
   padding: 12px;
   border: 1px solid var(--border);
   background: var(--panel-bg-alt);
 }
 
-.settings-experimental-feature-header {
+.settings-plugin-card-header {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
 }
 
-.settings-experimental-feature-header h3 {
+.settings-plugin-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--accent);
+}
+
+.settings-plugin-icon--text {
+  color: var(--heading);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.settings-plugin-title-block {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.settings-plugin-title-block h4 {
   margin: 0;
   color: var(--heading);
   font-size: 13px;
 }
 
-.settings-experimental-feature-header span {
+.settings-plugin-title-block p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.settings-plugin-badge {
   min-height: 20px;
   display: inline-flex;
   align-items: center;
@@ -11149,6 +11366,25 @@ td {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.settings-plugin-badge--experimental {
+  color: var(--warning);
+}
+
+.settings-plugin-badge--stable {
+  color: var(--success);
+}
+
+.settings-plugin-capabilities {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .settings-check-row--card {

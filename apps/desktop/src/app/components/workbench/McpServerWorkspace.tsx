@@ -462,15 +462,15 @@ export function McpServerWorkspace({
           <p className="sidebar-eyebrow">Experimental</p>
           <h1>MCP Server</h1>
           <p>
-            Enable the datastore MCP server from Settings before opening a
-            listener.
+            Enable the datastore MCP server plugin from Settings before opening
+            a listener.
           </p>
           <button
             type="button"
             className="drawer-button drawer-button--primary"
             onClick={onOpenExperimentalSettings}
           >
-            Open Experimental Settings
+            Open Plugins Settings
           </button>
         </div>
       </section>

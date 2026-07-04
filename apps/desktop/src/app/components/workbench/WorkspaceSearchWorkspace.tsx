@@ -171,10 +171,10 @@ export function WorkspaceSearchWorkspace({
       <section className="environment-workspace workspace-search-workspace" aria-label="Workspace Search">
         <div className="editor-empty-state workspace-search-disabled">
           <SearchIcon />
-          <h2>Workspace Search is experimental</h2>
-          <p>Enable it in Experimental settings to search saved connections, Library work, open tabs, and recently closed tabs.</p>
+          <h2>Workspace Search plugin is disabled</h2>
+          <p>Enable it in Plugins settings to search saved connections, Library work, open tabs, and recently closed tabs.</p>
           <button type="button" className="drawer-button drawer-button--primary" onClick={onOpenExperimentalSettings}>
-            Open Experimental Settings
+            Open Plugins Settings
           </button>
         </div>
       </section>
@@ -185,7 +185,7 @@ export function WorkspaceSearchWorkspace({
     <section className="environment-workspace workspace-search-workspace" aria-label="Workspace Search">
       <header className="environment-header workspace-search-header">
         <div>
-          <span className="sidebar-eyebrow">Experimental</span>
+          <span className="sidebar-eyebrow">Plugin</span>
           <h2>Search</h2>
           <p>
             {index.documents.length} indexed items across connections, Library files, open tabs, and recently closed tabs.

@@ -704,14 +704,20 @@ export function LibraryPane({
                   )}
                   <span>Workspaces</span>
                 </span>
-                <span>{workspaceRows.length}</span>
+                <span className="sidebar-section-count">
+                  {workspaceRows.length}
+                </span>
               </button>
               <button
                 type="button"
-                className="sidebar-icon-button"
+                className="sidebar-icon-button sidebar-icon-button--inline sidebar-section-add-button"
                 aria-label="New workspace"
                 title="New workspace"
-                onClick={() => setWorkspaceDialog({ mode: 'create' })}
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setWorkspaceDialog({ mode: 'create' })
+                }}
               >
                 <PlusIcon className="sidebar-icon" />
               </button>

@@ -8,9 +8,15 @@ export type ScreenshotId =
   | 'redis-browser'
   | 'search-diagnostics'
   | 'import-export'
+  | 'result-export'
   | 'settings-backups'
   | 'download-release'
   | 'safety-preview'
+  | 'api-server'
+  | 'mcp-server'
+  | 'workspace-search'
+  | 'test-suites'
+  | 'relationship-explorer'
 
 export type ScreenshotSlot = {
   id: ScreenshotId
@@ -65,6 +71,11 @@ export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
     title: 'Import and export',
     caption: 'Guarded file workflows for tables, collections, keys, and local files.',
   },
+  'result-export': {
+    id: 'result-export',
+    title: 'Result export dialog',
+    caption: 'Payload-aware CSV, JSON, NDJSON, and text exports with secret redaction.',
+  },
   'settings-backups': {
     id: 'settings-backups',
     title: 'Settings and backups',
@@ -79,6 +90,31 @@ export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
     id: 'safety-preview',
     title: 'Guarded preview',
     caption: 'A destructive or administrative action shown as a reviewable plan first.',
+  },
+  'api-server': {
+    id: 'api-server',
+    title: 'API Server workspace',
+    caption: 'Local REST, GraphQL, or gRPC servers exposing selected datastore resources and saved queries.',
+  },
+  'mcp-server': {
+    id: 'mcp-server',
+    title: 'MCP Server setup',
+    caption: 'Desktop-only MCP endpoints, scoped auth tokens, client snippets, metrics, and logs.',
+  },
+  'workspace-search': {
+    id: 'workspace-search',
+    title: 'Workspace Search',
+    caption: 'Search connections, Library work, open tabs, recently closed tabs, scripts, and tests.',
+  },
+  'test-suites': {
+    id: 'test-suites',
+    title: 'Datastore test suites',
+    caption: 'Visual and raw JSON editors for setup, execute, assert, and teardown cases.',
+  },
+  'relationship-explorer': {
+    id: 'relationship-explorer',
+    title: 'SQL relationship explorer',
+    caption: 'Focused schema diagrams with table cards, relationship ends, and object inspectors.',
   },
 }
 

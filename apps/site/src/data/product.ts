@@ -13,13 +13,13 @@ export const coreFeatures: Feature[] = [
   {
     title: 'One focused workspace',
     description:
-      'Connect, explore, query, inspect, edit, test, and manage multiple datastore families without changing tools.',
+      'Connect, explore, query, inspect, edit, test, expose, and manage multiple datastore families without changing tools.',
     screenshot: 'hero-workbench',
   },
   {
     title: 'Datastore-native surfaces',
     description:
-      'Tables feel like tables, collections feel like collections, and Redis keys open in type-aware views instead of generic payload dumps.',
+      'Tables feel like tables, collections feel like collections, Redis keys open in type-aware views, and search/cloud/local engines keep their own posture.',
     screenshot: 'explorer-tree',
   },
   {
@@ -33,6 +33,24 @@ export const coreFeatures: Feature[] = [
     description:
       'Save connections, folders, queries, scripts, notes, tests, snippets, snapshots, and environment context together.',
     screenshot: 'library-environments',
+  },
+  {
+    title: 'Search and prove reusable work',
+    description:
+      'Search the workspace across connections, Library items, tabs, scripts, and tests, then turn repeatable checks into datastore test suites.',
+    screenshot: 'workspace-search',
+  },
+  {
+    title: 'Expose data deliberately',
+    description:
+      'Opt-in API Server and MCP Server plugins publish selected resources, saved queries, setup snippets, metrics, and logs without turning the whole desktop into an open endpoint.',
+    screenshot: 'api-server',
+  },
+  {
+    title: 'Map relationships before writing SQL',
+    description:
+      'Use focused SQL relationship diagrams, table inspectors, declared keys, and optional inferred links to understand schemas before querying.',
+    screenshot: 'relationship-explorer',
   },
 ]
 
@@ -65,9 +83,11 @@ export const datastoreGroups = [
 
 export const launchWorkflow = [
   'Install a release build for your platform.',
-  'Create a local or read-only connection.',
+  'Create a local, fixture-backed, or read-only connection.',
   'Attach the right environment before querying.',
   'Explore native objects and diagnostics.',
-  'Run bounded reads, inspect results, then save useful work.',
+  'Run bounded reads, inspect results, export what you need, then save useful work.',
+  'Search saved work or build test suites for repeatable checks.',
   'Promote edits or admin actions only after guardrails prove the target.',
+  'Enable API Server or MCP Server plugins only when a local integration needs it.',
 ]

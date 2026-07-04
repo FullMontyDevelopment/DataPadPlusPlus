@@ -25,8 +25,10 @@ interface McpServerIndicator {
 }
 
 interface SecurityChecksIndicator {
+  attentionCount: number
   criticalCount: number
   highCount: number
+  postureIssueCount: number
   onOpen(): void
 }
 
@@ -68,9 +70,7 @@ export function StatusBar({
   const updateInstalling = updateInstallStatus === 'installing'
   const updateBusy = updateStatus === 'loading' || updateInstalling
   const showUpdateButton = Boolean(availableUpdateVersion) && updateInstallStatus !== 'installed'
-  const securityFindingCount = securityChecksIndicator
-    ? securityChecksIndicator.criticalCount + securityChecksIndicator.highCount
-    : 0
+  const securityAttentionCount = securityChecksIndicator?.attentionCount ?? 0
 
   return (
     <footer className="status-bar" aria-label="Status bar">
@@ -132,22 +132,20 @@ export function StatusBar({
             <span className="status-server-text-icon">MCP</span>
           </button>
         ) : null}
-        {securityChecksIndicator && securityFindingCount > 0 ? (
+        {securityChecksIndicator && securityAttentionCount > 0 ? (
           <button
             type="button"
             className={`status-button status-button--security${
               securityChecksIndicator.criticalCount > 0 ? ' is-critical' : ' is-high'
             }`}
-            aria-label={`Open Security Checks workspace, ${securityChecksIndicator.criticalCount} critical and ${securityChecksIndicator.highCount} high findings`}
+            aria-label={`Open Security Checks workspace, ${securityAttentionCount} targets need attention`}
             title={
-              securityChecksIndicator.criticalCount > 0
-                ? `${securityChecksIndicator.criticalCount} critical and ${securityChecksIndicator.highCount} high unmuted security findings.`
-                : `${securityChecksIndicator.highCount} high unmuted security findings.`
+              `${securityAttentionCount} ${securityAttentionCount === 1 ? 'target needs' : 'targets need'} attention. ${securityChecksIndicator.criticalCount} critical and ${securityChecksIndicator.highCount} high unmuted security items. ${securityChecksIndicator.postureIssueCount} posture ${securityChecksIndicator.postureIssueCount === 1 ? 'issue' : 'issues'}.`
             }
             onClick={securityChecksIndicator.onOpen}
           >
             <ObjectSecurityIcon className="status-icon" />
-            <span>Security: {securityFindingCount}</span>
+            <span>Security: {securityAttentionCount}</span>
           </button>
         ) : null}
         {showUpdateButton ? (

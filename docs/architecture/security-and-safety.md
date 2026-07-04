@@ -62,6 +62,18 @@ Guarded operation plans should show:
 - environment/read-only guardrail status
 - exact confirmation text when execution is supported
 
+## Datastore security checks
+
+The Datastore Security Checks plugin separates vulnerability data from posture data:
+
+- vulnerability findings come from detected product versions, curated CPE mapping, NVD CVE data, CISA KEV enrichment, and the bundled known-version catalog
+- posture findings come from saved connection profiles and bounded read-only probes only
+- posture probes must not write data, change settings, create objects, or call provider control planes
+- permission failures should become `unknown` posture results instead of failing the whole scan
+- evidence must be sanitized and should never persist passwords, tokens, raw connection strings, or full command payloads
+
+Deep posture probes are limited to the native live set: PostgreSQL/CockroachDB/TimescaleDB, MySQL/MariaDB, SQL Server/Azure SQL, MongoDB, Redis/Valkey, Elasticsearch/OpenSearch, SQLite, and DuckDB. Other declared engines stay profile-only until a future phase adds explicit adapter or cloud-provider support.
+
 ## Desktop protection
 
 The native layer should support:
@@ -73,9 +85,9 @@ The native layer should support:
 - opt-in encrypted auto-backups with passphrases stored only through the secret store
 - clear separation between UI code and privileged native commands
 
-## Experimental MCP server
+## Experimental MCP Server Plugin
 
-The desktop MCP server is opt-in and locked down by default:
+The desktop MCP Server plugin is opt-in and locked down by default:
 
 - disabled by default, with no default auto-start
 - bound only to `127.0.0.1:<port>` and served only at `/mcp`

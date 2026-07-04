@@ -13,8 +13,11 @@ Cover:
 - connection configuration validation
 - result renderer selection
 - result export serializers and save-dialog command routing
+- workspace search indexing, filters, and result routing
+- API Server and MCP Server profile normalization, disabled reasons, token metadata, and generated setup snippets
 - Library migration and save-target transformations
 - query-builder generation and raw synchronization
+- test-suite JSON parsing, visual editor helpers, and assertion normalization
 - safe edit planning helpers
 - operation-plan guardrails
 - SQL diagnostic hints
@@ -33,6 +36,10 @@ Cover:
 - bottom-panel tab validation, including Results, Messages, Query History, and Details
 - result paging and virtualization guardrails
 - per-tab concurrent execution, stale completion handling, and visible render timing
+- API Server resource discovery, custom endpoint parameter handling, project-export request shaping, and metrics/log routing
+- MCP Server token creation/deletion, setup preview behavior, local-only status, and metrics/log routing
+- Workspace Search opening behavior for connections, Library items, tabs, and recently closed tabs
+- test-suite execution orchestration, cancellation, and environment propagation
 - workspace bundle export/import integrity, optional secret inclusion, and auto-backup rotation
 - permission inspection and disabled-action rendering
 - dependency-free adapter contract behavior
@@ -50,6 +57,9 @@ Cover:
 - document-field drag-and-drop into builder sections
 - safe inline document edits where supported
 - environment switching and read-only behavior
+- Workspace Search can recover saved work and open tabs without losing context
+- API Server and MCP Server remain opt-in, local-only, and observable from their workspaces
+- test suites can be opened, edited, run, and cancelled from a saved Library item
 
 ## CI gates
 

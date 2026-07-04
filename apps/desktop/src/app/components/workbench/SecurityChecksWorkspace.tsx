@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type {
   DatastoreSecurityCheckSnapshot,
   DatastoreSecurityChecksRefreshRequest,
   DatastoreSecurityFinding,
+  DatastoreSecurityPostureCheckResult,
+  DatastoreSecurityPostureStatus,
   DatastoreSecurityTarget,
   DatastoreSecuritySeverity,
   WorkspaceSnapshot,
@@ -35,6 +38,21 @@ const SEVERITIES: DatastoreSecuritySeverity[] = [
 
 const EMPTY_MUTED_FINDING_IDS: string[] = []
 
+type SecurityChecksView = 'vulnerabilities' | 'posture'
+
+const POSTURE_STATUSES: DatastoreSecurityPostureStatus[] = [
+  'fail',
+  'warn',
+  'unknown',
+  'pass',
+  'notApplicable',
+]
+
+interface TooltipPosition {
+  left: number
+  top: number
+}
+
 export function SecurityChecksWorkspace({
   enabled,
   snapshot,
@@ -42,9 +60,12 @@ export function SecurityChecksWorkspace({
   onMutedFindingIdsChange,
   onRefresh,
 }: SecurityChecksWorkspaceProps) {
+  const [activeView, setActiveView] = useState<SecurityChecksView>('vulnerabilities')
   const [selectedFindingId, setSelectedFindingId] = useState<string>()
+  const [selectedPostureCheckId, setSelectedPostureCheckId] = useState<string>()
   const [expandedTargetIds, setExpandedTargetIds] = useState<Record<string, boolean>>({})
   const [showMutedFindings, setShowMutedFindings] = useState(false)
+  const [showPassingPostureChecks, setShowPassingPostureChecks] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const preferences = snapshot.preferences.datastoreSecurityChecks ?? {
@@ -52,37 +73,57 @@ export function SecurityChecksWorkspace({
     refreshIntervalDays: 7,
   }
   const securitySnapshot = snapshot.datastoreSecurityChecks
-  const selectedFinding = securitySnapshot?.findings.find((finding) => finding.id === selectedFindingId)
   const mutedFindingIds = preferences.mutedFindingIds ?? EMPTY_MUTED_FINDING_IDS
   const mutedFindingIdSet = useMemo(
     () => new Set(mutedFindingIds),
     [mutedFindingIds],
   )
+  const selectedFinding = useMemo(() => {
+    const finding = securitySnapshot?.findings.find((item) => item.id === selectedFindingId)
+
+    if (!finding || (!showMutedFindings && mutedFindingIdSet.has(finding.id))) {
+      return undefined
+    }
+
+    return finding
+  }, [mutedFindingIdSet, securitySnapshot?.findings, selectedFindingId, showMutedFindings])
+  const selectedPostureCheck = useMemo(() => {
+    const check = securitySnapshot?.postureChecks.find((item) => item.id === selectedPostureCheckId)
+
+    if (!check || (!showMutedFindings && mutedFindingIdSet.has(check.id))) {
+      return undefined
+    }
+
+    return check
+  }, [mutedFindingIdSet, securitySnapshot?.postureChecks, selectedPostureCheckId, showMutedFindings])
   const mutedFindingCount = securitySnapshot?.findings.filter((finding) =>
     mutedFindingIdSet.has(finding.id),
   ).length ?? 0
+  const mutedPostureCount = securitySnapshot?.postureChecks.filter((check) =>
+    mutedFindingIdSet.has(check.id),
+  ).length ?? 0
+  const mutedActiveCount = activeView === 'posture' ? mutedPostureCount : mutedFindingCount
   const cooldownMs = nextManualRefreshMs(preferences.nextManualRefreshAllowedAt, now)
   const refreshDisabled = refreshing || cooldownMs > 0 || !enabled
   const findingsByTargetId = useMemo(
     () => groupFindingsByTargetId(securitySnapshot, mutedFindingIdSet, showMutedFindings),
     [mutedFindingIdSet, securitySnapshot, showMutedFindings],
   )
+  const postureChecksByTargetId = useMemo(
+    () =>
+      groupPostureChecksByTargetId(
+        securitySnapshot,
+        mutedFindingIdSet,
+        showMutedFindings,
+        showPassingPostureChecks,
+      ),
+    [mutedFindingIdSet, securitySnapshot, showMutedFindings, showPassingPostureChecks],
+  )
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
-
-  useEffect(() => {
-    if (
-      selectedFindingId && (
-        !securitySnapshot?.findings.some((finding) => finding.id === selectedFindingId) ||
-        (!showMutedFindings && mutedFindingIdSet.has(selectedFindingId))
-      )
-    ) {
-      setSelectedFindingId(undefined)
-    }
-  }, [mutedFindingIdSet, securitySnapshot?.findings, selectedFindingId, showMutedFindings])
 
   const counts = useMemo(
     () => securitySummaryCounts(securitySnapshot, mutedFindingIdSet),
@@ -103,8 +144,15 @@ export function SecurityChecksWorkspace({
 
     if (saved && muted) {
       setSelectedFindingId(undefined)
+      setSelectedPostureCheckId(undefined)
       setShowMutedFindings(false)
     }
+  }
+
+  const switchView = (view: SecurityChecksView) => {
+    setActiveView(view)
+    setSelectedFindingId(undefined)
+    setSelectedPostureCheckId(undefined)
   }
 
   if (!enabled) {
@@ -113,9 +161,9 @@ export function SecurityChecksWorkspace({
         <div className="security-checks-empty">
           <ObjectSecurityIcon className="empty-icon" />
           <h2>Datastore Security Checks is experimental</h2>
-          <p>Enable it in Experimental settings to scan datastore product versions against official vulnerability sources.</p>
+          <p>Enable it in Plugins settings to scan datastore product versions against official vulnerability sources.</p>
           <button type="button" className="drawer-button drawer-button--primary" onClick={onOpenExperimentalSettings}>
-            Open Experimental Settings
+            Open Plugins Settings
           </button>
         </div>
       </section>
@@ -157,6 +205,10 @@ export function SecurityChecksWorkspace({
           <strong>{counts.kev}</strong>
         </div>
         <div className="security-checks-summary-card">
+          <span>Posture Issues</span>
+          <strong>{counts.postureIssues}</strong>
+        </div>
+        <div className="security-checks-summary-card">
           <span>Needs Attention</span>
           <strong>{counts.needsAttention}</strong>
         </div>
@@ -186,20 +238,56 @@ export function SecurityChecksWorkspace({
         </div>
       ) : null}
 
-      <div className={`security-checks-grid${selectedFinding ? ' has-detail' : ''}`}>
+      <div className={`security-checks-grid${selectedFinding || selectedPostureCheck ? ' has-detail' : ''}`}>
         <section className="security-checks-panel security-checks-connections-panel">
           <header>
-            <h2>Connections</h2>
+            <div className="security-checks-panel-title">
+              <h2>Connections</h2>
+              <div className="security-checks-view-toggle" role="tablist" aria-label="Security check view">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-label={`Vulnerabilities ${counts.vulnerabilityIssues}`}
+                  aria-selected={activeView === 'vulnerabilities'}
+                  className={activeView === 'vulnerabilities' ? 'is-active' : ''}
+                  onClick={() => switchView('vulnerabilities')}
+                >
+                  <span>Vulnerabilities</span>
+                  <span className="security-checks-view-count">{counts.vulnerabilityIssues}</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-label={`Posture ${counts.postureIssues}`}
+                  aria-selected={activeView === 'posture'}
+                  className={activeView === 'posture' ? 'is-active' : ''}
+                  onClick={() => switchView('posture')}
+                >
+                  <span>Posture</span>
+                  <span className="security-checks-view-count">{counts.postureIssues}</span>
+                </button>
+              </div>
+            </div>
             <div className="security-checks-panel-header-actions">
               <span>{securitySnapshot?.targets.length ?? 0}</span>
-              {mutedFindingCount > 0 ? (
+              {activeView === 'posture' ? (
+                <button
+                  type="button"
+                  className="drawer-button drawer-button--compact"
+                  aria-pressed={showPassingPostureChecks}
+                  onClick={() => setShowPassingPostureChecks((current) => !current)}
+                >
+                  {showPassingPostureChecks ? 'Hide Passing' : 'Show Passing'}
+                </button>
+              ) : null}
+              {mutedActiveCount > 0 ? (
                 <button
                   type="button"
                   className="drawer-button drawer-button--compact"
                   aria-pressed={showMutedFindings}
                   onClick={() => setShowMutedFindings((current) => !current)}
                 >
-                  {showMutedFindings ? 'Hide Muted' : `Show Muted (${mutedFindingCount})`}
+                  {showMutedFindings ? 'Hide Muted' : `Show Muted (${mutedActiveCount})`}
                 </button>
               ) : null}
             </div>
@@ -209,21 +297,33 @@ export function SecurityChecksWorkspace({
               <span>Connection</span>
               <span>Environment</span>
               <span>Version</span>
-              <span>Status</span>
-              <span>Findings</span>
+              <span>Guidance</span>
+              <span>{activeView === 'posture' ? 'Posture' : 'Findings'}</span>
             </div>
             {(securitySnapshot?.targets ?? []).map((target) => {
               const findings = findingsByTargetId.get(target.id) ?? []
-              const expanded = expandedTargetIds[target.id] ?? findings.length > 0
+              const postureChecks = postureChecksByTargetId.get(target.id) ?? []
+              const activeRows = activeView === 'posture' ? postureChecks : findings
+              const expanded = expandedTargetIds[target.id] ?? activeRows.length > 0
               return (
                 <SecurityConnectionRows
                   key={target.id}
+                  activeView={activeView}
                   expanded={expanded}
                   findings={findings}
                   mutedFindingIds={mutedFindingIdSet}
+                  postureChecks={postureChecks}
                   selectedFindingId={selectedFinding?.id}
+                  selectedPostureCheckId={selectedPostureCheck?.id}
                   target={target}
-                  onSelectFinding={setSelectedFindingId}
+                  onSelectFinding={(findingId) => {
+                    setSelectedPostureCheckId(undefined)
+                    setSelectedFindingId(findingId)
+                  }}
+                  onSelectPostureCheck={(checkId) => {
+                    setSelectedFindingId(undefined)
+                    setSelectedPostureCheckId(checkId)
+                  }}
                   onToggle={() =>
                     setExpandedTargetIds((current) => ({
                       ...current,
@@ -247,6 +347,14 @@ export function SecurityChecksWorkspace({
             onMute={() => void updateFindingMute(selectedFinding.id, true)}
             onUnmute={() => void updateFindingMute(selectedFinding.id, false)}
           />
+        ) : selectedPostureCheck ? (
+          <PostureCheckDetail
+            check={selectedPostureCheck}
+            muted={mutedFindingIdSet.has(selectedPostureCheck.id)}
+            onClose={() => setSelectedPostureCheckId(undefined)}
+            onMute={() => void updateFindingMute(selectedPostureCheck.id, true)}
+            onUnmute={() => void updateFindingMute(selectedPostureCheck.id, false)}
+          />
         ) : null}
       </div>
     </section>
@@ -254,24 +362,39 @@ export function SecurityChecksWorkspace({
 }
 
 function SecurityConnectionRows({
+  activeView,
   expanded,
   findings,
   mutedFindingIds,
+  postureChecks,
   selectedFindingId,
+  selectedPostureCheckId,
   target,
   onSelectFinding,
+  onSelectPostureCheck,
   onToggle,
 }: {
+  activeView: SecurityChecksView
   expanded: boolean
   findings: DatastoreSecurityFinding[]
   mutedFindingIds: Set<string>
+  postureChecks: DatastoreSecurityPostureCheckResult[]
   selectedFindingId?: string
+  selectedPostureCheckId?: string
   target: DatastoreSecurityTarget
   onSelectFinding(findingId: string): void
+  onSelectPostureCheck(checkId: string): void
   onToggle(): void
 }) {
   const findingsId = `security-findings-${target.id}`
   const highestSeverity = highestFindingSeverity(findings)
+  const highestPostureSeverity = highestPostureSeverityForChecks(postureChecks)
+  const visibleRows = activeView === 'posture' ? postureChecks : findings
+  const guidanceLabel = versionGuidanceLabel(target)
+  const guidanceDetail = target.versionSourceUpdatedAt
+    ? `Catalog: ${formatDate(target.versionSourceUpdatedAt)}`
+    : undefined
+  const guidanceTooltip = versionGuidanceTooltip(target)
 
   return (
     <>
@@ -280,13 +403,13 @@ function SecurityConnectionRows({
           <button
             type="button"
             className="security-checks-target-toggle"
-            disabled={!findings.length}
-            aria-expanded={findings.length ? expanded : undefined}
-            aria-controls={findings.length ? findingsId : undefined}
-            aria-label={`${expanded ? 'Collapse' : 'Expand'} findings for ${target.connectionName}`}
+            disabled={!visibleRows.length}
+            aria-expanded={visibleRows.length ? expanded : undefined}
+            aria-controls={visibleRows.length ? findingsId : undefined}
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${activeView === 'posture' ? 'posture checks' : 'findings'} for ${target.connectionName}`}
             onClick={onToggle}
           >
-            {findings.length ? (
+            {visibleRows.length ? (
               expanded ? (
                 <ChevronDownIcon className="panel-inline-icon" />
               ) : (
@@ -302,50 +425,159 @@ function SecurityConnectionRows({
           </button>
         </span>
         <span>{target.environmentName}</span>
-        <span>{target.detectedVersion ?? 'Unavailable'}</span>
-        <span>{target.message ?? titleCase(target.status)}</span>
         <span>
-          {findings.length}
-          {highestSeverity ? (
+          <span className="security-checks-version-stack">
+            <strong>{target.detectedVersion ?? 'Unavailable'}</strong>
+            {target.knownLatestVersion && target.versionStatus !== 'current' ? (
+              <small>Known newer: {target.knownLatestVersion}</small>
+            ) : target.versionStatus === 'current' ? (
+              <small>Current in bundled catalog</small>
+            ) : null}
+          </span>
+        </span>
+        <span>
+          <GuidanceTooltip
+            detail={guidanceDetail}
+            label={guidanceLabel}
+            tooltip={guidanceTooltip}
+          />
+        </span>
+        <span>
+          {activeView === 'posture' ? postureChecks.length : findings.length}
+          {activeView === 'posture' ? (
+            highestPostureSeverity ? <small>{highestPostureSeverity}</small> : null
+          ) : highestSeverity ? (
             <small>{highestSeverity}</small>
           ) : null}
         </span>
       </div>
-      {expanded && findings.length ? (
+      {expanded && visibleRows.length ? (
         <div
           id={findingsId}
           role="rowgroup"
           className="security-checks-finding-group"
         >
-          {findings.map((finding) => (
-            <div
-              key={`${target.id}-${finding.id}`}
-              role="row"
-              className={`security-checks-finding-row${
-                mutedFindingIds.has(finding.id) ? ' is-muted' : ''
-              }`}
-            >
-              <button
-                type="button"
-                className={`security-checks-finding-row-button${selectedFindingId === finding.id ? ' is-active' : ''}`}
-                aria-label={`View ${finding.cveId} details for ${target.connectionName}`}
-                onClick={() => onSelectFinding(finding.id)}
-              >
-                <span className={`security-checks-severity severity-${finding.severity.toLowerCase()}`}>
-                  {finding.severity}
-                </span>
-                <strong>{finding.cveId}</strong>
-                <span>{finding.title || finding.summary}</span>
-                {mutedFindingIds.has(finding.id) ? (
-                  <em>Muted</em>
-                ) : finding.knownExploited ? (
-                  <em>CISA KEV</em>
-                ) : null}
-              </button>
-            </div>
-          ))}
+          {activeView === 'posture'
+            ? postureChecks.map((check) => (
+                <div
+                  key={`${target.id}-${check.id}`}
+                  role="row"
+                  className={`security-checks-finding-row${
+                    mutedFindingIds.has(check.id) ? ' is-muted' : ''
+                  }`}
+                >
+                  <button
+                    type="button"
+                    className={`security-checks-finding-row-button${selectedPostureCheckId === check.id ? ' is-active' : ''}`}
+                    aria-label={`View ${check.title} posture check for ${target.connectionName}`}
+                    onClick={() => onSelectPostureCheck(check.id)}
+                  >
+                    <span className={`security-checks-severity status-${check.status}`}>
+                      {check.status}
+                    </span>
+                    <strong>{titleCase(check.category)}</strong>
+                    <span>{check.title || check.summary}</span>
+                    {mutedFindingIds.has(check.id) ? (
+                      <em>Muted</em>
+                    ) : check.source === 'read-only-probe' ? (
+                      <em>Probe</em>
+                    ) : null}
+                  </button>
+                </div>
+              ))
+            : findings.map((finding) => (
+                <div
+                  key={`${target.id}-${finding.id}`}
+                  role="row"
+                  className={`security-checks-finding-row${
+                    mutedFindingIds.has(finding.id) ? ' is-muted' : ''
+                  }`}
+                >
+                  <button
+                    type="button"
+                    className={`security-checks-finding-row-button${selectedFindingId === finding.id ? ' is-active' : ''}`}
+                    aria-label={`View ${finding.cveId} details for ${target.connectionName}`}
+                    onClick={() => onSelectFinding(finding.id)}
+                  >
+                    <span className={`security-checks-severity severity-${finding.severity.toLowerCase()}`}>
+                      {finding.severity}
+                    </span>
+                    <strong>{finding.cveId}</strong>
+                    <span>{finding.title || finding.summary}</span>
+                    {mutedFindingIds.has(finding.id) ? (
+                      <em>Muted</em>
+                    ) : finding.knownExploited ? (
+                      <em>CISA KEV</em>
+                    ) : null}
+                  </button>
+                </div>
+              ))}
         </div>
       ) : null}
+    </>
+  )
+}
+
+function GuidanceTooltip({
+  detail,
+  label,
+  tooltip,
+}: {
+  detail?: string
+  label: string
+  tooltip: string
+}) {
+  const tooltipId = useId()
+  const [position, setPosition] = useState<TooltipPosition>()
+
+  const openTooltip = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect()
+    const viewportWidth = window.innerWidth || 1280
+    const viewportHeight = window.innerHeight || 720
+    const maxWidth = 360
+    const estimatedHeight = Math.min(220, 36 + tooltip.split('\n').length * 22)
+    const left = Math.min(
+      Math.max(8, rect.left),
+      Math.max(8, viewportWidth - maxWidth - 8),
+    )
+    const below = rect.bottom + 8
+    const top =
+      below + estimatedHeight > viewportHeight - 8
+        ? Math.max(8, rect.top - estimatedHeight - 8)
+        : below
+
+    setPosition({ left, top })
+  }
+
+  return (
+    <>
+      <span
+        className="security-checks-version-stack security-checks-guidance-trigger"
+        tabIndex={0}
+        aria-describedby={position ? tooltipId : undefined}
+        onBlur={() => setPosition(undefined)}
+        onFocus={(event) => openTooltip(event.currentTarget)}
+        onMouseEnter={(event) => openTooltip(event.currentTarget)}
+        onMouseLeave={() => setPosition(undefined)}
+      >
+        <strong>{label}</strong>
+        {detail ? <small>{detail}</small> : null}
+      </span>
+      {position && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              id={tooltipId}
+              role="tooltip"
+              className="security-checks-guidance-tooltip"
+              style={{ left: position.left, top: position.top }}
+            >
+              {tooltip.split('\n').map((line) => (
+                <span key={line}>{line}</span>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   )
 }
@@ -407,8 +639,20 @@ function FindingDetail({
           </div>
           <div>
             <dt>Affected</dt>
-            <dd>{finding.affectedProduct}{finding.affectedVersion ? ` ${finding.affectedVersion}` : ''}</dd>
+            <dd>{finding.affectedProduct}{finding.affectedVersion ? ` ${finding.affectedVersion}` : ''}{finding.affectedVersionRange ? ` (${finding.affectedVersionRange})` : ''}</dd>
           </div>
+          {finding.fixedVersionHint ? (
+            <div>
+              <dt>Fixed Version Hint</dt>
+              <dd>{finding.fixedVersionHint}</dd>
+            </div>
+          ) : null}
+          {finding.affectedVersionRange ? (
+            <div>
+              <dt>NVD Affected Range</dt>
+              <dd>{finding.affectedVersionRange}</dd>
+            </div>
+          ) : null}
           <div>
             <dt>What To Do Next</dt>
             <dd>{finding.remediation}</dd>
@@ -428,6 +672,90 @@ function FindingDetail({
             </a>
           ))}
         </div>
+      </div>
+    </section>
+  )
+}
+
+function PostureCheckDetail({
+  check,
+  muted,
+  onClose,
+  onMute,
+  onUnmute,
+}: {
+  check: DatastoreSecurityPostureCheckResult
+  muted: boolean
+  onClose(): void
+  onMute(): void
+  onUnmute(): void
+}) {
+  return (
+    <section className="security-checks-panel security-checks-detail" aria-label={`${check.title} posture check`}>
+      <header>
+        <h2>{check.title}</h2>
+        <div className="security-checks-detail-actions">
+          <span className={`security-checks-severity status-${check.status}`}>
+            {check.status}
+          </span>
+          <button
+            type="button"
+            className="drawer-button drawer-button--compact"
+            aria-label={`${muted ? 'Unmute' : 'Mute'} ${check.title}`}
+            onClick={muted ? onUnmute : onMute}
+          >
+            {muted ? 'Unmute' : 'Mute'}
+          </button>
+          <button
+            type="button"
+            className="sidebar-icon-button sidebar-icon-button--inline"
+            aria-label="Close posture details"
+            title="Close"
+            onClick={onClose}
+          >
+            <CloseIcon className="sidebar-icon" />
+          </button>
+        </div>
+      </header>
+      <div className="security-checks-detail-body">
+        <p>{check.summary}</p>
+        <dl>
+          <div>
+            <dt>Severity</dt>
+            <dd>{check.severity}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd>{titleCase(check.status)}</dd>
+          </div>
+          <div>
+            <dt>Category</dt>
+            <dd>{titleCase(check.category)}</dd>
+          </div>
+          <div>
+            <dt>Source</dt>
+            <dd>{check.source === 'read-only-probe' ? 'Read-only probe' : 'Profile'}</dd>
+          </div>
+          {check.evidence ? (
+            <div>
+              <dt>Evidence</dt>
+              <dd>{check.evidence}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>What To Do Next</dt>
+            <dd>{check.remediation}</dd>
+          </div>
+        </dl>
+        {check.references.length ? (
+          <div className="security-checks-links">
+            {check.references.slice(0, 8).map((reference) => (
+              <a key={`${reference.label}-${reference.url}`} href={reference.url} target="_blank" rel="noreferrer">
+                {reference.label}
+              </a>
+            ))}
+          </div>
+        ) : null}
       </div>
     </section>
   )
@@ -459,28 +787,97 @@ function groupFindingsByTargetId(
   return grouped
 }
 
+function groupPostureChecksByTargetId(
+  snapshot: DatastoreSecurityCheckSnapshot | undefined,
+  mutedFindingIds: Set<string>,
+  includeMuted: boolean,
+  includePassing: boolean,
+) {
+  const grouped = new Map<string, DatastoreSecurityPostureCheckResult[]>()
+
+  for (const target of snapshot?.targets ?? []) {
+    grouped.set(target.id, [])
+  }
+
+  for (const check of snapshot?.postureChecks ?? []) {
+    if (!includeMuted && mutedFindingIds.has(check.id)) {
+      continue
+    }
+    if (!includePassing && (check.status === 'pass' || check.status === 'notApplicable')) {
+      continue
+    }
+    for (const targetId of check.targetIds) {
+      const targetChecks = grouped.get(targetId)
+      if (targetChecks) {
+        targetChecks.push(check)
+      }
+    }
+  }
+
+  for (const checks of grouped.values()) {
+    checks.sort((left, right) => {
+      const statusDelta = postureStatusRank(left.status) - postureStatusRank(right.status)
+      if (statusDelta) return statusDelta
+      return severityRank(left.severity) - severityRank(right.severity)
+    })
+  }
+
+  return grouped
+}
+
 function securitySummaryCounts(
   snapshot: DatastoreSecurityCheckSnapshot | undefined,
   mutedFindingIds: Set<string>,
 ) {
   const bySeverity = Object.fromEntries(SEVERITIES.map((severity) => [severity, 0])) as Record<DatastoreSecuritySeverity, number>
   let kev = 0
+  let vulnerabilityIssues = 0
+  let postureIssues = 0
 
   for (const finding of snapshot?.findings ?? []) {
     if (mutedFindingIds.has(finding.id)) {
       continue
     }
+    vulnerabilityIssues += 1
     bySeverity[finding.severity] = (bySeverity[finding.severity] ?? 0) + 1
     if (finding.knownExploited) {
       kev += 1
     }
   }
+  for (const check of snapshot?.postureChecks ?? []) {
+    if (mutedFindingIds.has(check.id)) {
+      continue
+    }
+    if (check.status === 'fail' || check.status === 'warn' || check.status === 'unknown') {
+      postureIssues += 1
+      bySeverity[check.severity] = (bySeverity[check.severity] ?? 0) + 1
+    }
+  }
 
-  const needsAttention = (snapshot?.targets ?? []).filter((target) =>
-    ['versionUnavailable', 'mappingUnavailable', 'error'].includes(target.status),
+  const postureTargetIds = new Set(
+    (snapshot?.postureChecks ?? [])
+      .filter(
+        (check) =>
+          !mutedFindingIds.has(check.id) &&
+          (check.status === 'fail' || check.status === 'warn' || check.status === 'unknown'),
+      )
+      .flatMap((check) => check.targetIds),
+  )
+  const findingTargetIds = new Set(
+    (snapshot?.findings ?? [])
+      .filter((finding) => !mutedFindingIds.has(finding.id))
+      .flatMap((finding) => finding.targetIds),
+  )
+  const needsAttention = (snapshot?.targets ?? []).filter(
+    (target) =>
+      ['versionUnavailable', 'mappingUnavailable', 'error'].includes(target.status) ||
+      target.versionStatus === 'updateAvailable' ||
+      target.versionStatus === 'unsupported' ||
+      findingTargetIds.has(target.id) ||
+      postureTargetIds.has(target.id),
   ).length
 
-  return { bySeverity, kev, needsAttention }
+  return { bySeverity, kev, postureIssues, vulnerabilityIssues, needsAttention }
 }
 
 function highestFindingSeverity(findings: DatastoreSecurityFinding[]) {
@@ -493,14 +890,77 @@ function highestFindingSeverity(findings: DatastoreSecurityFinding[]) {
   return highest
 }
 
+function highestPostureSeverityForChecks(checks: DatastoreSecurityPostureCheckResult[]) {
+  let highest: DatastoreSecuritySeverity | undefined
+  for (const check of checks) {
+    if (check.status === 'pass' || check.status === 'notApplicable') {
+      continue
+    }
+    if (!highest || severityRank(check.severity) < severityRank(highest)) {
+      highest = check.severity
+    }
+  }
+  return highest
+}
+
 function severityRank(severity: DatastoreSecuritySeverity) {
   const index = SEVERITIES.indexOf(severity)
   return index === -1 ? SEVERITIES.length : index
 }
 
+function postureStatusRank(status: DatastoreSecurityPostureStatus) {
+  const index = POSTURE_STATUSES.indexOf(status)
+  return index === -1 ? POSTURE_STATUSES.length : index
+}
+
 function nextManualRefreshMs(value: string | undefined, now: number) {
   const next = timestampToMs(value)
   return next && next > now ? next - now : 0
+}
+
+function versionGuidanceLabel(target: DatastoreSecurityTarget) {
+  if (target.versionStatus === 'unsupported') {
+    return target.recommendedVersion
+      ? `Unsupported. Upgrade to ${target.recommendedVersion}`
+      : 'Unsupported version'
+  }
+  if (target.versionStatus === 'updateAvailable') {
+    return target.recommendedVersion
+      ? `Recommended: ${target.recommendedVersion}`
+      : 'Update available'
+  }
+  if (target.versionStatus === 'current') {
+    return 'No known newer version'
+  }
+  return target.message ?? titleCase(target.status)
+}
+
+function versionGuidanceTooltip(target: DatastoreSecurityTarget) {
+  const guidance = versionGuidanceLabel(target)
+  const lines = [
+    guidance,
+    target.detectedVersion ? `Detected: ${target.detectedVersion}` : undefined,
+    target.knownLatestVersion ? `Known newer: ${target.knownLatestVersion}` : undefined,
+    target.recommendedVersion ? `Recommended: ${target.recommendedVersion}` : undefined,
+    target.versionStatus ? `Version status: ${titleCase(target.versionStatus)}` : undefined,
+    target.versionSourceLabel ? `Source: ${target.versionSourceLabel}` : undefined,
+    target.versionSourceUpdatedAt
+      ? `Catalog updated: ${formatDate(target.versionSourceUpdatedAt)}`
+      : undefined,
+    target.message && target.message !== guidance
+      ? `Scan status: ${target.message}`
+      : undefined,
+  ].filter((line): line is string => Boolean(line))
+
+  return Array.from(new Set(lines)).join('\n')
+}
+
+function formatDate(value: string | undefined) {
+  const ms = timestampToMs(value)
+  if (!ms) return 'Unknown'
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+  }).format(new Date(ms))
 }
 
 function formatTimestamp(value: string | undefined) {

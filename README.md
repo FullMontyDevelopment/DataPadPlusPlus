@@ -40,6 +40,8 @@ DataPad++ is built to make that easier:
 - guarded previews for destructive or admin work
 - environments, variables, and secret-safe workflows
 - a Library for saved queries, scripts, tests, notes, and connection folders
+- Workspace Search for connections, Library work, open tabs, closed tabs, scripts, and test suites
+- opt-in local API and MCP server workspaces for deliberate desktop integrations
 - file-based encrypted workspace exports, optional secret-inclusive bundles, and opt-in auto-backups
 
 The goal is not to flatten every datastore into a generic table viewer. The goal is to make each datastore feel like it has its own purpose-built IDE inside the same app.
@@ -168,6 +170,9 @@ It is growing into a full datastore workbench with:
 - explain plan rendering, including purpose-built MongoDB explain UI and shared SQL plan views for PostgreSQL, SQL Server SHOWPLAN_TEXT/XML Showplan, MySQL/MariaDB performance_schema/status diagnostics, SQLite, and compatible PostgreSQL-wire engines
 - test-suite workspaces for datastore-specific setup, execute, assert, and teardown flows
 - interactive result export through Save As dialogs with datastore-appropriate formats such as CSV, JSON, NDJSON, and text
+- Workspace Search across saved connections, Library content, scripts, test suites, open tabs, and recently closed tabs
+- an opt-in API Server workspace for local REST, GraphQL, or gRPC resources backed by selected datastore objects and saved queries
+- an opt-in MCP Server workspace for local LLM clients with scoped auth tokens, setup snippets, metrics, and logs
 - per-tab concurrent execution so long-running queries do not block other tabs
 
 Many admin operations are intentionally preview-first. If an action can drop, overwrite, lock, scan heavily, or affect production data, DataPad++ should make that obvious before anything runs.
@@ -211,9 +216,10 @@ DataPad++ is designed around a simple rule: make dangerous work visible, and kee
 - Saved Library items open once, so you do not accidentally edit two copies of the same thing.
 - Environment variables are suggested while typing `{{` in supported editors.
 - Query tabs show datastore icons, running state, error state, and unsaved state separately.
-- Settings open as a normal closeable tab, with Appearance, Workspace, Backups, Security, Shortcuts, and Health sections.
+- Settings open as a normal closeable tab, with Appearance, Workspace, Backups, Security, Experimental, Shortcuts, and Health sections.
 - Workspace bundles are encrypted files with integrity verification; optional password inclusion stays encrypted and explicit.
 - SQL relationship diagrams show table cards, columns, relationship ends, and focused inspectors without rendering an entire enterprise schema at once.
+- API Server and MCP Server stay opt-in, bind locally, and expose only the resources, saved queries, scopes, and clients you configure.
 
 ## Pre-Release Expectations
 

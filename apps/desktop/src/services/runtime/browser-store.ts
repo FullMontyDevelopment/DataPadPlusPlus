@@ -87,10 +87,9 @@ export function setBrowserWorkspaceSwitcherEnabled(
 }
 
 export function createBrowserWorkspace(request: WorkspaceCreateRequest): WorkspaceSnapshot {
-  let registry = ensureBrowserWorkspaceRegistry()
   const current = loadBrowserSnapshot()
   saveBrowserSnapshot(current)
-  registry = ensureBrowserWorkspaceRegistry()
+  const registry = ensureBrowserWorkspaceRegistry()
 
   const timestamp = new Date().toISOString()
   const workspaceId = browserWorkspaceId()

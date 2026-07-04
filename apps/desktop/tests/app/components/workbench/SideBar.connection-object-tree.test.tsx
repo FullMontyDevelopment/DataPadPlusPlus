@@ -3,10 +3,8 @@ import type { AdapterManifest, ConnectionProfile, EnvironmentProfile } from '@da
 import { datastoreTreeForEngine } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import type { ConnectionTreeNode } from '../../../../src/app/components/workbench/SideBar.helpers'
-import {
-  ConnectionObjectTree,
-  explorerFolderOrderKey,
-} from '../../../../src/app/components/workbench/SideBar.connection-object-tree'
+import { ConnectionObjectTree } from '../../../../src/app/components/workbench/SideBar.connection-object-tree'
+import { explorerFolderOrderKey } from '../../../../src/app/components/workbench/SideBar.connection-object-tree-order'
 
 describe('ConnectionObjectTree', () => {
   it('renders adapter-manifest structural folders while live metadata is unavailable', () => {

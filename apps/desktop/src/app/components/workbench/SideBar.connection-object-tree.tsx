@@ -30,11 +30,15 @@ import {
   isObjectViewNode,
   objectNodeTitle,
 } from './SideBar.connection-object-tree-descriptors'
+import {
+  CONNECTION_OBJECT_ROOT_PARENT_KEY,
+  explorerFolderOrderKey,
+} from './SideBar.connection-object-tree-order'
 import { ExplorerNodeIcon } from './SideBar.node-icons'
 import type { ConnectionTreeAction, ConnectionTreeNode } from './SideBar.helpers'
 
 export const CONNECTION_OBJECT_CHILD_BATCH_SIZE = 100
-const CONNECTION_OBJECT_ROOT_PARENT_KEY = '__root__'
+const EMPTY_CONNECTION_TREE_NODES: ConnectionTreeNode[] = []
 
 interface ConnectionObjectFolderDragState {
   parentNodeKey: string
@@ -534,19 +538,6 @@ function connectionTreeRenderNodeKey(
     : `${parentNodeKey}/${nodeKey}`
 }
 
-export function explorerFolderOrderKey(
-  connectionId: string,
-  environmentId: string | undefined,
-  parentNodeKey: string,
-) {
-  return [
-    'connection-object-tree',
-    connectionId.trim(),
-    environmentId?.trim() || 'default',
-    parentNodeKey.trim() || CONNECTION_OBJECT_ROOT_PARENT_KEY,
-  ].join('\u001f')
-}
-
 function orderConnectionTreeNodes(
   connection: ConnectionProfile,
   environmentId: string,
@@ -725,7 +716,7 @@ function ConnectionObjectTreeNode({
     placement: 'before' | 'after',
   ): void
 }) {
-  const children = node.children ?? []
+  const children = node.children ?? EMPTY_CONNECTION_TREE_NODES
   const visibleChildCount =
     visibleChildCounts[nodeKey] ?? CONNECTION_OBJECT_CHILD_BATCH_SIZE
   const visibleChildren = children.slice(0, visibleChildCount)

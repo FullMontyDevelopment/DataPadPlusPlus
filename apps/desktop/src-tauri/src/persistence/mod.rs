@@ -33,7 +33,9 @@ pub fn workspace_file_path(app: &AppHandle) -> PathBuf {
 }
 
 fn workspace_registry_path(app: &AppHandle) -> PathBuf {
-    workspace_base_dir(app).join("workspaces").join("registry.json")
+    workspace_base_dir(app)
+        .join("workspaces")
+        .join("registry.json")
 }
 
 fn workspace_snapshot_path(app: &AppHandle, workspace_id: &str) -> PathBuf {
@@ -82,12 +84,15 @@ fn legacy_workspace_file_paths() -> Vec<PathBuf> {
 
 pub fn load_snapshot(app: &AppHandle) -> Result<Option<WorkspaceSnapshot>, CommandError> {
     if let Some(registry) = read_workspace_registry(app)? {
-        let active_workspace_id = registry
+        let active_workspace_exists = registry
             .workspaces
             .iter()
-            .any(|workspace| workspace.id == registry.active_workspace_id)
-            .then_some(registry.active_workspace_id.as_str())
-            .unwrap_or(DEFAULT_WORKSPACE_ID);
+            .any(|workspace| workspace.id == registry.active_workspace_id);
+        let active_workspace_id = if active_workspace_exists {
+            registry.active_workspace_id.as_str()
+        } else {
+            DEFAULT_WORKSPACE_ID
+        };
         let active_path = workspace_snapshot_path(app, active_workspace_id);
         if active_path.exists() {
             return read_snapshot_with_backup(&active_path);
@@ -256,8 +261,8 @@ fn write_snapshot_file(path: &PathBuf, snapshot: &WorkspaceSnapshot) -> Result<(
     fs::write(&temporary_path, serialized)?;
 
     if path.exists() {
-        let _ = fs::copy(&path, &backup_path);
-        fs::remove_file(&path)?;
+        let _ = fs::copy(path, &backup_path);
+        fs::remove_file(path)?;
     }
 
     fs::rename(temporary_path, path)?;
@@ -306,7 +311,10 @@ fn save_workspace_registry(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(path, serde_json::to_string_pretty(&status_response(registry.clone()))?)?;
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&status_response(registry.clone()))?,
+    )?;
     Ok(())
 }
 

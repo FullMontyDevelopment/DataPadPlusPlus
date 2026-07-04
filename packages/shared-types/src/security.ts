@@ -197,6 +197,26 @@ export type DatastoreSecuritySeverity =
   | 'NONE'
   | 'UNKNOWN'
 
+export type DatastoreSecurityPostureStatus =
+  | 'pass'
+  | 'warn'
+  | 'fail'
+  | 'unknown'
+  | 'notApplicable'
+
+export type DatastoreSecurityPostureCategory =
+  | 'transport'
+  | 'auth'
+  | 'environment'
+  | 'secrets'
+  | 'privileges'
+  | 'durability'
+  | 'risky-settings'
+  | 'cloud'
+  | 'local-file'
+
+export type DatastoreSecurityPostureSource = 'profile' | 'read-only-probe'
+
 export interface DatastoreSecurityCpeCandidate {
   cpeName: string
   source: 'curated' | 'nvd'
@@ -214,6 +234,13 @@ export interface DatastoreSecurityTarget {
   status: DatastoreSecurityTargetStatus
   detectedProduct?: string
   detectedVersion?: string
+  knownLatestVersion?: string
+  recommendedVersion?: string
+  versionStatus?: 'current' | 'updateAvailable' | 'unsupported' | 'unknown'
+  versionSource?: 'bundled-catalog' | 'nvd-range' | 'datastore-local'
+  versionSourceLabel?: string
+  versionSourceUrl?: string
+  versionSourceUpdatedAt?: string
   cpeCandidates: DatastoreSecurityCpeCandidate[]
   findingCount: number
   highestSeverity?: DatastoreSecuritySeverity
@@ -243,6 +270,8 @@ export interface DatastoreSecurityFinding {
   modifiedAt?: string
   affectedProduct: string
   affectedVersion?: string
+  affectedVersionRange?: string
+  fixedVersionHint?: string
   remediation: string
   references: Array<{
     label: string
@@ -255,18 +284,38 @@ export interface DatastoreSecurityFinding {
   sourceUrls: string[]
 }
 
+export interface DatastoreSecurityPostureCheckResult {
+  id: string
+  targetIds: string[]
+  ruleId: string
+  category: DatastoreSecurityPostureCategory
+  status: DatastoreSecurityPostureStatus
+  severity: DatastoreSecuritySeverity
+  title: string
+  summary: string
+  evidence?: string
+  remediation: string
+  source: DatastoreSecurityPostureSource
+  references: Array<{
+    label: string
+    url: string
+    source?: string
+  }>
+}
+
 export interface DatastoreSecurityCheckSnapshot {
   status: DatastoreSecurityCheckStatusValue
   checkedAt?: string
   expiresAt?: string
   sourceMetadata: Array<{
-    source: 'nvd' | 'cisa-kev'
+    source: 'nvd' | 'cisa-kev' | 'version-catalog'
     fetchedAt?: string
     url: string
     recordCount?: number
   }>
   targets: DatastoreSecurityTarget[]
   findings: DatastoreSecurityFinding[]
+  postureChecks: DatastoreSecurityPostureCheckResult[]
   warnings: string[]
   errors: string[]
 }

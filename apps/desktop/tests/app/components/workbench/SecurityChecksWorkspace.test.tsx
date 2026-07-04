@@ -31,6 +31,10 @@ describe('SecurityChecksWorkspace', () => {
     expect(screen.queryByRole('heading', { name: 'Findings' })).not.toBeInTheDocument()
     expect(screen.getByText('Fixture PostgreSQL')).toBeInTheDocument()
     expect(screen.getByText('Fixture MongoDB')).toBeInTheDocument()
+    expect(screen.getByText('Known newer: 18.4')).toBeInTheDocument()
+    expect(screen.getByText('Recommended: 18.4')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Vulnerabilities 1' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Posture 1' })).toBeInTheDocument()
     expect(screen.getByText('CVE-2026-0001')).toBeInTheDocument()
   })
 
@@ -46,6 +50,65 @@ describe('SecurityChecksWorkspace', () => {
     expect(screen.getByText('CVE-2026-0001')).toBeInTheDocument()
   })
 
+  it('shows full guidance content in a hover tooltip', () => {
+    renderSecurityChecks()
+
+    const guidanceTrigger = screen
+      .getByText('Recommended: 18.4')
+      .closest('.security-checks-guidance-trigger')
+
+    expect(guidanceTrigger).not.toHaveAttribute('title')
+
+    fireEvent.mouseEnter(guidanceTrigger!)
+
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip).toHaveTextContent('Recommended: 18.4')
+    expect(tooltip).toHaveTextContent('Detected: 15.2')
+    expect(tooltip).toHaveTextContent('Known newer: 18.4')
+    expect(tooltip).toHaveTextContent('Catalog updated:')
+
+    fireEvent.mouseLeave(guidanceTrigger!)
+
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('does not duplicate status-only guidance in the tooltip', () => {
+    const snapshot = securitySnapshot()
+    const message =
+      'DataPad++ could not detect a product version for Test Redis using read-only probes.'
+    snapshot.datastoreSecurityChecks!.targets = [
+      {
+        id: 'target-redis',
+        connectionId: 'conn-redis',
+        environmentId: 'env-dev',
+        connectionName: 'Test Redis',
+        environmentName: 'Dev',
+        engine: 'redis',
+        family: 'keyvalue',
+        status: 'versionUnavailable',
+        message,
+        cpeCandidates: [],
+        findingCount: 0,
+        warnings: [],
+      },
+    ]
+    snapshot.datastoreSecurityChecks!.findings = []
+
+    renderSecurityChecks(snapshot)
+
+    const guidanceTrigger = screen
+      .getByText(message)
+      .closest('.security-checks-guidance-trigger')
+
+    expect(guidanceTrigger).not.toHaveAttribute('title')
+
+    fireEvent.mouseEnter(guidanceTrigger!)
+
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip).toHaveTextContent(message)
+    expect(tooltip).not.toHaveTextContent('Scan status:')
+  })
+
   it('opens and closes the selected CVE details panel', () => {
     renderSecurityChecks()
 
@@ -55,6 +118,8 @@ describe('SecurityChecksWorkspace', () => {
 
     expect(screen.getByRole('region', { name: 'CVE-2026-0001 details' })).toBeInTheDocument()
     expect(screen.getByText('Upgrade PostgreSQL.')).toBeInTheDocument()
+    expect(screen.getByText('>= 15.5')).toBeInTheDocument()
+    expect(screen.getAllByText('>= 15.0 and < 15.5').length).toBeGreaterThan(0)
     expect(screen.getByRole('link', { name: 'NVD' })).toHaveAttribute(
       'href',
       'https://nvd.nist.gov/vuln/detail/CVE-2026-0001',
@@ -87,6 +152,7 @@ describe('SecurityChecksWorkspace', () => {
       refreshIntervalDays: 7,
       mutedFindingIds: ['finding-cve-1'],
     }
+    snapshot.datastoreSecurityChecks!.postureChecks = []
 
     renderSecurityChecks(snapshot, { onMutedFindingIdsChange })
 
@@ -102,6 +168,45 @@ describe('SecurityChecksWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Unmute CVE-2026-0001' }))
 
     expect(onMutedFindingIdsChange).toHaveBeenCalledWith([])
+  })
+
+  it('shows posture checks in a separate lane with pass rows hidden by default', () => {
+    renderSecurityChecks()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Posture 1' }))
+
+    expect(screen.getByText('High-risk environment is not read-only')).toBeInTheDocument()
+    expect(screen.queryByText('Transport encryption posture is acceptable')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Passing' }))
+
+    expect(screen.getByText('Transport encryption posture is acceptable')).toBeInTheDocument()
+  })
+
+  it('opens and mutes posture check details', async () => {
+    const onMutedFindingIdsChange = vi.fn().mockResolvedValue(true)
+    renderSecurityChecks(securitySnapshot(), { onMutedFindingIdsChange })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Posture 1' }))
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'View High-risk environment is not read-only posture check for Fixture MongoDB',
+      }),
+    )
+
+    expect(
+      screen.getByRole('region', { name: 'High-risk environment is not read-only posture check' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Environment risk: critical. Connection read-only: false.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mute High-risk environment is not read-only' }))
+
+    expect(onMutedFindingIdsChange).toHaveBeenCalledWith(['posture-target-mongo-profile-high-risk-readonly'])
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('region', { name: 'High-risk environment is not read-only posture check' }),
+      ).not.toBeInTheDocument(),
+    )
   })
 })
 
@@ -129,6 +234,12 @@ function securitySnapshot() {
         family: 'sql',
         status: 'checked',
         detectedVersion: '15.2',
+        knownLatestVersion: '18.4',
+        recommendedVersion: '18.4',
+        versionStatus: 'updateAvailable',
+        versionSource: 'bundled-catalog',
+        versionSourceLabel: 'PostgreSQL release notes',
+        versionSourceUpdatedAt: '2026-07-04',
         cpeCandidates: [],
         findingCount: 1,
         highestSeverity: 'HIGH',
@@ -144,6 +255,12 @@ function securitySnapshot() {
         family: 'document',
         status: 'checked',
         detectedVersion: '6.0',
+        knownLatestVersion: '8.3',
+        recommendedVersion: '8.0',
+        versionStatus: 'unsupported',
+        versionSource: 'bundled-catalog',
+        versionSourceLabel: 'MongoDB release notes',
+        versionSourceUpdatedAt: '2026-07-04',
         cpeCandidates: [],
         findingCount: 0,
         warnings: [],
@@ -162,6 +279,8 @@ function securitySnapshot() {
         modifiedAt: '2026-05-20T00:00:00.000Z',
         affectedProduct: 'PostgreSQL',
         affectedVersion: '15.2',
+        affectedVersionRange: '>= 15.0 and < 15.5',
+        fixedVersionHint: '>= 15.5',
         remediation: 'Upgrade PostgreSQL.',
         references: [
           {
@@ -172,6 +291,42 @@ function securitySnapshot() {
         cwes: [],
         knownExploited: true,
         sourceUrls: [],
+      },
+    ],
+    postureChecks: [
+      {
+        id: 'posture-target-postgres-profile-transport',
+        targetIds: ['target-postgres'],
+        ruleId: 'profile.transport',
+        category: 'transport',
+        status: 'pass',
+        severity: 'NONE',
+        title: 'Transport encryption posture is acceptable',
+        summary: 'The profile requires TLS and does not explicitly disable certificate verification.',
+        evidence: 'SSL mode: verify-full.',
+        remediation: 'Keep TLS and certificate verification enabled.',
+        source: 'profile',
+        references: [],
+      },
+      {
+        id: 'posture-target-mongo-profile-high-risk-readonly',
+        targetIds: ['target-mongo'],
+        ruleId: 'profile.high-risk-readonly',
+        category: 'environment',
+        status: 'fail',
+        severity: 'HIGH',
+        title: 'High-risk environment is not read-only',
+        summary:
+          'The connection is attached to a high or critical risk environment without the connection-level read-only guard.',
+        evidence: 'Environment risk: critical. Connection read-only: false.',
+        remediation: 'Enable read-only mode for production-like profiles.',
+        source: 'profile',
+        references: [
+          {
+            label: 'MongoDB Security Checklist',
+            url: 'https://www.mongodb.com/docs/manual/administration/security-checklist/',
+          },
+        ],
       },
     ],
   }

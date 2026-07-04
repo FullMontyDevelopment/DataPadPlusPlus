@@ -8,7 +8,12 @@ import type {
   WorkspaceSwitcherSettingsRequest,
   WorkspaceSwitcherStatus,
 } from '@datapadplusplus/shared-types'
-import { ObjectSecurityIcon, ObjectServerIcon, SearchIcon } from './icons'
+import {
+  ObjectSecurityIcon,
+  ObjectServerIcon,
+  SavedWorkIcon,
+  SearchIcon,
+} from './icons'
 import {
   SettingsNotice,
   SettingsPanel,
@@ -94,11 +99,11 @@ export function SettingsExperimentalPanel({
       ok
         ? {
             text: enabled
-              ? 'API Server workspace enabled.'
-              : 'API Server workspace disabled.',
+              ? 'API Server plugin enabled.'
+              : 'API Server plugin disabled.',
             tone: 'success',
           }
-        : { text: 'Unable to save experimental settings.', tone: 'error' },
+        : { text: 'Unable to save API Server plugin settings.', tone: 'error' },
     )
   }
 
@@ -114,11 +119,11 @@ export function SettingsExperimentalPanel({
       ok
         ? {
             text: enabled
-              ? 'MCP Server workspace enabled.'
-              : 'MCP Server workspace disabled.',
+              ? 'MCP Server plugin enabled.'
+              : 'MCP Server plugin disabled.',
             tone: 'success',
           }
-        : { text: 'Unable to save MCP server settings.', tone: 'error' },
+        : { text: 'Unable to save MCP Server plugin settings.', tone: 'error' },
     )
   }
 
@@ -131,11 +136,11 @@ export function SettingsExperimentalPanel({
       ok
         ? {
             text: enabled
-              ? 'Workspaces switcher enabled.'
-              : 'Workspaces switcher disabled.',
+              ? 'Workspaces plugin enabled.'
+              : 'Workspaces plugin disabled.',
             tone: 'success',
           }
-        : { text: 'Unable to save Workspaces settings.', tone: 'error' },
+        : { text: 'Unable to save Workspaces plugin settings.', tone: 'error' },
     )
   }
 
@@ -148,11 +153,11 @@ export function SettingsExperimentalPanel({
       ok
         ? {
             text: enabled
-              ? 'Workspace Search enabled.'
-              : 'Workspace Search disabled.',
+              ? 'Workspace Search plugin enabled.'
+              : 'Workspace Search plugin disabled.',
             tone: 'success',
           }
-        : { text: 'Unable to save workspace search settings.', tone: 'error' },
+        : { text: 'Unable to save Workspace Search plugin settings.', tone: 'error' },
     )
   }
 
@@ -168,205 +173,279 @@ export function SettingsExperimentalPanel({
       ok
         ? {
             text: enabled
-              ? 'Datastore Security Checks enabled.'
-              : 'Datastore Security Checks disabled.',
+              ? 'Datastore Security Checks plugin enabled.'
+              : 'Datastore Security Checks plugin disabled.',
             tone: 'success',
           }
-        : { text: 'Unable to save security check settings.', tone: 'error' },
+        : { text: 'Unable to save Datastore Security Checks plugin settings.', tone: 'error' },
     )
   }
 
   return (
     <SettingsPanel
-      title="Experimental"
+      title="Plugins"
       icon={<ObjectServerIcon className="panel-inline-icon" />}
     >
-      <div className="settings-experimental-list">
+      <p className="settings-plugin-intro">
+        Plugins are opt-in workspace capabilities. Enable only the surfaces you want available in this workbench.
+      </p>
+
+      <div className="settings-plugin-catalog">
         <section
-          className="settings-experimental-feature"
-          aria-labelledby="settings-api-server-title"
+          className="settings-plugin-group"
+          aria-labelledby="settings-plugins-title"
         >
-          <header className="settings-experimental-feature-header">
-            <h3 id="settings-api-server-title">API Server</h3>
-            <span>Experimental</span>
+          <header className="settings-plugin-group-header">
+            <h3 id="settings-plugins-title">Plugins</h3>
+            <span>Ready</span>
           </header>
 
-          <div className="settings-form-grid settings-form-grid--compact">
-            <label className="settings-check-row settings-check-row--card">
-              <input
-                type="checkbox"
-                checked={apiServer.enabled}
-                disabled={saving}
-                onChange={(event) =>
-                  void saveSettings(event.target.checked)
-                }
-              />
-              <span>Datastore API server</span>
-            </label>
+          <div className="settings-plugin-grid">
+            <section
+              className="settings-plugin-card"
+              aria-labelledby="settings-workspace-search-title"
+            >
+              <header className="settings-plugin-card-header">
+                <span className="settings-plugin-icon">
+                  <SearchIcon className="panel-inline-icon" />
+                </span>
+                <div className="settings-plugin-title-block">
+                  <h4 id="settings-workspace-search-title">Workspace Search</h4>
+                  <p>Find connections, Library work, tabs, scripts, queries, and tests without indexing secrets or result payloads.</p>
+                </div>
+                <span className="settings-plugin-badge settings-plugin-badge--stable">Plugin</span>
+              </header>
 
-            <div className="settings-action-row">
-              <button
-                type="button"
-                className="drawer-button drawer-button--primary"
-                disabled={!apiServer.enabled}
-                onClick={onOpenApiServer}
-              >
-                Open API Server
-              </button>
-            </div>
+              <ul className="settings-plugin-capabilities">
+                <li>Workspace snapshot index</li>
+                <li>Result-type filters and matching options</li>
+                <li>No result payload or secret indexing</li>
+              </ul>
 
-            <SettingsNotice notice={notice} />
+              <div className="settings-form-grid settings-form-grid--compact">
+                <label className="settings-check-row settings-check-row--card">
+                  <input
+                    type="checkbox"
+                    checked={workspaceSearch.enabled}
+                    disabled={searchSaving}
+                    onChange={(event) =>
+                      void saveWorkspaceSearchSettings(event.target.checked)
+                    }
+                  />
+                  <span>Workspace Search</span>
+                </label>
+
+                <div className="settings-action-row">
+                  <button
+                    type="button"
+                    className="drawer-button drawer-button--primary"
+                    disabled={!workspaceSearch.enabled || searchSaving}
+                    onClick={onOpenWorkspaceSearch}
+                  >
+                    <SearchIcon className="panel-inline-icon" />
+                    Open Search
+                  </button>
+                </div>
+
+                <SettingsNotice notice={searchNotice} />
+              </div>
+            </section>
           </div>
         </section>
 
         <section
-          className="settings-experimental-feature"
-          aria-labelledby="settings-mcp-server-title"
+          className="settings-plugin-group"
+          aria-labelledby="settings-experimental-plugins-title"
         >
-          <header className="settings-experimental-feature-header">
-            <h3 id="settings-mcp-server-title">MCP Server</h3>
-            <span>Experimental</span>
+          <header className="settings-plugin-group-header">
+            <h3 id="settings-experimental-plugins-title">Experimental Plugins</h3>
+            <span>Opt-in preview</span>
           </header>
 
-          <div className="settings-form-grid settings-form-grid--compact">
-            <label className="settings-check-row settings-check-row--card">
-              <input
-                type="checkbox"
-                checked={mcpServer.enabled}
-                disabled={mcpSaving}
-                onChange={(event) =>
-                  void saveMcpSettings(event.target.checked)
-                }
-              />
-              <span>Datastore MCP server</span>
-            </label>
+          <div className="settings-plugin-grid">
+            <section
+              className="settings-plugin-card"
+              aria-labelledby="settings-api-server-title"
+            >
+              <header className="settings-plugin-card-header">
+                <span className="settings-plugin-icon">
+                  <ObjectServerIcon className="panel-inline-icon" />
+                </span>
+                <div className="settings-plugin-title-block">
+                  <h4 id="settings-api-server-title">API Server</h4>
+                  <p>Expose selected datastore resources and saved Library queries as local REST, GraphQL, or gRPC endpoints.</p>
+                </div>
+                <span className="settings-plugin-badge settings-plugin-badge--experimental">Experimental</span>
+              </header>
 
-            <div className="settings-action-row">
-              <button
-                type="button"
-                className="drawer-button drawer-button--primary"
-                disabled={!mcpServer.enabled || mcpSaving}
-                onClick={onOpenMcpServer}
-              >
-                Open MCP Server
-              </button>
-            </div>
+              <ul className="settings-plugin-capabilities">
+                <li>Local 127.0.0.1 listeners</li>
+                <li>Selected resources and saved queries only</li>
+                <li>Metrics, logs, and project exports</li>
+              </ul>
 
-            <SettingsNotice notice={mcpNotice} />
-          </div>
-        </section>
+              <div className="settings-form-grid settings-form-grid--compact">
+                <label className="settings-check-row settings-check-row--card">
+                  <input
+                    type="checkbox"
+                    checked={apiServer.enabled}
+                    disabled={saving}
+                    onChange={(event) =>
+                      void saveSettings(event.target.checked)
+                    }
+                  />
+                  <span>Datastore API server</span>
+                </label>
 
-        <section
-          className="settings-experimental-feature"
-          aria-labelledby="settings-workspaces-title"
-        >
-          <header className="settings-experimental-feature-header">
-            <h3 id="settings-workspaces-title">Workspaces</h3>
-            <span>Experimental</span>
-          </header>
+                <div className="settings-action-row">
+                  <button
+                    type="button"
+                    className="drawer-button drawer-button--primary"
+                    disabled={!apiServer.enabled}
+                    onClick={onOpenApiServer}
+                  >
+                    Open API Server
+                  </button>
+                </div>
 
-          <div className="settings-form-grid settings-form-grid--compact">
-            <label className="settings-check-row settings-check-row--card">
-              <input
-                type="checkbox"
-                checked={Boolean(workspaceSwitcherStatus?.enabled)}
-                disabled={workspaceSaving}
-                onChange={(event) =>
-                  void saveWorkspaceSwitcherSettings(event.target.checked)
-                }
-              />
-              <span>Workspaces switcher</span>
-            </label>
+                <SettingsNotice notice={notice} />
+              </div>
+            </section>
 
-            <p className="settings-inline-note">
-              App-wide switcher for local named workspaces. The active workspace is saved before a switch.
-            </p>
+            <section
+              className="settings-plugin-card"
+              aria-labelledby="settings-mcp-server-title"
+            >
+              <header className="settings-plugin-card-header">
+                <span className="settings-plugin-icon settings-plugin-icon--text">MCP</span>
+                <div className="settings-plugin-title-block">
+                  <h4 id="settings-mcp-server-title">MCP Server</h4>
+                  <p>Connect local MCP clients to allowlisted workspace and datastore tools through a locked-down local endpoint.</p>
+                </div>
+                <span className="settings-plugin-badge settings-plugin-badge--experimental">Experimental</span>
+              </header>
 
-            <SettingsNotice notice={workspaceNotice} />
-          </div>
-        </section>
+              <ul className="settings-plugin-capabilities">
+                <li>Loopback Streamable HTTP endpoint</li>
+                <li>Scoped auth tokens and origin controls</li>
+                <li>Read-only v1 tools with audit logs</li>
+              </ul>
 
-        <section
-          className="settings-experimental-feature"
-          aria-labelledby="settings-workspace-search-title"
-        >
-          <header className="settings-experimental-feature-header">
-            <h3 id="settings-workspace-search-title">Workspace Search</h3>
-            <span>Experimental</span>
-          </header>
+              <div className="settings-form-grid settings-form-grid--compact">
+                <label className="settings-check-row settings-check-row--card">
+                  <input
+                    type="checkbox"
+                    checked={mcpServer.enabled}
+                    disabled={mcpSaving}
+                    onChange={(event) =>
+                      void saveMcpSettings(event.target.checked)
+                    }
+                  />
+                  <span>Datastore MCP server</span>
+                </label>
 
-          <div className="settings-form-grid settings-form-grid--compact">
-            <label className="settings-check-row settings-check-row--card">
-              <input
-                type="checkbox"
-                checked={workspaceSearch.enabled}
-                disabled={searchSaving}
-                onChange={(event) =>
-                  void saveWorkspaceSearchSettings(event.target.checked)
-                }
-              />
-              <span>Workspace Search</span>
-            </label>
+                <div className="settings-action-row">
+                  <button
+                    type="button"
+                    className="drawer-button drawer-button--primary"
+                    disabled={!mcpServer.enabled || mcpSaving}
+                    onClick={onOpenMcpServer}
+                  >
+                    Open MCP Server
+                  </button>
+                </div>
 
-            <p className="settings-inline-note">
-              Search connections, saved Library work, open tabs, and recently closed tabs without indexing result payloads or secrets.
-            </p>
+                <SettingsNotice notice={mcpNotice} />
+              </div>
+            </section>
 
-            <div className="settings-action-row">
-              <button
-                type="button"
-                className="drawer-button drawer-button--primary"
-                disabled={!workspaceSearch.enabled || searchSaving}
-                onClick={onOpenWorkspaceSearch}
-              >
-                <SearchIcon className="panel-inline-icon" />
-                Open Search
-              </button>
-            </div>
+            <section
+              className="settings-plugin-card"
+              aria-labelledby="settings-workspaces-title"
+            >
+              <header className="settings-plugin-card-header">
+                <span className="settings-plugin-icon">
+                  <SavedWorkIcon className="panel-inline-icon" />
+                </span>
+                <div className="settings-plugin-title-block">
+                  <h4 id="settings-workspaces-title">Workspaces</h4>
+                  <p>Switch between named local workspaces while preserving the active workspace before every switch.</p>
+                </div>
+                <span className="settings-plugin-badge settings-plugin-badge--experimental">Experimental</span>
+              </header>
 
-            <SettingsNotice notice={searchNotice} />
-          </div>
-        </section>
+              <ul className="settings-plugin-capabilities">
+                <li>Local named workspace switcher</li>
+                <li>Save-before-switch workflow</li>
+                <li>Recent workspace status and counts</li>
+              </ul>
 
-        <section
-          className="settings-experimental-feature"
-          aria-labelledby="settings-security-checks-title"
-        >
-          <header className="settings-experimental-feature-header">
-            <h3 id="settings-security-checks-title">Datastore Security Checks</h3>
-            <span>Experimental</span>
-          </header>
+              <div className="settings-form-grid settings-form-grid--compact">
+                <label className="settings-check-row settings-check-row--card">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(workspaceSwitcherStatus?.enabled)}
+                    disabled={workspaceSaving}
+                    onChange={(event) =>
+                      void saveWorkspaceSwitcherSettings(event.target.checked)
+                    }
+                  />
+                  <span>Workspaces switcher</span>
+                </label>
 
-          <div className="settings-form-grid settings-form-grid--compact">
-            <label className="settings-check-row settings-check-row--card">
-              <input
-                type="checkbox"
-                checked={securityChecks.enabled}
-                disabled={securitySaving}
-                onChange={(event) =>
-                  void saveSecurityCheckSettings(event.target.checked)
-                }
-              />
-              <span>Datastore Security Checks</span>
-            </label>
+                <SettingsNotice notice={workspaceNotice} />
+              </div>
+            </section>
 
-            <p className="settings-inline-note">
-              Checks connected datastore product versions against NVD and enriches known exploited vulnerabilities from CISA KEV.
-            </p>
+            <section
+              className="settings-plugin-card"
+              aria-labelledby="settings-security-checks-title"
+            >
+              <header className="settings-plugin-card-header">
+                <span className="settings-plugin-icon">
+                  <ObjectSecurityIcon className="panel-inline-icon" />
+                </span>
+                <div className="settings-plugin-title-block">
+                  <h4 id="settings-security-checks-title">Datastore Security Checks</h4>
+                  <p>Check connected datastore product versions against NVD and CISA known exploited vulnerability data.</p>
+                </div>
+                <span className="settings-plugin-badge settings-plugin-badge--experimental">Experimental</span>
+              </header>
 
-            <div className="settings-action-row">
-              <button
-                type="button"
-                className="drawer-button drawer-button--primary"
-                disabled={!securityChecks.enabled || securitySaving}
-                onClick={onOpenSecurityChecks}
-              >
-                <ObjectSecurityIcon className="panel-inline-icon" />
-                Open Security Checks
-              </button>
-            </div>
+              <ul className="settings-plugin-capabilities">
+                <li>Version posture checks</li>
+                <li>NVD and CISA KEV enrichment</li>
+                <li>Configurable refresh cadence</li>
+              </ul>
 
-            <SettingsNotice notice={securityNotice} />
+              <div className="settings-form-grid settings-form-grid--compact">
+                <label className="settings-check-row settings-check-row--card">
+                  <input
+                    type="checkbox"
+                    checked={securityChecks.enabled}
+                    disabled={securitySaving}
+                    onChange={(event) =>
+                      void saveSecurityCheckSettings(event.target.checked)
+                    }
+                  />
+                  <span>Datastore Security Checks</span>
+                </label>
+
+                <div className="settings-action-row">
+                  <button
+                    type="button"
+                    className="drawer-button drawer-button--primary"
+                    disabled={!securityChecks.enabled || securitySaving}
+                    onClick={onOpenSecurityChecks}
+                  >
+                    <ObjectSecurityIcon className="panel-inline-icon" />
+                    Open Security Checks
+                  </button>
+                </div>
+
+                <SettingsNotice notice={securityNotice} />
+              </div>
+            </section>
           </div>
         </section>
       </div>

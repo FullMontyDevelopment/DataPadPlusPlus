@@ -127,18 +127,24 @@ describe('StatusBar', () => {
     const onOpen = vi.fn()
     renderStatusBar({
       securityChecksIndicator: {
+        attentionCount: 2,
         criticalCount: 0,
         highCount: 2,
+        postureIssueCount: 0,
         onOpen,
       },
     })
 
     const button = screen.getByRole('button', {
-      name: 'Open Security Checks workspace, 0 critical and 2 high findings',
+      name: 'Open Security Checks workspace, 2 targets need attention',
     })
 
     expect(button).toHaveClass('status-button--security', 'is-high')
     expect(button).toHaveTextContent('Security: 2')
+    expect(button).toHaveAttribute(
+      'title',
+      '2 targets need attention. 0 critical and 2 high unmuted security items. 0 posture issues.',
+    )
 
     fireEvent.click(button)
 
@@ -149,18 +155,42 @@ describe('StatusBar', () => {
     const onOpen = vi.fn()
     renderStatusBar({
       securityChecksIndicator: {
+        attentionCount: 4,
         criticalCount: 1,
         highCount: 3,
+        postureIssueCount: 0,
         onOpen,
       },
     })
 
     const button = screen.getByRole('button', {
-      name: 'Open Security Checks workspace, 1 critical and 3 high findings',
+      name: 'Open Security Checks workspace, 4 targets need attention',
     })
 
     expect(button).toHaveClass('status-button--security', 'is-critical')
     expect(button).toHaveTextContent('Security: 4')
+  })
+
+  it('shows posture issues in the Security Checks indicator tooltip', () => {
+    renderStatusBar({
+      securityChecksIndicator: {
+        attentionCount: 7,
+        criticalCount: 1,
+        highCount: 15,
+        postureIssueCount: 22,
+        onOpen: vi.fn(),
+      },
+    })
+
+    const button = screen.getByRole('button', {
+      name: 'Open Security Checks workspace, 7 targets need attention',
+    })
+
+    expect(button).toHaveTextContent('Security: 7')
+    expect(button).toHaveAttribute(
+      'title',
+      '7 targets need attention. 1 critical and 15 high unmuted security items. 22 posture issues.',
+    )
   })
 
   it('shows an install update button before the errors button', () => {

@@ -100,7 +100,7 @@ const GUIDE_STEPS: GuideStep[] = [
   {
     id: 'settings',
     title: 'Check safety settings',
-    body: 'Settings contain safe mode, backups, diagnostics, shortcuts, and experimental features for the workspace.',
+    body: 'Settings contain safe mode, backups, diagnostics, shortcuts, and opt-in plugins for the workspace.',
     anchor: 'settings-safety',
     placement: 'right',
     actionLabel: 'Open Settings',
@@ -137,8 +137,8 @@ export function FirstInstallGuide({
     () => guideState(snapshot, connectionDraftOpen),
     [connectionDraftOpen, snapshot],
   )
-  const [currentStepId, setCurrentStepId] = useState<GuideStepId>(
-    () => sanitizeGuideStepId(guidePreferences?.currentStepId) ?? 'welcome',
+  const [currentStepId, setCurrentStepId] = useState<GuideStepId>(() =>
+    clampStepIdForState(sanitizeGuideStepId(guidePreferences?.currentStepId) ?? 'welcome', state),
   )
   const [spotlight, setSpotlight] = useState<SpotlightState>()
   const [popoverSize, setPopoverSize] = useState<GuidePopoverSize>({
@@ -274,14 +274,6 @@ export function FirstInstallGuide({
     },
     [onCloseConnectionPanel, onCloseCreateFolder, undoTabSurface],
   )
-
-  useEffect(() => {
-    if (!isRunning || effectiveStepId === currentStepId) {
-      return
-    }
-
-    setCurrentStepId(effectiveStepId)
-  }, [effectiveStepId, currentStepId, isRunning])
 
   useEffect(() => {
     if (!isRunning) {

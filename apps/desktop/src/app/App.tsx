@@ -717,10 +717,15 @@ function DesktopWorkspace() {
     const mutedFindingIds = new Set(mutedSecurityFindingIds)
     let criticalCount = 0
     let highCount = 0
+    let postureIssueCount = 0
+    const attentionTargetIds = new Set<string>()
 
     for (const finding of snapshot.datastoreSecurityChecks?.findings ?? []) {
       if (mutedFindingIds.has(finding.id)) {
         continue
+      }
+      for (const targetId of finding.targetIds) {
+        attentionTargetIds.add(targetId)
       }
       if (finding.severity === 'CRITICAL') {
         criticalCount += 1
@@ -728,13 +733,42 @@ function DesktopWorkspace() {
         highCount += 1
       }
     }
+    for (const check of snapshot.datastoreSecurityChecks?.postureChecks ?? []) {
+      if (
+        mutedFindingIds.has(check.id) ||
+        (check.status !== 'fail' && check.status !== 'warn' && check.status !== 'unknown')
+      ) {
+        continue
+      }
+      postureIssueCount += 1
+      for (const targetId of check.targetIds) {
+        attentionTargetIds.add(targetId)
+      }
+      if (check.severity === 'CRITICAL') {
+        criticalCount += 1
+      } else if (check.severity === 'HIGH') {
+        highCount += 1
+      }
+    }
+    for (const target of snapshot.datastoreSecurityChecks?.targets ?? []) {
+      if (
+        ['versionUnavailable', 'mappingUnavailable', 'error'].includes(target.status) ||
+        target.versionStatus === 'updateAvailable' ||
+        target.versionStatus === 'unsupported'
+      ) {
+        attentionTargetIds.add(target.id)
+      }
+    }
+    const attentionCount = attentionTargetIds.size
 
-    return criticalCount > 0 || highCount > 0
-      ? { criticalCount, highCount }
+    return attentionCount > 0
+      ? { attentionCount, criticalCount, highCount, postureIssueCount }
       : undefined
   }, [
     mutedSecurityFindingIds,
     snapshot?.datastoreSecurityChecks?.findings,
+    snapshot?.datastoreSecurityChecks?.postureChecks,
+    snapshot?.datastoreSecurityChecks?.targets,
     snapshot?.preferences.datastoreSecurityChecks?.enabled,
   ])
   const getApiServerStatus = useCallback(

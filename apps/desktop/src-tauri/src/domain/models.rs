@@ -2469,6 +2469,20 @@ pub struct DatastoreSecurityTarget {
     pub detected_product: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detected_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known_latest_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_source_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_source_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_source_updated_at: Option<String>,
     #[serde(default)]
     pub cpe_candidates: Vec<DatastoreSecurityCpeCandidate>,
     pub finding_count: usize,
@@ -2527,6 +2541,10 @@ pub struct DatastoreSecurityFinding {
     pub affected_product: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub affected_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub affected_version_range: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_version_hint: Option<String>,
     pub remediation: String,
     #[serde(default)]
     pub references: Vec<DatastoreSecurityFindingReference>,
@@ -2537,6 +2555,26 @@ pub struct DatastoreSecurityFinding {
     pub kev: Option<DatastoreSecurityKevDetails>,
     #[serde(default)]
     pub source_urls: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreSecurityPostureCheckResult {
+    pub id: String,
+    #[serde(default)]
+    pub target_ids: Vec<String>,
+    pub rule_id: String,
+    pub category: String,
+    pub status: String,
+    pub severity: String,
+    pub title: String,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<String>,
+    pub remediation: String,
+    pub source: String,
+    #[serde(default)]
+    pub references: Vec<DatastoreSecurityFindingReference>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -2564,6 +2602,8 @@ pub struct DatastoreSecurityCheckSnapshot {
     pub targets: Vec<DatastoreSecurityTarget>,
     #[serde(default)]
     pub findings: Vec<DatastoreSecurityFinding>,
+    #[serde(default)]
+    pub posture_checks: Vec<DatastoreSecurityPostureCheckResult>,
     #[serde(default)]
     pub warnings: Vec<String>,
     #[serde(default)]

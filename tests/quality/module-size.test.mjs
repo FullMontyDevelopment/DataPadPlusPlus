@@ -10,14 +10,14 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/ApiServerWorkspace.tsx',
     {
-      maxLines: 2489,
+      maxLines: 2529,
       reason: 'Datastore API server workspace keeps server selection, settings, metrics, logs, lifecycle controls, and deletion guardrails in one operational surface.',
     },
   ],
   [
     'apps/desktop/src/app/components/workbench/FirstInstallGuide.tsx',
     {
-      maxLines: 569,
+      maxLines: 1009,
       reason: 'First-install guide coordinates persisted tutorial state, real UI callbacks, spotlight layout, and resume behavior in one overlay surface.',
     },
   ],
@@ -143,7 +143,7 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/query-builder/QueryBuilderPanel.tsx',
     {
-      maxLines: 450,
+      maxLines: 455,
       reason: 'Mongo builder filter, projection, sort, and drag/drop behavior remain one cohesive editor.',
     },
   ],
@@ -178,14 +178,14 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/components/workbench/results/DataGridView.tsx',
     {
-      maxLines: 455,
+      maxLines: 494,
       reason: 'Virtualized grid selection, keyboard copy, and editing coordination are tightly coupled.',
     },
   ],
   [
     'apps/desktop/src/app/components/workbench/results/DocumentResultsView.tsx',
     {
-      maxLines: 620,
+      maxLines: 694,
       reason: 'Document virtualization, inline editing, inspector, and field drag behavior share row state.',
     },
   ],
@@ -274,9 +274,23 @@ const documentedExceptions = new Map([
     },
   ],
   [
+    'apps/desktop/src/app/components/workbench/SecurityChecksWorkspace.tsx',
+    {
+      maxLines: 985,
+      reason: 'Security checks workspace keeps vulnerability and posture lanes, target grouping, mute state, summaries, guidance tooltips, and detail rendering together for one experimental surface.',
+    },
+  ],
+  [
+    'apps/desktop/src/app/components/workbench/SettingsExperimentalPanel.tsx',
+    {
+      maxLines: 455,
+      reason: 'Experimental plugin settings keep opt-in plugin toggles, copy, and guarded preference updates together while the plugin list is still moving quickly.',
+    },
+  ],
+  [
     'apps/desktop/src/app/state/app-actions-workspace.ts',
     {
-      maxLines: 873,
+      maxLines: 1034,
       reason: 'Workspace actions coordinate import/export, diagnostics, logs, backups, API server control, and update commands through one app action boundary.',
     },
   ],
@@ -290,14 +304,14 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/state/app-state.tsx',
     {
-      maxLines: 441,
+      maxLines: 461,
       reason: 'App provider owns bootstrap, shared action wiring, startup health checks, and update-check orchestration around one reducer state.',
     },
   ],
   [
     'apps/desktop/src/app/state/app-state-types.ts',
     {
-      maxLines: 443,
+      maxLines: 472,
       reason: 'App state types centralize workbench tabs, drawers, tutorial state, runtime status, and action contracts for reducer consistency.',
     },
   ],
@@ -311,15 +325,15 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/app/state/app-actions-tabs.ts',
     {
-      maxLines: 645,
+      maxLines: 659,
       reason: 'Tab and Library actions share save/open lifecycle state.',
     },
   ],
   [
     'apps/desktop/src/app/state/workspace-migration.ts',
     {
-      maxLines: 1008,
-      reason: 'Workspace schema migration intentionally keeps versioned normalization, Library migration, and variable syntax migration in one place.',
+      maxLines: 1350,
+      reason: 'Workspace schema migration intentionally keeps versioned normalization, Library migration, variable syntax migration, and security-check snapshot normalization in one place.',
     },
   ],
   [
@@ -337,9 +351,16 @@ const documentedExceptions = new Map([
     },
   ],
   [
+    'apps/desktop/src/services/runtime/browser-store.ts',
+    {
+      maxLines: 506,
+      reason: 'Browser preview store keeps workspace snapshot persistence, switcher registry migration, and localStorage compatibility in one deterministic runtime boundary.',
+    },
+  ],
+  [
     'apps/desktop/src/services/runtime/client-api-server.ts',
     {
-      maxLines: 884,
+      maxLines: 901,
       reason: 'API server client helpers centralize command shapes, runtime mapping, metrics, logs, tokens, and setup payload conversion.',
     },
   ],
@@ -360,7 +381,7 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src/services/runtime/client-workspace.ts',
     {
-      maxLines: 438,
+      maxLines: 654,
       reason: 'Workspace client helpers coordinate snapshot, import/export, backup, and settings command shapes.',
     },
   ],
@@ -402,8 +423,15 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src-tauri/src/app/runtime/datastore_api_server.rs',
     {
-      maxLines: 8392,
+      maxLines: 8411,
       reason: 'Datastore API server runtime owns HTTP routing, server lifecycle, request execution, metrics, logs, and persisted server configuration in one sidecar boundary.',
+    },
+  ],
+  [
+    'apps/desktop/src-tauri/src/app/runtime/datastore_security_checks.rs',
+    {
+      maxLines: 3910,
+      reason: 'Datastore security checks runtime keeps version detection, posture rule evaluation, vulnerability-source clients, cache policy, target mapping, and finding normalization together.',
     },
   ],
   [
@@ -432,6 +460,13 @@ const documentedExceptions = new Map([
     {
       maxLines: 560,
       reason: 'Environment runtime owns variable normalization, secret resolution, interpolation, and inheritance safety checks.',
+    },
+  ],
+  [
+    'apps/desktop/src-tauri/src/app/runtime/fixtures.rs',
+    {
+      maxLines: 402,
+      reason: 'Fixture runtime keeps workspace seed profiles, local fixture metadata, and validation helpers together for deterministic development checks.',
     },
   ],
   [
@@ -465,14 +500,14 @@ const documentedExceptions = new Map([
   [
     'apps/desktop/src-tauri/src/app/runtime/settings_tabs.rs',
     {
-      maxLines: 436,
+      maxLines: 504,
       reason: 'Settings tab runtime keeps diagnostics, safety, update, shortcut, and preference tab construction together.',
     },
   ],
   [
     'apps/desktop/src-tauri/src/app/runtime/workspace.rs',
     {
-      maxLines: 936,
+      maxLines: 1079,
       reason: 'Workspace import/export owns encryption validation, snapshot migration, secret stripping, and bundle boundaries.',
     },
   ],

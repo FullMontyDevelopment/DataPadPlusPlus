@@ -346,7 +346,7 @@ function HomePage({ releases, platform }: { releases: GitHubRelease[]; platform:
       <section className="section docs-preview">
         <div className="section-heading">
           <h2>Step-by-step documentation</h2>
-          <p>Start with installation, then move through connections, environments, querying, results, safety, and datastore-specific guides.</p>
+          <p>Start with installation, then move through connections, environments, querying, results, local servers, workspace search, safety, and datastore-specific guides.</p>
         </div>
         <div className="doc-card-grid">
           {docArticles.slice(0, 6).map((article) => (
@@ -432,6 +432,10 @@ function SafetyPage() {
 }
 
 function CoveragePage() {
+  const nativeComplete = datastoreDocs.filter((doc) => doc.maturity.toLowerCase().includes('native-complete')).length
+  const contractComplete = datastoreDocs.length
+  const contractOnly = contractComplete - nativeComplete
+
   return (
     <main className="page-shell">
       <PageTitle
@@ -439,6 +443,23 @@ function CoveragePage() {
         title="Datastore Coverage"
         body="DataPad++ supports native-feeling workflows across SQL, document, cache, search, cloud, local, analytics, metrics, and graph families."
       />
+      <section className="coverage-summary" aria-label="Datastore maturity summary">
+        <div>
+          <strong>{contractComplete}</strong>
+          <span>documented engines</span>
+          <p>Every declared datastore has connection, explorer, query, result, operation, diagnostic, import/export, and safety docs.</p>
+        </div>
+        <div>
+          <strong>{nativeComplete}</strong>
+          <span>native-complete scoped claims</span>
+          <p>These engines have the strongest live, fixture, or adapter-backed evidence for their release scope.</p>
+        </div>
+        <div>
+          <strong>{contractOnly}</strong>
+          <span>contract-complete preview paths</span>
+          <p>These surfaces are documented and guarded, with live cloud, driver, or admin validation still treated as residual risk.</p>
+        </div>
+      </section>
       <section className="coverage-grid">
         {datastoreGroups.map((group) => (
           <div className="coverage-group" key={group.family}>

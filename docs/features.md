@@ -13,12 +13,14 @@ Most work in DataPad++ follows a simple flow:
 3. Explore the available objects.
 4. Open a query or browser tab for the object you care about.
 5. Run, inspect, edit safely where supported, and save useful work into the Library.
+6. Search saved work, export useful results, or capture repeatable checks as test suites.
+7. Enable local API or MCP plugins only when an integration needs the desktop app to expose scoped data context.
 
 The app is intentionally local-first. Your workspace, saved work, and connection profiles live on your machine, and secrets are handled through desktop-safe storage where available.
 
-## Experimental MCP Server
+## Experimental MCP Server Plugin
 
-DataPad++ can expose a desktop-only Model Context Protocol server for local MCP clients. The feature is disabled by default and does not auto-start unless you explicitly enable it from Settings -> Experimental.
+DataPad++ can expose a desktop-only Model Context Protocol server for local MCP clients. The plugin is disabled by default and does not auto-start unless you explicitly enable it from Settings -> Plugins.
 
 The MCP listener is intentionally narrow:
 
@@ -127,6 +129,37 @@ Gemini CLI (`~/.gemini/settings.json` or `.gemini/settings.json`):
 ```
 
 Cloud or browser-hosted LLM apps cannot normally reach a desktop `127.0.0.1` listener. Treat them as guidance-only until DataPad++ offers an explicit tunnel/public-endpoint mode.
+
+## Experimental API Server Plugin
+
+DataPad++ can run desktop-only local API servers for selected datastore resources and saved Library queries. The plugin is disabled by default and is intended for local integration experiments, generated project scaffolds, and tightly scoped internal tools.
+
+An API Server profile can define:
+
+- a local `127.0.0.1` port, name, description, protocol, and base path
+- REST/OpenAPI, GraphQL, or gRPC posture
+- the datastore connection and environment the server should use
+- discovered CRUD resources such as tables, collections, indexes, items, or keys
+- custom query endpoints sourced from saved Library queries
+- endpoint parameters discovered from tokens such as `{{api.customerId}}`
+- metrics and request logs for the running local server
+
+Servers do not expose the whole workspace automatically. You add resources or saved-query endpoints deliberately, and every server still carries the selected connection and environment context. Exported API projects use environment-variable references for runtime secrets; DataPad++ secret values are not written into generated Rust or .NET projects.
+
+## Workspace Search
+
+Workspace Search is a plugin-backed indexed view over the current workspace snapshot. It helps recover work quickly without remembering which folder, tab, or connection owns it.
+
+It can search:
+
+- saved connections
+- folders and Library items
+- saved queries and scripts
+- test suites
+- open tabs
+- recently closed tabs
+
+The search workspace includes type filters, match-case and whole-word controls, recent searches, grouped results, and virtualized rows for large workspaces. Selecting a result opens the matching connection, Library item, tab, or recently closed tab directly.
 
 ## Connections
 
@@ -468,9 +501,25 @@ You can save:
 
 The Library supports folders, nested folders, drag-and-drop moves, rename/delete actions, recents, environments, and environment inheritance. Saving a query can target either the Library or a local file, and new saved queries default beside the active connection when possible.
 
+## Test Suites
+
+Test suites make repeatable datastore checks part of the workspace instead of an external afterthought.
+
+A suite can include:
+
+- setup, execute, and teardown phases
+- SQL, MongoDB, Redis/search-style, or raw request steps depending on the connection
+- assertions for row count, document count, key existence, key type, search-hit count, JSON path, no-error, and duration-under checks
+- visual editing for common cases plus raw JSON for the full definition
+- connection, environment, and variable context inherited from the Library item
+
+Suites are useful for validating fixture data, proving a saved query still returns the expected shape, and documenting operational checks beside the connection they rely on. Test execution follows the same read-only and environment guardrail posture as other workbench actions.
+
 ## Settings, Workspace Bundles, And Backups
 
-Settings open as a closeable workbench tab, not a drawer. The left menu groups Appearance, Workspace, Backups, Security, Shortcuts, and Health so each page stays focused.
+Settings open as a closeable workbench tab, not a drawer. The left menu groups Appearance, Workspace, Backups, Security, Plugins, Shortcuts, and Health so each page stays focused.
+
+The Plugins section is where Workspace Search and experimental plugins such as API Server, MCP Server, Workspaces, and Datastore Security Checks are enabled. These surfaces are opt-in because they can expose broader workspace or datastore context than ordinary query tabs. Datastore Security Checks detect product versions, query NVD and CISA KEV, show NVD affected-version ranges when present, compare detected versions with a bundled known-version catalog, and run advisory posture checks for TLS, auth, environment guardrails, secrets, privileges, durability, and risky settings. Posture checks use saved profiles plus supported read-only probes; they do not add cloud-provider API calls. Browser preview can save some settings, but usable local listeners, posture probes, and automatic client setup require the desktop app.
 
 Workspace export and import are file-first:
 

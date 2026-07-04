@@ -689,15 +689,15 @@ export function ApiServerWorkspace({
           <p className="sidebar-eyebrow">Experimental</p>
           <h1>API Server</h1>
           <p>
-            Enable the datastore API server from Settings before opening a
-            listener.
+            Enable the datastore API server plugin from Settings before opening
+            a listener.
           </p>
           <button
             type="button"
             className="drawer-button drawer-button--primary"
             onClick={onOpenExperimentalSettings}
           >
-            Open Experimental Settings
+            Open Plugins Settings
           </button>
         </div>
       </section>

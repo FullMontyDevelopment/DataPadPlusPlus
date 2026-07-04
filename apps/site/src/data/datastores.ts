@@ -1143,6 +1143,10 @@ export const datastoreDocsByFamily = datastoreFamilyOrder
 export const datastoreDocRoutes = datastoreDocs.map((doc) => `/docs/datastores/${doc.slug}`)
 
 export const datastoreGuideLinksByArticleSlug: Record<string, string[]> = {
+  'api-server': ['postgresql', 'mongodb', 'redis', 'dynamodb', 'elasticsearch', 'opensearch'],
+  'test-suites': ['postgresql', 'mongodb', 'redis', 'dynamodb', 'elasticsearch', 'opensearch'],
+  'relationship-explorer': ['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'sqlite', 'oracle', 'timescaledb', 'duckdb'],
+  'datastore-coverage-maturity': declaredDatastoreEngines.map((engine) => getDatastoreDocBySlug(engine)?.slug ?? engine),
   'sql-workflows': ['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'sqlite', 'oracle', 'timescaledb', 'duckdb'],
   'mongodb-workflows': ['mongodb'],
   'redis-valkey-workflows': ['redis', 'valkey', 'memcached'],
