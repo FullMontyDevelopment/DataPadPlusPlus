@@ -430,6 +430,14 @@ export const docArticles: DocArticle[] = [
         body: 'MCP uses Streamable HTTP at /mcp. Requests need Authorization headers, and write, destructive, admin, and costly operations remain blocked in the current scope.',
       },
       {
+        title: 'Discover enabled plugins',
+        body: 'Tokens with plugin:read can call datapad_list_plugins to list Workspace Search, API Server, MCP Server, Workspaces, and Datastore Security Checks with required scopes and available MCP tools.',
+      },
+      {
+        title: 'Use plugin surfaces with scoped rights',
+        body: 'Workspace Search uses workspace:search, Security Checks uses security:read, API Server summary access uses api-server:read, MCP Server summary access uses mcp-server:read, and Workspaces listing uses workspaces:read. MCP v1 keeps these plugin tools read-only.',
+      },
+      {
         title: 'Review observability',
         body: 'Use server status, metrics, and logs to verify which clients connected and which scopes they used before keeping the server enabled.',
       },

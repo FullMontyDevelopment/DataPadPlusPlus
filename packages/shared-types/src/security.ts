@@ -118,6 +118,12 @@ export interface DatastoreApiServerConfig {
 }
 
 export const DATASTORE_MCP_SERVER_SCOPES = [
+  'plugin:read',
+  'workspace:search',
+  'workspaces:read',
+  'security:read',
+  'api-server:read',
+  'mcp-server:read',
   'workspace:read',
   'workspace:switch',
   'datastore:list',

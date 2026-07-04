@@ -48,10 +48,12 @@ use crate::{
             DatastoreMcpServerStopRequest, DatastoreMcpServerTelemetryRetention,
             DatastoreMcpServerTokenConfig, DatastoreMcpServerTokenCreateRequest,
             DatastoreMcpServerTokenCreateResponse, DatastoreMcpServerTokenDeleteRequest,
-            DatastoreMcpServerUpdateRequest, DatastoreOperationManifest, EnvironmentProfile,
+            DatastoreMcpServerUpdateRequest, DatastoreOperationManifest,
+            DatastoreSecurityCheckSnapshot, DatastoreSecurityFinding,
+            DatastoreSecurityPostureCheckResult, DatastoreSecurityTarget, EnvironmentProfile,
             ExecutionRequest, ExecutionResultEnvelope, ExplorerInspectRequest, ExplorerRequest,
-            OperationExecutionRequest, OperationManifestRequest, QueryExecutionNotice, SecretRef,
-            WorkspaceSnapshot,
+            LibraryNode, OperationExecutionRequest, OperationManifestRequest, QueryExecutionNotice,
+            QueryTabState, SecretRef, WorkspaceSnapshot,
         },
     },
     security,
@@ -71,6 +73,12 @@ const QUERY_TIMEOUT_SECONDS: u64 = 30;
 const RATE_LIMIT_WINDOW_SECONDS: u64 = 60;
 const RATE_LIMIT_REQUESTS: u32 = 120;
 
+const SCOPE_PLUGIN_READ: &str = "plugin:read";
+const SCOPE_WORKSPACE_SEARCH: &str = "workspace:search";
+const SCOPE_WORKSPACES_READ: &str = "workspaces:read";
+const SCOPE_SECURITY_READ: &str = "security:read";
+const SCOPE_API_SERVER_READ: &str = "api-server:read";
+const SCOPE_MCP_SERVER_READ: &str = "mcp-server:read";
 const SCOPE_WORKSPACE_READ: &str = "workspace:read";
 const SCOPE_WORKSPACE_SWITCH: &str = "workspace:switch";
 const SCOPE_DATASTORE_LIST: &str = "datastore:list";
@@ -79,6 +87,12 @@ const SCOPE_QUERY_READ: &str = "query:read";
 const SCOPE_OPERATION_DIAGNOSTIC: &str = "operation:diagnostic";
 
 const ALLOWED_SCOPES: &[&str] = &[
+    SCOPE_PLUGIN_READ,
+    SCOPE_WORKSPACE_SEARCH,
+    SCOPE_WORKSPACES_READ,
+    SCOPE_SECURITY_READ,
+    SCOPE_API_SERVER_READ,
+    SCOPE_MCP_SERVER_READ,
     SCOPE_WORKSPACE_READ,
     SCOPE_WORKSPACE_SWITCH,
     SCOPE_DATASTORE_LIST,
@@ -1121,6 +1135,138 @@ impl DatapadMcpTools {
 
 #[tool_router]
 impl DatapadMcpTools {
+    #[tool(description = "List DataPad++ plugins and whether they are enabled in this workspace.")]
+    async fn datapad_list_plugins(
+        &self,
+        context: rmcp::service::RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_PLUGIN_READ)?;
+        let runtime = self.runtime()?;
+        runtime.ensure_unlocked().map_err(command_to_mcp)?;
+        let workspace_switcher_enabled = runtime
+            .workspace_switcher_status()
+            .ok()
+            .map(|status| status.enabled);
+        json_tool_result(plugin_catalog_for_snapshot(
+            &runtime.snapshot,
+            workspace_switcher_enabled,
+        ))
+    }
+
+    #[tool(
+        description = "Search the Workspace Search plugin index without exposing secrets or result payloads."
+    )]
+    async fn datapad_search_workspace(
+        &self,
+        context: rmcp::service::RequestContext<RoleServer>,
+        Parameters(request): Parameters<SearchWorkspaceArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_WORKSPACE_SEARCH)?;
+        let runtime = self.runtime()?;
+        runtime.ensure_unlocked().map_err(command_to_mcp)?;
+        ensure_plugin_enabled(
+            runtime.snapshot.preferences.workspace_search.enabled,
+            "workspace-search",
+            "Workspace Search",
+        )?;
+        json_tool_result(search_workspace_snapshot(&runtime.snapshot, request)?)
+    }
+
+    #[tool(description = "Read Datastore Security Checks summary counts and freshness metadata.")]
+    async fn datapad_get_security_checks_summary(
+        &self,
+        context: rmcp::service::RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_SECURITY_READ)?;
+        let runtime = self.runtime()?;
+        runtime.ensure_unlocked().map_err(command_to_mcp)?;
+        ensure_plugin_enabled(
+            runtime
+                .snapshot
+                .preferences
+                .datastore_security_checks
+                .enabled,
+            "datastore-security-checks",
+            "Datastore Security Checks",
+        )?;
+        json_tool_result(security_checks_summary_for_snapshot(&runtime.snapshot))
+    }
+
+    #[tool(
+        description = "List Datastore Security Checks targets, CVE findings, and posture results."
+    )]
+    async fn datapad_list_security_checks(
+        &self,
+        context: rmcp::service::RequestContext<RoleServer>,
+        Parameters(request): Parameters<ListSecurityChecksArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_SECURITY_READ)?;
+        let runtime = self.runtime()?;
+        runtime.ensure_unlocked().map_err(command_to_mcp)?;
+        ensure_plugin_enabled(
+            runtime
+                .snapshot
+                .preferences
+                .datastore_security_checks
+                .enabled,
+            "datastore-security-checks",
+            "Datastore Security Checks",
+        )?;
+        json_tool_result(list_security_checks_for_snapshot(
+            &runtime.snapshot,
+            request,
+        ))
+    }
+
+    #[tool(
+        description = "Read API Server plugin profiles and endpoint counts without starting or stopping servers."
+    )]
+    async fn datapad_get_api_server_summary(
+        &self,
+        context: rmcp::service::RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_API_SERVER_READ)?;
+        let runtime = self.runtime()?;
+        runtime.ensure_unlocked().map_err(command_to_mcp)?;
+        json_tool_result(api_server_plugin_summary(&runtime.snapshot))
+    }
+
+    #[tool(
+        description = "Read MCP Server plugin profiles and token metadata counts without exposing token values."
+    )]
+    async fn datapad_get_mcp_server_summary(
+        &self,
+        context: rmcp::service::RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_MCP_SERVER_READ)?;
+        let runtime = self.runtime()?;
+        runtime.ensure_unlocked().map_err(command_to_mcp)?;
+        json_tool_result(mcp_server_plugin_summary(&runtime.snapshot))
+    }
+
+    #[tool(description = "List local workspace profiles when the Workspaces plugin is enabled.")]
+    async fn datapad_list_workspaces(
+        &self,
+        context: rmcp::service::RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_WORKSPACES_READ)?;
+        let runtime = self.runtime()?;
+        runtime.ensure_unlocked().map_err(command_to_mcp)?;
+        let status = runtime
+            .workspace_switcher_status()
+            .map_err(command_to_mcp)?;
+        ensure_plugin_enabled(status.enabled, "workspaces", "Workspaces")?;
+        json_tool_result(json!({
+            "enabled": status.enabled,
+            "activeWorkspaceId": status.active_workspace_id,
+            "workspaces": status.workspaces,
+            "mcpExposure": {
+                "metadataOnly": true,
+                "switchingWorkspaces": "unavailable-through-mcp-v1"
+            }
+        }))
+    }
+
     #[tool(description = "List DataPad++ datastores allowlisted for this MCP server.")]
     async fn datapad_list_datastores(
         &self,
@@ -1362,6 +1508,27 @@ struct ListDatastoresArgs {}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
+struct SearchWorkspaceArgs {
+    query: String,
+    included_types: Option<Vec<String>>,
+    match_case: Option<bool>,
+    whole_word: Option<bool>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+struct ListSecurityChecksArgs {
+    kind: Option<String>,
+    target_id: Option<String>,
+    severity: Option<String>,
+    status: Option<String>,
+    include_muted: Option<bool>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
 struct ExploreDatastoreArgs {
     #[serde(alias = "datastoreId")]
     connection_id: String,
@@ -1543,6 +1710,962 @@ fn command_to_mcp(error: CommandError) -> McpError {
         redact_sensitive_text(&error.message),
         Some(json!({ "code": error.code })),
     )
+}
+
+fn ensure_plugin_enabled(enabled: bool, plugin_id: &str, label: &str) -> Result<(), McpError> {
+    if enabled {
+        Ok(())
+    } else {
+        Err(McpError::invalid_params(
+            format!("{label} plugin is disabled."),
+            Some(json!({ "pluginId": plugin_id, "enabled": false })),
+        ))
+    }
+}
+
+fn api_server_plugin_summary(snapshot: &WorkspaceSnapshot) -> Value {
+    let preferences = &snapshot.preferences.datastore_api_server;
+    let servers = preferences
+        .servers
+        .iter()
+        .map(|server| {
+            let resource_count = server.resources.len();
+            let enabled_resource_count = server
+                .resources
+                .iter()
+                .filter(|resource| resource.enabled)
+                .count();
+            let custom_endpoint_count = server.custom_endpoints.len();
+            let enabled_custom_endpoint_count = server
+                .custom_endpoints
+                .iter()
+                .filter(|endpoint| endpoint.enabled)
+                .count();
+
+            json!({
+                "id": server.id,
+                "name": server.name,
+                "description": server.description.as_deref().map(redact_sensitive_text),
+                "protocol": server.protocol,
+                "basePath": server.base_path,
+                "host": server.host,
+                "port": server.port,
+                "autoStart": server.auto_start,
+                "endpoint": preferences.enabled.then(|| format!("http://{}:{}", server.host, server.port)),
+                "connectionId": server.connection_id,
+                "environmentId": server.environment_id,
+                "resources": {
+                    "total": resource_count,
+                    "enabled": enabled_resource_count,
+                },
+                "customEndpoints": {
+                    "total": custom_endpoint_count,
+                    "enabled": enabled_custom_endpoint_count,
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "enabled": preferences.enabled,
+        "host": preferences.host,
+        "port": preferences.port,
+        "autoStart": preferences.auto_start,
+        "activeServerId": preferences.active_server_id,
+        "servers": servers,
+        "mcpExposure": {
+            "startsServers": false,
+            "stopsServers": false,
+            "secretsIncluded": false,
+        }
+    })
+}
+
+fn mcp_server_plugin_summary(snapshot: &WorkspaceSnapshot) -> Value {
+    let preferences = &snapshot.preferences.datastore_mcp_server;
+    let servers = preferences
+        .servers
+        .iter()
+        .map(|server| {
+            json!({
+                "id": server.id,
+                "name": server.name,
+                "description": server.description.as_deref().map(redact_sensitive_text),
+                "host": server.host,
+                "port": server.port,
+                "autoStart": server.auto_start,
+                "allowedOriginCount": server.allowed_origins.len(),
+                "allowlistedConnectionCount": server.connection_ids.len(),
+                "allowlistedEnvironmentCount": server.environment_ids.len(),
+                "tokenCount": server.tokens.len(),
+                "enabledTokenCount": server.tokens.iter().filter(|token| token.enabled).count(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "enabled": preferences.enabled,
+        "host": preferences.host,
+        "port": preferences.port,
+        "autoStart": preferences.auto_start,
+        "activeServerId": preferences.active_server_id,
+        "servers": servers,
+        "mcpExposure": {
+            "rawTokensIncluded": false,
+            "verifiersIncluded": false,
+            "startsServers": false,
+            "stopsServers": false,
+        }
+    })
+}
+
+fn security_checks_summary_for_snapshot(snapshot: &WorkspaceSnapshot) -> Value {
+    let preferences = &snapshot.preferences.datastore_security_checks;
+    let muted_ids = string_set(&preferences.muted_finding_ids);
+    let Some(security_snapshot) = snapshot.datastore_security_checks.as_ref() else {
+        return json!({
+            "enabled": preferences.enabled,
+            "status": "missing",
+            "message": "No cached Security Checks snapshot is available.",
+            "counts": empty_security_counts(),
+            "mcpExposure": security_mcp_exposure(),
+        });
+    };
+
+    let counts = security_counts(security_snapshot, &muted_ids);
+
+    json!({
+        "enabled": preferences.enabled,
+        "status": security_snapshot.status,
+        "checkedAt": security_snapshot.checked_at,
+        "expiresAt": security_snapshot.expires_at,
+        "refreshIntervalDays": preferences.refresh_interval_days,
+        "lastSuccessfulRefreshAt": preferences.last_successful_refresh_at,
+        "nextManualRefreshAllowedAt": preferences.next_manual_refresh_allowed_at,
+        "counts": counts,
+        "warnings": security_snapshot.warnings.iter().map(|warning| redact_sensitive_text(warning)).collect::<Vec<_>>(),
+        "errors": security_snapshot.errors.iter().map(|error| redact_sensitive_text(error)).collect::<Vec<_>>(),
+        "sourceMetadata": security_snapshot.source_metadata,
+        "mcpExposure": security_mcp_exposure(),
+    })
+}
+
+fn list_security_checks_for_snapshot(
+    snapshot: &WorkspaceSnapshot,
+    request: ListSecurityChecksArgs,
+) -> Value {
+    let muted_ids = string_set(
+        &snapshot
+            .preferences
+            .datastore_security_checks
+            .muted_finding_ids,
+    );
+    let Some(security_snapshot) = snapshot.datastore_security_checks.as_ref() else {
+        return json!({
+            "status": "missing",
+            "targets": [],
+            "findings": [],
+            "postureChecks": [],
+            "mcpExposure": security_mcp_exposure(),
+        });
+    };
+    let kind = request
+        .kind
+        .as_deref()
+        .unwrap_or("all")
+        .trim()
+        .to_ascii_lowercase();
+    let include_muted = request.include_muted.unwrap_or(false);
+    let limit = request.limit.unwrap_or(100).clamp(1, 200);
+    let target_filter = request
+        .target_id
+        .as_deref()
+        .filter(|value| !value.is_empty());
+    let severity_filter = request
+        .severity
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_uppercase());
+    let status_filter = request
+        .status
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+
+    let targets = if kind == "all" || kind == "targets" {
+        security_snapshot
+            .targets
+            .iter()
+            .filter(|target| {
+                security_target_matches(target, target_filter, &severity_filter, &status_filter)
+            })
+            .take(limit)
+            .map(sanitized_security_target)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let findings = if kind == "all" || kind == "findings" || kind == "vulnerabilities" {
+        security_snapshot
+            .findings
+            .iter()
+            .filter(|finding| {
+                (include_muted || !muted_ids.contains(&finding.id))
+                    && security_finding_matches(
+                        finding,
+                        target_filter,
+                        severity_filter.as_deref(),
+                        status_filter.as_deref(),
+                    )
+            })
+            .take(limit)
+            .map(|finding| sanitized_security_finding(finding, muted_ids.contains(&finding.id)))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let posture_checks = if kind == "all" || kind == "posture" || kind == "posturechecks" {
+        security_snapshot
+            .posture_checks
+            .iter()
+            .filter(|check| {
+                (include_muted || !muted_ids.contains(&check.id))
+                    && security_posture_matches(
+                        check,
+                        target_filter,
+                        severity_filter.as_deref(),
+                        status_filter.as_deref(),
+                    )
+            })
+            .take(limit)
+            .map(|check| sanitized_security_posture_check(check, muted_ids.contains(&check.id)))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    json!({
+        "status": security_snapshot.status,
+        "checkedAt": security_snapshot.checked_at,
+        "filters": {
+            "kind": kind,
+            "targetId": target_filter,
+            "severity": severity_filter,
+            "status": status_filter,
+            "includeMuted": include_muted,
+            "limit": limit,
+        },
+        "targets": targets,
+        "findings": findings,
+        "postureChecks": posture_checks,
+        "mcpExposure": security_mcp_exposure(),
+    })
+}
+
+fn empty_security_counts() -> Value {
+    json!({
+        "bySeverity": {
+            "CRITICAL": 0,
+            "HIGH": 0,
+            "MEDIUM": 0,
+            "LOW": 0,
+            "NONE": 0,
+        },
+        "knownExploited": 0,
+        "vulnerabilities": 0,
+        "postureIssues": 0,
+        "needsAttentionTargets": 0,
+        "targets": 0,
+    })
+}
+
+fn security_counts(
+    snapshot: &DatastoreSecurityCheckSnapshot,
+    muted_ids: &HashSet<String>,
+) -> Value {
+    let mut by_severity = HashMap::<String, usize>::from([
+        ("CRITICAL".into(), 0),
+        ("HIGH".into(), 0),
+        ("MEDIUM".into(), 0),
+        ("LOW".into(), 0),
+        ("NONE".into(), 0),
+    ]);
+    let mut known_exploited = 0usize;
+    let mut vulnerabilities = 0usize;
+    let mut posture_issues = 0usize;
+    let mut attention_target_ids = HashSet::<String>::new();
+
+    for finding in &snapshot.findings {
+        if muted_ids.contains(&finding.id) {
+            continue;
+        }
+        vulnerabilities += 1;
+        *by_severity.entry(finding.severity.clone()).or_insert(0) += 1;
+        if finding.known_exploited {
+            known_exploited += 1;
+        }
+        for target_id in &finding.target_ids {
+            attention_target_ids.insert(target_id.clone());
+        }
+    }
+    for check in &snapshot.posture_checks {
+        if muted_ids.contains(&check.id) || !security_posture_status_needs_attention(&check.status)
+        {
+            continue;
+        }
+        posture_issues += 1;
+        *by_severity.entry(check.severity.clone()).or_insert(0) += 1;
+        for target_id in &check.target_ids {
+            attention_target_ids.insert(target_id.clone());
+        }
+    }
+    for target in &snapshot.targets {
+        if target.status == "versionUnavailable"
+            || target.status == "mappingUnavailable"
+            || target.status == "error"
+            || target.version_status.as_deref() == Some("updateAvailable")
+            || target.version_status.as_deref() == Some("unsupported")
+        {
+            attention_target_ids.insert(target.id.clone());
+        }
+    }
+
+    json!({
+        "bySeverity": by_severity,
+        "knownExploited": known_exploited,
+        "vulnerabilities": vulnerabilities,
+        "postureIssues": posture_issues,
+        "needsAttentionTargets": attention_target_ids.len(),
+        "targets": snapshot.targets.len(),
+    })
+}
+
+fn security_target_matches(
+    target: &DatastoreSecurityTarget,
+    target_filter: Option<&str>,
+    severity_filter: &Option<String>,
+    status_filter: &Option<String>,
+) -> bool {
+    if target_filter.is_some_and(|value| value != target.id) {
+        return false;
+    }
+    if let Some(severity) = severity_filter {
+        if target.highest_severity.as_deref() != Some(severity.as_str()) {
+            return false;
+        }
+    }
+    if let Some(status) = status_filter {
+        let target_status = target.status.to_ascii_lowercase();
+        let version_status = target
+            .version_status
+            .as_deref()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if target_status != *status && version_status != *status {
+            return false;
+        }
+    }
+    true
+}
+
+fn security_finding_matches(
+    finding: &DatastoreSecurityFinding,
+    target_filter: Option<&str>,
+    severity_filter: Option<&str>,
+    status_filter: Option<&str>,
+) -> bool {
+    if target_filter.is_some_and(|target_id| !finding.target_ids.iter().any(|id| id == target_id)) {
+        return false;
+    }
+    if severity_filter.is_some_and(|severity| finding.severity != severity) {
+        return false;
+    }
+    if let Some(status) = status_filter {
+        let known_exploited = if finding.known_exploited {
+            "knownexploited"
+        } else {
+            ""
+        };
+        if status != "vulnerability" && status != "cve" && status != known_exploited {
+            return false;
+        }
+    }
+    true
+}
+
+fn security_posture_matches(
+    check: &DatastoreSecurityPostureCheckResult,
+    target_filter: Option<&str>,
+    severity_filter: Option<&str>,
+    status_filter: Option<&str>,
+) -> bool {
+    if target_filter.is_some_and(|target_id| !check.target_ids.iter().any(|id| id == target_id)) {
+        return false;
+    }
+    if severity_filter.is_some_and(|severity| check.severity != severity) {
+        return false;
+    }
+    if status_filter.is_some_and(|status| check.status.to_ascii_lowercase() != status) {
+        return false;
+    }
+    true
+}
+
+fn security_posture_status_needs_attention(status: &str) -> bool {
+    matches!(status, "fail" | "warn" | "unknown")
+}
+
+fn sanitized_security_target(target: &DatastoreSecurityTarget) -> Value {
+    json!({
+        "id": target.id,
+        "connectionId": target.connection_id,
+        "environmentId": target.environment_id,
+        "connectionName": target.connection_name,
+        "environmentName": target.environment_name,
+        "engine": target.engine,
+        "family": target.family,
+        "status": target.status,
+        "detectedProduct": target.detected_product,
+        "detectedVersion": target.detected_version,
+        "knownLatestVersion": target.known_latest_version,
+        "recommendedVersion": target.recommended_version,
+        "versionStatus": target.version_status,
+        "versionSource": target.version_source,
+        "versionSourceLabel": target.version_source_label,
+        "versionSourceUrl": target.version_source_url,
+        "versionSourceUpdatedAt": target.version_source_updated_at,
+        "findingCount": target.finding_count,
+        "highestSeverity": target.highest_severity,
+        "lastCheckedAt": target.last_checked_at,
+        "message": target.message.as_deref().map(redact_sensitive_text),
+        "warnings": target.warnings.iter().map(|warning| redact_sensitive_text(warning)).collect::<Vec<_>>(),
+    })
+}
+
+fn sanitized_security_finding(finding: &DatastoreSecurityFinding, muted: bool) -> Value {
+    json!({
+        "id": finding.id,
+        "targetIds": finding.target_ids,
+        "cveId": finding.cve_id,
+        "title": redact_sensitive_text(&finding.title),
+        "summary": redact_sensitive_text(&finding.summary),
+        "severity": finding.severity,
+        "cvssScore": finding.cvss_score,
+        "cvssVector": finding.cvss_vector,
+        "publishedAt": finding.published_at,
+        "modifiedAt": finding.modified_at,
+        "affectedProduct": finding.affected_product,
+        "affectedVersion": finding.affected_version,
+        "affectedVersionRange": finding.affected_version_range,
+        "fixedVersionHint": finding.fixed_version_hint,
+        "remediation": redact_sensitive_text(&finding.remediation),
+        "references": finding.references,
+        "cwes": finding.cwes,
+        "knownExploited": finding.known_exploited,
+        "kev": finding.kev,
+        "sourceUrls": finding.source_urls,
+        "muted": muted,
+    })
+}
+
+fn sanitized_security_posture_check(
+    check: &DatastoreSecurityPostureCheckResult,
+    muted: bool,
+) -> Value {
+    json!({
+        "id": check.id,
+        "targetIds": check.target_ids,
+        "ruleId": check.rule_id,
+        "category": check.category,
+        "status": check.status,
+        "severity": check.severity,
+        "title": redact_sensitive_text(&check.title),
+        "summary": redact_sensitive_text(&check.summary),
+        "evidence": check.evidence.as_deref().map(redact_sensitive_text),
+        "remediation": redact_sensitive_text(&check.remediation),
+        "source": check.source,
+        "references": check.references,
+        "muted": muted,
+    })
+}
+
+fn security_mcp_exposure() -> Value {
+    json!({
+        "readOnly": true,
+        "refreshesScans": false,
+        "mutatesMutes": false,
+        "rawSecretsIncluded": false,
+    })
+}
+
+const MAX_WORKSPACE_SEARCH_MATCHES: usize = 200;
+const SNIPPET_CONTEXT: usize = 72;
+const WORKSPACE_SEARCH_RESULT_TYPES: &[&str] = &[
+    "connection",
+    "folder",
+    "query",
+    "script",
+    "test-suite",
+    "library-item",
+    "open-tab",
+    "closed-tab",
+];
+
+struct WorkspaceSearchDocument {
+    id: String,
+    source_kind: String,
+    result_type: String,
+    source_id: String,
+    title: String,
+    subtitle: String,
+    detail: String,
+    lines: Vec<WorkspaceSearchLine>,
+}
+
+struct WorkspaceSearchLine {
+    field_label: String,
+    text: String,
+    lower_text: String,
+}
+
+fn search_workspace_snapshot(
+    snapshot: &WorkspaceSnapshot,
+    request: SearchWorkspaceArgs,
+) -> Result<Value, McpError> {
+    let query = request.query.trim();
+    if query.is_empty() {
+        return Err(McpError::invalid_params(
+            "Workspace search query is required.",
+            None,
+        ));
+    }
+    let limit = request
+        .limit
+        .unwrap_or(50)
+        .clamp(1, MAX_WORKSPACE_SEARCH_MATCHES);
+    let match_case = request.match_case.unwrap_or(false);
+    let whole_word = request.whole_word.unwrap_or(false);
+    let included_types = request.included_types.map(|types| {
+        types
+            .into_iter()
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| WORKSPACE_SEARCH_RESULT_TYPES.contains(&value.as_str()))
+            .collect::<HashSet<_>>()
+    });
+    let needle = if match_case {
+        query.to_string()
+    } else {
+        query.to_ascii_lowercase()
+    };
+    let documents = workspace_search_documents(snapshot);
+    let mut matches = Vec::new();
+    let mut total_matches = 0usize;
+
+    for (group_rank, document) in documents.iter().enumerate() {
+        if included_types
+            .as_ref()
+            .is_some_and(|types| !types.contains(&document.result_type))
+        {
+            continue;
+        }
+
+        for (line_index, line) in document.lines.iter().enumerate() {
+            let haystack = if match_case {
+                line.text.as_str()
+            } else {
+                line.lower_text.as_str()
+            };
+            let mut search_from = 0usize;
+
+            while search_from <= haystack.len().saturating_sub(needle.len()) {
+                let Some(relative_index) = haystack[search_from..].find(&needle) else {
+                    break;
+                };
+                let match_start = search_from + relative_index;
+                let match_end = match_start + needle.len();
+                search_from = match_end.max(match_start + 1);
+
+                if whole_word && !is_whole_word_match(&line.text, match_start, match_end) {
+                    continue;
+                }
+
+                total_matches += 1;
+                if matches.len() >= limit {
+                    continue;
+                }
+
+                let (snippet, snippet_start, snippet_end) =
+                    workspace_search_snippet(&line.text, match_start, match_end);
+                matches.push(json!({
+                    "id": format!("{}:{}:{}", document.id, line_index, match_start),
+                    "documentId": document.id,
+                    "sourceKind": document.source_kind,
+                    "resultType": document.result_type,
+                    "sourceId": document.source_id,
+                    "title": document.title,
+                    "subtitle": document.subtitle,
+                    "detail": document.detail,
+                    "fieldLabel": line.field_label,
+                    "lineNumber": line_index + 1,
+                    "lineText": snippet,
+                    "matchStart": snippet_start,
+                    "matchEnd": snippet_end,
+                    "groupRank": group_rank,
+                }));
+            }
+        }
+    }
+
+    Ok(json!({
+        "query": request.query,
+        "totalMatches": total_matches,
+        "displayedMatches": matches.len(),
+        "truncated": total_matches > matches.len(),
+        "matches": matches,
+        "index": {
+            "documents": documents.len(),
+            "resultTypes": WORKSPACE_SEARCH_RESULT_TYPES,
+        },
+        "mcpExposure": {
+            "resultPayloadsIncluded": false,
+            "secretsIncluded": false,
+        }
+    }))
+}
+
+fn workspace_search_documents(snapshot: &WorkspaceSnapshot) -> Vec<WorkspaceSearchDocument> {
+    let mut documents = Vec::new();
+
+    for connection in &snapshot.connections {
+        let environment_labels = connection
+            .environment_ids
+            .iter()
+            .filter_map(|id| {
+                snapshot
+                    .environments
+                    .iter()
+                    .find(|environment| environment.id == *id)
+                    .map(|environment| environment.label.as_str())
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut lines = Vec::new();
+        push_search_line(&mut lines, "Name", &connection.name);
+        push_search_line(&mut lines, "Engine", &connection.engine);
+        push_search_line(&mut lines, "Family", &connection.family);
+        push_search_line(&mut lines, "Host", &connection.host);
+        if let Some(port) = connection.port {
+            push_search_line(&mut lines, "Port", &port.to_string());
+        }
+        push_search_line(
+            &mut lines,
+            "Database",
+            connection.database.as_deref().unwrap_or_default(),
+        );
+        push_search_line(
+            &mut lines,
+            "Group",
+            connection.group.as_deref().unwrap_or_default(),
+        );
+        push_search_line(&mut lines, "Tags", &connection.tags.join("\n"));
+        push_search_line(&mut lines, "Environment", &environment_labels);
+        if connection.read_only {
+            push_search_line(&mut lines, "Access", "Read only");
+        }
+        push_search_line(
+            &mut lines,
+            "Notes",
+            connection.notes.as_deref().unwrap_or_default(),
+        );
+        push_document_if_searchable(
+            &mut documents,
+            WorkspaceSearchDocument {
+                id: format!("connection:{}", connection.id),
+                source_kind: "connection".into(),
+                result_type: "connection".into(),
+                source_id: connection.id.clone(),
+                title: connection.name.clone(),
+                subtitle: "Connection".into(),
+                detail: [connection.engine.as_str(), connection.family.as_str()]
+                    .into_iter()
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" / "),
+                lines,
+            },
+        );
+    }
+
+    for node in &snapshot.library_nodes {
+        push_document_if_searchable(&mut documents, workspace_search_library_document(node));
+    }
+    for tab in &snapshot.tabs {
+        if tab.tab_kind.as_deref() != Some("workspace-search") {
+            push_document_if_searchable(
+                &mut documents,
+                workspace_search_tab_document(tab, "tab", None),
+            );
+        }
+    }
+    for closed in &snapshot.closed_tabs {
+        push_document_if_searchable(
+            &mut documents,
+            workspace_search_tab_document(&closed.tab, "closed-tab", Some(&closed.closed_at)),
+        );
+    }
+
+    documents
+}
+
+fn workspace_search_library_document(node: &LibraryNode) -> WorkspaceSearchDocument {
+    let mut lines = Vec::new();
+    push_search_line(&mut lines, "Name", &node.name);
+    push_search_line(&mut lines, "Kind", &library_kind_label(&node.kind));
+    push_search_line(
+        &mut lines,
+        "Summary",
+        node.summary.as_deref().unwrap_or_default(),
+    );
+    push_search_line(&mut lines, "Tags", &node.tags.join("\n"));
+    push_search_line(
+        &mut lines,
+        "Language",
+        node.language.as_deref().unwrap_or_default(),
+    );
+    push_search_line(
+        &mut lines,
+        "Query",
+        node.query_text.as_deref().unwrap_or_default(),
+    );
+    push_search_line(
+        &mut lines,
+        "Script",
+        node.script_text.as_deref().unwrap_or_default(),
+    );
+    push_search_json_line(&mut lines, "Builder", node.builder_state.as_ref());
+    push_search_json_line(&mut lines, "Test Suite", node.test_suite.as_ref());
+
+    WorkspaceSearchDocument {
+        id: format!("library:{}", node.id),
+        source_kind: "library".into(),
+        result_type: library_result_type(&node.kind).into(),
+        source_id: node.id.clone(),
+        title: node.name.clone(),
+        subtitle: library_kind_label(&node.kind),
+        detail: node.summary.clone().unwrap_or_default(),
+        lines,
+    }
+}
+
+fn workspace_search_tab_document(
+    tab: &QueryTabState,
+    source_kind: &str,
+    closed_at: Option<&String>,
+) -> WorkspaceSearchDocument {
+    let save_path = tab.save_target.as_ref().and_then(|target| {
+        (target.kind == "local-file")
+            .then(|| target.path.clone())
+            .flatten()
+    });
+    let mut lines = Vec::new();
+    push_search_line(&mut lines, "Title", &tab.title);
+    push_search_line(&mut lines, "Editor", &tab.editor_label);
+    push_search_line(
+        &mut lines,
+        "Kind",
+        tab.tab_kind.as_deref().unwrap_or("query"),
+    );
+    push_search_line(&mut lines, "Language", &tab.language);
+    push_search_line(
+        &mut lines,
+        "Local file",
+        save_path.as_deref().unwrap_or_default(),
+    );
+    push_search_line(
+        &mut lines,
+        "Scoped target",
+        &scoped_target_search_text(&tab.scoped_target),
+    );
+    push_search_line(&mut lines, "Query", &tab.query_text);
+    push_search_line(
+        &mut lines,
+        "Script",
+        tab.script_text.as_deref().unwrap_or_default(),
+    );
+    push_search_json_line(&mut lines, "Builder", tab.builder_state.as_ref());
+    push_search_json_line(&mut lines, "Test Suite", tab.test_suite.as_ref());
+    push_search_line(
+        &mut lines,
+        "History",
+        &tab.history
+            .iter()
+            .map(|entry| entry.query_text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    push_search_line(
+        &mut lines,
+        "Closed",
+        closed_at.map(String::as_str).unwrap_or_default(),
+    );
+
+    WorkspaceSearchDocument {
+        id: format!("{source_kind}:{}", tab.id),
+        source_kind: source_kind.into(),
+        result_type: if source_kind == "tab" {
+            "open-tab".into()
+        } else {
+            "closed-tab".into()
+        },
+        source_id: tab.id.clone(),
+        title: tab.title.clone(),
+        subtitle: if source_kind == "tab" {
+            "Open tab".into()
+        } else {
+            "Recently closed tab".into()
+        },
+        detail: [
+            tab.editor_label.as_str(),
+            tab.language.as_str(),
+            save_path.as_deref().unwrap_or_default(),
+        ]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" / "),
+        lines,
+    }
+}
+
+fn push_document_if_searchable(
+    documents: &mut Vec<WorkspaceSearchDocument>,
+    document: WorkspaceSearchDocument,
+) {
+    if !document.lines.is_empty() {
+        documents.push(document);
+    }
+}
+
+fn push_search_line(lines: &mut Vec<WorkspaceSearchLine>, field_label: &str, text: &str) {
+    for line in text
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+    {
+        lines.push(WorkspaceSearchLine {
+            field_label: field_label.into(),
+            text: redact_sensitive_text(line),
+            lower_text: redact_sensitive_text(line).to_ascii_lowercase(),
+        });
+    }
+}
+
+fn push_search_json_line(
+    lines: &mut Vec<WorkspaceSearchLine>,
+    field_label: &str,
+    value: Option<&Value>,
+) {
+    let Some(value) = value else {
+        return;
+    };
+    let text = serde_json::to_string_pretty(&redact_sensitive_json(value)).unwrap_or_default();
+    push_search_line(lines, field_label, &text);
+}
+
+fn scoped_target_search_text(target: &Option<crate::domain::models::ScopedQueryTarget>) -> String {
+    let Some(target) = target else {
+        return String::new();
+    };
+    [
+        Some(target.kind.as_str()),
+        Some(target.label.as_str()),
+        target.scope.as_deref(),
+        target.query_template.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(target.path.iter().map(String::as_str))
+    .filter(|value| !value.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+fn redact_sensitive_json(value: &Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(items.iter().map(redact_sensitive_json).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .filter(|(key, _)| !is_sensitive_json_key(key))
+                .map(|(key, value)| (key.clone(), redact_sensitive_json(value)))
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
+}
+
+fn is_sensitive_json_key(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    [
+        "auth",
+        "credential",
+        "password",
+        "secret",
+        "token",
+        "privatekey",
+        "clientkey",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn library_kind_label(kind: &str) -> String {
+    kind.split('-')
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn library_result_type(kind: &str) -> &'static str {
+    match kind {
+        "folder" => "folder",
+        "connection" => "connection",
+        "query" => "query",
+        "script" => "script",
+        "test-suite" => "test-suite",
+        _ => "library-item",
+    }
+}
+
+fn workspace_search_snippet(
+    line: &str,
+    match_start: usize,
+    match_end: usize,
+) -> (String, usize, usize) {
+    let raw_start = match_start.saturating_sub(SNIPPET_CONTEXT);
+    let raw_end = (match_end + SNIPPET_CONTEXT).min(line.len());
+    let prefix = if raw_start > 0 { "..." } else { "" };
+    let suffix = if raw_end < line.len() { "..." } else { "" };
+    let text = format!("{prefix}{}{suffix}", &line[raw_start..raw_end]);
+    (
+        text,
+        prefix.len() + match_start - raw_start,
+        prefix.len() + match_end - raw_start,
+    )
+}
+
+fn is_whole_word_match(text: &str, start: usize, end: usize) -> bool {
+    !is_word_byte(text.as_bytes().get(start.saturating_sub(1)).copied())
+        && !is_word_byte(text.as_bytes().get(end).copied())
+}
+
+fn is_word_byte(value: Option<u8>) -> bool {
+    value.is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 #[derive(Debug)]
@@ -2302,6 +3425,144 @@ fn ensure_allowed_target(
 
 fn workspace_summary(runtime: &ManagedAppState, config: &DatastoreMcpServerConfig) -> Value {
     workspace_summary_for_snapshot(&runtime.snapshot, config)
+}
+
+fn plugin_catalog_for_snapshot(
+    snapshot: &WorkspaceSnapshot,
+    workspace_switcher_enabled: Option<bool>,
+) -> Value {
+    let preferences = &snapshot.preferences;
+    let plugins = vec![
+        plugin_catalog_entry(
+            "workspace-search",
+            "Workspace Search",
+            "stable",
+            Some(preferences.workspace_search.enabled),
+            "workspace-preferences",
+            "Search saved connections, Library work, open tabs, scripts, queries, and tests.",
+            "workspace-search",
+            &[SCOPE_WORKSPACE_SEARCH],
+            &["datapad_search_workspace"],
+            &[
+                "workspace-index",
+                "result-type-filters",
+                "no-secret-or-result-payload-indexing",
+            ],
+        ),
+        plugin_catalog_entry(
+            "datastore-api-server",
+            "API Server",
+            "experimental",
+            Some(preferences.datastore_api_server.enabled),
+            "workspace-preferences",
+            "Expose selected datastore resources and saved Library queries as local REST, GraphQL, or gRPC endpoints.",
+            "api-server",
+            &[SCOPE_API_SERVER_READ],
+            &["datapad_get_api_server_summary"],
+            &[
+                "loopback-listeners",
+                "selected-resources-and-saved-queries",
+                "metrics-logs-and-project-exports",
+            ],
+        ),
+        plugin_catalog_entry(
+            "datastore-mcp-server",
+            "MCP Server",
+            "experimental",
+            Some(preferences.datastore_mcp_server.enabled),
+            "workspace-preferences",
+            "Expose allowlisted workspace and datastore tools to local MCP clients through a locked-down loopback endpoint.",
+            "mcp-server",
+            &[SCOPE_MCP_SERVER_READ],
+            &["datapad_get_mcp_server_summary"],
+            &[
+                "streamable-http-loopback-endpoint",
+                "scoped-auth-tokens",
+                "read-only-v1-tools",
+            ],
+        ),
+        plugin_catalog_entry(
+            "workspaces",
+            "Workspaces",
+            "experimental",
+            workspace_switcher_enabled,
+            "app-workspace-registry",
+            "Switch between named local workspaces while preserving the active workspace before each switch.",
+            "workspace-switcher",
+            &[SCOPE_WORKSPACES_READ],
+            &["datapad_list_workspaces"],
+            &[
+                "local-named-workspaces",
+                "save-before-switch",
+                "recent-workspace-status",
+            ],
+        ),
+        plugin_catalog_entry(
+            "datastore-security-checks",
+            "Datastore Security Checks",
+            "experimental",
+            Some(preferences.datastore_security_checks.enabled),
+            "workspace-preferences",
+            "Check datastore product versions against vulnerability sources and run advisory posture checks.",
+            "security-checks",
+            &[SCOPE_SECURITY_READ],
+            &[
+                "datapad_get_security_checks_summary",
+                "datapad_list_security_checks",
+            ],
+            &[
+                "cve-version-scanner",
+                "cisa-kev-enrichment",
+                "advisory-posture-checks",
+                "bundled-version-catalog-guidance",
+            ],
+        ),
+    ];
+    let enabled_count = plugins
+        .iter()
+        .filter(|plugin| plugin.get("enabled").and_then(Value::as_bool) == Some(true))
+        .count();
+    let total_count = plugins.len();
+
+    json!({
+        "plugins": plugins,
+        "counts": {
+            "total": total_count,
+            "enabled": enabled_count,
+        },
+        "mcpExposure": {
+            "metadataOnly": true,
+            "securityFindingsIncluded": false,
+            "writes": "blocked",
+        }
+    })
+}
+
+fn plugin_catalog_entry(
+    id: &str,
+    label: &str,
+    stability: &str,
+    enabled: Option<bool>,
+    enabled_source: &str,
+    summary: &str,
+    workspace_tab_kind: &str,
+    required_scopes: &[&str],
+    mcp_tools: &[&str],
+    capabilities: &[&str],
+) -> Value {
+    json!({
+        "id": id,
+        "label": label,
+        "stability": stability,
+        "enabled": enabled.unwrap_or(false),
+        "enabledKnown": enabled.is_some(),
+        "enabledSource": enabled_source,
+        "summary": summary,
+        "workspaceTabKind": workspace_tab_kind,
+        "requiredScopes": required_scopes,
+        "mcpTools": mcp_tools,
+        "capabilities": capabilities,
+    })
 }
 
 fn workspace_summary_for_snapshot(

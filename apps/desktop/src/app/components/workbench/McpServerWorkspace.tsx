@@ -1548,6 +1548,18 @@ function escapeShellSingleQuoted(value: string) {
 
 function scopeDescription(scope: DatastoreMcpServerScope) {
   switch (scope) {
+    case 'plugin:read':
+      return 'List DataPad++ plugins and MCP-visible plugin metadata.'
+    case 'workspace:search':
+      return 'Search Workspace Search metadata without result payloads or secrets.'
+    case 'workspaces:read':
+      return 'List local workspace profiles when the Workspaces plugin is enabled.'
+    case 'security:read':
+      return 'Read Security Checks summaries, CVEs, targets, and posture results.'
+    case 'api-server:read':
+      return 'Read API Server plugin profiles and endpoint counts.'
+    case 'mcp-server:read':
+      return 'Read MCP Server plugin profile and token metadata counts.'
     case 'workspace:read':
       return 'Read workspace summary and active context.'
     case 'workspace:switch':

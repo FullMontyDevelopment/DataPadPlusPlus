@@ -29,8 +29,18 @@ The MCP listener is intentionally narrow:
 - every request requires `Authorization: Bearer <auth token>`
 - present `Origin` headers are rejected unless allowlisted
 - datastores and workspace contexts are hidden until allowlisted
-- v1 exposes read, explore, list, context switch, and diagnostic scopes only
+- v1 exposes plugin metadata, read, explore, list, context switch, and diagnostic scopes only
 - write, destructive, admin, and costly operations are blocked
+
+The `plugin:read` scope enables the read-only `datapad_list_plugins` tool. It reports the current DataPad++ plugin catalog, including Workspace Search, API Server, MCP Server, Workspaces, and Datastore Security Checks. The catalog also lists the MCP tools and scopes required to use each plugin surface.
+
+Plugin use is intentionally scoped:
+
+- `workspace:search` can call `datapad_search_workspace` for Workspace Search metadata. It does not return result payloads or secret-bearing structured keys.
+- `security:read` can call `datapad_get_security_checks_summary` and `datapad_list_security_checks` for cached Security Checks targets, CVEs, and posture results. It cannot refresh scans or mute findings.
+- `api-server:read` can call `datapad_get_api_server_summary` for API Server profile and endpoint counts. It cannot start or stop local listeners.
+- `mcp-server:read` can call `datapad_get_mcp_server_summary` for MCP Server profile and token metadata counts. It never returns raw auth tokens or verifier values.
+- `workspaces:read` can call `datapad_list_workspaces` when the Workspaces plugin is enabled. Switching whole workspace profiles remains unavailable through MCP v1.
 
 Create or reset client auth tokens from the MCP Server tab. DataPad++ shows the raw auth token only once, at creation time. Workspace JSON and exports keep only secure verifier references; if an auth token is lost, rotate it. Client setup snippets use `DATAPAD_MCP_TOKEN` or a client-side secure prompt so raw auth tokens do not need to be saved in config files.
 

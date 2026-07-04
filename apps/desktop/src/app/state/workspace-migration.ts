@@ -1009,6 +1009,12 @@ function normalizeDatastoreMcpServerTokens(tokens: unknown): DatastoreMcpServerT
 
 function normalizeDatastoreMcpServerScopes(scopes: unknown): DatastoreMcpServerScope[] {
   const allowed = new Set<DatastoreMcpServerScope>([
+    'plugin:read',
+    'workspace:search',
+    'workspaces:read',
+    'security:read',
+    'api-server:read',
+    'mcp-server:read',
     'workspace:read',
     'workspace:switch',
     'datastore:list',

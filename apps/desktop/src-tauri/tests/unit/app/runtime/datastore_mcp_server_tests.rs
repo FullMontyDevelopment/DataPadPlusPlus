@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::models::DatastoreApiServerConfig;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 fn mcp_test_connection(id: &str, environment_ids: Vec<String>) -> ConnectionProfile {
@@ -143,13 +144,24 @@ fn token_verifier_is_not_the_raw_token() {
 fn scope_normalization_has_no_wildcards_or_admin_scopes() {
     assert_eq!(
         normalize_scopes(vec![
+            "PLUGIN:READ".into(),
+            "SECURITY:READ".into(),
+            "workspace:search".into(),
+            "api-server:read".into(),
             "QUERY:READ".into(),
             "query:read".into(),
             "*".into(),
             "admin".into(),
             "datastore:list".into(),
         ]),
-        vec!["query:read".to_string(), "datastore:list".to_string()]
+        vec![
+            "plugin:read".to_string(),
+            "security:read".to_string(),
+            "workspace:search".to_string(),
+            "api-server:read".to_string(),
+            "query:read".to_string(),
+            "datastore:list".to_string()
+        ]
     );
 }
 
@@ -272,6 +284,274 @@ fn workspace_summary_reports_only_mcp_allowlisted_counts() {
     assert_eq!(summary["mcpExposure"]["query"], "read-only");
     assert_eq!(summary["mcpExposure"]["writes"], "blocked");
     assert_eq!(summary["mcpExposure"]["maxRowLimit"], MAX_QUERY_ROW_LIMIT);
+}
+
+#[test]
+fn plugin_catalog_reports_current_plugins_and_security_checks() {
+    let mut snapshot = crate::app::runtime::blank_workspace_snapshot();
+    snapshot.preferences.workspace_search.enabled = true;
+    snapshot.preferences.datastore_api_server.enabled = true;
+    snapshot.preferences.datastore_mcp_server.enabled = true;
+    snapshot.preferences.datastore_security_checks.enabled = true;
+
+    let catalog = plugin_catalog_for_snapshot(&snapshot, Some(true));
+    let plugins = catalog["plugins"].as_array().expect("plugins array");
+    let plugin_by_id = |id: &str| {
+        plugins
+            .iter()
+            .find(|plugin| plugin["id"] == id)
+            .unwrap_or_else(|| panic!("missing plugin {id}"))
+    };
+
+    assert_eq!(catalog["counts"]["total"], 5);
+    assert_eq!(catalog["counts"]["enabled"], 5);
+    assert_eq!(plugin_by_id("workspace-search")["stability"], "stable");
+    assert_eq!(
+        plugin_by_id("workspace-search")["mcpTools"],
+        json!(["datapad_search_workspace"])
+    );
+    assert_eq!(
+        plugin_by_id("workspace-search")["requiredScopes"],
+        json!(["workspace:search"])
+    );
+    assert_eq!(plugin_by_id("datastore-api-server")["enabled"], true);
+    assert_eq!(plugin_by_id("datastore-mcp-server")["enabled"], true);
+    assert_eq!(
+        plugin_by_id("workspaces")["enabledSource"],
+        "app-workspace-registry"
+    );
+    assert_eq!(plugin_by_id("datastore-security-checks")["enabled"], true);
+    assert_eq!(
+        plugin_by_id("datastore-security-checks")["requiredScopes"],
+        json!(["security:read"])
+    );
+    assert_eq!(
+        plugin_by_id("datastore-security-checks")["mcpTools"],
+        json!([
+            "datapad_get_security_checks_summary",
+            "datapad_list_security_checks"
+        ])
+    );
+    assert_eq!(
+        plugin_by_id("datastore-security-checks")["capabilities"],
+        json!([
+            "cve-version-scanner",
+            "cisa-kev-enrichment",
+            "advisory-posture-checks",
+            "bundled-version-catalog-guidance"
+        ])
+    );
+    assert_eq!(catalog["mcpExposure"]["securityFindingsIncluded"], false);
+}
+
+#[test]
+fn plugin_summary_tools_redact_free_text_and_hide_token_metadata() {
+    let mut snapshot = crate::app::runtime::blank_workspace_snapshot();
+    snapshot.preferences.datastore_api_server.enabled = true;
+    snapshot
+        .preferences
+        .datastore_api_server
+        .servers
+        .push(DatastoreApiServerConfig {
+            id: "api-server".into(),
+            name: "API Server".into(),
+            description: Some("temporary password=api-secret".into()),
+            ..Default::default()
+        });
+    snapshot.preferences.datastore_mcp_server.enabled = true;
+    snapshot
+        .preferences
+        .datastore_mcp_server
+        .servers
+        .push(DatastoreMcpServerConfig {
+            id: "mcp-server".into(),
+            name: "MCP Server".into(),
+            description: Some("temporary token=mcp-secret".into()),
+            tokens: vec![DatastoreMcpServerTokenConfig {
+                id: "token-1".into(),
+                label: "automation token".into(),
+                verifier_secret_ref: SecretRef {
+                    id: "secret-ref".into(),
+                    provider: "os-keyring".into(),
+                    service: "datapad-mcp".into(),
+                    account: "verifier-secret".into(),
+                    label: "Verifier".into(),
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+
+    let api_summary = api_server_plugin_summary(&snapshot);
+    let mcp_summary = mcp_server_plugin_summary(&snapshot);
+    let serialized = serde_json::to_string(&json!({
+        "api": api_summary,
+        "mcp": mcp_summary,
+    }))
+    .unwrap();
+
+    assert_eq!(mcp_summary["servers"][0]["tokenCount"], 1);
+    assert_eq!(mcp_summary["mcpExposure"]["rawTokensIncluded"], false);
+    assert_eq!(mcp_summary["mcpExposure"]["verifiersIncluded"], false);
+    assert!(serialized.contains("********"));
+    assert!(!serialized.contains("api-secret"));
+    assert!(!serialized.contains("mcp-secret"));
+    assert!(!serialized.contains("verifier-secret"));
+}
+
+#[test]
+fn workspace_search_tool_redacts_secret_like_structured_keys() {
+    let mut snapshot = crate::app::runtime::blank_workspace_snapshot();
+    snapshot.preferences.workspace_search.enabled = true;
+    snapshot.library_nodes.push(LibraryNode {
+        id: "library-query".into(),
+        kind: "query".into(),
+        name: "Revenue Query".into(),
+        builder_state: Some(json!({
+            "safeLabel": "visible analytics",
+            "authToken": "secret-value"
+        })),
+        ..Default::default()
+    });
+
+    let result = search_workspace_snapshot(
+        &snapshot,
+        SearchWorkspaceArgs {
+            query: "visible".into(),
+            included_types: None,
+            match_case: None,
+            whole_word: None,
+            limit: Some(10),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(result["totalMatches"], 1);
+    let serialized = serde_json::to_string(&result).unwrap();
+    assert!(serialized.contains("visible analytics"));
+    assert!(!serialized.contains("secret-value"));
+    assert!(!serialized.contains("authToken"));
+}
+
+#[test]
+fn security_plugin_tools_summarize_and_filter_without_muted_results_by_default() {
+    let mut snapshot = crate::app::runtime::blank_workspace_snapshot();
+    snapshot.preferences.datastore_security_checks.enabled = true;
+    snapshot
+        .preferences
+        .datastore_security_checks
+        .muted_finding_ids = vec!["finding-muted".into(), "posture-muted".into()];
+    snapshot.datastore_security_checks = Some(
+        serde_json::from_value(json!({
+            "status": "ready",
+            "checkedAt": "2026-07-04T10:00:00Z",
+            "expiresAt": "2026-07-11T10:00:00Z",
+            "sourceMetadata": [],
+            "targets": [
+                {
+                    "id": "target-postgres",
+                    "connectionId": "conn-postgres",
+                    "environmentId": "env-prod",
+                    "connectionName": "Prod Postgres",
+                    "environmentName": "Prod",
+                    "engine": "postgresql",
+                    "family": "sql",
+                    "status": "checked",
+                    "detectedVersion": "15.2",
+                    "versionStatus": "updateAvailable",
+                    "cpeCandidates": [],
+                    "findingCount": 2,
+                    "highestSeverity": "HIGH",
+                    "warnings": []
+                }
+            ],
+            "findings": [
+                {
+                    "id": "finding-active",
+                    "targetIds": ["target-postgres"],
+                    "cveId": "CVE-2026-0001",
+                    "title": "Active CVE",
+                    "summary": "Needs patching.",
+                    "severity": "HIGH",
+                    "affectedProduct": "PostgreSQL",
+                    "remediation": "Upgrade.",
+                    "references": [],
+                    "cwes": [],
+                    "knownExploited": true,
+                    "sourceUrls": []
+                },
+                {
+                    "id": "finding-muted",
+                    "targetIds": ["target-postgres"],
+                    "cveId": "CVE-2026-0002",
+                    "title": "Muted CVE",
+                    "summary": "Muted.",
+                    "severity": "MEDIUM",
+                    "affectedProduct": "PostgreSQL",
+                    "remediation": "Upgrade.",
+                    "references": [],
+                    "cwes": [],
+                    "knownExploited": false,
+                    "sourceUrls": []
+                }
+            ],
+            "postureChecks": [
+                {
+                    "id": "posture-active",
+                    "targetIds": ["target-postgres"],
+                    "ruleId": "profile.transport",
+                    "category": "transport",
+                    "status": "fail",
+                    "severity": "HIGH",
+                    "title": "TLS disabled",
+                    "summary": "TLS is disabled.",
+                    "evidence": "sslmode=disable",
+                    "remediation": "Enable TLS.",
+                    "source": "profile",
+                    "references": []
+                },
+                {
+                    "id": "posture-muted",
+                    "targetIds": ["target-postgres"],
+                    "ruleId": "profile.auth",
+                    "category": "auth",
+                    "status": "warn",
+                    "severity": "MEDIUM",
+                    "title": "Muted posture",
+                    "summary": "Muted.",
+                    "remediation": "Review.",
+                    "source": "profile",
+                    "references": []
+                }
+            ],
+            "warnings": [],
+            "errors": []
+        }))
+        .unwrap(),
+    );
+
+    let summary = security_checks_summary_for_snapshot(&snapshot);
+    assert_eq!(summary["counts"]["vulnerabilities"], 1);
+    assert_eq!(summary["counts"]["postureIssues"], 1);
+    assert_eq!(summary["counts"]["knownExploited"], 1);
+    assert_eq!(summary["counts"]["needsAttentionTargets"], 1);
+
+    let listed = list_security_checks_for_snapshot(
+        &snapshot,
+        ListSecurityChecksArgs {
+            kind: Some("all".into()),
+            target_id: None,
+            severity: None,
+            status: None,
+            include_muted: None,
+            limit: Some(10),
+        },
+    );
+    assert_eq!(listed["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["postureChecks"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["findings"][0]["id"], "finding-active");
+    assert_eq!(listed["postureChecks"][0]["id"], "posture-active");
+    assert_eq!(listed["mcpExposure"]["refreshesScans"], false);
 }
 
 #[test]

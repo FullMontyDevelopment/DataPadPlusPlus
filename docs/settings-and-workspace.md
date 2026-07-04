@@ -64,6 +64,10 @@ Automatic setup is desktop-only and user-level in v1. DataPad++ previews the tar
 
 MCP server profiles use `127.0.0.1`, default port `17641`, Streamable HTTP at `/mcp`, scoped auth tokens, optional origin allowlists, status, metrics, and logs. Tokens are shown only once at creation or reset time; store the raw value in a secure environment variable such as `DATAPAD_MCP_TOKEN` and rotate it if it is lost.
 
+The `plugin:read` token scope exposes the read-only `datapad_list_plugins` MCP tool. It lists Workspace Search, API Server, MCP Server, Workspaces, and Datastore Security Checks with enabled status, capability metadata, required scopes, and available MCP tools.
+
+Using plugin features through MCP requires the matching scope. Workspace Search uses `workspace:search`; Security Checks uses `security:read`; API Server summary access uses `api-server:read`; MCP Server summary access uses `mcp-server:read`; Workspaces profile listing uses `workspaces:read`. These tools are read-only in MCP v1: they do not start or stop local listeners, refresh security scans, mute findings, switch whole workspace profiles, write client config, or expose raw tokens, verifier values, datastore secrets, or query result payloads.
+
 ## Workspace Search
 
 Workspace Search is a plugin-backed workbench tab rather than a global modal. When enabled, it indexes:
