@@ -191,7 +191,7 @@ function ScreenshotFrame({
           </div>
         </div>
       )}
-      <figcaption>{caption}</figcaption>
+      {!image ? <figcaption>{caption}</figcaption> : null}
     </figure>
   )
 }
