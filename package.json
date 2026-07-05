@@ -44,6 +44,7 @@
     "fixtures:down": "docker compose -f tests/fixtures/docker-compose.yml down -v",
     "fixtures:seed": "node tests/fixtures/seed.mjs",
     "fixtures:seed:all": "node tests/fixtures/seed.mjs all",
+    "fixtures:screenshot-seed": "node tests/fixtures/launch-screenshot-seed.mjs",
     "fixtures:validate:postgres": "node tests/fixtures/validate-postgres-fixtures.mjs",
     "fixtures:validate:redis": "node tests/fixtures/validate-redis-fixtures.mjs",
     "fixtures:validate:mongodb": "node tests/fixtures/validate-mongodb-fixtures.mjs",

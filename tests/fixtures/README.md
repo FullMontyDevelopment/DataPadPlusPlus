@@ -24,6 +24,7 @@ Connection strings, credentials, and seeded smoke queries are listed in
 - Validate DuckDB local fixture evidence: `npm run fixtures:validate:duckdb`
 - Validate LiteDB local-file and sidecar dispatch evidence: `npm run fixtures:validate:litedb`
 - Validate opt-in LiteDB .NET sidecar evidence: `DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE=1 npm run fixtures:validate:litedb:dotnet`
+- Launch a polished fixture workspace for website screenshots: `npm run fixtures:screenshot-seed`
 - Stop and remove volumes: `npm run fixtures:down`
 
 Run seeded Rust fixture tests with:
@@ -34,6 +35,27 @@ npm run rust:test
 ```
 
 `DATAPADPLUSPLUS_*` is the current fixture environment prefix. Older `DATANAUT_*` and `UNIVERSALITY_*` variables may still be read as compatibility fallbacks, but new scripts and docs should use the DataPad++ prefix.
+
+## Website Screenshot Seed
+
+Use the screenshot seed when capturing website images or demos that should look professional while still using deterministic local fixtures:
+
+```powershell
+npm run fixtures:up:all
+npm run fixtures:seed:all
+npm run fixtures:screenshot-seed
+```
+
+The launcher sets `DATAPADPLUSPLUS_FIXTURE_RUN=1`, `DATAPADPLUSPLUS_FIXTURE_PROFILE=all`, `DATAPADPLUSPLUS_SCREENSHOT_SEED=1`, and defaults `DATAPADPLUSPLUS_SECRET_STORE=file` if it is not already set. The seeded workspace uses polished connection names, grouped datastore families, Local Demo/Staging/Production Preview environments, curated Library folders and queries, and enabled-but-stopped Workspace Search, API Server, MCP Server, and Datastore Security Checks plugins.
+
+The launcher uses an isolated workspace directory at `tests/fixtures/.screenshot-workspace` so your normal DataPad++ workspace is not overwritten. It resets that screenshot workspace on each launch by default; set `DATAPADPLUSPLUS_SCREENSHOT_RESET_WORKSPACE=0` if you want to preserve edits between screenshot sessions.
+
+To capture only a smaller subset, set `DATAPADPLUSPLUS_FIXTURE_PROFILE` before launching:
+
+```powershell
+$env:DATAPADPLUSPLUS_FIXTURE_PROFILE='search,analytics'
+npm run fixtures:screenshot-seed
+```
 
 For PostgreSQL reference-engine evidence, start and seed the default fixtures, then run the PostgreSQL validator:
 

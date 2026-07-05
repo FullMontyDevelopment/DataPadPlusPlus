@@ -48,6 +48,49 @@ function fixturePort(envName, fallback) {
 
 loadGeneratedEnvironment()
 
+async function waitForCosmosDbReady() {
+  const port = fixturePort('DATAPADPLUSPLUS_COSMOSDB_HEALTH_PORT', 18082)
+  let lastStatus = ''
+
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    try {
+      const response = await globalThis.fetch(`http://127.0.0.1:${port}/ready`)
+      const text = await response.text()
+
+      if (response.ok) {
+        return
+      }
+
+      lastStatus = `${response.status} ${text}`
+    } catch (error) {
+      lastStatus = error?.message ?? String(error)
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+
+  let aliveStatus = ''
+  try {
+    const response = await globalThis.fetch(`http://127.0.0.1:${port}/alive`)
+    aliveStatus = await response.text()
+  } catch (error) {
+    aliveStatus = error?.message ?? String(error)
+  }
+
+  throw new Error(
+    [
+      `Cosmos DB emulator container is running, but its health probe did not become ready on http://127.0.0.1:${port}/ready.`,
+      `Last /ready response: ${lastStatus || 'no response'}`,
+      `Last /alive response: ${aliveStatus || 'no response'}`,
+      'The vNext Linux emulator can get stuck with PostgreSQL=FAIL after stale local state or an incomplete startup.',
+      'Recreate just this fixture container, then seed again:',
+      '  docker compose --env-file tests/fixtures/.generated.env -f tests/fixtures/docker-compose.yml rm -sf cosmosdb',
+      '  npm run fixtures:up:profile -- cosmosdb',
+      '  npm run fixtures:seed:all',
+    ].join('\n'),
+  )
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
@@ -630,14 +673,16 @@ async function seedAnalytics() {
   if (shouldSeed('datapadplusplus-influxdb', 'analytics')) {
     const influxPort = fixturePort('DATAPADPLUSPLUS_INFLUXDB_PORT', 8087)
     await httpRequest({ port: influxPort, path: '/query?q=CREATE+DATABASE+metrics' })
-    for (const query of [
-      'INSERT order_latency,region=eu-west-1,account_id=1 value=18.4 1767225600000000000',
-      'INSERT order_latency,region=eu-west-1,account_id=1 value=21.0 1767225660000000000',
-      'INSERT order_latency,region=us-east-1,account_id=2 value=32.7 1767225720000000000',
+    for (const point of [
+      'order_latency,region=eu-west-1,account_id=1 value=18.4 1767225600000000000',
+      'order_latency,region=eu-west-1,account_id=1 value=21.0 1767225660000000000',
+      'order_latency,region=us-east-1,account_id=2 value=32.7 1767225720000000000',
     ]) {
-      await httpRequest({
+      await httpRawRequest({
         port: influxPort,
-        path: `/query?db=metrics&q=${encodeURIComponent(query)}`,
+        path: '/write?db=metrics',
+        body: point,
+        headers: { 'content-type': 'text/plain' },
       })
     }
 
@@ -937,6 +982,7 @@ async function seedCosmosDbEmulator() {
     return
   }
 
+  await waitForCosmosDbReady()
   docker([
     'exec',
     'datapadplusplus-cosmosdb',

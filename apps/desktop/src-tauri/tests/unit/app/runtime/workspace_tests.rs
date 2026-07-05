@@ -1,6 +1,10 @@
 use super::{
     blank_workspace_snapshot,
-    fixtures::{fixture_workspace_seed_for_profile, seed_fixture_secrets, workspace_is_empty},
+    fixtures::{
+        fixture_workspace_seed_for_profile,
+        fixture_workspace_seed_for_profile_with_screenshot_seed, seed_fixture_secrets,
+        workspace_is_empty,
+    },
     generate_id,
     tabs::reorder_query_tabs_in_place,
     timestamp_now,
@@ -205,6 +209,111 @@ fn fixture_all_seed_includes_every_documented_profile() {
         assert!(
             connection_names.contains(&expected),
             "missing fixture connection {expected}"
+        );
+    }
+}
+
+#[test]
+fn screenshot_fixture_seed_uses_polished_connections_environments_and_plugins() {
+    let seed =
+        fixture_workspace_seed_for_profile_with_screenshot_seed(Some("all"), "fixture.sqlite3");
+    let snapshot = seed.snapshot;
+    let connection_names = snapshot
+        .connections
+        .iter()
+        .map(|connection| connection.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(connection_names.contains(&"Northwind Analytics PostgreSQL"));
+    assert!(connection_names.contains(&"Commerce Catalog MongoDB"));
+    assert!(connection_names.contains(&"Realtime Cache Redis"));
+    assert!(connection_names.contains(&"Search Catalog OpenSearch"));
+    assert!(connection_names.contains(&"Warehouse Events ClickHouse"));
+    assert!(connection_names.contains(&"Customer Journey Neo4j"));
+    assert!(!connection_names.contains(&"Fixture PostgreSQL"));
+
+    let environment_labels = snapshot
+        .environments
+        .iter()
+        .map(|environment| environment.label.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        environment_labels,
+        vec!["Local Demo", "Staging", "Production Preview"]
+    );
+    assert_eq!(snapshot.ui.active_environment_id, "env-local-demo");
+    assert_eq!(snapshot.ui.connection_group_mode, "group");
+
+    assert!(snapshot.preferences.workspace_search.enabled);
+    assert!(snapshot.preferences.datastore_security_checks.enabled);
+    assert!(snapshot.preferences.datastore_api_server.enabled);
+    assert!(snapshot.preferences.datastore_mcp_server.enabled);
+    assert_eq!(
+        snapshot
+            .preferences
+            .datastore_api_server
+            .servers
+            .first()
+            .map(|server| server.name.as_str()),
+        Some("Showcase API Server")
+    );
+    assert_eq!(
+        snapshot
+            .preferences
+            .datastore_mcp_server
+            .servers
+            .first()
+            .map(|server| server.name.as_str()),
+        Some("Showcase MCP Server")
+    );
+}
+
+#[test]
+fn screenshot_fixture_seed_adds_curated_library_work() {
+    let seed =
+        fixture_workspace_seed_for_profile_with_screenshot_seed(Some("all"), "fixture.sqlite3");
+    let snapshot = seed.snapshot;
+    let saved_names = snapshot
+        .saved_work
+        .iter()
+        .map(|item| item.name.as_str())
+        .collect::<Vec<_>>();
+    let library_names = snapshot
+        .library_nodes
+        .iter()
+        .map(|node| node.name.as_str())
+        .collect::<Vec<_>>();
+
+    for expected in [
+        "Revenue by region",
+        "Open orders by status",
+        "Product search with facets",
+        "Hot product keys",
+        "Daily order metrics",
+        "Funnel conversion",
+        "Customer journey paths",
+    ] {
+        assert!(
+            saved_names.contains(&expected),
+            "missing saved work {expected}"
+        );
+        assert!(
+            library_names.contains(&expected),
+            "missing library node {expected}"
+        );
+    }
+
+    for expected_folder in [
+        "Commerce",
+        "Operations",
+        "Search",
+        "Cache",
+        "Analytics",
+        "Graph",
+    ] {
+        assert!(
+            library_names.contains(&expected_folder),
+            "missing library folder {expected_folder}"
         );
     }
 }

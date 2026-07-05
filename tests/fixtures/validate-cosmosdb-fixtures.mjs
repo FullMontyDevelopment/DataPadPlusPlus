@@ -92,10 +92,25 @@ async function waitForReady() {
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
 
+  let aliveStatus = ''
+  try {
+    const response = await globalThis.fetch(`http://127.0.0.1:${port}/alive`)
+    aliveStatus = await response.text()
+  } catch (error) {
+    aliveStatus = error?.message ?? String(error)
+  }
+
   throw new Error(
-    `Timed out waiting for Cosmos DB emulator health endpoint on ${port}: ${
-      lastError?.message ?? 'unknown error'
-    }`,
+    [
+      `Timed out waiting for Cosmos DB emulator health endpoint on ${port}: ${
+        lastError?.message ?? 'unknown error'
+      }`,
+      `Last /alive response: ${aliveStatus || 'no response'}`,
+      'If /alive reports PostgreSQL=FAIL, recreate the fixture container:',
+      '  docker compose --env-file tests/fixtures/.generated.env -f tests/fixtures/docker-compose.yml rm -sf cosmosdb',
+      '  npm run fixtures:up:profile -- cosmosdb',
+      '  npm run fixtures:seed:all',
+    ].join('\n'),
   )
 }
 
