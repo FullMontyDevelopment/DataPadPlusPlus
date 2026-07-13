@@ -1,8 +1,50 @@
+use std::collections::HashSet;
+
 use serde_json::json;
 
 use super::super::super::*;
 use super::catalog::oracle_execution_capabilities;
-use super::connection::oracle_service_name;
+use super::connection::{oracle_service_name, oracle_sqlplus_path};
+use super::query::{oracle_sqlplus_script, parse_oracle_sqlplus_csv, run_oracle_sqlplus_script};
+
+const ORACLE_OBJECT_CATEGORIES: [(&str, &str, &str); 12] = [
+    ("tables", "Tables", "Base tables."),
+    ("views", "Views", "Stored query projections."),
+    (
+        "materialized-views",
+        "Materialized Views",
+        "Refreshable persisted query results.",
+    ),
+    ("synonyms", "Synonyms", "Object aliases."),
+    ("sequences", "Sequences", "Generated numeric sequences."),
+    ("functions", "Functions", "Standalone PL/SQL functions."),
+    ("procedures", "Procedures", "Standalone PL/SQL procedures."),
+    (
+        "packages",
+        "Packages",
+        "PL/SQL package specifications and bodies.",
+    ),
+    (
+        "types",
+        "Types",
+        "Object, collection, and user-defined types.",
+    ),
+    (
+        "json-collections",
+        "JSON Collections",
+        "Tables with visible JSON columns.",
+    ),
+    (
+        "external-tables",
+        "External Tables",
+        "External file-backed tables.",
+    ),
+    (
+        "database-links",
+        "Database Links",
+        "Remote database link definitions.",
+    ),
+];
 
 pub(super) async fn list_oracle_explorer_nodes(
     connection: &ResolvedConnectionProfile,
@@ -15,6 +57,9 @@ pub(super) async fn list_oracle_explorer_nodes(
         }
         Some("oracle:schemas") => schema_nodes(connection),
         Some(scope) if scope.starts_with("oracle:schema:") => schema_child_nodes(connection, scope),
+        Some(scope) if scope.starts_with("oracle:category:") => {
+            category_object_nodes(connection, scope, request.limit.unwrap_or(100)).await
+        }
         Some("oracle:security") => security_nodes(connection),
         Some("oracle:storage") => storage_nodes(connection),
         Some("oracle:performance") => performance_nodes(connection),
@@ -69,7 +114,7 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
         kind: "database".into(),
         detail: "Selected Oracle service/PDB.".into(),
         scope: Some(format!("oracle:container:{service}")),
-        path: Some(vec![connection.name.clone()]),
+        path: Some(vec![connection.name.clone(), "Databases".into()]),
         query_template: Some("select name, open_mode from v$pdbs order by name".into()),
         expandable: Some(true),
     }];
@@ -134,22 +179,23 @@ fn container_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> 
         detail: "Selected Oracle container/service. Live PDB discovery requires V$PDBS grants."
             .into(),
         scope: Some(format!("oracle:container:{service}")),
-        path: Some(vec![connection.name.clone(), "Containers".into()]),
+        path: Some(vec![connection.name.clone(), "Databases".into()]),
         query_template: Some("select name, open_mode from v$pdbs order by name".into()),
         expandable: Some(true),
     }]
 }
 
 fn container_child_nodes(connection: &ResolvedConnectionProfile, scope: &str) -> Vec<ExplorerNode> {
-    let container = scope.trim_start_matches("oracle:container:");
+    let scoped_container = scope.trim_start_matches("oracle:container:").trim();
+    let container = if scoped_container.is_empty() {
+        oracle_service_name(connection)
+    } else {
+        scoped_container.into()
+    };
+    let schema = default_schema(connection);
     schema_section_nodes(
         connection,
-        container,
-        vec![
-            connection.name.clone(),
-            "Containers".into(),
-            container.into(),
-        ],
+        &OracleObjectContext::database(connection, container, schema),
     )
 }
 
@@ -172,51 +218,358 @@ fn schema_child_nodes(connection: &ResolvedConnectionProfile, scope: &str) -> Ve
     let schema = scope.trim_start_matches("oracle:schema:");
     schema_section_nodes(
         connection,
-        schema,
-        vec![connection.name.clone(), "Schemas".into(), schema.into()],
+        &OracleObjectContext::schema(connection, schema.into()),
     )
 }
 
 fn schema_section_nodes(
     connection: &ResolvedConnectionProfile,
-    schema: &str,
-    path: Vec<String>,
+    context: &OracleObjectContext,
 ) -> Vec<ExplorerNode> {
-    [
-        object_section(schema, "Tables", "tables", "Base tables.", oracle_tables_query(schema)),
-        object_section(schema, "Views", "views", "Stored query projections.", oracle_views_query(schema)),
-        object_section(
+    ORACLE_OBJECT_CATEGORIES
+        .into_iter()
+        .map(|(kind, label, detail)| {
+            object_category(
+                context,
+                label,
+                kind,
+                detail,
+                oracle_category_query(kind, &context.schema),
+            )
+            .into_node(connection, context.base_path.clone())
+        })
+        .collect()
+}
+
+#[derive(Clone)]
+struct OracleObjectContext {
+    key: String,
+    schema: String,
+    base_path: Vec<String>,
+}
+
+impl OracleObjectContext {
+    fn database(connection: &ResolvedConnectionProfile, service: String, schema: String) -> Self {
+        Self {
+            key: format!("database:{service}:{schema}"),
             schema,
-            "Materialized Views",
-            "materialized-views",
-            "Refreshable persisted query results.",
-            format!("select owner, mview_name, refresh_mode, refresh_method from all_mviews where owner = '{}' order by mview_name", sql_literal(schema)),
+            base_path: vec![connection.name.clone(), "Databases".into(), service],
+        }
+    }
+
+    fn schema(connection: &ResolvedConnectionProfile, schema: String) -> Self {
+        Self {
+            key: format!("schema:{schema}"),
+            schema: schema.clone(),
+            base_path: vec![connection.name.clone(), "Schemas".into(), schema],
+        }
+    }
+
+    fn from_category_scope(
+        connection: &ResolvedConnectionProfile,
+        scope: &str,
+    ) -> Option<(Self, String)> {
+        let parts = scope
+            .strip_prefix("oracle:category:")?
+            .split(':')
+            .collect::<Vec<_>>();
+
+        match parts.as_slice() {
+            ["database", service, schema, category] => Some((
+                Self::database(connection, (*service).into(), (*schema).into()),
+                (*category).into(),
+            )),
+            ["schema", schema, category] => Some((
+                Self::schema(connection, (*schema).into()),
+                (*category).into(),
+            )),
+            _ => None,
+        }
+    }
+
+    fn category_id(&self, category: &str) -> String {
+        format!("oracle-{category}:{}", self.key)
+    }
+
+    fn category_scope(&self, category: &str) -> String {
+        format!("oracle:category:{}:{category}", self.key)
+    }
+
+    fn object_id(&self, kind: &str, object_name: &str) -> String {
+        format!("oracle-{kind}:{}:{object_name}", self.key)
+    }
+
+    fn category_path(&self, label: &str) -> Vec<String> {
+        let mut path = self.base_path.clone();
+        path.push(label.into());
+        path
+    }
+}
+
+async fn category_object_nodes(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+    limit: u32,
+) -> Vec<ExplorerNode> {
+    let Some((context, category)) = OracleObjectContext::from_category_scope(connection, scope)
+    else {
+        return Vec::new();
+    };
+    let Some((_, label, _)) = ORACLE_OBJECT_CATEGORIES
+        .iter()
+        .find(|(kind, _, _)| *kind == category)
+    else {
+        return Vec::new();
+    };
+
+    let query = oracle_category_query(&category, &context.schema);
+    let (rows, contract_preview) = if let Some(sqlplus_path) = oracle_sqlplus_path(connection) {
+        match load_oracle_category_rows(connection, &sqlplus_path, &query, limit).await {
+            Ok(rows) => (rows, false),
+            Err(error) => {
+                return vec![oracle_metadata_notice_node(&context, label, &error.message)];
+            }
+        }
+    } else {
+        (
+            oracle_contract_category_rows(&category, &context.schema),
+            true,
+        )
+    };
+
+    oracle_object_nodes_from_rows(&context, &category, label, rows, contract_preview)
+}
+
+async fn load_oracle_category_rows(
+    connection: &ResolvedConnectionProfile,
+    sqlplus_path: &str,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<Vec<String>>, CommandError> {
+    let script = oracle_sqlplus_script(connection, query, limit, false)?;
+    let output = run_oracle_sqlplus_script(connection, sqlplus_path, &script).await?;
+    if output.to_lowercase().contains("no rows selected") {
+        return Ok(Vec::new());
+    }
+
+    let (_, rows) = parse_oracle_sqlplus_csv(&output, limit)?;
+    Ok(rows)
+}
+
+fn oracle_object_nodes_from_rows(
+    context: &OracleObjectContext,
+    category: &str,
+    category_label: &str,
+    rows: Vec<Vec<String>>,
+    contract_preview: bool,
+) -> Vec<ExplorerNode> {
+    let object_kind = oracle_category_object_kind(category);
+    let mut seen = HashSet::new();
+
+    rows.into_iter()
+        .filter_map(|row| {
+            let object_name = row.get(1)?.trim();
+            if object_name.is_empty() || !seen.insert(object_name.to_string()) {
+                return None;
+            }
+
+            Some(ExplorerNode {
+                id: context.object_id(object_kind, object_name),
+                family: "sql".into(),
+                label: object_name.into(),
+                kind: object_kind.into(),
+                detail: oracle_object_detail(category, &row, contract_preview),
+                scope: Some(format!("{object_kind}:{}.{}", context.schema, object_name)),
+                path: Some(context.category_path(category_label)),
+                query_template: Some(oracle_object_query(category, &context.schema, object_name)),
+                expandable: Some(false),
+            })
+        })
+        .collect()
+}
+
+fn oracle_metadata_notice_node(
+    context: &OracleObjectContext,
+    category_label: &str,
+    message: &str,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: format!(
+            "oracle-metadata-unavailable:{}:{category_label}",
+            context.key
         ),
-        object_section(
+        family: "sql".into(),
+        label: "Metadata unavailable".into(),
+        kind: "warning".into(),
+        detail: message.into(),
+        scope: None,
+        path: Some(context.category_path(category_label)),
+        query_template: None,
+        expandable: Some(false),
+    }
+}
+
+fn oracle_category_query(category: &str, schema: &str) -> String {
+    match category {
+        "tables" => oracle_tables_query(schema),
+        "views" => oracle_views_query(schema),
+        "materialized-views" => format!(
+            "select owner, mview_name, refresh_mode, refresh_method from all_mviews where owner = '{}' order by mview_name",
+            sql_literal(schema)
+        ),
+        "synonyms" => format!(
+            "select owner, synonym_name, table_owner, table_name from all_synonyms where owner = '{}' order by synonym_name",
+            sql_literal(schema)
+        ),
+        "sequences" => format!(
+            "select sequence_owner, sequence_name, min_value, max_value, increment_by, cache_size from all_sequences where sequence_owner = '{}' order by sequence_name",
+            sql_literal(schema)
+        ),
+        "functions" => oracle_objects_query(schema, &["FUNCTION"]),
+        "procedures" => oracle_objects_query(schema, &["PROCEDURE"]),
+        "packages" => oracle_objects_query(schema, &["PACKAGE", "PACKAGE BODY"]),
+        "types" => oracle_objects_query(schema, &["TYPE", "TYPE BODY"]),
+        "json-collections" => oracle_json_query(schema),
+        "external-tables" => format!(
+            "select owner, table_name, type_name from all_external_tables where owner = '{}' order by table_name",
+            sql_literal(schema)
+        ),
+        "database-links" => format!(
+            "select owner, db_link, username, host from all_db_links where owner = '{}' order by db_link",
+            sql_literal(schema)
+        ),
+        _ => oracle_objects_query(schema, &["TABLE"]),
+    }
+}
+
+fn oracle_category_object_kind(category: &str) -> &str {
+    match category {
+        "tables" => "table",
+        "views" => "view",
+        "materialized-views" => "materialized-view",
+        "synonyms" => "synonym",
+        "sequences" => "sequence",
+        "functions" => "function",
+        "procedures" => "procedure",
+        "packages" => "package",
+        "types" => "type",
+        "json-collections" => "json-collection",
+        "external-tables" => "external-table",
+        "database-links" => "database-link",
+        _ => "object",
+    }
+}
+
+fn oracle_object_query(category: &str, schema: &str, object_name: &str) -> String {
+    match category {
+        "tables" | "views" | "materialized-views" | "json-collections"
+        | "external-tables" => oracle_table_query(schema, object_name),
+        "synonyms" => format!(
+            "select owner, synonym_name, table_owner, table_name, db_link from all_synonyms where owner = '{}' and synonym_name = '{}'",
+            sql_literal(schema),
+            sql_literal(object_name)
+        ),
+        "sequences" => format!(
+            "select sequence_owner, sequence_name, min_value, max_value, increment_by, cache_size, cycle_flag, order_flag from all_sequences where sequence_owner = '{}' and sequence_name = '{}'",
+            sql_literal(schema),
+            sql_literal(object_name)
+        ),
+        "functions" | "procedures" | "packages" | "types" => format!(
+            "select owner, name, type, line, text from all_source where owner = '{}' and name = '{}' order by type, line",
+            sql_literal(schema),
+            sql_literal(object_name)
+        ),
+        "database-links" => format!(
+            "select owner, db_link, username, host from all_db_links where owner = '{}' and db_link = '{}'",
+            sql_literal(schema),
+            sql_literal(object_name)
+        ),
+        _ => oracle_objects_query(schema, &["TABLE"]),
+    }
+}
+
+fn oracle_object_detail(category: &str, row: &[String], contract_preview: bool) -> String {
+    let values = match category {
+        "tables" => vec![row_value(row, 3), row_value(row, 2)],
+        "views" => vec![format!("Definition length {}", row_value(row, 2))],
+        "materialized-views" => vec![format!("{} refresh", row_value(row, 2)), row_value(row, 3)],
+        "synonyms" => vec![format!(
+            "Target {}.{}",
+            row_value(row, 2),
+            row_value(row, 3)
+        )],
+        "sequences" => vec![
+            format!("Increment {}", row_value(row, 4)),
+            format!("Cache {}", row_value(row, 5)),
+        ],
+        "functions" | "procedures" | "packages" | "types" => {
+            vec![row_value(row, 2), row_value(row, 3)]
+        }
+        "json-collections" => vec![format!("JSON column {}", row_value(row, 2))],
+        "external-tables" => vec![format!("Access type {}", row_value(row, 2))],
+        "database-links" => vec![
+            format!("User {}", row_value(row, 2)),
+            format!("Host {}", row_value(row, 3)),
+        ],
+        _ => Vec::new(),
+    };
+    let mut detail = values
+        .into_iter()
+        .filter(|value| !value.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if contract_preview {
+        if !detail.is_empty() {
+            detail.push_str(" | ");
+        }
+        detail.push_str("Contract preview; configure SQLPlus for live metadata.");
+    }
+    detail
+}
+
+fn row_value(row: &[String], index: usize) -> String {
+    row.get(index)
+        .map_or_else(String::new, |value| value.trim().into())
+}
+
+fn oracle_contract_category_rows(category: &str, schema: &str) -> Vec<Vec<String>> {
+    let rows: Vec<Vec<&str>> = match category {
+        "tables" => vec![
+            vec![schema, "ACCOUNTS", "USERS", "VALID"],
+            vec![schema, "ORDERS", "USERS", "VALID"],
+            vec![schema, "ORDER_ITEMS", "USERS", "VALID"],
+            vec![schema, "SUPPORT_TICKETS", "USERS", "VALID"],
+        ],
+        "views" => vec![vec![schema, "ORDER_FULFILLMENT_SUMMARY", "482"]],
+        "materialized-views" => vec![vec![schema, "ACCOUNT_BALANCES_MV", "DEMAND", "COMPLETE"]],
+        "synonyms" => vec![vec![schema, "CUSTOMERS", schema, "ACCOUNTS"]],
+        "sequences" => vec![
+            vec![schema, "ACCOUNTS_SEQ", "1", "999999999", "1", "20"],
+            vec![schema, "ORDERS_SEQ", "1", "999999999", "1", "50"],
+        ],
+        "functions" => vec![vec![schema, "ACCOUNT_STATUS", "FUNCTION", "VALID"]],
+        "procedures" => vec![vec![schema, "REFRESH_ACCOUNT_CACHE", "PROCEDURE", "VALID"]],
+        "packages" => vec![
+            vec![schema, "ACCOUNT_API", "PACKAGE", "VALID"],
+            vec![schema, "ACCOUNT_API", "PACKAGE BODY", "VALID"],
+            vec![schema, "ORDER_API", "PACKAGE", "VALID"],
+            vec![schema, "ORDER_API", "PACKAGE BODY", "INVALID"],
+        ],
+        "types" => vec![vec![schema, "ACCOUNT_ROW_T", "TYPE", "VALID"]],
+        "json-collections" => vec![vec![schema, "ACCOUNT_DOCUMENTS", "DOCUMENT"]],
+        "external-tables" => vec![vec![schema, "IMPORT_TRANSACTIONS", "ORACLE_LOADER"]],
+        "database-links" => vec![vec![
             schema,
-            "Synonyms",
-            "synonyms",
-            "Object aliases.",
-            format!("select owner, synonym_name, table_owner, table_name from all_synonyms where owner = '{}' order by synonym_name", sql_literal(schema)),
-        ),
-        object_section(
-            schema,
-            "Sequences",
-            "sequences",
-            "Generated numeric sequences.",
-            format!("select sequence_owner, sequence_name, min_value, max_value, increment_by from all_sequences where sequence_owner = '{}' order by sequence_name", sql_literal(schema)),
-        ),
-        object_section(schema, "Functions", "functions", "PL/SQL functions.", oracle_objects_query(schema, &["FUNCTION"])),
-        object_section(schema, "Procedures", "procedures", "PL/SQL procedures.", oracle_objects_query(schema, &["PROCEDURE"])),
-        object_section(schema, "Packages", "packages", "PL/SQL package specs and bodies.", oracle_objects_query(schema, &["PACKAGE", "PACKAGE BODY"])),
-        object_section(schema, "Types", "types", "Object, collection, and user-defined types.", oracle_objects_query(schema, &["TYPE", "TYPE BODY"])),
-        object_section(schema, "JSON Collections", "json-collections", "Oracle JSON collection-style objects.", oracle_json_query(schema)),
-        object_section(schema, "External Tables", "external-tables", "External file-backed tables.", format!("select owner, table_name, type_name from all_external_tables where owner = '{}' order by table_name", sql_literal(schema))),
-        object_section(schema, "Database Links", "database-links", "Remote database links.", format!("select owner, db_link, username, host from all_db_links where owner = '{}' order by db_link", sql_literal(schema))),
-    ]
-    .into_iter()
-    .map(|definition| definition.into_node(connection, path.clone()))
-    .collect()
+            "REPORTING_DB",
+            "REPORTING",
+            "reporting.internal",
+        ]],
+        _ => Vec::new(),
+    };
+
+    rows.into_iter()
+        .map(|row| row.into_iter().map(str::to_string).collect())
+        .collect()
 }
 
 fn security_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
@@ -420,11 +773,36 @@ fn inspect_payload(
 ) -> (String, serde_json::Value) {
     let schema = default_schema(connection);
 
-    if let Some(rest) = node_id.strip_prefix("oracle-table:") {
-        if let Some((schema, table)) = rest.split_once(':') {
+    for (prefix, kind, category) in [
+        ("oracle-table:", "table", "tables"),
+        ("oracle-view:", "view", "views"),
+        (
+            "oracle-materialized-view:",
+            "materialized-view",
+            "materialized-views",
+        ),
+        ("oracle-synonym:", "synonym", "synonyms"),
+        ("oracle-sequence:", "sequence", "sequences"),
+        ("oracle-function:", "function", "functions"),
+        ("oracle-procedure:", "procedure", "procedures"),
+        ("oracle-package:", "package", "packages"),
+        ("oracle-type:", "type", "types"),
+        (
+            "oracle-json-collection:",
+            "json-collection",
+            "json-collections",
+        ),
+        (
+            "oracle-external-table:",
+            "external-table",
+            "external-tables",
+        ),
+        ("oracle-database-link:", "database-link", "database-links"),
+    ] {
+        if let Some((schema, object_name)) = oracle_object_target(node_id, prefix) {
             return (
-                oracle_table_query(schema, table),
-                object_view_payload(connection, "table", schema, table),
+                oracle_object_query(category, &schema, &object_name),
+                object_view_payload(connection, kind, &schema, &object_name),
             );
         }
     }
@@ -456,6 +834,12 @@ fn object_view_payload(
         "schema": schema,
         "objectName": object_name,
         "service": oracle_service_name(connection),
+        "objects": [{
+            "owner": schema,
+            "name": object_name,
+            "type": kind.replace('-', " ").to_uppercase(),
+            "status": "VALID"
+        }]
     });
 
     if kind == "table" {
@@ -488,6 +872,17 @@ fn object_view_payload(
     payload
 }
 
+fn oracle_object_target(node_id: &str, prefix: &str) -> Option<(String, String)> {
+    let mut parts = node_id.strip_prefix(prefix)?.rsplit(':');
+    let object_name = parts.next()?.trim();
+    let schema = parts.next()?.trim();
+    if schema.is_empty() || object_name.is_empty() {
+        return None;
+    }
+
+    Some((schema.into(), object_name.into()))
+}
+
 fn oracle_schema_overview_payload(
     connection: &ResolvedConnectionProfile,
     schema: &str,
@@ -500,7 +895,7 @@ fn oracle_schema_overview_payload(
         "schema": schema,
         "openMode": "READ WRITE",
         "objectCounts": [
-            {"type": "TABLE", "count": 3, "status": "Visible"},
+            {"type": "TABLE", "count": 4, "status": "Visible"},
             {"type": "VIEW", "count": 1, "status": "Visible"},
             {"type": "PACKAGE", "count": 2, "status": "Visible"},
             {"type": "SEQUENCE", "count": 2, "status": "Visible"}
@@ -533,7 +928,8 @@ fn oracle_payload_for_node(
                 "tables": [
                     {"owner": schema, "name": "ACCOUNTS", "status": "VALID", "tablespace": "USERS", "rows": 128},
                     {"owner": schema, "name": "ORDERS", "status": "VALID", "tablespace": "USERS", "rows": 348},
-                    {"owner": schema, "name": "AUDIT_EVENTS", "status": "VALID", "tablespace": "USERS", "rows": 2000}
+                    {"owner": schema, "name": "ORDER_ITEMS", "status": "VALID", "tablespace": "USERS", "rows": 75000},
+                    {"owner": schema, "name": "SUPPORT_TICKETS", "status": "VALID", "tablespace": "USERS", "rows": 5000}
                 ]
             }),
         ),
@@ -541,7 +937,7 @@ fn oracle_payload_for_node(
             base,
             json!({
                 "views": [
-                    {"owner": schema, "name": "ACTIVE_ACCOUNTS", "textLength": 482, "status": "VALID"}
+                    {"owner": schema, "name": "ORDER_FULFILLMENT_SUMMARY", "textLength": 482, "status": "VALID"}
                 ]
             }),
         ),
@@ -605,6 +1001,36 @@ fn oracle_payload_for_node(
                 ]
             }),
         ),
+        id if id.starts_with("oracle-json-collections:") || id.starts_with("oracle-json:") => {
+            merge_json(
+                base,
+                json!({
+                    "jsonCollections": [
+                        {"owner": schema, "name": "ACCOUNT_DOCUMENTS", "column": "DOCUMENT", "status": "VALID"}
+                    ]
+                }),
+            )
+        }
+        id if id.starts_with("oracle-external-tables:") || id.starts_with("oracle-external:") => {
+            merge_json(
+                base,
+                json!({
+                    "externalTables": [
+                        {"owner": schema, "name": "IMPORT_TRANSACTIONS", "type": "ORACLE_LOADER", "status": "VALID"}
+                    ]
+                }),
+            )
+        }
+        id if id.starts_with("oracle-database-links:") || id.starts_with("oracle-dblinks:") => {
+            merge_json(
+                base,
+                json!({
+                    "databaseLinks": [
+                        {"owner": schema, "name": "REPORTING_DB", "username": "REPORTING", "host": "reporting.internal"}
+                    ]
+                }),
+            )
+        }
         "oracle-security" | "oracle-users" => merge_json(
             base,
             json!({
@@ -817,6 +1243,24 @@ fn object_section(
         scope: None,
         query_template: Some(query_template),
         expandable: false,
+    }
+}
+
+fn object_category(
+    context: &OracleObjectContext,
+    label: &str,
+    kind: &str,
+    detail: &str,
+    query_template: String,
+) -> NodeDefinition {
+    NodeDefinition {
+        id: context.category_id(kind),
+        label: label.into(),
+        kind: kind.into(),
+        detail: detail.into(),
+        scope: Some(context.category_scope(kind)),
+        query_template: Some(query_template),
+        expandable: true,
     }
 }
 

@@ -1,12 +1,14 @@
-use std::collections::BTreeSet;
-
 use serde_json::{json, Value};
+
+use super::super::super::*;
 
 #[derive(Debug, Clone)]
 pub(super) struct NormalizedNeo4jResult {
     pub(super) columns: Vec<String>,
     pub(super) rows: Vec<Vec<String>>,
+    #[allow(dead_code)]
     pub(super) graph: Option<(Value, Value)>,
+    pub(super) graph_payload: Option<NormalizedGraphPayload>,
     pub(super) stats: Value,
     pub(super) total_rows: usize,
     pub(super) node_count: usize,
@@ -34,14 +36,7 @@ pub(super) fn normalize_neo4j_result(value: &Value, row_limit: u32) -> Normalize
         .unwrap_or_default();
     let total_rows = data.len();
     let mut rows = Vec::new();
-    let mut nodes = Vec::new();
-    let mut edges = Vec::new();
-    let mut node_ids = BTreeSet::<String>::new();
-    let mut edge_ids = BTreeSet::<String>::new();
-    let graph_limit = (row_limit as usize)
-        .saturating_mul(4)
-        .max(row_limit as usize);
-    let mut saw_more_graph = false;
+    let mut graph_collector = GraphCollector::new(row_limit);
 
     for item in &data {
         if rows.len() < row_limit as usize {
@@ -62,14 +57,7 @@ pub(super) fn normalize_neo4j_result(value: &Value, row_limit: u32) -> Normalize
                 .into_iter()
                 .flatten()
             {
-                let id = graph_item_id(node);
-                if node_ids.insert(id) {
-                    if nodes.len() < graph_limit {
-                        nodes.push(node.clone());
-                    } else {
-                        saw_more_graph = true;
-                    }
-                }
+                collect_neo4j_node(&mut graph_collector, node);
             }
             for edge in graph
                 .get("relationships")
@@ -77,45 +65,42 @@ pub(super) fn normalize_neo4j_result(value: &Value, row_limit: u32) -> Normalize
                 .into_iter()
                 .flatten()
             {
-                let id = graph_item_id(edge);
-                if edge_ids.insert(id) {
-                    if edges.len() < graph_limit {
-                        edges.push(edge.clone());
-                    } else {
-                        saw_more_graph = true;
-                    }
-                }
+                collect_neo4j_relationship(&mut graph_collector, edge);
             }
         }
     }
 
-    let graph = if nodes.is_empty() && edges.is_empty() {
-        None
-    } else {
-        Some((json!(nodes), json!(edges)))
-    };
+    let graph_payload = graph_collector.finish();
+    let graph = graph_payload
+        .clone()
+        .map(NormalizedGraphPayload::into_parts);
+    let node_count = graph_payload
+        .as_ref()
+        .map(|graph| graph.node_count)
+        .unwrap_or_default();
+    let relationship_count = graph_payload
+        .as_ref()
+        .map(|graph| graph.edge_count)
+        .unwrap_or_default();
+    let graph_truncated = graph_payload
+        .as_ref()
+        .map(|graph| graph.truncated)
+        .unwrap_or_default();
 
     NormalizedNeo4jResult {
         columns,
         rows,
         graph,
+        graph_payload,
         stats: result
             .and_then(|result| result.get("stats"))
             .cloned()
             .unwrap_or_else(|| json!({})),
         total_rows,
-        node_count: node_ids.len(),
-        relationship_count: edge_ids.len(),
-        truncated: total_rows > row_limit as usize || saw_more_graph,
+        node_count,
+        relationship_count,
+        truncated: total_rows > row_limit as usize || graph_truncated,
     }
-}
-
-fn graph_item_id(value: &Value) -> String {
-    value
-        .get("id")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| value.to_string())
 }
 
 fn neo4j_value_to_string(value: &Value) -> String {

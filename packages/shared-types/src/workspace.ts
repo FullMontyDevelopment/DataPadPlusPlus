@@ -712,20 +712,33 @@ export interface SchemaPayload {
 
 export interface GraphPayload {
   renderer: 'graph'
-  nodes: Array<{
-    id: string
-    label: string
-    kind?: string
-    properties?: Record<string, unknown>
-  }>
-  edges: Array<{
-    id: string
-    from: string
-    to: string
-    label?: string
-    kind?: string
-    properties?: Record<string, unknown>
-  }>
+  nodes: GraphNodePayload[]
+  edges: GraphEdgePayload[]
+  nodeCount?: number
+  edgeCount?: number
+  visualNodeCap?: number
+  visualEdgeCap?: number
+  truncated?: boolean
+  warnings?: string[]
+  metadata?: Record<string, unknown>
+}
+
+export interface GraphNodePayload {
+  id: string
+  label: string
+  kind?: string
+  properties?: Record<string, unknown>
+  raw?: unknown
+}
+
+export interface GraphEdgePayload {
+  id: string
+  from: string
+  to: string
+  label?: string
+  kind?: string
+  properties?: Record<string, unknown>
+  raw?: unknown
 }
 
 export interface ChartPayload {

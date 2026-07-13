@@ -16,6 +16,7 @@ import { dataGridRowsVersion } from './data-grid-row-patches'
 import type { DocumentEditContext } from './document-edit-context'
 import { DocumentResultsView } from './DocumentResultsView'
 import { GenericPlanPayloadView } from './GenericPlanPayloadView'
+import { GraphResultsView } from './GraphResultsView'
 import { JsonTreeView } from './JsonTreeView'
 import { KeyValueResultsView } from './KeyValueResultsView'
 import { MongoExplainPlanView } from '../datastores/mongodb/MongoExplainPlanView'
@@ -173,7 +174,7 @@ export function ResultPayloadView({
   }
 
   if (payload.renderer === 'graph') {
-    return <GraphTree payload={payload} />
+    return <GraphResultsView payload={payload} />
   }
 
   if (payload.renderer === 'chart') {
@@ -359,18 +360,4 @@ function keyValuePayloadKey(entries: Record<string, string>, key?: string) {
   return Object.entries(entries)
     .map(([entryKey, value]) => `${key ?? 'entries'}:${entryKey}:${value}`)
     .join('|')
-}
-
-function GraphTree({ payload }: { payload: Extract<ResultPayload, { renderer: 'graph' }> }) {
-  return (
-    <div className="json-tree-list">
-      <JsonTreeView
-        value={{
-          nodes: payload.nodes,
-          edges: payload.edges,
-        }}
-        label="graph"
-      />
-    </div>
-  )
 }

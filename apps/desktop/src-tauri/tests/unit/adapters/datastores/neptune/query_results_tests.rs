@@ -78,6 +78,31 @@ fn neptune_sparql_result_normalizes_bindings() {
 }
 
 #[test]
+fn neptune_sparql_result_infers_rdf_graph_from_subject_predicate_object() {
+    let value = json!({
+        "head": { "vars": ["subject", "predicate", "object"] },
+        "results": {
+            "bindings": [{
+                "subject": { "type": "uri", "value": "https://example.test/person/ada" },
+                "predicate": { "type": "uri", "value": "https://example.test/relation/knows" },
+                "object": { "type": "uri", "value": "https://example.test/person/grace" }
+            }]
+        }
+    });
+    let normalized = normalize_sparql_result(&value, 100);
+    let (nodes, edges) = normalized.graph.expect("graph payload");
+
+    assert_eq!(normalized.node_count, 2);
+    assert_eq!(normalized.edge_count, 1);
+    assert_eq!(nodes.as_array().unwrap().len(), 2);
+    assert_eq!(edges.as_array().unwrap().len(), 1);
+    assert_eq!(
+        edges.as_array().unwrap()[0]["label"],
+        "https://example.test/relation/knows"
+    );
+}
+
+#[test]
 fn neptune_json_rows_use_object_keys() {
     let value = json!({
         "results": [{ "name": "Ada", "age": 42 }]

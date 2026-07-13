@@ -3511,6 +3511,11 @@ function DesktopWorkspace() {
                       : { bottomPanelHeight: nextSize },
                   )
                 }
+                onToggleDock={() =>
+                  void actions.updateUiState({
+                    resultsDock: resultsDockRight ? 'bottom' : 'right',
+                  })
+                }
                 onClose={() =>
                   void actions.updateUiState({
                     bottomPanelVisible: false,

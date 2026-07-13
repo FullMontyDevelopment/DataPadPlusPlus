@@ -14,6 +14,7 @@ use crate::domain::{
 use super::datastores;
 
 mod capabilities;
+mod graph_results;
 mod operations;
 mod paging;
 mod payloads;
@@ -23,6 +24,7 @@ mod structure;
 mod tree_manifest;
 
 pub(crate) use capabilities::*;
+pub(crate) use graph_results::*;
 pub(crate) use operations::*;
 pub(crate) use paging::*;
 pub(crate) use payloads::*;

@@ -43,11 +43,13 @@ pub(super) async fn execute_neptune_query(
         });
     }
     let row_count = normalized.rows.len() as u32;
-    let graph = normalized.graph.clone();
+    let graph = normalized.graph_payload.clone();
     let profile = neptune_profile_payload(&query_request, &normalized, row_limit);
     let mut payloads = Vec::new();
-    if let Some((nodes, edges)) = graph {
-        payloads.push(payload_graph(nodes, edges));
+    if let Some(graph) = graph {
+        let metadata = graph.metadata("neptune", query_request.language);
+        let (nodes, edges) = graph.into_parts();
+        payloads.push(payload_graph_with_metadata(nodes, edges, metadata));
     }
     payloads.extend([
         payload_table(normalized.columns, normalized.rows),

@@ -65,8 +65,10 @@ pub(super) async fn execute_arango_query(
             payload_json(value),
             payload_raw(query_request.cursor_body.clone()),
         ];
-        if let Some((nodes, edges)) = normalized.graph {
-            payloads.insert(0, payload_graph(nodes, edges));
+        if let Some(graph) = normalized.graph_payload {
+            let metadata = graph.metadata("arango", "aql");
+            let (nodes, edges) = graph.into_parts();
+            payloads.insert(0, payload_graph_with_metadata(nodes, edges, metadata));
         }
         (payloads, row_count, None, truncated)
     };

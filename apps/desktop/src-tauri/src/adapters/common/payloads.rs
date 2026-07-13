@@ -206,6 +206,39 @@ pub(crate) fn payload_graph(nodes: Value, edges: Value) -> Value {
     })
 }
 
+pub(crate) fn payload_graph_with_metadata(nodes: Value, edges: Value, metadata: Value) -> Value {
+    let node_count = metadata
+        .get("nodeCount")
+        .and_then(Value::as_u64)
+        .or_else(|| nodes.as_array().map(|items| items.len() as u64))
+        .unwrap_or_default();
+    let edge_count = metadata
+        .get("edgeCount")
+        .and_then(Value::as_u64)
+        .or_else(|| edges.as_array().map(|items| items.len() as u64))
+        .unwrap_or_default();
+    let truncated = metadata
+        .get("truncated")
+        .and_then(Value::as_bool)
+        .unwrap_or_default();
+    let warnings = metadata
+        .get("warnings")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    json!({
+        "renderer": "graph",
+        "nodes": nodes,
+        "edges": edges,
+        "nodeCount": node_count,
+        "edgeCount": edge_count,
+        "visualNodeCap": metadata.get("visualNodeCap").cloned(),
+        "visualEdgeCap": metadata.get("visualEdgeCap").cloned(),
+        "truncated": truncated,
+        "warnings": warnings,
+        "metadata": metadata,
+    })
+}
+
 pub(crate) fn payload_cost_estimate(details: Value) -> Value {
     let currency = details
         .get("currency")

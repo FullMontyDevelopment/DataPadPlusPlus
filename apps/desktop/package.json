@@ -21,10 +21,14 @@
     "@tanstack/react-virtual": "^3.13.24",
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-opener": "^2.5.4",
+    "graphology": "^0.26.0",
+    "graphology-layout": "^0.6.1",
+    "graphology-layout-forceatlas2": "^0.10.1",
     "lucide-react": "^1.9.0",
     "monaco-editor": "^0.55.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "sigma": "^3.0.3",
     "simple-icons": "^16.19.0"
   },
   "devDependencies": {

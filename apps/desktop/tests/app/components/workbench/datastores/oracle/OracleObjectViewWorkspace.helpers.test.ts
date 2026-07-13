@@ -28,6 +28,18 @@ describe('OracleObjectViewWorkspace helpers', () => {
     expect(rows.rows).toEqual([['APP', 'ACCOUNTS', 'VALID', 'USERS']])
   })
 
+  it('keeps Oracle category columns aligned with their metadata fields', () => {
+    expect(oracleObjectRows('synonyms', {
+      synonyms: [{ owner: 'APP', name: 'CUSTOMERS', targetOwner: 'CRM', targetObject: 'ACCOUNTS' }],
+    }).rows).toEqual([['APP', 'CUSTOMERS', 'CRM', 'ACCOUNTS']])
+    expect(oracleObjectRows('sequences', {
+      sequences: [{ owner: 'APP', name: 'ORDERS_SEQ', increment: 1, cache: 50 }],
+    }).rows).toEqual([['APP', 'ORDERS_SEQ', '1', '50']])
+    expect(oracleObjectRows('database-links', {
+      databaseLinks: [{ owner: 'APP', name: 'REPORTING_DB', username: 'REPORTING', host: 'reporting.internal' }],
+    }).rows).toEqual([['APP', 'REPORTING_DB', 'REPORTING', 'reporting.internal']])
+  })
+
   it('normalizes security, storage, and performance rows without raw payload dumps', () => {
     expect(oracleSecurityRows('roles', {
       roles: [{ role: 'APP_READ', source: 'DBA_ROLE_PRIVS', defaultRole: 'YES', adminOption: 'NO' }],

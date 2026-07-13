@@ -24,7 +24,7 @@ import type { WorkbenchMessage } from '../../state/app-state'
 import { DetailsView } from './bottom-panel/DetailsView'
 import { HistoryView } from './bottom-panel/HistoryView'
 import { MessagesView } from './bottom-panel/MessagesView'
-import { ChevronDownIcon, ChevronRightIcon, CloseIcon } from './icons'
+import { CloseIcon, PanelBottomIcon, PanelRightIcon } from './icons'
 import { ResultsView } from './results/ResultsView'
 
 const MIN_BOTTOM_PANEL_HEIGHT = 120
@@ -32,7 +32,6 @@ const MAX_BOTTOM_PANEL_HEIGHT = 900
 const MIN_RESULTS_SIDE_WIDTH = 320
 const MAX_RESULTS_SIDE_WIDTH = 2400
 const MIN_EDITOR_WIDTH_WITH_RIGHT_RESULTS = 120
-const BUTTON_RESIZE_STEP = 96
 const KEYBOARD_RESIZE_STEP = 24
 type ResultsDock = 'bottom' | 'right'
 
@@ -63,6 +62,7 @@ interface BottomPanelProps {
     request: DocumentNodeChildrenRequest,
   ): Promise<DocumentNodeChildrenResponse | undefined>
   onResize(nextSize: number): void
+  onToggleDock(): void
   onClose(): void
   onConfirmExecution(guardrailId: string, mode: ExecutionRequest['mode']): void
   onApplyInspectionTemplate(queryTemplate?: string): void
@@ -101,6 +101,7 @@ export function BottomPanel({
   onExportResultFile,
   onFetchDocumentNodeChildren,
   onResize,
+  onToggleDock,
   onClose,
   onConfirmExecution,
   onApplyInspectionTemplate,
@@ -134,6 +135,7 @@ export function BottomPanel({
   const draftSize = useRef(dock === 'right' ? sideWidth : height)
   const resizeFrame = useRef<number | undefined>(undefined)
   const isRightDock = dock === 'right'
+  const DockIcon = isRightDock ? PanelBottomIcon : PanelRightIcon
 
   const clampPanelSize = (nextSize: number) =>
     isRightDock ? clampPanelWidth(nextSize, panelRef.current) : clampPanelHeight(nextSize)
@@ -303,32 +305,11 @@ export function BottomPanel({
           <button
             type="button"
             className="bottom-panel-icon-button"
-            aria-label={isRightDock ? 'Increase panel width' : 'Increase panel height'}
-            title={`Increase results panel ${isRightDock ? 'width' : 'height'}.`}
-            onClick={() =>
-              onResize(
-                isRightDock
-                  ? clampPanelWidth(sideWidth + BUTTON_RESIZE_STEP, panelRef.current)
-                  : clampPanelHeight(height + BUTTON_RESIZE_STEP),
-              )
-            }
+            aria-label={isRightDock ? 'Dock results to bottom' : 'Dock results to right'}
+            title={isRightDock ? 'Dock results to bottom.' : 'Dock results to right.'}
+            onClick={onToggleDock}
           >
-            <ChevronRightIcon className="panel-inline-icon panel-inline-icon--up" />
-          </button>
-          <button
-            type="button"
-            className="bottom-panel-icon-button"
-            aria-label={isRightDock ? 'Decrease panel width' : 'Decrease panel height'}
-            title={`Decrease results panel ${isRightDock ? 'width' : 'height'}.`}
-            onClick={() =>
-              onResize(
-                isRightDock
-                  ? clampPanelWidth(sideWidth - BUTTON_RESIZE_STEP, panelRef.current)
-                  : clampPanelHeight(height - BUTTON_RESIZE_STEP),
-              )
-            }
-          >
-            <ChevronDownIcon className="panel-inline-icon" />
+            <DockIcon className="panel-inline-icon" />
           </button>
           <button
             type="button"

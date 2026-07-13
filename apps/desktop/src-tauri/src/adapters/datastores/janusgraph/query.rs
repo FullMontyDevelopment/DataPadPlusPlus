@@ -40,11 +40,13 @@ pub(super) async fn execute_janusgraph_query(
         });
     }
     let row_count = normalized.rows.len() as u32;
-    let graph = normalized.graph.clone();
+    let graph = normalized.graph_payload.clone();
     let profile = janusgraph_profile_payload(&query_request, &normalized, row_limit);
     let mut payloads = Vec::new();
-    if let Some((nodes, edges)) = graph {
-        payloads.push(payload_graph(nodes, edges));
+    if let Some(graph) = graph {
+        let metadata = graph.metadata("janusgraph", "gremlin");
+        let (nodes, edges) = graph.into_parts();
+        payloads.push(payload_graph_with_metadata(nodes, edges, metadata));
     }
     payloads.extend([
         payload_table(vec!["value".into()], normalized.rows),

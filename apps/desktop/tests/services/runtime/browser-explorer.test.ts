@@ -191,8 +191,9 @@ describe('browser explorer runtime', () => {
 
   it('mirrors the Oracle enterprise object hierarchy without live dependencies', () => {
     const connection = oracleConnection()
+    const rootNodes = createExplorerNodes(connection)
 
-    expect(createExplorerNodes(connection).map((node) => node.label)).toEqual([
+    expect(rootNodes.map((node) => node.label)).toEqual([
       'FREEPDB1',
       'Schemas',
       'Security',
@@ -200,6 +201,50 @@ describe('browser explorer runtime', () => {
       'Performance',
       'Diagnostics',
     ])
+    expect(rootNodes[0]).toMatchObject({
+      id: 'oracle-container:FREEPDB1',
+      path: ['Oracle', 'Databases'],
+    })
+
+    const databaseChildren = createExplorerNodes(connection, 'oracle:container:FREEPDB1')
+    expect(databaseChildren.map((node) => node.label)).toEqual([
+      'Tables',
+      'Views',
+      'Materialized Views',
+      'Synonyms',
+      'Sequences',
+      'Functions',
+      'Procedures',
+      'Packages',
+      'Types',
+      'JSON Collections',
+      'External Tables',
+      'Database Links',
+    ])
+    expect(databaseChildren[0]).toMatchObject({
+      id: 'oracle-tables:database:FREEPDB1:APP',
+      path: ['Oracle', 'Databases', 'FREEPDB1'],
+      scope: 'oracle:category:database:FREEPDB1:APP:tables',
+      expandable: true,
+      queryTemplate: expect.stringContaining("where owner = 'APP'"),
+    })
+
+    for (const category of databaseChildren) {
+      const objectNodes = createExplorerNodes(connection, category.scope)
+      expect(objectNodes.length, category.label).toBeGreaterThan(0)
+      expect(objectNodes.every((node) => node.path?.at(-1) === category.label)).toBe(true)
+      expect(objectNodes.every((node) => node.expandable === false)).toBe(true)
+    }
+
+    expect(createExplorerNodes(connection, 'oracle:category:database:FREEPDB1:APP:tables'))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ label: 'ACCOUNTS', kind: 'table', scope: 'table:APP.ACCOUNTS' }),
+        expect.objectContaining({ label: 'ORDERS', kind: 'table' }),
+        expect.objectContaining({ label: 'ORDER_ITEMS', kind: 'table' }),
+        expect.objectContaining({ label: 'SUPPORT_TICKETS', kind: 'table' }),
+      ]))
+    expect(createExplorerNodes(connection, 'oracle:category:database:FREEPDB1:APP:packages'))
+      .toHaveLength(2)
 
     expect(createExplorerNodes(connection, 'oracle:schemas')).toEqual([
       expect.objectContaining({
@@ -224,6 +269,57 @@ describe('browser explorer runtime', () => {
       'External Tables',
       'Database Links',
     ])
+    expect(schemaChildren[0]).toMatchObject({
+      id: 'oracle-tables:schema:APP',
+      scope: 'oracle:category:schema:APP:tables',
+    })
+    expect(schemaChildren[0].id).not.toBe(databaseChildren[0].id)
+
+    const tableNode = createExplorerNodes(
+      connection,
+      'oracle:category:database:FREEPDB1:APP:tables',
+    )[0]
+    const tableResponse = inspectExplorerNodeLocally(
+      { connections: [connection] } as WorkspaceSnapshot,
+      {
+        connectionId: connection.id,
+        environmentId: 'env-local',
+        nodeId: tableNode.id,
+      },
+    )
+    expect(tableResponse.queryTemplate).toContain('"APP"."ACCOUNTS"')
+    expect(tableResponse.payload).toMatchObject({
+      kind: 'table',
+      schema: 'APP',
+      objectName: 'ACCOUNTS',
+    })
+  })
+
+  it('prefers the Oracle service name over the generic database field', () => {
+    const connection = {
+      ...oracleConnection(),
+      database: 'LEGACY_DATABASE_VALUE',
+      oracleOptions: {
+        connectMode: 'service-name' as const,
+        serviceName: 'PREFERRED_SERVICE',
+      },
+    }
+
+    expect(createExplorerNodes(connection)[0]).toMatchObject({
+      label: 'PREFERRED_SERVICE',
+      scope: 'oracle:container:PREFERRED_SERVICE',
+    })
+    const response = inspectExplorerNodeLocally(
+      { connections: [connection] } as WorkspaceSnapshot,
+      {
+        connectionId: connection.id,
+        environmentId: 'env-local',
+        nodeId: 'oracle-container:PREFERRED_SERVICE',
+      },
+    )
+    expect(response.payload).toMatchObject({
+      service: 'PREFERRED_SERVICE',
+    })
   })
 
   it('returns Oracle inspection payloads that purpose-built views can render', () => {

@@ -52,6 +52,7 @@ import {
   Network,
   Palette,
   PanelBottom,
+  PanelRight,
   PencilLine,
   Play,
   RefreshCw,
@@ -105,6 +106,8 @@ export const ThemeIcon = adapt(Moon)
 export const ChevronRightIcon = adapt(ChevronRight)
 export const ChevronDownIcon = adapt(ChevronDown)
 export const PanelIcon = adapt(PanelBottom)
+export const PanelBottomIcon = adapt(PanelBottom)
+export const PanelRightIcon = adapt(PanelRight)
 export const RenameIcon = adapt(PencilLine)
 export const PlayIcon = adapt(Play)
 export const StopIcon = adapt(CircleStop)

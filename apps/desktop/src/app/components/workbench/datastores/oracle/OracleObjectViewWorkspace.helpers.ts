@@ -10,31 +10,123 @@ export type OracleTableRows = {
 }
 
 export function oracleObjectRows(kind: string, payload: JsonRecord): OracleTableRows {
-  const rowSources: Record<string, [unknown, string[]]> = {
-    tables: [payload.tables, ['Owner', 'Table', 'Status', 'Tablespace']],
-    views: [payload.views, ['Owner', 'View', 'Text length', 'Status']],
-    'materialized-views': [payload.materializedViews, ['Owner', 'Name', 'Refresh mode', 'Status']],
-    sequences: [payload.sequences, ['Owner', 'Sequence', 'Increment', 'Cache']],
-    synonyms: [payload.synonyms, ['Owner', 'Synonym', 'Target owner', 'Target object']],
-    indexes: [payload.indexes, ['Owner', 'Index', 'Table', 'Status']],
-    constraints: [payload.constraints, ['Owner', 'Constraint', 'Type', 'Status']],
-    triggers: [payload.triggers, ['Owner', 'Trigger', 'Event', 'Status']],
-    packages: [payload.packages, ['Owner', 'Package', 'Type', 'Status']],
-    procedures: [payload.procedures, ['Owner', 'Procedure', 'Status', 'Last DDL']],
-    functions: [payload.functions, ['Owner', 'Function', 'Status', 'Last DDL']],
-    types: [payload.types, ['Owner', 'Type', 'Kind', 'Status']],
+  switch (kind) {
+    case 'tables':
+      return oracleRows(payload.tables, ['Owner', 'Table', 'Status', 'Tablespace'], (row) => [
+        row.owner ?? row.schema,
+        row.name ?? row.tableName,
+        row.status,
+        row.tablespace ?? row.tablespaceName,
+      ])
+    case 'views':
+      return oracleRows(payload.views, ['Owner', 'View', 'Text length', 'Status'], (row) => [
+        row.owner ?? row.schema,
+        row.name ?? row.viewName,
+        row.textLength,
+        row.status,
+      ])
+    case 'materialized-views':
+      return oracleRows(payload.materializedViews, ['Owner', 'Name', 'Refresh mode', 'Status'], (row) => [
+        row.owner ?? row.schema,
+        row.name ?? row.mviewName,
+        row.refreshMode,
+        row.status ?? row.refreshMethod,
+      ])
+    case 'sequences':
+      return oracleRows(payload.sequences, ['Owner', 'Sequence', 'Increment', 'Cache'], (row) => [
+        row.owner ?? row.sequenceOwner,
+        row.name ?? row.sequenceName,
+        row.increment ?? row.incrementBy,
+        row.cache ?? row.cacheSize,
+      ])
+    case 'synonyms':
+      return oracleRows(payload.synonyms, ['Owner', 'Synonym', 'Target owner', 'Target object'], (row) => [
+        row.owner,
+        row.name ?? row.synonymName,
+        row.targetOwner ?? row.tableOwner,
+        row.targetObject ?? row.tableName,
+      ])
+    case 'indexes':
+      return oracleRows(payload.indexes, ['Owner', 'Index', 'Table', 'Status'], (row) => [
+        row.owner,
+        row.name ?? row.indexName,
+        row.table ?? row.tableName,
+        row.status,
+      ])
+    case 'constraints':
+      return oracleRows(payload.constraints, ['Owner', 'Constraint', 'Type', 'Status'], (row) => [
+        row.owner,
+        row.name ?? row.constraintName,
+        row.type ?? row.constraintType,
+        row.status,
+      ])
+    case 'triggers':
+      return oracleRows(payload.triggers, ['Owner', 'Trigger', 'Event', 'Status'], (row) => [
+        row.owner,
+        row.name ?? row.triggerName,
+        row.event ?? row.triggeringEvent,
+        row.status,
+      ])
+    case 'packages':
+      return oracleRows(payload.packages, ['Owner', 'Package', 'Type', 'Status'], (row) => [
+        row.owner,
+        row.name ?? row.objectName,
+        row.type ?? row.objectType,
+        row.status,
+      ])
+    case 'procedures':
+    case 'functions':
+      return oracleRows(
+        kind === 'procedures' ? payload.procedures : payload.functions,
+        ['Owner', kind === 'procedures' ? 'Procedure' : 'Function', 'Status', 'Last DDL'],
+        (row) => [row.owner, row.name ?? row.objectName, row.status, row.lastDdlTime],
+      )
+    case 'types':
+      return oracleRows(payload.types, ['Owner', 'Type', 'Kind', 'Status'], (row) => [
+        row.owner,
+        row.name ?? row.objectName,
+        row.type ?? row.objectType,
+        row.status,
+      ])
+    case 'json-collections':
+      return oracleRows(payload.jsonCollections, ['Owner', 'Collection / table', 'JSON column', 'Status'], (row) => [
+        row.owner,
+        row.name ?? row.tableName,
+        row.column ?? row.columnName,
+        row.status,
+      ])
+    case 'external-tables':
+      return oracleRows(payload.externalTables, ['Owner', 'Table', 'Access type', 'Status'], (row) => [
+        row.owner,
+        row.name ?? row.tableName,
+        row.type ?? row.typeName,
+        row.status,
+      ])
+    case 'database-links':
+      return oracleRows(payload.databaseLinks, ['Owner', 'Database link', 'Username', 'Host'], (row) => [
+        row.owner,
+        row.name ?? row.dbLink,
+        row.username,
+        row.host,
+      ])
+    default:
+      return oracleRows(payload.objects, ['Owner', 'Object', 'Type', 'Status'], (row) => [
+        row.owner ?? row.schema,
+        row.name ?? row.objectName,
+        row.type ?? row.objectType,
+        row.status,
+      ])
   }
-  const [source, columns] = rowSources[kind] ?? [payload.objects, ['Owner', 'Object', 'Type', 'Status']]
-  const records = arrayOfRecords(source)
+}
 
+function oracleRows(
+  source: unknown,
+  columns: string[],
+  values: (row: JsonRecord) => unknown[],
+): OracleTableRows {
   return {
     columns,
-    rows: records.map((row) => [
-      stringValue(row.owner ?? row.schema),
-      stringValue(row.name ?? row.objectName ?? row.tableName ?? row.viewName ?? row.indexName ?? row.sequenceName),
-      stringValue(row.status ?? row.type ?? row.objectType ?? row.refreshMode ?? row.increment),
-      stringValue(row.tablespace ?? row.tablespaceName ?? row.target ?? row.detail ?? row.lastDdlTime),
-    ]),
+    rows: arrayOfRecords(source).map((row) => values(row).map(stringValue)),
   }
 }
 

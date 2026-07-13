@@ -1,16 +1,37 @@
 import type { ConnectionProfile, ExplorerNode } from '@datapadplusplus/shared-types'
 
+const ORACLE_OBJECT_CATEGORIES = [
+  { kind: 'tables', label: 'Tables', detail: 'Base tables' },
+  { kind: 'views', label: 'Views', detail: 'Stored query projections' },
+  { kind: 'materialized-views', label: 'Materialized Views', detail: 'Refreshable persisted query results' },
+  { kind: 'synonyms', label: 'Synonyms', detail: 'Object aliases' },
+  { kind: 'sequences', label: 'Sequences', detail: 'Generated numeric sequences' },
+  { kind: 'functions', label: 'Functions', detail: 'Standalone PL/SQL functions' },
+  { kind: 'procedures', label: 'Procedures', detail: 'Standalone PL/SQL procedures' },
+  { kind: 'packages', label: 'Packages', detail: 'PL/SQL package specifications and bodies' },
+  { kind: 'types', label: 'Types', detail: 'Object, collection, and user-defined types' },
+  { kind: 'json-collections', label: 'JSON Collections', detail: 'Tables with visible JSON columns' },
+  { kind: 'external-tables', label: 'External Tables', detail: 'External file-backed tables' },
+  { kind: 'database-links', label: 'Database Links', detail: 'Remote database link definitions' },
+] as const
+
+type OracleObjectContext = {
+  key: string
+  schema: string
+  path: string[]
+}
+
 export function createOracleExplorerNodes(
   connection: ConnectionProfile,
   scope?: string,
 ): ExplorerNode[] {
   const schema = connection.auth.username?.trim().toUpperCase() || ''
-  const service = connection.database?.trim() || connection.oracleOptions?.serviceName?.trim() || ''
+  const service = oracleServiceName(connection)
 
   if (!scope) {
     return [
       ...(service
-        ? [oracleNode(`oracle-container:${service}`, service, 'database', 'Selected Oracle service/PDB', `oracle:container:${service}`, ['Oracle'], true)]
+        ? [oracleNode(`oracle-container:${service}`, service, 'database', 'Selected Oracle service/PDB', `oracle:container:${service}`, ['Oracle', 'Databases'], true)]
         : []),
       oracleNode('oracle-schemas', 'Schemas', 'schemas', 'Users and object schemas', 'oracle:schemas', ['Oracle'], true),
       oracleNode('oracle-security', 'Security', 'security', 'Users, roles, profiles, privileges, and grants', 'oracle:security', ['Oracle'], true),
@@ -22,14 +43,14 @@ export function createOracleExplorerNodes(
 
   if (scope === 'oracle:containers') {
     return service ? [
-      oracleNode(`oracle-container:${service}`, service, 'database', 'Selected Oracle service/container', `oracle:container:${service}`, ['Oracle', 'Containers'], true),
+      oracleNode(`oracle-container:${service}`, service, 'database', 'Selected Oracle service/container', `oracle:container:${service}`, ['Oracle', 'Databases'], true),
     ] : []
   }
 
   if (scope.startsWith('oracle:container:')) {
     const container = scope.replace('oracle:container:', '') || service
     if (!container || !schema) return []
-    return oracleSchemaSections(schema, ['Oracle', 'Containers', container])
+    return oracleSchemaSections(oracleDatabaseContext(container, schema))
   }
 
   if (scope === 'oracle:schemas') {
@@ -40,7 +61,12 @@ export function createOracleExplorerNodes(
 
   if (scope.startsWith('oracle:schema:')) {
     const scopedSchema = scope.replace('oracle:schema:', '') || schema
-    return scopedSchema ? oracleSchemaSections(scopedSchema, ['Oracle', 'Schemas', scopedSchema]) : []
+    return scopedSchema ? oracleSchemaSections(oracleSchemaContext(scopedSchema)) : []
+  }
+
+  if (scope.startsWith('oracle:category:')) {
+    const target = oracleCategoryTarget(scope)
+    return target ? oracleCategoryObjectNodes(target.context, target.category) : []
   }
 
   if (scope === 'oracle:security') {
@@ -84,9 +110,13 @@ export function createOracleExplorerNodes(
 }
 
 export function oracleInspectQueryTemplate(nodeId: string) {
-  if (nodeId.startsWith('oracle-table:')) {
-    const [, schema = 'APP', table = 'TABLE_NAME'] = nodeId.split(':')
-    return `select * from "${schema}"."${table}" where rownum <= 100;`
+  const objectTarget = oracleObjectTargetFromNodeId(nodeId)
+  if (objectTarget) {
+    return oracleObjectQueryTemplate(
+      objectTarget.category,
+      objectTarget.schema,
+      objectTarget.objectName,
+    )
   }
 
   if (nodeId === 'oracle-performance' || nodeId === 'oracle-sessions') {
@@ -109,12 +139,33 @@ export function oracleInspectQueryTemplate(nodeId: string) {
 }
 
 export function oracleInspectPayload(connection: ConnectionProfile, nodeId: string) {
-  const service = connection.database?.trim() || connection.oracleOptions?.serviceName?.trim() || ''
+  const service = oracleServiceName(connection)
   const schema = connection.auth.username?.trim().toUpperCase() || ''
   const base = {
     engine: 'oracle',
     nodeId,
     service,
+  }
+
+  const objectTarget = oracleObjectTargetFromNodeId(nodeId)
+  if (objectTarget) {
+    if (objectTarget.kind === 'table') {
+      return oracleTablePayload(base, objectTarget.schema, objectTarget.objectName)
+    }
+
+    return {
+      ...base,
+      kind: objectTarget.kind,
+      schema: objectTarget.schema,
+      objectName: objectTarget.objectName,
+      objects: [{
+        owner: objectTarget.schema,
+        name: objectTarget.objectName,
+        type: objectTarget.kind.replaceAll('-', ' ').toUpperCase(),
+        status: 'VALID',
+      }],
+      warnings: ['Contract preview metadata is shown; configure SQLPlus for live object details.'],
+    }
   }
 
   if (nodeId.startsWith('oracle-container:') || nodeId === 'oracle-schemas' || nodeId.startsWith('oracle-schema:')) {
@@ -123,7 +174,7 @@ export function oracleInspectPayload(connection: ConnectionProfile, nodeId: stri
       schema,
       openMode: 'READ WRITE',
       objectCounts: [
-        { type: 'TABLE', count: 3, status: 'Visible' },
+        { type: 'TABLE', count: 4, status: 'Visible' },
         { type: 'VIEW', count: 1, status: 'Visible' },
         { type: 'PACKAGE', count: 2, status: 'Visible' },
         { type: 'SEQUENCE', count: 2, status: 'Visible' },
@@ -146,12 +197,12 @@ export function oracleInspectPayload(connection: ConnectionProfile, nodeId: stri
       ...base,
       schema,
       views: [
-        { owner: schema, name: 'ACTIVE_ACCOUNTS', textLength: 482, status: 'VALID' },
+        { owner: schema, name: 'ORDER_FULFILLMENT_SUMMARY', textLength: 482, status: 'VALID' },
       ],
     }
   }
 
-  if (nodeId.startsWith('oracle-mviews:')) {
+  if (nodeId.startsWith('oracle-materialized-views:') || nodeId.startsWith('oracle-mviews:')) {
     return {
       ...base,
       schema,
@@ -223,9 +274,34 @@ export function oracleInspectPayload(connection: ConnectionProfile, nodeId: stri
     }
   }
 
-  if (nodeId.startsWith('oracle-table:')) {
-    const [, owner = schema, table = 'ACCOUNTS'] = nodeId.split(':')
-    return oracleTablePayload(base, owner, table)
+  if (nodeId.startsWith('oracle-json-collections:') || nodeId.startsWith('oracle-json:')) {
+    return {
+      ...base,
+      schema,
+      jsonCollections: [
+        { owner: schema, name: 'ACCOUNT_DOCUMENTS', column: 'DOCUMENT', status: 'VALID' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-external-tables:') || nodeId.startsWith('oracle-external:')) {
+    return {
+      ...base,
+      schema,
+      externalTables: [
+        { owner: schema, name: 'IMPORT_TRANSACTIONS', type: 'ORACLE_LOADER', status: 'VALID' },
+      ],
+    }
+  }
+
+  if (nodeId.startsWith('oracle-database-links:') || nodeId.startsWith('oracle-dblinks:')) {
+    return {
+      ...base,
+      schema,
+      databaseLinks: [
+        { owner: schema, name: 'REPORTING_DB', username: 'REPORTING', host: 'reporting.internal' },
+      ],
+    }
   }
 
   if (nodeId === 'oracle-security' || nodeId === 'oracle-users') {
@@ -373,21 +449,262 @@ export function oracleInspectPayload(connection: ConnectionProfile, nodeId: stri
   }
 }
 
-function oracleSchemaSections(schema: string, path: string[]): ExplorerNode[] {
-  return [
-    oracleNode(`oracle-tables:${schema}`, 'Tables', 'tables', 'Base tables', undefined, path),
-    oracleNode(`oracle-views:${schema}`, 'Views', 'views', 'Stored query projections', undefined, path),
-    oracleNode(`oracle-mviews:${schema}`, 'Materialized Views', 'materialized-views', 'Refreshable persisted query results', undefined, path),
-    oracleNode(`oracle-synonyms:${schema}`, 'Synonyms', 'synonyms', 'Object aliases', undefined, path),
-    oracleNode(`oracle-sequences:${schema}`, 'Sequences', 'sequences', 'Generated numeric sequences', undefined, path),
-    oracleNode(`oracle-functions:${schema}`, 'Functions', 'functions', 'PL/SQL functions', undefined, path),
-    oracleNode(`oracle-procedures:${schema}`, 'Procedures', 'procedures', 'PL/SQL procedures', undefined, path),
-    oracleNode(`oracle-packages:${schema}`, 'Packages', 'packages', 'PL/SQL package specs and bodies', undefined, path),
-    oracleNode(`oracle-types:${schema}`, 'Types', 'types', 'Object and collection types', undefined, path),
-    oracleNode(`oracle-json:${schema}`, 'JSON Collections', 'json-collections', 'Oracle JSON collection-style objects', undefined, path),
-    oracleNode(`oracle-external:${schema}`, 'External Tables', 'external-tables', 'External file-backed tables', undefined, path),
-    oracleNode(`oracle-dblinks:${schema}`, 'Database Links', 'database-links', 'Remote database links', undefined, path),
-  ]
+function oracleSchemaSections(context: OracleObjectContext): ExplorerNode[] {
+  return ORACLE_OBJECT_CATEGORIES.map(({ kind, label, detail }) => ({
+    ...oracleNode(
+      `oracle-${kind}:${context.key}`,
+      label,
+      kind,
+      detail,
+      `oracle:category:${context.key}:${kind}`,
+      context.path,
+      true,
+    ),
+    queryTemplate: oracleSchemaQueryTemplate(kind, context.schema),
+  }))
+}
+
+function oracleDatabaseContext(service: string, schema: string): OracleObjectContext {
+  return {
+    key: `database:${service}:${schema}`,
+    schema,
+    path: ['Oracle', 'Databases', service],
+  }
+}
+
+function oracleSchemaContext(schema: string): OracleObjectContext {
+  return {
+    key: `schema:${schema}`,
+    schema,
+    path: ['Oracle', 'Schemas', schema],
+  }
+}
+
+function oracleCategoryTarget(
+  scope: string,
+): { context: OracleObjectContext; category: string } | undefined {
+  const parts = scope.replace('oracle:category:', '').split(':')
+  const [branch, first, second, third] = parts
+  if (branch === 'database' && parts.length === 4 && first && second && third) {
+    return {
+      context: oracleDatabaseContext(first, second),
+      category: third,
+    }
+  }
+  if (branch === 'schema' && parts.length === 3 && first && second && !third) {
+    return {
+      context: oracleSchemaContext(first),
+      category: second,
+    }
+  }
+  return undefined
+}
+
+function oracleCategoryObjectNodes(context: OracleObjectContext, category: string) {
+  const definition = ORACLE_OBJECT_CATEGORIES.find((item) => item.kind === category)
+  if (!definition) return []
+
+  const objectKind = oracleCategoryObjectKind(category)
+  const path = [...context.path, definition.label]
+  const seen = new Set<string>()
+
+  return oracleContractCategoryRows(category, context.schema).flatMap((row) => {
+    const objectName = row[1]?.trim()
+    if (!objectName || seen.has(objectName)) return []
+    seen.add(objectName)
+
+    return [oracleNode(
+      `oracle-${objectKind}:${context.key}:${objectName}`,
+      objectName,
+      objectKind,
+      `${oracleObjectDetail(category, row)} | Contract preview; configure SQLPlus for live metadata.`,
+      `${objectKind}:${context.schema}.${objectName}`,
+      path,
+      false,
+      oracleObjectQueryTemplate(category, context.schema, objectName),
+    )]
+  })
+}
+
+function oracleCategoryObjectKind(category: string) {
+  const kinds: Record<string, string> = {
+    tables: 'table',
+    views: 'view',
+    'materialized-views': 'materialized-view',
+    synonyms: 'synonym',
+    sequences: 'sequence',
+    functions: 'function',
+    procedures: 'procedure',
+    packages: 'package',
+    types: 'type',
+    'json-collections': 'json-collection',
+    'external-tables': 'external-table',
+    'database-links': 'database-link',
+  }
+  return kinds[category] ?? 'object'
+}
+
+function oracleObjectTargetFromNodeId(nodeId: string) {
+  const definitions = [
+    ['oracle-table:', 'table', 'tables'],
+    ['oracle-view:', 'view', 'views'],
+    ['oracle-materialized-view:', 'materialized-view', 'materialized-views'],
+    ['oracle-synonym:', 'synonym', 'synonyms'],
+    ['oracle-sequence:', 'sequence', 'sequences'],
+    ['oracle-function:', 'function', 'functions'],
+    ['oracle-procedure:', 'procedure', 'procedures'],
+    ['oracle-package:', 'package', 'packages'],
+    ['oracle-type:', 'type', 'types'],
+    ['oracle-json-collection:', 'json-collection', 'json-collections'],
+    ['oracle-external-table:', 'external-table', 'external-tables'],
+    ['oracle-database-link:', 'database-link', 'database-links'],
+  ] as const
+
+  for (const [prefix, kind, category] of definitions) {
+    if (!nodeId.startsWith(prefix)) continue
+    const parts = nodeId.slice(prefix.length).split(':')
+    const schema = parts.at(-2)?.trim()
+    const objectName = parts.at(-1)?.trim()
+    if (schema && objectName) {
+      return { kind, category, schema, objectName }
+    }
+  }
+
+  return undefined
+}
+
+function oracleContractCategoryRows(category: string, schema: string): string[][] {
+  switch (category) {
+    case 'tables':
+      return [
+        [schema, 'ACCOUNTS', 'USERS', 'VALID'],
+        [schema, 'ORDERS', 'USERS', 'VALID'],
+        [schema, 'ORDER_ITEMS', 'USERS', 'VALID'],
+        [schema, 'SUPPORT_TICKETS', 'USERS', 'VALID'],
+      ]
+    case 'views':
+      return [[schema, 'ORDER_FULFILLMENT_SUMMARY', '482']]
+    case 'materialized-views':
+      return [[schema, 'ACCOUNT_BALANCES_MV', 'DEMAND', 'COMPLETE']]
+    case 'synonyms':
+      return [[schema, 'CUSTOMERS', schema, 'ACCOUNTS']]
+    case 'sequences':
+      return [
+        [schema, 'ACCOUNTS_SEQ', '1', '999999999', '1', '20'],
+        [schema, 'ORDERS_SEQ', '1', '999999999', '1', '50'],
+      ]
+    case 'functions':
+      return [[schema, 'ACCOUNT_STATUS', 'FUNCTION', 'VALID']]
+    case 'procedures':
+      return [[schema, 'REFRESH_ACCOUNT_CACHE', 'PROCEDURE', 'VALID']]
+    case 'packages':
+      return [
+        [schema, 'ACCOUNT_API', 'PACKAGE', 'VALID'],
+        [schema, 'ACCOUNT_API', 'PACKAGE BODY', 'VALID'],
+        [schema, 'ORDER_API', 'PACKAGE', 'VALID'],
+        [schema, 'ORDER_API', 'PACKAGE BODY', 'INVALID'],
+      ]
+    case 'types':
+      return [[schema, 'ACCOUNT_ROW_T', 'TYPE', 'VALID']]
+    case 'json-collections':
+      return [[schema, 'ACCOUNT_DOCUMENTS', 'DOCUMENT']]
+    case 'external-tables':
+      return [[schema, 'IMPORT_TRANSACTIONS', 'ORACLE_LOADER']]
+    case 'database-links':
+      return [[schema, 'REPORTING_DB', 'REPORTING', 'reporting.internal']]
+    default:
+      return []
+  }
+}
+
+function oracleObjectDetail(category: string, row: string[]) {
+  switch (category) {
+    case 'tables': return [row[3], row[2]].filter(Boolean).join(' | ')
+    case 'views': return `Definition length ${row[2]}`
+    case 'materialized-views': return `${row[2]} refresh | ${row[3]}`
+    case 'synonyms': return `Target ${row[2]}.${row[3]}`
+    case 'sequences': return `Increment ${row[4]} | Cache ${row[5]}`
+    case 'functions':
+    case 'procedures':
+    case 'packages':
+    case 'types': return [row[2], row[3]].filter(Boolean).join(' | ')
+    case 'json-collections': return `JSON column ${row[2]}`
+    case 'external-tables': return `Access type ${row[2]}`
+    case 'database-links': return `User ${row[2]} | Host ${row[3]}`
+    default: return 'Oracle object'
+  }
+}
+
+function oracleObjectQueryTemplate(category: string, schema: string, objectName: string) {
+  const owner = oracleSqlLiteral(schema)
+  const name = oracleSqlLiteral(objectName)
+  switch (category) {
+    case 'tables':
+    case 'views':
+    case 'materialized-views':
+    case 'json-collections':
+    case 'external-tables':
+      return `select * from "${schema.replaceAll('"', '""')}"."${objectName.replaceAll('"', '""')}" where rownum <= 100;`
+    case 'synonyms':
+      return `select owner, synonym_name, table_owner, table_name, db_link from all_synonyms where owner = '${owner}' and synonym_name = '${name}';`
+    case 'sequences':
+      return `select sequence_owner, sequence_name, min_value, max_value, increment_by, cache_size, cycle_flag, order_flag from all_sequences where sequence_owner = '${owner}' and sequence_name = '${name}';`
+    case 'functions':
+    case 'procedures':
+    case 'packages':
+    case 'types':
+      return `select owner, name, type, line, text from all_source where owner = '${owner}' and name = '${name}' order by type, line;`
+    case 'database-links':
+      return `select owner, db_link, username, host from all_db_links where owner = '${owner}' and db_link = '${name}';`
+    default:
+      return `select owner, object_name, object_type, status from all_objects where owner = '${owner}' and object_name = '${name}';`
+  }
+}
+
+function oracleSqlLiteral(value: string) {
+  return value.replaceAll("'", "''")
+}
+
+function oracleSchemaQueryTemplate(kind: string, schema: string) {
+  const owner = schema.replaceAll("'", "''")
+
+  switch (kind) {
+    case 'tables':
+      return `select owner, table_name, tablespace_name, status from all_tables where owner = '${owner}' order by table_name;`
+    case 'views':
+      return `select owner, view_name, text_length from all_views where owner = '${owner}' order by view_name;`
+    case 'materialized-views':
+      return `select owner, mview_name, refresh_mode, refresh_method from all_mviews where owner = '${owner}' order by mview_name;`
+    case 'synonyms':
+      return `select owner, synonym_name, table_owner, table_name from all_synonyms where owner = '${owner}' order by synonym_name;`
+    case 'sequences':
+      return `select sequence_owner, sequence_name, min_value, max_value, increment_by, cache_size from all_sequences where sequence_owner = '${owner}' order by sequence_name;`
+    case 'functions':
+      return oracleObjectsQueryTemplate(owner, ['FUNCTION'])
+    case 'procedures':
+      return oracleObjectsQueryTemplate(owner, ['PROCEDURE'])
+    case 'packages':
+      return oracleObjectsQueryTemplate(owner, ['PACKAGE', 'PACKAGE BODY'])
+    case 'types':
+      return oracleObjectsQueryTemplate(owner, ['TYPE', 'TYPE BODY'])
+    case 'json-collections':
+      return `select owner, table_name, column_name from all_json_columns where owner = '${owner}' order by table_name, column_name;`
+    case 'external-tables':
+      return `select owner, table_name, type_name from all_external_tables where owner = '${owner}' order by table_name;`
+    case 'database-links':
+      return `select owner, db_link, username, host from all_db_links where owner = '${owner}' order by db_link;`
+    default:
+      return oracleInspectQueryTemplateForKind(kind, schema)
+  }
+}
+
+function oracleObjectsQueryTemplate(owner: string, objectTypes: string[]) {
+  const types = objectTypes.map((objectType) => `'${objectType}'`).join(', ')
+  return `select owner, object_name, object_type, status from all_objects where owner = '${owner}' and object_type in (${types}) order by object_name, object_type;`
+}
+
+function oracleServiceName(connection: ConnectionProfile) {
+  return connection.oracleOptions?.serviceName?.trim() || connection.database?.trim() || ''
 }
 
 function oracleNode(
@@ -398,6 +715,7 @@ function oracleNode(
   scope?: string,
   path: string[] = ['Oracle'],
   expandable = false,
+  queryTemplate?: string,
 ): ExplorerNode {
   return {
     id,
@@ -407,7 +725,7 @@ function oracleNode(
     detail,
     scope,
     path,
-    queryTemplate: oracleInspectQueryTemplateForKind(kind, label),
+    queryTemplate: queryTemplate ?? oracleInspectQueryTemplateForKind(kind, label),
     expandable,
   }
 }
@@ -439,7 +757,8 @@ function oracleTableRows(schema: string) {
   return [
     { owner: schema, name: 'ACCOUNTS', status: 'VALID', tablespace: 'USERS', rows: 128 },
     { owner: schema, name: 'ORDERS', status: 'VALID', tablespace: 'USERS', rows: 348 },
-    { owner: schema, name: 'AUDIT_EVENTS', status: 'VALID', tablespace: 'USERS', rows: 2000 },
+    { owner: schema, name: 'ORDER_ITEMS', status: 'VALID', tablespace: 'USERS', rows: 75000 },
+    { owner: schema, name: 'SUPPORT_TICKETS', status: 'VALID', tablespace: 'USERS', rows: 5000 },
   ]
 }
 

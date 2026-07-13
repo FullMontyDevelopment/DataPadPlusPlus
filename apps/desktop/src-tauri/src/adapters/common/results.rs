@@ -100,6 +100,19 @@ pub(crate) fn payload_buffered_rows(payload: &Value) -> u32 {
             .and_then(Value::as_array)
             .map(|items| items.len() as u32)
             .unwrap_or_default(),
+        Some("graph") => {
+            let nodes = payload
+                .get("nodes")
+                .and_then(Value::as_array)
+                .map(|items| items.len() as u32)
+                .unwrap_or_default();
+            let edges = payload
+                .get("edges")
+                .and_then(Value::as_array)
+                .map(|items| items.len() as u32)
+                .unwrap_or_default();
+            nodes.max(edges)
+        }
         Some("batch") => payload
             .get("sections")
             .and_then(Value::as_array)

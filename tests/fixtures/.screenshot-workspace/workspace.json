@@ -57,8 +57,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-sqlserver",
@@ -116,8 +116,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-mysql",
@@ -196,8 +196,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-sqlite",
@@ -249,8 +249,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-mongodb",
@@ -308,8 +308,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-redis",
@@ -361,8 +361,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-valkey",
@@ -414,8 +414,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-memcached",
@@ -467,8 +467,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-mariadb",
@@ -547,8 +547,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-cockroachdb",
@@ -600,8 +600,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-timescaledb",
@@ -659,8 +659,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-clickhouse",
@@ -718,8 +718,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-influxdb",
@@ -771,8 +771,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-prometheus",
@@ -824,8 +824,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-opensearch",
@@ -877,8 +877,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-elasticsearch",
@@ -930,8 +930,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-neo4j",
@@ -989,8 +989,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-arangodb",
@@ -1048,8 +1048,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-janusgraph",
@@ -1101,8 +1101,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-cassandra",
@@ -1154,8 +1154,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-oracle",
@@ -1213,8 +1213,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-dynamodb",
@@ -1272,8 +1272,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-bigquery",
@@ -1331,8 +1331,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-snowflake",
@@ -1390,8 +1390,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-cosmosdb",
@@ -1449,8 +1449,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "fixture-neptune",
@@ -1502,8 +1502,8 @@
       "graphOptions": null,
       "mongodbOptions": null,
       "warehouseOptions": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     }
   ],
   "environments": [
@@ -1515,56 +1515,56 @@
       "inheritsFrom": null,
       "variables": {
         "TENANT": "acme-demo",
-        "SQLITE_FIXTURE": "tests/fixtures/sqlite/datapadplusplus.sqlite3",
         "LIMIT": "50",
         "FIXTURE_HOST": "127.0.0.1",
         "REGION": "emea",
-        "LOOKBACK_DAYS": "14"
+        "LOOKBACK_DAYS": "14",
+        "SQLITE_FIXTURE": "tests/fixtures/sqlite/datapadplusplus.sqlite3"
       },
       "sensitiveKeys": [],
       "variableDefinitions": [
         {
-          "key": "LOOKBACK_DAYS",
-          "kind": "text",
-          "value": "14",
-          "updatedAt": "1783281304"
-        },
-        {
           "key": "FIXTURE_HOST",
           "kind": "text",
           "value": "127.0.0.1",
-          "updatedAt": "1783281304"
-        },
-        {
-          "key": "TENANT",
-          "kind": "text",
-          "value": "acme-demo",
-          "updatedAt": "1783281304"
-        },
-        {
-          "key": "SQLITE_FIXTURE",
-          "kind": "text",
-          "value": "tests/fixtures/sqlite/datapadplusplus.sqlite3",
-          "updatedAt": "1783281304"
-        },
-        {
-          "key": "LIMIT",
-          "kind": "text",
-          "value": "50",
-          "updatedAt": "1783281304"
+          "updatedAt": "1783970646"
         },
         {
           "key": "REGION",
           "kind": "text",
           "value": "emea",
-          "updatedAt": "1783281304"
+          "updatedAt": "1783970646"
+        },
+        {
+          "key": "TENANT",
+          "kind": "text",
+          "value": "acme-demo",
+          "updatedAt": "1783970646"
+        },
+        {
+          "key": "LIMIT",
+          "kind": "text",
+          "value": "50",
+          "updatedAt": "1783970646"
+        },
+        {
+          "key": "LOOKBACK_DAYS",
+          "kind": "text",
+          "value": "14",
+          "updatedAt": "1783970646"
+        },
+        {
+          "key": "SQLITE_FIXTURE",
+          "kind": "text",
+          "value": "tests/fixtures/sqlite/datapadplusplus.sqlite3",
+          "updatedAt": "1783970646"
         }
       ],
       "requiresConfirmation": false,
       "safeMode": false,
       "exportable": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "env-staging",
@@ -1582,20 +1582,20 @@
           "key": "TENANT",
           "kind": "text",
           "value": "acme-staging",
-          "updatedAt": "1783281304"
+          "updatedAt": "1783970646"
         },
         {
           "key": "LOOKBACK_DAYS",
           "kind": "text",
           "value": "30",
-          "updatedAt": "1783281304"
+          "updatedAt": "1783970646"
         }
       ],
       "requiresConfirmation": false,
       "safeMode": true,
       "exportable": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     },
     {
       "id": "env-production-preview",
@@ -1604,8 +1604,8 @@
       "risk": "critical",
       "inheritsFrom": "env-staging",
       "variables": {
-        "TENANT": "acme-production-preview",
-        "LIMIT": "100"
+        "LIMIT": "100",
+        "TENANT": "acme-production-preview"
       },
       "sensitiveKeys": [],
       "variableDefinitions": [
@@ -1613,593 +1613,40 @@
           "key": "TENANT",
           "kind": "text",
           "value": "acme-production-preview",
-          "updatedAt": "1783281304"
+          "updatedAt": "1783970646"
         },
         {
           "key": "LIMIT",
           "kind": "text",
           "value": "100",
-          "updatedAt": "1783281304"
+          "updatedAt": "1783970646"
         }
       ],
       "requiresConfirmation": true,
       "safeMode": true,
       "exportable": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105"
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557"
     }
   ],
   "tabs": [
     {
-      "id": "tab-1783281303130317000",
-      "title": "Explorer - Operations SQL Server",
-      "tabKind": "explorer",
-      "connectionId": "fixture-sqlserver",
-      "environmentId": "env-local-demo",
-      "family": "sql",
-      "language": "text",
-      "pinned": null,
-      "saveTarget": null,
-      "savedQueryId": null,
-      "editorLabel": "Explorer",
-      "queryText": "",
-      "queryViewMode": null,
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [],
-      "error": null
-    }
-  ],
-  "closedTabs": [
-    {
-      "id": "test-tab-1783281262539811300",
-      "title": "SQL smoke test.datapad-test.json",
-      "tabKind": "test-suite",
-      "connectionId": "fixture-sqlserver",
-      "environmentId": "env-local-demo",
-      "family": "sql",
-      "language": "json",
-      "pinned": null,
-      "saveTarget": null,
-      "savedQueryId": null,
-      "editorLabel": "Operations SQL Server tests",
-      "queryText": "{\n  \"id\": \"sqlserver-custom-suite\",\n  \"name\": \"SQL smoke test\",\n  \"description\": \"Repeatable smoke test for Operations SQL Server.\",\n  \"engine\": \"sqlserver\",\n  \"family\": \"sql\",\n  \"connectionId\": \"fixture-sqlserver\",\n  \"variables\": {},\n  \"cases\": [\n    {\n      \"id\": \"sqlserver-smoke-case\",\n      \"name\": \"returns expected fixture data\",\n      \"enabled\": true,\n      \"timeoutMs\": 30000,\n      \"setup\": [],\n      \"execute\": [\n        {\n          \"id\": \"sqlserver-execute-1\",\n          \"label\": \"Execute read\",\n          \"phase\": \"execute\",\n          \"kind\": \"query\",\n          \"enabled\": true,\n          \"language\": \"sql\",\n          \"queryText\": \"select 1;\"\n        }\n      ],\n      \"assertions\": [\n        {\n          \"id\": \"sqlserver-assert-1\",\n          \"label\": \"Expected result\",\n          \"kind\": \"row-count\",\n          \"enabled\": true,\n          \"comparison\": \"equals\",\n          \"expected\": 1\n        }\n      ],\n      \"teardown\": []\n    }\n  ],\n  \"environmentId\": \"env-local-demo\"\n}",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": {
-        "id": "sqlserver-custom-suite",
-        "name": "SQL smoke test",
-        "description": "Repeatable smoke test for Operations SQL Server.",
-        "engine": "sqlserver",
-        "family": "sql",
-        "connectionId": "fixture-sqlserver",
-        "variables": {},
-        "cases": [
-          {
-            "id": "sqlserver-smoke-case",
-            "name": "returns expected fixture data",
-            "enabled": true,
-            "timeoutMs": 30000,
-            "setup": [],
-            "execute": [
-              {
-                "id": "sqlserver-execute-1",
-                "label": "Execute read",
-                "phase": "execute",
-                "kind": "query",
-                "enabled": true,
-                "language": "sql",
-                "queryText": "select 1;"
-              }
-            ],
-            "assertions": [
-              {
-                "id": "sqlserver-assert-1",
-                "label": "Expected result",
-                "kind": "row-count",
-                "enabled": true,
-                "comparison": "equals",
-                "expected": 1
-              }
-            ],
-            "teardown": []
-          }
-        ],
-        "environmentId": "env-local-demo"
-      },
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": true,
-      "lastRunAt": null,
-      "result": null,
-      "history": [],
-      "error": null,
-      "closedAt": "1783281304",
-      "closeReason": "user"
-    },
-    {
-      "id": "workspace-search-tab-1783281187319278100",
-      "title": "Search",
-      "tabKind": "workspace-search",
-      "connectionId": "fixture-clickhouse",
-      "environmentId": "env-local-demo",
-      "family": "warehouse",
-      "language": "text",
-      "pinned": null,
-      "saveTarget": null,
-      "savedQueryId": null,
-      "editorLabel": "Search",
-      "queryText": "",
-      "queryViewMode": null,
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [],
-      "error": null,
-      "closedAt": "1783281232",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-clickhouse",
-      "title": "Warehouse Events ClickHouse overview.sql",
+      "id": "tab-fixture-postgresql",
+      "title": "Northwind Analytics PostgreSQL overview.sql",
       "tabKind": "query",
-      "connectionId": "fixture-clickhouse",
-      "environmentId": "env-local-demo",
-      "family": "warehouse",
-      "language": "clickhouse-sql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-clickhouse",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-clickhouse",
-      "editorLabel": "ClickHouse SQL editor",
-      "queryText": "select event_time, account_id, event_type, latency_ms from analytics.events order by event_time desc limit 50;",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-clickhouse",
-          "queryText": "select event_time, account_id, event_type, latency_ms from analytics.events order by event_time desc limit 50;",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281177",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-neptune",
-      "title": "Recommendation Graph Neptune overview.gremlin",
-      "tabKind": "query",
-      "connectionId": "fixture-neptune",
-      "environmentId": "env-local-demo",
-      "family": "graph",
-      "language": "gremlin",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-neptune",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-neptune",
-      "editorLabel": "Gremlin editor",
-      "queryText": "g.V().limit(25)",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-neptune",
-          "queryText": "g.V().limit(25)",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281176",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-cosmosdb",
-      "title": "Customer Profiles Cosmos DB overview.sql",
-      "tabKind": "query",
-      "connectionId": "fixture-cosmosdb",
-      "environmentId": "env-local-demo",
-      "family": "document",
-      "language": "sql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-cosmosdb",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-cosmosdb",
-      "editorLabel": "SQL editor",
-      "queryText": "select top 25 * from c",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-cosmosdb",
-          "queryText": "select top 25 * from c",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281176",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-snowflake",
-      "title": "Revenue Warehouse Snowflake overview.sql",
-      "tabKind": "query",
-      "connectionId": "fixture-snowflake",
-      "environmentId": "env-local-demo",
-      "family": "warehouse",
-      "language": "snowflake-sql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-snowflake",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-snowflake",
-      "editorLabel": "Snowflake SQL editor",
-      "queryText": "select * from orders limit 25;",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-snowflake",
-          "queryText": "select * from orders limit 25;",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281175",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-bigquery",
-      "title": "Marketing Analytics BigQuery overview.sql",
-      "tabKind": "query",
-      "connectionId": "fixture-bigquery",
-      "environmentId": "env-local-demo",
-      "family": "warehouse",
-      "language": "google-sql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-bigquery",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-bigquery",
-      "editorLabel": "GoogleSQL editor",
-      "queryText": "select * from analytics.orders limit 25;",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-bigquery",
-          "queryText": "select * from analytics.orders limit 25;",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281175",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-dynamodb",
-      "title": "Serverless Orders DynamoDB overview.json",
-      "tabKind": "query",
-      "connectionId": "fixture-dynamodb",
-      "environmentId": "env-local-demo",
-      "family": "widecolumn",
-      "language": "json",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-dynamodb",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-dynamodb",
-      "editorLabel": "Document query",
-      "queryText": "{\n  \"table\": \"orders\",\n  \"limit\": 25\n}",
-      "queryViewMode": "builder",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-dynamodb",
-          "queryText": "{\n  \"table\": \"orders\",\n  \"limit\": 25\n}",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281175",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-memcached",
-      "title": "Feature Flag Memcached overview.txt",
-      "tabKind": "query",
-      "connectionId": "fixture-memcached",
-      "environmentId": "env-local-demo",
-      "family": "keyvalue",
-      "language": "sql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-memcached",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-memcached",
-      "editorLabel": "SQL editor",
-      "queryText": "stats",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-memcached",
-          "queryText": "stats",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281175",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-oracle",
-      "title": "Finance Operations Oracle overview.sql",
-      "tabKind": "query",
-      "connectionId": "fixture-oracle",
-      "environmentId": "env-local-demo",
-      "family": "sql",
-      "language": "sql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-oracle",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-oracle",
-      "editorLabel": "SQL editor",
-      "queryText": "select order_id, account_id, status, total_amount, updated_at from orders fetch first 50 rows only",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-oracle",
-          "queryText": "select order_id, account_id, status, total_amount, updated_at from orders fetch first 50 rows only",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281175",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-valkey",
-      "title": "Edge Cache Valkey overview.redis",
-      "tabKind": "query",
-      "connectionId": "fixture-valkey",
-      "environmentId": "env-local-demo",
-      "family": "keyvalue",
-      "language": "redis",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-valkey",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-valkey",
-      "editorLabel": "Valkey console",
-      "queryText": "SCAN 0 MATCH session:* COUNT 25",
-      "queryViewMode": "builder",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-valkey",
-          "queryText": "SCAN 0 MATCH session:* COUNT 25",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281175",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-cassandra",
-      "title": "Order Ledger Cassandra overview.cql",
-      "tabKind": "query",
-      "connectionId": "fixture-cassandra",
-      "environmentId": "env-local-demo",
-      "family": "widecolumn",
-      "language": "cql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-cassandra",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-cassandra",
-      "editorLabel": "CQL editor",
-      "queryText": "select * from datapadplusplus.orders limit 25;",
-      "queryViewMode": "builder",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-cassandra",
-          "queryText": "select * from datapadplusplus.orders limit 25;",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281175",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-sqlite",
-      "title": "Local Accounts SQLite overview.sql",
-      "tabKind": "query",
-      "connectionId": "fixture-sqlite",
+      "connectionId": "fixture-postgresql",
       "environmentId": "env-local-demo",
       "family": "sql",
       "language": "sql",
       "pinned": true,
       "saveTarget": {
         "kind": "library",
-        "libraryItemId": "saved-fixture-sqlite",
+        "libraryItemId": "saved-fixture-postgresql",
         "path": null
       },
-      "savedQueryId": "saved-fixture-sqlite",
+      "savedQueryId": "saved-fixture-postgresql",
       "editorLabel": "SQL editor",
-      "queryText": "select id, name, status, updated_at from accounts order by id;",
+      "queryText": "select table_name, rows_estimate, last_vacuum from observability.table_health order by rows_estimate desc limit 50;",
       "queryViewMode": "raw",
       "scriptText": null,
       "scopedTarget": null,
@@ -2215,33 +1662,31 @@
       "result": null,
       "history": [
         {
-          "id": "history-fixture-sqlite",
-          "queryText": "select id, name, status, updated_at from accounts order by id;",
-          "executedAt": "1783281105",
+          "id": "history-fixture-postgresql",
+          "queryText": "select table_name, rows_estimate, last_vacuum from observability.table_health order by rows_estimate desc limit 50;",
+          "executedAt": "1783970557",
           "status": "seeded"
         }
       ],
-      "error": null,
-      "closedAt": "1783281175",
-      "closeReason": "user"
+      "error": null
     },
     {
-      "id": "tab-fixture-janusgraph",
-      "title": "Network Signals JanusGraph overview.gremlin",
+      "id": "tab-fixture-sqlserver",
+      "title": "Operations SQL Server overview.sql",
       "tabKind": "query",
-      "connectionId": "fixture-janusgraph",
+      "connectionId": "fixture-sqlserver",
       "environmentId": "env-local-demo",
-      "family": "graph",
-      "language": "gremlin",
-      "pinned": false,
+      "family": "sql",
+      "language": "sql",
+      "pinned": true,
       "saveTarget": {
         "kind": "library",
-        "libraryItemId": "saved-fixture-janusgraph",
+        "libraryItemId": "saved-fixture-sqlserver",
         "path": null
       },
-      "savedQueryId": "saved-fixture-janusgraph",
-      "editorLabel": "Gremlin editor",
-      "queryText": "g.V().limit(25)",
+      "savedQueryId": "saved-fixture-sqlserver",
+      "editorLabel": "SQL editor",
+      "queryText": "select top 50 order_id, status, updated_at from dbo.orders order by updated_at desc;",
       "queryViewMode": "raw",
       "scriptText": null,
       "scopedTarget": null,
@@ -2257,15 +1702,13 @@
       "result": null,
       "history": [
         {
-          "id": "history-fixture-janusgraph",
-          "queryText": "g.V().limit(25)",
-          "executedAt": "1783281105",
+          "id": "history-fixture-sqlserver",
+          "queryText": "select top 50 order_id, status, updated_at from dbo.orders order by updated_at desc;",
+          "executedAt": "1783970557",
           "status": "seeded"
         }
       ],
-      "error": null,
-      "closedAt": "1783281175",
-      "closeReason": "user"
+      "error": null
     },
     {
       "id": "tab-fixture-mysql",
@@ -2301,325 +1744,29 @@
         {
           "id": "history-fixture-mysql",
           "queryText": "select sku, inventory_available, updated_at from inventory_items order by updated_at desc limit 50;",
-          "executedAt": "1783281105",
+          "executedAt": "1783970557",
           "status": "seeded"
         }
       ],
-      "error": null,
-      "closedAt": "1783281174",
-      "closeReason": "user"
+      "error": null
     },
     {
-      "id": "tab-fixture-arangodb",
-      "title": "Graph Catalog ArangoDB overview.aql",
+      "id": "tab-fixture-sqlite",
+      "title": "Local Accounts SQLite overview.sql",
       "tabKind": "query",
-      "connectionId": "fixture-arangodb",
-      "environmentId": "env-local-demo",
-      "family": "graph",
-      "language": "aql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-arangodb",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-arangodb",
-      "editorLabel": "AQL editor",
-      "queryText": "FOR doc IN accounts LIMIT 25 RETURN doc",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-arangodb",
-          "queryText": "FOR doc IN accounts LIMIT 25 RETURN doc",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281174",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-neo4j",
-      "title": "Customer Journey Neo4j overview.cypher",
-      "tabKind": "query",
-      "connectionId": "fixture-neo4j",
-      "environmentId": "env-local-demo",
-      "family": "graph",
-      "language": "cypher",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-neo4j",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-neo4j",
-      "editorLabel": "Cypher editor",
-      "queryText": "MATCH (n) RETURN n LIMIT 25",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-neo4j",
-          "queryText": "MATCH (n) RETURN n LIMIT 25",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281174",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-elasticsearch",
-      "title": "Search Orders Elasticsearch overview.json",
-      "tabKind": "query",
-      "connectionId": "fixture-elasticsearch",
-      "environmentId": "env-local-demo",
-      "family": "search",
-      "language": "query-dsl",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-elasticsearch",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-elasticsearch",
-      "editorLabel": "Search DSL editor",
-      "queryText": "{\n  \"index\": \"orders\",\n  \"query\": { \"match_all\": {} },\n  \"size\": 25\n}",
-      "queryViewMode": "builder",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-elasticsearch",
-          "queryText": "{\n  \"index\": \"orders\",\n  \"query\": { \"match_all\": {} },\n  \"size\": 25\n}",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281174",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-opensearch",
-      "title": "Search Catalog OpenSearch overview.json",
-      "tabKind": "query",
-      "connectionId": "fixture-opensearch",
-      "environmentId": "env-local-demo",
-      "family": "search",
-      "language": "query-dsl",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-opensearch",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-opensearch",
-      "editorLabel": "Search DSL editor",
-      "queryText": "{\n  \"index\": \"orders\",\n  \"query\": { \"match_all\": {} },\n  \"size\": 25\n}",
-      "queryViewMode": "builder",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-opensearch",
-          "queryText": "{\n  \"index\": \"orders\",\n  \"query\": { \"match_all\": {} },\n  \"size\": 25\n}",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281174",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-prometheus",
-      "title": "Service Health Prometheus overview.promql",
-      "tabKind": "query",
-      "connectionId": "fixture-prometheus",
-      "environmentId": "env-local-demo",
-      "family": "timeseries",
-      "language": "promql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-prometheus",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-prometheus",
-      "editorLabel": "PromQL editor",
-      "queryText": "up",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-prometheus",
-          "queryText": "up",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281174",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-influxdb",
-      "title": "Latency Metrics InfluxDB overview.influxql",
-      "tabKind": "query",
-      "connectionId": "fixture-influxdb",
-      "environmentId": "env-local-demo",
-      "family": "timeseries",
-      "language": "influxql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-influxdb",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-influxdb",
-      "editorLabel": "Time-series query",
-      "queryText": "SELECT * FROM order_latency LIMIT 25",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-influxdb",
-          "queryText": "SELECT * FROM order_latency LIMIT 25",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281173",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-timescaledb",
-      "title": "Order Metrics TimescaleDB overview.sql",
-      "tabKind": "query",
-      "connectionId": "fixture-timescaledb",
-      "environmentId": "env-local-demo",
-      "family": "timeseries",
-      "language": "sql",
-      "pinned": false,
-      "saveTarget": {
-        "kind": "library",
-        "libraryItemId": "saved-fixture-timescaledb",
-        "path": null
-      },
-      "savedQueryId": "saved-fixture-timescaledb",
-      "editorLabel": "SQL editor",
-      "queryText": "select time, account_id, region, orders, latency_ms from order_metrics order by time desc limit 50;",
-      "queryViewMode": "raw",
-      "scriptText": null,
-      "scopedTarget": null,
-      "builderState": null,
-      "metricsState": null,
-      "objectViewState": null,
-      "testSuite": null,
-      "testRun": null,
-      "status": "idle",
-      "activeExecution": null,
-      "dirty": false,
-      "lastRunAt": null,
-      "result": null,
-      "history": [
-        {
-          "id": "history-fixture-timescaledb",
-          "queryText": "select time, account_id, region, orders, latency_ms from order_metrics order by time desc limit 50;",
-          "executedAt": "1783281105",
-          "status": "seeded"
-        }
-      ],
-      "error": null,
-      "closedAt": "1783281173",
-      "closeReason": "user"
-    },
-    {
-      "id": "tab-fixture-cockroachdb",
-      "title": "Regional Accounts CockroachDB overview.sql",
-      "tabKind": "query",
-      "connectionId": "fixture-cockroachdb",
+      "connectionId": "fixture-sqlite",
       "environmentId": "env-local-demo",
       "family": "sql",
       "language": "sql",
-      "pinned": false,
+      "pinned": true,
       "saveTarget": {
         "kind": "library",
-        "libraryItemId": "saved-fixture-cockroachdb",
+        "libraryItemId": "saved-fixture-sqlite",
         "path": null
       },
-      "savedQueryId": "saved-fixture-cockroachdb",
+      "savedQueryId": "saved-fixture-sqlite",
       "editorLabel": "SQL editor",
-      "queryText": "select id, name, status, updated_at from accounts order by id limit 50;",
+      "queryText": "select id, name, status, updated_at from accounts order by id;",
       "queryViewMode": "raw",
       "scriptText": null,
       "scopedTarget": null,
@@ -2635,35 +1782,33 @@
       "result": null,
       "history": [
         {
-          "id": "history-fixture-cockroachdb",
-          "queryText": "select id, name, status, updated_at from accounts order by id limit 50;",
-          "executedAt": "1783281105",
+          "id": "history-fixture-sqlite",
+          "queryText": "select id, name, status, updated_at from accounts order by id;",
+          "executedAt": "1783970557",
           "status": "seeded"
         }
       ],
-      "error": null,
-      "closedAt": "1783281173",
-      "closeReason": "user"
+      "error": null
     },
     {
-      "id": "tab-fixture-mariadb",
-      "title": "Orders MariaDB overview.sql",
+      "id": "tab-fixture-mongodb",
+      "title": "Commerce Catalog MongoDB overview.json",
       "tabKind": "query",
-      "connectionId": "fixture-mariadb",
+      "connectionId": "fixture-mongodb",
       "environmentId": "env-local-demo",
-      "family": "sql",
-      "language": "sql",
-      "pinned": false,
+      "family": "document",
+      "language": "mongodb",
+      "pinned": true,
       "saveTarget": {
         "kind": "library",
-        "libraryItemId": "saved-fixture-mariadb",
+        "libraryItemId": "saved-fixture-mongodb",
         "path": null
       },
-      "savedQueryId": "saved-fixture-mariadb",
-      "editorLabel": "SQL editor",
-      "queryText": "select order_id, account_id, status, total_amount, updated_at from orders order by updated_at desc limit 50;",
-      "queryViewMode": "raw",
-      "scriptText": null,
+      "savedQueryId": "saved-fixture-mongodb",
+      "editorLabel": "Document query",
+      "queryText": "{\n  \"collection\": \"products\",\n  \"filter\": {},\n  \"limit\": 50\n}",
+      "queryViewMode": "builder",
+      "scriptText": "",
       "scopedTarget": null,
       "builderState": null,
       "metricsState": null,
@@ -2677,15 +1822,13 @@
       "result": null,
       "history": [
         {
-          "id": "history-fixture-mariadb",
-          "queryText": "select order_id, account_id, status, total_amount, updated_at from orders order by updated_at desc limit 50;",
-          "executedAt": "1783281105",
+          "id": "history-fixture-mongodb",
+          "queryText": "{\n  \"collection\": \"products\",\n  \"filter\": {},\n  \"limit\": 50\n}",
+          "executedAt": "1783970557",
           "status": "seeded"
         }
       ],
-      "error": null,
-      "closedAt": "1783281173",
-      "closeReason": "user"
+      "error": null
     },
     {
       "id": "tab-fixture-redis",
@@ -2721,13 +1864,900 @@
         {
           "id": "history-fixture-redis",
           "queryText": "SCAN 0 MATCH session:* COUNT 25",
-          "executedAt": "1783281105",
+          "executedAt": "1783970557",
           "status": "seeded"
         }
       ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-valkey",
+      "title": "Edge Cache Valkey overview.redis",
+      "tabKind": "query",
+      "connectionId": "fixture-valkey",
+      "environmentId": "env-local-demo",
+      "family": "keyvalue",
+      "language": "redis",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-valkey",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-valkey",
+      "editorLabel": "Valkey console",
+      "queryText": "SCAN 0 MATCH session:* COUNT 25",
+      "queryViewMode": "builder",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-valkey",
+          "queryText": "SCAN 0 MATCH session:* COUNT 25",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-memcached",
+      "title": "Feature Flag Memcached overview.txt",
+      "tabKind": "query",
+      "connectionId": "fixture-memcached",
+      "environmentId": "env-local-demo",
+      "family": "keyvalue",
+      "language": "sql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-memcached",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-memcached",
+      "editorLabel": "SQL editor",
+      "queryText": "stats",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-memcached",
+          "queryText": "stats",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-mariadb",
+      "title": "Orders MariaDB overview.sql",
+      "tabKind": "query",
+      "connectionId": "fixture-mariadb",
+      "environmentId": "env-local-demo",
+      "family": "sql",
+      "language": "sql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-mariadb",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-mariadb",
+      "editorLabel": "SQL editor",
+      "queryText": "select order_id, account_id, status, total_amount, updated_at from orders order by updated_at desc limit 50;",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-mariadb",
+          "queryText": "select order_id, account_id, status, total_amount, updated_at from orders order by updated_at desc limit 50;",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-cockroachdb",
+      "title": "Regional Accounts CockroachDB overview.sql",
+      "tabKind": "query",
+      "connectionId": "fixture-cockroachdb",
+      "environmentId": "env-local-demo",
+      "family": "sql",
+      "language": "sql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-cockroachdb",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-cockroachdb",
+      "editorLabel": "SQL editor",
+      "queryText": "select id, name, status, updated_at from accounts order by id limit 50;",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-cockroachdb",
+          "queryText": "select id, name, status, updated_at from accounts order by id limit 50;",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-timescaledb",
+      "title": "Order Metrics TimescaleDB overview.sql",
+      "tabKind": "query",
+      "connectionId": "fixture-timescaledb",
+      "environmentId": "env-local-demo",
+      "family": "timeseries",
+      "language": "sql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-timescaledb",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-timescaledb",
+      "editorLabel": "SQL editor",
+      "queryText": "select time, account_id, region, orders, latency_ms from order_metrics order by time desc limit 50;",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-timescaledb",
+          "queryText": "select time, account_id, region, orders, latency_ms from order_metrics order by time desc limit 50;",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-clickhouse",
+      "title": "Warehouse Events ClickHouse overview.sql",
+      "tabKind": "query",
+      "connectionId": "fixture-clickhouse",
+      "environmentId": "env-local-demo",
+      "family": "warehouse",
+      "language": "clickhouse-sql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-clickhouse",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-clickhouse",
+      "editorLabel": "ClickHouse SQL editor",
+      "queryText": "select event_time, account_id, event_type, latency_ms from analytics.events order by event_time desc limit 50;",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-clickhouse",
+          "queryText": "select event_time, account_id, event_type, latency_ms from analytics.events order by event_time desc limit 50;",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-influxdb",
+      "title": "Latency Metrics InfluxDB overview.influxql",
+      "tabKind": "query",
+      "connectionId": "fixture-influxdb",
+      "environmentId": "env-local-demo",
+      "family": "timeseries",
+      "language": "influxql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-influxdb",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-influxdb",
+      "editorLabel": "Time-series query",
+      "queryText": "SELECT * FROM order_latency LIMIT 25",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-influxdb",
+          "queryText": "SELECT * FROM order_latency LIMIT 25",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-prometheus",
+      "title": "Service Health Prometheus overview.promql",
+      "tabKind": "query",
+      "connectionId": "fixture-prometheus",
+      "environmentId": "env-local-demo",
+      "family": "timeseries",
+      "language": "promql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-prometheus",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-prometheus",
+      "editorLabel": "PromQL editor",
+      "queryText": "up",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-prometheus",
+          "queryText": "up",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-opensearch",
+      "title": "Search Catalog OpenSearch overview.json",
+      "tabKind": "query",
+      "connectionId": "fixture-opensearch",
+      "environmentId": "env-local-demo",
+      "family": "search",
+      "language": "query-dsl",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-opensearch",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-opensearch",
+      "editorLabel": "Search DSL editor",
+      "queryText": "{\n  \"index\": \"orders\",\n  \"query\": { \"match_all\": {} },\n  \"size\": 25\n}",
+      "queryViewMode": "builder",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-opensearch",
+          "queryText": "{\n  \"index\": \"orders\",\n  \"query\": { \"match_all\": {} },\n  \"size\": 25\n}",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-elasticsearch",
+      "title": "Search Orders Elasticsearch overview.json",
+      "tabKind": "query",
+      "connectionId": "fixture-elasticsearch",
+      "environmentId": "env-local-demo",
+      "family": "search",
+      "language": "query-dsl",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-elasticsearch",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-elasticsearch",
+      "editorLabel": "Search DSL editor",
+      "queryText": "{\n  \"index\": \"orders\",\n  \"query\": { \"match_all\": {} },\n  \"size\": 25\n}",
+      "queryViewMode": "builder",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-elasticsearch",
+          "queryText": "{\n  \"index\": \"orders\",\n  \"query\": { \"match_all\": {} },\n  \"size\": 25\n}",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-neo4j",
+      "title": "Customer Journey Neo4j overview.cypher",
+      "tabKind": "query",
+      "connectionId": "fixture-neo4j",
+      "environmentId": "env-local-demo",
+      "family": "graph",
+      "language": "cypher",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-neo4j",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-neo4j",
+      "editorLabel": "Cypher editor",
+      "queryText": "MATCH (n) RETURN n LIMIT 25",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-neo4j",
+          "queryText": "MATCH (n) RETURN n LIMIT 25",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-arangodb",
+      "title": "Graph Catalog ArangoDB overview.aql",
+      "tabKind": "query",
+      "connectionId": "fixture-arangodb",
+      "environmentId": "env-local-demo",
+      "family": "graph",
+      "language": "aql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-arangodb",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-arangodb",
+      "editorLabel": "AQL editor",
+      "queryText": "FOR doc IN accounts LIMIT 25 RETURN doc",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-arangodb",
+          "queryText": "FOR doc IN accounts LIMIT 25 RETURN doc",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-janusgraph",
+      "title": "Network Signals JanusGraph overview.gremlin",
+      "tabKind": "query",
+      "connectionId": "fixture-janusgraph",
+      "environmentId": "env-local-demo",
+      "family": "graph",
+      "language": "gremlin",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-janusgraph",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-janusgraph",
+      "editorLabel": "Gremlin editor",
+      "queryText": "g.V().limit(25)",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-janusgraph",
+          "queryText": "g.V().limit(25)",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-cassandra",
+      "title": "Order Ledger Cassandra overview.cql",
+      "tabKind": "query",
+      "connectionId": "fixture-cassandra",
+      "environmentId": "env-local-demo",
+      "family": "widecolumn",
+      "language": "cql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-cassandra",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-cassandra",
+      "editorLabel": "CQL editor",
+      "queryText": "select * from datapadplusplus.orders limit 25;",
+      "queryViewMode": "builder",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-cassandra",
+          "queryText": "select * from datapadplusplus.orders limit 25;",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-oracle",
+      "title": "Finance Operations Oracle overview.sql",
+      "tabKind": "query",
+      "connectionId": "fixture-oracle",
+      "environmentId": "env-local-demo",
+      "family": "sql",
+      "language": "sql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-oracle",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-oracle",
+      "editorLabel": "SQL editor",
+      "queryText": "select order_id, account_id, status, total_amount, updated_at from orders fetch first 50 rows only",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-oracle",
+          "queryText": "select order_id, account_id, status, total_amount, updated_at from orders fetch first 50 rows only",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-dynamodb",
+      "title": "Serverless Orders DynamoDB overview.json",
+      "tabKind": "query",
+      "connectionId": "fixture-dynamodb",
+      "environmentId": "env-local-demo",
+      "family": "widecolumn",
+      "language": "json",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-dynamodb",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-dynamodb",
+      "editorLabel": "Document query",
+      "queryText": "{\n  \"table\": \"orders\",\n  \"limit\": 25\n}",
+      "queryViewMode": "builder",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-dynamodb",
+          "queryText": "{\n  \"table\": \"orders\",\n  \"limit\": 25\n}",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-bigquery",
+      "title": "Marketing Analytics BigQuery overview.sql",
+      "tabKind": "query",
+      "connectionId": "fixture-bigquery",
+      "environmentId": "env-local-demo",
+      "family": "warehouse",
+      "language": "google-sql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-bigquery",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-bigquery",
+      "editorLabel": "GoogleSQL editor",
+      "queryText": "select * from analytics.orders limit 25;",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-bigquery",
+          "queryText": "select * from analytics.orders limit 25;",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-snowflake",
+      "title": "Revenue Warehouse Snowflake overview.sql",
+      "tabKind": "query",
+      "connectionId": "fixture-snowflake",
+      "environmentId": "env-local-demo",
+      "family": "warehouse",
+      "language": "snowflake-sql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-snowflake",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-snowflake",
+      "editorLabel": "Snowflake SQL editor",
+      "queryText": "select * from orders limit 25;",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-snowflake",
+          "queryText": "select * from orders limit 25;",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-cosmosdb",
+      "title": "Customer Profiles Cosmos DB overview.sql",
+      "tabKind": "query",
+      "connectionId": "fixture-cosmosdb",
+      "environmentId": "env-local-demo",
+      "family": "document",
+      "language": "sql",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-cosmosdb",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-cosmosdb",
+      "editorLabel": "SQL editor",
+      "queryText": "select top 25 * from c",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-cosmosdb",
+          "queryText": "select top 25 * from c",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-fixture-neptune",
+      "title": "Recommendation Graph Neptune overview.gremlin",
+      "tabKind": "query",
+      "connectionId": "fixture-neptune",
+      "environmentId": "env-local-demo",
+      "family": "graph",
+      "language": "gremlin",
+      "pinned": false,
+      "saveTarget": {
+        "kind": "library",
+        "libraryItemId": "saved-fixture-neptune",
+        "path": null
+      },
+      "savedQueryId": "saved-fixture-neptune",
+      "editorLabel": "Gremlin editor",
+      "queryText": "g.V().limit(25)",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": false,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-neptune",
+          "queryText": "g.V().limit(25)",
+          "executedAt": "1783970557",
+          "status": "seeded"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "tab-1783970645082444700",
+      "title": "ACCOUNTS.sql",
+      "tabKind": "query",
+      "connectionId": "fixture-oracle",
+      "environmentId": "env-local-demo",
+      "family": "sql",
+      "language": "sql",
+      "pinned": null,
+      "saveTarget": null,
+      "savedQueryId": null,
+      "editorLabel": "SQL editor",
+      "queryText": "select * from \"DATAPADPLUSPLUS\".\"ACCOUNTS\" where rownum <= 100",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "documentEfficiencyMode": false,
+      "scopedTarget": {
+        "kind": "table",
+        "label": "ACCOUNTS",
+        "path": [
+          "Finance Operations Oracle",
+          "Databases",
+          "FREEPDB1",
+          "Tables"
+        ],
+        "scope": "table:DATAPADPLUSPLUS.ACCOUNTS",
+        "queryTemplate": "select * from \"DATAPADPLUSPLUS\".\"ACCOUNTS\" where rownum <= 100",
+        "preferredBuilder": null
+      },
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "success",
+      "activeExecution": null,
+      "dirty": true,
+      "lastRunAt": "1783970646",
+      "result": null,
+      "history": [
+        {
+          "id": "history-1783970646585951100",
+          "queryText": "select * from \"DATAPADPLUSPLUS\".\"ACCOUNTS\" where rownum <= 100",
+          "executedAt": "1783970646",
+          "status": "success"
+        }
+      ],
+      "error": null
+    }
+  ],
+  "closedTabs": [
+    {
+      "id": "tab-fixture-recovery-example",
+      "title": "Recovered fixture scratch.sql",
+      "tabKind": "query",
+      "connectionId": "fixture-postgresql",
+      "environmentId": "env-local-demo",
+      "family": "sql",
+      "language": "sql",
+      "pinned": null,
+      "saveTarget": null,
+      "savedQueryId": null,
+      "editorLabel": "SQL editor",
+      "queryText": "select count(*) as table_count from observability.table_health;",
+      "queryViewMode": "raw",
+      "scriptText": null,
+      "scopedTarget": null,
+      "builderState": null,
+      "metricsState": null,
+      "objectViewState": null,
+      "testSuite": null,
+      "testRun": null,
+      "status": "idle",
+      "activeExecution": null,
+      "dirty": true,
+      "lastRunAt": null,
+      "result": null,
+      "history": [
+        {
+          "id": "history-fixture-recovery-example",
+          "queryText": "select count(*) as table_count from observability.table_health;",
+          "executedAt": "1783970557",
+          "status": "recovered"
+        }
+      ],
       "error": null,
-      "closedAt": "1783281173",
-      "closeReason": "user"
+      "closedAt": "1783970557",
+      "closeReason": "fixture-recovery-example"
     }
   ],
   "libraryNodes": [
@@ -2739,8 +2769,8 @@
       "summary": "Migrated Library folder.",
       "tags": [],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": null,
@@ -2766,8 +2796,8 @@
         "commerce"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-postgresql",
       "environmentId": "env-local-demo",
@@ -2788,8 +2818,8 @@
       "summary": "Migrated Library folder.",
       "tags": [],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": null,
@@ -2815,8 +2845,8 @@
         "operations"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-sqlserver",
       "environmentId": "env-local-demo",
@@ -2842,8 +2872,8 @@
         "commerce"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-mysql",
       "environmentId": "env-local-demo",
@@ -2864,8 +2894,8 @@
       "summary": "Migrated Library folder.",
       "tags": [],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": null,
@@ -2891,8 +2921,8 @@
         "local-files"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-sqlite",
       "environmentId": "env-local-demo",
@@ -2918,8 +2948,8 @@
         "commerce"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-mongodb",
       "environmentId": "env-local-demo",
@@ -2940,8 +2970,8 @@
       "summary": "Migrated Library folder.",
       "tags": [],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": null,
@@ -2967,8 +2997,8 @@
         "cache"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-redis",
       "environmentId": "env-local-demo",
@@ -2994,8 +3024,8 @@
         "cache"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-valkey",
       "environmentId": "env-local-demo",
@@ -3021,8 +3051,8 @@
         "cache"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-memcached",
       "environmentId": "env-local-demo",
@@ -3048,8 +3078,8 @@
         "commerce"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-mariadb",
       "environmentId": "env-local-demo",
@@ -3075,8 +3105,8 @@
         "commerce"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-cockroachdb",
       "environmentId": "env-local-demo",
@@ -3097,8 +3127,8 @@
       "summary": "Migrated Library folder.",
       "tags": [],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": null,
@@ -3124,8 +3154,8 @@
         "analytics"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-timescaledb",
       "environmentId": "env-local-demo",
@@ -3151,8 +3181,8 @@
         "analytics"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-clickhouse",
       "environmentId": "env-local-demo",
@@ -3178,8 +3208,8 @@
         "analytics"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-influxdb",
       "environmentId": "env-local-demo",
@@ -3205,8 +3235,8 @@
         "operations"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-prometheus",
       "environmentId": "env-local-demo",
@@ -3227,8 +3257,8 @@
       "summary": "Migrated Library folder.",
       "tags": [],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": null,
@@ -3254,8 +3284,8 @@
         "search"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-opensearch",
       "environmentId": "env-local-demo",
@@ -3281,8 +3311,8 @@
         "search"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-elasticsearch",
       "environmentId": "env-local-demo",
@@ -3303,8 +3333,8 @@
       "summary": "Migrated Library folder.",
       "tags": [],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": null,
@@ -3330,8 +3360,8 @@
         "graph"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-neo4j",
       "environmentId": "env-local-demo",
@@ -3357,8 +3387,8 @@
         "graph"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-arangodb",
       "environmentId": "env-local-demo",
@@ -3384,8 +3414,8 @@
         "graph"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-janusgraph",
       "environmentId": "env-local-demo",
@@ -3406,8 +3436,8 @@
       "summary": "Migrated Library folder.",
       "tags": [],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": null,
@@ -3433,8 +3463,8 @@
         "cloud---wide-column"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-cassandra",
       "environmentId": "env-local-demo",
@@ -3455,8 +3485,8 @@
       "summary": "Migrated Library folder.",
       "tags": [],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": null,
@@ -3482,8 +3512,8 @@
         "enterprise-sql"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-oracle",
       "environmentId": "env-local-demo",
@@ -3509,8 +3539,8 @@
         "cloud---wide-column"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-dynamodb",
       "environmentId": "env-local-demo",
@@ -3536,8 +3566,8 @@
         "cloud-warehouse"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-bigquery",
       "environmentId": "env-local-demo",
@@ -3563,8 +3593,8 @@
         "cloud-warehouse"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-snowflake",
       "environmentId": "env-local-demo",
@@ -3590,8 +3620,8 @@
         "cloud-document"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-cosmosdb",
       "environmentId": "env-local-demo",
@@ -3617,8 +3647,8 @@
         "cloud-graph"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-neptune",
       "environmentId": "env-local-demo",
@@ -3639,8 +3669,8 @@
       "summary": "Migrated Library folder.",
       "tags": [],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": null,
@@ -3664,8 +3694,8 @@
         "sql"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": null,
       "environmentId": "env-local-demo",
@@ -3689,8 +3719,8 @@
         "redis"
       ],
       "favorite": false,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-redis",
       "environmentId": "env-local-demo",
@@ -3715,8 +3745,8 @@
         "revenue"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-postgresql",
       "environmentId": "env-local-demo",
@@ -3741,8 +3771,8 @@
         "operations"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-mariadb",
       "environmentId": "env-local-demo",
@@ -3767,8 +3797,8 @@
         "queue"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-sqlserver",
       "environmentId": "env-local-demo",
@@ -3793,8 +3823,8 @@
         "facets"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-opensearch",
       "environmentId": "env-local-demo",
@@ -3819,8 +3849,8 @@
         "keys"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-redis",
       "environmentId": "env-local-demo",
@@ -3845,8 +3875,8 @@
         "orders"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-redis",
       "environmentId": "env-local-demo",
@@ -3871,8 +3901,8 @@
         "orders"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-timescaledb",
       "environmentId": "env-local-demo",
@@ -3897,8 +3927,8 @@
         "funnel"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-clickhouse",
       "environmentId": "env-local-demo",
@@ -3923,8 +3953,8 @@
         "customers"
       ],
       "favorite": true,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-neo4j",
       "environmentId": "env-local-demo",
@@ -3950,8 +3980,8 @@
         "commerce"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-postgresql",
       "environmentId": null,
@@ -3977,8 +4007,8 @@
         "operations"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-sqlserver",
       "environmentId": null,
@@ -4004,8 +4034,8 @@
         "commerce"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-mysql",
       "environmentId": null,
@@ -4031,8 +4061,8 @@
         "local-files"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-sqlite",
       "environmentId": null,
@@ -4058,8 +4088,8 @@
         "commerce"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-mongodb",
       "environmentId": null,
@@ -4085,8 +4115,8 @@
         "cache"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-redis",
       "environmentId": null,
@@ -4112,8 +4142,8 @@
         "cache"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-valkey",
       "environmentId": null,
@@ -4139,8 +4169,8 @@
         "cache"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-memcached",
       "environmentId": null,
@@ -4166,8 +4196,8 @@
         "commerce"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-mariadb",
       "environmentId": null,
@@ -4193,8 +4223,8 @@
         "commerce"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-cockroachdb",
       "environmentId": null,
@@ -4220,8 +4250,8 @@
         "analytics"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-timescaledb",
       "environmentId": null,
@@ -4247,8 +4277,8 @@
         "analytics"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-clickhouse",
       "environmentId": null,
@@ -4274,8 +4304,8 @@
         "analytics"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-influxdb",
       "environmentId": null,
@@ -4301,8 +4331,8 @@
         "operations"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-prometheus",
       "environmentId": null,
@@ -4328,8 +4358,8 @@
         "search"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-opensearch",
       "environmentId": null,
@@ -4355,8 +4385,8 @@
         "search"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-elasticsearch",
       "environmentId": null,
@@ -4382,8 +4412,8 @@
         "graph"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-neo4j",
       "environmentId": null,
@@ -4409,8 +4439,8 @@
         "graph"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-arangodb",
       "environmentId": null,
@@ -4436,8 +4466,8 @@
         "graph"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-janusgraph",
       "environmentId": null,
@@ -4463,8 +4493,8 @@
         "cloud---wide-column"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-cassandra",
       "environmentId": null,
@@ -4490,8 +4520,8 @@
         "enterprise-sql"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-oracle",
       "environmentId": null,
@@ -4517,8 +4547,8 @@
         "cloud---wide-column"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-dynamodb",
       "environmentId": null,
@@ -4544,8 +4574,8 @@
         "cloud-warehouse"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-bigquery",
       "environmentId": null,
@@ -4571,8 +4601,8 @@
         "cloud-warehouse"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-snowflake",
       "environmentId": null,
@@ -4598,8 +4628,8 @@
         "cloud-document"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-cosmosdb",
       "environmentId": null,
@@ -4625,8 +4655,8 @@
         "cloud-graph"
       ],
       "favorite": null,
-      "createdAt": "1783281105",
-      "updatedAt": "1783281105",
+      "createdAt": "1783970557",
+      "updatedAt": "1783970557",
       "lastOpenedAt": null,
       "connectionId": "fixture-neptune",
       "environmentId": null,
@@ -4652,7 +4682,7 @@
         "sql",
         "commerce"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Commerce",
       "favorite": true,
       "connectionId": "fixture-postgresql",
@@ -4672,7 +4702,7 @@
         "sql",
         "operations"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Operations",
       "favorite": true,
       "connectionId": "fixture-sqlserver",
@@ -4692,7 +4722,7 @@
         "sql",
         "commerce"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Commerce",
       "favorite": true,
       "connectionId": "fixture-mysql",
@@ -4712,7 +4742,7 @@
         "sql",
         "local-files"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Local Files",
       "favorite": true,
       "connectionId": "fixture-sqlite",
@@ -4732,7 +4762,7 @@
         "document",
         "commerce"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Commerce",
       "favorite": true,
       "connectionId": "fixture-mongodb",
@@ -4752,7 +4782,7 @@
         "keyvalue",
         "cache"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Cache",
       "favorite": true,
       "connectionId": "fixture-redis",
@@ -4772,7 +4802,7 @@
         "keyvalue",
         "cache"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Cache",
       "favorite": false,
       "connectionId": "fixture-valkey",
@@ -4792,7 +4822,7 @@
         "keyvalue",
         "cache"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Cache",
       "favorite": false,
       "connectionId": "fixture-memcached",
@@ -4812,7 +4842,7 @@
         "sql",
         "commerce"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Commerce",
       "favorite": false,
       "connectionId": "fixture-mariadb",
@@ -4832,7 +4862,7 @@
         "sql",
         "commerce"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Commerce",
       "favorite": false,
       "connectionId": "fixture-cockroachdb",
@@ -4852,7 +4882,7 @@
         "timeseries",
         "analytics"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Analytics",
       "favorite": false,
       "connectionId": "fixture-timescaledb",
@@ -4872,7 +4902,7 @@
         "warehouse",
         "analytics"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Analytics",
       "favorite": false,
       "connectionId": "fixture-clickhouse",
@@ -4892,7 +4922,7 @@
         "timeseries",
         "analytics"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Analytics",
       "favorite": false,
       "connectionId": "fixture-influxdb",
@@ -4912,7 +4942,7 @@
         "timeseries",
         "operations"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Operations",
       "favorite": false,
       "connectionId": "fixture-prometheus",
@@ -4932,7 +4962,7 @@
         "search",
         "search"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Search",
       "favorite": false,
       "connectionId": "fixture-opensearch",
@@ -4952,7 +4982,7 @@
         "search",
         "search"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Search",
       "favorite": false,
       "connectionId": "fixture-elasticsearch",
@@ -4972,7 +5002,7 @@
         "graph",
         "graph"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Graph",
       "favorite": false,
       "connectionId": "fixture-neo4j",
@@ -4992,7 +5022,7 @@
         "graph",
         "graph"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Graph",
       "favorite": false,
       "connectionId": "fixture-arangodb",
@@ -5012,7 +5042,7 @@
         "graph",
         "graph"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Graph",
       "favorite": false,
       "connectionId": "fixture-janusgraph",
@@ -5032,7 +5062,7 @@
         "widecolumn",
         "cloud---wide-column"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Cloud Contracts",
       "favorite": false,
       "connectionId": "fixture-cassandra",
@@ -5052,7 +5082,7 @@
         "sql",
         "enterprise-sql"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Operations/Enterprise",
       "favorite": false,
       "connectionId": "fixture-oracle",
@@ -5072,7 +5102,7 @@
         "widecolumn",
         "cloud---wide-column"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Cloud Contracts",
       "favorite": false,
       "connectionId": "fixture-dynamodb",
@@ -5092,7 +5122,7 @@
         "warehouse",
         "cloud-warehouse"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Analytics",
       "favorite": false,
       "connectionId": "fixture-bigquery",
@@ -5112,7 +5142,7 @@
         "warehouse",
         "cloud-warehouse"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Analytics",
       "favorite": false,
       "connectionId": "fixture-snowflake",
@@ -5132,7 +5162,7 @@
         "document",
         "cloud-document"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Cloud Contracts",
       "favorite": false,
       "connectionId": "fixture-cosmosdb",
@@ -5152,7 +5182,7 @@
         "graph",
         "cloud-graph"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Graph",
       "favorite": false,
       "connectionId": "fixture-neptune",
@@ -5170,7 +5200,7 @@
         "fixtures",
         "sql"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Fixture Snippets",
       "favorite": false,
       "connectionId": null,
@@ -5188,7 +5218,7 @@
         "fixtures",
         "redis"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Fixture Snippets",
       "favorite": false,
       "connectionId": "fixture-redis",
@@ -5207,7 +5237,7 @@
         "analytics",
         "revenue"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Commerce",
       "favorite": true,
       "connectionId": "fixture-postgresql",
@@ -5226,7 +5256,7 @@
         "orders",
         "operations"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Commerce",
       "favorite": true,
       "connectionId": "fixture-mariadb",
@@ -5245,7 +5275,7 @@
         "support",
         "queue"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Operations",
       "favorite": true,
       "connectionId": "fixture-sqlserver",
@@ -5264,7 +5294,7 @@
         "catalog",
         "facets"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Search",
       "favorite": true,
       "connectionId": "fixture-opensearch",
@@ -5283,7 +5313,7 @@
         "redis",
         "keys"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Cache",
       "favorite": true,
       "connectionId": "fixture-redis",
@@ -5302,7 +5332,7 @@
         "streams",
         "orders"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Cache",
       "favorite": true,
       "connectionId": "fixture-redis",
@@ -5321,7 +5351,7 @@
         "timeseries",
         "orders"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Analytics",
       "favorite": true,
       "connectionId": "fixture-timescaledb",
@@ -5340,7 +5370,7 @@
         "warehouse",
         "funnel"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Analytics",
       "favorite": true,
       "connectionId": "fixture-clickhouse",
@@ -5359,7 +5389,7 @@
         "journey",
         "customers"
       ],
-      "updatedAt": "1783281105",
+      "updatedAt": "1783970557",
       "folder": "Graph",
       "favorite": true,
       "connectionId": "fixture-neo4j",
@@ -5371,73 +5401,82 @@
   ],
   "explorerNodes": [
     {
-      "id": "database:master",
+      "id": "oracle-container:FREEPDB1",
       "family": "sql",
-      "label": "master",
-      "kind": "system-database",
-      "detail": "ONLINE",
-      "scope": "database:master",
-      "path": [
-        "Operations SQL Server",
-        "Databases"
-      ],
-      "queryTemplate": "use [master];\nselect db_name() as database_name;",
-      "expandable": true
-    },
-    {
-      "id": "database:model",
-      "family": "sql",
-      "label": "model",
-      "kind": "system-database",
-      "detail": "ONLINE",
-      "scope": "database:model",
-      "path": [
-        "Operations SQL Server",
-        "Databases"
-      ],
-      "queryTemplate": "use [model];\nselect db_name() as database_name;",
-      "expandable": true
-    },
-    {
-      "id": "database:msdb",
-      "family": "sql",
-      "label": "msdb",
-      "kind": "system-database",
-      "detail": "ONLINE",
-      "scope": "database:msdb",
-      "path": [
-        "Operations SQL Server",
-        "Databases"
-      ],
-      "queryTemplate": "use [msdb];\nselect db_name() as database_name;",
-      "expandable": true
-    },
-    {
-      "id": "database:tempdb",
-      "family": "sql",
-      "label": "tempdb",
-      "kind": "system-database",
-      "detail": "ONLINE",
-      "scope": "database:tempdb",
-      "path": [
-        "Operations SQL Server",
-        "Databases"
-      ],
-      "queryTemplate": "use [tempdb];\nselect db_name() as database_name;",
-      "expandable": true
-    },
-    {
-      "id": "database:datapadplusplus",
-      "family": "sql",
-      "label": "datapadplusplus",
+      "label": "FREEPDB1",
       "kind": "database",
-      "detail": "ONLINE",
-      "scope": "database:datapadplusplus",
+      "detail": "Selected Oracle service/PDB.",
+      "scope": "oracle:container:FREEPDB1",
       "path": [
-        "Operations SQL Server",
+        "Finance Operations Oracle",
         "Databases"
       ],
-      "queryTemplate": "use [datapadplusplus];\nselect db_name() as database_name;",
+      "queryTemplate": "select name, open_mode from v$pdbs order by name",
+      "expandable": true
+    },
+    {
+      "id": "oracle-schemas",
+      "family": "sql",
+      "label": "Schemas",
+      "kind": "schemas",
+      "detail": "Users and object schemas.",
+      "scope": "oracle:schemas",
+      "path": [
+        "Finance Operations Oracle"
+      ],
+      "queryTemplate": "select username from all_users order by username",
+      "expandable": true
+    },
+    {
+      "id": "oracle-security",
+      "family": "sql",
+      "label": "Security",
+      "kind": "security",
+      "detail": "Users, roles, profiles, privileges, and grants.",
+      "scope": "oracle:security",
+      "path": [
+        "Finance Operations Oracle"
+      ],
+      "queryTemplate": "select * from session_privs",
+      "expandable": true
+    },
+    {
+      "id": "oracle-storage",
+      "family": "sql",
+      "label": "Storage",
+      "kind": "storage",
+      "detail": "Tablespaces, files, quotas, and segment storage.",
+      "scope": "oracle:storage",
+      "path": [
+        "Finance Operations Oracle"
+      ],
+      "queryTemplate": "select tablespace_name, status from user_tablespaces order by tablespace_name",
+      "expandable": true
+    },
+    {
+      "id": "oracle-performance",
+      "family": "sql",
+      "label": "Performance",
+      "kind": "performance",
+      "detail": "Sessions, waits, SQL Monitor, and lock diagnostics.",
+      "scope": "oracle:performance",
+      "path": [
+        "Finance Operations Oracle"
+      ],
+      "queryTemplate": "select * from v$session where rownum <= 100",
+      "expandable": true
+    },
+    {
+      "id": "oracle-diagnostics",
+      "family": "sql",
+      "label": "Diagnostics",
+      "kind": "diagnostics",
+      "detail": "Plans, locks, waits, and database health.",
+      "scope": "oracle:diagnostics",
+      "path": [
+        "Finance Operations Oracle"
+      ],
+      "queryTemplate": "select * from table(dbms_xplan.display)",
       "expandable": true
     }
   ],
@@ -9725,36 +9764,45 @@
     },
     "explorerFolderOrders": {}
   },
-  "guardrails": [],
+  "guardrails": [
+    {
+      "id": null,
+      "status": "allow",
+      "reasons": [
+        "Guardrails cleared for the current query."
+      ],
+      "safeModeApplied": false,
+      "requiredConfirmationText": null
+    }
+  ],
   "lockState": {
     "isLocked": false,
     "lockedAt": null
   },
   "ui": {
-    "activeConnectionId": "fixture-sqlserver",
+    "activeConnectionId": "fixture-oracle",
     "activeEnvironmentId": "env-local-demo",
-    "activeTabId": "tab-1783281303130317000",
+    "activeTabId": "tab-1783970645082444700",
     "explorerFilter": "",
     "explorerView": "structure",
     "connectionGroupMode": "group",
     "sidebarSectionStates": {
+      "library:node:library-connection-fixture-oracle": true,
       "library:node:library-folder-operations": false,
-      "library:node:library-folder-cache": false,
-      "library:node:library-folder-local-files": false,
-      "library:node:library-folder-search": false,
-      "library:node:library-folder-graph": false,
       "library:node:library-folder-analytics": false,
-      "library:node:library-folder-cloud-contracts": false,
-      "library:node:library-connection-fixture-sqlserver": true,
       "library:node:library-folder-commerce": false,
-      "library:node:library-connection-fixture-mongodb": false,
-      "library:node:library-folder-fixture-snippets": false
+      "library:node:library-folder-graph": false,
+      "library:node:library-folder-search": false,
+      "library:node:library-folder-cloud-contracts": false,
+      "library:node:library-folder-local-files": false,
+      "library:node:library-folder-fixture-snippets": false,
+      "library:node:library-folder-cache": false
     },
     "activeActivity": "library",
     "sidebarCollapsed": false,
     "activeSidebarPane": "library",
-    "sidebarWidth": 420,
-    "bottomPanelVisible": false,
+    "sidebarWidth": 300,
+    "bottomPanelVisible": true,
     "activeBottomPanelTab": "results",
     "bottomPanelHeight": 300,
     "resultsDock": "bottom",
@@ -9762,5 +9810,5 @@
     "rightDrawer": "none",
     "rightDrawerWidth": 380
   },
-  "updatedAt": "1783281304"
+  "updatedAt": "1783970646"
 }

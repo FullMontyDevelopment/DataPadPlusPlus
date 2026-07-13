@@ -15,7 +15,7 @@ const originalReleasePointerCapture = HTMLElement.prototype.releasePointerCaptur
 const originalHasPointerCapture = HTMLElement.prototype.hasPointerCapture
 let animationFrameCallbacks: FrameRequestCallback[] = []
 
-describe('BottomPanel resizing', () => {
+describe('BottomPanel', () => {
   beforeEach(() => {
     animationFrameCallbacks = []
     Object.defineProperty(window, 'requestAnimationFrame', {
@@ -139,6 +139,31 @@ describe('BottomPanel resizing', () => {
     expect(onResize).toHaveBeenCalledWith(620)
   })
 
+  it('offers docking beside the editor without step resize controls', () => {
+    const onToggleDock = vi.fn()
+    const onClose = vi.fn()
+    renderBottomPanel({ onToggleDock, onClose })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dock results to right' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Hide results panel' }))
+
+    expect(onToggleDock).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: 'Increase panel height' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Decrease panel height' })).not.toBeInTheDocument()
+  })
+
+  it('offers docking below the editor from the right-side layout', () => {
+    const onToggleDock = vi.fn()
+    renderBottomPanel({ dock: 'right', onToggleDock })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dock results to bottom' }))
+
+    expect(onToggleDock).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: 'Increase panel width' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Decrease panel width' })).not.toBeInTheDocument()
+  })
+
   it('summarizes inspection metadata without dumping raw payloads in Details', () => {
     renderBottomPanel({
       activePanelTab: 'details',
@@ -184,6 +209,7 @@ function renderBottomPanel(overrides: Partial<BottomPanelProps> = {}) {
     onSelectRenderer: vi.fn(),
     onLoadNextPage: vi.fn(),
     onResize: vi.fn(),
+    onToggleDock: vi.fn(),
     onClose: vi.fn(),
     onConfirmExecution: vi.fn(),
     onApplyInspectionTemplate: vi.fn(),
@@ -207,6 +233,7 @@ function renderBottomPanelInWorkbench(overrides: Partial<BottomPanelProps> = {})
     onSelectRenderer: vi.fn(),
     onLoadNextPage: vi.fn(),
     onResize: vi.fn(),
+    onToggleDock: vi.fn(),
     onClose: vi.fn(),
     onConfirmExecution: vi.fn(),
     onApplyInspectionTemplate: vi.fn(),

@@ -2619,6 +2619,26 @@ describe('App', () => {
     })
   })
 
+  it('docks the results panel beside the editor and back below it', async () => {
+    render(<App />)
+
+    await runPreviewQuery()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dock results to right' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Right results panel')).toBeInTheDocument()
+      expect(document.querySelector('.workbench-center')).toHaveClass('has-right-results')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dock results to bottom' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
+      expect(document.querySelector('.workbench-center')).not.toHaveClass('has-right-results')
+    })
+  })
+
   it('copies, exports, and restores executed result history', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     const createObjectUrl = vi.fn(() => 'blob:datapadplusplus-result')

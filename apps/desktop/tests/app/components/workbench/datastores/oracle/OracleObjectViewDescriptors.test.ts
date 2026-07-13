@@ -20,6 +20,17 @@ describe('OracleObjectViewDescriptors', () => {
     expect(isOracleObjectViewKind('package')).toBe(true)
     expect(isOracleObjectViewKind('security')).toBe(true)
     expect(isOracleObjectViewKind('sql_monitor')).toBe(true)
+    expect([
+      'materialized-view',
+      'sequence',
+      'synonym',
+      'json-collections',
+      'json-collection',
+      'external-tables',
+      'external-table',
+      'database-links',
+      'database-link',
+    ].every(isOracleObjectViewKind)).toBe(true)
     expect(isOracleObjectViewKind('data-guard')).toBe(false)
   })
 

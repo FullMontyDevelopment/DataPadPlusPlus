@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import type { AdapterManifest, ConnectionProfile, EnvironmentProfile } from '@datapadplusplus/shared-types'
+import type { AdapterManifest, ConnectionProfile, EnvironmentProfile, ExplorerNode } from '@datapadplusplus/shared-types'
 import { datastoreTreeForEngine } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import type { ConnectionTreeNode } from '../../../../src/app/components/workbench/SideBar.helpers'
@@ -674,6 +674,101 @@ describe('ConnectionObjectTree', () => {
     const menu = screen.getByRole('menu', { name: 'Object options for Packages' })
     expect(within(menu).getByRole('menuitem', { name: 'Create Package...' })).toBeInTheDocument()
     expect(within(menu).queryByRole('menuitem', { name: 'Refresh Packages' })).not.toBeInTheDocument()
+  })
+
+  it('places live Oracle database children under Databases and remaps legacy container paths', () => {
+    const onLoadExplorerScope = vi.fn()
+    const categoryNodes: ExplorerNode[] = [
+      {
+        id: 'oracle-container:FREEPDB1',
+        label: 'FREEPDB1',
+        kind: 'database',
+        detail: 'Selected Oracle service/PDB',
+        family: 'sql',
+        path: ['Fixture Oracle', 'Databases'],
+        scope: 'oracle:container:FREEPDB1',
+        expandable: true,
+      },
+      {
+        id: 'oracle-tables:database:FREEPDB1:APP',
+        label: 'Tables',
+        kind: 'tables',
+        detail: 'Base tables',
+        family: 'sql',
+        path: ['Fixture Oracle', 'Databases', 'FREEPDB1'],
+        scope: 'oracle:category:database:FREEPDB1:APP:tables',
+        expandable: true,
+      },
+      {
+        id: 'oracle-packages:database:FREEPDB1:APP',
+        label: 'Packages',
+        kind: 'packages',
+        detail: 'PL/SQL package specs and bodies',
+        family: 'sql',
+        path: ['Fixture Oracle', 'Containers', 'FREEPDB1'],
+        scope: 'oracle:category:database:FREEPDB1:APP:packages',
+        expandable: true,
+      },
+    ]
+    const tableNodes: ExplorerNode[] = [
+      {
+        id: 'oracle-table:database:FREEPDB1:APP:ACCOUNTS',
+        label: 'ACCOUNTS',
+        kind: 'table',
+        detail: 'VALID | USERS',
+        family: 'sql',
+        path: ['Fixture Oracle', 'Databases', 'FREEPDB1', 'Tables'],
+        scope: 'table:APP.ACCOUNTS',
+        queryTemplate: 'select * from "APP"."ACCOUNTS" where rownum <= 100;',
+      },
+      {
+        id: 'oracle-table:database:FREEPDB1:APP:ORDERS',
+        label: 'ORDERS',
+        kind: 'table',
+        detail: 'VALID | USERS',
+        family: 'sql',
+        path: ['Fixture Oracle', 'Databases', 'FREEPDB1', 'Tables'],
+        scope: 'table:APP.ORDERS',
+        queryTemplate: 'select * from "APP"."ORDERS" where rownum <= 100;',
+      },
+    ]
+
+    const { rerender } = render(
+      <ConnectionObjectTree
+        connection={oracleConnection()}
+        explorerNodes={categoryNodes}
+        explorerStatus="ready"
+        onLoadExplorerScope={onLoadExplorerScope}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Databases')
+    expandTreeItem('FREEPDB1')
+
+    expect(screen.getByText('Tables')).toBeInTheDocument()
+    expect(screen.getByText('Packages')).toBeInTheDocument()
+    expandTreeItem('Tables')
+
+    expect(onLoadExplorerScope).toHaveBeenCalledWith(
+      'conn-oracle',
+      'oracle:category:database:FREEPDB1:APP:tables',
+    )
+
+    rerender(
+      <ConnectionObjectTree
+        connection={oracleConnection()}
+        explorerNodes={[...categoryNodes, ...tableNodes]}
+        explorerStatus="ready"
+        onLoadExplorerScope={onLoadExplorerScope}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('ACCOUNTS')).toBeInTheDocument()
+    expect(screen.getByText('ORDERS')).toBeInTheDocument()
+    expect(screen.queryByText('Containers')).not.toBeInTheDocument()
+    expect(screen.queryByText('No objects found.')).not.toBeInTheDocument()
   })
 
   it('uses CockroachDB-owned cluster and database folders', () => {

@@ -121,7 +121,7 @@ function renderOracleObjectView(
     return <OracleOverviewView descriptor={descriptor} payload={payload} />
   }
 
-  if (['tables', 'table', 'views', 'view', 'materialized-views', 'sequences', 'synonyms', 'indexes', 'constraints', 'triggers', 'partitions', 'statistics', 'dependencies', 'permissions', 'ddl'].includes(kind)) {
+  if (['tables', 'table', 'views', 'view', 'materialized-views', 'materialized-view', 'sequences', 'sequence', 'synonyms', 'synonym', 'json-collections', 'json-collection', 'external-tables', 'external-table', 'database-links', 'database-link', 'indexes', 'constraints', 'triggers', 'partitions', 'statistics', 'dependencies', 'permissions', 'ddl'].includes(kind)) {
     return (
       <OracleObjectMetadataView
         kind={kind}

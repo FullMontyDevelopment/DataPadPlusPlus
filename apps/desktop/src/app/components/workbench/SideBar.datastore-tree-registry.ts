@@ -569,7 +569,7 @@ function sqlPlacement(
   normalizedPath: string[],
 ) {
   if (connection.engine === 'oracle' && normalizedPath.length > 0) {
-    return normalizedPath
+    return oraclePlacement(normalizedPath)
   }
 
   if (connection.engine === 'sqlserver') {
@@ -666,6 +666,14 @@ function sqlPlacement(
   }
 
   return [schemaRoot, schema, category]
+}
+
+function oraclePlacement(normalizedPath: string[]) {
+  if (normalizedPath[0]?.trim().toLowerCase() === 'containers') {
+    return ['Databases', ...normalizedPath.slice(1)]
+  }
+
+  return normalizedPath
 }
 
 function duckDbPlacement(kind: string, normalizedPath: string[]) {
