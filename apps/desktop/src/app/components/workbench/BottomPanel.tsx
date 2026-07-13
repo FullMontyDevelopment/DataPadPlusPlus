@@ -76,6 +76,7 @@ interface BottomPanelProps {
   onDismissWorkbenchMessage(id: string): void
   onClearWorkbenchMessages(): void
   onOpenSecuritySettings?(): void
+  onEditConnection?(): void
 }
 
 export function BottomPanel({
@@ -111,6 +112,7 @@ export function BottomPanel({
   onDismissWorkbenchMessage,
   onClearWorkbenchMessages,
   onOpenSecuritySettings,
+  onEditConnection,
 }: BottomPanelProps) {
   const hasPanelContext = Boolean(activeTab && activeConnection && activeEnvironment)
   const hasQueryContext = Boolean(
@@ -340,6 +342,7 @@ export function BottomPanel({
             onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
             onExecuteDataEdit={onExecuteDataEdit}
             onPlanOperation={onPlanOperation}
+            onEditConnection={onEditConnection}
           />
         ) : null}
 

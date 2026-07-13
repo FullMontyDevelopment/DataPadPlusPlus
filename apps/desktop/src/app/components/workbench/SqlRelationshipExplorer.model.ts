@@ -102,7 +102,14 @@ export function buildSqlRelationshipModel(
 }
 
 export function buildSelectSql(node: SqlExplorerNode, engine: DatastoreEngine) {
-  return `select *\nfrom ${quoteQualifiedName(node.schema, node.objectName, engine)}\nlimit 100;`
+  const projection = engine === 'sqlserver' ? 'select top 100 *' : 'select *'
+  const rowLimit = engine === 'sqlserver'
+    ? ''
+    : engine === 'oracle'
+      ? '\nfetch first 100 rows only'
+      : '\nlimit 100'
+
+  return `${projection}\nfrom ${quoteQualifiedName(node.schema, node.objectName, engine)}${rowLimit};`
 }
 
 export function buildJoinSql(
@@ -122,12 +129,15 @@ export function buildJoinSql(
     return buildSelectSql(selected, engine)
   }
 
-  return [
+  const aliasKeyword = engine === 'oracle' ? '' : 'as '
+  const statements = [
     'select *',
-    `from ${quoteQualifiedName(from.schema, from.objectName, engine)} as source`,
-    `join ${quoteQualifiedName(to.schema, to.objectName, engine)} as target`,
-    `  on source.${quoteIdentifier(edge.fromField, engine)} = target.${quoteIdentifier(edge.toField, engine)};`,
-  ].join('\n')
+    `from ${quoteQualifiedName(from.schema, from.objectName, engine)} ${aliasKeyword}source`,
+    `join ${quoteQualifiedName(to.schema, to.objectName, engine)} ${aliasKeyword}target`,
+    `  on source.${quoteIdentifier(edge.fromField, engine)} = target.${quoteIdentifier(edge.toField, engine)}`,
+  ]
+  statements.push(engine === 'sqlserver' ? ';' : engine === 'oracle' ? 'fetch first 100 rows only;' : 'limit 100;')
+  return statements.join('\n')
 }
 
 export function buildForeignKeyPreviewSql(

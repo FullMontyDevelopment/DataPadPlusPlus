@@ -1,4 +1,4 @@
-import type { ResultPayload, StructureField } from '@datapadplusplus/shared-types'
+import type { ConnectionProfile, ResultPayload, StructureField } from '@datapadplusplus/shared-types'
 import { addRedisCommandsToCatalog } from './redis-command-catalog'
 import type {
   CompletionCatalog,
@@ -23,6 +23,11 @@ const OBJECT_KINDS = new Set([
   'index',
   'data-stream',
   'materialized-view',
+  'external-table',
+  'json-collection',
+  'synonym',
+  'package',
+  'database-link',
   'stored-procedure',
   'procedure',
   'function',
@@ -72,7 +77,7 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
 
     const kind = normalizeCatalogKind(node.kind)
 
-    if (SCHEMA_KINDS.has(kind)) {
+    if (SCHEMA_KINDS.has(kind) && !(input.connection?.engine === 'oracle' && kind === 'database')) {
       addSchema(schemas, {
         name: node.label,
         detail: node.detail,
@@ -358,7 +363,7 @@ function completionObjectPartsFromExplorerNode(
     }
   }
 
-  const scopeParts = sqlNamePartsFromScope(node.scope)
+  const scopeParts = sqlNamePartsFromScope(node.scope, connection?.engine)
   const labelParts = splitQualifiedName(node.label)
   const idParts = splitQualifiedName(node.id)
   const pathParts = sqlNamePartsFromPath(connection, node.path)
@@ -426,6 +431,7 @@ function cleanExplorerPath(
     'MySQL',
     'MariaDB',
     'SQLite',
+    'Oracle',
   ].filter(Boolean) as string[])
 
   if (segments[0] && rootLabels.has(segments[0])) {
@@ -435,7 +441,19 @@ function cleanExplorerPath(
   return segments
 }
 
-function sqlNamePartsFromScope(scope?: string): SqlNameParts {
+function sqlNamePartsFromScope(
+  scope?: string,
+  engine?: ConnectionProfile['engine'],
+): SqlNameParts {
+  if (engine === 'oracle' && scope?.startsWith('oracle:object:')) {
+    const [, , , schema, ...objectParts] = scope.split(':')
+
+    return {
+      schema: schema || undefined,
+      objectName: objectParts.join(':') || undefined,
+    }
+  }
+
   const name = scope?.split(':').slice(1).join(':')
 
   if (!name) {
@@ -467,6 +485,7 @@ function isSqlChildKind(kind: string) {
 const METADATA_CATEGORIES = new Set(
   [
     'schemas',
+    'databases',
     'user schemas',
     'system schemas',
     'tables',

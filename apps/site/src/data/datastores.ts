@@ -323,20 +323,20 @@ export const datastoreDocs: DatastoreDoc[] = [
     family: 'SQL and relational',
     maturity: 'Native-complete scoped claim',
     summary:
-      'Oracle focuses on SQLPlus-backed SQL, schema and package inspection, DBMS_XPLAN and SQL Monitor boundaries, and guarded ROWID or primary-key edits.',
-    bestFor: ['Oracle schemas', 'Package and storage review', 'SQLPlus-backed diagnostics'],
+      'Oracle 19c+ uses a bundled managed driver for live SQL and PL/SQL, schema and package inspection, DBMS output, plans, and guarded writes.',
+    bestFor: ['Oracle schemas', 'Package and storage review', 'SQL and PL/SQL development'],
     connections: [
-      'Choose Oracle and configure service name or SID, host, port, wallet or TLS posture, SQLPlus runtime settings, username, role, and timeout fields.',
-      'Use read-only profiles until SQLPlus live execution and dictionary permissions are verified for the target account.',
+      'Configure a service name, SID, Easy Connect string, TNS alias, or TCPS/cloud-wallet profile with the required username, proxy user, role, and timeout options.',
+      'The desktop app includes its Oracle runtime. Oracle Client, SQLPlus, Docker, and a separate .NET installation are not required; SQLPlus remains an explicit legacy fallback.',
     ],
     explorer: [
-      'Browse schemas, tables, views, packages, procedures, functions, indexes, constraints, triggers, storage, security, performance, and dictionary-backed details.',
+      'Browse live schemas, tables and columns, views, materialized views, packages and routines, types, sequences, synonyms, links, constraints, indexes, triggers, storage, security, performance, and permission-aware dictionary details.',
     ],
     queryModes: [
-      'Run scoped SQLPlus-backed SQL, bounded table reads, DBMS_XPLAN plan requests, SQL Monitor boundary checks, and PL/SQL compile diagnostic previews.',
+      'Run SQL, DML, DDL, MERGE, procedure calls, transaction control, and multi-statement PL/SQL scripts, with bounded reads, DBMS output, explain, and profile results.',
     ],
     resultViews: [
-      'Inspect table grids, DBMS_XPLAN text, SQL Monitor boundary payloads, PL/SQL diagnostic rows, package metadata, and ROWID or primary-key edit evidence.',
+      'Inspect table, JSON, raw status, affected-row, multiple-result, DBMS output, DBMS_XPLAN, profile, package metadata, and edit-evidence views.',
     ],
     adminFeatures: [
       'Preview schema/package operations, storage and security reviews, import/export plans, RMAN boundary plans, and restore-sensitive workflows.',
@@ -345,10 +345,10 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review DBMS_XPLAN, SQL Monitor availability, PL/SQL compile diagnostics, storage posture, security posture, restricted dictionary warnings, and row identity checks.',
     ],
     importExport: [
-      'Use bounded SQLPlus export/import style workflows where validated; Data Pump and RMAN remain guarded preview boundaries unless promoted later.',
+      'Use bounded export/import workflows where validated; Data Pump and RMAN remain guarded preview boundaries unless promoted later.',
     ],
     safety: [
-      'Live inserts, updates, and deletes require primary-key or ROWID identity, bounded before/after evidence, read-only gates, and confirmation gates.',
+      'Writes, destructive SQL, PL/SQL, calls, SELECT FOR UPDATE, and administrative statements use the same environment and read-only guardrails across the UI, API, and MCP server.',
     ],
     screenshots: screenshotSet('Oracle'),
   },

@@ -248,6 +248,7 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
           action.tabId,
           action.message,
           action.executionId,
+          action.code,
         ),
       }
     }

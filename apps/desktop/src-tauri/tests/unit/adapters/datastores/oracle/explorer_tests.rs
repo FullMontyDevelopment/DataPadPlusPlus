@@ -1,5 +1,7 @@
 use super::{inspect_oracle_explorer_node, list_oracle_explorer_nodes, oracle_table_query};
-use crate::domain::models::{ExplorerInspectRequest, ExplorerRequest, ResolvedConnectionProfile};
+use crate::domain::models::{
+    ExplorerInspectRequest, ExplorerRequest, OracleConnectionOptions, ResolvedConnectionProfile,
+};
 
 fn connection() -> ResolvedConnectionProfile {
     ResolvedConnectionProfile {
@@ -19,7 +21,10 @@ fn connection() -> ResolvedConnectionProfile {
         postgres_options: None,
         mysql_options: None,
         sqlserver_options: None,
-        oracle_options: None,
+        oracle_options: Some(OracleConnectionOptions {
+            execution_runtime: Some("contract".into()),
+            ..Default::default()
+        }),
         dynamo_db_options: None,
         cassandra_options: None,
         cosmos_db_options: None,
@@ -167,7 +172,7 @@ async fn oracle_object_categories_expand_to_meaningful_read_only_leaf_nodes() {
     .await
     .expect("oracle tables")
     .nodes;
-    assert_eq!(tables[0].scope.as_deref(), Some("table:APP.ACCOUNTS"));
+    assert_eq!(tables[0].scope, None);
 
     let packages = list_oracle_explorer_nodes(
         &connection(),
@@ -225,7 +230,7 @@ async fn oracle_schema_scope_contains_object_folders_without_fake_tables() {
 fn oracle_table_query_quotes_schema_and_table() {
     assert_eq!(
         oracle_table_query("APP", "ORDERS"),
-        "select * from \"APP\".\"ORDERS\" where rownum <= 100"
+        "select * from \"APP\".\"ORDERS\" fetch first 100 rows only"
     );
 }
 
@@ -260,7 +265,7 @@ fn oracle_context_aware_object_ids_inspect_the_correct_schema_and_object() {
 
     assert_eq!(
         response.query_template.as_deref(),
-        Some("select * from \"APP\".\"ACCOUNTS\" where rownum <= 100")
+        Some("select * from \"APP\".\"ACCOUNTS\" fetch first 100 rows only")
     );
     let payload = response.payload.expect("table payload");
     assert_eq!(payload["kind"], "table");

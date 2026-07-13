@@ -6,6 +6,7 @@ use super::super::super::*;
 use super::catalog::oracle_execution_capabilities;
 use super::connection::{oracle_service_name, oracle_sqlplus_path};
 use super::query::{oracle_sqlplus_script, parse_oracle_sqlplus_csv, run_oracle_sqlplus_script};
+use super::sidecar::{execute_oracle_managed_read, oracle_execution_runtime};
 
 const ORACLE_OBJECT_CATEGORIES: [(&str, &str, &str); 12] = [
     ("tables", "Tables", "Base tables."),
@@ -55,10 +56,13 @@ pub(super) async fn list_oracle_explorer_nodes(
         Some(scope) if scope.starts_with("oracle:container:") => {
             container_child_nodes(connection, scope)
         }
-        Some("oracle:schemas") => schema_nodes(connection),
+        Some("oracle:schemas") => schema_nodes(connection, request.limit.unwrap_or(250)).await,
         Some(scope) if scope.starts_with("oracle:schema:") => schema_child_nodes(connection, scope),
         Some(scope) if scope.starts_with("oracle:category:") => {
             category_object_nodes(connection, scope, request.limit.unwrap_or(100)).await
+        }
+        Some(scope) if scope.starts_with("oracle:object:") => {
+            object_child_nodes(connection, scope, request.limit.unwrap_or(250)).await
         }
         Some("oracle:security") => security_nodes(connection),
         Some("oracle:storage") => storage_nodes(connection),
@@ -199,19 +203,64 @@ fn container_child_nodes(connection: &ResolvedConnectionProfile, scope: &str) ->
     )
 }
 
-fn schema_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    let schema = default_schema(connection);
-    vec![ExplorerNode {
-        id: format!("oracle-schema:{schema}"),
-        family: "sql".into(),
-        label: schema.clone(),
-        kind: "schema".into(),
-        detail: "Configured schema. Live schema discovery uses ALL_USERS when available.".into(),
-        scope: Some(format!("oracle:schema:{schema}")),
-        path: Some(vec![connection.name.clone(), "Schemas".into()]),
-        query_template: Some("select username from all_users order by username".into()),
-        expandable: Some(true),
-    }]
+async fn schema_nodes(connection: &ResolvedConnectionProfile, limit: u32) -> Vec<ExplorerNode> {
+    let query = "select username, account_status from all_users order by case when username = user then 0 else 1 end, username";
+    let runtime = oracle_execution_runtime(connection);
+    let loaded = match runtime {
+        "managed" => execute_oracle_managed_read(connection, query, limit)
+            .await
+            .and_then(|response| oracle_managed_rows(&response)),
+        "sqlplus" => {
+            let path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
+            load_oracle_category_rows(connection, &path, query, limit).await
+        }
+        "contract" => Ok(vec![vec![default_schema(connection), "PREVIEW".into()]]),
+        unsupported => Err(CommandError::new(
+            "oracle-runtime-unsupported",
+            format!("Oracle execution runtime '{unsupported}' is not supported."),
+        )),
+    };
+
+    match loaded {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|row| {
+                let schema = row.first()?.trim();
+                if schema.is_empty() {
+                    return None;
+                }
+                Some(ExplorerNode {
+                    id: format!("oracle-schema:{schema}"),
+                    family: "sql".into(),
+                    label: schema.into(),
+                    kind: "schema".into(),
+                    detail: row
+                        .get(1)
+                        .filter(|value| !value.trim().is_empty())
+                        .map(|status| format!("Oracle schema / {status}."))
+                        .unwrap_or_else(|| "Oracle object schema.".into()),
+                    scope: Some(format!("oracle:schema:{schema}")),
+                    path: Some(vec![connection.name.clone(), "Schemas".into()]),
+                    query_template: Some(format!(
+                        "select object_type, count(*) from all_objects where owner = '{}' group by object_type order by object_type",
+                        sql_literal(schema)
+                    )),
+                    expandable: Some(true),
+                })
+            })
+            .collect(),
+        Err(error) => vec![ExplorerNode {
+            id: "oracle-schemas-metadata-unavailable".into(),
+            family: "sql".into(),
+            label: "Schema metadata unavailable".into(),
+            kind: "warning".into(),
+            detail: error.message,
+            scope: None,
+            path: Some(vec![connection.name.clone(), "Schemas".into()]),
+            query_template: None,
+            expandable: Some(false),
+        }],
+    }
 }
 
 fn schema_child_nodes(connection: &ResolvedConnectionProfile, scope: &str) -> Vec<ExplorerNode> {
@@ -323,21 +372,55 @@ async fn category_object_nodes(
     };
 
     let query = oracle_category_query(&category, &context.schema);
-    let (rows, contract_preview) = if let Some(sqlplus_path) = oracle_sqlplus_path(connection) {
-        match load_oracle_category_rows(connection, &sqlplus_path, &query, limit).await {
-            Ok(rows) => (rows, false),
-            Err(error) => {
-                return vec![oracle_metadata_notice_node(&context, label, &error.message)];
-            }
+    let runtime = oracle_execution_runtime(connection);
+    let loaded = match runtime {
+        "managed" => execute_oracle_managed_read(connection, &query, limit)
+            .await
+            .and_then(|response| oracle_managed_rows(&response)),
+        "sqlplus" => {
+            let sqlplus_path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
+            load_oracle_category_rows(connection, &sqlplus_path, &query, limit).await
         }
-    } else {
-        (
-            oracle_contract_category_rows(&category, &context.schema),
-            true,
-        )
+        "contract" => Ok(oracle_contract_category_rows(&category, &context.schema)),
+        unsupported => Err(CommandError::new(
+            "oracle-runtime-unsupported",
+            format!("Oracle execution runtime '{unsupported}' is not supported."),
+        )),
+    };
+    let rows = match loaded {
+        Ok(rows) => rows,
+        Err(error) => return vec![oracle_metadata_notice_node(&context, label, &query, &error)],
     };
 
-    oracle_object_nodes_from_rows(&context, &category, label, rows, contract_preview)
+    oracle_object_nodes_from_rows(&context, &category, label, rows, runtime == "contract")
+}
+
+fn oracle_managed_rows(response: &Value) -> Result<Vec<Vec<String>>, CommandError> {
+    let rows = response
+        .get("sections")
+        .and_then(Value::as_array)
+        .and_then(|sections| sections.first())
+        .and_then(|section| section.get("rows"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            CommandError::new(
+                "oracle-metadata-response-invalid",
+                "The Oracle runtime returned an invalid metadata response.",
+            )
+        })?;
+    Ok(rows
+        .iter()
+        .filter_map(Value::as_array)
+        .map(|row| {
+            row.iter()
+                .map(|value| match value {
+                    Value::Null => String::new(),
+                    Value::String(value) => value.clone(),
+                    other => other.to_string(),
+                })
+                .collect()
+        })
+        .collect())
 }
 
 async fn load_oracle_category_rows(
@@ -373,38 +456,214 @@ fn oracle_object_nodes_from_rows(
                 return None;
             }
 
+            let expandable = !contract_preview && oracle_object_expandable(object_kind);
             Some(ExplorerNode {
                 id: context.object_id(object_kind, object_name),
                 family: "sql".into(),
                 label: object_name.into(),
                 kind: object_kind.into(),
                 detail: oracle_object_detail(category, &row, contract_preview),
-                scope: Some(format!("{object_kind}:{}.{}", context.schema, object_name)),
+                scope: expandable.then(|| {
+                    format!(
+                        "oracle:object:{object_kind}:{}:{object_name}",
+                        context.schema
+                    )
+                }),
                 path: Some(context.category_path(category_label)),
                 query_template: Some(oracle_object_query(category, &context.schema, object_name)),
+                expandable: Some(expandable),
+            })
+        })
+        .collect()
+}
+
+fn oracle_object_expandable(kind: &str) -> bool {
+    matches!(
+        kind,
+        "table"
+            | "view"
+            | "materialized-view"
+            | "external-table"
+            | "json-collection"
+            | "package"
+            | "procedure"
+            | "function"
+            | "type"
+    )
+}
+
+async fn object_child_nodes(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+    limit: u32,
+) -> Vec<ExplorerNode> {
+    let parts = scope
+        .strip_prefix("oracle:object:")
+        .map(|value| value.splitn(3, ':').collect::<Vec<_>>())
+        .unwrap_or_default();
+    let [kind, schema, object_name] = parts.as_slice() else {
+        return Vec::new();
+    };
+    let Some(query) = oracle_object_children_query(kind, schema, object_name) else {
+        return Vec::new();
+    };
+    let runtime = oracle_execution_runtime(connection);
+    let loaded = match runtime {
+        "managed" => execute_oracle_managed_read(connection, &query, limit)
+            .await
+            .and_then(|response| oracle_managed_rows(&response)),
+        "sqlplus" => {
+            let path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
+            load_oracle_category_rows(connection, &path, &query, limit).await
+        }
+        "contract" => Ok(Vec::new()),
+        unsupported => Err(CommandError::new(
+            "oracle-runtime-unsupported",
+            format!("Oracle execution runtime '{unsupported}' is not supported."),
+        )),
+    };
+    let rows = match loaded {
+        Ok(rows) => rows,
+        Err(error) => {
+            return vec![ExplorerNode {
+                id: format!("oracle-object-metadata-unavailable:{schema}:{object_name}"),
+                family: "sql".into(),
+                label: "Object metadata unavailable".into(),
+                kind: "warning".into(),
+                detail: error.message,
+                scope: None,
+                path: Some(vec![
+                    connection.name.clone(),
+                    (*schema).into(),
+                    (*object_name).into(),
+                ]),
+                query_template: None,
+                expandable: Some(false),
+            }]
+        }
+    };
+
+    rows.into_iter()
+        .filter_map(|row| {
+            let name = row.first()?.trim();
+            if name.is_empty() {
+                return None;
+            }
+            let child_kind = row
+                .get(1)
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("object");
+            let detail = row
+                .iter()
+                .skip(2)
+                .filter(|value| !value.trim().is_empty())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" / ");
+            Some(ExplorerNode {
+                id: format!("oracle-{child_kind}:{schema}:{object_name}:{name}"),
+                family: "sql".into(),
+                label: name.into(),
+                kind: child_kind.into(),
+                detail,
+                scope: None,
+                path: Some(vec![
+                    connection.name.clone(),
+                    (*schema).into(),
+                    (*object_name).into(),
+                ]),
+                query_template: oracle_child_query(kind, child_kind, schema, object_name, name),
                 expandable: Some(false),
             })
         })
         .collect()
 }
 
+fn oracle_object_children_query(kind: &str, schema: &str, object_name: &str) -> Option<String> {
+    let owner = sql_literal(schema);
+    let object = sql_literal(object_name);
+    match kind {
+        "table" => Some(format!(
+            "select column_name, 'column', data_type || case when data_type in ('VARCHAR2','CHAR','NVARCHAR2','NCHAR','RAW') then '(' || data_length || ')' when data_type = 'NUMBER' and data_precision is not null then '(' || data_precision || nvl2(data_scale, ',' || data_scale, '') || ')' else '' end, case nullable when 'N' then 'NOT NULL' else 'NULL' end from all_tab_columns where owner = '{owner}' and table_name = '{object}' union all select constraint_name, 'constraint', constraint_type, status from all_constraints where owner = '{owner}' and table_name = '{object}' union all select index_name, 'index', uniqueness, status from all_indexes where owner = '{owner}' and table_name = '{object}' union all select trigger_name, 'trigger', trigger_type, status from all_triggers where table_owner = '{owner}' and table_name = '{object}' order by 2, 1"
+        )),
+        "view" | "materialized-view" | "external-table" | "json-collection" => Some(format!(
+            "select column_name, 'column', data_type || case when data_type in ('VARCHAR2','CHAR','NVARCHAR2','NCHAR','RAW') then '(' || data_length || ')' when data_type = 'NUMBER' and data_precision is not null then '(' || data_precision || nvl2(data_scale, ',' || data_scale, '') || ')' else '' end, case nullable when 'N' then 'NOT NULL' else 'NULL' end from all_tab_columns where owner = '{owner}' and table_name = '{object}' order by column_id"
+        )),
+        "package" => Some(format!(
+            "select procedure_name, case when procedure_name is null then 'package' when object_type = 'PACKAGE' then 'procedure' else lower(object_type) end, nvl(overload, '-'), object_type from all_procedures where owner = '{owner}' and object_name = '{object}' and procedure_name is not null order by subprogram_id"
+        )),
+        "procedure" | "function" => Some(format!(
+            "select nvl(argument_name, 'RETURN_VALUE'), 'argument', nvl(data_type, type_name), in_out from all_arguments where owner = '{owner}' and object_name = '{object}' order by overload, sequence"
+        )),
+        "type" => Some(format!(
+            "select attr_name, 'attribute', attr_type_name, to_char(attr_no) from all_type_attrs where owner = '{owner}' and type_name = '{object}' union all select method_name, 'method', method_type, to_char(parameters) from all_type_methods where owner = '{owner}' and type_name = '{object}' order by 2, 1"
+        )),
+        _ => None,
+    }
+}
+
+fn quoted_identifier(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn oracle_child_query(
+    parent_kind: &str,
+    child_kind: &str,
+    schema: &str,
+    object_name: &str,
+    child_name: &str,
+) -> Option<String> {
+    match child_kind {
+        "column"
+            if matches!(
+                parent_kind,
+                "table" | "view" | "materialized-view" | "external-table" | "json-collection"
+            ) =>
+        {
+            Some(format!(
+                "select {} from {}.{} fetch first 100 rows only",
+                quoted_identifier(child_name),
+                quoted_identifier(schema),
+                quoted_identifier(object_name)
+            ))
+        }
+        "procedure" | "function" if parent_kind == "package" => Some(format!(
+            "begin {}.{}.{}; end;",
+            quoted_identifier(schema),
+            quoted_identifier(object_name),
+            quoted_identifier(child_name)
+        )),
+        _ => None,
+    }
+}
+
 fn oracle_metadata_notice_node(
     context: &OracleObjectContext,
     category_label: &str,
-    message: &str,
+    query: &str,
+    error: &CommandError,
 ) -> ExplorerNode {
+    let label = match error.code.as_str() {
+        "oracle-sidecar-not-found" | "oracle-sidecar-unavailable" => {
+            "Bundled Oracle runtime unavailable"
+        }
+        "ORA-01017" | "oracle-authentication-failed" => "Oracle authentication failed",
+        "ORA-01031" | "oracle-insufficient-privileges" => "Metadata access restricted",
+        _ => "Oracle metadata query failed",
+    };
     ExplorerNode {
         id: format!(
             "oracle-metadata-unavailable:{}:{category_label}",
             context.key
         ),
         family: "sql".into(),
-        label: "Metadata unavailable".into(),
+        label: label.into(),
         kind: "warning".into(),
-        detail: message.into(),
+        detail: format!("{}: {}", error.code, error.message),
         scope: None,
         path: Some(context.category_path(category_label)),
-        query_template: None,
+        query_template: Some(query.into()),
         expandable: Some(false),
     }
 }
@@ -1314,7 +1573,7 @@ impl NodeDefinition {
 
 pub(crate) fn oracle_table_query(schema: &str, table: &str) -> String {
     format!(
-        "select * from {}.{} where rownum <= 100",
+        "select * from {}.{} fetch first 100 rows only",
         quote_identifier(schema),
         quote_identifier(table)
     )

@@ -449,7 +449,7 @@ export function sqlObjectQueryTemplate(
   }
 
   if (connection.engine === 'oracle') {
-    return `select * from ${qualifySqlName(connection, schema, objectName)} where rownum <= 100;`
+    return `select * from ${qualifySqlName(connection, schema, objectName)} fetch first 100 rows only;`
   }
 
   if (connection.engine === 'duckdb') {

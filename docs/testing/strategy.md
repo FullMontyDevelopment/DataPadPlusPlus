@@ -153,12 +153,14 @@ That validator checks TimescaleDB extension/version visibility, seeded hypertabl
 The Oracle optional fixture evidence path is:
 
 ```powershell
+npm run oracle:sidecar:prepare
+dotnet test apps/desktop/src-tauri/sidecars/oracle/tests/DataPadPlusPlus.OracleSidecar.Tests.csproj --configuration Release
 npm run fixtures:up:profile -- oracle
 npm run fixtures:seed:all
 npm run fixtures:validate:oracle
 ```
 
-That validator checks Oracle seeded relational volume, dictionary/security/storage metadata, DBMS_XPLAN plan output, SQL Monitor visibility or permission-boundary evidence, PL/SQL package source and compile diagnostics, row identity and DML `RETURNING` primitives, bounded SQLPlus export/import evidence, restricted dictionary denial evidence, and Data Pump/RMAN preview boundary wording through transient `fixture_oracle_*` objects. Desktop Oracle SQLPlus query and primary-key/ROWID row-edit execution are now configurable per connection; Data Pump and RMAN execution remain outside the scoped claim until guarded executors are added.
+The managed-sidecar suite checks statement splitting, read-only classification, service/SID/TNS/Easy Connect descriptor construction, and secret-safe error handling. The optional Oracle Free fixture checks seeded relational volume, live managed-driver metadata and SQL/PLSQL behavior, dictionary/security/storage metadata, DBMS_XPLAN plan output, SQL Monitor visibility or permission-boundary evidence, PL/SQL package source and compile diagnostics, row identity and DML `RETURNING` primitives, bounded legacy SQLPlus export/import evidence, restricted dictionary denial evidence, and Data Pump/RMAN preview boundary wording through transient `fixture_oracle_*` objects. Docker is test infrastructure only; the released desktop application bundles its own managed Oracle runtime.
 
 The Cosmos DB emulator optional fixture evidence path is:
 

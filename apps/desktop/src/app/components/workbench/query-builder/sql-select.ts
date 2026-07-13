@@ -84,7 +84,9 @@ export function buildSqlSelectQueryText(
     clauses.push(sortClause)
   }
 
-  if (engine !== 'sqlserver' && limit) {
+  if (engine === 'oracle' && limit) {
+    clauses.push(`fetch first ${limit} rows only`)
+  } else if (engine !== 'sqlserver' && limit) {
     clauses.push(`limit ${limit}`)
   }
 
@@ -259,7 +261,7 @@ function sqlLiteral(
   if (valueType === 'boolean') {
     const truthy = ['true', '1', 'yes'].includes(value.trim().toLowerCase())
 
-    if (engine === 'mysql' || engine === 'mariadb') {
+    if (engine === 'mysql' || engine === 'mariadb' || engine === 'oracle') {
       return truthy ? '1' : '0'
     }
 
@@ -355,8 +357,13 @@ function sortFromQuery(queryText: string): SqlSelectBuilderState['sort'] {
 }
 
 function limitFromQuery(queryText: string, engine: ConnectionProfile['engine']) {
-  const pattern = engine === 'sqlserver' ? /\btop\s+(\d+)/i : /\blimit\s+(\d+)/i
-  const parsed = Number(pattern.exec(queryText)?.[1])
+  const match = engine === 'sqlserver'
+    ? /\btop\s+(\d+)/i.exec(queryText)
+    : engine === 'oracle'
+      ? /\bfetch\s+(?:first|next)\s+(\d+)\s+rows?\s+only/i.exec(queryText) ??
+        /\brownum\s*<=\s*(\d+)/i.exec(queryText)
+      : /\blimit\s+(\d+)/i.exec(queryText)
+  const parsed = Number(match?.[1])
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined
 }
 

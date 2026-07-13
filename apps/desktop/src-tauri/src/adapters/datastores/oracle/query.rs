@@ -7,6 +7,7 @@ use tokio::time::{timeout, Duration};
 
 use super::super::super::*;
 use super::connection::{oracle_connect_descriptor, oracle_service_name, oracle_sqlplus_path};
+use super::sidecar::{execute_oracle_managed, oracle_execution_runtime};
 use super::OracleAdapter;
 
 pub(super) async fn execute_oracle_query(
@@ -23,20 +24,41 @@ pub(super) async fn execute_oracle_query(
             "No Oracle SQL/PLSQL statement was provided.",
         ));
     }
-    if !is_read_only_oracle_statement(statement) {
-        return Err(CommandError::new(
-            "oracle-write-preview-only",
-            "Oracle DDL, DML, PL/SQL mutation, and admin statements are operation-plan preview only in this adapter phase.",
-        ));
-    }
-
     let row_limit = bounded_page_size(
         request
             .row_limit
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
+    let runtime = oracle_execution_runtime(connection);
+    if runtime == "managed" {
+        let response = execute_oracle_managed(connection, request, statement, row_limit).await?;
+        notices.push(QueryExecutionNotice {
+            code: "oracle-managed-live".into(),
+            level: "info".into(),
+            message:
+                "The bundled Oracle runtime executed this request against the configured database."
+                    .into(),
+        });
+        return oracle_managed_result(connection, request, response, notices, row_limit, started);
+    }
+
+    if !is_read_only_oracle_statement(statement) {
+        return Err(CommandError::new(
+            if runtime == "contract" {
+                "oracle-preview-write-blocked"
+            } else {
+                "oracle-sqlplus-write-unsupported"
+            },
+            if runtime == "contract" {
+                "Oracle preview profiles do not execute mutations. Switch to the built-in runtime for guarded SQL and PL/SQL execution."
+            } else {
+                "The legacy SQLPlus query path remains read-only. Switch to the built-in Oracle runtime for guarded SQL and PL/SQL execution."
+            },
+        ));
+    }
     let explain = matches!(execute_mode(request), "explain" | "profile" | "plan");
-    let live_outcome = if let Some(path) = oracle_sqlplus_path(connection) {
+    let live_outcome = if runtime == "sqlplus" {
+        let path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
         if oracle_statement_supports_sqlplus_live(statement) {
             Some(
                 execute_oracle_sqlplus_query(connection, statement, row_limit, explain, &path)
@@ -52,8 +74,13 @@ pub(super) async fn execute_oracle_query(
             });
             None
         }
-    } else {
+    } else if runtime == "contract" {
         None
+    } else {
+        return Err(CommandError::new(
+            "oracle-runtime-unsupported",
+            format!("Oracle execution runtime '{runtime}' is not supported."),
+        ));
     };
 
     let (response, columns, rows, live_execution, plan_payload, summary_prefix) = if let Some(
@@ -155,6 +182,175 @@ pub(super) async fn execute_oracle_query(
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
         truncated: false,
+        explain_payload: None,
+    }))
+}
+
+fn oracle_managed_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    response: Value,
+    mut notices: Vec<QueryExecutionNotice>,
+    row_limit: u32,
+    started: Instant,
+) -> Result<ExecutionResultEnvelope, CommandError> {
+    let sections = response
+        .get("sections")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut rendered_sections = Vec::new();
+    let mut primary_payload = None;
+    let mut total_rows = 0usize;
+    let mut total_affected = 0u64;
+    let mut truncated = false;
+
+    for (index, section) in sections.iter().enumerate() {
+        let columns = section
+            .get("columns")
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|column| column.get("name").and_then(Value::as_str))
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let rows = section
+            .get("rows")
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_array)
+                    .map(|row| row.iter().map(oracle_value_to_string).collect::<Vec<_>>())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let affected = section
+            .get("affectedRows")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let kind = section
+            .get("statementKind")
+            .and_then(Value::as_str)
+            .unwrap_or("statement");
+        let duration = section
+            .get("durationMs")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let section_truncated = section
+            .get("truncated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        total_rows += rows.len();
+        total_affected += affected;
+        truncated |= section_truncated;
+        let payload = if columns.is_empty() {
+            payload_raw(format!(
+                "Oracle {kind} completed successfully{}.",
+                if affected > 0 {
+                    format!(" and affected {affected} row(s)")
+                } else {
+                    String::new()
+                }
+            ))
+        } else {
+            payload_table(columns, rows)
+        };
+        if primary_payload.is_none() {
+            primary_payload = Some(payload.clone());
+        }
+        let renderer = payload
+            .get("renderer")
+            .and_then(Value::as_str)
+            .unwrap_or("raw")
+            .to_string();
+        rendered_sections.push(batch_section(BatchSectionPayload {
+            id: format!("oracle-result-{}", index + 1),
+            label: format!("Result {}", index + 1),
+            statement: None,
+            status: "success",
+            duration_ms: Some(duration),
+            row_count: Some(
+                section
+                    .get("rows")
+                    .and_then(Value::as_array)
+                    .map(Vec::len)
+                    .unwrap_or_default(),
+            ),
+            default_renderer: renderer.clone(),
+            renderer_modes: vec![renderer],
+            payloads: vec![payload],
+            notices: Vec::new(),
+        }));
+    }
+
+    if let Some(lines) = response.get("dbmsOutput").and_then(Value::as_array) {
+        let output = lines
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !output.is_empty() {
+            notices.push(QueryExecutionNotice {
+                code: "oracle-dbms-output".into(),
+                level: "info".into(),
+                message: output,
+            });
+        }
+    }
+
+    let main_payload = if rendered_sections.len() > 1 {
+        payload_batch(
+            rendered_sections,
+            format!("{} Oracle result section(s) returned.", sections.len()),
+        )
+    } else {
+        primary_payload
+            .unwrap_or_else(|| payload_raw("Oracle statement completed successfully.".into()))
+    };
+    let profile = payload_profile(
+        "Oracle managed execution profile.",
+        json!({
+            "runtime": "managed-odpnet",
+            "service": oracle_service_name(connection),
+            "mode": execute_mode(request),
+            "durationMs": response.get("durationMs").cloned().unwrap_or(Value::Null),
+            "committed": response.get("committed").cloned().unwrap_or(Value::Bool(false))
+        }),
+    );
+    let payloads = vec![
+        main_payload,
+        payload_json(response),
+        profile,
+        payload_metrics(json!([{
+            "name": "oracle.execution.rows",
+            "value": total_rows,
+            "unit": "rows",
+            "labels": { "service": oracle_service_name(connection) }
+        }, {
+            "name": "oracle.execution.affected_rows",
+            "value": total_affected,
+            "unit": "rows",
+            "labels": { "service": oracle_service_name(connection) }
+        }])),
+    ];
+    let (default_renderer, renderer_modes_owned) = renderer_modes_for_payloads(&payloads);
+    let renderer_modes = renderer_modes_owned.iter().map(String::as_str).collect();
+    Ok(build_result(ResultEnvelopeInput {
+        engine: &connection.engine,
+        summary: format!(
+            "Oracle returned {total_rows} row(s) and affected {total_affected} row(s)."
+        ),
+        default_renderer: &default_renderer,
+        renderer_modes,
+        payloads,
+        notices,
+        duration_ms: duration_ms(started),
+        row_limit: Some(row_limit),
+        truncated,
         explain_payload: None,
     }))
 }

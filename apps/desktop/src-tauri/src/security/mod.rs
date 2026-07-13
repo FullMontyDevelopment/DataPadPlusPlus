@@ -511,7 +511,43 @@ fn classify_query_risk(connection: &ConnectionProfile, query_text: &str) -> Quer
     match connection.engine.as_str() {
         "mongodb" => classify_mongodb_query_risk(query_text),
         "redis" | "valkey" => classify_redis_query_risk(query_text),
+        "oracle" => classify_oracle_query_risk(query_text),
         _ => classify_tokenized_query_risk(query_text),
+    }
+}
+
+fn classify_oracle_query_risk(query_text: &str) -> QueryRisk {
+    let tokens = oracle_query_tokens(query_text);
+    let first = tokens.first().map(String::as_str).unwrap_or_default();
+    let plsql_or_call = matches!(first, "begin" | "declare" | "call" | "exec" | "execute");
+    let transaction_control = matches!(first, "commit" | "rollback" | "savepoint" | "set");
+    let locking_select = tokens
+        .windows(2)
+        .any(|window| window[0] == "for" && window[1] == "update");
+    let dynamic_sql = tokens
+        .windows(2)
+        .any(|window| window[0] == "execute" && window[1] == "immediate");
+    let admin = tokens
+        .windows(2)
+        .any(|window| window[0] == "alter" && matches!(window[1].as_str(), "system" | "session"))
+        || first == "lock";
+    let generic = classify_tokens(&tokens);
+    let always_confirm = if plsql_or_call || transaction_control || dynamic_sql || admin {
+        Some("Oracle PL/SQL, transaction, and administrative statements require confirmation before execution.")
+    } else if locking_select {
+        Some("Oracle SELECT FOR UPDATE acquires row locks and requires confirmation before execution.")
+    } else {
+        generic.always_confirm_reason
+    };
+
+    QueryRisk {
+        looks_write: generic.looks_write
+            || plsql_or_call
+            || transaction_control
+            || locking_select
+            || dynamic_sql
+            || admin,
+        always_confirm_reason: always_confirm,
     }
 }
 
@@ -630,6 +666,10 @@ fn classify_redis_query_risk(query_text: &str) -> QueryRisk {
 
 fn classify_tokenized_query_risk(query_text: &str) -> QueryRisk {
     let tokens = query_tokens(query_text);
+    classify_tokens(&tokens)
+}
+
+fn classify_tokens(tokens: &[String]) -> QueryRisk {
     let looks_write = tokens.iter().any(|token| {
         matches!(
             token.as_str(),
@@ -660,6 +700,69 @@ fn classify_tokenized_query_risk(query_text: &str) -> QueryRisk {
         always_confirm_reason: destructive
             .then_some("Destructive operations require confirmation before execution."),
     }
+}
+
+fn oracle_query_tokens(query_text: &str) -> Vec<String> {
+    let mut scrubbed = String::with_capacity(query_text.len());
+    let mut characters = query_text.chars().peekable();
+    let mut single_quote = false;
+    let mut double_quote = false;
+    let mut line_comment = false;
+    let mut block_comment = false;
+
+    while let Some(character) = characters.next() {
+        let next = characters.peek().copied();
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+                scrubbed.push(' ');
+            }
+            continue;
+        }
+        if block_comment {
+            if character == '*' && next == Some('/') {
+                characters.next();
+                block_comment = false;
+                scrubbed.push(' ');
+            }
+            continue;
+        }
+        if !single_quote && !double_quote && character == '-' && next == Some('-') {
+            characters.next();
+            line_comment = true;
+            continue;
+        }
+        if !single_quote && !double_quote && character == '/' && next == Some('*') {
+            characters.next();
+            block_comment = true;
+            continue;
+        }
+        if !double_quote && character == '\'' {
+            if single_quote && next == Some('\'') {
+                characters.next();
+                continue;
+            }
+            single_quote = !single_quote;
+            scrubbed.push(' ');
+            continue;
+        }
+        if !single_quote && character == '"' {
+            if double_quote && next == Some('"') {
+                characters.next();
+                continue;
+            }
+            double_quote = !double_quote;
+            scrubbed.push(' ');
+            continue;
+        }
+        scrubbed.push(if single_quote || double_quote {
+            ' '
+        } else {
+            character
+        });
+    }
+
+    query_tokens(&scrubbed)
 }
 
 fn query_tokens(query_text: &str) -> Vec<String> {

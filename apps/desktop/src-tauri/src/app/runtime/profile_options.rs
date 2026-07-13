@@ -280,6 +280,7 @@ pub(super) fn interpolate_oracle_options(
         use_tls: options.use_tls,
         wallet_path: options.wallet_path.as_deref().map(interpolate),
         wallet_password_secret_ref: options.wallet_password_secret_ref.clone(),
+        tns_admin_path: options.tns_admin_path.as_deref().map(interpolate),
         ca_certificate_path: options.ca_certificate_path.as_deref().map(interpolate),
         client_certificate_path: options.client_certificate_path.as_deref().map(interpolate),
         client_key_path: options.client_key_path.as_deref().map(interpolate),

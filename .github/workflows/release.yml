@@ -222,6 +222,11 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Setup .NET for bundled Oracle runtime
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
       - name: Install Rust
         if: matrix.rust-targets == ''
         uses: dtolnay/rust-toolchain@stable
@@ -552,17 +557,42 @@ jobs:
             throw "Expected release executable was not found at $binaryPath"
           }
 
+          $sidecarSourceName = if ($IsWindows) {
+            "datapadplusplus-oracle-runtime-x86_64-pc-windows-msvc.exe"
+          } elseif ($IsLinux) {
+            "datapadplusplus-oracle-runtime-x86_64-unknown-linux-gnu"
+          } else {
+            "datapadplusplus-oracle-runtime-aarch64-apple-darwin"
+          }
+          $sidecarSource = Join-Path "apps/desktop/src-tauri/binaries" $sidecarSourceName
+          if (-not (Test-Path -LiteralPath $sidecarSource)) {
+            throw "Expected bundled Oracle runtime was not found at $sidecarSource"
+          }
+
           $assetsDir = "release-assets"
           New-Item -ItemType Directory -Force -Path $assetsDir | Out-Null
+
+          $portableDir = Join-Path $assetsDir "portable"
+          New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
+          Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $portableDir $binaryName)
+          $sidecarPortableName = if ($IsWindows) { "datapadplusplus-oracle-runtime.exe" } else { "datapadplusplus-oracle-runtime" }
+          Copy-Item -LiteralPath $sidecarSource -Destination (Join-Path $portableDir $sidecarPortableName)
+          $oracleLicense = "apps/desktop/src-tauri/resources/licenses/Oracle.ManagedDataAccess.Core-LICENSE.txt"
+          if (-not (Test-Path -LiteralPath $oracleLicense)) {
+            throw "Expected Oracle.ManagedDataAccess.Core license was not found at $oracleLicense"
+          }
+          Copy-Item -LiteralPath $oracleLicense -Destination (Join-Path $portableDir "Oracle.ManagedDataAccess.Core-LICENSE.txt")
 
           $baseName = "DataPadPlusPlus-$($env:RELEASE_VERSION)-$($env:ARTIFACT_SUFFIX)-executable"
           if ($IsWindows) {
             $archivePath = Join-Path $assetsDir "$baseName.zip"
-            Compress-Archive -LiteralPath $binaryPath -DestinationPath $archivePath -Force
+            Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $archivePath -Force
           } else {
             $archivePath = Join-Path $assetsDir "$baseName.tar.gz"
-            tar -czf $archivePath -C $releaseDir $binaryName
+            tar -czf $archivePath -C $portableDir .
           }
+
+          Remove-Item -LiteralPath $portableDir -Recurse -Force
 
           Get-ChildItem -LiteralPath $assetsDir | Format-Table Name,Length
 

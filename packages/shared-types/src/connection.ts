@@ -421,7 +421,7 @@ export type OracleConnectionRole =
   | 'syskm'
   | 'sysrac'
 
-export type OracleExecutionRuntime = 'contract' | 'sqlplus'
+export type OracleExecutionRuntime = 'managed' | 'contract' | 'sqlplus'
 
 export interface OracleConnectionOptions {
   connectMode?: OracleConnectMode
@@ -451,6 +451,7 @@ export interface OracleConnectionOptions {
   useTls?: boolean
   walletPath?: string
   walletPasswordSecretRef?: SecretRef
+  tnsAdminPath?: string
   caCertificatePath?: string
   clientCertificatePath?: string
   clientKeyPath?: string

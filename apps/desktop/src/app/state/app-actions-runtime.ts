@@ -10,7 +10,7 @@ import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { buildConnectionTestFailure } from './connection-test-results'
 import { shouldRecordConnectionIssue } from './connection-health'
 import { createId } from './helpers'
-import { toUserMessage } from './app-state-selectors'
+import { toUserError, toUserMessage } from './app-state-selectors'
 import type { Actions, AppActionContext } from './app-state-types'
 import {
   isTabVisible,
@@ -428,11 +428,13 @@ export function useRuntimeActions({
           executionWithId.result?.durationMs,
         )
       } catch (error) {
-        const message = toUserMessage(error, 'Query execution failed.')
+        const userError = toUserError(error, 'Query execution failed.')
+        const message = userError.message
         dispatch({
           type: 'EXECUTION_FAILED',
           tabId,
           executionId,
+          code: userError.code,
           message,
         })
         const latestTab = stateRef.current.payload?.snapshot.tabs.find((item) => item.id === tabId)

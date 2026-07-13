@@ -11,6 +11,21 @@ export function toUserMessage(error: unknown, fallback: string) {
   return redactErrorMessage(error, fallback)
 }
 
+export function toUserError(error: unknown, fallback: string) {
+  const code =
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    typeof (error as { code?: unknown }).code === 'string'
+      ? (error as { code: string }).code.trim()
+      : ''
+
+  return {
+    code: /^[A-Za-z0-9_.-]{1,80}$/.test(code) ? code : 'execution-error',
+    message: toUserMessage(error, fallback),
+  }
+}
+
 export function findConnection(
   snapshot: WorkspaceSnapshot,
   connectionId: string,

@@ -163,7 +163,36 @@ function classifyQueryRisk(connection: ConnectionProfile, queryText: string): Qu
     return classifyRedisQueryRisk(queryText)
   }
 
+  if (connection.engine === 'oracle') {
+    return classifyOracleQueryRisk(queryText)
+  }
+
   return classifyTokenizedQueryRisk(queryText)
+}
+
+function classifyOracleQueryRisk(queryText: string): QueryRisk {
+  const tokens = queryTokens(stripOracleCommentsAndLiterals(queryText))
+  const first = tokens[0] ?? ''
+  const plsqlOrCall = ['begin', 'declare', 'call', 'exec', 'execute'].includes(first)
+  const transactionControl = ['commit', 'rollback', 'savepoint', 'set'].includes(first)
+  const lockingSelect = tokenSequence(tokens, 'for', 'update')
+  const dynamicSql = tokenSequence(tokens, 'execute', 'immediate')
+  const admin = tokenSequence(tokens, 'alter', 'system') ||
+    tokenSequence(tokens, 'alter', 'session') || first === 'lock'
+  const generic = classifyTokens(tokens)
+  if (plsqlOrCall || transactionControl || dynamicSql || admin) {
+    return {
+      looksWrite: true,
+      alwaysConfirmReason: 'Oracle PL/SQL, transaction, and administrative statements require confirmation before execution.',
+    }
+  }
+  if (lockingSelect) {
+    return {
+      looksWrite: true,
+      alwaysConfirmReason: 'Oracle SELECT FOR UPDATE acquires row locks and requires confirmation before execution.',
+    }
+  }
+  return generic
 }
 
 function classifyMongoQueryRisk(queryText: string): QueryRisk {
@@ -265,6 +294,10 @@ function classifyRedisQueryRisk(queryText: string): QueryRisk {
 
 function classifyTokenizedQueryRisk(queryText: string): QueryRisk {
   const tokens = queryTokens(queryText)
+  return classifyTokens(tokens)
+}
+
+function classifyTokens(tokens: string[]): QueryRisk {
   const looksWrite = tokens.some((token) =>
     [
       'insert',
@@ -292,6 +325,18 @@ function classifyTokenizedQueryRisk(queryText: string): QueryRisk {
       ? 'Destructive operations require confirmation before execution.'
       : undefined,
   }
+}
+
+function tokenSequence(tokens: string[], first: string, second: string) {
+  return tokens.some((token, index) => token === first && tokens[index + 1] === second)
+}
+
+function stripOracleCommentsAndLiterals(queryText: string) {
+  return queryText
+    .replace(/--[^\r\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/'(?:''|[^'])*'/g, ' ')
+    .replace(/"(?:""|[^"])*"/g, ' ')
 }
 
 function queryTokens(queryText: string) {

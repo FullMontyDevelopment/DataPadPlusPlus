@@ -316,6 +316,7 @@ pub struct OracleConnectionOptions {
     pub use_tls: Option<bool>,
     pub wallet_path: Option<String>,
     pub wallet_password_secret_ref: Option<SecretRef>,
+    pub tns_admin_path: Option<String>,
     pub ca_certificate_path: Option<String>,
     pub client_certificate_path: Option<String>,
     pub client_key_path: Option<String>,

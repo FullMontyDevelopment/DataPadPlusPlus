@@ -957,6 +957,33 @@ describe('SQL SELECT query builder', () => {
     )
   })
 
+  it('uses Oracle row limiting, quoted owners, and numeric boolean literals', () => {
+    expect(
+      buildSqlSelectQueryText(
+        {
+          kind: 'sql-select',
+          schema: 'DATAPADPLUSPLUS',
+          table: 'ACCOUNTS',
+          projectionFields: [{ id: 'field-account-id', field: 'ACCOUNT_ID' }],
+          filters: [{
+            id: 'filter-active',
+            enabled: true,
+            field: 'IS_ACTIVE',
+            operator: 'eq',
+            value: 'true',
+            valueType: 'boolean',
+          }],
+          filterLogic: 'and',
+          sort: [],
+          limit: 100,
+        },
+        'oracle',
+      ),
+    ).toBe(
+      'select "ACCOUNT_ID" from "DATAPADPLUSPLUS"."ACCOUNTS" where "IS_ACTIVE" = 1 fetch first 100 rows only;',
+    )
+  })
+
   it('parses simple table SELECTs back into builder state', () => {
     expect(parseSqlSelectQueryText('select top 50 [order_id], [status] from [dbo].[orders] order by [order_id] desc;', 'sqlserver')).toMatchObject({
       kind: 'sql-select',
@@ -984,6 +1011,33 @@ describe('SQL SELECT query builder', () => {
         { field: 'status' },
       ],
       limit: 30,
+    })
+
+    expect(
+      parseSqlSelectQueryText(
+        'select "ACCOUNT_ID", "STATUS" from "DATAPADPLUSPLUS"."ACCOUNTS" fetch first 75 rows only;',
+        'oracle',
+      ),
+    ).toMatchObject({
+      kind: 'sql-select',
+      schema: 'DATAPADPLUSPLUS',
+      table: 'ACCOUNTS',
+      projectionFields: [
+        { field: 'ACCOUNT_ID' },
+        { field: 'STATUS' },
+      ],
+      limit: 75,
+    })
+
+    expect(
+      parseSqlSelectQueryText(
+        'select * from "DATAPADPLUSPLUS"."ACCOUNTS" where rownum <= 25;',
+        'oracle',
+      ),
+    ).toMatchObject({
+      schema: 'DATAPADPLUSPLUS',
+      table: 'ACCOUNTS',
+      limit: 25,
     })
   })
 })

@@ -46,6 +46,7 @@ interface ResultsViewProps {
   onPlanOperation?(
     request: OperationPlanRequest,
   ): Promise<OperationPlanResponse | undefined>
+  onEditConnection?(): void
 }
 
 export function ResultsView({
@@ -63,6 +64,7 @@ export function ResultsView({
   onFetchDocumentNodeChildren,
   onExecuteDataEdit,
   onPlanOperation,
+  onEditConnection,
 }: ResultsViewProps) {
   const [operationMessage, setOperationMessage] = useState('')
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
@@ -128,6 +130,22 @@ export function ResultsView({
     return (
       <div className="panel-body-frame panel-body-frame--results">
         <TestRunResultsView run={activeTab.testRun} />
+      </div>
+    )
+  }
+
+  if (activeTab?.error) {
+    return (
+      <div className="panel-body-frame panel-body-frame--results">
+        <div className="result-error-state" role="alert">
+          <strong>{activeTab.error.code}</strong>
+          <span>{activeTab.error.message}</span>
+          {onEditConnection ? (
+            <button type="button" className="drawer-button" onClick={onEditConnection}>
+              Edit Connection
+            </button>
+          ) : null}
+        </div>
       </div>
     )
   }

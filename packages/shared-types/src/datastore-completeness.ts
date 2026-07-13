@@ -736,26 +736,26 @@ const SQLITE_PROFILE = profile({
 const ORACLE_RELATIONAL_PROFILE = profile({
   ...RELATIONAL_CORE_PROFILE,
   'connection-flow': strong(
-    'Oracle connection flow now has typed service-name, SID, TNS alias, Easy Connect, TCPS/cloud-wallet, wallet/certificate, proxy user, connection role, SQLPlus runtime/path, NLS, fetch-size, timeout, pool, client identifier, application, and edition option contracts across shared types, right-drawer fields, Rust descriptor interpolation, connection-test runtime warnings, and secret-safe pass-through.',
+    'Oracle Database 19c+ uses a bundled managed ODP.NET runtime by default with real connection testing and typed service-name, SID, TNS alias, Easy Connect, TCPS/cloud-wallet, TNS admin path, proxy user, connection role, NLS, fetch-size, timeout, pool, client identifier, application, and edition options. Credentials travel only over the sidecar stdin channel and are redacted from errors and diagnostics; SQLPlus remains an explicit legacy fallback.',
     [
       'Optional extension: add broader live fixture coverage for wallet, TNS alias, proxy-user, role, and managed-service connection variants without storing wallet or credential material.',
     ],
   ),
   'object-tree': strong(
-    'Oracle exposes SQL Developer-style container, schema, table, view, materialized view, synonym, sequence, PL/SQL function/procedure/package/type, JSON collection, external table, database link, security, storage, performance, and diagnostics branches across shared tree manifests, browser preview routing, Rust explorer routing, and focused sidebar tests, while optional enterprise surfaces stay hidden unless requested or granted.',
+    'Oracle exposes permission-aware live database and schema branches for tables with columns, constraints, indexes, and triggers; views and materialized views; synonyms; sequences; functions, procedures, packages, and arguments; types; JSON collections; external tables; database links; security; storage; performance; and diagnostics. Current-schema objects stay under Databases/<service>, other owners stay under Schemas, and restricted dictionary access never creates fixture objects.',
     [
       'Optional extension: add live capability probing for DBA/V$/GV$, Data Guard, RAC, Scheduler, Queue, Flashback, and managed-service surfaces before promoting those branches beyond permission-aware previews.',
     ],
   ),
   'query-surface': strong(
-    'Oracle now has a guarded live SQLPlus query surface when a SQLPlus runtime/path is configured: the desktop adapter uses a single-statement read guard, SQLPlus /nolog stdin credential flow, password redaction, request timeouts, bounded row wrapping, CSV normalization, EXPLAIN PLAN/DBMS_XPLAN result handling, Oracle-specific query templates, SQL Developer-style object query actions, safe contract fallback, and optional fixture evidence for DBMS_XPLAN output.',
+    'Oracle has a guarded bundled-driver query surface for SELECT/WITH, DML, DDL, MERGE, transaction control, procedure calls, and multi-statement or slash-terminated PL/SQL. One session is used per run, pending successful DML commits at the end, failures roll back, explicit transaction statements are honored, cancellation and timeouts are supported, row and LOB limits are enforced while reading, and table/JSON/raw/affected-row/multiple-result/DBMS-output/explain/profile payloads use existing result contracts.',
     [
-      'Optional extension: add a thin-driver or OCI-native path, cancellation, server-side cursor paging, and live SQL Monitor report rendering after client prerequisites are documented.',
-      'Keep PL/SQL mutation/admin execution behind guarded operation planners until permission, transaction, and rollback boundaries are adapter-backed.',
+      'Optional extension: add cross-run pinned transaction sessions and richer live SQL Monitor report rendering.',
+      'Keep SQLPlus client commands and external administration utilities outside managed-driver script execution.',
     ],
   ),
   intellisense: strong(
-    'Oracle IntelliSense now layers Oracle keywords, functions, DBMS_XPLAN, SQL Monitor, session/wait, invalid-object, compile-error, package-source, function, procedure, and package snippets plus Oracle-safe identifier quoting on top of the shared SQL metadata provider.',
+    'Oracle IntelliSense loads Oracle keywords, functions, snippets, and safe identifier quoting immediately, then refreshes from bounded live owner, object, column, key, relationship, package, and routine metadata. It understands Oracle object kinds and excludes incompatible generic LIMIT, OFFSET, and date_trunc suggestions.',
     [
       'Optional extension: enrich completions from live ALL_ARGUMENTS, ALL_SOURCE, ALL_SYNONYMS, DBA_/V$ capability probes, and package overload metadata once live metadata loaders are added.',
     ],
@@ -767,7 +767,7 @@ const ORACLE_RELATIONAL_PROFILE = profile({
     ],
   ),
   'safe-editing': strong(
-    'Oracle row editing now has a scoped SQLPlus-backed live executor for insert/update/delete row flows with table validation, primary-key or ROWID identity, bounded before/after evidence, read-only and confirmation guards, explicit commit only after evidence collection, and plan-only downshift when SQLPlus is not configured.',
+    'Oracle writes are available through guarded managed-driver editor execution. Scoped data-grid insert/update/delete flows retain primary-key or ROWID identity, bounded before/after evidence, read-only and confirmation guards, and the explicit SQLPlus legacy executor until those edit plans are moved to the managed protocol.',
     [
       'Optional extension: add thin/OCI driver execution, richer affected-row telemetry, cancellation, and fixture variants for proxy-user, wallet, and role-gated edit failures.',
       'Keep DDL, grant, compile, import/export, Data Pump, and RMAN workflows preview-first until Oracle permission checks and rollback boundaries are adapter-backed.',
@@ -792,10 +792,10 @@ const ORACLE_RELATIONAL_PROFILE = profile({
     ],
   ),
   tests: strong(
-    'Oracle has deterministic tree, object-view, operation-plan, DBMS_XPLAN-shaped contract, IntelliSense, browser-preview, Rust explorer/query/editing, SQLPlus script/CSV/redaction unit coverage, and Oracle optional fixture validator coverage for seeded volume, dictionary/security/storage metadata, DBMS_XPLAN, SQL Monitor boundaries, PL/SQL compile diagnostics, row identity primitives, SQLPlus export/import boundaries, restricted dictionary denial, and Data Pump/RMAN preview boundaries.',
+    'Oracle has managed-sidecar protocol, connection descriptor, script splitting, read-only classification, transaction, type conversion, error redaction, runtime selection, live metadata hierarchy, structure-map, generated SQL, query-builder, IntelliSense, result error, guardrail, SQLPlus fallback, and optional Oracle fixture coverage.',
     [
-      'Add optional live SQLPlus edit execution tests and thin/OCI driver tests once Oracle client prerequisites and CI-safe credentials are documented.',
-      'Add adapter-owned browser/Rust coverage for permission-specific dictionary and SQL Monitor disabled reasons once live errors are normalized.',
+      'Add optional live wallet, TNS alias, proxy-user, administrative-role, and permission-limited deployment variants.',
+      'Keep release smoke tests proving each installer and portable archive contains the matching managed runtime.',
     ],
   ),
 })
@@ -1550,7 +1550,7 @@ const ENGINE_OVERRIDES: Partial<
     nativeScore: 5,
     targetPhase: 2,
     summary:
-      'Oracle is native-complete for the scoped SQLPlus-backed SQL workflow with typed Oracle connection/profile options, configurable SQLPlus live SELECT/EXPLAIN execution, primary-key/ROWID guarded row edits with before/after evidence, SQL Developer-style trees, Oracle-specific IntelliSense, descriptor-backed object views, DBMS_XPLAN-shaped plan/profile payloads, guarded SQLPlus/Data Pump import/export and RMAN previews, diagnostics/storage/security contracts, and optional Oracle fixture validation for seeded volume, DBMS_XPLAN, SQL Monitor boundaries, PL/SQL compile diagnostics, row identity primitives, restricted dictionary denial, and preview-first file/backup boundaries; thin/OCI drivers, Data Pump/RMAN execution, and broader admin execution remain optional extensions.',
+      'Oracle Database 19c+ is native-complete for the scoped bundled-driver workflow: self-contained managed runtime packaging, real connection tests, SQL and PL/SQL execution, per-run transactions, cancellation, bounded typed results, permission-aware live explorer and structure metadata, Oracle-specific generated SQL and IntelliSense, shared write guardrails, DBMS output and plan/profile payloads, optional SQLPlus legacy execution, and Oracle fixture validation. Cross-run pinned transactions, Data Pump/RMAN execution, managed data-grid row editing, and broader licensed/admin diagnostics remain optional extensions.',
     profile: ORACLE_RELATIONAL_PROFILE,
   },
   timescaledb: {

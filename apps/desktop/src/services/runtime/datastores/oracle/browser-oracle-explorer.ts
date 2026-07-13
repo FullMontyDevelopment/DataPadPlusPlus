@@ -517,7 +517,7 @@ function oracleCategoryObjectNodes(context: OracleObjectContext, category: strin
       `oracle-${objectKind}:${context.key}:${objectName}`,
       objectName,
       objectKind,
-      `${oracleObjectDetail(category, row)} | Contract preview; configure SQLPlus for live metadata.`,
+      `${oracleObjectDetail(category, row)} | Browser preview; live Oracle metadata is available in the desktop app.`,
       `${objectKind}:${context.schema}.${objectName}`,
       path,
       false,
@@ -644,7 +644,7 @@ function oracleObjectQueryTemplate(category: string, schema: string, objectName:
     case 'materialized-views':
     case 'json-collections':
     case 'external-tables':
-      return `select * from "${schema.replaceAll('"', '""')}"."${objectName.replaceAll('"', '""')}" where rownum <= 100;`
+      return `select * from "${schema.replaceAll('"', '""')}"."${objectName.replaceAll('"', '""')}" fetch first 100 rows only;`
     case 'synonyms':
       return `select owner, synonym_name, table_owner, table_name, db_link from all_synonyms where owner = '${owner}' and synonym_name = '${name}';`
     case 'sequences':
@@ -750,7 +750,7 @@ function oracleInspectQueryTemplateForKind(kind: string, label: string) {
     return 'select * from table(dbms_xplan.display);'
   }
 
-  return `select owner, object_name, object_type, status from all_objects where object_name = '${label}' or rownum <= 100;`
+  return `select owner, object_name, object_type, status from all_objects where object_name = '${oracleSqlLiteral(label)}' fetch first 100 rows only;`
 }
 
 function oracleTableRows(schema: string) {

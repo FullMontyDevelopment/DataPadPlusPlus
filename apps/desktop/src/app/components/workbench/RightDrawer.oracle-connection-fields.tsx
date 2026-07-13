@@ -20,6 +20,7 @@ export function OracleAdvancedFields({
 
   const tlsEnabled =
     options.useTls ?? (options.connectMode === 'tcps' || options.connectMode === 'cloud-wallet')
+  const executionRuntime = options.executionRuntime ?? 'managed'
 
   return (
     <div className="connection-advanced-section" aria-label="Oracle connection options">
@@ -102,25 +103,28 @@ export function OracleAdvancedFields({
         <FormField label="Execution runtime">
           <select
             aria-label="Oracle execution runtime"
-            value={options.executionRuntime ?? 'contract'}
+            value={executionRuntime}
             onChange={(event) =>
               updateOptions({
                 executionRuntime: event.target.value as OracleConnectionOptions['executionRuntime'],
               })
             }
           >
-            <option value="contract">Contract preview</option>
-            <option value="sqlplus">SQLPlus client</option>
+            <option value="managed">Built-in Oracle driver</option>
+            <option value="sqlplus">SQLPlus legacy fallback</option>
+            <option value="contract">Preview only (no connection)</option>
           </select>
         </FormField>
-        <FormField label="SQLPlus path">
-          <input
-            aria-label="Oracle SQLPlus path"
-            value={options.sqlPlusPath ?? ''}
-            placeholder="sqlplus"
-            onChange={(event) => updateOptions({ sqlPlusPath: event.target.value || undefined })}
-          />
-        </FormField>
+        {executionRuntime === 'sqlplus' ? (
+          <FormField label="SQLPlus path">
+            <input
+              aria-label="Oracle SQLPlus path"
+              value={options.sqlPlusPath ?? ''}
+              placeholder="sqlplus"
+              onChange={(event) => updateOptions({ sqlPlusPath: event.target.value || undefined })}
+            />
+          </FormField>
+        ) : <span />}
       </div>
 
       <div className="connection-advanced-grid">
@@ -236,27 +240,18 @@ export function OracleAdvancedFields({
               }
             />
           </FormField>
-          <div className="connection-advanced-grid">
-            <FormField label="CA certificate">
-              <input
-                aria-label="Oracle CA certificate path"
-                value={options.caCertificatePath ?? ''}
-                onChange={(event) =>
-                  updateOptions({ caCertificatePath: event.target.value || undefined })
-                }
-              />
-            </FormField>
-            <FormField label="Client certificate">
-              <input
-                aria-label="Oracle client certificate path"
-                value={options.clientCertificatePath ?? ''}
-                onChange={(event) =>
-                  updateOptions({ clientCertificatePath: event.target.value || undefined })
-                }
-              />
-            </FormField>
-          </div>
         </>
+      ) : null}
+
+      {(options.connectMode === 'tns-alias' || options.connectMode === 'cloud-wallet') ? (
+        <FormField label="TNS admin path">
+          <input
+            aria-label="Oracle TNS admin path"
+            value={options.tnsAdminPath ?? ''}
+            placeholder="C:/oracle/network/admin"
+            onChange={(event) => updateOptions({ tnsAdminPath: event.target.value || undefined })}
+          />
+        </FormField>
       ) : null}
 
       <div className="connection-advanced-grid">

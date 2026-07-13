@@ -272,6 +272,10 @@ These items affect many engines and should be finished before declaring the plat
 4. Add optional fixture/cloud validation for Wave 4 and Wave 5 engines while keeping default CI dependency-free.
 5. Promote selected contract-only operation previews to guarded live execution once adapter-owned permission, cost, environment, rollback, and confirmation checks exist.
 
+## Oracle Managed Runtime Checkpoint
+
+- **2026-07-13:** Oracle Database 19c+ now defaults to a bundled self-contained managed ODP.NET Core sidecar. It provides real connection tests, live SQL/PLSQL, one-session-per-run transaction handling, cancellation, bounded typed results, DBMS output, permission-aware `USER_*`/`ALL_*` explorer and structure metadata, live IntelliSense refresh, and Oracle-specific generated SQL. No Oracle Client, SQLPlus, Docker, or separately installed .NET runtime is required for end users. SQLPlus remains an explicit legacy fallback; managed data-grid edits, cross-run transactions, Data Pump/RMAN execution, and broader licensed/admin surfaces remain optional extensions.
+
 ## Documentation Rule
 
 When datastore features change, update these together:

@@ -201,6 +201,37 @@ fn tokenized_write_detection_ignores_keyword_inside_identifier() {
 }
 
 #[test]
+fn oracle_guardrails_confirm_plsql_locks_and_block_read_only_writes() {
+    let mut oracle = connection(false);
+    oracle.engine = "oracle".into();
+
+    for statement in [
+        "begin dbms_output.put_line('ready'); end;",
+        "select * from accounts for update",
+        "alter session set current_schema = APP",
+    ] {
+        let decision = evaluate_guardrails(
+            &oracle,
+            &environment("low", false, false),
+            &resolved_environment(Vec::new()),
+            statement,
+            true,
+        );
+        assert_eq!(decision.status, "confirm", "{statement}");
+    }
+
+    oracle.read_only = true;
+    let blocked = evaluate_guardrails(
+        &oracle,
+        &environment("low", false, false),
+        &resolved_environment(Vec::new()),
+        "begin delete from accounts; end;",
+        true,
+    );
+    assert_eq!(blocked.status, "block");
+}
+
+#[test]
 fn connection_string_secret_detection_catches_common_secret_shapes() {
     assert!(connection_string_contains_secret(
         "mongodb://user:secret@localhost:27017/catalog"

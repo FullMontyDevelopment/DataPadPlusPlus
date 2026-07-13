@@ -184,8 +184,8 @@ function buildSqlItems(
     : context.catalog.fields
 
   return uniqueSuggestions([
-    ...SQL_KEYWORDS.map((keyword) => suggestion(keyword, keyword, 'keyword')),
-    ...SQL_FUNCTIONS.map((fn) => suggestion(fn, `${fn}()`, 'function')),
+    ...sqlKeywordsForContext(context).map((keyword) => suggestion(keyword, keyword, 'keyword')),
+    ...sqlFunctionsForContext(context).map((fn) => suggestion(fn, `${fn}()`, 'function')),
     ...(isPostgresCompletionContext(context)
       ? buildPostgresSqlItems(context)
       : []),
@@ -220,6 +220,18 @@ function buildSqlItems(
     ),
     ...objectsForSchemaPrefix(sourceObjects, prefix, context.connection),
   ])
+}
+
+function sqlKeywordsForContext(context: EditorCompletionContext) {
+  return context.connection?.engine === 'oracle'
+    ? SQL_KEYWORDS.filter((keyword) => keyword !== 'limit' && keyword !== 'offset')
+    : SQL_KEYWORDS
+}
+
+function sqlFunctionsForContext(context: EditorCompletionContext) {
+  return context.connection?.engine === 'oracle'
+    ? SQL_FUNCTIONS.filter((fn) => fn !== 'date_trunc')
+    : SQL_FUNCTIONS
 }
 
 function isPostgresCompletionContext(context: EditorCompletionContext) { return context.connection?.engine === 'postgresql' }

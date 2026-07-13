@@ -6,12 +6,16 @@ mod diagnostics;
 mod editing;
 mod explorer;
 mod query;
+mod sidecar;
+mod structure;
 
 use catalog::*;
 use connection::test_oracle_connection;
 use diagnostics::collect_oracle_diagnostics;
 use editing::{execute_oracle_data_edit, oracle_data_edit_plan};
 use explorer::{inspect_oracle_explorer_node, list_oracle_explorer_nodes};
+use sidecar::{cancel_oracle_managed, oracle_execution_runtime};
+use structure::load_oracle_structure;
 
 pub(crate) struct OracleAdapter;
 
@@ -57,6 +61,14 @@ impl DatastoreAdapter for OracleAdapter {
         query::execute_oracle_query(self, connection, request, notices).await
     }
 
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_oracle_structure(connection, request).await
+    }
+
     async fn plan_data_edit(
         &self,
         connection: &ResolvedConnectionProfile,
@@ -96,14 +108,29 @@ impl DatastoreAdapter for OracleAdapter {
 
     async fn cancel(
         &self,
-        _connection: &ResolvedConnectionProfile,
+        connection: &ResolvedConnectionProfile,
         request: &CancelExecutionRequest,
     ) -> Result<CancelExecutionResult, CommandError> {
+        if oracle_execution_runtime(connection) == "managed" {
+            let cancelled = cancel_oracle_managed(&request.execution_id).await?;
+            return Ok(CancelExecutionResult {
+                ok: cancelled,
+                supported: true,
+                message: if cancelled {
+                    format!("Oracle statement {} was cancelled.", request.execution_id)
+                } else {
+                    format!(
+                        "Oracle statement {} was no longer active.",
+                        request.execution_id
+                    )
+                },
+            });
+        }
         Ok(CancelExecutionResult {
             ok: false,
             supported: false,
             message: format!(
-                "Oracle statement {} cannot be cancelled after dispatch in the current contract adapter.",
+                "Oracle statement {} cannot be cancelled after dispatch with this legacy runtime.",
                 request.execution_id
             ),
         })

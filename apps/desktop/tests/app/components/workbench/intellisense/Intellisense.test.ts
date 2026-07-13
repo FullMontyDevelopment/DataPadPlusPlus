@@ -171,6 +171,36 @@ describe('query intellisense', () => {
     )
   })
 
+  it('uses Oracle object scopes instead of treating the service as an owner', () => {
+    const connection = connectionProfile('oracle', 'sql')
+    const catalog = buildCompletionCatalog({
+      connection,
+      environment,
+      explorerNodes: [
+        {
+          ...explorerNode('oracle-table-accounts', 'ACCOUNTS', 'table', [
+            connection.name,
+            'Databases',
+            'FREEPDB1',
+            'Tables',
+          ]),
+          scope: 'oracle:object:table:DATAPADPLUSPLUS:ACCOUNTS',
+        },
+      ],
+    })
+
+    expect(catalog.objects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'ACCOUNTS',
+          kind: 'table',
+          schema: 'DATAPADPLUSPLUS',
+        }),
+      ]),
+    )
+    expect(catalog.schemas.map((schema) => schema.name)).not.toContain('FREEPDB1')
+  })
+
   it('suggests PostgreSQL catalog helpers, routine workflows, and native identifier quoting', () => {
     const connection = connectionProfile('postgresql', 'sql')
     const provider = completionProvidersForConnection(connection, 'sql')[0]
@@ -532,6 +562,9 @@ describe('query intellisense', () => {
           kind: 'function',
         }),
       ]),
+    )
+    expect(suggestions.map((item) => item.label)).not.toEqual(
+      expect.arrayContaining(['limit', 'offset', 'date_trunc']),
     )
   })
 

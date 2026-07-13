@@ -318,6 +318,7 @@ export function markTabExecutionFailed(
   tabId: string | undefined,
   message: string,
   executionId?: string,
+  code = 'execution-error',
 ): BootstrapPayload | undefined {
   if (!payload || !tabId) {
     return payload
@@ -336,7 +337,7 @@ export function markTabExecutionFailed(
   tab.status = 'error'
   tab.activeExecution = undefined
   tab.error = {
-    code: 'execution-error',
+    code,
     message,
   }
   next.snapshot.updatedAt = new Date().toISOString()

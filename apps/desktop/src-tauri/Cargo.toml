@@ -38,7 +38,7 @@ tauri = { version = "2", features = ["image-png", "tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2.5.4"
 tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls", "sql-browser-tokio"] }
-tokio = { version = "1", features = ["io-util", "net", "process", "time"] }
+tokio = { version = "1", features = ["io-util", "net", "process", "sync", "time"] }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 tokio-util = { version = "0.7", features = ["compat", "rt"] }
 toml = "0.8"

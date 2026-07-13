@@ -532,6 +532,7 @@ function DesktopWorkspace() {
   >({})
   const initializedQueryModeByTabRef = useRef<Record<string, string>>({})
   const lastActiveQueryModeSyncKeyRef = useRef<string | undefined>(undefined)
+  const oracleIntellisenseLoadRef = useRef<string | undefined>(undefined)
   const queryWindowModeByTabRef = useRef<Record<string, QueryViewMode>>({})
   const environmentDraftsRef = useRef<Record<string, EnvironmentProfile>>({})
   const environmentSecretDraftsRef = useRef<Record<string, Record<string, string>>>({})
@@ -1853,6 +1854,66 @@ function DesktopWorkspace() {
     document.addEventListener('contextmenu', preventBrowserContextMenu)
     return () => document.removeEventListener('contextmenu', preventBrowserContextMenu)
   }, [])
+
+  useEffect(() => {
+    if (
+      !activeConnection ||
+      activeConnection.engine !== 'oracle' ||
+      !activeConnectionId ||
+      !activeEnvironmentId ||
+      !activeTab ||
+      activeTabIsExplorer ||
+      activeTabIsMetrics ||
+      activeTabIsObjectView ||
+      activeTabIsTestSuite ||
+      activeTabIsEnvironment ||
+      activeTabIsSettings ||
+      activeTabIsApiServer ||
+      activeTabIsMcpServer ||
+      activeTabIsWorkspaceSearch ||
+      activeTabIsSecurityChecks
+    ) {
+      return
+    }
+
+    const requestKey = `${activeConnectionId}:${activeEnvironmentId}`
+    const structureIsCurrent =
+      structure?.connectionId === activeConnectionId &&
+      structure.environmentId === activeEnvironmentId
+
+    if (
+      structureIsCurrent ||
+      structureStatus === 'loading' ||
+      oracleIntellisenseLoadRef.current === requestKey
+    ) {
+      return
+    }
+
+    oracleIntellisenseLoadRef.current = requestKey
+    void actions.loadStructureMap({
+      connectionId: activeConnectionId,
+      environmentId: activeEnvironmentId,
+      limit: 160,
+    })
+  }, [
+    actions,
+    activeConnection,
+    activeConnectionId,
+    activeEnvironmentId,
+    activeTab,
+    activeTabIsApiServer,
+    activeTabIsEnvironment,
+    activeTabIsExplorer,
+    activeTabIsMcpServer,
+    activeTabIsMetrics,
+    activeTabIsObjectView,
+    activeTabIsSecurityChecks,
+    activeTabIsSettings,
+    activeTabIsTestSuite,
+    activeTabIsWorkspaceSearch,
+    structure,
+    structureStatus,
+  ])
 
   useEffect(() => {
     if (
@@ -3540,6 +3601,11 @@ function DesktopWorkspace() {
                 onDismissWorkbenchMessage={actions.dismissWorkbenchMessage}
                 onClearWorkbenchMessages={actions.clearWorkbenchMessages}
                 onOpenSecuritySettings={() => openDiagnosticsDrawer('security')}
+                onEditConnection={() => {
+                  if (activeConnection) {
+                    openConnectionDrawerFor(activeConnection.id)
+                  }
+                }}
               />
             </Suspense>
           ) : null}

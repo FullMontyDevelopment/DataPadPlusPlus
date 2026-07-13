@@ -105,6 +105,47 @@ describe('ResultsView', () => {
     expect(screen.getByText('account-25')).toBeInTheDocument()
   })
 
+  it('replaces stale rows with the Oracle error code and connection action', () => {
+    const result = tableResultEnvelope()
+    const onEditConnection = vi.fn()
+    const activeTab: QueryTabState = {
+      ...sqlQueryTab(result),
+      connectionId: 'conn-oracle',
+      status: 'error',
+      error: {
+        code: 'ORA-00942',
+        message: 'ORA-00942: table or view does not exist',
+      },
+    }
+
+    render(
+      <ResultsView
+        activeTab={activeTab}
+        capabilities={{
+          canCancel: true,
+          canExplain: true,
+          defaultRowLimit: 500,
+          editorLanguage: 'sql',
+          supportsLiveMetadata: true,
+        }}
+        connection={connectionProfile({ family: 'sql', engine: 'oracle' })}
+        payload={result.payloads[0]}
+        renderer="table"
+        result={result}
+        onEditConnection={onEditConnection}
+        onLoadNextPage={vi.fn()}
+        onResultRendered={vi.fn()}
+        onSelectRenderer={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('ORA-00942', { selector: 'strong' })).toBeInTheDocument()
+    expect(screen.getByText('ORA-00942: table or view does not exist')).toBeInTheDocument()
+    expect(screen.queryByText('processing')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Connection' }))
+    expect(onEditConnection).toHaveBeenCalledOnce()
+  })
+
   it('acknowledges visible result rendering after the payload has painted', async () => {
     const result = resultEnvelope([{ _id: 'document-1', status: 'active' }], false)
     const onResultRendered = vi.fn()

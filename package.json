@@ -50,6 +50,8 @@
     "fixtures:validate:mongodb": "node tests/fixtures/validate-mongodb-fixtures.mjs",
     "fixtures:validate:timescale": "node tests/fixtures/validate-timescale-fixtures.mjs",
     "fixtures:validate:oracle": "node tests/fixtures/validate-oracle-fixtures.mjs",
+    "fixtures:validate:oracle:managed": "node tests/fixtures/validate-oracle-managed-sidecar.mjs",
+    "oracle:sidecar:prepare": "node tests/release/prepare-oracle-sidecar.mjs",
     "fixtures:validate:dynamodb": "node tests/fixtures/validate-dynamodb-fixtures.mjs",
     "fixtures:validate:dynamodb:cloud": "node tests/fixtures/validate-dynamodb-cloud.mjs",
     "fixtures:validate:cosmosdb": "node tests/fixtures/validate-cosmosdb-fixtures.mjs",

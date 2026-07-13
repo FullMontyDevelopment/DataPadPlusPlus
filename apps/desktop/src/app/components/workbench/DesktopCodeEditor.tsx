@@ -53,6 +53,7 @@ export function DesktopCodeEditor({
     completionProviders,
     onRequestCompletionRefresh,
   })
+  const pendingCompletionCatalogRef = useRef<string | undefined>(undefined)
   const [monacoRuntime, setMonacoRuntime] = useState<
     | {
         editor: MonacoEditorLike
@@ -174,12 +175,31 @@ export function DesktopCodeEditor({
       language,
       getContext: () => completionRef.current.completionContext,
       getProviders: () => completionRef.current.completionProviders,
-      onRequestCompletionRefresh: () =>
-        completionRef.current.onRequestCompletionRefresh?.(),
+      onRequestCompletionRefresh: () => {
+        pendingCompletionCatalogRef.current =
+          completionRef.current.completionContext?.catalog.loadedAt
+        completionRef.current.onRequestCompletionRefresh?.()
+      },
     })
 
     return () => disposable.dispose()
   }, [completionProviderCount, completionRegistrationKey, hasCompletionContext, language, monacoRuntime])
+
+  useEffect(() => {
+    const requestedCatalog = pendingCompletionCatalogRef.current
+    const loadedCatalog = completionContext?.catalog.loadedAt
+
+    if (!requestedCatalog || !loadedCatalog || requestedCatalog === loadedCatalog) {
+      return
+    }
+
+    pendingCompletionCatalogRef.current = undefined
+    monacoRuntime?.editor.trigger?.(
+      'datapadplusplus-intellisense',
+      'editor.action.triggerSuggest',
+      {},
+    )
+  }, [completionContext?.catalog.loadedAt, monacoRuntime])
 
   useEffect(() => {
     if (!monacoRuntime?.editor.deltaDecorations || !monacoRuntime.editor.getModel) {

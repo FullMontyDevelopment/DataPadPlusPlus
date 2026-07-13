@@ -240,7 +240,7 @@ export type AppAction =
   | { type: 'EXECUTION_LOADING'; tabId?: string; execution: QueryTabActiveExecution }
   | { type: 'EXECUTION_PHASE'; tabId?: string; executionId: string; phase: QueryTabActiveExecution['phase']; message?: string }
   | { type: 'EXECUTION_DISPLAYED'; tabId?: string; executionId: string }
-  | { type: 'EXECUTION_FAILED'; tabId?: string; executionId?: string; message: string }
+  | { type: 'EXECUTION_FAILED'; tabId?: string; executionId?: string; code?: string; message: string }
   | { type: 'EXECUTION_READY'; execution: ExecutionResponse; request: ExecutionRequest; waitForDisplay?: boolean }
   | { type: 'RESULT_PAGE_LOADING'; tabId: string; execution: QueryTabActiveExecution }
   | { type: 'RESULT_PAGE_READY'; page: ResultPageResponse; executionId?: string; waitForDisplay?: boolean }

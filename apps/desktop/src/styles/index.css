@@ -6979,6 +6979,27 @@ button:disabled:hover {
   font-weight: 500;
 }
 
+.result-error-state {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.result-error-state strong {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.result-error-state span {
+  max-width: 720px;
+  overflow-wrap: anywhere;
+}
+
 .graph-result-detail {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

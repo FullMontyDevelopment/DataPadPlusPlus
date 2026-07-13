@@ -181,6 +181,31 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
+    /actions\/setup-dotnet@v4[\s\S]*dotnet-version:\s*['"]8\.0\.x['"]/,
+    'release workflow must install .NET 8 for the bundled Oracle runtime'
+  )
+  requireMatch(
+    text,
+    /datapadplusplus-oracle-runtime-x86_64-pc-windows-msvc\.exe/,
+    'release workflow must package the Windows Oracle runtime'
+  )
+  requireMatch(
+    text,
+    /datapadplusplus-oracle-runtime-x86_64-unknown-linux-gnu/,
+    'release workflow must package the Linux Oracle runtime'
+  )
+  requireMatch(
+    text,
+    /datapadplusplus-oracle-runtime-aarch64-apple-darwin/,
+    'release workflow must package the macOS ARM64 Oracle runtime'
+  )
+  requireMatch(
+    text,
+    /Oracle\.ManagedDataAccess\.Core-LICENSE\.txt/,
+    'release workflow must include the Oracle managed-driver license'
+  )
+  requireMatch(
+    text,
     /name:\s*Upload Tauri bundle artifacts to draft release/,
     'release workflow must explicitly upload Tauri installer and bundle assets'
   )

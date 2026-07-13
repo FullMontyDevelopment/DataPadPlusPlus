@@ -364,7 +364,7 @@ MySQL is native-complete for the scoped MySQL workflow. It exposes typed native 
 
 SQLite gets a local-file workbench treatment: file posture, attached databases, PRAGMA health, integrity checks, indexes, triggers, generated columns, and virtual tables are summarized in compact panels. Local maintenance actions such as check, analyze, optimize, vacuum, and reindex are planned with guardrails, while guarded desktop live workflows cover `VACUUM INTO` backup plus CSV/JSON/NDJSON table or view export and table import. Browser preview remains plan-only for those file workflows.
 
-SQL row editing is live only when the target identity is complete and the connection/environment guardrails allow it. PostgreSQL-family, SQL Server, MySQL/MariaDB, SQLite, and TimescaleDB use primary-key predicates for live row edits, with desktop live-edit scopes and browser preview-only scopes covered by contract tests. Oracle uses configured SQLPlus live execution for scoped insert/update/delete row workflows with primary-key or ROWID identity, bounded before/after evidence, read-only gates, confirmation gates, and browser preview-only request contracts.
+SQL row editing is live only when the target identity is complete and the connection/environment guardrails allow it. PostgreSQL-family, SQL Server, MySQL/MariaDB, SQLite, and TimescaleDB use primary-key predicates for live row edits, with desktop live-edit scopes and browser preview-only scopes covered by contract tests. Oracle editor writes use the bundled managed runtime and shared Oracle-aware guardrails; scoped data-grid insert/update/delete flows retain primary-key or ROWID evidence through the explicit SQLPlus legacy runtime while managed data-grid edit plans remain preview-only.
 
 ## Search Experience
 
@@ -603,7 +603,7 @@ These engines have the deepest live or native-feeling surfaces today:
 - SQLite
 - CockroachDB
 - MySQL and MariaDB
-- Oracle SQLPlus-backed SQL workflows
+- Oracle Database 19c+ bundled-driver SQL and PL/SQL workflows, live object metadata, and metadata-backed IntelliSense
 - Elasticsearch and OpenSearch scoped plain-HTTP search workflows with aggregation-aware Query DSL, normalized profile stages, explicit-id document editing with before/after `_doc` evidence, slow-log/allocation diagnostics, and OpenSearch SQL/ISM/security/Performance Analyzer boundary evidence
 - DynamoDB complete-key item editing with before/after item evidence and conditional writes
 - Search, wide-column, Wave 4, and Wave 5 native connection-flow parity across shared types, right-drawer fields, browser validation, Rust interpolation, and redaction
