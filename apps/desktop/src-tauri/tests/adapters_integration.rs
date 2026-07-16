@@ -9,9 +9,10 @@ use datapadplusplus_desktop_lib::{
     domain::{
         error::CommandError,
         models::{
-            DataEditChange, DataEditExecutionRequest, DataEditPlanRequest, DataEditTarget,
-            ExecutionRequest, ExplorerRequest, OperationExecutionRequest,
-            ResolvedConnectionProfile, ResultPageRequest, WarehouseConnectionOptions,
+            CosmosDbConnectionOptions, DataEditChange, DataEditExecutionRequest,
+            DataEditPlanRequest, DataEditTarget, ExecutionRequest, ExplorerRequest,
+            GraphConnectionOptions, OperationExecutionRequest, ResolvedConnectionProfile,
+            ResultPageRequest, WarehouseConnectionOptions,
         },
     },
 };
@@ -1997,6 +1998,7 @@ async fn mysql_adapter_fixture_roundtrip() -> Result<(), CommandError> {
 
     let test_result = adapters::test_connection(&connection, Vec::new()).await?;
     assert!(test_result.ok);
+    assert_mysql_explorer_tree(&connection).await?;
 
     let result = adapters::execute(
         &connection,
@@ -2018,7 +2020,7 @@ async fn mysql_adapter_fixture_roundtrip() -> Result<(), CommandError> {
             &connection.id,
             "env-dev",
             "sql",
-            "select id from inventory_items where sku = 'luna-lamp' order by id desc limit 1;",
+            "select cast(id as char) as id from inventory_items where sku = 'luna-lamp' order by id desc limit 1;",
         ),
         Vec::new(),
     )
@@ -2029,8 +2031,11 @@ async fn mysql_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         .and_then(|rows| rows.first())
         .and_then(|row| row.as_array())
         .and_then(|row| row.first())
-        .and_then(|value| value.as_str())
-        .and_then(|value| value.parse::<i64>().ok())
+        .and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_str().and_then(|value| value.parse::<i64>().ok()))
+        })
         .expect("fixture inventory item id");
     let edit = adapters::execute_data_edit(
         &connection,
@@ -2064,6 +2069,120 @@ async fn mysql_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     );
 
     Ok(())
+}
+
+async fn assert_mysql_explorer_tree(
+    connection: &ResolvedConnectionProfile,
+) -> Result<(), CommandError> {
+    let request = |scope: Option<&str>| ExplorerRequest {
+        connection_id: connection.id.clone(),
+        environment_id: "env-dev".into(),
+        limit: Some(100),
+        scope: scope.map(str::to_string),
+    };
+
+    let root = adapters::list_explorer_nodes(connection, &request(None)).await?;
+    assert!(root
+        .nodes
+        .iter()
+        .any(|node| { node.id == "mysql:database:commerce" && node.label == "commerce" }));
+
+    let database =
+        adapters::list_explorer_nodes(connection, &request(Some("mysql:database:commerce")))
+            .await?;
+    let database_labels = database
+        .nodes
+        .iter()
+        .map(|node| node.label.as_str())
+        .collect::<Vec<_>>();
+    for label in ["Tables", "Views", "Indexes", "Storage", "Diagnostics"] {
+        assert!(
+            database_labels.contains(&label),
+            "{} explorer should expose {label}: {database_labels:?}",
+            connection.engine
+        );
+    }
+
+    for section in [
+        "tables",
+        "views",
+        "procedures",
+        "functions",
+        "triggers",
+        "events",
+        "indexes",
+    ] {
+        let scope = format!("mysql:commerce:{section}");
+        adapters::list_explorer_nodes(connection, &request(Some(&scope))).await?;
+    }
+
+    let tables =
+        adapters::list_explorer_nodes(connection, &request(Some("mysql:commerce:tables"))).await?;
+    assert!(tables
+        .nodes
+        .iter()
+        .any(|node| { node.id == "mysql:commerce:table:orders" && node.label == "orders" }));
+
+    let table =
+        adapters::list_explorer_nodes(connection, &request(Some("table:commerce.orders"))).await?;
+    let table_labels = table
+        .nodes
+        .iter()
+        .map(|node| node.label.as_str())
+        .collect::<Vec<_>>();
+    for label in ["Columns", "Indexes", "Foreign Keys", "Data"] {
+        assert!(
+            table_labels.contains(&label),
+            "{} table explorer should expose {label}: {table_labels:?}",
+            connection.engine
+        );
+    }
+
+    let columns = adapters::list_explorer_nodes(
+        connection,
+        &request(Some("mysql:commerce:table:orders:columns")),
+    )
+    .await?;
+    assert!(columns.nodes.iter().any(|node| node.label == "order_id"));
+    assert!(columns.nodes.iter().all(|node| node.kind == "column"));
+    Ok(())
+}
+
+fn mariadb_fixture_connection() -> ResolvedConnectionProfile {
+    ResolvedConnectionProfile {
+        id: "conn-mariadb".into(),
+        name: "Fixture MariaDB".into(),
+        engine: "mariadb".into(),
+        family: "sql".into(),
+        host: env_or("DATAPADPLUSPLUS_MARIADB_HOST", "127.0.0.1"),
+        port: Some(
+            env_or("DATAPADPLUSPLUS_MARIADB_PORT", "33061")
+                .parse()
+                .unwrap_or(33061),
+        ),
+        database: Some(env_or("DATAPADPLUSPLUS_MARIADB_DB", "commerce")),
+        username: Some(env_or("DATAPADPLUSPLUS_MARIADB_USER", "datapadplusplus")),
+        password: Some(env_or(
+            "DATAPADPLUSPLUS_MARIADB_PASSWORD",
+            "datapadplusplus",
+        )),
+        connection_string: None,
+        redis_options: None,
+        memcached_options: None,
+        sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        warehouse_options: None,
+        read_only: false,
+    }
 }
 
 #[tokio::test]
@@ -2929,38 +3048,27 @@ async fn cache_profile_fixture_roundtrips() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+async fn mariadb_explorer_fixture_roundtrip() -> Result<(), CommandError> {
+    if !fixtures_enabled() || !fixture_profile_enabled("sqlplus") {
+        return Ok(());
+    }
+
+    let mariadb = mariadb_fixture_connection();
+    let test_result = adapters::test_connection(&mariadb, Vec::new()).await?;
+    assert!(test_result.ok);
+    assert_mysql_explorer_tree(&mariadb).await
+}
+
+#[tokio::test]
 async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("sqlplus") {
         return Ok(());
     }
 
-    let mariadb = ResolvedConnectionProfile {
-        id: "conn-mariadb".into(),
-        name: "Fixture MariaDB".into(),
-        engine: "mariadb".into(),
-        family: "sql".into(),
-        host: "127.0.0.1".into(),
-        port: Some(33061),
-        database: Some("commerce".into()),
-        username: Some("datapadplusplus".into()),
-        password: Some("datapadplusplus".into()),
-        connection_string: None,
-        redis_options: None,
-        memcached_options: None,
-        sqlite_options: None,
-        postgres_options: None,
-        mysql_options: None,
-        sqlserver_options: None,
-        oracle_options: None,
-        dynamo_db_options: None,
-        cassandra_options: None,
-        cosmos_db_options: None,
-        search_options: None,
-        time_series_options: None,
-        graph_options: None,
-        warehouse_options: None,
-        read_only: false,
-    };
+    let mariadb = mariadb_fixture_connection();
+    let mariadb_test_result = adapters::test_connection(&mariadb, Vec::new()).await?;
+    assert!(mariadb_test_result.ok);
+    assert_mysql_explorer_tree(&mariadb).await?;
     let mariadb_result = adapters::execute(
         &mariadb,
         &execution_request(
@@ -3201,14 +3309,41 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         warehouse_options: None,
         read_only: false,
     };
-    let prom_result = adapters::execute(
-        &prometheus,
-        &execution_request(&prometheus.id, "env-dev", "promql", "up"),
-        Vec::new(),
-    )
-    .await?;
+    let mut prom_request = execution_request(
+        &prometheus.id,
+        "env-dev",
+        "promql",
+        r#"{__name__=~"prometheus_tsdb_head_(series|chunks|samples_appended_total)"}[15m]"#,
+    );
+    prom_request.row_limit = Some(500);
+    let prom_result = adapters::execute(&prometheus, &prom_request, Vec::new()).await?;
     assert_eq!(prom_result.engine, "prometheus");
-    assert!(!prom_result.payloads.is_empty());
+    let table = prom_result
+        .payloads
+        .iter()
+        .find(|payload| payload["renderer"] == "table")
+        .expect("Prometheus table payload");
+    let series = prom_result
+        .payloads
+        .iter()
+        .find(|payload| payload["renderer"] == "series")
+        .expect("Prometheus series payload");
+    let profile = prom_result
+        .payloads
+        .iter()
+        .find(|payload| payload["renderer"] == "profile")
+        .expect("Prometheus profile payload");
+    assert!(table["rows"].as_array().is_some_and(|rows| rows.len() > 1));
+    assert!(series["series"]
+        .as_array()
+        .is_some_and(|items| items.len() > 1));
+    assert!(series["series"].as_array().unwrap().iter().all(|item| {
+        item["name"].as_str().is_some_and(|name| !name.is_empty())
+            && item["points"]
+                .as_array()
+                .is_some_and(|points| !points.is_empty())
+    }));
+    assert_eq!(profile["stages"][0]["name"], "request");
 
     Ok(())
 }
@@ -3277,7 +3412,7 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
         engine: "neo4j".into(),
         family: "graph".into(),
         host: "127.0.0.1".into(),
-        port: Some(7475),
+        port: Some(7688),
         database: Some("neo4j".into()),
         username: Some("neo4j".into()),
         password: Some("datapadplusplus".into()),
@@ -3294,7 +3429,10 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
         cosmos_db_options: None,
         search_options: None,
         time_series_options: None,
-        graph_options: None,
+        graph_options: Some(GraphConnectionOptions {
+            connect_mode: Some("neo4j-bolt".into()),
+            ..GraphConnectionOptions::default()
+        }),
         warehouse_options: None,
         read_only: false,
     };
@@ -3304,13 +3442,19 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
             &neo4j.id,
             "env-dev",
             "cypher",
-            "MATCH (a:Account)-[:PLACED]->(o:Order) RETURN a, o LIMIT 2",
+            "MATCH (a:Account)-[r:PLACED]->(o:Order) RETURN a, r, o LIMIT 2",
         ),
         Vec::new(),
     )
     .await?;
     assert_eq!(neo4j_result.engine, "neo4j");
     assert!(!neo4j_result.payloads.is_empty());
+    assert_eq!(neo4j_result.default_renderer, "graph");
+    assert_eq!(neo4j_result.payloads[0]["renderer"], "graph");
+    assert!(neo4j_result
+        .renderer_modes
+        .iter()
+        .any(|mode| mode == "graph"));
 
     let arango = ResolvedConnectionProfile {
         id: "conn-arango".into(),
@@ -3530,7 +3674,12 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         oracle_options: None,
         dynamo_db_options: None,
         cassandra_options: None,
-        cosmos_db_options: None,
+        cosmos_db_options: Some(CosmosDbConnectionOptions {
+            api: Some("nosql".into()),
+            database_name: Some("datapadplusplus".into()),
+            container_prefix: Some("orders".into()),
+            ..CosmosDbConnectionOptions::default()
+        }),
         search_options: None,
         time_series_options: None,
         graph_options: None,
@@ -3539,12 +3688,7 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
     };
     let cosmos_result = adapters::execute(
         &cosmosdb,
-        &execution_request(
-            &cosmosdb.id,
-            "env-dev",
-            "sql",
-            r#"{ "operation": "QueryDocuments", "database": "datapadplusplus", "container": "orders", "query": "SELECT * FROM c" }"#,
-        ),
+        &execution_request(&cosmosdb.id, "env-dev", "sql", "SELECT TOP 25 * FROM c"),
         Vec::new(),
     )
     .await?;

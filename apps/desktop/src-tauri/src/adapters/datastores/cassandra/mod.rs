@@ -4,6 +4,8 @@ mod catalog;
 mod connection;
 mod diagnostics;
 mod explorer;
+mod native;
+mod native_tls;
 mod query;
 
 use catalog::*;

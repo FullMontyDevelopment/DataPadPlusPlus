@@ -9,6 +9,7 @@ pub(super) struct NeptuneQueryRequest {
     pub(super) body: String,
     pub(super) accept: Option<&'static str>,
     pub(super) gremlin: Option<String>,
+    pub(super) query: String,
 }
 
 pub(super) fn neptune_query_request(
@@ -35,12 +36,6 @@ fn gremlin_query_request(
     query: &str,
     execute_mode: &str,
 ) -> Result<NeptuneQueryRequest, CommandError> {
-    if !is_read_only_gremlin(query) {
-        return Err(CommandError::new(
-            "neptune-write-preview-only",
-            "Amazon Neptune writes, imports, schema changes, and graph mutations are operation-plan preview only in this adapter phase.",
-        ));
-    }
     let mode = match execute_mode {
         "explain" => "explain",
         "profile" => "profile",
@@ -56,16 +51,11 @@ fn gremlin_query_request(
         body: neptune_gremlin_body(&gremlin),
         accept: None,
         gremlin: Some(gremlin),
+        query: query.into(),
     })
 }
 
 fn opencypher_query_request(query: &str) -> Result<NeptuneQueryRequest, CommandError> {
-    if !is_read_only_opencypher(query) {
-        return Err(CommandError::new(
-            "neptune-write-preview-only",
-            "Amazon Neptune openCypher writes and schema changes are operation-plan preview only in this adapter phase.",
-        ));
-    }
     Ok(NeptuneQueryRequest {
         language: "opencypher",
         mode: "read",
@@ -73,16 +63,11 @@ fn opencypher_query_request(query: &str) -> Result<NeptuneQueryRequest, CommandE
         body: format!("query={}", percent_encode_form(query)),
         accept: Some("application/json"),
         gremlin: None,
+        query: query.into(),
     })
 }
 
 fn sparql_query_request(query: &str) -> Result<NeptuneQueryRequest, CommandError> {
-    if !is_read_only_sparql(query) {
-        return Err(CommandError::new(
-            "neptune-write-preview-only",
-            "Amazon Neptune SPARQL updates, loads, and graph mutations are operation-plan preview only in this adapter phase.",
-        ));
-    }
     Ok(NeptuneQueryRequest {
         language: "sparql",
         mode: "read",
@@ -90,7 +75,16 @@ fn sparql_query_request(query: &str) -> Result<NeptuneQueryRequest, CommandError
         body: format!("query={}", percent_encode_form(query)),
         accept: Some("application/sparql-results+json, application/json"),
         gremlin: None,
+        query: query.into(),
     })
+}
+
+pub(super) fn neptune_request_is_read_only(request: &NeptuneQueryRequest) -> bool {
+    match request.language {
+        "sparql" => is_read_only_sparql(&request.query),
+        "opencypher" => is_read_only_opencypher(&request.query),
+        _ => is_read_only_gremlin(&request.query),
+    }
 }
 
 pub(super) fn decorate_gremlin_for_mode(query: &str, mode: &str) -> String {

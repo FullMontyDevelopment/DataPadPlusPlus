@@ -1,7 +1,7 @@
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use std::time::Duration;
+
+use futures_util::StreamExt;
+use reqwest::{header, Client};
 
 use super::super::super::*;
 
@@ -9,6 +9,10 @@ pub(super) struct PrometheusResponse {
     pub(super) status_code: u16,
     pub(super) body: String,
 }
+
+const DEFAULT_CONNECT_TIMEOUT_MS: u64 = 10_000;
+const DEFAULT_QUERY_TIMEOUT_MS: u64 = 30_000;
+const MAX_PROMETHEUS_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct PrometheusEndpoint {
@@ -42,36 +46,46 @@ pub(super) async fn prometheus_get(
     path_and_query: &str,
 ) -> Result<PrometheusResponse, CommandError> {
     let endpoint = PrometheusEndpoint::from_connection(connection)?;
-    let path = endpoint.path(path_and_query);
-    let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
-        endpoint.host, endpoint.port
-    );
-    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port)).await?;
-    stream.write_all(request.as_bytes()).await?;
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).await?;
-    let raw = String::from_utf8_lossy(&response).to_string();
-    let (headers, body) = raw.split_once("\r\n\r\n").unwrap_or(("", &raw));
-    let status_code = headers
-        .lines()
-        .next()
-        .and_then(|status| status.split_whitespace().nth(1))
-        .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(0);
+    let response = prometheus_http_client(connection)?
+        .get(endpoint.url(path_and_query))
+        .header(header::ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(|error| {
+            CommandError::new(
+                "prometheus-http-error",
+                format!("Prometheus could not be reached over HTTP: {error}"),
+            )
+        })?;
+    let status_code = response.status().as_u16();
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_PROMETHEUS_RESPONSE_BYTES as u64)
+    {
+        return Err(prometheus_response_too_large());
+    }
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            CommandError::new(
+                "prometheus-http-error",
+                format!("Prometheus returned an unreadable HTTP response: {error}"),
+            )
+        })?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_PROMETHEUS_RESPONSE_BYTES {
+            return Err(prometheus_response_too_large());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let body = String::from_utf8_lossy(&bytes).to_string();
 
     if (200..300).contains(&status_code) {
-        Ok(PrometheusResponse {
-            status_code,
-            body: body.to_string(),
-        })
+        Ok(PrometheusResponse { status_code, body })
     } else {
         Err(CommandError::new(
             "prometheus-http-error",
-            body.lines()
-                .next()
-                .filter(|line| !line.trim().is_empty())
-                .unwrap_or("Prometheus HTTP request failed."),
+            sanitized_prometheus_error(&body).unwrap_or("Prometheus HTTP request failed."),
         ))
     }
 }
@@ -170,6 +184,59 @@ impl PrometheusEndpoint {
                 format!("/{path_and_query}")
             }
         )
+    }
+
+    fn url(&self, path_and_query: &str) -> String {
+        let host = if self.host.contains(':') && !self.host.starts_with('[') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        format!("http://{}:{}{}", host, self.port, self.path(path_and_query))
+    }
+}
+
+fn prometheus_http_client(connection: &ResolvedConnectionProfile) -> Result<Client, CommandError> {
+    let options = connection.time_series_options.as_ref();
+    let connect_timeout_ms = options
+        .and_then(|value| value.connection_timeout_ms)
+        .unwrap_or(DEFAULT_CONNECT_TIMEOUT_MS)
+        .clamp(100, 120_000);
+    let query_timeout_ms = options
+        .and_then(|value| value.query_timeout_ms)
+        .unwrap_or(DEFAULT_QUERY_TIMEOUT_MS)
+        .clamp(100, 3_600_000);
+
+    Client::builder()
+        .connect_timeout(Duration::from_millis(connect_timeout_ms))
+        .timeout(Duration::from_millis(query_timeout_ms))
+        .user_agent("DataPad++/prometheus-runtime")
+        .build()
+        .map_err(|error| {
+            CommandError::new(
+                "prometheus-http-client-failed",
+                format!("The Prometheus HTTP client could not be initialized: {error}"),
+            )
+        })
+}
+
+fn prometheus_response_too_large() -> CommandError {
+    CommandError::new(
+        "prometheus-response-too-large",
+        format!(
+            "Prometheus response exceeded the {} MiB safety limit. Add label filters, narrow the time range, or increase the query step.",
+            MAX_PROMETHEUS_RESPONSE_BYTES / 1024 / 1024
+        ),
+    )
+}
+
+fn sanitized_prometheus_error(body: &str) -> Option<&str> {
+    let line = body.lines().map(str::trim).find(|line| !line.is_empty())?;
+    let lowered = line.to_ascii_lowercase();
+    if line.len() > 500 || lowered.contains("authorization") || lowered.contains("token") {
+        None
+    } else {
+        Some(line)
     }
 }
 

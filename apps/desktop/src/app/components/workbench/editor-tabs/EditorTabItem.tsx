@@ -10,7 +10,7 @@ import type {
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { DatastoreIcon } from '../DatastoreIcon'
-import { CloseIcon, DatabaseIcon, EnvironmentsIcon, ObjectSecurityIcon, ObjectServerIcon, RefreshIcon, SearchIcon, SettingsIcon, WarningIcon } from '../icons'
+import { CloseIcon, DatabaseIcon, EnvironmentsIcon, ObjectSecurityIcon, ObjectServerIcon, SearchIcon, SettingsIcon, WarningIcon } from '../icons'
 import { normalizeTabDisplayTitle } from './tab-title'
 
 export interface EditorTabDropTarget {
@@ -80,7 +80,7 @@ export function EditorTabItem({
     tab.tabKind !== 'mcp-server' &&
     tab.tabKind !== 'workspace-search' &&
     tab.tabKind !== 'security-checks'
-  const tabRunning = Boolean(tab.activeExecution) || tab.status === 'queued' || tab.status === 'running'
+  const tabRunning = Boolean(tab.activeExecution) || tab.status === 'queued'
   const showUnsavedChanges = tabCanBeSaved && tab.dirty && !tabRunning
   const connectionName =
     tab.tabKind === 'settings'
@@ -245,7 +245,7 @@ function EditorTabStatusIcon({
         aria-label={phase === 'rendering' ? 'Query rendering' : tab.status === 'queued' ? 'Query queued' : 'Query running'}
         role="img"
       >
-        <RefreshIcon className="editor-tab-status-svg" />
+        <span className="connection-metadata-spinner" aria-hidden="true" />
       </span>
     )
   }

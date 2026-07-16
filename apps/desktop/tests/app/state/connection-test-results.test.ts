@@ -19,11 +19,25 @@ describe('connection test results', () => {
 
     expect(result.ok).toBe(false)
     expect(result.engine).toBe('mongodb')
+    expect(result.errorCode).toBe('execution-error')
     expect(result.message).toContain('connection refused')
     expect(result.resolvedHost).toBe('localhost')
     expect(result.warnings).toContain(
       'DataPad++ Docker fixtures expose MongoDB on localhost:27018.',
     )
+  })
+
+  it('preserves a safe Oracle runtime code for actionable connection failures', () => {
+    const result = buildConnectionTestFailure(
+      connectionProfile({ engine: 'oracle', family: 'sql' }),
+      {
+        code: 'oracle-sidecar-blocked',
+        message: 'Endpoint security prevented the bundled Oracle runtime from starting.',
+      },
+    )
+
+    expect(result.errorCode).toBe('oracle-sidecar-blocked')
+    expect(result.message).toContain('Endpoint security')
   })
 
   it('redacts typed secret values from frontend fallback connection failures', () => {

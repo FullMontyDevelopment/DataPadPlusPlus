@@ -18,16 +18,27 @@ pub(super) fn normalize_prometheus_result_bounded(
         "vector" => normalize_vector(result, row_limit),
         "matrix" => normalize_matrix(result, row_limit),
         "scalar" | "string" => {
-            let row = prometheus_sample_value(result)
-                .map(|(timestamp, value)| vec![result_type.into(), timestamp, value])
-                .into_iter()
+            let sample = prometheus_sample_value(result);
+            let rows = sample
+                .iter()
+                .map(|(timestamp, value)| {
+                    vec![result_type.into(), timestamp.clone(), value.clone()]
+                })
                 .collect::<Vec<_>>();
+            let series = sample
+                .map(|sample| {
+                    Value::Array(vec![prometheus_series(
+                        &json!({ "__name__": result_type }),
+                        vec![sample],
+                    )])
+                })
+                .unwrap_or_else(|| json!([]));
             NormalizedPrometheusResult {
-                total_samples: row.len(),
-                series_count: usize::from(!row.is_empty()),
+                total_samples: rows.len(),
+                series_count: usize::from(!rows.is_empty()),
                 truncated: false,
-                rows: row,
-                series: json!([{ "metric": {}, "values": result }]),
+                rows,
+                series,
             }
         }
         _ => NormalizedPrometheusResult {
@@ -53,10 +64,7 @@ fn normalize_vector(result: &Value, row_limit: u32) -> NormalizedPrometheusResul
                 timestamp.clone(),
                 value.clone(),
             ]);
-            series.push(json!({
-                "metric": metric,
-                "values": [[timestamp, value]],
-            }));
+            series.push(prometheus_series(&metric, vec![(timestamp, value)]));
         }
     }
     NormalizedPrometheusResult {
@@ -92,14 +100,11 @@ fn normalize_matrix(result: &Value, row_limit: u32) -> NormalizedPrometheusResul
                     timestamp.clone(),
                     value.clone(),
                 ]);
-                bounded_values.push(json!([timestamp, value]));
+                bounded_values.push((timestamp, value));
             }
         }
         if !bounded_values.is_empty() {
-            series.push(json!({
-                "metric": metric,
-                "values": bounded_values,
-            }));
+            series.push(prometheus_series(&metric, bounded_values));
         }
     }
     NormalizedPrometheusResult {
@@ -123,6 +128,56 @@ fn prometheus_value_to_string(value: &Value) -> String {
         .as_str()
         .map(str::to_string)
         .unwrap_or_else(|| value.to_string())
+}
+
+fn prometheus_series(metric: &Value, samples: Vec<(String, String)>) -> Value {
+    let labels = metric_labels(metric);
+    let points = samples
+        .into_iter()
+        .map(|(timestamp, value)| {
+            json!({
+                "timestamp": timestamp,
+                "value": prometheus_series_value(&value),
+                "labels": labels.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "name": metric_series_name(metric),
+        "points": points,
+    })
+}
+
+fn prometheus_series_value(value: &str) -> Value {
+    value
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .and_then(serde_json::Number::from_f64)
+        .map(Value::Number)
+        .unwrap_or_else(|| Value::String(value.into()))
+}
+
+fn metric_series_name(metric: &Value) -> String {
+    metric
+        .get("__name__")
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| metric_label(metric))
+}
+
+fn metric_labels(metric: &Value) -> Value {
+    Value::Object(
+        metric
+            .as_object()
+            .into_iter()
+            .flat_map(|labels| labels.iter())
+            .filter(|(key, _)| key.as_str() != "__name__")
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
 }
 
 fn metric_label(metric: &Value) -> String {

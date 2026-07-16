@@ -97,7 +97,11 @@ export function parseDynamoDbKeyConditionQueryText(
 ): DynamoDbKeyConditionBuilderState | undefined {
   try {
     const parsed = JSON.parse(queryText) as Record<string, unknown>
-    const table = stringField(parsed, 'tableName') ?? stringField(parsed, 'TableName') ?? ''
+    const table =
+      stringField(parsed, 'tableName') ??
+      stringField(parsed, 'TableName') ??
+      stringField(parsed, 'table') ??
+      ''
     const state: DynamoDbKeyConditionBuilderState = {
       kind: 'dynamodb-key-condition',
       table,

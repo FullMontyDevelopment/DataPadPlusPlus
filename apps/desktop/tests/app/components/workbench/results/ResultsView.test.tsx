@@ -105,6 +105,84 @@ describe('ResultsView', () => {
     expect(screen.getByText('account-25')).toBeInTheDocument()
   })
 
+  it('keeps PostgreSQL table results mounted while display timing finalizes', () => {
+    const result: ExecutionResultEnvelope = {
+      id: 'result-postgresql-stable',
+      engine: 'postgresql',
+      summary: '1 row returned from PostgreSQL.',
+      defaultRenderer: 'table',
+      rendererModes: ['table', 'json', 'raw'],
+      payloads: [{
+        renderer: 'table',
+        columns: ['id', 'status'],
+        rows: [['account-1', 'active']],
+      }],
+      notices: [],
+      executedAt: '2026-01-01T00:00:00.000Z',
+      durationMs: 14,
+    }
+    const capabilities = {
+      canCancel: false,
+      canExplain: false,
+      defaultRowLimit: 200,
+      editorLanguage: 'sql',
+      supportsLiveMetadata: true,
+    } as const
+    const connection = connectionProfile({ family: 'sql', engine: 'postgresql' })
+    const callbacks = {
+      onLoadNextPage: vi.fn(),
+      onResultRendered: vi.fn(),
+      onSelectRenderer: vi.fn(),
+    }
+    const { rerender } = render(
+      <ResultsView
+        capabilities={capabilities}
+        connection={connection}
+        payload={result.payloads[0]}
+        renderer="table"
+        result={result}
+        {...callbacks}
+      />,
+    )
+
+    const grid = screen.getByRole('grid', { name: 'Table results grid' })
+    const filter = screen.getByPlaceholderText('Find in results')
+    fireEvent.change(filter, { target: { value: 'active' } })
+
+    const finalizedResult: ExecutionResultEnvelope = JSON.parse(JSON.stringify({
+      ...result,
+      displayDurationMs: 18,
+    }))
+    rerender(
+      <ResultsView
+        capabilities={capabilities}
+        connection={connection}
+        payload={finalizedResult.payloads[0]}
+        renderer="table"
+        result={finalizedResult}
+        {...callbacks}
+      />,
+    )
+
+    expect(screen.getByRole('grid', { name: 'Table results grid' })).toBe(grid)
+    expect(screen.getByPlaceholderText('Find in results')).toHaveValue('active')
+
+    const nextResult = { ...finalizedResult, id: 'result-postgresql-next' }
+    rerender(
+      <ResultsView
+        capabilities={capabilities}
+        connection={connection}
+        payload={nextResult.payloads[0]}
+        renderer="table"
+        result={nextResult}
+        {...callbacks}
+      />,
+    )
+
+    expect(screen.getByRole('grid', { name: 'Table results grid' })).not.toBe(grid)
+    expect(screen.getByPlaceholderText('Find in results')).toHaveValue('')
+  })
+
   it('replaces stale rows with the Oracle error code and connection action', () => {
     const result = tableResultEnvelope()
     const onEditConnection = vi.fn()

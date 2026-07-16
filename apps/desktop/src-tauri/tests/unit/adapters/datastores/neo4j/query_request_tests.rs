@@ -46,8 +46,8 @@ fn neo4j_read_only_guard_ignores_keywords_inside_strings_and_comments() {
 }
 
 #[test]
-fn neo4j_query_request_rejects_write_cypher() {
-    let error = neo4j_query_request("MATCH (n) DELETE n", "full").unwrap_err();
+fn neo4j_query_request_builds_write_cypher_for_guarded_execution() {
+    let request = neo4j_query_request("MATCH (n) DELETE n", "full").unwrap();
 
-    assert_eq!(error.code, "neo4j-write-preview-only");
+    assert_eq!(request.statement, "MATCH (n) DELETE n");
 }

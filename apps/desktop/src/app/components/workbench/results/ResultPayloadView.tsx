@@ -30,6 +30,7 @@ export function ResultPayloadView({
   pageIndex = 0,
   pageSize,
   payload,
+  resultId,
   tabId,
   resultDurationMs,
   resultRuntimeTitle,
@@ -46,6 +47,7 @@ export function ResultPayloadView({
   pageIndex?: number
   pageSize?: number
   payload?: ResultPayload
+  resultId?: string
   tabId?: string
   resultDurationMs?: number
   resultRuntimeTitle?: string
@@ -76,6 +78,7 @@ export function ResultPayloadView({
             pageIndex={0}
             pageSize={undefined}
             payload={sectionPayload}
+            resultId={resultId ? `${resultId}:batch:${sectionIndex}` : undefined}
             tabId={tabId ? `${tabId}:batch:${sectionIndex}` : undefined}
             resultDurationMs={resultDurationMs}
             resultRuntimeTitle={resultRuntimeTitle}
@@ -92,10 +95,14 @@ export function ResultPayloadView({
   if (payload.renderer === 'table') {
     const columns = arrayValue<unknown>(payload.columns).map(formatResultCellValue)
     const rows = tableRowsValue(payload.rows)
+    const pageVersion = `${pageIndex}:${pageSize ?? 'all'}`
+    const dataVersion = resultId
+      ? `${resultId}:${pageVersion}`
+      : `${dataGridRowsVersion(rows, columns)}:${pageVersion}`
 
     return (
       <DataGridView
-        key={`${dataGridRowsVersion(rows, columns)}:${pageIndex}:${pageSize ?? 'all'}`}
+        key={dataVersion}
         connection={connection}
         editContext={editContext}
         columns={columns}

@@ -5,14 +5,14 @@
     {
       "id": "default",
       "name": "Default Workspace",
-      "createdAt": "1783974574",
-      "updatedAt": "1783976103",
-      "lastOpenedAt": "1783974574",
+      "createdAt": "1784191843",
+      "updatedAt": "1784194670",
+      "lastOpenedAt": "1784191843",
       "counts": {
         "connections": 26,
         "environments": 3,
         "libraryItems": 73,
-        "openTabs": 1
+        "openTabs": 0
       }
     }
   ]

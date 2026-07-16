@@ -1,12 +1,14 @@
 import type { ConnectionMode, ConnectionProfile, CosmosDbConnectionOptions } from '@datapadplusplus/shared-types'
 import {
   COSMOS_FIXTURE_DATABASE,
+  COSMOS_FIXTURE_DEFAULT_CONTAINER,
   COSMOS_FIXTURE_EMULATOR_ENDPOINT,
   COSMOS_MICROSOFT_EMULATOR_ENDPOINT,
   endpointValueForCosmosMode,
   portFromCosmosEndpoint,
 } from './RightDrawer.cosmosdb-connection-config'
 import type { UpdateConnectionDraft } from './RightDrawer.connection-modes'
+import { CosmosDbDefaultContainerField } from './RightDrawer.cosmosdb-default-container-field'
 import { FormField } from './RightDrawer.primitives'
 
 export function CosmosDbConnectionFields({
@@ -25,6 +27,9 @@ export function CosmosDbConnectionFields({
   const options = connectionDraft.cosmosDbOptions ?? {}
   const connectMode = options.connectMode ?? (mode === 'cloud-sdk' ? 'emulator' : 'entra-id')
   const authMode = options.authMode ?? authModeForConnectMode(connectMode)
+  const api = options.api ?? 'nosql'
+  const isGremlin = api === 'gremlin'
+  const isNoSql = api === 'nosql'
   const endpointValue = endpointValueForCosmosMode(connectMode, options.accountEndpoint ?? connectionDraft.host)
   const showSecret = authMode === 'account-key' || authMode === 'resource-token' || authMode === 'emulator'
   const updateOptions = (patch: Partial<CosmosDbConnectionOptions>) =>
@@ -36,13 +41,18 @@ export function CosmosDbConnectionFields({
         ...patch,
       },
     })
-  const applyEndpointPreset = (endpoint: string, database: string | undefined) => {
+  const applyEndpointPreset = (
+    endpoint: string,
+    database: string | undefined,
+    defaultContainer?: string,
+  ) => {
     updateOptions({
       connectMode: 'emulator',
       api: 'nosql',
       accountEndpoint: endpoint,
       authMode: 'emulator',
       databaseName: database || undefined,
+      containerPrefix: defaultContainer ?? options.containerPrefix,
       allowSelfSignedEmulatorCertificate: true,
     })
     onUpdateConnectionDraft(
@@ -88,9 +98,9 @@ export function CosmosDbConnectionFields({
           >
             <option value="emulator">Emulator</option>
             <option value="account-endpoint">Account endpoint</option>
-            <option value="entra-id">Entra ID</option>
-            <option value="managed-identity">Managed identity</option>
-            <option value="resource-token">Resource token</option>
+            {!isGremlin ? <option value="entra-id">Entra ID</option> : null}
+            {!isGremlin ? <option value="managed-identity">Managed identity</option> : null}
+            {!isGremlin ? <option value="resource-token">Resource token</option> : null}
             <option value="connection-string">Connection string</option>
           </select>
         </FormField>
@@ -98,9 +108,17 @@ export function CosmosDbConnectionFields({
           <select
             aria-label="Cosmos DB API"
             value={options.api ?? 'nosql'}
-            onChange={(event) =>
-              updateOptions({ api: event.target.value as CosmosDbConnectionOptions['api'] })
-            }
+            onChange={(event) => {
+              const api = event.target.value as CosmosDbConnectionOptions['api']
+              const identityMode = ['entra-id', 'managed-identity', 'resource-token'].includes(
+                connectMode ?? '',
+              )
+              updateOptions({
+                api,
+                connectMode: api === 'gremlin' && identityMode ? 'account-endpoint' : connectMode,
+                authMode: api === 'gremlin' && identityMode ? 'account-key' : authMode,
+              })
+            }}
           >
             <option value="nosql">NoSQL</option>
             <option value="mongodb">MongoDB</option>
@@ -128,7 +146,7 @@ export function CosmosDbConnectionFields({
           <button
             type="button"
             className="drawer-button"
-            onClick={() => applyEndpointPreset(COSMOS_FIXTURE_EMULATOR_ENDPOINT, COSMOS_FIXTURE_DATABASE)}
+            onClick={() => applyEndpointPreset(COSMOS_FIXTURE_EMULATOR_ENDPOINT, COSMOS_FIXTURE_DATABASE, COSMOS_FIXTURE_DEFAULT_CONTAINER)}
           >
             DataPad++ fixture
           </button>
@@ -153,6 +171,19 @@ export function CosmosDbConnectionFields({
           }}
         />
       </FormField>
+
+      {isGremlin ? (
+        <FormField label="Gremlin endpoint">
+          <input
+            aria-label="Cosmos DB Gremlin endpoint"
+            value={options.gremlinEndpoint ?? ''}
+            placeholder="wss://account.gremlin.cosmos.azure.com:443/"
+            onChange={(event) =>
+              updateOptions({ gremlinEndpoint: event.target.value || undefined })
+            }
+          />
+        </FormField>
+      ) : null}
 
       <div className="connection-advanced-grid">
         <FormField label="Database">
@@ -179,20 +210,51 @@ export function CosmosDbConnectionFields({
         </FormField>
       </div>
 
+      {isNoSql ? (
+        <CosmosDbDefaultContainerField
+          value={options.containerPrefix ?? ''}
+          onChange={(containerPrefix) => updateOptions({ containerPrefix })}
+        />
+      ) : null}
+
+      {isGremlin ? (
+        <div className="connection-advanced-grid">
+          <FormField label="Graph">
+            <input
+              aria-label="Cosmos DB graph name"
+              value={options.graphName ?? options.containerPrefix ?? ''}
+              placeholder="graph"
+              onChange={(event) => updateOptions({ graphName: event.target.value || undefined })}
+            />
+          </FormField>
+          <FormField label="Traversal source">
+            <input
+              aria-label="Cosmos DB traversal source"
+              value={options.traversalSource ?? 'g'}
+              placeholder="g"
+              onChange={(event) =>
+                updateOptions({ traversalSource: event.target.value || undefined })
+              }
+            />
+          </FormField>
+        </div>
+      ) : null}
+
       <div className="connection-advanced-grid">
         <FormField label="Auth">
           <select
             aria-label="Cosmos DB auth mode"
             value={authMode}
+            disabled={isGremlin && connectMode === 'emulator'}
             onChange={(event) =>
               updateOptions({ authMode: event.target.value as CosmosDbConnectionOptions['authMode'] })
             }
           >
             <option value="emulator">Emulator key</option>
             <option value="account-key">Account key</option>
-            <option value="resource-token">Resource token</option>
-            <option value="entra-id">Entra ID</option>
-            <option value="managed-identity">Managed identity</option>
+            {!isGremlin ? <option value="resource-token">Resource token</option> : null}
+            {!isGremlin ? <option value="entra-id">Entra ID</option> : null}
+            {!isGremlin ? <option value="managed-identity">Managed identity</option> : null}
             <option value="connection-string">Connection string</option>
           </select>
         </FormField>

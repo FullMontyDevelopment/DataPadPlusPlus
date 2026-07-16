@@ -1,17 +1,13 @@
+use neo4rs::{query, ConfigBuilder, Graph};
+use reqwest::Method;
 use serde_json::{json, Value};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
 
 use super::super::super::*;
-
-pub(super) struct Neo4jResponse {
-    pub(super) body: String,
-}
+use super::bolt_results::neo4j_bolt_row;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Neo4jEndpoint {
+    scheme: String,
     host: String,
     port: u16,
     prefix: String,
@@ -22,19 +18,22 @@ pub(super) async fn test_neo4j_connection(
     connection: &ResolvedConnectionProfile,
 ) -> Result<ConnectionTestResult, CommandError> {
     let started = Instant::now();
-    let _ = neo4j_run_cypher(connection, "RETURN 1 AS ok").await?;
+    let value = neo4j_run_cypher(
+        connection,
+        "CALL dbms.components() YIELD versions RETURN versions[0] AS version LIMIT 1",
+    )
+    .await?;
+    let version = first_neo4j_cell(&value).unwrap_or_else(|| "unknown".into());
+    let mode = neo4j_connect_mode(connection);
 
     Ok(ConnectionTestResult {
         ok: true,
         engine: connection.engine.clone(),
         message: format!(
-            "Neo4j HTTP transaction connection test succeeded for {}.",
+            "Neo4j {mode} connection test succeeded for {} (server {version}).",
             connection.name
         ),
-        warnings: vec![
-            "Neo4j adapter uses the HTTP transaction API; Bolt-specific tuning can be added behind the same adapter contract later."
-                .into(),
-        ],
+        warnings: Vec::new(),
         resolved_host: connection.host.clone(),
         resolved_database: connection.database.clone(),
         duration_ms: Some(duration_ms(started)),
@@ -45,59 +44,273 @@ pub(super) async fn neo4j_run_cypher(
     connection: &ResolvedConnectionProfile,
     statement: &str,
 ) -> Result<Value, CommandError> {
-    let body = neo4j_statement_body(statement);
-    let response = neo4j_post_json(connection, &neo4j_commit_path(connection)?, &body).await?;
+    match neo4j_connect_mode(connection) {
+        "neo4j-http" => neo4j_run_http(connection, statement).await,
+        "neo4j-bolt" => neo4j_run_bolt(connection, statement).await,
+        mode => Err(CommandError::new(
+            "neo4j-connect-mode-unsupported",
+            format!("Neo4j connection mode `{mode}` is not supported."),
+        )),
+    }
+}
+
+pub(super) fn neo4j_connect_mode(connection: &ResolvedConnectionProfile) -> &str {
+    connection
+        .graph_options
+        .as_ref()
+        .and_then(|options| options.connect_mode.as_deref())
+        .unwrap_or("neo4j-bolt")
+}
+
+async fn neo4j_run_bolt(
+    connection: &ResolvedConnectionProfile,
+    statement: &str,
+) -> Result<Value, CommandError> {
+    let options = connection.graph_options.as_ref();
+    if options.and_then(|value| value.auth_mode.as_deref()) == Some("bearer-token") {
+        return Err(CommandError::new(
+            "neo4j-bolt-auth-unsupported",
+            "Bearer-token authentication is available with Neo4j HTTP mode; Bolt profiles currently require basic authentication.",
+        ));
+    }
+    if options
+        .and_then(|value| value.ca_certificate_path.as_deref())
+        .is_some()
+    {
+        return Err(CommandError::new(
+            "neo4j-bolt-ca-unsupported",
+            "Custom CA files are not supported by the bundled Bolt driver. Use a system-trusted certificate or Neo4j HTTP mode.",
+        ));
+    }
+
+    let endpoint = neo4j_bolt_endpoint(connection)?;
+    let username = options
+        .and_then(|value| value.username.as_deref())
+        .or(connection.username.as_deref())
+        .unwrap_or_default();
+    let password = connection.password.as_deref().unwrap_or_default();
+    let database = options
+        .and_then(|value| value.database_name.as_deref())
+        .or(connection.database.as_deref())
+        .unwrap_or("neo4j");
+    let fetch_size = options
+        .and_then(|value| value.fetch_size)
+        .unwrap_or(500)
+        .clamp(1, 10_000) as usize;
+    let config = ConfigBuilder::default()
+        .uri(endpoint)
+        .user(username)
+        .password(password)
+        .db(database)
+        .fetch_size(fetch_size)
+        .max_connections(4)
+        .build()
+        .map_err(|_| {
+            CommandError::new(
+                "neo4j-bolt-config-invalid",
+                "The Neo4j Bolt connection settings are invalid.",
+            )
+        })?;
+    let timeout = options
+        .and_then(|value| value.query_timeout_ms)
+        .unwrap_or(30_000)
+        .clamp(100, 3_600_000);
+    let password_for_redaction = password.to_string();
+    let operation = async {
+        let graph = Graph::connect(config).await.map_err(|error| {
+            neo4j_bolt_error(
+                "neo4j-bolt-connect-failed",
+                "Neo4j Bolt connection failed.",
+                error,
+                &password_for_redaction,
+            )
+        })?;
+        let mut stream = graph.execute(query(statement)).await.map_err(|error| {
+            neo4j_bolt_error(
+                "neo4j-query-error",
+                "Neo4j rejected the Cypher statement.",
+                error,
+                &password_for_redaction,
+            )
+        })?;
+        let mut columns = Vec::new();
+        let mut rows = Vec::new();
+        while let Some(row) = stream.next().await.map_err(|error| {
+            neo4j_bolt_error(
+                "neo4j-query-read-failed",
+                "Neo4j Bolt result streaming failed.",
+                error,
+                &password_for_redaction,
+            )
+        })? {
+            let (row_columns, row_values) = neo4j_bolt_row(&row).map_err(|error| {
+                CommandError::new(
+                    "neo4j-bolt-value-invalid",
+                    format!("Neo4j returned a Bolt value that could not be normalized: {error}"),
+                )
+            })?;
+            if columns.is_empty() {
+                columns = row_columns;
+            }
+            rows.push(json!({ "row": row_values }));
+        }
+
+        Ok::<Value, CommandError>(json!({
+            "results": [{
+                "columns": columns,
+                "data": rows,
+                "stats": {}
+            }],
+            "errors": []
+        }))
+    };
+
+    tokio::time::timeout(std::time::Duration::from_millis(timeout), operation)
+        .await
+        .map_err(|_| {
+            CommandError::new(
+                "neo4j-query-timeout",
+                format!("Neo4j did not finish the request within {timeout} ms."),
+            )
+        })?
+}
+
+fn neo4j_bolt_endpoint(connection: &ResolvedConnectionProfile) -> Result<String, CommandError> {
+    let options = connection.graph_options.as_ref();
+    if let Some(raw) = options
+        .and_then(|value| value.endpoint_url.as_deref())
+        .or(connection.connection_string.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if raw.starts_with("bolt://")
+            || raw.starts_with("neo4j://")
+            || raw.starts_with("neo4j+s://")
+            || raw.starts_with("neo4j+ssc://")
+        {
+            return Ok(raw.to_string());
+        }
+        return Err(CommandError::new(
+            "neo4j-bolt-endpoint-invalid",
+            "A Neo4j Bolt profile requires a bolt:// or neo4j:// endpoint.",
+        ));
+    }
+
+    let host = connection.host.trim();
+    validate_http_component(host, "Neo4j host")?;
+    if host.is_empty() {
+        return Err(CommandError::new(
+            "neo4j-endpoint-missing",
+            "Neo4j requires a host or Bolt endpoint.",
+        ));
+    }
+    let scheme = if options.and_then(|value| value.use_tls) == Some(true) {
+        if options.and_then(|value| value.verify_certificates) == Some(false) {
+            "neo4j+ssc"
+        } else {
+            "neo4j+s"
+        }
+    } else {
+        "bolt"
+    };
+    Ok(format!(
+        "{scheme}://{host}:{}",
+        connection.port.unwrap_or(7687)
+    ))
+}
+
+async fn neo4j_run_http(
+    connection: &ResolvedConnectionProfile,
+    statement: &str,
+) -> Result<Value, CommandError> {
+    let endpoint = Neo4jEndpoint::from_connection(connection)?;
+    let client = graph_http_client(connection)?;
+    let query_url = endpoint.url(&format!("/db/{}/query/v2", endpoint.database));
+    let response = graph_http_request(&client, Method::POST, &query_url, connection)
+        .json(&json!({ "statement": statement, "parameters": {} }))
+        .send()
+        .await
+        .map_err(|error| {
+            CommandError::new(
+                "neo4j-http-request-failed",
+                format!("Neo4j HTTP query request failed: {error}"),
+            )
+        })?;
+
+    if response.status().as_u16() == 404 {
+        return neo4j_run_legacy_http(connection, statement).await;
+    }
+    let response = graph_http_response(
+        response,
+        "neo4j-http-error",
+        "Neo4j HTTP query request failed.",
+    )
+    .await?;
+    let value = parse_neo4j_json(&response.body)?;
+    ensure_neo4j_success(&value)?;
+    Ok(normalize_neo4j_query_api(value))
+}
+
+async fn neo4j_run_legacy_http(
+    connection: &ResolvedConnectionProfile,
+    statement: &str,
+) -> Result<Value, CommandError> {
+    let endpoint = Neo4jEndpoint::from_connection(connection)?;
+    let client = graph_http_client(connection)?;
+    let url = endpoint.url(&neo4j_commit_path(connection)?);
+    let response = graph_http_request(&client, Method::POST, &url, connection)
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .body(neo4j_statement_body(statement))
+        .send()
+        .await
+        .map_err(|error| {
+            CommandError::new(
+                "neo4j-http-request-failed",
+                format!("Neo4j legacy HTTP request failed: {error}"),
+            )
+        })?;
+    let response = graph_http_response(
+        response,
+        "neo4j-http-error",
+        "Neo4j legacy HTTP transaction request failed.",
+    )
+    .await?;
     let value = parse_neo4j_json(&response.body)?;
     ensure_neo4j_success(&value)?;
     Ok(value)
 }
 
-pub(super) async fn neo4j_post_json(
-    connection: &ResolvedConnectionProfile,
-    path: &str,
-    body: &str,
-) -> Result<Neo4jResponse, CommandError> {
-    let endpoint = Neo4jEndpoint::from_connection(connection)?;
-    let path = endpoint.path(path);
-    let auth_header = neo4j_auth_header(connection);
-    let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n{}",
-        endpoint.host,
-        endpoint.port,
-        body.len(),
-        auth_header,
-        body
-    );
-    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port)).await?;
-    stream.write_all(request.as_bytes()).await?;
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).await?;
-    let raw = String::from_utf8_lossy(&response).to_string();
-    let (headers, body) = raw.split_once("\r\n\r\n").unwrap_or(("", &raw));
-    let status_code = headers
-        .lines()
-        .next()
-        .and_then(|status| status.split_whitespace().nth(1))
-        .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(0);
-
-    if (200..300).contains(&status_code) {
-        Ok(Neo4jResponse {
-            body: body.to_string(),
-        })
-    } else {
-        Err(CommandError::new(
-            "neo4j-http-error",
-            body.lines()
-                .next()
-                .filter(|line| !line.trim().is_empty())
-                .unwrap_or("Neo4j HTTP transaction request failed."),
-        ))
+fn normalize_neo4j_query_api(value: Value) -> Value {
+    if value.get("results").is_some() {
+        return value;
     }
+    let fields = value
+        .pointer("/data/fields")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let rows = value
+        .pointer("/data/values")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|row| json!({ "row": row }))
+        .collect::<Vec<_>>();
+    json!({
+        "results": [{
+            "columns": fields,
+            "data": rows,
+            "stats": value.get("counters").cloned().unwrap_or_else(|| json!({}))
+        }],
+        "errors": value.get("errors").cloned().unwrap_or_else(|| json!([])),
+        "notifications": value.get("notifications").cloned().unwrap_or_else(|| json!([]))
+    })
 }
 
 impl Neo4jEndpoint {
-    fn from_connection(connection: &ResolvedConnectionProfile) -> Result<Self, CommandError> {
+    pub(super) fn from_connection(
+        connection: &ResolvedConnectionProfile,
+    ) -> Result<Self, CommandError> {
         if let Some(options) = connection.graph_options.as_ref() {
             if let Some(endpoint_url) = options
                 .endpoint_url
@@ -114,19 +327,18 @@ impl Neo4jEndpoint {
                 );
             }
         }
-
         if let Some(connection_string) = connection.connection_string.as_deref() {
             return Self::from_url(connection_string, connection.database.as_deref());
         }
 
         let host = connection.host.trim();
+        validate_http_component(host, "Neo4j host")?;
         if host.is_empty() {
             return Err(CommandError::new(
                 "neo4j-endpoint-missing",
-                "Neo4j requires a host or http:// connection string.",
+                "Neo4j HTTP mode requires a host or HTTP endpoint.",
             ));
         }
-        validate_http_component(host, "Neo4j host")?;
         let database = connection_database(
             connection
                 .graph_options
@@ -135,10 +347,15 @@ impl Neo4jEndpoint {
                 .or(connection.database.as_deref()),
         );
         validate_path_segment(&database, "Neo4j database")?;
-
+        let use_tls = connection
+            .graph_options
+            .as_ref()
+            .and_then(|options| options.use_tls)
+            .unwrap_or(false);
         Ok(Self {
+            scheme: if use_tls { "https" } else { "http" }.into(),
             host: host.into(),
-            port: connection.port.unwrap_or(7474),
+            port: connection.port.unwrap_or(if use_tls { 7473 } else { 7474 }),
             prefix: connection
                 .graph_options
                 .as_ref()
@@ -151,37 +368,37 @@ impl Neo4jEndpoint {
         })
     }
 
-    fn from_url(url: &str, database_override: Option<&str>) -> Result<Self, CommandError> {
-        Self::from_url_with_parts(url, database_override, None)
+    pub(super) fn from_url(
+        raw: &str,
+        database_override: Option<&str>,
+    ) -> Result<Self, CommandError> {
+        Self::from_url_with_parts(raw, database_override, None)
     }
 
     fn from_url_with_parts(
-        url: &str,
+        raw: &str,
         database_override: Option<&str>,
         prefix_override: Option<&str>,
     ) -> Result<Self, CommandError> {
-        let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
+        let url = url::Url::parse(raw).map_err(|_| {
             CommandError::new(
-                "neo4j-unsupported-url",
-                "Neo4j adapter currently supports plain http:// endpoints. Use a local or reverse-proxied HTTP endpoint for HTTPS deployments.",
+                "neo4j-endpoint-invalid",
+                "Neo4j HTTP endpoint is not a valid URL.",
             )
         })?;
-        let (authority, path) = without_scheme
-            .split_once('/')
-            .unwrap_or((without_scheme, ""));
-        let (host, port) = authority
-            .rsplit_once(':')
-            .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
-            .unwrap_or((authority, 7474));
-
-        if host.trim().is_empty() {
+        if !matches!(url.scheme(), "http" | "https") {
             return Err(CommandError::new(
-                "neo4j-endpoint-missing",
-                "Neo4j connection string did not include a host.",
+                "neo4j-unsupported-url",
+                "Neo4j HTTP mode requires an http:// or https:// endpoint.",
             ));
         }
-        validate_http_component(host, "Neo4j host")?;
-
+        let host = url.host_str().ok_or_else(|| {
+            CommandError::new(
+                "neo4j-endpoint-missing",
+                "Neo4j endpoint did not include a host.",
+            )
+        })?;
+        let path = url.path().trim_matches('/');
         let database = database_override
             .filter(|value| !value.trim().is_empty())
             .map(str::to_string)
@@ -198,16 +415,17 @@ impl Neo4jEndpoint {
             None if path.starts_with("db/") => String::new(),
             None => normalized_prefix(Some(path))?.unwrap_or_default(),
         };
-
+        let default_port = if url.scheme() == "https" { 7473 } else { 7474 };
         Ok(Self {
+            scheme: url.scheme().into(),
             host: host.into(),
-            port,
+            port: url.port().unwrap_or(default_port),
             prefix,
             database,
         })
     }
 
-    fn path(&self, path: &str) -> String {
+    pub(super) fn path(&self, path: &str) -> String {
         format!(
             "{}{}",
             self.prefix,
@@ -216,6 +434,16 @@ impl Neo4jEndpoint {
             } else {
                 format!("/{path}")
             }
+        )
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!(
+            "{}://{}:{}{}",
+            self.scheme,
+            self.host,
+            self.port,
+            self.path(path)
         )
     }
 }
@@ -255,16 +483,27 @@ fn ensure_neo4j_success(value: &Value) -> Result<(), CommandError> {
         .into_iter()
         .flatten()
         .next();
-
     if let Some(error) = first_error {
+        let code = error
+            .get("code")
+            .and_then(Value::as_str)
+            .unwrap_or("neo4j-query-error");
         let message = error
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or("Neo4j query failed.");
-        return Err(CommandError::new("neo4j-query-error", message));
+        return Err(CommandError::new(code, message));
     }
-
     Ok(())
+}
+
+fn first_neo4j_cell(value: &Value) -> Option<String> {
+    value
+        .pointer("/results/0/data/0/row/0")
+        .map(|value| match value {
+            Value::String(value) => value.clone(),
+            value => value.to_string(),
+        })
 }
 
 fn connection_database(value: Option<&str>) -> String {
@@ -308,22 +547,17 @@ fn validate_path_segment(value: &str, label: &str) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn neo4j_auth_header(connection: &ResolvedConnectionProfile) -> String {
-    let username = connection
-        .graph_options
-        .as_ref()
-        .and_then(|options| options.username.as_deref())
-        .map(str::to_string)
-        .or_else(|| connection.username.clone());
-    match (&username, &connection.password) {
-        (Some(username), Some(password)) if !username.is_empty() => {
-            let encoded = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                format!("{username}:{password}"),
-            );
-            format!("Authorization: Basic {encoded}\r\n")
-        }
-        _ => String::new(),
+fn neo4j_bolt_error(
+    code: &str,
+    fallback: &str,
+    error: neo4rs::Error,
+    password: &str,
+) -> CommandError {
+    let detail = error.to_string();
+    if detail.len() > 700 || (!password.is_empty() && detail.contains(password)) {
+        CommandError::new(code, fallback)
+    } else {
+        CommandError::new(code, format!("{fallback} {detail}"))
     }
 }
 

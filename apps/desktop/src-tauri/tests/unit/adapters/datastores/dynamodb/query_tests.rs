@@ -3,7 +3,7 @@ use serde_json::json;
 use super::{
     attribute_or_json_to_string, bounded_dynamodb_response, dynamodb_operation,
     dynamodb_partiql_is_read_only, dynamodb_profile_payload, normalize_dynamodb_response_bounded,
-    normalize_request_body,
+    normalize_request_body, validate_dynamodb_request,
 };
 
 #[test]
@@ -26,6 +26,24 @@ fn dynamodb_request_body_normalizes_common_keys_and_limit() {
     assert_eq!(body["KeyConditionExpression"], "pk = :pk");
     assert_eq!(body["Limit"], 26);
     assert_eq!(body["ReturnConsumedCapacity"], "TOTAL");
+}
+
+#[test]
+fn dynamodb_request_body_accepts_legacy_table_alias() {
+    let body = normalize_request_body("Scan", json!({ "table": "orders" }), 25);
+
+    assert_eq!(body["TableName"], "orders");
+    assert!(validate_dynamodb_request("Scan", &body).is_ok());
+}
+
+#[test]
+fn dynamodb_request_validation_rejects_missing_or_invalid_names_locally() {
+    let missing = validate_dynamodb_request("Scan", &json!({ "TableName": "" })).unwrap_err();
+    let invalid =
+        validate_dynamodb_request("Query", &json!({ "TableName": "bad/name" })).unwrap_err();
+
+    assert_eq!(missing.code, "dynamodb-table-name-missing");
+    assert_eq!(invalid.code, "dynamodb-table-name-invalid");
 }
 
 #[test]

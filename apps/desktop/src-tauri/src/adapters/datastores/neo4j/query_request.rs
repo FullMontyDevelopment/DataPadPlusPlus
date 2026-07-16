@@ -17,13 +17,6 @@ pub(super) fn neo4j_query_request(
             "No Cypher query was provided.",
         ));
     }
-    if !is_read_only_cypher(statement) {
-        return Err(CommandError::new(
-            "neo4j-write-preview-only",
-            "Neo4j writes, schema changes, imports, and admin commands are operation-plan preview only in this adapter phase.",
-        ));
-    }
-
     let mode = match execute_mode {
         "explain" => "explain",
         "profile" => "profile",

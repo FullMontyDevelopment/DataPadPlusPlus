@@ -17,6 +17,7 @@ const CONNECT_MODES = new Set<GraphConnectionMode>([
   'neo4j-http',
   'neo4j-bolt',
   'arango-http',
+  'gremlin-websocket',
   'gremlin-http',
   'neptune-http',
   'neptune-iam',

@@ -50,9 +50,7 @@ pub(super) async fn execute_dynamodb_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let body = normalize_request_body(&operation, request_value, row_limit);
-    if operation == "ExecuteStatement" {
-        validate_partiql_statement(&body)?;
-    }
+    validate_dynamodb_request(&operation, &body)?;
     let response = dynamodb_call(connection, &operation, &body).await?;
     let normalized = normalize_dynamodb_response_bounded(&operation, &response, row_limit);
     let columns = normalized.columns;
@@ -143,6 +141,59 @@ pub(crate) fn normalize_request_body(operation: &str, value: Value, row_limit: u
         normalized.insert("ReturnConsumedCapacity".into(), json!("TOTAL"));
     }
     Value::Object(normalized)
+}
+
+pub(crate) fn validate_dynamodb_request(operation: &str, body: &Value) -> Result<(), CommandError> {
+    if matches!(operation, "DescribeTable" | "GetItem" | "Query" | "Scan") {
+        validate_dynamodb_resource_name(body, "TableName", "table", true, true)?;
+    }
+    if body.get("IndexName").is_some() {
+        validate_dynamodb_resource_name(body, "IndexName", "index", false, false)?;
+    }
+    if operation == "ExecuteStatement" {
+        validate_partiql_statement(body)?;
+    }
+    Ok(())
+}
+
+fn validate_dynamodb_resource_name(
+    body: &Value,
+    field: &str,
+    label: &str,
+    allow_arn: bool,
+    required: bool,
+) -> Result<(), CommandError> {
+    let value = body.get(field);
+    if value.is_none() && !required {
+        return Ok(());
+    }
+    let name = value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                format!("dynamodb-{label}-name-missing"),
+                format!(
+                    "DynamoDB requests using {field} require a non-empty {label} name. Select a {label} before running the request."
+                ),
+            )
+        })?;
+    let plain_name = !allow_arn || !name.starts_with("arn:");
+    if plain_name
+        && (!(3..=255).contains(&name.len())
+            || !name
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || "_-.".contains(character)))
+    {
+        return Err(CommandError::new(
+            format!("dynamodb-{label}-name-invalid"),
+            format!(
+                "DynamoDB {label} names must contain 3 to 255 letters, numbers, underscores, hyphens, or periods."
+            ),
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) struct DynamoDbNormalizedResponse {
@@ -408,7 +459,7 @@ fn normalize_operation_name(value: &str) -> String {
 
 fn normalize_request_key(key: &str) -> String {
     match key {
-        "tableName" => "TableName",
+        "table" | "tableName" => "TableName",
         "key" => "Key",
         "item" => "Item",
         "indexName" => "IndexName",

@@ -38,9 +38,9 @@ pub(super) async fn collect_neo4j_diagnostics(
     diagnostics.query_history.push(payload_json(json!({
         "engine": "neo4j",
         "templates": [
-            "MATCH (n) RETURN n LIMIT 100",
-            "EXPLAIN MATCH (n) RETURN n LIMIT 100",
-            "PROFILE MATCH (n) RETURN n LIMIT 100"
+            "MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 100",
+            "EXPLAIN MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 100",
+            "PROFILE MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 100"
         ],
         "components": components,
     })));

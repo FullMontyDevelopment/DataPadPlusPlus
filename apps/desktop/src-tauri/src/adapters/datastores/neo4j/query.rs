@@ -2,7 +2,7 @@ use serde_json::json;
 
 use super::super::super::*;
 use super::connection::{neo4j_run_cypher, neo4j_statement_body};
-use super::query_request::{neo4j_query_request, Neo4jQueryRequest};
+use super::query_request::{is_read_only_cypher, neo4j_query_request, Neo4jQueryRequest};
 use super::query_results::{normalize_neo4j_result, NormalizedNeo4jResult};
 use super::Neo4jAdapter;
 
@@ -26,6 +26,12 @@ pub(super) async fn execute_neo4j_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let query_request = neo4j_query_request(query_text, execute_mode(request))?;
+    if connection.read_only && query_request.mode != "explain" && !is_read_only_cypher(query_text) {
+        return Err(CommandError::new(
+            "neo4j-read-only-violation",
+            "This Neo4j connection is read-only and cannot execute a mutating Cypher statement.",
+        ));
+    }
     let value = neo4j_run_cypher(connection, &query_request.statement).await?;
     let normalized = normalize_neo4j_result(&value, row_limit);
     let mut notices = notices;

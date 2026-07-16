@@ -16,7 +16,13 @@ fn prometheus_vector_results_normalize_to_rows_and_series() {
         normalized.rows,
         vec![vec!["up{job=\"api\"}", "1710000000.0", "1"]]
     );
-    assert_eq!(normalized.series.as_array().unwrap().len(), 1);
+    assert_eq!(normalized.series[0]["name"], "up");
+    assert_eq!(
+        normalized.series[0]["points"][0]["timestamp"],
+        "1710000000.0"
+    );
+    assert_eq!(normalized.series[0]["points"][0]["value"], 1.0);
+    assert_eq!(normalized.series[0]["points"][0]["labels"]["job"], "api");
 }
 
 #[test]
@@ -31,6 +37,8 @@ fn prometheus_matrix_results_expand_samples_to_table_rows() {
 
     assert_eq!(normalized.rows.len(), 2);
     assert_eq!(normalized.rows[0][0], "http_requests_total");
+    assert_eq!(normalized.series[0]["name"], "http_requests_total");
+    assert_eq!(normalized.series[0]["points"].as_array().unwrap().len(), 2);
 }
 
 #[test]
@@ -47,6 +55,18 @@ fn prometheus_vector_results_are_bounded_before_rendering() {
     assert_eq!(normalized.series_count, 2);
     assert!(normalized.truncated);
     assert_eq!(normalized.series.as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn prometheus_scalar_and_string_results_use_the_shared_series_contract() {
+    let scalar = normalize_prometheus_result_bounded("scalar", &json!([1710000000.0, "+Inf"]), 100);
+    let string =
+        normalize_prometheus_result_bounded("string", &json!([1710000001.0, "ready"]), 100);
+
+    assert_eq!(scalar.series[0]["name"], "scalar");
+    assert_eq!(scalar.series[0]["points"][0]["value"], "+Inf");
+    assert_eq!(string.series[0]["name"], "string");
+    assert_eq!(string.series[0]["points"][0]["value"], "ready");
 }
 
 #[test]

@@ -225,6 +225,9 @@ describe('workspace query helpers', () => {
     expect(defaultQueryTextForConnection(dynamoDbConnection())).toContain('"tableName": ""')
     expect(defaultQueryTextForConnection(searchConnection())).toContain('"index": ""')
     expect(defaultQueryTextForConnection(cassandraConnection())).toBe('')
+    expect(defaultQueryTextForConnection(neo4jConnection())).toBe(
+      'MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 25',
+    )
   })
 
   it('selects the requested renderer payload with a safe fallback', () => {
@@ -326,6 +329,17 @@ function searchConnection(): ConnectionProfile {
     auth: {},
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function neo4jConnection(): ConnectionProfile {
+  return {
+    ...mongoConnection(),
+    id: 'conn-neo4j',
+    name: 'Neo4j',
+    engine: 'neo4j',
+    family: 'graph',
+    database: 'neo4j',
   }
 }
 

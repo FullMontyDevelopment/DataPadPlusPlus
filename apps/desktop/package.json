@@ -6,11 +6,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "dev:ensure": "node ../../.vscode/ensure-ui-dev.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "oracle:sidecar:ensure": "node ../../tests/release/ensure-oracle-sidecar.mjs",
     "oracle:sidecar:prepare": "node ../../tests/release/prepare-oracle-sidecar.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

@@ -65,7 +65,7 @@ pub(super) fn fixture_connection_seeds() -> Vec<FixtureConnectionSeed> {
             color: "#e87941",
             icon: "prometheus",
             query_title: "Fixture Prometheus.promql",
-            query_text: "up",
+            query_text: super::super::super::workspace_fixture_migrations::PROMETHEUS_FIXTURE_QUERY,
             tags: &["fixtures", "analytics", "timeseries"],
         },
         FixtureConnectionSeed {
@@ -131,7 +131,7 @@ pub(super) fn fixture_connection_seeds() -> Vec<FixtureConnectionSeed> {
             color: "#4f8dff",
             icon: "neo4j",
             query_title: "Fixture Neo4j.cypher",
-            query_text: "MATCH (n) RETURN n LIMIT 25",
+            query_text: "MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 25",
             tags: &["fixtures", "graph"],
         },
         FixtureConnectionSeed {
@@ -197,7 +197,7 @@ pub(super) fn fixture_connection_seeds() -> Vec<FixtureConnectionSeed> {
             color: "#64a6d8",
             icon: "cassandra",
             query_title: "Fixture Cassandra.cql",
-            query_text: "select * from datapadplusplus.orders limit 25;",
+            query_text: super::super::super::workspace_fixture_migrations::CASSANDRA_FIXTURE_QUERY,
             tags: &["fixtures", "widecolumn"],
         },
         FixtureConnectionSeed {

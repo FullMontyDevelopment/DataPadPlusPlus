@@ -7,7 +7,9 @@ use tokio::time::{timeout, Duration};
 
 use super::super::super::*;
 use super::connection::{oracle_connect_descriptor, oracle_service_name, oracle_sqlplus_path};
-use super::sidecar::{execute_oracle_managed, oracle_execution_runtime};
+use super::sidecar::{
+    configure_oracle_child_process, execute_oracle_managed, oracle_execution_runtime,
+};
 use super::OracleAdapter;
 
 pub(super) async fn execute_oracle_query(
@@ -423,6 +425,7 @@ pub(super) async fn run_oracle_sqlplus_script(
 ) -> Result<String, CommandError> {
     let timeout_ms = oracle_request_timeout_ms(connection);
     let mut command = Command::new(sqlplus_path);
+    configure_oracle_child_process(&mut command);
     command
         .args(["-L", "-S", "/nolog"])
         .stdin(Stdio::piped())

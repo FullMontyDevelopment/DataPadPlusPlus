@@ -36,10 +36,22 @@ describe('EditorTabItem', () => {
 
   it('prioritizes running state over the visible dirty marker', () => {
     const { unmount } = renderEditorTabItem({
-      tab: { ...tab, dirty: true, status: 'running' },
+      tab: {
+        ...tab,
+        dirty: true,
+        status: 'running',
+        activeExecution: {
+          executionId: 'execution-1',
+          phase: 'server',
+          startedAt: '2026-07-16T00:00:00.000Z',
+        },
+      },
     })
 
-    expect(screen.getByRole('img', { name: 'Query running' })).toBeInTheDocument()
+    const runningStatus = screen.getByRole('img', { name: 'Query running' })
+    expect(runningStatus).toBeInTheDocument()
+    expect(runningStatus.querySelector('.connection-metadata-spinner')).toBeInTheDocument()
+    expect(runningStatus.querySelector('svg')).not.toBeInTheDocument()
     expect(screen.queryByTitle('Unsaved changes')).not.toBeInTheDocument()
     expect(screen.getByRole('tab')).toHaveAttribute(
       'title',
@@ -62,6 +74,15 @@ describe('EditorTabItem', () => {
       'title',
       expect.stringContaining('Syntax error near from.'),
     )
+  })
+
+  it('does not keep spinning for a stale running status without an active execution', () => {
+    renderEditorTabItem({
+      tab: { ...tab, status: 'running' },
+    })
+
+    expect(screen.queryByRole('img', { name: 'Query running' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab')).not.toHaveClass('is-running')
   })
 
   it('does not show an unsaved marker for dirty unsaveable explorer tabs', () => {

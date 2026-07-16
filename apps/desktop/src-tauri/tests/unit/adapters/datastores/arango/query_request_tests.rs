@@ -59,9 +59,9 @@ fn arango_read_only_guard_ignores_keywords_inside_strings_and_comments() {
 }
 
 #[test]
-fn arango_query_request_rejects_mutating_aql() {
-    let error =
-        arango_query_request("FOR doc IN users REMOVE doc IN users", "full", 10).unwrap_err();
+fn arango_query_request_builds_mutating_aql_for_guarded_execution() {
+    let request = arango_query_request("FOR doc IN users REMOVE doc IN users", "full", 10).unwrap();
 
-    assert_eq!(error.code, "arango-write-preview-only");
+    assert_eq!(request.mode, "read");
+    assert_eq!(request.query, "FOR doc IN users REMOVE doc IN users");
 }

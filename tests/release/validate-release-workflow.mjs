@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 const REQUIRED_PLATFORMS = [
   'ubuntu-22.04',
   'windows-2022',
-  'macos-latest'
+  'macos-15'
 ]
 
 function requireMatch(text, pattern, message) {
@@ -183,6 +183,38 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
     text,
     /actions\/setup-dotnet@v4[\s\S]*dotnet-version:\s*['"]8\.0\.x['"]/,
     'release workflow must install .NET 8 for the bundled Oracle runtime'
+  )
+  requireMatch(
+    text,
+    /name:\s*Prepare and smoke-test bundled Oracle runtime[\s\S]*npm run oracle:sidecar:prepare[\s\S]*npm run oracle:sidecar:smoke/,
+    'release workflow must build and launch the Oracle health handshake before Tauri packaging'
+  )
+  for (const rid of ['win-x64', 'linux-x64', 'osx-arm64']) {
+    requireMatch(
+      text,
+      new RegExp(`oracle-rid:\\s*${rid}`),
+      `release workflow must declare Oracle runtime ${rid}`
+    )
+  }
+  requireMatch(
+    text,
+    /DATAPADPLUSPLUS_ORACLE_RID:\s*\$\{\{\s*matrix\.oracle-rid\s*\}\}/,
+    'release workflow must pass the selected Oracle runtime ID to publishing'
+  )
+  requireMatch(
+    text,
+    /name:\s*Verify bundled Oracle runtime/,
+    'release workflow must verify the packaged Oracle runtime'
+  )
+  requireMatch(
+    text,
+    /codesign --verify --strict --verbose=2 \$appSidecar/,
+    'release workflow must verify the macOS Oracle runtime signature'
+  )
+  requireMatch(
+    text,
+    /chmod 755 \$sidecarPortable/,
+    'release workflow must preserve executable permissions in Unix portable archives'
   )
   requireMatch(
     text,

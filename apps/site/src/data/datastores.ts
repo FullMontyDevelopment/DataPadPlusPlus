@@ -465,9 +465,9 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'cassandra',
     title: 'Cassandra',
     family: 'Document and NoSQL',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native CQL read runtime; writes and admin gated',
     summary:
-      'Cassandra documents keyspace and table workflows with partition-key query helpers, tracing, storage health, grants, and snapshot/import/export planning.',
+      'Cassandra runs bounded CQL reads over the native binary protocol and adds partition-key query helpers, tracing, storage health, grants, and snapshot/import/export planning.',
     bestFor: ['Wide-column schemas', 'Partition-key reads', 'Tracing and storage posture'],
     connections: [
       'Choose Cassandra and configure contact points, keyspace, secure bundle, TLS, consistency, retry, load balancing, authentication, and timeout posture.',
@@ -476,7 +476,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Browse keyspaces, tables, primary keys, clustering columns, indexes, materialized views, grants, partition posture, storage posture, tombstone posture, and diagnostics.',
     ],
     queryModes: [
-      'Use CQL read editors, partition-key builders, deterministic Cassandra IntelliSense, bounded SELECT snippets, and tracing-oriented query previews.',
+      'Run live CQL reads with partition-key builders, deterministic Cassandra IntelliSense, bounded SELECT results, and native tracing identifiers.',
     ],
     resultViews: [
       'Inspect table-like CQL results, partition metadata, primary-key targets, tracing payloads, storage warnings, and raw CQL details.',
@@ -491,7 +491,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Use COPY import/export and snapshot/restore previews with partition, file, permission, and environment guardrails.',
     ],
     safety: [
-      'Live mutation and CQL driver write paths remain preview-first until complete primary-key conditions and driver execution boundaries are validated.',
+      'Native reads share bounded result and read-only guardrails; mutations remain preview-first until complete primary-key conditions and write boundaries are validated.',
     ],
     screenshots: screenshotSet('Cassandra'),
   },
@@ -500,21 +500,21 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'cosmosdb',
     title: 'Cosmos DB',
     family: 'Document and NoSQL',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native Gremlin query runtime; cloud admin gated',
     summary:
-      'Cosmos DB focuses on SQL API containers, partition keys, RU posture, consistency, regions, indexing policy, diagnostics, and guarded cloud-operation previews.',
-    bestFor: ['Cosmos SQL API containers', 'RU throughput review', 'Partition-key planning'],
+      'Cosmos DB supports SQL API reads and a native GraphSON v2 Gremlin WebSocket runtime with Cosmos authentication, bounded graph results, and request-charge metrics.',
+    bestFor: ['Cosmos SQL API containers', 'Cosmos Gremlin graphs', 'RU throughput review'],
     connections: [
-      'Choose Cosmos DB and configure account endpoint, database, credential mode, API flavor, preferred regions, consistency expectations, timeout, and read-only posture.',
+      'Choose Cosmos DB and configure account endpoint, database, credential mode, API flavor, preferred regions, consistency expectations, timeout, and read-only posture. Gremlin profiles also select the graph, Gremlin endpoint, and traversal source.',
     ],
     explorer: [
       'Browse databases, containers, partition keys, indexing policies, throughput, consistency, regions, access, diagnostics, and API-specific native branches.',
     ],
     queryModes: [
-      'Use Cosmos SQL reads, JSON request previews, deterministic container/field IntelliSense, partition-key helpers, and bounded query snippets.',
+      'Use Cosmos SQL reads or live Gremlin traversals. Gremlin responses aggregate partial GraphSON messages into bounded graph, object, table, JSON, profile, and metrics views.',
     ],
     resultViews: [
-      'Inspect document rows, raw JSON, RU/query metrics, continuation or pagination signals, partition metadata, and container posture cards.',
+      'Inspect document rows or normalized graph nodes and edges, raw JSON, RU/query metrics, continuation or partial-response signals, partition metadata, and container posture cards.',
     ],
     adminFeatures: [
       'Preview throughput changes, indexing policy changes, consistency changes, failover, access checks, exports, imports, and guarded container drops.',
@@ -526,7 +526,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Use export/import previews for containers with partition-key, RU, file path, overwrite, and cloud cost guardrails.',
     ],
     safety: [
-      'Cloud mutation, throughput, region failover, drop, and broad data movement operations remain preview-first unless adapter-owned execution is validated.',
+      'Gremlin mutations use the shared environment and read-only guardrails. Throughput, region failover, drops, and broad data movement remain preview-first until credential-gated cloud validation passes.',
     ],
     screenshots: screenshotSet('Cosmos DB'),
   },
@@ -995,9 +995,9 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'neo4j',
     title: 'Neo4j',
     family: 'Graph',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native Bolt and Query API runtime',
     summary:
-      'Neo4j keeps graph-native labels, relationships, properties, constraints, Cypher, explain/profile, metrics, and guarded graph operations visible.',
+      'Neo4j runs live Cypher over Bolt by default or the current HTTP Query API, with bounded graph normalization, live metadata, and guarded mutations.',
     bestFor: ['Cypher graph queries', 'Label and relationship exploration', 'Constraint and index review'],
     connections: [
       'Choose Neo4j and configure endpoint, database, auth mode, TLS, timeout, fetch size, default query language, and read-only mode.',
@@ -1006,7 +1006,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Browse databases/graphs, labels, relationship types, properties, indexes, constraints, procedures, security, metrics, and diagnostics.',
     ],
     queryModes: [
-      'Use scoped Cypher, graph-query descriptors, deterministic graph IntelliSense, bounded traversal snippets, explain/profile previews, and object-scoped query starts.',
+      'Run scoped Cypher reads and guarded writes, use live-metadata IntelliSense and bounded traversal snippets, and inspect explain/profile results from object-scoped query starts.',
     ],
     resultViews: [
       'Inspect graph rows, node/relationship tables, path payloads, properties, raw JSON, explain/profile payloads, and metrics panels.',
@@ -1021,7 +1021,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Use graph import/export previews with label, relationship, path, file, scan, and environment guardrails.',
     ],
     safety: [
-      'Writes, destructive schema changes, imports, exports, and driver/cloud execution remain explicitly guarded until live execution is validated.',
+      'Cypher writes use shared read-only and environment confirmations. Destructive schema changes and file import/export execution remain separately guarded.',
     ],
     screenshots: screenshotSet('Neo4j'),
   },
@@ -1031,9 +1031,9 @@ export const datastoreDocs: DatastoreDoc[] = [
     title: 'Amazon Neptune',
     aliases: ['Neptune'],
     family: 'Graph',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native AWS IAM query runtime; cloud evidence gated',
     summary:
-      'Amazon Neptune documents Gremlin/openCypher/SPARQL-style context, AWS/SigV4 posture, graph objects, CloudWatch/IAM access, metrics, and guarded profile/import workflows.',
+      'Amazon Neptune runs Gremlin and openCypher through the AWS Neptune Data SDK and signs SPARQL with SigV4, while explicit custom endpoints can use unsigned HTTP.',
     bestFor: ['AWS graph workloads', 'Gremlin or openCypher reads', 'IAM and metrics review'],
     connections: [
       'Choose Amazon Neptune and configure endpoint, graph or database name, traversal source, auth mode, AWS/SigV4 posture, TLS, timeout, fetch size, and default query language.',
@@ -1042,7 +1042,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Browse graph names, labels, relationship types, properties, indexes, constraints where available, access/IAM posture, metrics, and diagnostics.',
     ],
     queryModes: [
-      'Use Gremlin, openCypher, and SPARQL-style descriptors where supported, deterministic graph IntelliSense, bounded traversal snippets, and guarded profile requests.',
+      'Run Gremlin, openCypher, and SPARQL with language-specific live metadata, bounded normalized graph results, guarded mutations, and profile requests.',
     ],
     resultViews: [
       'Inspect graph rows, paths, node/edge properties, raw JSON, CloudWatch-style metrics, profile payloads, and access diagnostic panels.',
@@ -1057,7 +1057,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Use guarded graph import/export previews with AWS credentials, object location, graph identity, scan/cost, and environment guardrails.',
     ],
     safety: [
-      'AWS cloud execution, graph writes, imports, exports, and admin changes remain preview-first unless the profile and adapter prove safe execution.',
+      'Query writes use shared read-only and environment confirmations. Cloud cancellation, CloudWatch, loader, import/export, and admin changes remain gated until credential-backed validation passes.',
     ],
     screenshots: screenshotSet('Amazon Neptune'),
   },
@@ -1066,9 +1066,9 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'arango',
     title: 'ArangoDB',
     family: 'Graph',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native HTTP and AQL query runtime',
     summary:
-      'ArangoDB keeps multi-model graph/document context visible with databases, collections, graphs, AQL, indexes, permissions, metrics, and guarded import/export previews.',
+      'ArangoDB runs live AQL through an authenticated TLS-capable HTTP client, consumes bounded cursor batches, and cleans server cursors on completion or failure.',
     bestFor: ['AQL graph queries', 'Graph and collection inspection', 'Multi-model metadata review'],
     connections: [
       'Choose ArangoDB and configure endpoint, database, auth mode, TLS, timeout, fetch size, default graph/query language, and read-only mode.',
@@ -1077,7 +1077,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Browse databases, collections, graphs, vertex and edge collections, analyzers where available, indexes, constraints-like rules, access, metrics, and diagnostics.',
     ],
     queryModes: [
-      'Use AQL descriptors, graph-query helpers, deterministic AQL IntelliSense, bounded traversal snippets, collection-scoped reads, and profile previews.',
+      'Run AQL reads and guarded writes with live collection/graph metadata, deterministic AQL IntelliSense, bounded traversals, cursor cleanup, and profile requests.',
     ],
     resultViews: [
       'Inspect document rows, graph paths, vertices, edges, raw JSON, profile payloads, collection metadata, and metrics panels.',
@@ -1092,7 +1092,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Use guarded graph or collection import/export previews with graph identity, collection identity, file path, overwrite, scan, and environment guardrails.',
     ],
     safety: [
-      'Graph writes, collection drops, index changes, imports, exports, and broader admin operations remain preview-first unless validated for the target.',
+      'AQL writes use shared read-only and environment confirmations. Collection drops, index administration, file workflows, and cluster/Foxx changes remain separately guarded.',
     ],
     screenshots: screenshotSet('ArangoDB'),
   },
@@ -1101,9 +1101,9 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'janusgraph',
     title: 'JanusGraph',
     family: 'Graph',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native Gremlin WebSocket runtime',
     summary:
-      'JanusGraph documents Gremlin traversal workflows, graph schema, index and backend posture, metrics, and guarded graph operation previews.',
+      'JanusGraph runs live GraphSON v3 Gremlin over WebSocket with SASL, partial-response aggregation, TLS/custom CAs, bounded graph results, and live schema metadata.',
     bestFor: ['Gremlin traversals', 'Graph schema review', 'Backend/index posture'],
     connections: [
       'Choose JanusGraph and configure endpoint, graph name, traversal source, auth mode, TLS, timeout, fetch size, backend metadata, and read-only mode.',
@@ -1112,7 +1112,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Browse graph labels, edge labels, properties, indexes, management/schema surfaces, backend posture, access, metrics, and diagnostics.',
     ],
     queryModes: [
-      'Use Gremlin descriptors, deterministic graph IntelliSense, bounded traversal snippets, profile previews, and graph object-scoped query starts.',
+      'Run Gremlin reads and guarded mutations with live schema IntelliSense, bounded traversal results, profile requests, and graph object-scoped query starts.',
     ],
     resultViews: [
       'Inspect graph rows, paths, vertices, edges, properties, raw JSON, traversal profile payloads, backend/index posture, and metrics panels.',
@@ -1127,7 +1127,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Use guarded graph import/export previews with traversal source, graph identity, file path, scan, backend impact, and environment guardrails.',
     ],
     safety: [
-      'Graph writes, schema/index changes, backend-sensitive operations, imports, exports, and destructive workflows remain preview-first unless validated.',
+      'Gremlin writes use shared read-only and environment confirmations. Schema/index administration, backend-sensitive operations, and import/export execution remain separately guarded.',
     ],
     screenshots: screenshotSet('JanusGraph'),
   },

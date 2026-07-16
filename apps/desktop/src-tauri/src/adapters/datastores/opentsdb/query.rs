@@ -49,7 +49,13 @@ pub(super) async fn execute_opentsdb_query(
         });
     }
     let row_count = normalized.rows.len() as u32;
-    let profile = opentsdb_profile_payload(&query_request, &normalized, row_limit);
+    let execution_duration_ms = duration_ms(started);
+    let profile = opentsdb_profile_payload(
+        &query_request,
+        &normalized,
+        row_limit,
+        execution_duration_ms,
+    );
     let payloads = vec![
         payload_table(
             vec![
@@ -78,7 +84,7 @@ pub(super) async fn execute_opentsdb_query(
         renderer_modes,
         payloads,
         notices,
-        duration_ms: duration_ms(started),
+        duration_ms: execution_duration_ms,
         row_limit: Some(row_limit),
         truncated: normalized.truncated,
         explain_payload: None,
@@ -89,33 +95,45 @@ fn opentsdb_profile_payload(
     query_request: &OpenTsdbQueryRequest,
     normalized: &NormalizedOpenTsdbResult,
     row_limit: u32,
+    execution_duration_ms: u64,
 ) -> Value {
     payload_profile(
         "OpenTSDB query profile",
         json!([
             {
-                "stage": "request",
-                "queries": query_request.query_count,
-                "start": query_request.start,
-                "end": query_request.end,
-                "rowLimit": row_limit
+                "name": "request",
+                "durationMs": execution_duration_ms,
+                "details": {
+                    "queries": query_request.query_count,
+                    "start": query_request.start,
+                    "end": query_request.end,
+                    "rowLimit": row_limit
+                }
             },
             {
-                "stage": "result",
-                "metrics": normalized.metric_count,
-                "datapoints": normalized.total_points,
-                "displayedDatapoints": normalized.rows.len(),
-                "truncated": normalized.truncated
+                "name": "result",
+                "rows": normalized.rows.len(),
+                "details": {
+                    "metrics": normalized.metric_count,
+                    "datapoints": normalized.total_points,
+                    "truncated": normalized.truncated
+                }
             },
             {
-                "stage": "risk",
-                "cardinality": if normalized.truncated { "bounded" } else { "within-limit" },
-                "recommendation": if normalized.truncated {
-                    "Narrow the time range, add tag filters, or split metrics before charting very large responses."
-                } else {
-                    "Result is within the selected display bound."
+                "name": "cardinality",
+                "details": {
+                    "status": if normalized.truncated { "bounded" } else { "within-limit" },
+                    "recommendation": if normalized.truncated {
+                        "Narrow the time range, add tag filters, or split metrics before charting very large responses."
+                    } else {
+                        "Result is within the selected display bound."
+                    }
                 }
             }
         ]),
     )
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/adapters/datastores/opentsdb/query_tests.rs"]
+mod tests;

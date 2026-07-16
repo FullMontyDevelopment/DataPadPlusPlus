@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -119,6 +120,7 @@ internal static partial class Program
         {
             var result = request.Operation.ToLowerInvariant() switch
             {
+                "health" => Health(),
                 "test" => await TestConnectionAsync(request, active, cancellation.Token),
                 "execute" => await ExecuteAsync(request, active, cancellation.Token),
                 _ => throw new SidecarException(
@@ -157,6 +159,15 @@ internal static partial class Program
             ActiveRequests.TryRemove(request.RequestId, out _);
         }
     }
+
+    internal static object Health() => new
+    {
+        protocolVersion = ProtocolVersion,
+        runtimeVersion = RuntimeInformation.FrameworkDescription,
+        driverVersion = typeof(OracleConnection).Assembly.GetName().Version?.ToString() ?? "unknown",
+        targetPlatform = RuntimeInformation.RuntimeIdentifier,
+        consoleAttached = OperatingSystem.IsWindows() && GetConsoleWindow() != IntPtr.Zero,
+    };
 
     private static async Task HandleCancelAsync(OracleRequest request)
     {
@@ -718,6 +729,9 @@ internal static partial class Program
 
     [GeneratedRegex(@"(?i)\b(password|pwd|wallet_password|proxy password)\b\s*=\s*(?:""[^""]*""|'[^']*'|[^\s;,\r\n]+)")]
     private static partial Regex ConnectionSecretRegex();
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetConsoleWindow();
 }
 
 internal sealed class ActiveRequest(CancellationTokenSource cancellation)

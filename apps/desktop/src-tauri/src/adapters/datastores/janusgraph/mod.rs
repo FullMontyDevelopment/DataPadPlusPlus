@@ -7,11 +7,13 @@ mod explorer;
 mod query;
 mod query_request;
 mod query_results;
+mod structure;
 
 use catalog::*;
 use connection::test_janusgraph_connection;
 use diagnostics::collect_janusgraph_diagnostics;
 use explorer::{inspect_janusgraph_explorer_node, list_janusgraph_explorer_nodes};
+use structure::load_janusgraph_structure;
 
 pub(crate) struct JanusGraphAdapter;
 
@@ -63,6 +65,14 @@ impl DatastoreAdapter for JanusGraphAdapter {
         request: &ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
         Ok(no_additional_pages_response("janusgraph", request))
+    }
+
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_janusgraph_structure(connection, request).await
     }
 
     async fn collect_diagnostics(

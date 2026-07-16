@@ -291,7 +291,7 @@ describe('ApiServerWorkspace', () => {
     })
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Open Experimental Settings' }),
+      screen.getByRole('button', { name: 'Open Plugins Settings' }),
     )
 
     expect(props.onOpenExperimentalSettings).toHaveBeenCalled()

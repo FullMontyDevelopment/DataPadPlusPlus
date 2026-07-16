@@ -343,6 +343,7 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     strip_demo_records(&mut snapshot);
     migrate_environment_variables(&mut snapshot);
     migrate_legacy_variable_tokens(&mut snapshot);
+    super::workspace_fixture_migrations::migrate_fixture_workspace(&mut snapshot);
     migrate_connection_modes(&mut snapshot);
     normalize_datastore_api_server_preferences(&mut snapshot.preferences.datastore_api_server);
     normalize_datastore_mcp_server_preferences(&mut snapshot.preferences.datastore_mcp_server);
@@ -356,7 +357,6 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     for tab in &mut snapshot.tabs {
         tab.result = None;
     }
-
     for closed_tab in &mut snapshot.closed_tabs {
         closed_tab.tab.result = None;
     }

@@ -786,6 +786,9 @@ describe('ConnectionBlade', () => {
     fireEvent.change(screen.getByLabelText('Cosmos DB database name'), {
       target: { value: 'catalog' },
     })
+    fireEvent.change(screen.getByLabelText('Cosmos DB default container'), {
+      target: { value: 'orders' },
+    })
     fireEvent.change(screen.getByLabelText('Cosmos DB credential'), {
       target: { value: 'cosmos-key' },
     })
@@ -811,6 +814,7 @@ describe('ConnectionBlade', () => {
           authMode: 'account-key',
           accountEndpoint: 'http://localhost:8081/cosmos',
           databaseName: 'catalog',
+          containerPrefix: 'orders',
           consistencyLevel: 'bounded-staleness',
           preferredRegions: ['North Europe', 'West Europe'],
           maxItemCount: 250,
@@ -894,6 +898,7 @@ describe('ConnectionBlade', () => {
       'http://localhost:8082',
     )
     expect(screen.getByLabelText('Cosmos DB database name')).toHaveValue('datapadplusplus')
+    expect(screen.getByLabelText('Cosmos DB default container')).toHaveValue('orders')
 
     fireEvent.click(screen.getByRole('button', { name: 'Microsoft emulator' }))
 

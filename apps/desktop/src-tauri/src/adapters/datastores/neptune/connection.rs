@@ -1,8 +1,6 @@
+use aws_credential_types::provider::SharedCredentialsProvider;
+use reqwest::{header, Method};
 use serde_json::{json, Value};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
 
 use super::super::super::*;
 
@@ -10,30 +8,59 @@ pub(super) struct NeptuneResponse {
     pub(super) body: String,
 }
 
+pub(super) struct NeptuneIamRuntime {
+    pub(super) client: aws_sdk_neptunedata::Client,
+    pub(super) sdk_config: aws_config::SdkConfig,
+    pub(super) region: String,
+    pub(super) endpoint: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct NeptuneEndpoint {
     host: String,
     port: u16,
     prefix: String,
+    scheme: String,
 }
 
 pub(super) async fn test_neptune_connection(
     connection: &ResolvedConnectionProfile,
 ) -> Result<ConnectionTestResult, CommandError> {
     let started = Instant::now();
-    let _ = neptune_get(connection, "/status").await?;
+    let (message, warnings) = if neptune_connect_mode(connection) == "neptune-iam" {
+        let runtime = neptune_iam_runtime(connection).await?;
+        runtime.client.get_engine_status().send().await.map_err(|_| {
+            CommandError::new(
+                "neptune-iam-connection-failed",
+                "Amazon Neptune IAM authentication failed. Verify network access, region, credentials, role permissions, and the cluster endpoint.",
+            )
+        })?;
+        (
+            format!(
+                "Amazon Neptune IAM Data API connection test succeeded for {}.",
+                connection.name
+            ),
+            Vec::new(),
+        )
+    } else {
+        let _ = neptune_get(connection, "/status").await?;
+        (
+            format!(
+                "Amazon Neptune unsigned HTTP connection test succeeded for {}.",
+                connection.name
+            ),
+            vec![
+                "This profile uses an explicit unsigned custom endpoint. Select Neptune IAM for an AWS-hosted cluster."
+                    .into(),
+            ],
+        )
+    };
 
     Ok(ConnectionTestResult {
         ok: true,
         engine: connection.engine.clone(),
-        message: format!(
-            "Amazon Neptune HTTP endpoint connection test succeeded for {}.",
-            connection.name
-        ),
-        warnings: vec![
-            "IAM/SigV4-protected Neptune clusters require cloud IAM support; this adapter currently supports plain HTTP or reverse-proxied endpoints for read/diagnostic workflows."
-                .into(),
-        ],
+        message,
+        warnings,
         resolved_host: connection.host.clone(),
         resolved_database: connection.database.clone(),
         duration_ms: Some(duration_ms(started)),
@@ -86,50 +113,150 @@ async fn neptune_request(
     accept: Option<&str>,
 ) -> Result<NeptuneResponse, CommandError> {
     let endpoint = NeptuneEndpoint::from_connection(connection)?;
-    let path = endpoint.path(path_and_query);
-    let body_text = body.map(|(_, body)| body).unwrap_or("");
-    let content_headers = body
-        .map(|(content_type, body)| {
-            format!(
-                "Content-Type: {content_type}\r\nContent-Length: {}\r\n",
-                body.len()
-            )
-        })
-        .unwrap_or_default();
-    let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: {}\r\n{}Connection: close\r\n\r\n{}",
-        endpoint.host,
-        endpoint.port,
-        accept.unwrap_or("application/json"),
-        content_headers,
-        body_text
-    );
-    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port)).await?;
-    stream.write_all(request.as_bytes()).await?;
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).await?;
-    let raw = String::from_utf8_lossy(&response).to_string();
-    let (headers, body) = raw.split_once("\r\n\r\n").unwrap_or(("", &raw));
-    let status_code = headers
-        .lines()
-        .next()
-        .and_then(|status| status.split_whitespace().nth(1))
-        .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(0);
-
-    if (200..300).contains(&status_code) {
-        Ok(NeptuneResponse {
-            body: body.to_string(),
-        })
-    } else {
-        Err(CommandError::new(
-            "neptune-http-error",
-            body.lines()
-                .next()
-                .filter(|line| !line.trim().is_empty())
-                .unwrap_or("Amazon Neptune HTTP request failed."),
-        ))
+    let url = endpoint.url(path_and_query);
+    let method = Method::from_bytes(method.as_bytes()).map_err(|_| {
+        CommandError::new(
+            "neptune-http-method-invalid",
+            "Amazon Neptune request used an unsupported HTTP method.",
+        )
+    })?;
+    let client = graph_http_client(connection)?;
+    let mut request = graph_http_request(&client, method, &url, connection)
+        .header(header::ACCEPT, accept.unwrap_or("application/json"));
+    if let Some((content_type, body)) = body {
+        request = request
+            .header(header::CONTENT_TYPE, content_type)
+            .body(body.to_string());
     }
+    let response = request.send().await.map_err(|error| {
+        CommandError::new(
+            "neptune-http-request-failed",
+            format!("Amazon Neptune HTTP request failed: {error}"),
+        )
+    })?;
+    let response = graph_http_response(
+        response,
+        "neptune-http-error",
+        "Amazon Neptune HTTP request failed.",
+    )
+    .await?;
+    Ok(NeptuneResponse {
+        body: response.body,
+    })
+}
+
+pub(super) fn neptune_connect_mode(connection: &ResolvedConnectionProfile) -> &str {
+    if let Some(mode) = connection
+        .graph_options
+        .as_ref()
+        .and_then(|options| options.connect_mode.as_deref())
+    {
+        return mode;
+    }
+    if connection
+        .graph_options
+        .as_ref()
+        .and_then(|options| options.use_iam_auth)
+        == Some(false)
+        || is_local_neptune_host(&connection.host)
+        || connection
+            .graph_options
+            .as_ref()
+            .and_then(|options| options.endpoint_url.as_deref())
+            .or(connection.connection_string.as_deref())
+            .map(|endpoint| endpoint.starts_with("http://") && !endpoint.contains("amazonaws.com"))
+            .unwrap_or(false)
+    {
+        "neptune-http"
+    } else {
+        "neptune-iam"
+    }
+}
+
+fn is_local_neptune_host(host: &str) -> bool {
+    let host = host.trim().to_ascii_lowercase();
+    host == "localhost"
+        || host.starts_with("localhost:")
+        || host == "127.0.0.1"
+        || host.starts_with("127.0.0.1:")
+        || host == "::1"
+}
+
+pub(super) async fn neptune_iam_runtime(
+    connection: &ResolvedConnectionProfile,
+) -> Result<NeptuneIamRuntime, CommandError> {
+    let options = connection.graph_options.as_ref().ok_or_else(|| {
+        CommandError::new(
+            "neptune-iam-options-missing",
+            "Amazon Neptune IAM requires graph connection options.",
+        )
+    })?;
+    if options.verify_certificates == Some(false) || options.ca_certificate_path.is_some() {
+        return Err(CommandError::new(
+            "neptune-iam-tls-option-unsupported",
+            "Neptune IAM uses the AWS SDK trust store and requires certificate verification. Custom CA and disabled verification are available only for explicit custom HTTP endpoints.",
+        ));
+    }
+    let region = options
+        .aws_region
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                "neptune-iam-region-missing",
+                "Amazon Neptune IAM requires an AWS region.",
+            )
+        })?
+        .to_string();
+    let endpoint = NeptuneEndpoint::from_connection(connection)?;
+    if !endpoint.prefix.is_empty() {
+        return Err(CommandError::new(
+            "neptune-iam-prefix-unsupported",
+            "Amazon Neptune IAM endpoints cannot use a custom path prefix.",
+        ));
+    }
+    let aws_region = aws_sdk_neptunedata::config::Region::new(region.clone());
+    let mut loader =
+        aws_config::defaults(aws_config::BehaviorVersion::latest()).region(aws_region.clone());
+    if let Some(profile_name) = options
+        .aws_profile_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        loader = loader.profile_name(profile_name);
+    }
+    let mut sdk_config = loader.load().await;
+    if let Some(role_arn) = options
+        .aws_role_arn
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let provider = aws_config::sts::AssumeRoleProvider::builder(role_arn)
+            .configure(&sdk_config)
+            .region(aws_region.clone())
+            .session_name("datapadplusplus-neptune")
+            .build()
+            .await;
+        sdk_config = sdk_config
+            .into_builder()
+            .credentials_provider(SharedCredentialsProvider::new(provider))
+            .build();
+    }
+    let endpoint = endpoint.base_url();
+    let service_config = aws_sdk_neptunedata::config::Builder::from(&sdk_config)
+        .endpoint_url(endpoint.clone())
+        .region(aws_region)
+        .build();
+
+    Ok(NeptuneIamRuntime {
+        client: aws_sdk_neptunedata::Client::from_conf(service_config),
+        sdk_config,
+        region,
+        endpoint,
+    })
 }
 
 impl NeptuneEndpoint {
@@ -170,6 +297,17 @@ impl NeptuneEndpoint {
             host: host.into(),
             port: connection.port.unwrap_or(8182),
             prefix,
+            scheme: if neptune_connect_mode(connection) == "neptune-iam"
+                || connection
+                    .graph_options
+                    .as_ref()
+                    .and_then(|options| options.use_tls)
+                    .unwrap_or(false)
+            {
+                "https".into()
+            } else {
+                "http".into()
+            },
         })
     }
 
@@ -181,19 +319,27 @@ impl NeptuneEndpoint {
         url: &str,
         prefix_override: Option<&str>,
     ) -> Result<Self, CommandError> {
-        let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
+        validate_http_component(url, "Amazon Neptune endpoint")?;
+        let parsed = url::Url::parse(url).map_err(|_| {
             CommandError::new(
-                "neptune-unsupported-url",
-                "Amazon Neptune adapter currently supports plain http:// endpoints.",
+                "neptune-endpoint-invalid",
+                "Amazon Neptune endpoint must be a valid http:// or https:// URL.",
             )
         })?;
-        let (authority, path) = without_scheme
-            .split_once('/')
-            .unwrap_or((without_scheme, ""));
-        let (host, port) = authority
-            .rsplit_once(':')
-            .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
-            .unwrap_or((authority, 8182));
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(CommandError::new(
+                "neptune-unsupported-url",
+                "Amazon Neptune endpoint must use http:// or https://.",
+            ));
+        }
+        if parsed.query().is_some() || parsed.fragment().is_some() {
+            return Err(CommandError::new(
+                "neptune-endpoint-invalid",
+                "Amazon Neptune endpoints cannot contain a query or fragment.",
+            ));
+        }
+        let host = parsed.host_str().unwrap_or_default();
+        let port = parsed.port_or_known_default().unwrap_or(8182);
 
         if host.trim().is_empty() {
             return Err(CommandError::new(
@@ -204,13 +350,14 @@ impl NeptuneEndpoint {
         validate_http_component(host, "Amazon Neptune host")?;
         let prefix = match normalized_prefix(prefix_override)? {
             Some(prefix) => prefix,
-            None => normalized_prefix(Some(path))?.unwrap_or_default(),
+            None => normalized_prefix(Some(parsed.path()))?.unwrap_or_default(),
         };
 
         Ok(Self {
             host: host.into(),
             port,
             prefix,
+            scheme: parsed.scheme().into(),
         })
     }
 
@@ -224,6 +371,14 @@ impl NeptuneEndpoint {
                 format!("/{path}")
             }
         )
+    }
+
+    fn base_url(&self) -> String {
+        format!("{}://{}:{}", self.scheme, self.host, self.port)
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}{}", self.base_url(), self.path(path))
     }
 }
 

@@ -45,6 +45,7 @@ mod workspace;
 mod workspace_backups;
 mod workspace_bundle;
 mod workspace_bundle_integrity;
+mod workspace_fixture_migrations;
 
 use crate::domain::models::WorkspaceSnapshot;
 

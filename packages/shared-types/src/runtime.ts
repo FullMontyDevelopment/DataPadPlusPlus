@@ -835,6 +835,7 @@ export interface ConnectionTestResult {
   ok: boolean
   engine: DatastoreEngine
   message: string
+  errorCode?: string
   warnings: string[]
   resolvedHost: string
   resolvedDatabase?: string

@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::connection::{cassandra_contact_point, cassandra_keyspace};
+use super::native::{connect_cassandra, execute_cassandra_statement};
 use super::CassandraAdapter;
 
 pub(super) async fn execute_cassandra_query(
@@ -41,6 +42,7 @@ pub(super) async fn execute_cassandra_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let tracing_enabled = matches!(execute_mode(request), "profile" | "trace");
+    let session = connect_cassandra(connection).await?;
 
     if batch_statements.len() > 1 {
         let mut sections = Vec::new();
@@ -50,7 +52,14 @@ pub(super) async fn execute_cassandra_query(
         for statement in &batch_statements {
             let statement_started = Instant::now();
             let execution_statement = cassandra_statement_for_execution(&statement.text, row_limit);
-            let response = preview_cassandra_response(connection, &execution_statement, row_limit);
+            let response = execute_cassandra_statement(
+                &session,
+                connection,
+                &execution_statement,
+                row_limit,
+                tracing_enabled,
+            )
+            .await?;
             let normalized = normalize_cassandra_response_bounded(&response, row_limit);
             let row_count = normalized.rows.len();
             let section_truncated = normalized.truncated;
@@ -104,13 +113,6 @@ pub(super) async fn execute_cassandra_query(
     }
 
     let execution_statement = cassandra_statement_for_execution(statement, row_limit);
-    notices.push(QueryExecutionNotice {
-        code: "cassandra-cql-contract".into(),
-        level: "info".into(),
-        message:
-            "Cassandra CQL was normalized as a guarded request-builder payload pending native binary protocol execution."
-                .into(),
-    });
     if cql_needs_partition_key_warning(&execution_statement) {
         notices.push(QueryExecutionNotice {
             code: "cassandra-partition-key-warning".into(),
@@ -132,15 +134,23 @@ pub(super) async fn execute_cassandra_query(
 
     let request_payload =
         cassandra_request_payload(connection, &execution_statement, row_limit, tracing_enabled);
-    let response = preview_cassandra_response(connection, &execution_statement, row_limit);
+    let response = execute_cassandra_statement(
+        &session,
+        connection,
+        &execution_statement,
+        row_limit,
+        tracing_enabled,
+    )
+    .await?;
     let normalized = normalize_cassandra_response_bounded(&response, row_limit);
     let columns = normalized.columns;
     let rows = normalized.rows;
     let truncated = normalized.truncated;
     let row_count = rows.len() as u32;
     let profile_payload = payload_profile(
-        "Cassandra tracing and partition-key guardrails.",
+        "Cassandra native CQL execution and partition-key guardrails.",
         json!({
+            "protocol": "CQL native binary protocol v4",
             "contactPoint": cassandra_contact_point(connection),
             "keyspace": cassandra_keyspace(connection),
             "statement": execution_statement,
@@ -156,7 +166,7 @@ pub(super) async fn execute_cassandra_query(
         payload_plan(
             "json",
             request_payload.clone(),
-            "CQL request builder payload with consistency and partition-key guardrails.",
+            "Executed native CQL request with consistency and partition-key guardrails.",
         ),
         profile_payload,
         payload_metrics(json!([
@@ -184,9 +194,9 @@ pub(super) async fn execute_cassandra_query(
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
         summary: if truncated {
-            format!("Cassandra CQL contract loaded the first {row_count} row(s).")
+            format!("Cassandra returned the first {row_count} row(s).")
         } else {
-            format!("Cassandra CQL contract normalized {row_count} row(s).")
+            format!("Cassandra returned {row_count} row(s).")
         },
         default_renderer: &default_renderer,
         renderer_modes,
@@ -210,7 +220,7 @@ pub(crate) fn cassandra_request_payload(
         "contactPoint": cassandra_contact_point(connection),
         "keyspace": cassandra_keyspace(connection),
         "statement": strip_sql_semicolon(statement),
-        "consistency": "LOCAL_QUORUM",
+        "consistency": cassandra_consistency_label(connection),
         "pageSize": row_limit,
         "tracing": tracing_enabled,
         "guardrails": {
@@ -228,27 +238,6 @@ pub(crate) fn cassandra_statement_for_execution(statement: &str, row_limit: u32)
     }
 
     format!("{stripped} LIMIT {}", row_limit.saturating_add(1))
-}
-
-pub(crate) fn preview_cassandra_response(
-    connection: &ResolvedConnectionProfile,
-    statement: &str,
-    row_limit: u32,
-) -> Value {
-    json!({
-        "columns": ["keyspace", "status", "row_limit"],
-        "rows": [[
-            cassandra_keyspace(connection),
-            "cql-request-built",
-            row_limit.to_string()
-        ]],
-        "statement": statement,
-        "warnings": if cql_needs_partition_key_warning(statement) {
-            vec!["Cassandra queries should include a complete partition key unless this is a metadata/system-table query."]
-        } else {
-            Vec::<&str>::new()
-        }
-    })
 }
 
 pub(crate) struct CassandraNormalizedResponse {
@@ -292,19 +281,21 @@ pub(crate) fn normalize_cassandra_response_bounded(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    if rows.is_empty() {
-        CassandraNormalizedResponse {
-            columns,
-            rows: vec![vec!["requestBuilt".into()]],
-            truncated: false,
-        }
-    } else {
-        CassandraNormalizedResponse {
-            columns,
-            rows,
-            truncated,
-        }
+    CassandraNormalizedResponse {
+        columns,
+        rows,
+        truncated,
     }
+}
+
+fn cassandra_consistency_label(connection: &ResolvedConnectionProfile) -> String {
+    connection
+        .cassandra_options
+        .as_ref()
+        .and_then(|options| options.consistency_level.as_deref())
+        .unwrap_or("local-quorum")
+        .replace('-', "_")
+        .to_ascii_uppercase()
 }
 
 fn bounded_cassandra_response(mut response: Value, row_limit: u32, truncated: bool) -> Value {

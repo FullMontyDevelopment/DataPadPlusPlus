@@ -4,6 +4,7 @@ mod catalog;
 mod connection;
 mod diagnostics;
 mod explorer;
+mod http_client;
 mod payloads;
 mod query;
 mod query_request;

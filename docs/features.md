@@ -393,13 +393,13 @@ Depending on the engine, DataPad++ can help you:
 - configure endpoint, database or graph name, traversal source, auth mode, AWS/SigV4, TLS, timeout, fetch-size, and default query-language options without storing secrets in plaintext
 - browse graphs, node labels, relationship types, properties, indexes, constraints, procedures, security, and diagnostics
 - open scoped Cypher, AQL, or Gremlin queries from graph objects
-- use graph-query descriptors for Cypher, AQL, Gremlin, openCypher, and SPARQL-style query composition while writes stay preview-first
+- run Cypher, AQL, Gremlin, openCypher, and SPARQL through protocol-correct native transports, with mutations routed through the same environment and read-only guardrails as editor, API, and MCP requests
 - use deterministic graph IntelliSense for query-language keywords, graph names, labels, relationship types, properties, and bounded traversal snippets
 - prepare guarded profile requests before running expensive traversals
 - review metrics, permissions, CloudWatch/IAM-style access, schema indexes, and constraints
-- preview explain/profile, index, constraint/drop, access, metrics, and graph import/export workflows through environment guardrails
+- run bounded graph reads and guarded query-language mutations, and preview higher-impact index, constraint/drop, access, metrics, and graph import/export workflows through environment guardrails
 
-Neo4j, ArangoDB, JanusGraph, and Amazon Neptune each keep their own request shapes and labels so the UI feels native to the graph engine, while live driver/cloud execution remains explicitly guarded.
+Neo4j uses Bolt by default and can use the current HTTP Query API. ArangoDB consumes and cleans up bounded cursor batches. JanusGraph uses GraphSON WebSocket by default, and Amazon Neptune uses the AWS Neptune Data SDK and SigV4 for IAM profiles while retaining unsigned HTTP only for explicit custom endpoints. Cosmos DB Gremlin uses GraphSON v2 WebSocket with Cosmos authentication and partial-response aggregation. Neo4j, ArangoDB, and JanusGraph have local fixture evidence; production Neptune and Cosmos credentials remain opt-in validation boundaries.
 
 ## Warehouse Experience
 
@@ -552,7 +552,7 @@ Examples:
 - Redis and Valkey key edits need a concrete key
 - DynamoDB item edits need complete key conditions and use conditional-write guards
 - Elasticsearch and OpenSearch document edits need an explicit index and document id
-- Cassandra row edits need complete primary-key conditions and remain preview-only until the live CQL driver path is available
+- Cassandra reads use the native CQL driver; row edits still need complete primary-key conditions and remain preview-only until guarded write execution is available
 
 When DataPad++ cannot prove the target is safe, the action is disabled or shown as a preview plan instead of being executed silently.
 

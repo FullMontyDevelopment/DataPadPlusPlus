@@ -1281,6 +1281,20 @@ describe('DynamoDB key-condition query builder', () => {
       limit: 10,
     })
   })
+
+  it('migrates the legacy fixture table field without generating an empty scan target', () => {
+    const parsed = parseDynamoDbKeyConditionQueryText(`{
+      "table": "orders",
+      "limit": 25
+    }`)
+
+    expect(parsed?.table).toBe('orders')
+    expect(JSON.parse(parsed?.lastAppliedQueryText ?? '{}')).toMatchObject({
+      operation: 'Scan',
+      tableName: 'orders',
+      limit: 25,
+    })
+  })
 })
 
 describe('CQL partition query builder', () => {

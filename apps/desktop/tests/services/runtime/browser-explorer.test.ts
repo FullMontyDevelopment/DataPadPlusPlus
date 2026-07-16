@@ -2118,7 +2118,7 @@ describe('browser explorer runtime', () => {
         label: 'Account',
         kind: 'node-label',
         scope: 'node-label:Account',
-        queryTemplate: 'MATCH (n:`Account`) RETURN n LIMIT 25',
+        queryTemplate: 'MATCH (n:`Account`) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 25',
       }),
       expect.objectContaining({ label: 'Order', kind: 'node-label' }),
       expect.objectContaining({ label: 'Product', kind: 'node-label' }),
@@ -2128,7 +2128,7 @@ describe('browser explorer runtime', () => {
       expect.objectContaining({
         label: 'PLACED',
         kind: 'relationship',
-        queryTemplate: 'MATCH ()-[r:`PLACED`]->() RETURN r LIMIT 25',
+        queryTemplate: 'MATCH (from)-[r:`PLACED`]->(to) RETURN from, r, to LIMIT 25',
       }),
       expect.objectContaining({ label: 'CONTAINS', kind: 'relationship' }),
       expect.objectContaining({ label: 'RELATED_TO', kind: 'relationship' }),
@@ -2147,7 +2147,9 @@ describe('browser explorer runtime', () => {
       nodeId: 'node-label:Account',
     })
 
-    expect(response.queryTemplate).toBe('MATCH (n:`Account`) RETURN n LIMIT 25')
+    expect(response.queryTemplate).toBe(
+      'MATCH (n:`Account`) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 25',
+    )
     expect(response.payload).toMatchObject({
       engine: 'neo4j',
       objectView: 'node-label',

@@ -6,8 +6,9 @@ use crate::domain::models::{
 
 use super::{
     bounded_cosmosdb_response, cosmosdb_gremlin_request, cosmosdb_operation,
-    cosmosdb_profile_payload, cosmosdb_query_body, is_read_only_cosmosdb_gremlin,
-    normalize_cosmosdb_gremlin_response, normalize_cosmosdb_response_bounded, parse_request,
+    cosmosdb_profile_payload, cosmosdb_query_body, cosmosdb_request_container,
+    is_read_only_cosmosdb_gremlin, normalize_cosmosdb_gremlin_response,
+    normalize_cosmosdb_response_bounded, parse_request,
 };
 
 #[test]
@@ -15,6 +16,41 @@ fn cosmosdb_plain_sql_becomes_query_documents_request() {
     let value = parse_request("SELECT * FROM c").unwrap();
     assert_eq!(value["operation"], "QueryDocuments");
     assert_eq!(value["query"], "SELECT * FROM c");
+}
+
+#[test]
+fn cosmosdb_plain_sql_uses_the_connection_default_container() {
+    let mut connection = gremlin_connection();
+    connection.cosmos_db_options = Some(CosmosDbConnectionOptions {
+        api: Some("nosql".into()),
+        container_prefix: Some("orders".into()),
+        ..CosmosDbConnectionOptions::default()
+    });
+
+    assert_eq!(
+        cosmosdb_request_container(&connection, &parse_request("SELECT * FROM c").unwrap())
+            .unwrap(),
+        "orders"
+    );
+    assert_eq!(
+        cosmosdb_request_container(&connection, &json!({ "container": "products" })).unwrap(),
+        "products"
+    );
+}
+
+#[test]
+fn cosmosdb_missing_container_error_explains_each_resolution_path() {
+    let mut connection = gremlin_connection();
+    connection.cosmos_db_options = Some(CosmosDbConnectionOptions {
+        api: Some("nosql".into()),
+        ..CosmosDbConnectionOptions::default()
+    });
+
+    let error = cosmosdb_request_container(&connection, &json!({})).unwrap_err();
+
+    assert_eq!(error.code, "cosmosdb-request-invalid");
+    assert!(error.message.contains("Default container"));
+    assert!(error.message.contains("Explorer"));
 }
 
 #[test]

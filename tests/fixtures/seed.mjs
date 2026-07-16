@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import net from 'node:net'
 import { fileURLToPath } from 'node:url'
@@ -461,6 +462,56 @@ function httpRawRequest({ method = 'POST', port, path, body = '', headers = {} }
   })
 }
 
+function gremlinWebSocketRequest(port, gremlin) {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/gremlin`)
+    const requestId = randomUUID()
+    const timeout = setTimeout(() => {
+      socket.close()
+      reject(new Error(`Gremlin request ${requestId} timed out.`))
+    }, 30_000)
+    const finish = (callback, value) => {
+      clearTimeout(timeout)
+      socket.close()
+      callback(value)
+    }
+
+    socket.addEventListener('open', () => {
+      socket.send(
+        JSON.stringify({
+          requestId,
+          op: 'eval',
+          processor: '',
+          args: {
+            gremlin,
+            language: 'gremlin-groovy',
+            aliases: { g: 'g' },
+            bindings: {},
+          },
+        }),
+      )
+    })
+    socket.addEventListener('message', (event) => {
+      const response = JSON.parse(String(event.data))
+      const status = Number(response?.status?.code ?? 500)
+      if (status === 206) {
+        return
+      }
+      if (status >= 200 && status < 300) {
+        finish(resolve, response)
+      } else {
+        finish(
+          reject,
+          new Error(`Gremlin request failed: ${status} ${response?.status?.message ?? ''}`),
+        )
+      }
+    })
+    socket.addEventListener('error', () => {
+      finish(reject, new Error(`Could not connect to Gremlin fixture on port ${port}.`))
+    })
+  })
+}
+
 function dynamodbLocalAuthHeaders(port) {
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '')
   const dateStamp = amzDate.slice(0, 8)
@@ -647,6 +698,23 @@ async function seedSqlPlus() {
         '--insecure',
         `--file=/docker-entrypoint-initdb.d/${scriptPath.split(/[\\/]/).at(-1)}`,
       ])
+    }
+
+    try {
+      docker([
+        'exec',
+        'datapadplusplus-cockroachdb',
+        '/cockroach/cockroach',
+        'sql',
+        '--insecure',
+        '--database=datapadplusplus',
+        '--execute=select count(*) from accounts',
+      ])
+    } catch (error) {
+      throw new Error(
+        'CockroachDB fixture seed verification failed: database "datapadplusplus" or its accounts table is unavailable.',
+        { cause: error },
+      )
     }
   }
 
@@ -897,6 +965,18 @@ async function seedGraph() {
     await httpRequest({ method: 'POST', port: arangoPort, path: '/_api/database', headers: auth, body: { name: 'datapadplusplus' } }).catch(() => undefined)
     await httpRequest({ method: 'POST', port: arangoPort, path: '/_db/datapadplusplus/_api/collection', headers: auth, body: { name: 'accounts' } }).catch(() => undefined)
     await httpRequest({ method: 'POST', port: arangoPort, path: '/_db/datapadplusplus/_api/collection', headers: auth, body: { name: 'orders' } }).catch(() => undefined)
+    await httpRequest({ method: 'POST', port: arangoPort, path: '/_db/datapadplusplus/_api/collection', headers: auth, body: { name: 'placed', type: 3 } }).catch(() => undefined)
+    await httpRequest({
+      method: 'POST',
+      port: arangoPort,
+      path: '/_db/datapadplusplus/_api/gharial',
+      headers: auth,
+      body: {
+        name: 'commerce',
+        edgeDefinitions: [{ collection: 'placed', from: ['accounts'], to: ['orders'] }],
+        orphanCollections: [],
+      },
+    }).catch(() => undefined)
     await httpRequest({
       method: 'POST',
       port: arangoPort,
@@ -927,6 +1007,24 @@ async function seedGraph() {
           "FOR id IN 1..5000 UPSERT { _key: TO_STRING(1000 + id) } INSERT { _key: TO_STRING(1000 + id), accountId: TO_STRING((id % 500) + 1), status: ['created','processing','paid','fulfilled','returned','cancelled','on-hold'][id % 7], totalAmount: (id % 20000) / 4 + 25, updatedAt: DATE_ISO8601(DATE_NOW() - (id % 259200) * 1000) } UPDATE { status: OLD.status } IN orders",
       },
     })
+    await httpRequest({
+      method: 'POST',
+      port: arangoPort,
+      path: '/_db/datapadplusplus/_api/cursor',
+      headers: auth,
+      body: {
+        query:
+          "FOR order IN orders LET accountKey = order.accountId UPSERT { _key: order._key } INSERT { _key: order._key, _from: CONCAT('accounts/', accountKey), _to: order._id, createdAt: order.updatedAt } UPDATE { _from: CONCAT('accounts/', accountKey), _to: order._id } IN placed",
+      },
+    })
+  }
+
+  if (shouldSeed('datapadplusplus-janusgraph', 'graph')) {
+    const janusPort = fixturePort('DATAPADPLUSPLUS_JANUSGRAPH_PORT', 8183)
+    await gremlinWebSocketRequest(
+      janusPort,
+      "g.V().has('datapadFixture', true).drop().iterate(); (1..100).each { id -> def account = graph.addVertex(T.label, 'Account', 'id', id.toString(), 'name', 'Fixture Account ' + id, 'datapadFixture', true); (1..5).each { offset -> def order = graph.addVertex(T.label, 'Order', 'id', (id * 1000 + offset).toString(), 'status', offset % 3 == 0 ? 'fulfilled' : 'processing', 'datapadFixture', true); account.addEdge('PLACED', order) } }; graph.tx().commit()",
+    )
   }
 }
 

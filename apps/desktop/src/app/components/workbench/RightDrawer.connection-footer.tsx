@@ -52,6 +52,9 @@ export function ConnectionFooter({
         <div className={`drawer-callout${connectionTest.ok ? ' is-success' : ' is-error'}`}>
           <strong>{connectionTest.ok ? 'Connection ready' : 'Connection issue'}</strong>
           <span>{connectionTest.message}</span>
+          {!connectionTest.ok && connectionTest.errorCode ? (
+            <span>Code: {connectionTest.errorCode}</span>
+          ) : null}
           <span>
             {resolvedHost}
             {resolvedDatabase ? ` / ${resolvedDatabase}` : ''}

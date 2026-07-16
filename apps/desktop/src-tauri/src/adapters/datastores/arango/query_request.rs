@@ -40,13 +40,6 @@ pub(super) fn arango_query_request(
         None => (query_text.trim().to_string(), json!({}), json!({})),
     };
 
-    if !is_read_only_aql(&query) {
-        return Err(CommandError::new(
-            "arango-write-preview-only",
-            "ArangoDB writes, imports, and graph mutations are operation-plan preview only in this adapter phase.",
-        ));
-    }
-
     let mode = if execute_mode == "explain" {
         "explain"
     } else {

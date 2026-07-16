@@ -119,7 +119,7 @@ export function defaultQueryTextForConnection(connection: ConnectionProfile) {
     case 'cassandra':
       return ''
     case 'neo4j':
-      return 'MATCH (n) RETURN n LIMIT 25'
+      return 'MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 25'
     case 'neptune':
     case 'janusgraph':
       return 'g.V().limit(25)'

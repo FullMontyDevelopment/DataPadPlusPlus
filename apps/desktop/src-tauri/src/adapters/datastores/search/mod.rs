@@ -5,6 +5,7 @@ mod connection;
 mod diagnostics;
 mod editing;
 mod explorer;
+mod http_client;
 mod query;
 
 use catalog::*;

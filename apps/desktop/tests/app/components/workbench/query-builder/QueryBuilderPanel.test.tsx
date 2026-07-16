@@ -456,7 +456,7 @@ describe('QueryBuilderPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', {
-      name: 'Expand {"$oid":"507f1f77bcf86cd799439011"}',
+      name: 'Expand ObjectId("507f1f77bcf86cd799439011")',
     }))
 
     pointerDragDocumentFieldToTarget('createdAt', section('Filters'))

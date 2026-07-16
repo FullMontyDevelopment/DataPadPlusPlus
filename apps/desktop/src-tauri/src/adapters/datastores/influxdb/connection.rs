@@ -1,7 +1,7 @@
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use std::time::Duration;
+
+use futures_util::StreamExt;
+use reqwest::{header, Client};
 
 use super::super::super::*;
 
@@ -17,6 +17,10 @@ pub(super) struct InfluxDbEndpoint {
     prefix: String,
     database: String,
 }
+
+const DEFAULT_CONNECT_TIMEOUT_MS: u64 = 10_000;
+const DEFAULT_QUERY_TIMEOUT_MS: u64 = 30_000;
+const MAX_INFLUXDB_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 
 pub(super) async fn test_influxdb_connection(
     connection: &ResolvedConnectionProfile,
@@ -43,37 +47,48 @@ pub(super) async fn influxdb_get(
     path_and_query: &str,
 ) -> Result<InfluxDbResponse, CommandError> {
     let endpoint = InfluxDbEndpoint::from_connection(connection)?;
-    let path = endpoint.path(path_and_query);
-    let auth_header = influxdb_auth_header(connection)?;
-    let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\n{}Connection: close\r\n\r\n",
-        endpoint.host, endpoint.port, auth_header
-    );
-    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port)).await?;
-    stream.write_all(request.as_bytes()).await?;
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).await?;
-    let raw = String::from_utf8_lossy(&response).to_string();
-    let (headers, body) = raw.split_once("\r\n\r\n").unwrap_or(("", &raw));
-    let status_code = headers
-        .lines()
-        .next()
-        .and_then(|status| status.split_whitespace().nth(1))
-        .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(0);
+    let client = influxdb_http_client(connection)?;
+    let mut request = client
+        .get(endpoint.url(path_and_query))
+        .header(header::ACCEPT, "application/json");
+    if let Some(authorization) = influxdb_authorization(connection)? {
+        request = request.header(header::AUTHORIZATION, authorization);
+    }
+    let response = request.send().await.map_err(|error| {
+        CommandError::new(
+            "influxdb-http-error",
+            format!("InfluxDB could not be reached over HTTP: {error}"),
+        )
+    })?;
+    let status_code = response.status().as_u16();
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_INFLUXDB_RESPONSE_BYTES as u64)
+    {
+        return Err(influxdb_response_too_large());
+    }
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            CommandError::new(
+                "influxdb-http-error",
+                format!("InfluxDB returned an unreadable HTTP response: {error}"),
+            )
+        })?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_INFLUXDB_RESPONSE_BYTES {
+            return Err(influxdb_response_too_large());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let body = String::from_utf8_lossy(&bytes).to_string();
 
     if (200..300).contains(&status_code) {
-        Ok(InfluxDbResponse {
-            status_code,
-            body: body.to_string(),
-        })
+        Ok(InfluxDbResponse { status_code, body })
     } else {
         Err(CommandError::new(
             "influxdb-http-error",
-            body.lines()
-                .next()
-                .filter(|line| !line.trim().is_empty())
-                .unwrap_or("InfluxDB HTTP request failed."),
+            sanitized_influxdb_error(&body).unwrap_or("InfluxDB HTTP request failed."),
         ))
     }
 }
@@ -210,6 +225,15 @@ impl InfluxDbEndpoint {
             }
         )
     }
+
+    fn url(&self, path_and_query: &str) -> String {
+        let host = if self.host.contains(':') && !self.host.starts_with('[') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        format!("http://{}:{}{}", host, self.port, self.path(path_and_query))
+    }
 }
 
 pub(super) fn influxdb_query_path(database: &str, query: &str) -> String {
@@ -279,20 +303,66 @@ fn validate_http_component(value: &str, label: &str) -> Result<(), CommandError>
     Ok(())
 }
 
-fn influxdb_auth_header(connection: &ResolvedConnectionProfile) -> Result<String, CommandError> {
+fn influxdb_authorization(
+    connection: &ResolvedConnectionProfile,
+) -> Result<Option<String>, CommandError> {
     match (&connection.username, &connection.password) {
         (Some(username), Some(password)) if !username.is_empty() => {
             let encoded = base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
                 format!("{username}:{password}"),
             );
-            Ok(format!("Authorization: Basic {encoded}\r\n"))
+            Ok(Some(format!("Basic {encoded}")))
         }
         (_, Some(token)) if !token.is_empty() => {
             validate_http_component(token, "InfluxDB token")?;
-            Ok(format!("Authorization: Token {token}\r\n"))
+            Ok(Some(format!("Token {token}")))
         }
-        _ => Ok(String::new()),
+        _ => Ok(None),
+    }
+}
+
+fn influxdb_http_client(connection: &ResolvedConnectionProfile) -> Result<Client, CommandError> {
+    let options = connection.time_series_options.as_ref();
+    let connect_timeout_ms = options
+        .and_then(|value| value.connection_timeout_ms)
+        .unwrap_or(DEFAULT_CONNECT_TIMEOUT_MS)
+        .clamp(100, 120_000);
+    let query_timeout_ms = options
+        .and_then(|value| value.query_timeout_ms)
+        .unwrap_or(DEFAULT_QUERY_TIMEOUT_MS)
+        .clamp(100, 3_600_000);
+
+    Client::builder()
+        .connect_timeout(Duration::from_millis(connect_timeout_ms))
+        .timeout(Duration::from_millis(query_timeout_ms))
+        .user_agent("DataPad++/influxdb-runtime")
+        .build()
+        .map_err(|error| {
+            CommandError::new(
+                "influxdb-http-client-failed",
+                format!("The InfluxDB HTTP client could not be initialized: {error}"),
+            )
+        })
+}
+
+fn influxdb_response_too_large() -> CommandError {
+    CommandError::new(
+        "influxdb-response-too-large",
+        format!(
+            "InfluxDB response exceeded the {} MiB safety limit. Add a narrower time range, filter, or lower result limit.",
+            MAX_INFLUXDB_RESPONSE_BYTES / 1024 / 1024
+        ),
+    )
+}
+
+fn sanitized_influxdb_error(body: &str) -> Option<&str> {
+    let line = body.lines().map(str::trim).find(|line| !line.is_empty())?;
+    let lowered = line.to_ascii_lowercase();
+    if line.len() > 500 || lowered.contains("authorization") || lowered.contains("token") {
+        None
+    } else {
+        Some(line)
     }
 }
 

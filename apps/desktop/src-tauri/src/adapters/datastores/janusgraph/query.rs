@@ -2,7 +2,9 @@ use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::connection::{janusgraph_gremlin_body, janusgraph_run_gremlin};
-use super::query_request::{janusgraph_query_request, JanusGraphQueryRequest};
+use super::query_request::{
+    is_read_only_gremlin, janusgraph_query_request, JanusGraphQueryRequest,
+};
 use super::query_results::{normalize_janusgraph_result, NormalizedJanusGraphResult};
 use super::JanusGraphAdapter;
 
@@ -27,6 +29,13 @@ pub(super) async fn execute_janusgraph_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let query_request = janusgraph_query_request(query_text, execute_mode(request))?;
+    if connection.read_only && query_request.mode != "explain" && !is_read_only_gremlin(query_text)
+    {
+        return Err(CommandError::new(
+            "janusgraph-read-only-violation",
+            "This JanusGraph connection is read-only and cannot execute a mutating Gremlin traversal.",
+        ));
+    }
     let value = janusgraph_run_gremlin(connection, &query_request.gremlin).await?;
     let normalized = normalize_janusgraph_result(&value, row_limit);
     let mut notices = notices;

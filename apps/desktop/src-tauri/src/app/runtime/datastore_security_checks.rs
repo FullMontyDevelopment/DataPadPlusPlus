@@ -29,6 +29,10 @@ use crate::{
     },
 };
 
+mod references;
+
+use references::*;
+
 const NVD_CVE_API_URL: &str = "https://services.nvd.nist.gov/rest/json/cves/2.0";
 const CISA_KEV_URL: &str =
     "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
@@ -37,6 +41,74 @@ const MANUAL_REFRESH_COOLDOWN_SECONDS: u64 = 60;
 const MAX_NVD_PAGES_PER_CPE: usize = 20;
 const VERSION_CATALOG_UPDATED_AT: &str = "2026-07-04";
 const VERSION_CATALOG_URL: &str = "bundled://datastore-security-version-catalog";
+
+struct PostureCheckInput<'a> {
+    target_id: &'a str,
+    rule_id: &'a str,
+    category: &'a str,
+    status: &'a str,
+    severity: &'a str,
+    title: &'a str,
+    summary: &'a str,
+    evidence: Option<String>,
+    remediation: &'a str,
+    source: &'a str,
+    references: Vec<DatastoreSecurityFindingReference>,
+}
+
+struct BoolProbeCheckInput<'a> {
+    target_id: &'a str,
+    rule_id: &'a str,
+    category: &'a str,
+    risky: bool,
+    risky_status: &'a str,
+    risky_severity: &'a str,
+    risky_title: &'a str,
+    pass_title: &'a str,
+    summary: &'a str,
+    remediation: &'a str,
+    references: Vec<DatastoreSecurityFindingReference>,
+}
+
+macro_rules! posture_check {
+    ($target_id:expr, $rule_id:expr, $category:expr, $status:expr, $severity:expr,
+     $title:expr, $summary:expr, $evidence:expr, $remediation:expr, $source:expr,
+     $references:expr $(,)?) => {
+        posture_check_from_input(PostureCheckInput {
+            target_id: $target_id,
+            rule_id: $rule_id,
+            category: $category,
+            status: $status,
+            severity: $severity,
+            title: $title,
+            summary: $summary,
+            evidence: $evidence,
+            remediation: $remediation,
+            source: $source,
+            references: $references,
+        })
+    };
+}
+
+macro_rules! bool_probe_check {
+    ($target_id:expr, $rule_id:expr, $category:expr, $risky:expr, $risky_status:expr,
+     $risky_severity:expr, $risky_title:expr, $pass_title:expr, $summary:expr,
+     $remediation:expr, $references:expr $(,)?) => {
+        bool_probe_check_from_input(BoolProbeCheckInput {
+            target_id: $target_id,
+            rule_id: $rule_id,
+            category: $category,
+            risky: $risky,
+            risky_status: $risky_status,
+            risky_severity: $risky_severity,
+            risky_title: $risky_title,
+            pass_title: $pass_title,
+            summary: $summary,
+            remediation: $remediation,
+            references: $references,
+        })
+    };
+}
 
 struct VersionCatalogEntry {
     engine: &'static str,
@@ -661,7 +733,7 @@ async fn detect_posture_checks(
             match runtime.resolve_connection_profile(connection, &environment.id) {
                 Ok((resolved_connection, _, resolution_warnings)) => {
                     if has_unresolved_connection_tokens(&resolved_connection) {
-                        checks.push(posture_check(
+                        checks.push(posture_check!(
                             &target_id,
                             "profile.variables-resolved",
                             "secrets",
@@ -692,7 +764,7 @@ async fn detect_posture_checks(
                         checks.extend(probe_checks);
                     }
                 }
-                Err(error) => checks.push(posture_check(
+                Err(error) => checks.push(posture_check!(
                     &target_id,
                     "profile.resolve",
                     "secrets",
@@ -728,7 +800,7 @@ fn profile_posture_checks(
     let high_risk = is_high_risk_environment(environment);
 
     checks.push(if high_risk && !connection.read_only {
-        posture_check(
+        posture_check!(
             target_id,
             "profile.high-risk-readonly",
             "environment",
@@ -742,7 +814,7 @@ fn profile_posture_checks(
             Vec::new(),
         )
     } else {
-        posture_check(
+        posture_check!(
             target_id,
             "profile.high-risk-readonly",
             "environment",
@@ -761,7 +833,7 @@ fn profile_posture_checks(
     });
 
     checks.push(if high_risk && (!environment.requires_confirmation || !environment.safe_mode) {
-        posture_check(
+        posture_check!(
             target_id,
             "profile.environment-guardrails",
             "environment",
@@ -778,7 +850,7 @@ fn profile_posture_checks(
             Vec::new(),
         )
     } else {
-        posture_check(
+        posture_check!(
             target_id,
             "profile.environment-guardrails",
             "environment",
@@ -801,7 +873,7 @@ fn profile_posture_checks(
         .as_deref()
         .is_some_and(connection_string_appears_to_embed_credentials)
     {
-        checks.push(posture_check(
+        checks.push(posture_check!(
             target_id,
             "profile.connection-string-credentials",
             "secrets",
@@ -815,7 +887,7 @@ fn profile_posture_checks(
             Vec::new(),
         ));
     } else {
-        checks.push(posture_check(
+        checks.push(posture_check!(
             target_id,
             "profile.connection-string-credentials",
             "secrets",
@@ -860,7 +932,7 @@ fn secret_provider_posture_checks(
 ) -> Vec<DatastoreSecurityPostureCheckResult> {
     let refs = connection_secret_refs(connection);
     if refs.is_empty() {
-        return vec![posture_check(
+        return vec![posture_check!(
             target_id,
             "profile.secret-provider",
             "secrets",
@@ -880,7 +952,7 @@ fn secret_provider_posture_checks(
         .filter(|secret_ref| matches!(secret_ref.provider.as_str(), "manual" | "session"))
         .count();
     if is_high_risk_environment(environment) && risky_refs > 0 {
-        vec![posture_check(
+        vec![posture_check!(
             target_id,
             "profile.secret-provider",
             "secrets",
@@ -894,7 +966,7 @@ fn secret_provider_posture_checks(
             Vec::new(),
         )]
     } else {
-        vec![posture_check(
+        vec![posture_check!(
             target_id,
             "profile.secret-provider",
             "secrets",
@@ -916,7 +988,7 @@ fn transport_profile_posture_check(
     target_id: &str,
 ) -> Option<DatastoreSecurityPostureCheckResult> {
     match engine {
-        "sqlite" | "duckdb" | "litedb" => Some(posture_check(
+        "sqlite" | "duckdb" | "litedb" => Some(posture_check!(
             target_id,
             "profile.transport",
             "transport",
@@ -1092,7 +1164,7 @@ fn transport_profile_posture_check(
             ))
         }
         "dynamodb" => None,
-        "memcached" => Some(posture_check(
+        "memcached" => Some(posture_check!(
             target_id,
             "profile.transport",
             "transport",
@@ -1201,7 +1273,7 @@ fn auth_profile_posture_check(
                     "Cosmos DB profile does not prefer account-key authentication",
                 )
             };
-            Some(posture_check(
+            Some(posture_check!(
                 target_id,
                 "profile.auth-mode",
                 "auth",
@@ -1226,7 +1298,7 @@ fn auth_profile_posture_check(
                     .dynamo_db_options
                     .as_ref()
                     .is_some_and(|options| options.access_key_id.is_some());
-            Some(posture_check(
+            Some(posture_check!(
                 target_id,
                 "profile.auth-mode",
                 "cloud",
@@ -1277,7 +1349,7 @@ fn auth_profile_posture_check(
                 .and_then(|options| options.auth_mode.as_deref())
                 .unwrap_or("unspecified");
             let risky = matches!(auth_mode, "none" | "basic");
-            Some(posture_check(
+            Some(posture_check!(
                 target_id,
                 "profile.auth-mode",
                 "auth",
@@ -1323,7 +1395,7 @@ fn emulator_or_local_endpoint_posture_check(
     };
 
     local_endpoint.then(|| {
-        posture_check(
+        posture_check!(
             target_id,
             "profile.local-or-emulator-endpoint",
             "environment",
@@ -1361,7 +1433,7 @@ fn local_file_profile_posture_check(
                 && options
                     .and_then(|options| options.encryption_key_secret_ref.as_ref())
                     .is_some();
-            Some(posture_check(
+            Some(posture_check!(
                 target_id,
                 "profile.local-file-encryption",
                 "local-file",
@@ -1384,7 +1456,7 @@ fn local_file_profile_posture_check(
             let mode = options
                 .and_then(|options| options.connect_mode.as_deref())
                 .unwrap_or("duckdb-file");
-            Some(posture_check(
+            Some(posture_check!(
                 target_id,
                 "profile.local-file-encryption",
                 "local-file",
@@ -1435,7 +1507,7 @@ fn transport_result(
         )
     };
 
-    posture_check(
+    posture_check!(
         target_id,
         "profile.transport",
         "transport",
@@ -1456,7 +1528,7 @@ fn auth_result(
     evidence: &str,
     references: Vec<DatastoreSecurityFindingReference>,
 ) -> DatastoreSecurityPostureCheckResult {
-    posture_check(
+    posture_check!(
         target_id,
         "profile.auth-mode",
         "auth",
@@ -1537,7 +1609,7 @@ async fn postgres_family_probe_checks(
     };
 
     vec![
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "postgresql.superuser",
             "privileges",
@@ -1550,7 +1622,7 @@ async fn postgres_family_probe_checks(
             "Use a non-superuser role for routine inspection and saved query workflows.",
             postgres_security_references(),
         ),
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "postgresql.role-management",
             "privileges",
@@ -1563,7 +1635,7 @@ async fn postgres_family_probe_checks(
             "Use a role without CREATEROLE for day-to-day DataPad++ profiles.",
             postgres_security_references(),
         ),
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "postgresql.bypass-rls",
             "privileges",
@@ -1576,7 +1648,7 @@ async fn postgres_family_probe_checks(
             "Use a role without BYPASSRLS unless this profile is explicitly for administration.",
             postgres_security_references(),
         ),
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "postgresql.public-schema-create",
             "privileges",
@@ -1611,7 +1683,7 @@ async fn mysql_family_probe_checks(
     .await
     {
         Ok(payloads) => {
-            checks.push(bool_probe_check(
+            checks.push(bool_probe_check!(
                 target_id,
                 "mysql.require-secure-transport",
                 "transport",
@@ -1624,7 +1696,7 @@ async fn mysql_family_probe_checks(
                 "Enable require_secure_transport where supported and use verifying TLS client settings.",
                 Vec::new(),
             ));
-            checks.push(bool_probe_check(
+            checks.push(bool_probe_check!(
                 target_id,
                 "mysql.local-infile",
                 "risky-settings",
@@ -1639,7 +1711,7 @@ async fn mysql_family_probe_checks(
             ));
             let secure_file_priv =
                 payload_text_field(&payloads, &["secure_file_priv"]).unwrap_or_default();
-            checks.push(posture_check(
+            checks.push(posture_check!(
                 target_id,
                 "mysql.secure-file-priv",
                 "risky-settings",
@@ -1693,7 +1765,7 @@ async fn mysql_family_probe_checks(
             ]
             .iter()
             .any(|needle| grants.contains(needle));
-            checks.push(posture_check(
+            checks.push(posture_check!(
                 target_id,
                 "mysql.current-grants",
                 "privileges",
@@ -1759,7 +1831,7 @@ async fn sqlserver_probe_checks(
     };
 
     vec![
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "sqlserver.sysadmin",
             "privileges",
@@ -1772,7 +1844,7 @@ async fn sqlserver_probe_checks(
             "Use a least-privilege login or database role for DataPad++ profiles.",
             sqlserver_security_references(),
         ),
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "sqlserver.db-owner",
             "privileges",
@@ -1785,7 +1857,7 @@ async fn sqlserver_probe_checks(
             "Use reader or narrowly scoped database roles for routine inspection.",
             sqlserver_security_references(),
         ),
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "sqlserver.xp-cmdshell",
             "risky-settings",
@@ -1798,7 +1870,7 @@ async fn sqlserver_probe_checks(
             "Keep xp_cmdshell disabled unless a tightly controlled administrative workflow requires it.",
             sqlserver_security_references(),
         ),
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "sqlserver.trustworthy",
             "risky-settings",
@@ -1859,7 +1931,7 @@ async fn mongodb_probe_checks(
     let authenticated =
         lower.contains("authenticatedusers") || lower.contains("authenticateduserroles");
     vec![
-        posture_check(
+        posture_check!(
             target_id,
             "mongodb.broad-roles",
             "privileges",
@@ -1882,7 +1954,7 @@ async fn mongodb_probe_checks(
             "read-only-probe",
             mongodb_security_references(),
         ),
-        posture_check(
+        posture_check!(
             target_id,
             "mongodb.admin-auth-source",
             "auth",
@@ -1942,7 +2014,7 @@ async fn redis_family_probe_checks(
     {
         Ok(payloads) => {
             let whoami = payload_text(&payloads).to_ascii_lowercase();
-            checks.push(posture_check(
+            checks.push(posture_check!(
                 target_id,
                 "redis.default-user",
                 "auth",
@@ -1987,7 +2059,7 @@ async fn redis_family_probe_checks(
         Ok(payloads) => {
             let text = payload_text(&payloads).to_ascii_lowercase();
             let disabled = text.contains("no") || text.contains("false") || text.contains("\"0\"");
-            checks.push(posture_check(
+            checks.push(posture_check!(
                 target_id,
                 "redis.protected-mode",
                 "transport",
@@ -2028,7 +2100,7 @@ async fn redis_family_probe_checks(
         Ok(payloads) => {
             let text = payload_text(&payloads).to_ascii_lowercase();
             let aof_disabled = text.contains("aof_enabled:0");
-            checks.push(posture_check(
+            checks.push(posture_check!(
                 target_id,
                 "redis.persistence",
                 "durability",
@@ -2095,7 +2167,7 @@ async fn sqlite_probe_checks(
         .unwrap_or_default()
         .to_ascii_lowercase();
     vec![
-        posture_check(
+        posture_check!(
             target_id,
             "sqlite.journal-mode",
             "durability",
@@ -2112,7 +2184,7 @@ async fn sqlite_probe_checks(
             "read-only-probe",
             sqlite_security_references(),
         ),
-        posture_check(
+        posture_check!(
             target_id,
             "sqlite.synchronous",
             "durability",
@@ -2129,7 +2201,7 @@ async fn sqlite_probe_checks(
             "read-only-probe",
             sqlite_security_references(),
         ),
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "sqlite.foreign-keys",
             "risky-settings",
@@ -2142,7 +2214,7 @@ async fn sqlite_probe_checks(
             "Enable PRAGMA foreign_keys for profiles that should enforce relational integrity.",
             sqlite_security_references(),
         ),
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "sqlite.trusted-schema",
             "risky-settings",
@@ -2189,7 +2261,7 @@ async fn duckdb_probe_checks(
     };
 
     vec![
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "duckdb.external-access",
             "risky-settings",
@@ -2202,7 +2274,7 @@ async fn duckdb_probe_checks(
             "Disable external access for untrusted local files or high-risk environments unless the workflow needs it.",
             duckdb_security_references(),
         ),
-        bool_probe_check(
+        bool_probe_check!(
             target_id,
             "duckdb.unsigned-extensions",
             "risky-settings",
@@ -2231,7 +2303,7 @@ fn search_profile_deep_checks(
         .and_then(|options| options.sniff_on_start)
         .unwrap_or(false);
     vec![
-        posture_check(
+        posture_check!(
             target_id,
             "search.anonymous-auth",
             "auth",
@@ -2248,7 +2320,7 @@ fn search_profile_deep_checks(
             "profile",
             search_security_references(&engine),
         ),
-        posture_check(
+        posture_check!(
             target_id,
             "search.sniff-on-start",
             "transport",
@@ -2302,36 +2374,38 @@ async fn execute_posture_probe(
         .map(|result| result.payloads)
 }
 
-fn bool_probe_check(
-    target_id: &str,
-    rule_id: &str,
-    category: &str,
-    risky: bool,
-    risky_status: &str,
-    risky_severity: &str,
-    risky_title: &str,
-    pass_title: &str,
-    summary: &str,
-    remediation: &str,
-    references: Vec<DatastoreSecurityFindingReference>,
+fn bool_probe_check_from_input(
+    input: BoolProbeCheckInput<'_>,
 ) -> DatastoreSecurityPostureCheckResult {
-    posture_check(
-        target_id,
-        rule_id,
-        category,
-        if risky { risky_status } else { "pass" },
-        if risky { risky_severity } else { "NONE" },
-        if risky { risky_title } else { pass_title },
-        summary,
-        Some(if risky {
+    posture_check_from_input(PostureCheckInput {
+        target_id: input.target_id,
+        rule_id: input.rule_id,
+        category: input.category,
+        status: if input.risky {
+            input.risky_status
+        } else {
+            "pass"
+        },
+        severity: if input.risky {
+            input.risky_severity
+        } else {
+            "NONE"
+        },
+        title: if input.risky {
+            input.risky_title
+        } else {
+            input.pass_title
+        },
+        summary: input.summary,
+        evidence: Some(if input.risky {
             "The read-only probe found the risky setting or privilege.".into()
         } else {
             "The read-only probe did not find the risky setting or privilege.".into()
         }),
-        remediation,
-        "read-only-probe",
-        references,
-    )
+        remediation: input.remediation,
+        source: "read-only-probe",
+        references: input.references,
+    })
 }
 
 fn probe_unknown(
@@ -2342,7 +2416,7 @@ fn probe_unknown(
     error: CommandError,
     references: Vec<DatastoreSecurityFindingReference>,
 ) -> DatastoreSecurityPostureCheckResult {
-    posture_check(
+    posture_check!(
         target_id,
         rule_id,
         category,
@@ -2357,32 +2431,24 @@ fn probe_unknown(
     )
 }
 
-fn posture_check(
-    target_id: &str,
-    rule_id: &str,
-    category: &str,
-    status: &str,
-    severity: &str,
-    title: &str,
-    summary: &str,
-    evidence: Option<String>,
-    remediation: &str,
-    source: &str,
-    references: Vec<DatastoreSecurityFindingReference>,
-) -> DatastoreSecurityPostureCheckResult {
+fn posture_check_from_input(input: PostureCheckInput<'_>) -> DatastoreSecurityPostureCheckResult {
     DatastoreSecurityPostureCheckResult {
-        id: format!("posture-{}-{}", target_id, sanitize_rule_id(rule_id)),
-        target_ids: vec![target_id.into()],
-        rule_id: rule_id.into(),
-        category: category.into(),
-        status: status.into(),
-        severity: severity.into(),
-        title: title.into(),
-        summary: summary.into(),
-        evidence,
-        remediation: remediation.into(),
-        source: source.into(),
-        references,
+        id: format!(
+            "posture-{}-{}",
+            input.target_id,
+            sanitize_rule_id(input.rule_id)
+        ),
+        target_ids: vec![input.target_id.into()],
+        rule_id: input.rule_id.into(),
+        category: input.category.into(),
+        status: input.status.into(),
+        severity: input.severity.into(),
+        title: input.title.into(),
+        summary: input.summary.into(),
+        evidence: input.evidence,
+        remediation: input.remediation.into(),
+        source: input.source.into(),
+        references: input.references,
     }
 }
 
@@ -2594,173 +2660,6 @@ fn posture_status_rank(status: &str) -> u8 {
         "unknown" => 2,
         "pass" => 1,
         _ => 0,
-    }
-}
-
-fn reference(label: &str, url: &str, source: &str) -> DatastoreSecurityFindingReference {
-    DatastoreSecurityFindingReference {
-        label: label.into(),
-        url: url.into(),
-        source: Some(source.into()),
-    }
-}
-
-fn postgres_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "PostgreSQL Client Authentication",
-        "https://www.postgresql.org/docs/current/auth-pg-hba-conf.html",
-        "postgresql",
-    )]
-}
-
-fn mongodb_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "MongoDB Security Checklist",
-        "https://www.mongodb.com/docs/manual/administration/security-checklist/",
-        "mongodb",
-    )]
-}
-
-fn redis_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "Redis Security",
-        "https://redis.io/docs/latest/operate/oss_and_stack/management/security/",
-        "redis",
-    )]
-}
-
-fn sqlserver_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "SQL Server Security Best Practices",
-        "https://learn.microsoft.com/en-us/sql/relational-databases/security/sql-server-security-best-practices",
-        "microsoft",
-    )]
-}
-
-fn search_security_references(engine: &str) -> Vec<DatastoreSecurityFindingReference> {
-    if engine == "opensearch" {
-        vec![reference(
-            "OpenSearch Security Best Practices",
-            "https://docs.opensearch.org/latest/security/configuration/best-practices/",
-            "opensearch",
-        )]
-    } else {
-        vec![reference(
-            "Elasticsearch Security",
-            "https://www.elastic.co/guide/en/elasticsearch/reference/current/secure-cluster.html",
-            "elastic",
-        )]
-    }
-}
-
-fn duckdb_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "DuckDB Securing Extensions",
-        "https://duckdb.org/docs/lts/operations_manual/securing_duckdb/securing_extensions.html",
-        "duckdb",
-    )]
-}
-
-fn sqlite_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "SQLite PRAGMA Reference",
-        "https://sqlite.org/pragma.html",
-        "sqlite",
-    )]
-}
-
-fn prometheus_security_reference() -> DatastoreSecurityFindingReference {
-    reference(
-        "Prometheus Security Model",
-        "https://prometheus.io/docs/operating/security/",
-        "prometheus",
-    )
-}
-
-fn memcached_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "Memcached TLS Support",
-        "https://docs.memcached.org/features/tls/",
-        "memcached",
-    )]
-}
-
-fn cassandra_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "Apache Cassandra Security",
-        "https://cassandra.apache.org/doc/4.1/cassandra/operating/security.html",
-        "apache",
-    )]
-}
-
-fn cosmos_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "Azure Cosmos DB Security",
-        "https://learn.microsoft.com/en-us/azure/cosmos-db/security",
-        "microsoft",
-    )]
-}
-
-fn dynamodb_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "DynamoDB Security Best Practices",
-        "https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/best-practices-security.html",
-        "aws",
-    )]
-}
-
-fn oracle_security_references() -> Vec<DatastoreSecurityFindingReference> {
-    vec![reference(
-        "Oracle Database Security",
-        "https://docs.oracle.com/en/database/oracle/oracle-database/19/dbseg/keeping-your-oracle-database-secure.html",
-        "oracle",
-    )]
-}
-
-fn time_series_security_references(engine: &str) -> Vec<DatastoreSecurityFindingReference> {
-    if engine == "prometheus" {
-        vec![prometheus_security_reference()]
-    } else if engine == "influxdb" {
-        vec![reference(
-            "InfluxDB Security",
-            "https://docs.influxdata.com/influxdb/v2/admin/security/",
-            "influxdata",
-        )]
-    } else {
-        vec![prometheus_security_reference()]
-    }
-}
-
-fn graph_security_references(engine: &str) -> Vec<DatastoreSecurityFindingReference> {
-    if engine == "neo4j" {
-        vec![reference(
-            "Neo4j Security Settings",
-            "https://neo4j.com/docs/operations-manual/current/configuration/configuration-settings/",
-            "neo4j",
-        )]
-    } else {
-        Vec::new()
-    }
-}
-
-fn warehouse_security_references(engine: &str) -> Vec<DatastoreSecurityFindingReference> {
-    match engine {
-        "snowflake" => vec![reference(
-            "Snowflake Network Policies",
-            "https://docs.snowflake.com/en/user-guide/network-policies",
-            "snowflake",
-        )],
-        "bigquery" => vec![reference(
-            "BigQuery Security",
-            "https://cloud.google.com/bigquery/docs/best-practices-security",
-            "google-cloud",
-        )],
-        "clickhouse" => vec![reference(
-            "ClickHouse Access Control",
-            "https://clickhouse.com/docs/operations/access-rights",
-            "clickhouse",
-        )],
-        _ => Vec::new(),
     }
 }
 

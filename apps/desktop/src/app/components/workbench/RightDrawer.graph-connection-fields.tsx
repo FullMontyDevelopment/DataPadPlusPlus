@@ -1,6 +1,17 @@
 import type { ConnectionProfile, GraphConnectionOptions } from '@datapadplusplus/shared-types'
 import type { UpdateConnectionDraft } from './RightDrawer.connection-modes'
 import { FormField } from './RightDrawer.primitives'
+import {
+  authenticationModes,
+  connectionModes,
+  databasePlaceholder,
+  defaultAuthMode,
+  defaultConnectMode,
+  defaultLanguage,
+  endpointPlaceholder,
+  engineLabel,
+  queryLanguages,
+} from './RightDrawer.graph-connection-fields.helpers'
 
 export function GraphConnectionFields({
   connectionDraft,
@@ -15,7 +26,10 @@ export function GraphConnectionFields({
 }) {
   const options = connectionDraft.graphOptions ?? {}
   const connectMode = options.connectMode ?? defaultConnectMode(connectionDraft.engine)
-  const authMode = options.authMode ?? defaultAuthMode(connectionDraft.engine)
+  const authMode =
+    options.authMode ??
+    (connectMode === 'neptune-iam' ? 'aws-sigv4' : defaultAuthMode(connectionDraft.engine))
+  const isIam = connectMode === 'neptune-iam'
   const showCredential = authMode === 'basic' || authMode === 'bearer-token'
   const updateOptions = (patch: Partial<GraphConnectionOptions>) =>
     onUpdateConnectionDraft({
@@ -39,8 +53,16 @@ export function GraphConnectionFields({
             onChange={(event) =>
               updateOptions({
                 connectMode: event.target.value as GraphConnectionOptions['connectMode'],
-                authMode: event.target.value === 'neptune-iam' ? 'aws-sigv4' : authMode,
+                authMode:
+                  event.target.value === 'neptune-iam'
+                    ? 'aws-sigv4'
+                    : authMode === 'aws-sigv4'
+                      ? defaultAuthMode(connectionDraft.engine)
+                      : authMode,
                 useIamAuth: event.target.value === 'neptune-iam' ? true : options.useIamAuth,
+                useTls: event.target.value === 'neptune-iam' ? true : options.useTls,
+                verifyCertificates:
+                  event.target.value === 'neptune-iam' ? true : options.verifyCertificates,
               })
             }
           >
@@ -55,14 +77,16 @@ export function GraphConnectionFields({
           <select
             aria-label="Graph auth mode"
             value={authMode}
+            disabled={isIam}
             onChange={(event) =>
               updateOptions({ authMode: event.target.value as GraphConnectionOptions['authMode'] })
             }
           >
-            <option value="none">None</option>
-            <option value="basic">Basic</option>
-            <option value="bearer-token">Bearer token</option>
-            <option value="aws-sigv4">AWS SigV4</option>
+            {authenticationModes(connectionDraft.engine, connectMode).map((mode) => (
+              <option key={mode.value} value={mode.value}>
+                {mode.label}
+              </option>
+            ))}
           </select>
         </FormField>
       </div>
@@ -71,7 +95,7 @@ export function GraphConnectionFields({
         <input
           aria-label="Graph endpoint URL"
           value={options.endpointUrl ?? ''}
-          placeholder={endpointPlaceholder(connectionDraft.engine)}
+          placeholder={endpointPlaceholder(connectionDraft.engine, connectMode)}
           onChange={(event) => {
             updateOptions({ endpointUrl: event.target.value || undefined })
             onUpdateConnectionDraft(
@@ -100,6 +124,7 @@ export function GraphConnectionFields({
         <FormField label="Path prefix">
           <input
             aria-label="Graph path prefix"
+            disabled={isIam}
             value={options.pathPrefix ?? ''}
             placeholder="/proxy"
             onChange={(event) => updateOptions({ pathPrefix: event.target.value || undefined })}
@@ -200,33 +225,78 @@ export function GraphConnectionFields({
       </FormField>
 
       {authMode === 'aws-sigv4' || connectMode === 'neptune-iam' ? (
-        <div className="connection-advanced-grid">
-          <FormField label="AWS region">
+        <>
+          <div className="connection-advanced-grid">
+            <FormField label="AWS region">
+              <input
+                aria-label="Graph AWS region"
+                value={options.awsRegion ?? ''}
+                placeholder="us-east-1"
+                onChange={(event) => updateOptions({ awsRegion: event.target.value || undefined })}
+              />
+            </FormField>
+            <FormField label="AWS profile">
+              <input
+                aria-label="Graph AWS profile"
+                value={options.awsProfileName ?? ''}
+                placeholder="default"
+                onChange={(event) =>
+                  updateOptions({ awsProfileName: event.target.value || undefined })
+                }
+              />
+            </FormField>
+          </div>
+          <FormField label="Role ARN">
             <input
-              aria-label="Graph AWS region"
-              value={options.awsRegion ?? ''}
-              placeholder="us-east-1"
-              onChange={(event) => updateOptions({ awsRegion: event.target.value || undefined })}
+              aria-label="Graph AWS role ARN"
+              value={options.awsRoleArn ?? ''}
+              placeholder="arn:aws:iam::123456789012:role/DataPadNeptune"
+              onChange={(event) => updateOptions({ awsRoleArn: event.target.value || undefined })}
             />
           </FormField>
-          <FormField label="AWS profile">
+        </>
+      ) : null}
+
+      {(options.useTls || connectMode === 'neo4j-bolt') && !isIam ? (
+        <>
+          <FormField label="CA certificate">
             <input
-              aria-label="Graph AWS profile"
-              value={options.awsProfileName ?? ''}
-              placeholder="default"
+              aria-label="Graph CA certificate path"
+              value={options.caCertificatePath ?? ''}
               onChange={(event) =>
-                updateOptions({ awsProfileName: event.target.value || undefined })
+                updateOptions({ caCertificatePath: event.target.value || undefined })
               }
             />
           </FormField>
-        </div>
+          <div className="connection-advanced-grid">
+            <FormField label="Client certificate">
+              <input
+                aria-label="Graph client certificate path"
+                value={options.clientCertificatePath ?? ''}
+                onChange={(event) =>
+                  updateOptions({ clientCertificatePath: event.target.value || undefined })
+                }
+              />
+            </FormField>
+            <FormField label="Client key">
+              <input
+                aria-label="Graph client key path"
+                value={options.clientKeyPath ?? ''}
+                onChange={(event) =>
+                  updateOptions({ clientKeyPath: event.target.value || undefined })
+                }
+              />
+            </FormField>
+          </div>
+        </>
       ) : null}
 
       <div className="drawer-checkbox-grid">
         <label>
           <input
             type="checkbox"
-            checked={options.useTls ?? false}
+            checked={isIam || (options.useTls ?? false)}
+            disabled={isIam}
             onChange={(event) => updateOptions({ useTls: event.target.checked })}
           />
           TLS
@@ -234,7 +304,8 @@ export function GraphConnectionFields({
         <label>
           <input
             type="checkbox"
-            checked={options.verifyCertificates ?? true}
+            checked={isIam || (options.verifyCertificates ?? true)}
+            disabled={isIam}
             onChange={(event) => updateOptions({ verifyCertificates: event.target.checked })}
           />
           Verify certs
@@ -250,90 +321,4 @@ export function GraphConnectionFields({
       </div>
     </div>
   )
-}
-
-function connectionModes(engine: ConnectionProfile['engine']) {
-  if (engine === 'neo4j') {
-    return [
-      { value: 'neo4j-http', label: 'Neo4j HTTP' },
-      { value: 'neo4j-bolt', label: 'Bolt profile' },
-      { value: 'connection-string', label: 'Connection string' },
-    ] as const
-  }
-  if (engine === 'arango') {
-    return [
-      { value: 'arango-http', label: 'ArangoDB HTTP' },
-      { value: 'connection-string', label: 'Connection string' },
-    ] as const
-  }
-  if (engine === 'neptune') {
-    return [
-      { value: 'neptune-http', label: 'Neptune HTTP' },
-      { value: 'neptune-iam', label: 'Neptune IAM' },
-    ] as const
-  }
-  return [
-    { value: 'gremlin-http', label: 'Gremlin HTTP' },
-    { value: 'connection-string', label: 'Connection string' },
-  ] as const
-}
-
-function queryLanguages(engine: ConnectionProfile['engine']) {
-  if (engine === 'neo4j') {
-    return [
-      { value: 'cypher', label: 'Cypher' },
-      { value: 'opencypher', label: 'openCypher' },
-    ] as const
-  }
-  if (engine === 'arango') {
-    return [{ value: 'aql', label: 'AQL' }] as const
-  }
-  if (engine === 'neptune') {
-    return [
-      { value: 'gremlin', label: 'Gremlin' },
-      { value: 'opencypher', label: 'openCypher' },
-      { value: 'sparql', label: 'SPARQL' },
-    ] as const
-  }
-  return [{ value: 'gremlin', label: 'Gremlin' }] as const
-}
-
-function defaultConnectMode(engine: ConnectionProfile['engine']): GraphConnectionOptions['connectMode'] {
-  if (engine === 'neo4j') return 'neo4j-http'
-  if (engine === 'arango') return 'arango-http'
-  if (engine === 'neptune') return 'neptune-http'
-  return 'gremlin-http'
-}
-
-function defaultAuthMode(engine: ConnectionProfile['engine']): GraphConnectionOptions['authMode'] {
-  if (engine === 'neptune') return 'none'
-  return 'basic'
-}
-
-function defaultLanguage(engine: ConnectionProfile['engine']): GraphConnectionOptions['defaultQueryLanguage'] {
-  if (engine === 'neo4j') return 'cypher'
-  if (engine === 'arango') return 'aql'
-  if (engine === 'neptune') return 'gremlin'
-  return 'gremlin'
-}
-
-function endpointPlaceholder(engine: ConnectionProfile['engine']) {
-  if (engine === 'neo4j') return 'http://localhost:7474'
-  if (engine === 'arango') return 'http://localhost:8529'
-  if (engine === 'neptune') return 'http://cluster.neptune.amazonaws.com:8182'
-  return 'http://localhost:8182'
-}
-
-function databasePlaceholder(engine: ConnectionProfile['engine']) {
-  if (engine === 'neo4j') return 'neo4j'
-  if (engine === 'arango') return '_system'
-  if (engine === 'janusgraph') return 'g'
-  return 'graph'
-}
-
-function engineLabel(engine: ConnectionProfile['engine']) {
-  if (engine === 'neo4j') return 'Neo4j'
-  if (engine === 'arango') return 'ArangoDB'
-  if (engine === 'janusgraph') return 'JanusGraph'
-  return 'Amazon Neptune'
 }

@@ -1,5 +1,6 @@
 use super::super::*;
 
+mod bolt_results;
 mod catalog;
 mod connection;
 mod diagnostics;
@@ -7,11 +8,13 @@ mod explorer;
 mod query;
 mod query_request;
 mod query_results;
+mod structure;
 
 use catalog::*;
 use connection::test_neo4j_connection;
 use diagnostics::collect_neo4j_diagnostics;
 use explorer::{inspect_neo4j_explorer_node, list_neo4j_explorer_nodes};
+use structure::load_neo4j_structure;
 
 pub(crate) struct Neo4jAdapter;
 
@@ -63,6 +66,14 @@ impl DatastoreAdapter for Neo4jAdapter {
         request: &ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
         Ok(no_additional_pages_response("neo4j", request))
+    }
+
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_neo4j_structure(connection, request).await
     }
 
     async fn collect_diagnostics(

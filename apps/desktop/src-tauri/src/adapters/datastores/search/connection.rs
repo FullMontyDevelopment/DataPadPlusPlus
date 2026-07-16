@@ -1,14 +1,8 @@
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use reqwest::Method;
 
 use super::super::super::*;
+use super::http_client::{search_http_request, SearchResponse};
 use super::SearchEngine;
-
-pub(super) struct SearchResponse {
-    pub(super) body: String,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SearchEndpoint {
@@ -47,7 +41,7 @@ pub(super) async fn search_get(
     connection: &ResolvedConnectionProfile,
     path_and_query: &str,
 ) -> Result<SearchResponse, CommandError> {
-    search_request(connection, "GET", path_and_query, None).await
+    search_request(connection, Method::GET, path_and_query, None).await
 }
 
 pub(super) async fn search_post_json(
@@ -55,7 +49,7 @@ pub(super) async fn search_post_json(
     path: &str,
     body: &str,
 ) -> Result<SearchResponse, CommandError> {
-    search_request(connection, "POST", path, Some(body)).await
+    search_request(connection, Method::POST, path, Some(body)).await
 }
 
 pub(super) async fn search_put_json(
@@ -63,19 +57,19 @@ pub(super) async fn search_put_json(
     path: &str,
     body: &str,
 ) -> Result<SearchResponse, CommandError> {
-    search_request(connection, "PUT", path, Some(body)).await
+    search_request(connection, Method::PUT, path, Some(body)).await
 }
 
 pub(super) async fn search_delete(
     connection: &ResolvedConnectionProfile,
     path: &str,
 ) -> Result<SearchResponse, CommandError> {
-    search_request(connection, "DELETE", path, None).await
+    search_request(connection, Method::DELETE, path, None).await
 }
 
 async fn search_request(
     connection: &ResolvedConnectionProfile,
-    method: &str,
+    method: Method,
     path_and_query: &str,
     body: Option<&str>,
 ) -> Result<SearchResponse, CommandError> {
@@ -84,63 +78,7 @@ async fn search_request(
     }
 
     let endpoint = SearchEndpoint::from_connection(connection)?;
-    let path = endpoint.path(path_and_query);
-    let has_body = body.is_some();
-    let body = body.unwrap_or("");
-    let username = connection.username.as_ref().or_else(|| {
-        connection
-            .search_options
-            .as_ref()
-            .and_then(|options| options.username.as_ref())
-    });
-    let auth_header = match (username, &connection.password) {
-        (Some(username), Some(password)) => {
-            let encoded = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                format!("{username}:{password}"),
-            );
-            format!("Authorization: Basic {encoded}\r\n")
-        }
-        _ => String::new(),
-    };
-    let content_headers = if has_body {
-        format!(
-            "Content-Type: application/json\r\nContent-Length: {}\r\n",
-            body.len()
-        )
-    } else {
-        String::new()
-    };
-    let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\n{}{}Connection: close\r\n\r\n{}",
-        endpoint.host, endpoint.port, auth_header, content_headers, body
-    );
-    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port)).await?;
-    stream.write_all(request.as_bytes()).await?;
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).await?;
-    let raw = String::from_utf8_lossy(&response).to_string();
-    let (headers, body) = raw.split_once("\r\n\r\n").unwrap_or(("", &raw));
-    let status_code = headers
-        .lines()
-        .next()
-        .and_then(|status| status.split_whitespace().nth(1))
-        .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(0);
-
-    if (200..300).contains(&status_code) {
-        Ok(SearchResponse {
-            body: body.to_string(),
-        })
-    } else {
-        Err(CommandError::new(
-            "search-http-error",
-            body.lines()
-                .next()
-                .filter(|line| !line.trim().is_empty())
-                .unwrap_or("Search HTTP request failed."),
-        ))
-    }
+    search_http_request(connection, method, endpoint.url(path_and_query), body).await
 }
 
 fn search_live_disabled_reason(connection: &ResolvedConnectionProfile) -> Option<String> {
@@ -345,6 +283,15 @@ impl SearchEndpoint {
                 format!("/{path_and_query}")
             }
         )
+    }
+
+    fn url(&self, path_and_query: &str) -> String {
+        let host = if self.host.contains(':') && !self.host.starts_with('[') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        format!("http://{}:{}{}", host, self.port, self.path(path_and_query))
     }
 }
 

@@ -60,8 +60,8 @@ fn neptune_query_request_builds_language_bodies() {
 }
 
 #[test]
-fn neptune_query_request_rejects_write_queries() {
-    let error = neptune_query_request("gremlin", "g.addV('person')", "full").unwrap_err();
+fn neptune_query_request_builds_write_queries_for_guarded_execution() {
+    let request = neptune_query_request("gremlin", "g.addV('person')", "full").unwrap();
 
-    assert_eq!(error.code, "neptune-write-preview-only");
+    assert_eq!(request.query, "g.addV('person')");
 }

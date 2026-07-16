@@ -428,7 +428,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
     ],
     defaultPort: 1521,
     managementModel: 'Enterprise relational catalogs with CDB/PDB containers, schemas, tables, indexes, sequences, packages, procedures, functions, scheduler objects, queues, storage, security, dictionary views, users, roles, profiles, and grants.',
-    queryModel: 'SQL Query, PL/SQL Script, and Explain Plan modes with Oracle-native templates, configurable SQLPlus live query execution, and guarded DDL/admin preview plans.',
+    queryModel: 'SQL Query, PL/SQL Script, and Explain Plan modes with Oracle-native templates, bundled managed-driver execution, optional legacy SQLPlus execution, and guarded DDL/admin preview plans.',
     presentationModel: 'Tables, dictionary metadata, DBMS_XPLAN-style plans, SQL Monitor templates, session/wait metrics, storage/security diagnostics, and charts.',
     securityModel: 'Users, roles, object grants, system privileges, proxy users, wallets, TCPS, read-only profiles, and environment guardrails determine action availability.',
     resultRenderers: [...tableSchemaPlan],
@@ -442,7 +442,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'supports_backup_restore',
     ],
     baselineFeatures: [
-      'Oracle connection options for service name, SID, TNS alias, Easy Connect, TCPS, wallet paths, proxy user, SQLPlus runtime/path, NLS, fetch, timeout, and pool settings',
+      'Bundled managed Oracle runtime with service name, SID, TNS alias, Easy Connect, TCPS, wallet paths, proxy user, administrative role, NLS, fetch, timeout, pool, and optional legacy SQLPlus settings',
       'Container, schema, table, view, materialized view, synonym, sequence, function, procedure, package, type, scheduler, queue, storage, and security object browser',
       'SQL/PLSQL editor with Oracle templates, saved queries, object inspection, and export planning',
       'Object grants, role/profile, and permission-aware disabled action surfaces',
@@ -466,7 +466,7 @@ export const DATASTORE_FEATURE_BACKLOG: DatastoreFeatureBacklogEntry[] = [
       'Session counts',
     ],
     roadmapNotes: [
-      'Oracle SQLPlus live query support is optional per connection until driver/client prerequisites are configured.',
+      'Oracle Database 19c+ uses the bundled managed runtime by default; SQLPlus is an explicit legacy fallback for older or specialized Oracle Net configurations.',
       'Use ALL_* and USER_* views by default; query DBA_*, V$, GV$, AWR/ASH, Data Guard, and RAC views only when permissions allow.',
       'Admin/destructive Oracle operations remain guarded previews until a later pass explicitly enables live execution.',
     ],

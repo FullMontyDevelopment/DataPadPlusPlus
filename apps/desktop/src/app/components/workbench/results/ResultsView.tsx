@@ -270,6 +270,7 @@ export function ResultsView({
             : undefined
         }
         payload={payload}
+        resultId={result?.id}
         tabId={activeTab?.id}
         documentFooterControls={documentFooterControls}
         resultDurationMs={result?.displayDurationMs ?? result?.durationMs}

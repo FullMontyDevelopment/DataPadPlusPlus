@@ -14,14 +14,16 @@
           "build",
           "--manifest-path",
           "${workspaceFolder}/apps/desktop/src-tauri/Cargo.toml",
-          "--no-default-features"
+          "--no-default-features",
+          "--bin",
+          "datapadplusplus-desktop"
         ],
         "filter": {
           "name": "datapadplusplus-desktop",
           "kind": "bin"
         }
       },
-      "preLaunchTask": "datapadplusplus:ui:dev"
+      "preLaunchTask": "datapadplusplus:lldb:dev"
     },
     {
       "name": "DataPad++: Tauri Debug + Core Fixtures (LLDB)",
@@ -33,7 +35,9 @@
           "build",
           "--manifest-path",
           "${workspaceFolder}/apps/desktop/src-tauri/Cargo.toml",
-          "--no-default-features"
+          "--no-default-features",
+          "--bin",
+          "datapadplusplus-desktop"
         ],
         "filter": {
           "name": "datapadplusplus-desktop",
@@ -59,7 +63,9 @@
           "build",
           "--manifest-path",
           "${workspaceFolder}/apps/desktop/src-tauri/Cargo.toml",
-          "--no-default-features"
+          "--no-default-features",
+          "--bin",
+          "datapadplusplus-desktop"
         ],
         "filter": {
           "name": "datapadplusplus-desktop",
@@ -86,7 +92,9 @@
           "build",
           "--manifest-path",
           "${workspaceFolder}/apps/desktop/src-tauri/Cargo.toml",
-          "--no-default-features"
+          "--no-default-features",
+          "--bin",
+          "datapadplusplus-desktop"
         ],
         "filter": {
           "name": "datapadplusplus-desktop",

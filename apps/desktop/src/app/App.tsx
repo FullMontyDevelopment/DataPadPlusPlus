@@ -85,6 +85,7 @@ import {
   hasExplorerScope,
   isExplorerRequestLoading,
 } from './state/app-state-reducer-helpers'
+import { connectionUsesManagedOracleRuntime } from './state/oracle-runtime'
 import {
   connectionHealthKey,
   connectionHealthToConnectionTest,
@@ -1335,7 +1336,11 @@ function DesktopWorkspace() {
     commitQueryTextDraft,
   ])
   const requestIntellisenseRefresh = useCallback(() => {
-    if (!activeConnectionId || !activeEnvironmentId) {
+    if (
+      !activeConnectionId ||
+      !activeEnvironmentId ||
+      !connectionUsesManagedOracleRuntime(activeConnection)
+    ) {
       return
     }
 
@@ -1344,7 +1349,7 @@ function DesktopWorkspace() {
       environmentId: activeEnvironmentId,
       limit: 160,
     })
-  }, [actions, activeConnectionId, activeEnvironmentId])
+  }, [actions, activeConnection, activeConnectionId, activeEnvironmentId])
 
   const rememberRedisConsoleCommand = useCallback((
     tabId: string,
@@ -1859,6 +1864,7 @@ function DesktopWorkspace() {
     if (
       !activeConnection ||
       activeConnection.engine !== 'oracle' ||
+      !connectionUsesManagedOracleRuntime(activeConnection) ||
       !activeConnectionId ||
       !activeEnvironmentId ||
       !activeTab ||
@@ -1948,7 +1954,8 @@ function DesktopWorkspace() {
     if (
       !activeConnectionId ||
       !activeEnvironmentId ||
-      !activeTabIsExplorer
+      !activeTabIsExplorer ||
+      !connectionUsesManagedOracleRuntime(activeConnection)
     ) {
       return
     }
@@ -1960,6 +1967,7 @@ function DesktopWorkspace() {
     })
   }, [
     actions,
+    activeConnection,
     activeConnectionId,
     activeEnvironmentId,
     activeTabIsExplorer,

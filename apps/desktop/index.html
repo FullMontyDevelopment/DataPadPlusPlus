@@ -38,6 +38,14 @@
         margin: 0;
         color: #969696;
       }
+
+      .initial-boot[data-state='error'] .initial-boot-card {
+        border-color: #7a3f37;
+      }
+
+      .initial-boot[data-state='error'] p {
+        color: #f48771;
+      }
     </style>
   </head>
   <body>
@@ -49,6 +57,28 @@
         </div>
       </div>
     </div>
+    <script>
+      ;(() => {
+        const showStartupError = () => {
+          const boot = document.querySelector('.initial-boot')
+          const message = boot?.querySelector('p')
+          if (!boot || !message) return
+
+          boot.dataset.state = 'error'
+          message.textContent =
+            'DataPad++ could not finish starting. Close and reopen the application.'
+        }
+
+        window.addEventListener(
+          'error',
+          (event) => {
+            if (event.target instanceof HTMLScriptElement) showStartupError()
+          },
+          true,
+        )
+        window.setTimeout(showStartupError, 20000)
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

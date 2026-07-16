@@ -49,6 +49,54 @@ test('fixture seed runner executes all datastore init scripts in order', async (
   assert.deepEqual(failures, [])
 })
 
+test('screenshot launcher seeds running fixtures before resetting and opening the workspace', async () => {
+  const launcher = await read('tests/fixtures/launch-screenshot-seed.mjs')
+  const seedIndex = launcher.indexOf("[join(fixtureDir, 'seed.mjs')")
+  const resetIndex = launcher.indexOf('rmSync(workspaceDir')
+  const launchIndex = launcher.indexOf('const child = spawn(command')
+
+  assert.ok(seedIndex >= 0, 'Screenshot launcher must invoke the fixture seed runner.')
+  assert.ok(seedIndex < resetIndex, 'Fixture validation must happen before resetting the workspace.')
+  assert.ok(resetIndex < launchIndex, 'The workspace must be prepared before DataPad++ launches.')
+  assert.match(launcher, /DATAPADPLUSPLUS_SCREENSHOT_SEED_FIXTURES/)
+  assert.match(launcher, /seedResult\.status !== 0/)
+})
+
+test('CockroachDB fixture seeding verifies the configured database before debug startup', async () => {
+  const seedSource = await read('tests/fixtures/seed.mjs')
+
+  assert.match(seedSource, /--database=datapadplusplus/)
+  assert.match(seedSource, /--execute=select count\(\*\) from accounts/)
+  assert.match(seedSource, /CockroachDB fixture seed verification failed/)
+})
+
+test('JanusGraph fixture startup is restart-safe and readiness-gated', async () => {
+  const composeSource = await read('tests/fixtures/docker-compose.yml')
+
+  assert.match(composeSource, /JANUS_STORAGE_TIMEOUT: ''/)
+  assert.match(composeSource, /janusgraph\.graph\.replace-instance-if-exists: 'true'/)
+  assert.match(composeSource, /\/dev\/tcp\/127\.0\.0\.1\/8182/)
+  assert.match(composeSource, /start_period: 15s/)
+})
+
+test('Cassandra fixture query targets the seeded partitioned table', async () => {
+  const [catalogSource, seedSource] = await Promise.all([
+    read('apps/desktop/src-tauri/src/app/runtime/fixtures/catalog/extended.rs'),
+    read('tests/fixtures/cassandra/init/001_seed.cql'),
+  ])
+
+  assert.match(seedSource, /create table if not exists orders_by_account/)
+  assert.match(catalogSource, /CASSANDRA_FIXTURE_QUERY/)
+  assert.doesNotMatch(catalogSource, /datapadplusplus\.orders limit 25/)
+})
+
+test('DynamoDB fixture query uses the native scan request contract', async () => {
+  const catalogSource = await read('apps/desktop/src-tauri/src/app/runtime/fixtures/catalog/cloud.rs')
+
+  assert.match(catalogSource, /DYNAMODB_FIXTURE_QUERY/)
+  assert.doesNotMatch(catalogSource, /\"table\": \"orders\"/)
+})
+
 test('fixture datastores include richer real-world data scripts', async () => {
   const expectedScripts = [
     'tests/fixtures/postgres/init/002_real_world.sql',
@@ -320,17 +368,17 @@ test('Oracle optional fixtures cover native diagnostics and preview boundary evi
   assert.match(validatorSource, /RMAN backup database plus archivelog/)
   assert.match(validatorSource, /Data Pump\/RMAN execution remains preview-first outside the scoped claim/)
   assert.match(readmeSource, /fixtures:validate:oracle/)
-  assert.match(readmeSource, /Desktop Oracle SQLPlus query and primary-key\/ROWID row-edit execution are now configurable/)
+  assert.match(readmeSource, /Desktop Oracle uses the bundled managed runtime by default, with SQLPlus available as an explicit legacy fallback/)
   assert.match(readmeSource, /DBMS_XPLAN[\s\S]*SQL Monitor[\s\S]*PL\/SQL[\s\S]*row identity[\s\S]*Data Pump\/RMAN/)
   assert.match(strategySource, /Oracle optional fixture evidence path/)
-  assert.match(strategySource, /Desktop Oracle SQLPlus query and primary-key\/ROWID row-edit execution are now configurable/)
+  assert.match(strategySource, /Desktop Oracle uses the bundled managed runtime by default, with SQLPlus available as an explicit legacy fallback/)
   assert.match(strategySource, /DBMS_XPLAN[\s\S]*SQL Monitor[\s\S]*restricted dictionary[\s\S]*Data Pump\/RMAN/)
   assert.match(connectionsSource, /fixtures:validate:oracle/)
-  assert.match(connectionsSource, /Desktop Oracle SQLPlus query and primary-key\/ROWID row-edit execution are now configurable/)
+  assert.match(connectionsSource, /Desktop Oracle uses the bundled managed runtime by default, with SQLPlus available as an explicit legacy fallback/)
   assert.match(connectionsSource, /fixture_oracle_package/)
   assert.match(connectionsSource, /fixture_oracle_file_workflow/)
-  assert.match(completenessSource, /Oracle optional fixture validator/)
-  assert.match(completenessSource, /guarded live SQLPlus query surface/)
+  assert.match(completenessSource, /optional Oracle fixture coverage/)
+  assert.match(completenessSource, /bundled managed ODP\.NET runtime by default/)
   assert.match(completenessSource, /primary-key or ROWID identity/)
 })
 

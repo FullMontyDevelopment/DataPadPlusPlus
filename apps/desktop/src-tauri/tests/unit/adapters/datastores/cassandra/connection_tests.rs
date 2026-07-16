@@ -1,4 +1,4 @@
-use super::{cassandra_contact_point, cassandra_keyspace};
+use super::{cassandra_contact_point, cassandra_contact_points, cassandra_keyspace};
 use crate::domain::models::{CassandraConnectionOptions, ResolvedConnectionProfile};
 
 #[test]
@@ -22,7 +22,32 @@ fn cassandra_profile_prefers_native_options_when_present() {
     );
 
     assert_eq!(cassandra_contact_point(&connection), "node-a:9042");
+    assert_eq!(
+        cassandra_contact_points(&connection),
+        vec!["node-a:9042", "node-b:9042"]
+    );
     assert_eq!(cassandra_keyspace(&connection), "catalog");
+}
+
+#[test]
+fn cassandra_profile_reads_connection_string_contact_points() {
+    let mut connection = connection(None, None, None);
+    connection.host.clear();
+    connection.connection_string = Some("cassandra://node-a:9042,node-b:9042".into());
+
+    assert_eq!(
+        cassandra_contact_points(&connection),
+        vec!["node-a:9042", "node-b:9042"]
+    );
+}
+
+#[test]
+fn cassandra_connection_string_does_not_pass_credentials_as_a_contact_point() {
+    let mut connection = connection(None, None, None);
+    connection.connection_string =
+        Some("cassandra://fixture-user:fixture-password@node-a:9142/catalog".into());
+
+    assert_eq!(cassandra_contact_points(&connection), vec!["node-a:9142"]);
 }
 
 fn connection(

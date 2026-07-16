@@ -783,7 +783,7 @@ export interface SeriesPayload {
     unit?: string
     points: Array<{
       timestamp: string
-      value: number
+      value: number | string
       labels?: Record<string, string>
     }>
   }>

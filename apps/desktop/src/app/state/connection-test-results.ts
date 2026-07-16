@@ -2,7 +2,7 @@ import type {
   ConnectionProfile,
   ConnectionTestResult,
 } from '@datapadplusplus/shared-types'
-import { toUserMessage } from './app-state-selectors'
+import { toUserError } from './app-state-selectors'
 import { redactSensitiveText } from './security-redaction'
 
 interface FixtureEndpointHint {
@@ -62,8 +62,9 @@ export function buildConnectionTestFailure(
   error: unknown,
   secret?: string,
 ): ConnectionTestResult {
+  const userError = toUserError(error, `Connection test failed for ${profile.name}.`)
   const message = redactConnectionTestText(
-    toUserMessage(error, `Connection test failed for ${profile.name}.`),
+    userError.message,
     secret,
   )
 
@@ -71,6 +72,7 @@ export function buildConnectionTestFailure(
     ok: false,
     engine: profile.engine,
     message: `Connection test failed for ${profile.name}: ${message}`,
+    errorCode: userError.code,
     warnings: fixtureWarningsForConnection(profile, secret),
     resolvedHost: redactConnectionTestText(profile.host, secret),
     resolvedDatabase: profile.database

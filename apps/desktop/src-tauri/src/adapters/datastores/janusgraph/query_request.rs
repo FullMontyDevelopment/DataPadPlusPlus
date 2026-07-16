@@ -17,13 +17,6 @@ pub(super) fn janusgraph_query_request(
             "No Gremlin query was provided.",
         ));
     }
-    if !is_read_only_gremlin(gremlin) {
-        return Err(CommandError::new(
-            "janusgraph-write-preview-only",
-            "JanusGraph writes, schema changes, imports, and management mutations are operation-plan preview only in this adapter phase.",
-        ));
-    }
-
     let mode = match execute_mode {
         "explain" => "explain",
         "profile" => "profile",

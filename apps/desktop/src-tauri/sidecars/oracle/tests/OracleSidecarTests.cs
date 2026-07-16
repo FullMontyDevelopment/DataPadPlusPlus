@@ -6,6 +6,20 @@ namespace DataPadPlusPlus.OracleSidecar.Tests;
 public sealed class OracleSidecarTests
 {
     [Fact]
+    public void HealthIsCredentialFreeAndReportsRuntimeMetadata()
+    {
+        var health = Program.Health();
+        var properties = health.GetType().GetProperties()
+            .ToDictionary(property => property.Name, property => property.GetValue(health));
+
+        Assert.Equal(1, properties["protocolVersion"]);
+        Assert.NotEmpty(Assert.IsType<string>(properties["runtimeVersion"]));
+        Assert.NotEmpty(Assert.IsType<string>(properties["driverVersion"]));
+        Assert.NotEmpty(Assert.IsType<string>(properties["targetPlatform"]));
+        Assert.IsType<bool>(properties["consoleAttached"]);
+    }
+
+    [Fact]
     public void SplitterHandlesSqlAndSlashTerminatedPlSql()
     {
         var statements = OracleScriptSplitter.Split("""

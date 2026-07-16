@@ -9,6 +9,8 @@ Expected release assets:
 - macOS Apple Silicon: `.app`/DMG bundle outputs and tarred raw executable.
 - macOS Intel: temporarily disabled until a reliable runner is available.
 
+Every installer and raw archive must contain only its matching self-contained Oracle runtime plus the `Oracle.ManagedDataAccess.Core` license. Unix archives must preserve the runtime's executable permission. A separately installed .NET runtime or Oracle Client must not be required.
+
 GitHub also lists automatic source-code zip/tar archives on releases. Those archives are expected, but they are not DataPad++ desktop installers.
 
 ## Before Running Release
@@ -16,6 +18,7 @@ GitHub also lists automatic source-code zip/tar archives on releases. Those arch
 - Choose the next semantic version, for example `0.1.1` or `0.2.0-beta.1`.
 - Optionally preview the version bump locally with `npm run release:bump -- <version>` on a throwaway branch.
 - Run `npm run release:test`.
+- Run `npm run oracle:sidecar:prepare` and `npm run oracle:sidecar:smoke` on the current platform.
 - Run `npm run ci:workflow:test` if the release workflow changed.
 - Run `npm run check:all`.
 - Confirm CI is green on the branch you will release from.
@@ -114,6 +117,11 @@ The release workflow owns version-file updates. Do not pre-edit every version fi
 - Run a known read query against the seeded SQLite fixture if available.
 - Open connection details, explorer, query, and diagnostics surfaces.
 - Confirm no secrets, local absolute paths, or debug-only fixture credentials appear in release notes.
+- Confirm the bundled Oracle runtime health handshake succeeds before entering connection details.
+- On Windows, confirm Oracle Test Connection, explorer, and Run never open a console window.
+- On Linux and macOS, confirm the bundled runtime is executable and launches directly without a shell or terminal application.
+- On signed macOS builds, confirm both the app bundle and `Contents/MacOS/datapadplusplus-oracle-runtime` pass `codesign --verify`.
+- Confirm a blocked-runtime test reports an actionable local startup code and suppresses background retries while explicit Test Connection can retry.
 
 ## Production Readiness Notes
 

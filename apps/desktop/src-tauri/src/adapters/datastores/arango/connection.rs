@@ -1,7 +1,4 @@
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use reqwest::{header, Method};
 
 use super::super::super::*;
 
@@ -14,6 +11,7 @@ pub(super) struct ArangoEndpoint {
     host: String,
     port: u16,
     database: String,
+    scheme: String,
 }
 
 pub(super) async fn test_arango_connection(
@@ -51,6 +49,21 @@ pub(super) async fn arango_post_json(
     arango_request(connection, "POST", path, Some(body)).await
 }
 
+pub(super) async fn arango_put_json(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    body: &str,
+) -> Result<ArangoResponse, CommandError> {
+    arango_request(connection, "PUT", path, Some(body)).await
+}
+
+pub(super) async fn arango_delete(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+) -> Result<ArangoResponse, CommandError> {
+    arango_request(connection, "DELETE", path, None).await
+}
+
 async fn arango_request(
     connection: &ResolvedConnectionProfile,
     method: &str,
@@ -58,56 +71,36 @@ async fn arango_request(
     body: Option<&str>,
 ) -> Result<ArangoResponse, CommandError> {
     let endpoint = ArangoEndpoint::from_connection(connection)?;
-    let path = endpoint.path(path_and_query);
-    let body = body.unwrap_or("");
-    let auth_header = match (&connection.username, &connection.password) {
-        (Some(username), Some(password)) => {
-            let encoded = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                format!("{username}:{password}"),
-            );
-            format!("Authorization: Basic {encoded}\r\n")
-        }
-        _ => String::new(),
-    };
-    let content_headers = if method == "POST" {
-        format!(
-            "Content-Type: application/json\r\nContent-Length: {}\r\n",
-            body.len()
+    let url = endpoint.url(path_and_query);
+    let method = Method::from_bytes(method.as_bytes()).map_err(|_| {
+        CommandError::new(
+            "arango-http-method-invalid",
+            "ArangoDB request used an unsupported HTTP method.",
         )
-    } else {
-        String::new()
-    };
-    let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {}:{}\r\nAccept: application/json\r\n{}{}Connection: close\r\n\r\n{}",
-        endpoint.host, endpoint.port, auth_header, content_headers, body
-    );
-    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port)).await?;
-    stream.write_all(request.as_bytes()).await?;
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).await?;
-    let raw = String::from_utf8_lossy(&response).to_string();
-    let (headers, body) = raw.split_once("\r\n\r\n").unwrap_or(("", &raw));
-    let status_code = headers
-        .lines()
-        .next()
-        .and_then(|status| status.split_whitespace().nth(1))
-        .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(0);
-
-    if (200..300).contains(&status_code) {
-        Ok(ArangoResponse {
-            body: body.to_string(),
-        })
-    } else {
-        Err(CommandError::new(
-            "arango-http-error",
-            body.lines()
-                .next()
-                .filter(|line| !line.trim().is_empty())
-                .unwrap_or("ArangoDB HTTP request failed."),
-        ))
+    })?;
+    let client = graph_http_client(connection)?;
+    let mut request = graph_http_request(&client, method, &url, connection)
+        .header(header::ACCEPT, "application/json");
+    if let Some(body) = body {
+        request = request
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body.to_string());
     }
+    let response = request.send().await.map_err(|error| {
+        CommandError::new(
+            "arango-http-request-failed",
+            format!("ArangoDB HTTP request failed: {error}"),
+        )
+    })?;
+    let response = graph_http_response(
+        response,
+        "arango-http-error",
+        "ArangoDB HTTP request failed.",
+    )
+    .await?;
+    Ok(ArangoResponse {
+        body: response.body,
+    })
 }
 
 impl ArangoEndpoint {
@@ -153,23 +146,26 @@ impl ArangoEndpoint {
             host: host.into(),
             port: connection.port.unwrap_or(8529),
             database,
+            scheme: "http".into(),
         })
     }
 
     fn from_url(url: &str, database_override: Option<&str>) -> Result<Self, CommandError> {
-        let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
+        validate_http_component(url, "ArangoDB endpoint")?;
+        let parsed = url::Url::parse(url).map_err(|_| {
             CommandError::new(
-                "arango-unsupported-url",
-                "ArangoDB adapter currently supports plain http:// endpoints.",
+                "arango-endpoint-invalid",
+                "ArangoDB endpoint must be a valid http:// or https:// URL.",
             )
         })?;
-        let (authority, path) = without_scheme
-            .split_once('/')
-            .unwrap_or((without_scheme, ""));
-        let (host, port) = authority
-            .rsplit_once(':')
-            .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
-            .unwrap_or((authority, 8529));
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(CommandError::new(
+                "arango-unsupported-url",
+                "ArangoDB endpoint must use http:// or https://.",
+            ));
+        }
+        let host = parsed.host_str().unwrap_or_default();
+        let port = parsed.port_or_known_default().unwrap_or(8529);
         if host.trim().is_empty() {
             return Err(CommandError::new(
                 "arango-endpoint-missing",
@@ -181,7 +177,10 @@ impl ArangoEndpoint {
             .filter(|value| !value.trim().is_empty())
             .map(str::to_string)
             .or_else(|| {
-                path.strip_prefix("_db/")
+                parsed
+                    .path()
+                    .trim_start_matches('/')
+                    .strip_prefix("_db/")
                     .and_then(|rest| rest.split('/').next())
                     .filter(|value| !value.trim().is_empty())
                     .map(str::to_string)
@@ -193,6 +192,7 @@ impl ArangoEndpoint {
             host: host.into(),
             port,
             database,
+            scheme: parsed.scheme().into(),
         })
     }
 
@@ -203,6 +203,16 @@ impl ArangoEndpoint {
             format!("/{path_and_query}")
         };
         format!("/_db/{}{}", self.database, suffix)
+    }
+
+    fn url(&self, path_and_query: &str) -> String {
+        format!(
+            "{}://{}:{}{}",
+            self.scheme,
+            self.host,
+            self.port,
+            self.path(path_and_query)
+        )
     }
 }
 

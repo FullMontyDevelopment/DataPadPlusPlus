@@ -303,10 +303,8 @@ export function markTabExecutionDisplayed(
   const phase = tab.activeExecution.phase
   const startedAt = tab.activeExecution.startedAt
   tab.activeExecution = undefined
-  if (phase === 'rendering' || phase === 'paging') {
-    tab.status = tab.error ? 'error' : 'success'
-  }
-  if (tab.result) {
+  tab.status = tab.error ? 'error' : 'success'
+  if (tab.result && (phase === 'rendering' || phase === 'paging')) {
     tab.result = withDisplayTiming(tab.result, startedAt)
   }
   next.snapshot.updatedAt = new Date().toISOString()

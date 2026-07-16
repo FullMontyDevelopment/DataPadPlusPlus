@@ -17,20 +17,32 @@
       "problemMatcher": []
     },
     {
+      "label": "datapadplusplus:oracle:ensure",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "run",
+        "oracle:sidecar:ensure"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "datapadplusplus:rust:build",
       "type": "shell",
       "command": "cargo",
       "args": [
         "build",
         "--manifest-path",
-        "${workspaceFolder}/apps/desktop/src-tauri/Cargo.toml"
+        "${workspaceFolder}/apps/desktop/src-tauri/Cargo.toml",
+        "--bin",
+        "datapadplusplus-desktop"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "dependsOn": [
-        "datapadplusplus:dev:preflight"
-      ],
       "dependsOrder": "sequence",
       "problemMatcher": []
     },
@@ -151,75 +163,153 @@
       "options": {
         "cwd": "${workspaceFolder}"
       },
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "datapadplusplus:lldb:dev",
       "dependsOn": [
-        "datapadplusplus:dev:preflight"
+        "datapadplusplus:dev:preflight",
+        "datapadplusplus:oracle:ensure",
+        "datapadplusplus:ui:dev"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": []
     },
     {
-      "label": "datapadplusplus:dev",
+      "label": "datapadplusplus:dev:services",
       "dependsOn": [
         "datapadplusplus:rust:build",
         "datapadplusplus:ui:dev"
       ],
-      "dependsOrder": "parallel"
+      "dependsOrder": "parallel",
+      "problemMatcher": []
     },
     {
-      "label": "datapadplusplus:ui:fixtures:core",
+      "label": "datapadplusplus:dev",
+      "dependsOn": [
+        "datapadplusplus:dev:preflight",
+        "datapadplusplus:oracle:ensure",
+        "datapadplusplus:dev:services"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "datapadplusplus:ui:fixtures:core:services",
       "dependsOn": [
         "datapadplusplus:ui:dev",
         "datapadplusplus:fixtures:ready:core"
       ],
       "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "datapadplusplus:ui:fixtures:profile:services",
+      "dependsOn": [
+        "datapadplusplus:ui:dev",
+        "datapadplusplus:fixtures:ready:profile"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "datapadplusplus:ui:fixtures:all:services",
+      "dependsOn": [
+        "datapadplusplus:ui:dev",
+        "datapadplusplus:fixtures:ready:all"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "datapadplusplus:dev:fixtures:core:services",
+      "dependsOn": [
+        "datapadplusplus:rust:build",
+        "datapadplusplus:ui:dev",
+        "datapadplusplus:fixtures:ready:core"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "datapadplusplus:dev:fixtures:profile:services",
+      "dependsOn": [
+        "datapadplusplus:rust:build",
+        "datapadplusplus:ui:dev",
+        "datapadplusplus:fixtures:ready:profile"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "datapadplusplus:dev:fixtures:all:services",
+      "dependsOn": [
+        "datapadplusplus:rust:build",
+        "datapadplusplus:ui:dev",
+        "datapadplusplus:fixtures:ready:all"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "datapadplusplus:ui:fixtures:core",
+      "dependsOn": [
+        "datapadplusplus:dev:preflight",
+        "datapadplusplus:oracle:ensure",
+        "datapadplusplus:ui:fixtures:core:services"
+      ],
+      "dependsOrder": "sequence",
       "problemMatcher": []
     },
     {
       "label": "datapadplusplus:ui:fixtures:profile",
       "dependsOn": [
-        "datapadplusplus:ui:dev",
-        "datapadplusplus:fixtures:ready:profile"
+        "datapadplusplus:dev:preflight",
+        "datapadplusplus:oracle:ensure",
+        "datapadplusplus:ui:fixtures:profile:services"
       ],
-      "dependsOrder": "parallel",
+      "dependsOrder": "sequence",
       "problemMatcher": []
     },
     {
       "label": "datapadplusplus:ui:fixtures:all",
       "dependsOn": [
-        "datapadplusplus:ui:dev",
-        "datapadplusplus:fixtures:ready:all"
+        "datapadplusplus:dev:preflight",
+        "datapadplusplus:oracle:ensure",
+        "datapadplusplus:ui:fixtures:all:services"
       ],
-      "dependsOrder": "parallel",
+      "dependsOrder": "sequence",
       "problemMatcher": []
     },
     {
       "label": "datapadplusplus:dev:fixtures:core",
       "dependsOn": [
-        "datapadplusplus:rust:build",
-        "datapadplusplus:ui:dev",
-        "datapadplusplus:fixtures:ready:core"
+        "datapadplusplus:dev:preflight",
+        "datapadplusplus:oracle:ensure",
+        "datapadplusplus:dev:fixtures:core:services"
       ],
-      "dependsOrder": "parallel",
+      "dependsOrder": "sequence",
       "problemMatcher": []
     },
     {
       "label": "datapadplusplus:dev:fixtures:profile",
       "dependsOn": [
-        "datapadplusplus:rust:build",
-        "datapadplusplus:ui:dev",
-        "datapadplusplus:fixtures:ready:profile"
+        "datapadplusplus:dev:preflight",
+        "datapadplusplus:oracle:ensure",
+        "datapadplusplus:dev:fixtures:profile:services"
       ],
-      "dependsOrder": "parallel",
+      "dependsOrder": "sequence",
       "problemMatcher": []
     },
     {
       "label": "datapadplusplus:dev:fixtures:all",
       "dependsOn": [
-        "datapadplusplus:rust:build",
-        "datapadplusplus:ui:dev",
-        "datapadplusplus:fixtures:ready:all"
+        "datapadplusplus:dev:preflight",
+        "datapadplusplus:oracle:ensure",
+        "datapadplusplus:dev:fixtures:all:services"
       ],
-      "dependsOrder": "parallel",
+      "dependsOrder": "sequence",
       "problemMatcher": []
     }
   ],

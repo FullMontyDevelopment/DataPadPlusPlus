@@ -158,6 +158,11 @@ export function documentRootLabel(document: Record<string, unknown>, index: numb
 }
 
 function rootIdentityLabel(value: unknown) {
+  const bsonScalar = bsonScalarInfo(value)
+  if (bsonScalar) {
+    return bsonScalar.label
+  }
+
   if (typeof value === 'string') {
     return value
   }

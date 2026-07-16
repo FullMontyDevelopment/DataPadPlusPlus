@@ -1,8 +1,8 @@
 use serde_json::{json, Value};
 
 use super::super::super::*;
-use super::connection::arango_post_json;
-use super::query_request::{arango_query_request, ArangoQueryRequest};
+use super::connection::{arango_delete, arango_post_json, arango_put_json};
+use super::query_request::{arango_query_request, is_read_only_aql, ArangoQueryRequest};
 use super::query_results::{
     normalize_arango_result, validate_arango_response, NormalizedArangoResult,
 };
@@ -29,6 +29,15 @@ pub(super) async fn execute_arango_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let query_request = arango_query_request(query_text, execute_mode(request), row_limit)?;
+    if connection.read_only
+        && query_request.mode != "explain"
+        && !is_read_only_aql(&query_request.query)
+    {
+        return Err(CommandError::new(
+            "arango-read-only-violation",
+            "This ArangoDB connection is read-only and cannot execute a mutating AQL query.",
+        ));
+    }
     let (payloads, row_count, explain_payload, truncated) = if query_request.mode == "explain" {
         let response =
             arango_post_json(connection, "/_api/explain", &query_request.explain_body).await?;
@@ -45,10 +54,12 @@ pub(super) async fn execute_arango_query(
             false,
         )
     } else {
-        let response =
-            arango_post_json(connection, "/_api/cursor", &query_request.cursor_body).await?;
-        let value = parse_arango_json(&response.body)?;
-        validate_arango_response(&value)?;
+        let value = execute_arango_cursor(
+            connection,
+            &query_request.cursor_body,
+            query_request.fetch_limit,
+        )
+        .await?;
         let result = value.get("result").cloned().unwrap_or_else(|| json!([]));
         let normalized = normalize_arango_result(&result, row_limit);
         let truncated = normalized.truncated
@@ -101,6 +112,101 @@ pub(super) async fn execute_arango_query(
         truncated,
         explain_payload,
     }))
+}
+
+async fn execute_arango_cursor(
+    connection: &ResolvedConnectionProfile,
+    request_body: &str,
+    fetch_limit: u32,
+) -> Result<Value, CommandError> {
+    let response = arango_post_json(connection, "/_api/cursor", request_body).await?;
+    let mut value = parse_arango_json(&response.body)?;
+    validate_arango_response(&value)?;
+    let mut cursor_id = value.get("id").and_then(Value::as_str).map(str::to_string);
+    let mut has_more = value
+        .get("hasMore")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut result = value
+        .get("result")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let limit = fetch_limit.max(1) as usize;
+    result.truncate(limit);
+
+    while has_more && result.len() < limit {
+        let Some(id) = cursor_id.as_deref() else {
+            cleanup_arango_cursor(connection, cursor_id.as_deref()).await;
+            return Err(CommandError::new(
+                "arango-cursor-id-missing",
+                "ArangoDB indicated another cursor batch without returning a cursor id.",
+            ));
+        };
+        let path = arango_cursor_path(id)?;
+        let next_response = match arango_put_json(connection, &path, "").await {
+            Ok(response) => response,
+            Err(error) => {
+                cleanup_arango_cursor(connection, cursor_id.as_deref()).await;
+                return Err(error);
+            }
+        };
+        let next = match parse_arango_json(&next_response.body)
+            .and_then(|next| validate_arango_response(&next).map(|_| next))
+        {
+            Ok(next) => next,
+            Err(error) => {
+                cleanup_arango_cursor(connection, cursor_id.as_deref()).await;
+                return Err(error);
+            }
+        };
+        let remaining = limit.saturating_sub(result.len());
+        if let Some(items) = next.get("result").and_then(Value::as_array) {
+            result.extend(items.iter().take(remaining).cloned());
+        }
+        has_more = next
+            .get("hasMore")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        cursor_id = next
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or(cursor_id);
+        if let Some(extra) = next.get("extra").cloned() {
+            value["extra"] = extra;
+        }
+        if let Some(count) = next.get("count").cloned() {
+            value["count"] = count;
+        }
+    }
+
+    cleanup_arango_cursor(connection, cursor_id.as_deref()).await;
+    value["result"] = Value::Array(result);
+    value["hasMore"] = Value::Bool(has_more);
+    Ok(value)
+}
+
+fn arango_cursor_path(cursor_id: &str) -> Result<String, CommandError> {
+    if cursor_id.is_empty()
+        || cursor_id.chars().any(char::is_control)
+        || cursor_id.contains(['/', '?', '#'])
+    {
+        return Err(CommandError::new(
+            "arango-cursor-id-invalid",
+            "ArangoDB returned an invalid cursor id.",
+        ));
+    }
+    Ok(format!("/_api/cursor/{cursor_id}"))
+}
+
+async fn cleanup_arango_cursor(connection: &ResolvedConnectionProfile, cursor_id: Option<&str>) {
+    let Some(cursor_id) = cursor_id else {
+        return;
+    };
+    if let Ok(path) = arango_cursor_path(cursor_id) {
+        let _ = arango_delete(connection, &path).await;
+    }
 }
 
 fn parse_arango_json(body: &str) -> Result<Value, CommandError> {

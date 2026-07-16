@@ -645,6 +645,8 @@ fn oracle_metadata_notice_node(
     error: &CommandError,
 ) -> ExplorerNode {
     let label = match error.code.as_str() {
+        "oracle-sidecar-blocked" => "Oracle runtime blocked by device policy",
+        "oracle-sidecar-startup-failed" => "Oracle runtime could not start",
         "oracle-sidecar-not-found" | "oracle-sidecar-unavailable" => {
             "Bundled Oracle runtime unavailable"
         }

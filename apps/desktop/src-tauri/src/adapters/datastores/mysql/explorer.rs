@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use sqlx::{mysql::MySqlRow, MySqlPool, Row};
+use sqlx::{mysql::MySqlRow, Column, MySqlPool, Row};
 
 use super::super::super::*;
 use super::connection::mysql_pool;
@@ -102,10 +102,12 @@ async fn list_database_nodes(
     .fetch_all(pool)
     .await?;
 
-    Ok(rows
-        .into_iter()
-        .map(|row| database_node(connection, &row.get::<String, _>("schema_name")))
-        .collect())
+    rows.into_iter()
+        .map(|row| {
+            let database = required_string(&row, "schema_name")?;
+            Ok(database_node(connection, &database))
+        })
+        .collect()
 }
 
 async fn list_scope_nodes(
@@ -198,6 +200,9 @@ async fn list_scope_nodes(
                     .await
                 }
                 "storage" | "security" | "diagnostics" => Ok(Vec::new()),
+                "table" if parts.len() >= 4 && parts[3] == "columns" => {
+                    list_column_nodes(connection, pool, database, parts[2], limit).await
+                }
                 "table" if parts.len() >= 3 => {
                     list_table_sections(connection, pool, database, parts[2]).await
                 }
@@ -568,12 +573,11 @@ async fn list_table_like_nodes(
         limit,
     );
     let rows = sqlx::query(&query).fetch_all(pool).await?;
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .map(|row| {
-            let table_name = row.get::<String, _>("table_name");
+            let table_name = required_string(&row, "table_name")?;
             let row_count = optional_i64(&row, "table_rows").unwrap_or_default();
-            ExplorerNode {
+            Ok(ExplorerNode {
                 id: format!("mysql:{database}:{kind}:{table_name}"),
                 family: "sql".into(),
                 label: table_name.clone(),
@@ -601,9 +605,9 @@ async fn list_table_like_nodes(
                 ]),
                 query_template: Some(mysql_select_template(database, &table_name)),
                 expandable: Some(kind == "table"),
-            }
+            })
         })
-        .collect())
+        .collect()
 }
 
 async fn list_routine_nodes(
@@ -646,8 +650,7 @@ async fn list_named_nodes(
 ) -> Result<Vec<ExplorerNode>, CommandError> {
     let limit = bounded_page_size(limit.or(Some(100))) as usize;
     let rows = sqlx::query(&query).fetch_all(pool).await?;
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .take(limit)
         .map(|row| {
             let name = first_string(
@@ -661,8 +664,8 @@ async fn list_named_nodes(
                     "index_name",
                 ],
             )
-            .unwrap_or_else(|| "object".into());
-            ExplorerNode {
+            .ok_or_else(|| sqlx::Error::ColumnNotFound("name".into()))?;
+            Ok(ExplorerNode {
                 id: format!("mysql:{database}:{kind}:{name}"),
                 family: "sql".into(),
                 label: name.clone(),
@@ -677,9 +680,9 @@ async fn list_named_nodes(
                 ]),
                 query_template: mysql_object_query_template(database, kind, &name),
                 expandable: Some(false),
-            }
+            })
         })
-        .collect())
+        .collect()
 }
 
 async fn list_table_sections(
@@ -761,11 +764,10 @@ async fn list_column_nodes(
         limit
     );
     let rows = sqlx::query(&query).fetch_all(pool).await?;
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .map(|row| {
-            let name = row.get::<String, _>("name");
-            ExplorerNode {
+            let name = required_string(&row, "name")?;
+            Ok(ExplorerNode {
                 id: format!("mysql:{database}:table:{table_name}:column:{name}"),
                 family: "sql".into(),
                 label: name,
@@ -781,9 +783,9 @@ async fn list_column_nodes(
                 ]),
                 query_template: None,
                 expandable: Some(false),
-            }
+            })
         })
-        .collect())
+        .collect()
 }
 
 async fn mysql_inspection_payload(
@@ -1395,7 +1397,7 @@ fn event_records_from_rows(rows: Vec<MySqlRow>) -> Vec<Value> {
     rows.into_iter()
         .map(|row| {
             json!({
-                "schema": optional_string(&row, "schema").unwrap_or_default(),
+                "schema": optional_string(&row, "schemaName").unwrap_or_default(),
                 "name": string_cell(&row, "name"),
                 "status": optional_string(&row, "status").unwrap_or_default(),
                 "schedule": optional_string(&row, "schedule").unwrap_or_default(),
@@ -1945,7 +1947,7 @@ fn trigger_rows_query(database: &str) -> String {
 
 fn event_rows_query(database: &str) -> String {
     format!(
-        "select event_schema as schema, event_name as name, status,
+        "select event_schema as schemaName, event_name as name, status,
                 concat(interval_value, ' ', interval_field) as schedule,
                 last_executed as lastExecuted, definer
          from information_schema.events
@@ -2255,38 +2257,72 @@ fn first_string(row: &MySqlRow, names: &[&str]) -> Option<String> {
     names.iter().find_map(|name| optional_string(row, name))
 }
 
+fn required_string(row: &MySqlRow, name: &str) -> Result<String, sqlx::Error> {
+    let index = mysql_column_index(row, name)
+        .ok_or_else(|| sqlx::Error::ColumnNotFound(name.to_string()))?;
+    match row.try_get::<String, _>(index) {
+        Ok(value) => Ok(value),
+        Err(text_error) => row
+            .try_get::<Vec<u8>, _>(index)
+            .map_err(|_| text_error)
+            .and_then(|value| {
+                String::from_utf8(value).map_err(|error| sqlx::Error::Decode(Box::new(error)))
+            }),
+    }
+}
+
 fn string_cell(row: &MySqlRow, name: &str) -> String {
     optional_string(row, name).unwrap_or_default()
 }
 
 fn optional_string(row: &MySqlRow, name: &str) -> Option<String> {
-    row.try_get::<Option<String>, _>(name)
+    let index = mysql_column_index(row, name)?;
+    row.try_get::<Option<String>, _>(index)
         .ok()
         .flatten()
-        .or_else(|| row.try_get::<String, _>(name).ok())
+        .or_else(|| row.try_get::<String, _>(index).ok())
+        .or_else(|| {
+            row.try_get::<Option<Vec<u8>>, _>(index)
+                .ok()
+                .flatten()
+                .and_then(|value| String::from_utf8(value).ok())
+        })
+        .or_else(|| {
+            row.try_get::<Vec<u8>, _>(index)
+                .ok()
+                .and_then(|value| String::from_utf8(value).ok())
+        })
 }
 
 fn optional_i64(row: &MySqlRow, name: &str) -> Option<i64> {
-    row.try_get::<Option<i64>, _>(name)
+    let index = mysql_column_index(row, name)?;
+    row.try_get::<Option<i64>, _>(index)
         .ok()
         .flatten()
-        .or_else(|| row.try_get::<i64, _>(name).ok())
+        .or_else(|| row.try_get::<i64, _>(index).ok())
         .or_else(|| {
-            row.try_get::<Option<u64>, _>(name)
+            row.try_get::<Option<u64>, _>(index)
                 .ok()
                 .flatten()
                 .map(|value| value as i64)
         })
-        .or_else(|| row.try_get::<u64, _>(name).ok().map(|value| value as i64))
+        .or_else(|| row.try_get::<u64, _>(index).ok().map(|value| value as i64))
 }
 
 fn optional_f64(row: &MySqlRow, name: &str) -> Option<f64> {
-    row.try_get::<Option<f64>, _>(name)
+    let index = mysql_column_index(row, name)?;
+    row.try_get::<Option<f64>, _>(index)
         .ok()
         .flatten()
-        .or_else(|| row.try_get::<f64, _>(name).ok())
+        .or_else(|| row.try_get::<f64, _>(index).ok())
         .or_else(|| optional_i64(row, name).map(|value| value as f64))
         .or_else(|| optional_string(row, name).and_then(|value| value.trim().parse::<f64>().ok()))
+}
+
+fn mysql_column_index(row: &MySqlRow, name: &str) -> Option<usize> {
+    row.columns()
+        .iter()
+        .position(|column| column.name().eq_ignore_ascii_case(name))
 }
 
 fn mysql_status_health(name: &str) -> &'static str {

@@ -207,7 +207,7 @@ Goals:
 
 Goals:
 
-- Cassandra: CQL contract surface, keyspaces, tables, indexes, materialized views, tracing, partition-key guardrails; native binary protocol execution remains an isolated driver follow-up inside the Cassandra folder.
+- Cassandra: native binary CQL reads, keyspaces, tables, indexes, materialized views, tracing, and partition-key guardrails; mutations and administrative tooling remain guarded follow-ups inside the Cassandra folder.
 - Neo4j: Bolt/openCypher metadata, Cypher execution, graph/table results, EXPLAIN/PROFILE.
 - ArangoDB: HTTP AQL execution, collections, graphs, indexes, explain/profile.
 - JanusGraph: Gremlin request builder and contract adapter; live support after protocol path is confirmed.
@@ -395,7 +395,7 @@ At the current milestone:
 - Every declared datastore now has an adapter backlog entry, tree manifest, object-view descriptor owner, and object-view route or family workspace route.
 - TimescaleDB, ClickHouse, Valkey, Memcached, Cassandra, LiteDB, Oracle, and cloud/managed adapters remain beta/read-diagnostic oriented where appropriate.
 - Snowflake and BigQuery now use concrete cloud-contract request builders rather than the generic beta adapter.
-- Cassandra now has a concrete CQL contract adapter, typed native connection options, and partition-key guardrails while native binary protocol execution remains a future driver pass.
+- Cassandra now has a concrete native CQL read adapter, typed connection and TLS options, bounded paging, native tracing identifiers, and partition-key guardrails; guarded writes remain a future driver pass.
 - LiteDB now has a concrete .NET sidecar bridge contract adapter with configured live read dispatch, scoped sidecar document CRUD evidence, encrypted-file success/failure validation, JSON collection import/export execution, file-storage import/export/delete execution, and index/collection management execution; packaged distribution and exclusive writer-lock validation remain the final bridge passes.
 - Oracle now has a concrete SQL/PLSQL contract adapter with Oracle client/runtime prerequisite warnings while native OCI/thin execution remains a future driver pass.
 - The largest immediate architecture risk has shifted from raw adapter sprawl to live-depth gaps, capability hiding, object-view quality, quality budgets, and drift tests between Rust manifests, TypeScript contracts, fixtures, and docs.

@@ -14,7 +14,7 @@ pub(super) async fn collect_cassandra_diagnostics(
 
     diagnostics.metrics.push(payload_metrics(json!([
         {
-            "name": "cassandra.cql_contract.ready",
+            "name": "cassandra.cql_native.ready",
             "value": 1,
             "unit": "flag",
             "labels": { "contactPoint": contact_point, "keyspace": keyspace }
@@ -30,7 +30,7 @@ pub(super) async fn collect_cassandra_diagnostics(
         "Cassandra tracing readiness and system table diagnostics.",
         json!({
             "templates": ["tracing on", "select * from system_traces.sessions limit 100"],
-            "nativeTracing": false
+            "nativeTracing": true
         }),
     ));
     diagnostics.query_history.push(payload_json(json!({

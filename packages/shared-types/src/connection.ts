@@ -587,6 +587,9 @@ export interface CosmosDbConnectionOptions {
   accountName?: string
   databaseName?: string
   containerPrefix?: string
+  graphName?: string
+  gremlinEndpoint?: string
+  traversalSource?: string
   authMode?: CosmosDbAuthMode
   accountKeySecretRef?: SecretRef
   resourceTokenSecretRef?: SecretRef
@@ -706,6 +709,7 @@ export type GraphConnectionMode =
   | 'neo4j-http'
   | 'neo4j-bolt'
   | 'arango-http'
+  | 'gremlin-websocket'
   | 'gremlin-http'
   | 'neptune-http'
   | 'neptune-iam'

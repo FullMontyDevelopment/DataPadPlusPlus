@@ -3,6 +3,7 @@ import type { ConnectionProfile, CosmosDbConnectionOptions } from '@datapadplusp
 export const COSMOS_MICROSOFT_EMULATOR_ENDPOINT = 'http://localhost:8081'
 export const COSMOS_FIXTURE_EMULATOR_ENDPOINT = 'http://localhost:8082'
 export const COSMOS_FIXTURE_DATABASE = 'datapadplusplus'
+export const COSMOS_FIXTURE_DEFAULT_CONTAINER = 'orders'
 
 export function normalizeCosmosDbEmulatorProfile(profile: ConnectionProfile): ConnectionProfile {
   if (profile.engine !== 'cosmosdb') {

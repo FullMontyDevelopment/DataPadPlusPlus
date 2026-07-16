@@ -339,6 +339,201 @@ fn existing_debug_workspace_is_not_empty_and_should_be_preserved() {
 }
 
 #[test]
+fn migration_repairs_only_the_obsolete_cassandra_fixture_query() {
+    const LEGACY_QUERY: &str = "select * from datapadplusplus.orders limit 25;";
+    const CURRENT_QUERY: &str = "select account_id, order_id, status, total_amount, updated_at from datapadplusplus.orders_by_account where account_id = 1 limit 25;";
+    let mut snapshot = fixture_workspace_seed_for_profile_with_screenshot_seed(
+        Some("widecolumn"),
+        "fixture.sqlite3",
+    )
+    .snapshot;
+    let tab = snapshot
+        .tabs
+        .iter_mut()
+        .find(|tab| tab.connection_id == "fixture-cassandra")
+        .expect("Cassandra fixture tab");
+    tab.query_text = LEGACY_QUERY.into();
+    tab.history[0].query_text = LEGACY_QUERY.into();
+    let saved = snapshot
+        .saved_work
+        .iter_mut()
+        .find(|item| item.connection_id.as_deref() == Some("fixture-cassandra"))
+        .expect("Cassandra saved query");
+    saved.query_text = Some(LEGACY_QUERY.into());
+    let library = snapshot
+        .library_nodes
+        .iter_mut()
+        .find(|node| {
+            node.connection_id.as_deref() == Some("fixture-cassandra") && node.query_text.is_some()
+        })
+        .expect("Cassandra library query");
+    library.query_text = Some(LEGACY_QUERY.into());
+
+    let migrated = migrate_snapshot(snapshot);
+    let tab = migrated
+        .tabs
+        .iter()
+        .find(|tab| tab.connection_id == "fixture-cassandra")
+        .expect("migrated Cassandra fixture tab");
+
+    assert_eq!(tab.query_text, CURRENT_QUERY);
+    assert_eq!(tab.history[0].query_text, CURRENT_QUERY);
+    assert!(migrated.saved_work.iter().any(|item| {
+        item.connection_id.as_deref() == Some("fixture-cassandra")
+            && item.query_text.as_deref() == Some(CURRENT_QUERY)
+    }));
+    assert!(migrated.library_nodes.iter().any(|node| {
+        node.connection_id.as_deref() == Some("fixture-cassandra")
+            && node.query_text.as_deref() == Some(CURRENT_QUERY)
+    }));
+}
+
+#[test]
+fn migration_repairs_only_the_obsolete_dynamodb_fixture_query() {
+    const LEGACY_QUERY: &str = "{\n  \"table\": \"orders\",\n  \"limit\": 25\n}";
+    const CURRENT_QUERY: &str =
+        "{\n  \"operation\": \"Scan\",\n  \"tableName\": \"orders\",\n  \"limit\": 25\n}";
+    let mut snapshot = fixture_workspace_seed_for_profile_with_screenshot_seed(
+        Some("cloud-contract"),
+        "fixture.sqlite3",
+    )
+    .snapshot;
+    let tab = snapshot
+        .tabs
+        .iter_mut()
+        .find(|tab| tab.connection_id == "fixture-dynamodb")
+        .expect("DynamoDB fixture tab");
+    tab.query_text = LEGACY_QUERY.into();
+    tab.history[0].query_text = LEGACY_QUERY.into();
+    let saved = snapshot
+        .saved_work
+        .iter_mut()
+        .find(|item| item.connection_id.as_deref() == Some("fixture-dynamodb"))
+        .expect("DynamoDB saved query");
+    saved.query_text = Some(LEGACY_QUERY.into());
+    let library = snapshot
+        .library_nodes
+        .iter_mut()
+        .find(|node| {
+            node.connection_id.as_deref() == Some("fixture-dynamodb") && node.query_text.is_some()
+        })
+        .expect("DynamoDB library query");
+    library.query_text = Some(LEGACY_QUERY.into());
+
+    let migrated = migrate_snapshot(snapshot);
+    let tab = migrated
+        .tabs
+        .iter()
+        .find(|tab| tab.connection_id == "fixture-dynamodb")
+        .expect("migrated DynamoDB fixture tab");
+
+    assert_eq!(tab.query_text, CURRENT_QUERY);
+    assert_eq!(tab.history[0].query_text, CURRENT_QUERY);
+    assert!(migrated.saved_work.iter().any(|item| {
+        item.connection_id.as_deref() == Some("fixture-dynamodb")
+            && item.query_text.as_deref() == Some(CURRENT_QUERY)
+    }));
+    assert!(migrated.library_nodes.iter().any(|node| {
+        node.connection_id.as_deref() == Some("fixture-dynamodb")
+            && node.query_text.as_deref() == Some(CURRENT_QUERY)
+    }));
+}
+
+#[test]
+fn migration_repairs_only_the_obsolete_prometheus_fixture_query() {
+    const LEGACY_QUERY: &str = "up";
+    const CURRENT_QUERY: &str =
+        r#"{__name__=~"prometheus_tsdb_head_(series|chunks|samples_appended_total)"}[15m]"#;
+    let mut snapshot = fixture_workspace_seed_for_profile_with_screenshot_seed(
+        Some("analytics"),
+        "fixture.sqlite3",
+    )
+    .snapshot;
+    let tab = snapshot
+        .tabs
+        .iter_mut()
+        .find(|tab| tab.connection_id == "fixture-prometheus")
+        .expect("Prometheus fixture tab");
+    tab.query_text = LEGACY_QUERY.into();
+    tab.history[0].query_text = LEGACY_QUERY.into();
+    let saved = snapshot
+        .saved_work
+        .iter_mut()
+        .find(|item| item.connection_id.as_deref() == Some("fixture-prometheus"))
+        .expect("Prometheus saved query");
+    saved.query_text = Some(LEGACY_QUERY.into());
+    let library = snapshot
+        .library_nodes
+        .iter_mut()
+        .find(|node| {
+            node.connection_id.as_deref() == Some("fixture-prometheus") && node.query_text.is_some()
+        })
+        .expect("Prometheus library query");
+    library.query_text = Some(LEGACY_QUERY.into());
+
+    let migrated = migrate_snapshot(snapshot);
+    let tab = migrated
+        .tabs
+        .iter()
+        .find(|tab| tab.connection_id == "fixture-prometheus")
+        .expect("migrated Prometheus fixture tab");
+
+    assert_eq!(tab.query_text, CURRENT_QUERY);
+    assert_eq!(tab.history[0].query_text, CURRENT_QUERY);
+    assert!(migrated.saved_work.iter().any(|item| {
+        item.connection_id.as_deref() == Some("fixture-prometheus")
+            && item.query_text.as_deref() == Some(CURRENT_QUERY)
+    }));
+    assert!(migrated.library_nodes.iter().any(|node| {
+        node.connection_id.as_deref() == Some("fixture-prometheus")
+            && node.query_text.as_deref() == Some(CURRENT_QUERY)
+    }));
+}
+
+#[test]
+fn cosmosdb_fixture_connection_supplies_and_migrates_its_default_container() {
+    let mut snapshot = fixture_workspace_seed_for_profile_with_screenshot_seed(
+        Some("cloud-contract"),
+        "fixture.sqlite3",
+    )
+    .snapshot;
+    let seeded_connection = snapshot
+        .connections
+        .iter()
+        .find(|connection| connection.id == "fixture-cosmosdb")
+        .expect("Cosmos DB fixture connection");
+    assert_eq!(
+        seeded_connection
+            .cosmos_db_options
+            .as_ref()
+            .and_then(|options| options.container_prefix.as_deref()),
+        Some("orders")
+    );
+
+    snapshot
+        .connections
+        .iter_mut()
+        .find(|connection| connection.id == "fixture-cosmosdb")
+        .expect("Cosmos DB fixture connection")
+        .cosmos_db_options = None;
+
+    let migrated = migrate_snapshot(snapshot);
+    let migrated_connection = migrated
+        .connections
+        .iter()
+        .find(|connection| connection.id == "fixture-cosmosdb")
+        .expect("migrated Cosmos DB fixture connection");
+    let options = migrated_connection
+        .cosmos_db_options
+        .as_ref()
+        .expect("Cosmos DB fixture options");
+
+    assert_eq!(options.api.as_deref(), Some("nosql"));
+    assert_eq!(options.database_name.as_deref(), Some("datapadplusplus"));
+    assert_eq!(options.container_prefix.as_deref(), Some("orders"));
+}
+
+#[test]
 fn migrated_workspace_is_unlocked_after_lock_ui_removal() {
     let mut snapshot = blank_workspace_snapshot();
     snapshot.lock_state.is_locked = true;

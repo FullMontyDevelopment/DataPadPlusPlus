@@ -50,8 +50,8 @@ fn janusgraph_read_only_guard_ignores_keywords_inside_strings_and_comments() {
 }
 
 #[test]
-fn janusgraph_query_request_rejects_write_gremlin() {
-    let error = janusgraph_query_request("g.addV('person')", "full").unwrap_err();
+fn janusgraph_query_request_builds_write_gremlin_for_guarded_execution() {
+    let request = janusgraph_query_request("g.addV('person')", "full").unwrap();
 
-    assert_eq!(error.code, "janusgraph-write-preview-only");
+    assert_eq!(request.gremlin, "g.addV('person')");
 }

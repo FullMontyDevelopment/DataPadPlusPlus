@@ -15,6 +15,8 @@ use super::datastores;
 
 mod capabilities;
 mod graph_results;
+mod gremlin_ws;
+mod http_client;
 mod operations;
 mod paging;
 mod payloads;
@@ -25,6 +27,8 @@ mod tree_manifest;
 
 pub(crate) use capabilities::*;
 pub(crate) use graph_results::*;
+pub(crate) use gremlin_ws::*;
+pub(crate) use http_client::*;
 pub(crate) use operations::*;
 pub(crate) use paging::*;
 pub(crate) use payloads::*;

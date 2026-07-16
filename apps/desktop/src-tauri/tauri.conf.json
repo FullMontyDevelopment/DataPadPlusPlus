@@ -4,7 +4,7 @@
   "version": "0.1.41",
   "identifier": "com.datapadplusplus.desktop",
   "build": {
-    "beforeDevCommand": "npm run oracle:sidecar:prepare && npm run dev",
+    "beforeDevCommand": "npm run oracle:sidecar:ensure && npm run dev:ensure",
     "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "npm run oracle:sidecar:prepare && npm run build",
     "frontendDist": "../dist"

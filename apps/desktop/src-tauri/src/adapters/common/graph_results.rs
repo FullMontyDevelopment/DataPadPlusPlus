@@ -47,6 +47,16 @@ pub(crate) struct GraphCollector {
     warnings: Vec<String>,
 }
 
+pub(crate) struct GraphEdgeInput {
+    pub(crate) id: String,
+    pub(crate) from: String,
+    pub(crate) to: String,
+    pub(crate) label: Option<String>,
+    pub(crate) kind: Option<String>,
+    pub(crate) properties: Map<String, Value>,
+    pub(crate) raw: Value,
+}
+
 impl GraphCollector {
     pub(crate) fn new(row_limit: u32) -> Self {
         let bound = graph_item_bound(row_limit);
@@ -96,16 +106,16 @@ impl GraphCollector {
         self.nodes.push(Value::Object(node));
     }
 
-    pub(crate) fn add_edge(
-        &mut self,
-        id: String,
-        from: String,
-        to: String,
-        label: Option<String>,
-        kind: Option<String>,
-        properties: Map<String, Value>,
-        raw: Value,
-    ) {
+    pub(crate) fn add_edge(&mut self, edge: GraphEdgeInput) {
+        let GraphEdgeInput {
+            id,
+            from,
+            to,
+            label,
+            kind,
+            properties,
+            raw,
+        } = edge;
         if from.trim().is_empty() || to.trim().is_empty() {
             self.truncated = true;
             self.add_warning(
@@ -161,7 +171,9 @@ pub(crate) fn collect_neo4j_node(collector: &mut GraphCollector, value: &Value) 
     let Some(object) = value.as_object() else {
         return;
     };
-    let id = graph_string(object.get("id")).unwrap_or_else(|| value.to_string());
+    let id = graph_string(object.get("elementId"))
+        .or_else(|| graph_string(object.get("id")))
+        .unwrap_or_else(|| value.to_string());
     let labels = object
         .get("labels")
         .and_then(Value::as_array)
@@ -182,20 +194,28 @@ pub(crate) fn collect_neo4j_relationship(collector: &mut GraphCollector, value: 
     let Some(object) = value.as_object() else {
         return;
     };
-    let id = graph_string(object.get("id")).unwrap_or_else(|| value.to_string());
-    let from = graph_string(object.get("startNode")).unwrap_or_default();
-    let to = graph_string(object.get("endNode")).unwrap_or_default();
+    let id = graph_string(object.get("elementId"))
+        .or_else(|| graph_string(object.get("id")))
+        .unwrap_or_else(|| value.to_string());
+    let from = graph_string(object.get("startNodeElementId"))
+        .or_else(|| graph_string(object.get("startNode")))
+        .or_else(|| graph_string(object.get("start")))
+        .unwrap_or_default();
+    let to = graph_string(object.get("endNodeElementId"))
+        .or_else(|| graph_string(object.get("endNode")))
+        .or_else(|| graph_string(object.get("end")))
+        .unwrap_or_default();
     let label = graph_string(object.get("type")).or_else(|| graph_string(object.get("label")));
     let properties = properties_from_field(object.get("properties"));
-    collector.add_edge(
+    collector.add_edge(GraphEdgeInput {
         id,
         from,
         to,
-        label.clone(),
-        label,
+        label: label.clone(),
+        kind: label,
         properties,
-        value.clone(),
-    );
+        raw: value.clone(),
+    });
 }
 
 pub(crate) fn collect_arango_item(collector: &mut GraphCollector, value: &Value) {
@@ -210,7 +230,15 @@ pub(crate) fn collect_arango_item(collector: &mut GraphCollector, value: &Value)
         let to = graph_string(object.get("_to")).unwrap_or_default();
         let kind = arango_collection(&id);
         let properties = properties_except(value, &["_id", "_key", "_rev", "_from", "_to"]);
-        collector.add_edge(id, from, to, kind.clone(), kind, properties, value.clone());
+        collector.add_edge(GraphEdgeInput {
+            id,
+            from,
+            to,
+            label: kind.clone(),
+            kind,
+            properties,
+            raw: value.clone(),
+        });
         return;
     }
 
@@ -297,15 +325,15 @@ pub(crate) fn sparql_graph_payload(
                 .cloned()
                 .unwrap_or(Value::Null),
         );
-        collector.add_edge(
-            format!("{subject}->{predicate}->{object_id}:{index}"),
-            subject,
-            object_id,
-            Some(predicate.clone()),
-            Some("rdf-triple".into()),
-            Map::new(),
-            binding.clone(),
-        );
+        collector.add_edge(GraphEdgeInput {
+            id: format!("{subject}->{predicate}->{object_id}:{index}"),
+            from: subject,
+            to: object_id,
+            label: Some(predicate.clone()),
+            kind: Some("rdf-triple".into()),
+            properties: Map::new(),
+            raw: binding.clone(),
+        });
     }
     collector.finish()
 }
@@ -359,15 +387,15 @@ fn collect_gremlin_edge(collector: &mut GraphCollector, value: &Value) -> bool {
     let to = endpoint_string(object, &["inV", "inVertex", "target", "to"]).unwrap_or_default();
     let label = graph_string(object.get("label"));
     let properties = properties_from_field(object.get("properties"));
-    collector.add_edge(
+    collector.add_edge(GraphEdgeInput {
         id,
         from,
         to,
-        label.clone(),
-        label,
+        label: label.clone(),
+        kind: label,
         properties,
-        value.clone(),
-    );
+        raw: value.clone(),
+    });
     true
 }
 

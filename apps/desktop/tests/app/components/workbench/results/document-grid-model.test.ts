@@ -88,6 +88,10 @@ describe('document-grid-model lazy nodes', () => {
       new Set(['document-0']),
     )
 
+    expect(rows[0]).toMatchObject({
+      label: 'ObjectId("60a840ad652b980ac314bb89")',
+      fieldPath: '_id',
+    })
     expect(rows.find((row) => row.fieldPath === 'createdAt')).toMatchObject({
       type: 'date',
       expandable: false,

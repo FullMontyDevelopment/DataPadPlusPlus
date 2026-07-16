@@ -58,7 +58,14 @@ pub(super) async fn execute_prometheus_query(
         });
     }
     let row_count = normalized.rows.len() as u32;
-    let profile = prometheus_profile_payload(&query_request, &result_type, &normalized, row_limit);
+    let execution_duration_ms = duration_ms(started);
+    let profile = prometheus_profile_payload(
+        &query_request,
+        &result_type,
+        &normalized,
+        row_limit,
+        execution_duration_ms,
+    );
     let payloads = vec![
         payload_table(
             vec!["metric".into(), "timestamp".into(), "value".into()],
@@ -85,7 +92,7 @@ pub(super) async fn execute_prometheus_query(
         renderer_modes,
         payloads,
         notices,
-        duration_ms: duration_ms(started),
+        duration_ms: execution_duration_ms,
         row_limit: Some(row_limit),
         truncated: normalized.truncated,
         explain_payload: None,
@@ -150,34 +157,46 @@ fn prometheus_profile_payload(
     result_type: &str,
     normalized: &NormalizedPrometheusResult,
     row_limit: u32,
+    execution_duration_ms: u64,
 ) -> Value {
     payload_profile(
         "Prometheus query profile",
         json!([
             {
-                "stage": "request",
-                "kind": query_request.kind,
-                "endpoint": query_request.path.split('?').next().unwrap_or("/api/v1/query"),
-                "query": query_request.raw_query,
-                "rowLimit": row_limit
+                "name": "request",
+                "durationMs": execution_duration_ms,
+                "details": {
+                    "kind": query_request.kind,
+                    "endpoint": query_request.path.split('?').next().unwrap_or("/api/v1/query"),
+                    "query": query_request.raw_query,
+                    "rowLimit": row_limit
+                }
             },
             {
-                "stage": "result",
-                "resultType": result_type,
-                "series": normalized.series_count,
-                "samples": normalized.total_samples,
-                "displayedSamples": normalized.rows.len(),
-                "truncated": normalized.truncated
+                "name": "result",
+                "rows": normalized.rows.len(),
+                "details": {
+                    "resultType": result_type,
+                    "series": normalized.series_count,
+                    "samples": normalized.total_samples,
+                    "truncated": normalized.truncated
+                }
             },
             {
-                "stage": "risk",
-                "cardinality": if normalized.series_count > row_limit as usize { "high" } else { "bounded" },
-                "recommendation": if normalized.truncated {
-                    "Add label matchers or reduce the range/step before charting."
-                } else {
-                    "Result is within the selected display bound."
+                "name": "cardinality",
+                "details": {
+                    "status": if normalized.series_count > row_limit as usize { "high" } else { "bounded" },
+                    "recommendation": if normalized.truncated {
+                        "Add label matchers or reduce the range/step before charting."
+                    } else {
+                        "Result is within the selected display bound."
+                    }
                 }
             }
         ]),
     )
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/adapters/datastores/prometheus/query_tests.rs"]
+mod tests;

@@ -35,6 +35,7 @@ import {
   FlaskConical,
   Folder,
   FolderTree,
+  Focus,
   Gauge,
   GitBranch,
   GripVertical,
@@ -80,6 +81,8 @@ import {
   WholeWord,
   Workflow,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import type { LucideProps } from 'lucide-react'
 
@@ -186,3 +189,6 @@ export const DragHandleIcon = adapt(GripVertical)
 export const TrashIcon = adapt(Trash2)
 export const ShowIcon = adapt(Eye)
 export const HideIcon = adapt(EyeOff)
+export const FitViewIcon = adapt(Focus)
+export const ZoomInIcon = adapt(ZoomIn)
+export const ZoomOutIcon = adapt(ZoomOut)

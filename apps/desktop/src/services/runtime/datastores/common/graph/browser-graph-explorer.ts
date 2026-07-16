@@ -237,19 +237,19 @@ function graphQueryTemplate(connection: ConnectionProfile, graphName: string) {
       : 'FOR vertex IN @@collection\n  LIMIT 25\n  RETURN vertex'
   }
   if (connection.engine === 'neptune' || connection.engine === 'janusgraph') return 'g.V().limit(25)'
-  return 'MATCH (n) RETURN n LIMIT 25'
+  return 'MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 25'
 }
 
 function graphNodeLabelQueryTemplate(connection: ConnectionProfile, label: string) {
   if (connection.engine === 'arango') return `FOR doc IN ${label}\n  LIMIT 25\n  RETURN doc`
   if (connection.engine === 'neptune' || connection.engine === 'janusgraph') return `g.V().hasLabel('${label}').limit(25)`
-  return `MATCH (n:\`${label}\`) RETURN n LIMIT 25`
+  return `MATCH (n:\`${label}\`) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 25`
 }
 
 function graphRelationshipQueryTemplate(connection: ConnectionProfile, relationship: string) {
   if (connection.engine === 'arango') return `FOR edge IN ${relationship}\n  LIMIT 25\n  RETURN edge`
   if (connection.engine === 'neptune' || connection.engine === 'janusgraph') return `g.E().hasLabel('${relationship}').limit(25)`
-  return `MATCH ()-[r:\`${relationship}\`]->() RETURN r LIMIT 25`
+  return `MATCH (from)-[r:\`${relationship}\`]->(to) RETURN from, r, to LIMIT 25`
 }
 
 function graphBasePayload(connection: ConnectionProfile) {

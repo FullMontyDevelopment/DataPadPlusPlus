@@ -50,14 +50,29 @@ export function validateCosmosDbConnectionOptions(
   if (typeof options !== 'object') {
     throw new Error('Cosmos DB connection options must be an object.')
   }
+  if (
+    options.api === 'gremlin' &&
+    (options.connectMode === 'entra-id' ||
+      options.connectMode === 'managed-identity' ||
+      options.connectMode === 'resource-token')
+  ) {
+    throw new Error('Cosmos DB Gremlin requires an account key, emulator key, or connection string.')
+  }
 
   return {
     connectMode: enumValue(options.connectMode, CONNECT_MODES, 'Cosmos DB connection mode'),
     api: enumValue(options.api, APIS, 'Cosmos DB API'),
     accountEndpoint: text(options.accountEndpoint, 'Cosmos DB account endpoint', MAX_SCOPE_LENGTH),
+    gremlinEndpoint: text(options.gremlinEndpoint, 'Cosmos DB Gremlin endpoint', MAX_SCOPE_LENGTH),
     accountName: text(options.accountName, 'Cosmos DB account name', MAX_OBJECT_NAME_LENGTH),
     databaseName: text(options.databaseName, 'Cosmos DB database name', MAX_OBJECT_NAME_LENGTH),
     containerPrefix: text(options.containerPrefix, 'Cosmos DB container prefix', MAX_OBJECT_NAME_LENGTH),
+    graphName: text(options.graphName, 'Cosmos DB graph name', MAX_OBJECT_NAME_LENGTH),
+    traversalSource: text(
+      options.traversalSource,
+      'Cosmos DB traversal source',
+      MAX_OBJECT_NAME_LENGTH,
+    ),
     authMode: enumValue(options.authMode, AUTH_MODES, 'Cosmos DB auth mode'),
     accountKeySecretRef: options.accountKeySecretRef
       ? validateSecretRef(options.accountKeySecretRef, 'Cosmos DB account key')

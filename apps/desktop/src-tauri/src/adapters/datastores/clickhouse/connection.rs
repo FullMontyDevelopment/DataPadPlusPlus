@@ -1,12 +1,16 @@
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use futures_util::StreamExt;
+use reqwest::header;
+use url::Url;
 
 use super::super::super::*;
+use super::http_client::{
+    clickhouse_http_client, clickhouse_response_too_large, sanitized_clickhouse_error,
+    MAX_CLICKHOUSE_RESPONSE_BYTES,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ClickHouseEndpoint {
+    scheme: String,
     host: String,
     port: u16,
     database: String,
@@ -18,38 +22,74 @@ pub(super) async fn clickhouse_query(
     query: &str,
 ) -> Result<String, CommandError> {
     let endpoint = ClickHouseEndpoint::from_connection(connection)?;
-    let path = endpoint.path(&format!(
+    let url = endpoint.url(&format!(
         "/?database={}",
         encode_query_component(&endpoint.database)
     ));
-    let auth_header = clickhouse_auth_header(connection)?;
-    let body = query.as_bytes();
-    let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: text/plain; charset=utf-8\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
-        endpoint.host,
-        endpoint.port,
-        auth_header,
-        body.len(),
-        query
-    );
-    let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port)).await?;
-    stream.write_all(request.as_bytes()).await?;
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).await?;
-    let raw = String::from_utf8_lossy(&response).to_string();
-    let (_headers, body) = raw.split_once("\r\n\r\n").unwrap_or(("", &raw));
-
-    if raw.starts_with("HTTP/1.1 2") || raw.starts_with("HTTP/1.0 2") {
-        Ok(body.to_string())
-    } else {
-        Err(CommandError::new(
-            "clickhouse-http-error",
-            body.lines().next().unwrap_or("ClickHouse request failed."),
-        ))
+    let client = clickhouse_http_client(connection)?;
+    let (username, password) = clickhouse_credentials(connection)?;
+    let mut request = client
+        .post(url)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(query.to_string());
+    if let Some(username) = username {
+        request = request.header("X-ClickHouse-User", username);
     }
+    if let Some(password) = password {
+        request = request.header("X-ClickHouse-Key", password);
+    }
+
+    let response = request.send().await.map_err(|error| {
+        CommandError::new(
+            "clickhouse-http-error",
+            format!("ClickHouse could not be reached over HTTP: {error}"),
+        )
+    })?;
+    let status = response.status();
+    let exception_code = response
+        .headers()
+        .get("X-ClickHouse-Exception-Code")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_CLICKHOUSE_RESPONSE_BYTES as u64)
+    {
+        return Err(clickhouse_response_too_large());
+    }
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            CommandError::new(
+                "clickhouse-http-error",
+                format!("ClickHouse returned an unreadable HTTP response: {error}"),
+            )
+        })?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_CLICKHOUSE_RESPONSE_BYTES {
+            return Err(clickhouse_response_too_large());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let body = String::from_utf8_lossy(&bytes).to_string();
+
+    if !status.is_success() || exception_code.is_some() {
+        let detail = sanitized_clickhouse_error(&body).unwrap_or("ClickHouse request failed.");
+        let code = exception_code
+            .map(|value| format!(" ClickHouse code: {value}."))
+            .unwrap_or_default();
+        return Err(CommandError::new(
+            "clickhouse-http-error",
+            format!("{detail}{code} HTTP status: {}.", status.as_u16()),
+        ));
+    }
+
+    Ok(body)
 }
 
-fn clickhouse_auth_header(connection: &ResolvedConnectionProfile) -> Result<String, CommandError> {
+fn clickhouse_credentials(
+    connection: &ResolvedConnectionProfile,
+) -> Result<(Option<&str>, Option<&str>), CommandError> {
     let username = connection
         .username
         .as_deref()
@@ -61,13 +101,7 @@ fn clickhouse_auth_header(connection: &ResolvedConnectionProfile) -> Result<Stri
         .map(valid_header_value)
         .transpose()?;
 
-    Ok(match (username, password) {
-        (Some(username), Some(password)) => {
-            format!("X-ClickHouse-User: {username}\r\nX-ClickHouse-Key: {password}\r\n")
-        }
-        (Some(username), None) => format!("X-ClickHouse-User: {username}\r\n"),
-        _ => String::new(),
-    })
+    Ok((username, password))
 }
 
 fn valid_header_value(value: &str) -> Result<&str, CommandError> {
@@ -144,8 +178,29 @@ impl ClickHouseEndpoint {
         validate_host_component(host, "ClickHouse host")?;
 
         Ok(Self {
+            scheme: if connection
+                .warehouse_options
+                .as_ref()
+                .and_then(|options| options.use_tls)
+                .unwrap_or(false)
+            {
+                "https".into()
+            } else {
+                "http".into()
+            },
             host: host.into(),
-            port: connection.port.unwrap_or(8123),
+            port: connection.port.unwrap_or_else(|| {
+                if connection
+                    .warehouse_options
+                    .as_ref()
+                    .and_then(|options| options.use_tls)
+                    .unwrap_or(false)
+                {
+                    8443
+                } else {
+                    8123
+                }
+            }),
             database: database_name(connection.database.as_deref()),
             prefix: String::new(),
         })
@@ -156,34 +211,41 @@ impl ClickHouseEndpoint {
         database_override: Option<&str>,
         prefix_override: Option<&str>,
     ) -> Result<Self, CommandError> {
-        let without_scheme = url.strip_prefix("http://").ok_or_else(|| {
-                CommandError::new(
-                    "clickhouse-unsupported-url",
-                    "ClickHouse adapter expects an http:// endpoint URL; use a local secure proxy for TLS endpoints in this adapter phase.",
-                )
-            })?;
-        let (authority, path) = without_scheme
-            .split_once('/')
-            .unwrap_or((without_scheme, ""));
-        let (host, port) = authority
-            .rsplit_once(':')
-            .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
-            .unwrap_or((authority, 8123));
-        if host.trim().is_empty() {
+        validate_http_component(url, "ClickHouse endpoint URL")?;
+        let parsed = Url::parse(url).map_err(|_| {
+            CommandError::new(
+                "clickhouse-endpoint-invalid",
+                "ClickHouse endpoint URL is not valid.",
+            )
+        })?;
+        if !matches!(parsed.scheme(), "http" | "https") {
             return Err(CommandError::new(
-                "clickhouse-endpoint-missing",
-                "ClickHouse connection string did not include a host.",
+                "clickhouse-unsupported-url",
+                "ClickHouse endpoint URL must use http:// or https://.",
             ));
         }
+        if parsed.query().is_some() || parsed.fragment().is_some() {
+            return Err(CommandError::new(
+                "clickhouse-endpoint-invalid",
+                "ClickHouse endpoint URL cannot include a query or fragment.",
+            ));
+        }
+        let host = parsed.host_str().ok_or_else(|| {
+            CommandError::new(
+                "clickhouse-endpoint-missing",
+                "ClickHouse connection string did not include a host.",
+            )
+        })?;
         validate_host_component(host, "ClickHouse host")?;
         let prefix = match normalized_prefix(prefix_override)? {
             Some(prefix) => prefix,
-            None => normalized_prefix(Some(path))?.unwrap_or_default(),
+            None => normalized_prefix(Some(parsed.path()))?.unwrap_or_default(),
         };
 
         Ok(Self {
+            scheme: parsed.scheme().into(),
             host: host.into(),
-            port,
+            port: parsed.port_or_known_default().unwrap_or(8123),
             database: database_name(database_override),
             prefix,
         })
@@ -198,6 +260,21 @@ impl ClickHouseEndpoint {
             } else {
                 format!("/{path}")
             }
+        )
+    }
+
+    fn url(&self, path: &str) -> String {
+        let host = if self.host.contains(':') && !self.host.starts_with('[') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        format!(
+            "{}://{}:{}{}",
+            self.scheme,
+            host,
+            self.port,
+            self.path(path)
         )
     }
 }

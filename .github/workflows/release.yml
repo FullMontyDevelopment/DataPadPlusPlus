@@ -189,16 +189,19 @@ jobs:
             platform: ubuntu-22.04
             args: '--bundles deb,rpm,appimage'
             rust-targets: ''
+            oracle-rid: linux-x64
             artifact-suffix: linux-x64
           - label: Windows x64
             platform: windows-2022
             args: '--bundles nsis,msi'
             rust-targets: ''
+            oracle-rid: win-x64
             artifact-suffix: windows-x64
           - label: macOS Apple Silicon
-            platform: macos-latest
+            platform: macos-15
             args: '--target aarch64-apple-darwin --bundles app,dmg'
             rust-targets: aarch64-apple-darwin
+            oracle-rid: osx-arm64
             artifact-suffix: macos-arm64
 
     runs-on: ${{ matrix.platform }}
@@ -244,6 +247,13 @@ jobs:
 
       - name: Install workspace dependencies
         run: npm ci
+
+      - name: Prepare and smoke-test bundled Oracle runtime
+        env:
+          DATAPADPLUSPLUS_ORACLE_RID: ${{ matrix.oracle-rid }}
+        run: |
+          npm run oracle:sidecar:prepare
+          npm run oracle:sidecar:smoke
 
       - name: Configure Windows bundled C++ build flags
         if: runner.os == 'Windows'
@@ -400,6 +410,7 @@ jobs:
           DATAPADPLUSPLUS_UPDATER_PUBKEY: ${{ vars.DATAPADPLUSPLUS_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          DATAPADPLUSPLUS_ORACLE_RID: ${{ matrix.oracle-rid }}
         with:
           projectPath: apps/desktop
           tagName: app-v${{ inputs.version }}
@@ -429,6 +440,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DATAPADPLUSPLUS_ORACLE_RID: ${{ matrix.oracle-rid }}
         with:
           projectPath: apps/desktop
           tagName: app-v${{ inputs.version }}
@@ -442,6 +454,64 @@ jobs:
           prerelease: ${{ contains(inputs.version, '-') }}
           releaseCommitish: ${{ needs.validate.outputs.release-sha }}
           args: ${{ matrix.args }}
+
+      - name: Verify bundled Oracle runtime
+        shell: pwsh
+        env:
+          RUST_TARGET: ${{ matrix.rust-targets }}
+          ORACLE_RID: ${{ matrix.oracle-rid }}
+          MACOS_SIGNED: ${{ steps.mac_signing.outputs.enabled }}
+        run: |
+          $expectedName = if ($env:ORACLE_RID -eq "win-x64") {
+            "datapadplusplus-oracle-runtime-x86_64-pc-windows-msvc.exe"
+          } elseif ($env:ORACLE_RID -eq "linux-x64") {
+            "datapadplusplus-oracle-runtime-x86_64-unknown-linux-gnu"
+          } elseif ($env:ORACLE_RID -eq "osx-arm64") {
+            "datapadplusplus-oracle-runtime-aarch64-apple-darwin"
+          } else {
+            throw "Unsupported Oracle runtime ID $env:ORACLE_RID"
+          }
+
+          $binaries = @(Get-ChildItem -LiteralPath "apps/desktop/src-tauri/binaries" -File |
+            Where-Object { $_.Name -like "datapadplusplus-oracle-runtime*" })
+          if ($binaries.Count -ne 1 -or $binaries[0].Name -ne $expectedName) {
+            throw "Release workspace must contain only the matching Oracle runtime $expectedName."
+          }
+          if (-not $IsWindows) {
+            & test -x $binaries[0].FullName
+            if ($LASTEXITCODE -ne 0) {
+              throw "Bundled Oracle runtime is not executable: $($binaries[0].FullName)"
+            }
+          }
+
+          $oracleLicense = "apps/desktop/src-tauri/resources/licenses/Oracle.ManagedDataAccess.Core-LICENSE.txt"
+          if (-not (Test-Path -LiteralPath $oracleLicense)) {
+            throw "Bundled Oracle runtime license is missing."
+          }
+
+          if ($IsMacOS) {
+            $targetRoot = Join-Path "apps/desktop/src-tauri/target" $env:RUST_TARGET
+            $app = Get-ChildItem -LiteralPath (Join-Path $targetRoot "release/bundle/macos") -Filter "*.app" -Directory |
+              Select-Object -First 1
+            if (-not $app) {
+              throw "Expected macOS app bundle was not found."
+            }
+            $appSidecar = Join-Path $app.FullName "Contents/MacOS/datapadplusplus-oracle-runtime"
+            & test -x $appSidecar
+            if ($LASTEXITCODE -ne 0) {
+              throw "Oracle runtime is missing or not executable inside $($app.FullName)."
+            }
+            if ($env:MACOS_SIGNED -eq "true") {
+              & codesign --verify --strict --verbose=2 $appSidecar
+              if ($LASTEXITCODE -ne 0) {
+                throw "Oracle runtime failed macOS code-signature verification."
+              }
+              & codesign --verify --deep --strict --verbose=2 $app.FullName
+              if ($LASTEXITCODE -ne 0) {
+                throw "DataPad++ app bundle failed macOS code-signature verification."
+              }
+            }
+          }
 
       - name: Upload Tauri bundle artifacts to draft release
         shell: pwsh
@@ -576,7 +646,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
           Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $portableDir $binaryName)
           $sidecarPortableName = if ($IsWindows) { "datapadplusplus-oracle-runtime.exe" } else { "datapadplusplus-oracle-runtime" }
-          Copy-Item -LiteralPath $sidecarSource -Destination (Join-Path $portableDir $sidecarPortableName)
+          $sidecarPortable = Join-Path $portableDir $sidecarPortableName
+          Copy-Item -LiteralPath $sidecarSource -Destination $sidecarPortable
+          if (-not $IsWindows) {
+            & chmod 755 $sidecarPortable
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not preserve executable permissions on the portable Oracle runtime."
+            }
+          }
           $oracleLicense = "apps/desktop/src-tauri/resources/licenses/Oracle.ManagedDataAccess.Core-LICENSE.txt"
           if (-not (Test-Path -LiteralPath $oracleLicense)) {
             throw "Expected Oracle.ManagedDataAccess.Core license was not found at $oracleLicense"

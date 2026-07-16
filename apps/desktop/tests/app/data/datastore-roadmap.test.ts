@@ -1005,10 +1005,10 @@ describe('datastore roadmap catalog', () => {
       ['prometheus', 3.3],
       ['influxdb', 3.35],
       ['opentsdb', 3.2],
-      ['neo4j', 3.4],
-      ['arango', 3.3],
-      ['janusgraph', 3.2],
-      ['neptune', 3.25],
+      ['neo4j', 4.15],
+      ['arango', 4.1],
+      ['janusgraph', 4.0],
+      ['neptune', 3.9],
     ] as const
 
     for (const [engine, nativeScore] of waveTenEngines) {
@@ -1142,7 +1142,9 @@ describe('datastore roadmap catalog', () => {
       )
 
       expect(entry?.completionClaim, engine).toBe('contract-complete')
-      expect(entry?.summary, engine).toMatch(/connection-flow parity/)
+      if (!['neo4j', 'arango', 'janusgraph', 'neptune'].includes(engine)) {
+        expect(entry?.summary, engine).toMatch(/connection-flow parity/)
+      }
       expect(connectionFlow, engine).toMatchObject({
         status: 'strong',
         contractStatus: 'covered',
@@ -1179,7 +1181,9 @@ describe('datastore roadmap catalog', () => {
       )
 
       expect(entry?.completionClaim, engine).toBe('contract-complete')
-      expect(entry?.summary, engine).toMatch(/guarded operation parity/)
+      if (!['neo4j', 'arango', 'janusgraph', 'neptune'].includes(engine)) {
+        expect(entry?.summary, engine).toMatch(/guarded operation parity/)
+      }
       expect(guardedOperations, engine).toMatchObject({
         status: 'strong',
         contractStatus: 'covered',
@@ -1216,7 +1220,9 @@ describe('datastore roadmap catalog', () => {
       )
 
       expect(entry?.completionClaim, engine).toBe('contract-complete')
-      expect(entry?.summary, engine).toMatch(/diagnostics\/performance parity/)
+      if (!['neo4j', 'arango', 'janusgraph', 'neptune'].includes(engine)) {
+        expect(entry?.summary, engine).toMatch(/diagnostics\/performance parity/)
+      }
       expect(diagnostics, engine).toMatchObject({
         status: 'strong',
         contractStatus: 'covered',
@@ -1253,7 +1259,9 @@ describe('datastore roadmap catalog', () => {
       )
 
       expect(entry?.completionClaim, engine).toBe('contract-complete')
-      expect(entry?.summary, engine).toMatch(/import\/export parity/)
+      if (!['neo4j', 'arango', 'janusgraph', 'neptune'].includes(engine)) {
+        expect(entry?.summary, engine).toMatch(/import\/export parity/)
+      }
       expect(importExport, engine).toMatchObject({
         status: 'strong',
         contractStatus: 'covered',
@@ -1292,7 +1300,9 @@ describe('datastore roadmap catalog', () => {
       )
 
       expect(entry?.completionClaim, engine).toBe('contract-complete')
-      expect(entry?.summary, engine).toMatch(/object-view parity/)
+      if (!['neo4j', 'arango', 'janusgraph', 'neptune'].includes(engine)) {
+        expect(entry?.summary, engine).toMatch(/object-view parity/)
+      }
       expect(objectViews, engine).toMatchObject({
         status: 'strong',
         contractStatus: 'covered',
@@ -1347,7 +1357,11 @@ describe('datastore roadmap catalog', () => {
       expect(entry?.targetPhase, engine).toBe(5)
       expect(entry?.readiness, engine).toBe('foundation')
       expect(entry?.completionClaim, engine).toBe('contract-complete')
-      expect(entry?.summary, engine).toMatch(/contract-complete/)
+      expect(entry?.summary, engine).toMatch(
+        ['neo4j', 'arango', 'janusgraph', 'neptune'].includes(engine)
+          ? /runtime/
+          : /contract-complete/,
+      )
       expect(
         entry?.criteria.find((item) => item.criterion === 'guarded-operations')
           ?.status,

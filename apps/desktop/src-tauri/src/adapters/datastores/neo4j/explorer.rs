@@ -91,7 +91,12 @@ pub(super) async fn inspect_neo4j_explorer_node(
         .node_id
         .strip_prefix("neo4j-label:")
         .or_else(|| request.node_id.strip_prefix("node-label:"))
-        .map(|label| format!("MATCH (n:{}) RETURN n LIMIT 100", quote_cypher_identifier(label)))
+        .map(|label| {
+            format!(
+                "MATCH (n:{}) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 100",
+                quote_cypher_identifier(label)
+            )
+        })
         .or_else(|| {
             request
                 .node_id
@@ -106,7 +111,7 @@ pub(super) async fn inspect_neo4j_explorer_node(
         })
         .unwrap_or_else(|| match request.node_id.as_str() {
             "graph:graphs" => format!(
-                "USE {} MATCH (n) RETURN n LIMIT 100",
+                "USE {} MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 100",
                 quote_cypher_identifier(connection.database.as_deref().unwrap_or("neo4j"))
             ),
             "neo4j-labels" | "graph:node-labels" => "CALL db.labels() YIELD label RETURN label ORDER BY label".into(),
@@ -119,7 +124,7 @@ pub(super) async fn inspect_neo4j_explorer_node(
             "neo4j-procedures" | "graph:procedures" => "SHOW PROCEDURES YIELD name, mode, signature, description RETURN name, mode, signature, description ORDER BY name".into(),
             "graph:security" => "SHOW USERS YIELD user RETURN user ORDER BY user".into(),
             "neo4j-diagnostics" | "graph:diagnostics" => "CALL dbms.components() YIELD name, versions, edition RETURN name, versions, edition".into(),
-            _ => "MATCH (n) RETURN n LIMIT 100".into(),
+            _ => "MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 100".into(),
         });
     let object_view = neo4j_object_view_kind(&request.node_id);
     let mut payload = neo4j_base_payload(connection, &request.node_id, object_view);
@@ -234,7 +239,7 @@ fn graph_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
         scope: Some(format!("graph:{graph}")),
         path: Some(vec![connection.name.clone(), "Databases".into()]),
         query_template: Some(format!(
-            "USE {} MATCH (n) RETURN n LIMIT 100",
+            "USE {} MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 100",
             quote_cypher_identifier(graph)
         )),
         expandable: Some(false),
@@ -300,7 +305,7 @@ async fn query_value_nodes(
                 path: Some(vec![connection.name.clone(), kind.into()]),
                 query_template: Some(match kind {
                     "label" => format!(
-                        "MATCH (n:{}) RETURN n LIMIT 100",
+                        "MATCH (n:{}) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 100",
                         quote_cypher_identifier(&label)
                     ),
                     "relationship" => format!(

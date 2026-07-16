@@ -1,6 +1,29 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
+import type { Plugin } from 'vite'
+
+function desktopDevServerIdentity(): Plugin {
+  return {
+    name: 'datapadplusplus-dev-server-identity',
+    configureServer(server) {
+      server.middlewares.use(
+        '/__datapad_dev_server',
+        (request, response, next) => {
+          if (request.method !== 'GET') {
+            next()
+            return
+          }
+
+          response.statusCode = 200
+          response.setHeader('Content-Type', 'application/json')
+          response.setHeader('Cache-Control', 'no-store')
+          response.end(JSON.stringify({ app: 'datapadplusplus-desktop', pid: process.pid }))
+        },
+      )
+    },
+  }
+}
 
 function desktopManualChunks(id: string) {
   const normalizedId = id.replace(/\\/g, '/')
@@ -210,7 +233,7 @@ function isWorkbenchCommonPath(normalizedId: string, family: string) {
 }
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [desktopDevServerIdentity(), react()],
   clearScreen: false,
   resolve: {
     alias: {

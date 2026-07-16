@@ -42,11 +42,10 @@ Use the screenshot seed when capturing website images or demos that should look 
 
 ```powershell
 npm run fixtures:up:all
-npm run fixtures:seed:all
 npm run fixtures:screenshot-seed
 ```
 
-The launcher sets `DATAPADPLUSPLUS_FIXTURE_RUN=1`, `DATAPADPLUSPLUS_FIXTURE_PROFILE=all`, `DATAPADPLUSPLUS_SCREENSHOT_SEED=1`, and defaults `DATAPADPLUSPLUS_SECRET_STORE=file` if it is not already set. The seeded workspace uses polished connection names, grouped datastore families, Local Demo/Staging/Production Preview environments, curated Library folders and queries, and enabled-but-stopped Workspace Search, API Server, MCP Server, and Datastore Security Checks plugins.
+The screenshot launcher seeds and verifies the selected running fixtures before opening DataPad++. It sets `DATAPADPLUSPLUS_FIXTURE_RUN=1`, `DATAPADPLUSPLUS_FIXTURE_PROFILE=all`, `DATAPADPLUSPLUS_SCREENSHOT_SEED=1`, and defaults `DATAPADPLUSPLUS_SECRET_STORE=file` if it is not already set. The seeded workspace uses polished connection names, grouped datastore families, Local Demo/Staging/Production Preview environments, curated Library folders and queries, and enabled-but-stopped Workspace Search, API Server, MCP Server, and Datastore Security Checks plugins. Set `DATAPADPLUSPLUS_SCREENSHOT_SEED_FIXTURES=0` only when the running containers are already seeded and you need a faster relaunch.
 
 The launcher uses an isolated workspace directory at `tests/fixtures/.screenshot-workspace` so your normal DataPad++ workspace is not overwritten. It resets that screenshot workspace on each launch by default; set `DATAPADPLUSPLUS_SCREENSHOT_RESET_WORKSPACE=0` if you want to preserve edits between screenshot sessions.
 
@@ -106,7 +105,7 @@ npm run fixtures:seed:all
 npm run fixtures:validate:oracle
 ```
 
-The validator checks Oracle seeded relational volume, dictionary/security/storage metadata, DBMS_XPLAN output, SQL Monitor visibility or permission-boundary evidence, PL/SQL package source and compile diagnostics, row identity and DML `RETURNING` primitives, SQLPlus bounded CSV-style export/import evidence, restricted dictionary denial evidence, and Data Pump/RMAN preview boundary wording through transient `fixture_oracle_*` objects. Desktop Oracle SQLPlus query and primary-key/ROWID row-edit execution are now configurable per connection; Data Pump and RMAN execution remain outside the scoped claim until guarded executors are added.
+The validator checks Oracle seeded relational volume, dictionary/security/storage metadata, DBMS_XPLAN output, SQL Monitor visibility or permission-boundary evidence, PL/SQL package source and compile diagnostics, row identity and DML `RETURNING` primitives, SQLPlus bounded CSV-style export/import evidence, restricted dictionary denial evidence, and Data Pump/RMAN preview boundary wording through transient `fixture_oracle_*` objects. Desktop Oracle uses the bundled managed runtime by default, with SQLPlus available as an explicit legacy fallback. Data Pump and RMAN execution remain outside the scoped claim until guarded executors are added.
 
 For Cosmos DB emulator optional evidence, start the `cosmosdb` profile, then run the Cosmos DB validator:
 

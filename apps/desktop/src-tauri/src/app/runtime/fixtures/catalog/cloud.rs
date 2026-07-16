@@ -21,7 +21,7 @@ pub(super) fn fixture_connection_seeds() -> Vec<FixtureConnectionSeed> {
             color: "#5487e8",
             icon: "dynamodb",
             query_title: "Fixture DynamoDB.json",
-            query_text: "{\n  \"table\": \"orders\",\n  \"limit\": 25\n}",
+            query_text: super::super::super::workspace_fixture_migrations::DYNAMODB_FIXTURE_QUERY,
             tags: &["fixtures", "cloud-contract", "widecolumn"],
         },
         FixtureConnectionSeed {

@@ -2,10 +2,10 @@ use serde_json::json;
 
 use super::{
     bounded_cassandra_response, cassandra_request_payload, cassandra_statement_for_execution,
-    cql_needs_partition_key_warning, is_read_only_cql, normalize_cassandra_response_bounded,
-    preview_cassandra_response,
+    cql_needs_partition_key_warning, execute_cassandra_query, is_read_only_cql,
+    normalize_cassandra_response_bounded, CassandraAdapter,
 };
-use crate::domain::models::ResolvedConnectionProfile;
+use crate::domain::models::{ExecutionRequest, ResolvedConnectionProfile};
 
 fn connection() -> ResolvedConnectionProfile {
     ResolvedConnectionProfile {
@@ -44,16 +44,17 @@ fn cassandra_request_payload_sets_keyspace_and_page_size() {
     assert_eq!(payload["keyspace"], "commerce");
     assert_eq!(payload["pageSize"], 50);
     assert_eq!(payload["tracing"], true);
+    assert_eq!(payload["consistency"], "LOCAL_QUORUM");
     assert_eq!(payload["guardrails"]["mutationPreviewOnly"], true);
 }
 
 #[test]
-fn cassandra_preview_response_normalizes_rows() {
-    let response = preview_cassandra_response(&connection(), "select * from orders", 25);
+fn cassandra_empty_response_does_not_invent_preview_rows() {
+    let response = json!({ "columns": ["account_id"], "rows": [] });
     let result = normalize_cassandra_response_bounded(&response, 25);
 
-    assert_eq!(result.columns, vec!["keyspace", "status", "row_limit"]);
-    assert_eq!(result.rows[0][1], "cql-request-built");
+    assert_eq!(result.columns, vec!["account_id"]);
+    assert!(result.rows.is_empty());
 }
 
 #[test]
@@ -119,4 +120,68 @@ fn cassandra_bounded_response_preserves_paging_state() {
     assert_eq!(bounded["rows"].as_array().unwrap().len(), 2);
     assert_eq!(bounded["datapad"]["truncated"], true);
     assert_eq!(bounded["datapad"]["pagingState"], "abc");
+}
+
+#[tokio::test]
+async fn cassandra_live_fixture_returns_real_rows() {
+    if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").unwrap_or_default() != "1" {
+        return;
+    }
+    let port = std::env::var("DATAPADPLUSPLUS_CASSANDRA_PORT")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(9043);
+    let mut connection = connection();
+    connection.id = "fixture-cassandra".into();
+    connection.name = "Fixture Cassandra".into();
+    connection.host = "127.0.0.1".into();
+    connection.port = Some(port);
+    connection.database = Some("datapadplusplus".into());
+
+    let result = execute_cassandra_query(
+        &CassandraAdapter,
+        &connection,
+        &ExecutionRequest {
+            execution_id: None,
+            tab_id: "tab-fixture-cassandra".into(),
+            connection_id: connection.id.clone(),
+            environment_id: "env-local-demo".into(),
+            language: "cql".into(),
+            query_text: "select account_id, order_id, status, total_amount, updated_at from datapadplusplus.orders_by_account where account_id = 1 limit 25;".into(),
+            execution_input_mode: None,
+            script_text: None,
+            selected_text: None,
+            mode: Some("full".into()),
+            row_limit: Some(25),
+            document_efficiency_mode: None,
+            confirmed_guardrail_id: None,
+        },
+        Vec::new(),
+    )
+    .await
+    .expect("fixture Cassandra query");
+
+    let table = result
+        .payloads
+        .iter()
+        .find(|payload| payload["renderer"] == "table")
+        .expect("table payload");
+    assert_eq!(
+        table["columns"],
+        json!([
+            "account_id",
+            "order_id",
+            "status",
+            "total_amount",
+            "updated_at"
+        ])
+    );
+    assert!(table["rows"]
+        .as_array()
+        .is_some_and(|rows| !rows.is_empty()));
+    assert!(table["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .all(|row| !row.to_string().contains("cql-request-built")));
 }

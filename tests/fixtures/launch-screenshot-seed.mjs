@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,11 +11,10 @@ const resetWorkspace =
   !['0', 'false', 'no'].includes(
     String(process.env.DATAPADPLUSPLUS_SCREENSHOT_RESET_WORKSPACE ?? '1').toLowerCase(),
   )
-
-if (resetWorkspace) {
-  rmSync(workspaceDir, { recursive: true, force: true })
-}
-mkdirSync(workspaceDir, { recursive: true })
+const seedFixtures =
+  !['0', 'false', 'no'].includes(
+    String(process.env.DATAPADPLUSPLUS_SCREENSHOT_SEED_FIXTURES ?? '1').toLowerCase(),
+  )
 
 const env = Object.fromEntries(Object.entries({
   ...process.env,
@@ -29,6 +28,31 @@ const env = Object.fromEntries(Object.entries({
   DATAPADPLUSPLUS_SECRET_FILE:
     process.env.DATAPADPLUSPLUS_SECRET_FILE ?? join(workspaceDir, 'secrets.json'),
 }).filter(([, value]) => value !== undefined))
+
+if (seedFixtures) {
+  console.log(`Seeding running fixture profile(s): ${env.DATAPADPLUSPLUS_FIXTURE_PROFILE}`)
+  const seedResult = spawnSync(
+    process.execPath,
+    [join(fixtureDir, 'seed.mjs'), env.DATAPADPLUSPLUS_FIXTURE_PROFILE],
+    {
+      env,
+      stdio: 'inherit',
+      shell: false,
+    },
+  )
+
+  if (seedResult.error) {
+    throw seedResult.error
+  }
+  if (seedResult.status !== 0) {
+    throw new Error(`Fixture seeding failed with exit code ${seedResult.status}.`)
+  }
+}
+
+if (resetWorkspace) {
+  rmSync(workspaceDir, { recursive: true, force: true })
+}
+mkdirSync(workspaceDir, { recursive: true })
 
 console.log(`Launching DataPad++ with screenshot workspace: ${workspaceDir}`)
 if (resetWorkspace) {

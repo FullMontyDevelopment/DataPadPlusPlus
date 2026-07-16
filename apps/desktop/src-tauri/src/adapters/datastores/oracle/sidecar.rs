@@ -13,17 +13,58 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, Command},
     sync::{oneshot, Mutex},
-    time::{timeout, Duration},
+    time::{timeout, Duration, Instant},
 };
 
 use super::super::super::*;
 
 const ORACLE_SIDECAR_PROTOCOL_VERSION: u32 = 1;
 const ORACLE_SIDECAR_NAME: &str = "datapadplusplus-oracle-runtime";
+const ORACLE_SIDECAR_HEALTH_TIMEOUT_MS: u64 = 3_000;
+const ORACLE_SIDECAR_BACKGROUND_COOLDOWN_MS: u64 = 60_000;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 static ORACLE_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
-static ORACLE_SIDECAR: OnceLock<Mutex<Option<Arc<OracleSidecarClient>>>> = OnceLock::new();
+static ORACLE_SIDECAR: OnceLock<Mutex<OracleSidecarState>> = OnceLock::new();
 
 type PendingResponse = oneshot::Sender<Result<Value, CommandError>>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OracleSidecarRequestOrigin {
+    Interactive,
+    Background,
+}
+
+#[derive(Default)]
+struct OracleSidecarState {
+    client: Option<Arc<OracleSidecarClient>>,
+    retry_after: Option<Instant>,
+    last_start_error: Option<CommandError>,
+}
+
+impl OracleSidecarState {
+    fn background_error(&self, now: Instant) -> Option<CommandError> {
+        if self
+            .retry_after
+            .is_some_and(|retry_after| retry_after > now)
+        {
+            return self.last_start_error.clone();
+        }
+        None
+    }
+
+    fn record_start_failure(&mut self, error: CommandError, now: Instant) {
+        self.client = None;
+        self.retry_after = Some(now + Duration::from_millis(ORACLE_SIDECAR_BACKGROUND_COOLDOWN_MS));
+        self.last_start_error = Some(error);
+    }
+
+    fn record_started(&mut self, client: Arc<OracleSidecarClient>) {
+        self.client = Some(client);
+        self.retry_after = None;
+        self.last_start_error = None;
+    }
+}
 
 struct OracleSidecarClient {
     stdin: Mutex<ChildStdin>,
@@ -31,23 +72,25 @@ struct OracleSidecarClient {
     pending: Arc<StdMutex<HashMap<String, PendingResponse>>>,
 }
 
+pub(super) fn configure_oracle_child_process(command: &mut Command) {
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
 impl OracleSidecarClient {
     async fn spawn() -> Result<Arc<Self>, CommandError> {
         let path = oracle_sidecar_path()?;
         let mut command = Command::new(&path);
+        configure_oracle_child_process(&mut command);
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let mut child = command.spawn().map_err(|error| {
-            CommandError::new(
-                "oracle-sidecar-unavailable",
-                format!(
-                    "The bundled Oracle runtime could not be started. Reinstall DataPad++ or rebuild the Oracle sidecar. Details: {error}"
-                ),
-            )
-        })?;
+        let mut child = command.spawn().map_err(oracle_sidecar_spawn_error)?;
         let stdin = child.stdin.take().ok_or_else(|| {
             CommandError::new(
                 "oracle-sidecar-stdin-unavailable",
@@ -103,6 +146,37 @@ impl OracleSidecarClient {
                     // contain connect descriptors. Structured, sanitized errors use stdout.
                 }
             });
+        }
+
+        let health = client
+            .request(
+                json!({
+                    "protocolVersion": ORACLE_SIDECAR_PROTOCOL_VERSION,
+                    "requestId": oracle_request_id("health"),
+                    "operation": "health",
+                    "timeoutMs": ORACLE_SIDECAR_HEALTH_TIMEOUT_MS,
+                    "readOnly": true
+                }),
+                ORACLE_SIDECAR_HEALTH_TIMEOUT_MS,
+            )
+            .await
+            .and_then(oracle_sidecar_result)
+            .map_err(oracle_sidecar_startup_error);
+        let _health = match health {
+            Ok(health) => health,
+            Err(error) => {
+                client.stop().await;
+                return Err(error);
+            }
+        };
+
+        #[cfg(windows)]
+        if _health.get("consoleAttached").and_then(Value::as_bool) != Some(false) {
+            client.stop().await;
+            return Err(CommandError::new(
+                "oracle-sidecar-startup-failed",
+                "The bundled Oracle runtime started with a visible Windows console and was stopped. Reinstall DataPad++ or report this packaging issue.",
+            ));
         }
 
         Ok(client)
@@ -212,6 +286,7 @@ pub(super) async fn test_oracle_managed_connection(
             "readOnly": true
         }),
         oracle_request_timeout_ms(connection),
+        OracleSidecarRequestOrigin::Interactive,
     )
     .await
 }
@@ -248,6 +323,7 @@ pub(super) async fn execute_oracle_managed(
             "captureDbmsOutput": true
         }),
         timeout_ms,
+        OracleSidecarRequestOrigin::Interactive,
     )
     .await
 }
@@ -273,13 +349,14 @@ pub(super) async fn execute_oracle_managed_read(
             "captureDbmsOutput": false
         }),
         timeout_ms,
+        OracleSidecarRequestOrigin::Background,
     )
     .await
 }
 
 pub(super) async fn cancel_oracle_managed(execution_id: &str) -> Result<bool, CommandError> {
-    let state = ORACLE_SIDECAR.get_or_init(|| Mutex::new(None));
-    let client = state.lock().await.clone();
+    let state = ORACLE_SIDECAR.get_or_init(|| Mutex::new(OracleSidecarState::default()));
+    let client = state.lock().await.client.clone();
     let Some(client) = client else {
         return Ok(false);
     };
@@ -345,13 +422,22 @@ fn oracle_connection_payload(
     }))
 }
 
-async fn oracle_sidecar_request(payload: Value, timeout_ms: u64) -> Result<Value, CommandError> {
+async fn oracle_sidecar_request(
+    payload: Value,
+    timeout_ms: u64,
+    origin: OracleSidecarRequestOrigin,
+) -> Result<Value, CommandError> {
     for attempt in 0..2 {
-        let client = oracle_sidecar_client().await?;
+        let client = oracle_sidecar_client(origin).await?;
         match client.request(payload.clone(), timeout_ms).await {
             Ok(response) => return oracle_sidecar_result(response),
             Err(error) if attempt == 0 && oracle_transport_error(&error.code) => {
                 invalidate_oracle_sidecar(&client).await;
+            }
+            Err(error) if oracle_transport_error(&error.code) => {
+                invalidate_oracle_sidecar(&client).await;
+                record_oracle_sidecar_failure(error.clone()).await;
+                return Err(error);
             }
             Err(error) => return Err(error),
         }
@@ -362,28 +448,98 @@ async fn oracle_sidecar_request(payload: Value, timeout_ms: u64) -> Result<Value
     ))
 }
 
-async fn oracle_sidecar_client() -> Result<Arc<OracleSidecarClient>, CommandError> {
-    let state = ORACLE_SIDECAR.get_or_init(|| Mutex::new(None));
+async fn oracle_sidecar_client(
+    origin: OracleSidecarRequestOrigin,
+) -> Result<Arc<OracleSidecarClient>, CommandError> {
+    let state = ORACLE_SIDECAR.get_or_init(|| Mutex::new(OracleSidecarState::default()));
     let mut current = state.lock().await;
-    if let Some(client) = current.as_ref() {
+    if let Some(client) = current.client.as_ref() {
         return Ok(client.clone());
     }
-    let client = OracleSidecarClient::spawn().await?;
-    *current = Some(client.clone());
-    Ok(client)
+    if origin == OracleSidecarRequestOrigin::Background {
+        if let Some(error) = current.background_error(Instant::now()) {
+            return Err(error);
+        }
+    }
+    match OracleSidecarClient::spawn().await {
+        Ok(client) => {
+            current.record_started(client.clone());
+            Ok(client)
+        }
+        Err(error) => {
+            let error = oracle_sidecar_cooldown_error(error);
+            current.record_start_failure(error.clone(), Instant::now());
+            Err(error)
+        }
+    }
 }
 
 async fn invalidate_oracle_sidecar(client: &Arc<OracleSidecarClient>) {
-    let state = ORACLE_SIDECAR.get_or_init(|| Mutex::new(None));
+    let state = ORACLE_SIDECAR.get_or_init(|| Mutex::new(OracleSidecarState::default()));
     let mut current = state.lock().await;
     if current
+        .client
         .as_ref()
         .map(|value| Arc::ptr_eq(value, client))
         .unwrap_or(false)
     {
-        *current = None;
+        current.client = None;
         client.stop().await;
     }
+}
+
+async fn record_oracle_sidecar_failure(error: CommandError) {
+    let state = ORACLE_SIDECAR.get_or_init(|| Mutex::new(OracleSidecarState::default()));
+    state
+        .lock()
+        .await
+        .record_start_failure(oracle_sidecar_cooldown_error(error), Instant::now());
+}
+
+fn oracle_sidecar_spawn_error(error: std::io::Error) -> CommandError {
+    match error.kind() {
+        std::io::ErrorKind::PermissionDenied => CommandError::new(
+            "oracle-sidecar-blocked",
+            "Operating-system or endpoint security prevented the bundled Oracle runtime from starting. Ask IT to allow datapadplusplus-oracle-runtime, or select Preview only for this connection.",
+        ),
+        std::io::ErrorKind::NotFound => CommandError::new(
+            "oracle-sidecar-not-found",
+            "The bundled Oracle runtime is missing. Reinstall DataPad++ or select Preview only for this connection.",
+        ),
+        _ => CommandError::new(
+            "oracle-sidecar-startup-failed",
+            "The bundled Oracle runtime could not be started. It may have been blocked or quarantined by endpoint security. Reinstall DataPad++, ask IT to allow the runtime, or select Preview only.",
+        ),
+    }
+}
+
+fn oracle_sidecar_startup_error(error: CommandError) -> CommandError {
+    if matches!(
+        error.code.as_str(),
+        "oracle-sidecar-blocked" | "oracle-sidecar-not-found"
+    ) {
+        return error;
+    }
+    CommandError::new(
+        "oracle-sidecar-startup-failed",
+        format!(
+            "The bundled Oracle runtime started but did not complete its health check ({}). It may have been terminated by endpoint security. Ask IT to allow datapadplusplus-oracle-runtime, or select Preview only.",
+            error.code
+        ),
+    )
+}
+
+fn oracle_sidecar_cooldown_error(error: CommandError) -> CommandError {
+    if error.message.contains("Background startup retries") {
+        return error;
+    }
+    CommandError::new(
+        error.code,
+        format!(
+            "{} Background startup retries are paused for 60 seconds; Test Connection and Run can retry immediately.",
+            error.message
+        ),
+    )
 }
 
 fn oracle_sidecar_result(response: Value) -> Result<Value, CommandError> {

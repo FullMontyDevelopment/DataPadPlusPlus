@@ -50,6 +50,15 @@ pub(super) fn normalize_neo4j_result(value: &Value, row_limit: u32) -> Normalize
             rows.push(row);
         }
 
+        for value in item
+            .get("row")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            collect_neo4j_row_graph_value(&mut graph_collector, value);
+        }
+
         if let Some(graph) = item.get("graph") {
             for node in graph
                 .get("nodes")
@@ -100,6 +109,34 @@ pub(super) fn normalize_neo4j_result(value: &Value, row_limit: u32) -> Normalize
         node_count,
         relationship_count,
         truncated: total_rows > row_limit as usize || graph_truncated,
+    }
+}
+
+fn collect_neo4j_row_graph_value(collector: &mut GraphCollector, value: &Value) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                collect_neo4j_row_graph_value(collector, value);
+            }
+        }
+        Value::Object(object) => {
+            if object.contains_key("labels") && object.contains_key("properties") {
+                collect_neo4j_node(collector, value);
+            } else if (object.contains_key("startNodeElementId")
+                || object.contains_key("startNode")
+                || object.contains_key("start"))
+                && (object.contains_key("endNodeElementId")
+                    || object.contains_key("endNode")
+                    || object.contains_key("end"))
+            {
+                collect_neo4j_relationship(collector, value);
+            } else {
+                for value in object.values() {
+                    collect_neo4j_row_graph_value(collector, value);
+                }
+            }
+        }
+        _ => {}
     }
 }
 

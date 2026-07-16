@@ -45,7 +45,13 @@ pub(super) async fn execute_influxdb_query(
         });
     }
     let row_count = normalized.rows.len() as u32;
-    let profile = influxdb_profile_payload(&query_request, &normalized, row_limit);
+    let execution_duration_ms = duration_ms(started);
+    let profile = influxdb_profile_payload(
+        &query_request,
+        &normalized,
+        row_limit,
+        execution_duration_ms,
+    );
     let payloads = vec![
         payload_table(normalized.columns, normalized.rows),
         payload_series(normalized.series),
@@ -69,7 +75,7 @@ pub(super) async fn execute_influxdb_query(
         renderer_modes,
         payloads,
         notices,
-        duration_ms: duration_ms(started),
+        duration_ms: execution_duration_ms,
         row_limit: Some(row_limit),
         truncated: normalized.truncated,
         explain_payload: None,
@@ -89,32 +95,44 @@ fn influxdb_profile_payload(
     query_request: &InfluxDbQueryRequest,
     normalized: &NormalizedInfluxDbResult,
     row_limit: u32,
+    execution_duration_ms: u64,
 ) -> Value {
     payload_profile(
         "InfluxDB query profile",
         json!([
             {
-                "stage": "request",
-                "kind": query_request.kind,
-                "database": query_request.database,
-                "rowLimit": row_limit
+                "name": "request",
+                "durationMs": execution_duration_ms,
+                "details": {
+                    "kind": query_request.kind,
+                    "database": query_request.database,
+                    "rowLimit": row_limit
+                }
             },
             {
-                "stage": "result",
-                "statements": normalized.statement_count,
-                "rows": normalized.total_rows,
-                "displayedRows": normalized.rows.len(),
-                "truncated": normalized.truncated
+                "name": "result",
+                "rows": normalized.rows.len(),
+                "details": {
+                    "statements": normalized.statement_count,
+                    "totalRows": normalized.total_rows,
+                    "truncated": normalized.truncated
+                }
             },
             {
-                "stage": "risk",
-                "cardinality": if normalized.truncated { "bounded" } else { "within-limit" },
-                "recommendation": if normalized.truncated {
-                    "Add time predicates, tag filters, or LIMIT before charting very large series."
-                } else {
-                    "Result is within the selected display bound."
+                "name": "cardinality",
+                "details": {
+                    "status": if normalized.truncated { "bounded" } else { "within-limit" },
+                    "recommendation": if normalized.truncated {
+                        "Add time predicates, tag filters, or LIMIT before charting very large series."
+                    } else {
+                        "Result is within the selected display bound."
+                    }
                 }
             }
         ]),
     )
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/adapters/datastores/influxdb/query_tests.rs"]
+mod tests;

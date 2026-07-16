@@ -1,10 +1,4 @@
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Map, Value};
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
-};
 
 use super::super::super::*;
 use super::connection::{
@@ -116,10 +110,10 @@ async fn execute_cosmosdb_gremlin_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let gremlin_request = cosmosdb_gremlin_request(connection, query_text)?;
-    if !is_read_only_cosmosdb_gremlin(&gremlin_request.gremlin) {
+    if connection.read_only && !is_read_only_cosmosdb_gremlin(&gremlin_request.gremlin) {
         return Err(CommandError::new(
-            "cosmosdb-gremlin-write-preview-only",
-            "Cosmos DB Gremlin writes and graph mutations are operation-plan preview only in this adapter phase.",
+            "cosmosdb-gremlin-read-only-violation",
+            "This Cosmos DB Gremlin connection is read-only and cannot execute a graph mutation.",
         ));
     }
 
@@ -153,6 +147,13 @@ async fn execute_cosmosdb_gremlin_query(
                 "nodes": normalized.node_count,
                 "edges": normalized.edge_count,
                 "truncated": normalized.truncated,
+                "chunks": value.get("chunks").cloned().unwrap_or_else(|| json!(1)),
+                "requestCharge": value.pointer("/status/attributes/x-ms-total-request-charge")
+                    .or_else(|| value.pointer("/status/attributes/x-ms-request-charge"))
+                    .cloned(),
+                "serverTimeMs": value.pointer("/status/attributes/x-ms-total-server-time-ms")
+                    .or_else(|| value.pointer("/status/attributes/x-ms-server-time-ms"))
+                    .cloned(),
             }),
         ),
         payload_json(value.clone()),
@@ -242,6 +243,15 @@ pub(crate) fn cosmosdb_gremlin_request(
             connection
                 .cosmos_db_options
                 .as_ref()
+                .and_then(|options| options.graph_name.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            connection
+                .cosmos_db_options
+                .as_ref()
                 .and_then(|options| options.container_prefix.as_deref())
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -316,94 +326,85 @@ async fn execute_cosmosdb_gremlin(
     let endpoint = cosmosdb_gremlin_endpoint(connection)?;
     let username = format!("/dbs/{}/colls/{}", request.database, request.graph);
     let password = cosmosdb_gremlin_password(connection)?;
-    let mut ws_request = endpoint
-        .url
-        .as_str()
-        .into_client_request()
-        .map_err(|error| {
-            CommandError::new(
-                "cosmosdb-gremlin-endpoint-invalid",
-                format!("Cosmos DB Gremlin WebSocket endpoint is invalid: {error}"),
-            )
-        })?;
-    let auth = BASE64.encode(format!("{username}:{password}"));
-    let auth_header = HeaderValue::from_str(&format!("Basic {auth}")).map_err(|_| {
-        CommandError::new(
-            "cosmosdb-gremlin-auth-invalid",
-            "Cosmos DB Gremlin authentication header could not be prepared.",
-        )
-    })?;
-    ws_request
-        .headers_mut()
-        .insert("Authorization", auth_header);
-
-    let (mut socket, _) = connect_async(ws_request).await.map_err(|error| {
-        CommandError::new(
-            "cosmosdb-gremlin-connect-failed",
-            format!(
-                "Could not open Cosmos DB Gremlin WebSocket endpoint {}: {error}",
-                endpoint.display
-            ),
-        )
-    })?;
-    let body = cosmosdb_gremlin_body(&request.gremlin);
-    socket
-        .send(Message::Text(body.into()))
-        .await
-        .map_err(|error| {
-            CommandError::new(
-                "cosmosdb-gremlin-send-failed",
-                format!("Cosmos DB Gremlin request could not be sent: {error}"),
-            )
-        })?;
-
-    while let Some(message) = socket.next().await {
-        let message = message.map_err(|error| {
-            CommandError::new(
-                "cosmosdb-gremlin-read-failed",
-                format!("Cosmos DB Gremlin response could not be read: {error}"),
-            )
-        })?;
-        let text = match message {
-            Message::Text(text) => text.to_string(),
-            Message::Binary(bytes) => String::from_utf8_lossy(&bytes).to_string(),
-            Message::Close(_) => break,
-            _ => continue,
+    let traversal_source = connection
+        .cosmos_db_options
+        .as_ref()
+        .and_then(|options| options.traversal_source.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("g");
+    let timeout_ms = connection
+        .cosmos_db_options
+        .as_ref()
+        .and_then(|options| options.request_timeout_ms)
+        .unwrap_or(60_000);
+    execute_gremlin_websocket(GremlinWebSocketRequest {
+        endpoint: &endpoint,
+        gremlin: &request.gremlin,
+        traversal_source,
+        username: Some(&username),
+        password: Some(&password),
+        graphson: GremlinGraphSon::V2,
+        timeout_ms,
+        send_basic_header: true,
+        verify_certificates: !connection
+            .cosmos_db_options
+            .as_ref()
+            .and_then(|options| options.allow_self_signed_emulator_certificate)
+            .unwrap_or(false),
+        ca_certificate_path: connection
+            .graph_options
+            .as_ref()
+            .and_then(|options| options.ca_certificate_path.as_deref()),
+        client_certificate_path: connection
+            .graph_options
+            .as_ref()
+            .and_then(|options| options.client_certificate_path.as_deref()),
+        client_key_path: connection
+            .graph_options
+            .as_ref()
+            .and_then(|options| options.client_key_path.as_deref()),
+    })
+    .await
+    .map_err(|error| {
+        let code = match error.code.as_str() {
+            "gremlin-connect-failed" => "cosmosdb-gremlin-connect-failed",
+            "gremlin-query-timeout" => "cosmosdb-gremlin-query-timeout",
+            "gremlin-query-error" => "cosmosdb-gremlin-query-error",
+            _ => "cosmosdb-gremlin-protocol-error",
         };
-        let value: Value = serde_json::from_str(&text).map_err(|error| {
-            CommandError::new(
-                "cosmosdb-gremlin-json-invalid",
-                format!("Cosmos DB Gremlin returned invalid JSON: {error}"),
-            )
-        })?;
-        return cosmosdb_gremlin_response(value);
-    }
-
-    Err(CommandError::new(
-        "cosmosdb-gremlin-empty-response",
-        "Cosmos DB Gremlin closed the WebSocket without returning a result.",
-    ))
+        CommandError::new(code, error.message)
+    })
 }
 
-struct CosmosDbGremlinEndpoint {
-    url: String,
-    display: String,
+pub(super) async fn execute_cosmosdb_gremlin_metadata(
+    connection: &ResolvedConnectionProfile,
+    gremlin: &str,
+) -> Result<Value, CommandError> {
+    let request = cosmosdb_gremlin_request(connection, gremlin)?;
+    execute_cosmosdb_gremlin(connection, &request).await
 }
 
 fn cosmosdb_gremlin_endpoint(
     connection: &ResolvedConnectionProfile,
-) -> Result<CosmosDbGremlinEndpoint, CommandError> {
+) -> Result<String, CommandError> {
     let raw = connection
         .cosmos_db_options
         .as_ref()
-        .and_then(|options| options.account_endpoint.as_deref())
+        .and_then(|options| options.gremlin_endpoint.as_deref())
+        .or_else(|| {
+            connection
+                .cosmos_db_options
+                .as_ref()
+                .and_then(|options| options.account_endpoint.as_deref())
+        })
         .or_else(|| {
             connection
                 .connection_string
                 .as_deref()
                 .and_then(|value| connection_string_value(value, "AccountEndpoint"))
         })
-        .or_else(|| connection.connection_string.as_deref())
+        .or(connection.connection_string.as_deref())
         .or_else(|| (!connection.host.trim().is_empty()).then_some(connection.host.as_str()))
         .ok_or_else(|| {
             CommandError::new(
@@ -418,9 +419,7 @@ fn cosmosdb_gremlin_endpoint(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    let url = gremlin_websocket_url(raw, account_name.as_deref(), connection.port)?;
-    let display = redacted_endpoint(&url);
-    Ok(CosmosDbGremlinEndpoint { url, display })
+    gremlin_websocket_url(raw, account_name.as_deref(), connection.port)
 }
 
 fn gremlin_websocket_url(
@@ -501,44 +500,6 @@ fn cosmosdb_gremlin_password(
         })
 }
 
-fn cosmosdb_gremlin_body(gremlin: &str) -> String {
-    serde_json::to_string(&json!({
-        "requestId": format!("datapad-{:016x}", rand::random::<u64>()),
-        "op": "eval",
-        "processor": "",
-        "args": {
-            "gremlin": gremlin,
-            "language": "gremlin-groovy",
-            "aliases": { "g": "g" },
-            "bindings": {}
-        }
-    }))
-    .unwrap_or_default()
-}
-
-fn cosmosdb_gremlin_response(value: Value) -> Result<Value, CommandError> {
-    let code = value
-        .pointer("/status/code")
-        .and_then(Value::as_i64)
-        .unwrap_or(200);
-    if (200..300).contains(&code) {
-        return Ok(value);
-    }
-    let message = value
-        .pointer("/status/message")
-        .and_then(Value::as_str)
-        .or_else(|| {
-            value
-                .pointer("/status/attributes/x-ms-status-code")
-                .and_then(Value::as_str)
-        })
-        .unwrap_or("Cosmos DB Gremlin query failed.");
-    Err(CommandError::new(
-        "cosmosdb-gremlin-query-error",
-        format!("Cosmos DB Gremlin returned status {code}: {message}"),
-    ))
-}
-
 fn gremlin_data(value: &Value) -> Vec<Value> {
     let data = value
         .pointer("/result/data")
@@ -571,13 +532,13 @@ async fn execute_read_operation(
             parse_cosmosdb_json(&response.body)
         }
         "ReadContainer" => {
-            let container = required_string(request, "container")?;
+            let container = cosmosdb_request_container(connection, request)?;
             let response =
                 cosmosdb_get(connection, &format!("/dbs/{database}/colls/{container}")).await?;
             parse_cosmosdb_json(&response.body)
         }
         "ReadDocument" => {
-            let container = required_string(request, "container")?;
+            let container = cosmosdb_request_container(connection, request)?;
             let id = required_string(request, "id")?;
             let response = cosmosdb_get(
                 connection,
@@ -587,7 +548,7 @@ async fn execute_read_operation(
             parse_cosmosdb_json(&response.body)
         }
         "QueryDocuments" => {
-            let container = required_string(request, "container")?;
+            let container = cosmosdb_request_container(connection, request)?;
             let query = request
                 .get("query")
                 .and_then(Value::as_str)
@@ -610,6 +571,34 @@ async fn execute_read_operation(
             format!("Cosmos DB operation `{operation}` is not supported by this adapter."),
         )),
     }
+}
+
+pub(crate) fn cosmosdb_request_container(
+    connection: &ResolvedConnectionProfile,
+    request: &Value,
+) -> Result<String, CommandError> {
+    request
+        .get("container")
+        .or_else(|| request.get("containerName"))
+        .or_else(|| request.get("collection"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            connection
+                .cosmos_db_options
+                .as_ref()
+                .and_then(|options| options.container_prefix.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .map(str::to_string)
+        .ok_or_else(|| {
+            CommandError::new(
+                "cosmosdb-request-invalid",
+                "Cosmos DB document operations require a container. Include `container` in request JSON, open a query from a container in Explorer, or configure the connection's Default container.",
+            )
+        })
 }
 
 pub(crate) fn parse_request(query_text: &str) -> Result<Value, CommandError> {
@@ -831,7 +820,7 @@ fn normalize_operation_name(value: &str) -> String {
     .into()
 }
 
-fn cosmosdb_api(connection: &ResolvedConnectionProfile) -> String {
+pub(super) fn cosmosdb_api(connection: &ResolvedConnectionProfile) -> String {
     connection
         .cosmos_db_options
         .as_ref()
@@ -938,10 +927,6 @@ fn connection_string_value<'a>(connection_string: &'a str, key: &str) -> Option<
             .then(|| value.trim())
             .filter(|value| !value.is_empty())
     })
-}
-
-fn redacted_endpoint(url: &str) -> String {
-    url.split('@').last().unwrap_or(url).to_string()
 }
 
 fn value_to_string(value: &Value) -> String {

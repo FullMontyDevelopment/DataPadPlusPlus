@@ -7,11 +7,13 @@ mod explorer;
 mod query;
 mod query_request;
 mod query_results;
+mod structure;
 
 use catalog::*;
 use connection::test_arango_connection;
 use diagnostics::collect_arango_diagnostics;
 use explorer::{inspect_arango_explorer_node, list_arango_explorer_nodes};
+use structure::load_arango_structure;
 
 pub(crate) struct ArangoDbAdapter;
 
@@ -63,6 +65,14 @@ impl DatastoreAdapter for ArangoDbAdapter {
         request: &ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
         Ok(no_additional_pages_response("arango", request))
+    }
+
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_arango_structure(connection, request).await
     }
 
     async fn collect_diagnostics(

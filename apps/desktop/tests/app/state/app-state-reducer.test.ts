@@ -520,6 +520,35 @@ describe('app-state reducer tab-scoped execution', () => {
     expect(state.payload?.snapshot.tabs[0]?.result?.displayDurationMs).toBeGreaterThan(10)
   })
 
+  it('settles a server-phase datastore refresh as soon as its data is returned', () => {
+    const payload = payloadWithTwoTabs()
+    const tab = expectTab(payload.snapshot.tabs[0])
+    let state: StateShape = {
+      ...initialState,
+      status: 'ready',
+      payload,
+    }
+
+    state = reducer(state, {
+      type: 'EXECUTION_LOADING',
+      tabId: tab.id,
+      execution: activeExecution('redis-scan'),
+    })
+
+    expect(state.payload?.snapshot.tabs[0]?.status).toBe('running')
+    expect(state.payload?.snapshot.tabs[0]?.activeExecution?.phase).toBe('server')
+
+    state = reducer(state, {
+      type: 'EXECUTION_DISPLAYED',
+      tabId: tab.id,
+      executionId: 'redis-scan',
+    })
+
+    expect(state.executionsByTab[tab.id]).toBeUndefined()
+    expect(state.payload?.snapshot.tabs[0]?.activeExecution).toBeUndefined()
+    expect(state.payload?.snapshot.tabs[0]?.status).toBe('success')
+  })
+
   it('preserves running state when a command payload updates the running tab', () => {
     const payload = payloadWithTwoTabs()
     const tab = expectTab(payload.snapshot.tabs[0])

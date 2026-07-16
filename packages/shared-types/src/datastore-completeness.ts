@@ -1044,9 +1044,9 @@ const WAVE4_DOCUMENT_PROFILE = profile({
     ],
   ),
   'query-surface': partial(
-    'Cosmos SQL request previews and LiteDB collection/query/edit/file previews include native filters, metrics hooks, safe default payloads, LiteDB configured sidecar read-dispatch contracts with local sidecar-process fixture evidence, optional real .NET LiteDB sidecar read/edit validation, encrypted-file success/failure validation, sidecar-backed JSON/NDJSON collection import/export execution, sidecar-backed LiteDB file-storage list/import/export/delete execution, and sidecar-backed LiteDB index/collection management execution.',
+    'Cosmos SQL reads and native GraphSON v2 Gremlin WebSocket execution include bounded results, partial-response aggregation, RU/server-time metrics, shared write guardrails, and live graph structure metadata. LiteDB collection/query/edit/file previews include native filters, metrics hooks, safe default payloads, configured sidecar read-dispatch contracts, and optional real .NET engine validation.',
     [
-      'Contract-only residual risk: add API-specific Cosmos Mongo/Cassandra/Gremlin/Table builders and promote LiteDB beyond optional real-engine read/edit/encryption/file/management workflow validation into exclusive writer-lock safety.',
+      'Contract-only residual risk: add native Cosmos Mongo/Cassandra/Table runtimes, credential-gated real Cosmos Gremlin cloud evidence, and promote LiteDB beyond optional real-engine validation into exclusive writer-lock safety.',
     ],
   ),
   intellisense: strong(
@@ -1675,34 +1675,34 @@ const ENGINE_OVERRIDES: Partial<
   },
   neo4j: {
     readiness: 'foundation',
-    nativeScore: 3.4,
+    nativeScore: 4.15,
     targetPhase: 5,
     summary:
-      'Neo4j has contract-complete graph UX with typed connection-flow parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, label/relationship/index/constraint/security trees, pinned Cypher pattern builder descriptors, explain/profile, JMX metrics, index/security previews, graph export plans, and guarded constraint/object drops; live Bolt mutation validation remains residual risk.',
+      'Neo4j has a native Bolt runtime by default plus the current HTTP Query API with legacy fallback, bounded graph normalization, guarded read/write Cypher, live metadata and IntelliSense structure maps, and fixture evidence over both protocols. Higher-impact schema/admin execution, import/export execution, and broader enterprise permission fixtures remain residual risk.',
     profile: WAVE5_GRAPH_PROFILE,
   },
   arango: {
     readiness: 'foundation',
-    nativeScore: 3.3,
+    nativeScore: 4.1,
     targetPhase: 5,
     summary:
-      'ArangoDB has contract-complete graph/document UX with HTTP connection-flow parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, collection/edge/graph/index/security trees, pinned AQL graph builder descriptors, explain/profile, admin statistics, permission inspection, index plans, and graph export previews; live cluster/Foxx/admin validation remains residual risk.',
+      'ArangoDB has a native authenticated HTTP runtime with TLS controls, bounded multi-batch cursor consumption and cleanup, guarded read/write AQL, live collection/graph/index metadata, structure maps, and seeded vertex/edge fixture evidence. Cluster/Foxx administration and file import/export execution remain residual risk.',
     profile: WAVE5_GRAPH_PROFILE,
   },
   janusgraph: {
     readiness: 'foundation',
-    nativeScore: 3.2,
+    nativeScore: 4.0,
     targetPhase: 5,
     summary:
-      'JanusGraph has contract-complete graph UX with Gremlin connection-flow parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, schema/index/backend trees, pinned Gremlin traversal builder descriptors, traversal explain/profile, management metrics, index lifecycle previews, and graph export plans; live backend/index-service validation remains residual risk.',
+      'JanusGraph has a native GraphSON v3 Gremlin WebSocket runtime with SASL, partial-response aggregation, TLS/custom-CA support, guarded traversals, live schema metadata, and seeded vertex/edge fixture evidence. HTTP remains explicit for HTTP-channelizer deployments; backend/index-service administration and import/export execution remain residual risk.',
     profile: WAVE5_GRAPH_PROFILE,
   },
   neptune: {
     readiness: 'foundation',
-    nativeScore: 3.25,
+    nativeScore: 3.9,
     targetPhase: 5,
     summary:
-      'Amazon Neptune has contract-complete graph UX with typed cloud/IAM connection-flow parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, pinned Gremlin/openCypher builder descriptors, SPARQL surface, profile/explain payloads, CloudWatch metrics, IAM access inspection, loader-style import/export, and guarded graph plans; live SigV4/cloud validation remains residual risk.',
+      'Amazon Neptune has an AWS SDK-backed IAM runtime for Gremlin and openCypher plus SigV4 SPARQL, bounded normalized results, guarded mutations, live structure metadata, and explicit unsigned HTTP support for custom fixtures. Credential-gated real-cloud cancellation, CloudWatch, loader, and destructive workflow evidence remains residual risk.',
     profile: WAVE5_GRAPH_PROFILE,
   },
 }

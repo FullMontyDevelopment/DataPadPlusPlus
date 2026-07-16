@@ -11,6 +11,9 @@ fn clickhouse_json_payloads_preserves_unbounded_rows_for_compatibility() {
     let (payloads, row_count) = clickhouse_json_payloads(raw);
 
     assert_eq!(row_count, 3);
+    assert_eq!(payloads[0]["renderer"], "table");
+    assert_eq!(payloads[1]["renderer"], "json");
+    assert_eq!(payloads[2]["renderer"], "raw");
     assert_eq!(payloads[0]["rows"].as_array().unwrap().len(), 3);
     assert_eq!(payloads[1]["value"]["data"].as_array().unwrap().len(), 3);
 }

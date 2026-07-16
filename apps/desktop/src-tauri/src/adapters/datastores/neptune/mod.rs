@@ -7,11 +7,13 @@ mod explorer;
 mod query;
 mod query_request;
 mod query_results;
+mod structure;
 
 use catalog::*;
 use connection::test_neptune_connection;
 use diagnostics::collect_neptune_diagnostics;
 use explorer::{inspect_neptune_explorer_node, list_neptune_explorer_nodes};
+use structure::load_neptune_structure;
 
 pub(crate) struct NeptuneAdapter;
 
@@ -63,6 +65,14 @@ impl DatastoreAdapter for NeptuneAdapter {
         request: &ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
         Ok(no_additional_pages_response("neptune", request))
+    }
+
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_neptune_structure(connection, request).await
     }
 
     async fn collect_diagnostics(

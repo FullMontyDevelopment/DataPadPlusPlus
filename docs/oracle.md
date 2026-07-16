@@ -10,6 +10,30 @@ Credentials are sent to the bundled runtime over its private stdin channel and k
 
 `Built-in Oracle driver` is the default runtime. `SQLPlus` remains available as an explicit legacy fallback for older databases or specialized Oracle Net configurations. `Preview only` never connects to a database.
 
+## Runtime And Platform Support
+
+Each desktop release contains one self-contained Oracle runtime matching its platform:
+
+- Windows x64: `win-x64`
+- Linux x64: `linux-x64`
+- macOS Apple Silicon: `osx-arm64`
+
+The managed provider does not require Oracle Client. DataPad++ starts the matching runtime lazily, communicates over redirected stdin/stdout pipes with no local network listener, and keeps one healthy process available until the app exits. Windows launches it with no console window. Linux and macOS launch it directly without a shell or terminal emulator. A credential-free health handshake verifies the protocol, .NET runtime, managed driver, target platform, and Windows console state before any database request is sent.
+
+Current built-in support targets Oracle Database 19c+ on Windows x64, the supported 64-bit Linux release platforms, and macOS ARM64 14.7+. Intel macOS and Linux ARM64 are not release targets in this support pass. See Oracle's [ODP.NET Core system requirements](https://docs.oracle.com/en/database/oracle/oracle-database/26/odpnt/InstallSystemRequirements.html) and [installation documentation](https://docs.oracle.com/en/database/oracle/oracle-database/26/odpnt/InstallODPCore.html).
+
+### Managed-Device Troubleshooting
+
+Local startup failures are reported with a stable code:
+
+- `oracle-sidecar-not-found`: the matching runtime is missing from the installation.
+- `oracle-sidecar-blocked`: operating-system or endpoint policy denied execution.
+- `oracle-sidecar-startup-failed`: the process started but exited, timed out, or failed its health handshake.
+
+After a local startup failure, background explorer and IntelliSense attempts pause for 60 seconds. **Test Connection** and **Run** bypass that cooldown so an explicit retry is always available. Preview-only and SQLPlus profiles do not start managed metadata or IntelliSense work. DataPad++ does not silently replace blocked live results with preview data.
+
+Corporate policy is not bypassed. Reinstall when the runtime is missing, or ask IT to allow the signed `datapadplusplus-oracle-runtime` shipped with DataPad++. Preview-only remains available when local execution cannot be approved. An unreachable database returns its Oracle/network error through the already healthy runtime and does not cause runtime restart loops.
+
 ## Queries And Transactions
 
 The editor supports `SELECT`, `WITH`, DML, DDL, `MERGE`, transaction control, procedure calls, and PL/SQL blocks. Multi-statement scripts and slash-terminated PL/SQL are supported. SQLPlus client commands such as `SPOOL`, `HOST`, and substitution-variable commands are rejected because the built-in runtime executes database statements, not SQLPlus scripts.

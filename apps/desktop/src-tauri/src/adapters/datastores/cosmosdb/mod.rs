@@ -5,11 +5,13 @@ mod connection;
 mod diagnostics;
 mod explorer;
 mod query;
+mod structure;
 
 use catalog::*;
 use connection::test_cosmosdb_connection;
 use diagnostics::collect_cosmosdb_diagnostics;
 use explorer::{inspect_cosmosdb_explorer_node, list_cosmosdb_explorer_nodes};
+use structure::load_cosmosdb_structure;
 
 pub(crate) struct CosmosDbAdapter;
 
@@ -61,6 +63,14 @@ impl DatastoreAdapter for CosmosDbAdapter {
         request: &ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
         Ok(no_additional_pages_response("cosmosdb", request))
+    }
+
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_cosmosdb_structure(connection, request).await
     }
 
     async fn collect_diagnostics(

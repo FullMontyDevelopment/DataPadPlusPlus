@@ -176,7 +176,9 @@ describe('ResultPayloadView', () => {
     )
 
     const documentTable = screen.getByRole('treegrid', { name: 'Document result table' })
-    expect(within(documentTable).getByText('{"$oid":"507f1f77bcf86cd799439011"}')).toBeInTheDocument()
+    expect(
+      within(documentTable).getByText('ObjectId("507f1f77bcf86cd799439011")'),
+    ).toBeInTheDocument()
     expect(within(documentTable).queryByText('_id: {1 field(s)}')).not.toBeInTheDocument()
   })
 
@@ -257,6 +259,11 @@ describe('ResultPayloadView', () => {
                   value: 3,
                   labels: { source: 'serverStatus.connections' },
                 },
+                {
+                  timestamp: '2026-05-22T10:01:00.000Z',
+                  value: '+Inf',
+                  labels: { source: 'prometheus' },
+                },
               ],
             },
           ],
@@ -265,6 +272,8 @@ describe('ResultPayloadView', () => {
     )
 
     expect(screen.getByText('Source: serverStatus.connections')).toBeInTheDocument()
+    expect(screen.getByText('+Inf')).toBeInTheDocument()
+    expect(screen.getByText('Source: prometheus')).toBeInTheDocument()
     expect(screen.queryByText(/"source"/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Add Row' })).not.toBeInTheDocument()
   })

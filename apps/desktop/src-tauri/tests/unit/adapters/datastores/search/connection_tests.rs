@@ -1,5 +1,9 @@
-use super::{search_live_disabled_reason, SearchEndpoint};
+use super::{search_live_disabled_reason, search_post_json, SearchEndpoint};
 use crate::domain::models::{ResolvedConnectionProfile, SearchConnectionOptions};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+};
 
 #[test]
 fn search_endpoint_parses_prefixed_http_url() {
@@ -110,4 +114,55 @@ fn search_connection(search_options: Option<SearchConnectionOptions>) -> Resolve
         warehouse_options: None,
         read_only: true,
     }
+}
+
+#[tokio::test]
+async fn search_request_decodes_chunked_json_for_hit_normalization() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = vec![0_u8; 4096];
+        let bytes_read = socket.read(&mut request).await.unwrap();
+        let request = String::from_utf8_lossy(&request[..bytes_read]);
+        assert!(request.contains("POST /orders/_search"));
+        assert!(request.contains(r#""match_all":{}"#));
+
+        let chunks = [
+            "{\"took\":1,\"hits\":{\"total\":{\"value\":1,\"relation\":\"eq\"},\"hits\":[",
+            "{\"_index\":\"orders\",\"_id\":\"1\",\"_score\":1.0,\"_source\":{\"status\":\"paid\"}}]}}",
+        ];
+        socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        for chunk in chunks {
+            socket
+                .write_all(format!("{:X}\r\n{chunk}\r\n", chunk.len()).as_bytes())
+                .await
+                .unwrap();
+        }
+        socket.write_all(b"0\r\n\r\n").await.unwrap();
+    });
+
+    let mut connection = search_connection(None);
+    connection.host = address.ip().to_string();
+    connection.port = Some(address.port());
+    let response = search_post_json(
+        &connection,
+        "/orders/_search",
+        r#"{"query":{"match_all":{}}}"#,
+    )
+    .await
+    .unwrap();
+
+    server.await.unwrap();
+    let value: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+    let normalized =
+        crate::adapters::datastores::search::query::normalize_search_response_bounded(&value, 100);
+    assert_eq!(normalized.total, 1);
+    assert_eq!(normalized.rows[0][0], "orders");
+    assert_eq!(normalized.rows[0][1], "1");
 }

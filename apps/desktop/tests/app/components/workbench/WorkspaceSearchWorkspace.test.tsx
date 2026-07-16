@@ -127,7 +127,7 @@ describe('WorkspaceSearchWorkspace', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open Experimental Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Plugins Settings' }))
 
     expect(onOpenExperimentalSettings).toHaveBeenCalled()
   })
