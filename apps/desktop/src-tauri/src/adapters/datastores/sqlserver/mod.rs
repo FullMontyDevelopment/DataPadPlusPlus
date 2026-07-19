@@ -19,6 +19,34 @@ pub(crate) struct SqlServerAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for SqlServerAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if matches!(
+            request.operation_id.as_str(),
+            "sqlserver.data.import-export" | "sqlserver.data.backup-restore"
+        ) {
+            return execute_sqlserver_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         manifest(
             "adapter-sqlserver",
@@ -112,6 +140,37 @@ impl DatastoreAdapter for SqlServerAdapter {
     ) -> Result<ExplorerInspectResponse, CommandError> {
         explorer::inspect_sqlserver_explorer_node(connection, request).await
     }
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_sqlserver_structure(connection, request).await
+    }
+
+    async fn fetch_result_page(
+        &self,
+        _connection: &ResolvedConnectionProfile,
+        request: &ResultPageRequest,
+    ) -> Result<ResultPageResponse, CommandError> {
+        Ok(ResultPageResponse {
+            tab_id: request.tab_id.clone(),
+            result_id: None,
+            payload: payload_raw("Additional SQL Server pages require a safe ordered paging query and are not available for this result.".into()),
+            page_info: ResultPageInfo {
+                page_size: bounded_page_size(request.page_size),
+                page_index: request.page_index.unwrap_or_default(),
+                buffered_rows: 0,
+                has_more: false,
+                next_cursor: None,
+                total_rows_known: None,
+            },
+            notices: vec![
+                "SQL Server next-page loading is available only after ordered paging support is enabled.".into(),
+            ],
+        })
+    }
+
     async fn execute(
         &self,
         connection: &ResolvedConnectionProfile,

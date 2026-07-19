@@ -56,7 +56,7 @@ const files = {
   rustOperationManifest: 'apps/desktop/src-tauri/src/adapters/common/operations/manifest.rs',
   rustOperationPlanning: 'apps/desktop/src-tauri/src/adapters/common/operations/planning.rs',
   rustOperationManifestTests: 'apps/desktop/src-tauri/tests/unit/adapters/common/operations/manifest_tests.rs',
-  rustOperationPlanningTests: 'apps/desktop/src-tauri/tests/unit/adapters/common/operations/planning_tests.rs',
+  rustOperationPlanningTests: 'apps/desktop/src-tauri/tests/unit/adapters/common/operations/planning/mod_tests.rs',
   workbenchRoot: 'apps/desktop/src/app/components/workbench',
   workbenchTestRoot: 'apps/desktop/tests/app/components/workbench',
   cassandraOperationActions: 'apps/desktop/src/app/components/workbench/datastores/cassandra/CassandraObjectViewOperations.helpers.ts',
@@ -120,6 +120,25 @@ function absolutePath(relativePath) {
 }
 
 async function read(relativePath) {
+  const sourceTrees = {
+    'packages/shared-types/src/datastore-roadmap.ts': 'packages/shared-types/src/datastore-roadmap',
+    'apps/desktop/src-tauri/src/adapters/common/tree_manifest.rs': 'apps/desktop/src-tauri/src/adapters/common/tree_manifest',
+    'apps/desktop/src-tauri/src/adapters/common/operations/planning.rs': 'apps/desktop/src-tauri/src/adapters/common/operations/planning',
+    'apps/desktop/src-tauri/src/domain/models.rs': 'apps/desktop/src-tauri/src/domain/models',
+  }
+  const sourceTree = sourceTrees[relativePath]
+  if (sourceTree) {
+    const facadePath = relativePath.endsWith('.ts')
+      ? relativePath
+      : `${sourceTree}/mod.rs`
+    const treeFiles = await sourceFiles(sourceTree, ['.rs', '.ts'])
+    return (await Promise.all([
+      readFile(absolutePath(facadePath), 'utf8'),
+      ...treeFiles
+        .filter((file) => file !== facadePath)
+        .map((file) => readFile(absolutePath(file), 'utf8')),
+    ])).join('\n')
+  }
   return readFile(absolutePath(relativePath), 'utf8')
 }
 

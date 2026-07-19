@@ -1,11 +1,12 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, startTransition, useCallback, useContext, useEffect, useReducer, useRef } from 'react'
+import { createContext, useCallback, useContext, useEffect, useReducer, useRef } from 'react'
 import type { Dispatch, ReactNode } from 'react'
 import type { BootstrapPayload, ConnectionProfile } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
 import { effectiveConnectionEnvironmentIds } from '../../services/runtime/library-connection-helpers'
 import { useAppActions } from './app-actions'
 import { initialState, reducer } from './app-state-reducer'
+import { dispatchBootstrapPayload } from './app-state-payload'
 import { toUserError, toUserMessage } from './app-state-selectors'
 import { buildConnectionTestFailure } from './connection-test-results'
 import { connectionHealthKey } from './connection-health'
@@ -222,9 +223,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const applyPayload = useCallback((payload: BootstrapPayload) => {
-    startTransition(() => {
-      dispatch({ type: 'COMMAND_SUCCESS', payload })
-    })
+    dispatchBootstrapPayload(dispatch, payload)
   }, [])
 
   const handleError = useCallback((error: unknown, options?: AppErrorOptions) => {

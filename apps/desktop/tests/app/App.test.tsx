@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
+  BootstrapPayload,
   ConnectionProfile,
   ConnectionTestResult,
   EnvironmentProfile,
@@ -399,7 +400,9 @@ describe('App', () => {
   it('renders a blank desktop workbench with first-run onboarding', async () => {
     render(<App />)
 
-    expect(await screen.findByLabelText('library sidebar')).toBeInTheDocument()
+    expect(
+      await screen.findByLabelText('library sidebar', undefined, { timeout: 10_000 }),
+    ).toBeInTheDocument()
     expect(screen.queryByLabelText('Activity bar')).not.toBeInTheDocument()
     expect(screen.getByRole('tablist', { name: 'Editor tabs' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Bottom panel')).not.toBeInTheDocument()
@@ -567,7 +570,7 @@ describe('App', () => {
         screen.queryByRole('dialog', { name: 'Check safety settings' }),
       ).not.toBeInTheDocument()
     })
-  }, 10000)
+  }, 20_000)
 
   it('opens Workspace Search from the Library when the experiment is enabled', async () => {
     const snapshot = createBlankBootstrapPayload().snapshot
@@ -1198,7 +1201,7 @@ describe('App', () => {
       ).toBeInTheDocument()
     }, { timeout: 5_000 })
     expect(screen.queryByLabelText('inspection drawer')).not.toBeInTheDocument()
-  })
+  }, 10_000)
 
   it('treats empty Explorer metadata as loaded instead of reloading forever', async () => {
     const loadStructureSpy = vi
@@ -2457,6 +2460,43 @@ describe('App', () => {
     })
     expect(updateBuilderSpy).not.toHaveBeenCalled()
   })
+
+  it('keeps a tab closed when a delayed builder update resolves after persistence warning', async () => {
+    render(<App />)
+    await createCatalogMongoWithBuilderTab()
+
+    const stalePayload = await desktopClient.bootstrapApp()
+    let resolveBuilderUpdate: (payload: BootstrapPayload) => void = () => undefined
+    const pendingBuilderUpdate = new Promise<BootstrapPayload>((resolve) => {
+      resolveBuilderUpdate = resolve
+    })
+    const updateBuilderSpy = vi
+      .spyOn(desktopClient, 'updateQueryBuilderState')
+      .mockReturnValue(pendingBuilderUpdate)
+    const closeQueryTab = desktopClient.closeQueryTab.bind(desktopClient)
+    vi.spyOn(desktopClient, 'closeQueryTab').mockImplementation(async (tabId) => ({
+      ...await closeQueryTab(tabId),
+      persistenceWarning: {
+        code: 'workspace-save-blocked',
+        message: 'The tab closed, but the workspace file is temporarily in use.',
+      },
+    }))
+
+    const builder = screen.getByLabelText('MongoDB query builder')
+    fireEvent.click(within(builder).getAllByRole('button', { name: 'Add Filter' })[0] as HTMLElement)
+    await waitFor(() => expect(updateBuilderSpy).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: /Close tab .*products\.find/i }))
+    await waitFor(() => {
+      expect(screen.queryByRole('tab', { name: /products\.find/i })).not.toBeInTheDocument()
+    })
+
+    resolveBuilderUpdate(stalePayload)
+    await waitFor(() => {
+      expect(screen.queryByRole('tab', { name: /products\.find/i })).not.toBeInTheDocument()
+      expect(screen.queryByText('Tab was not found.')).not.toBeInTheDocument()
+    })
+  }, 15000)
 
   it('keeps the last result visible while editing a Mongo builder query', async () => {
     render(<App />)

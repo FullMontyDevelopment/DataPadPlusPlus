@@ -21,6 +21,46 @@ pub(crate) struct LiteDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for LiteDbAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if matches!(
+            request.operation_id.as_str(),
+            "litedb.data.import-export"
+                | "litedb.file-storage.import"
+                | "litedb.file-storage.export"
+                | "litedb.file-storage.delete"
+        ) {
+            return execute_litedb_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        if matches!(
+            request.operation_id.as_str(),
+            "litedb.index.create" | "litedb.index.drop" | "litedb.object.drop"
+        ) {
+            return execute_litedb_management_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         litedb_manifest()
     }

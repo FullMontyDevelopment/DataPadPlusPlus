@@ -1,0 +1,67 @@
+import type { DatastoreFeatureBacklogEntry } from '../datastore-roadmap'
+import { SQL_CORE } from './common'
+
+export const DUCKDB_DATASTORE_FEATURE = {
+    engine: 'duckdb',
+    displayName: 'DuckDB',
+    family: 'embedded-olap',
+    maturity: 'beta',
+    defaultLanguage: 'sql',
+    queryLanguages: ['sql'],
+    connectionModes: ['local-file', 'connection-string'],
+    primaryConnectionMechanisms: [
+      'Local DuckDB database file',
+      'In-process connection string with local file and extension settings',
+    ],
+    managementModel: 'Embedded OLAP engine with schemas, tables, views, PRAGMA metadata, extensions, and direct CSV/Parquet/Arrow analytics.',
+    queryModel: 'SQL editor for local-file analytics plus visual CSV/Parquet import and table/view builders.',
+    presentationModel: 'Tables, charts, PRAGMA metadata, EXPLAIN/ANALYZE/profiling output, and export files.',
+    securityModel: 'Local file permissions, extension trust, read-only profiles, and guardrails for file-writing/export operations.',
+    resultRenderers: ['table', 'chart', 'schema', 'plan', 'profile', 'metrics'],
+    capabilities: [
+      ...SQL_CORE,
+      'supports_local_database_creation',
+      'supports_admin_operations',
+      'supports_index_management',
+      'supports_explain_plan',
+      'supports_plan_visualization',
+      'supports_query_profile',
+      'supports_metrics_collection',
+      'supports_visual_query_builder',
+      'supports_import_export',
+      'supports_backup_restore',
+      'supports_structure_visualization',
+    ],
+    baselineFeatures: [
+      'Open/create local DuckDB database',
+      'Table, view, and schema browser',
+      'SQL over CSV and Parquet',
+      'Import/export workflows',
+    ],
+    localDatabase: {
+      defaultExtension: 'duckdb',
+      extensions: ['duckdb', 'db'],
+      canCreateEmpty: true,
+      canCreateStarter: true,
+    },
+    advancedFeatures: [
+      'EXPLAIN/ANALYZE/profiling',
+      'PRAGMA metadata panels',
+      'Local-file and extension posture panels',
+      'Guarded analyze, checkpoint, extension, and import previews',
+      'Extension manager',
+      'Local-file analytics templates',
+    ],
+    diagnosticFeatures: [
+      'Profiling renderer',
+      'Extension and file access warnings',
+      'PRAGMA metadata output',
+      'Large local result warnings',
+    ],
+    analyticsSignals: [
+      'Rows scanned and returned',
+      'Operator duration',
+      'File size and format',
+      'Memory and temp storage usage',
+    ],
+  } satisfies DatastoreFeatureBacklogEntry

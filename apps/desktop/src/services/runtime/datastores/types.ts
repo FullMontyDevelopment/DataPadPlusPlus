@@ -20,6 +20,7 @@ export interface DatastoreRuntimeOperationHooks {
     connection: ConnectionProfile,
     request: OperationPlanRequest,
   ) => string
+  refreshScopesAfterExecution?: (request: OperationPlanRequest) => string[]
 }
 
 export interface DatastoreRuntimeDataEditHooks {

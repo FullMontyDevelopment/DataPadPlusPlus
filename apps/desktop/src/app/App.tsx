@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, MutableRefObject } from 'react'
+import type { CSSProperties } from 'react'
 import type {
   ConnectionProfile,
   DatastoreApiServerInstanceStatus,
@@ -10,12 +10,9 @@ import type {
   EnvironmentProfile,
   ExecutionRequest,
   ExplorerNode,
-  AppShortcutId,
   LibraryItemKind,
   LibraryNode,
-  OperationPlan,
   OperationPlanRequest,
-  OperationPlanResponse,
   QueryBuilderState,
   QueryTabState,
   QueryViewMode,
@@ -31,40 +28,14 @@ import {
   SaveQueryDialog,
 } from './components/workbench/AppDialogs'
 import { BootSurface, WelcomeSurface } from './components/workbench/BootSurfaces'
-import { DesktopCodeEditor } from './components/workbench/DesktopCodeEditor'
-import { MongoScriptWorkspace } from './components/workbench/datastores/mongodb/MongoScriptWorkspace'
+import { DatastoreQueryEditor } from './components/workbench/datastores/DatastoreQueryEditor'
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
 import { FirstInstallGuide } from './components/workbench/FirstInstallGuide'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
 import { useReviewConfirmation } from './components/workbench/use-review-confirmation'
-import { RedisConsoleEditor } from './components/workbench/datastores/common/keyvalue/RedisConsoleEditor'
 import { StatusBar } from './components/workbench/StatusBar'
 import type { SettingsSection } from './components/workbench/SettingsWorkspace.constants'
-import {
-  buildCqlPartitionQueryText,
-  isCqlPartitionBuilderState,
-} from './components/workbench/query-builder/cql-partition'
-import {
-  buildDynamoDbKeyConditionQueryText,
-  isDynamoDbKeyConditionBuilderState,
-} from './components/workbench/query-builder/dynamodb-key-condition'
-import {
-  buildMongoFindQueryText,
-  isMongoFindBuilderState,
-} from './components/workbench/query-builder/mongo-find'
-import {
-  buildMongoAggregationQueryText,
-  isMongoAggregationBuilderState,
-} from './components/workbench/query-builder/mongo-aggregation'
-import {
-  buildSqlSelectQueryText,
-  isSqlSelectBuilderState,
-} from './components/workbench/query-builder/sql-select'
-import {
-  buildSearchDslQueryText,
-  isSearchDslBuilderState,
-} from './components/workbench/query-builder/search-dsl'
 import {
   isRedisKeyBrowserState,
 } from './components/workbench/query-builder/redis-key-browser'
@@ -76,7 +47,6 @@ import {
   isRedisConsoleTab,
   redisConsoleCommandFromQueryText,
 } from './components/workbench/query-builder/redis-console'
-import { mongoQueryScopeForTab } from './components/workbench/query-builder/mongo-query-scope'
 import {
   ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER,
   completionProvidersForConnection,
@@ -90,7 +60,6 @@ import {
   hasExplorerScope,
   isExplorerRequestLoading,
 } from './state/app-state-reducer-helpers'
-import { connectionUsesManagedOracleRuntime } from './state/oracle-runtime'
 import { useTaskbarQueryActivity } from './state/use-taskbar-query-activity'
 import {
   connectionHealthKey,
@@ -98,11 +67,22 @@ import {
 } from './state/connection-health'
 import { ConnectionHealthChip } from './components/workbench/ConnectionHealthBadge'
 import { connectionLibraryNodeId } from '../services/runtime/library-connection-helpers'
+import { runtimeSliceForEngine } from '../services/runtime/datastores/registry'
+import { workbenchSliceForEngine } from './components/workbench/datastores/registry'
 import { createConnectionProfile, createEnvironmentProfile } from './state/app-state-factories'
 import {
   resolveKeyboardShortcuts,
-  shortcutMatchesEvent,
 } from './keyboard-shortcuts'
+import { GlobalShortcutHandler } from './controllers/GlobalShortcutHandler'
+import {
+  operationExecutionPlanResponse,
+  operationReviewReasons,
+  uniqueStrings,
+} from './controllers/operation-review'
+import {
+  buildQueryTextForBuilderState,
+  queryScopeForBuilderState,
+} from './controllers/query-builder-routing'
 import { normalizeQueryWindowMode } from './query-window-mode'
 import {
   appendFieldToQueryText,
@@ -216,274 +196,6 @@ function SidebarFallback() {
   )
 }
 
-function operationReviewReasons(plan: OperationPlan) {
-  const reasons = [
-    ...plan.warnings.filter((warning) => !mentionsConfirmationText(warning, plan.confirmationText)),
-    plan.destructive ? 'This operation can make destructive changes.' : undefined,
-    plan.estimatedScanImpact,
-    plan.estimatedCost,
-    plan.requiredPermissions.length
-      ? `Required permissions: ${plan.requiredPermissions.join(', ')}`
-      : undefined,
-  ]
-
-  return uniqueStrings(reasons.filter((reason): reason is string => Boolean(reason))).slice(0, 4)
-}
-
-function operationPlanWithWarning(response: OperationPlanResponse, warning: string) {
-  return {
-    ...response,
-    plan: {
-      ...response.plan,
-      warnings: uniqueStrings([
-        ...response.plan.warnings.filter(
-          (item) => !mentionsConfirmationText(item, response.plan.confirmationText),
-        ),
-        warning,
-      ]),
-    },
-  }
-}
-
-function operationExecutionPlanResponse(
-  fallback: OperationPlanResponse,
-  execution: Awaited<ReturnType<Actions['executeDatastoreOperation']>>,
-) {
-  if (!execution) {
-    return operationPlanWithWarning(fallback, 'Operation execution did not return a response.')
-  }
-
-  const warnings = execution.warnings.filter(
-    (warning) => !mentionsConfirmationText(warning, execution.plan.confirmationText),
-  )
-  const summary = execution.executed
-    ? execution.messages.at(-1) ?? 'Operation executed successfully.'
-    : warnings.at(-1) ?? execution.messages.at(-1) ?? 'Operation was not applied.'
-
-  return {
-    connectionId: execution.connectionId,
-    environmentId: execution.environmentId,
-    plan: {
-      ...execution.plan,
-      summary,
-      warnings: uniqueStrings([
-        ...execution.plan.warnings.filter(
-          (warning) => !mentionsConfirmationText(warning, execution.plan.confirmationText),
-        ),
-        ...warnings,
-      ]),
-    },
-  }
-}
-
-function isMongoManagementOperation(operationId: string) {
-  return operationId === 'mongodb.database.create' ||
-    operationId === 'mongodb.database.drop' ||
-    operationId === 'mongodb.collection.create' ||
-    operationId === 'mongodb.collection.drop' ||
-    operationId === 'mongodb.collection.rename' ||
-    operationId === 'mongodb.collection.modify' ||
-    operationId === 'mongodb.collection.convert-to-capped' ||
-    operationId === 'mongodb.collection.clone-as-capped' ||
-    operationId === 'mongodb.collection.compact' ||
-    operationId === 'mongodb.collection.validate'
-}
-
-function mongoManagementRefreshScopes(request: OperationPlanRequest) {
-  const parameters = request.parameters ?? {}
-  const database = stringParameter(parameters.database)
-  const targetDatabase = stringParameter(parameters.targetDatabase)
-  const scopes = new Set<string>()
-  scopes.add('databases')
-  scopes.add('system-databases')
-
-  for (const name of [database, targetDatabase].filter(Boolean)) {
-    scopes.add(`database:${name}`)
-    scopes.add(`collections:${name}`)
-    scopes.add(`time-series-collections:${name}`)
-    scopes.add(`capped-collections:${name}`)
-    scopes.add(`views:${name}`)
-  }
-
-  return [...scopes]
-}
-
-function stringParameter(value: unknown) {
-  return typeof value === 'string' && value.trim() ? value.trim() : ''
-}
-
-function mentionsConfirmationText(message: string, confirmationText?: string) {
-  return Boolean(
-    confirmationText &&
-      (message.includes(`Type \`${confirmationText}\``) || message.includes(confirmationText)),
-  )
-}
-
-function uniqueStrings(values: string[]) {
-  return values.filter((value, index) => values.indexOf(value) === index)
-}
-
-function GlobalShortcutHandler({
-  actions,
-  activeConnectionId,
-  activeTab,
-  activeTabIsEnvironment,
-  activeTabIsApiServer,
-  activeTabIsMcpServer,
-  activeTabIsSecurityChecks,
-  activeTabIsExplorer,
-  activeTabIsMetrics,
-  activeTabIsObjectView,
-  activeTabIsSettings,
-  activeTabIsTestSuite,
-  activeTabIsWorkspaceSearch,
-  bottomPanelVisibleRef,
-  keyboardShortcuts,
-  openQueryTab,
-  requestCloseTab,
-  requestSaveQuery,
-  runCurrentTabQuery,
-  snapshot,
-}: {
-  actions: Pick<Actions, 'reopenClosedTab' | 'updateUiState'>
-  activeConnectionId?: string
-  activeTab?: QueryTabState
-  activeTabIsEnvironment: boolean
-  activeTabIsApiServer: boolean
-  activeTabIsMcpServer: boolean
-  activeTabIsSecurityChecks: boolean
-  activeTabIsExplorer: boolean
-  activeTabIsMetrics: boolean
-  activeTabIsObjectView: boolean
-  activeTabIsSettings: boolean
-  activeTabIsTestSuite: boolean
-  activeTabIsWorkspaceSearch: boolean
-  bottomPanelVisibleRef: MutableRefObject<boolean>
-  keyboardShortcuts: Record<AppShortcutId, string>
-  openQueryTab(connectionId: string | undefined): void
-  requestCloseTab(tabId: string): void
-  requestSaveQuery(tabId: string): void
-  runCurrentTabQuery(mode?: ExecutionRequest['mode']): void
-  snapshot: WorkspaceSnapshot
-}) {
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (shortcutMatchesEvent(event, keyboardShortcuts.refresh)) {
-        event.preventDefault()
-
-        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
-          runCurrentTabQuery()
-        }
-
-        return
-      }
-
-      if (!activeTab) {
-        return
-      }
-
-      if (shortcutMatchesEvent(event, keyboardShortcuts.saveQuery)) {
-        event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
-          requestSaveQuery(activeTab.id)
-        }
-        return
-      }
-
-      if (shortcutMatchesEvent(event, keyboardShortcuts.runQuery)) {
-        event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
-          runCurrentTabQuery()
-        }
-        return
-      }
-
-      if (shortcutMatchesEvent(event, keyboardShortcuts.togglePanel)) {
-        event.preventDefault()
-        const bottomPanelVisible = !bottomPanelVisibleRef.current
-        bottomPanelVisibleRef.current = bottomPanelVisible
-        void actions.updateUiState({
-          bottomPanelVisible,
-        })
-        return
-      }
-
-      if (shortcutMatchesEvent(event, keyboardShortcuts.toggleSidebar)) {
-        event.preventDefault()
-        void actions.updateUiState({
-          sidebarCollapsed: !snapshot.ui.sidebarCollapsed,
-        })
-        return
-      }
-
-      if (shortcutMatchesEvent(event, keyboardShortcuts.newQuery)) {
-        event.preventDefault()
-        openQueryTab(activeConnectionId)
-        return
-      }
-
-      if (shortcutMatchesEvent(event, keyboardShortcuts.closeTab)) {
-        event.preventDefault()
-        requestCloseTab(activeTab.id)
-        return
-      }
-
-      if (shortcutMatchesEvent(event, keyboardShortcuts.reopenClosedTab)) {
-        event.preventDefault()
-        const closedTab = snapshot.closedTabs.at(-1)
-        if (closedTab) {
-          void actions.reopenClosedTab(closedTab.id)
-        }
-        return
-      }
-
-      if (shortcutMatchesEvent(event, keyboardShortcuts.explainQuery)) {
-        event.preventDefault()
-        if (
-          !activeTabIsExplorer &&
-          !activeTabIsMetrics &&
-          !activeTabIsObjectView &&
-          !activeTabIsTestSuite &&
-          !activeTabIsEnvironment &&
-          !activeTabIsSettings &&
-          !activeTabIsApiServer &&
-          !activeTabIsMcpServer &&
-          !activeTabIsWorkspaceSearch &&
-          !activeTabIsSecurityChecks
-        ) {
-          runCurrentTabQuery('explain')
-        }
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [
-    actions,
-    activeConnectionId,
-    activeTab,
-    activeTabIsApiServer,
-    activeTabIsMcpServer,
-    activeTabIsSecurityChecks,
-    activeTabIsEnvironment,
-    activeTabIsExplorer,
-    activeTabIsMetrics,
-    activeTabIsObjectView,
-    activeTabIsSettings,
-    activeTabIsTestSuite,
-    activeTabIsWorkspaceSearch,
-    bottomPanelVisibleRef,
-    keyboardShortcuts,
-    openQueryTab,
-    requestCloseTab,
-    requestSaveQuery,
-    runCurrentTabQuery,
-    snapshot,
-  ])
-
-  return null
-}
-
 function DesktopWorkspace() {
   const {
     status,
@@ -540,7 +252,7 @@ function DesktopWorkspace() {
   >({})
   const initializedQueryModeByTabRef = useRef<Record<string, string>>({})
   const lastActiveQueryModeSyncKeyRef = useRef<string | undefined>(undefined)
-  const oracleIntellisenseLoadRef = useRef<string | undefined>(undefined)
+  const structureRefreshLoadRef = useRef<string | undefined>(undefined)
   const queryWindowModeByTabRef = useRef<Record<string, QueryViewMode>>({})
   const environmentDraftsRef = useRef<Record<string, EnvironmentProfile>>({})
   const environmentSecretDraftsRef = useRef<Record<string, Record<string, string>>>({})
@@ -614,6 +326,9 @@ function DesktopWorkspace() {
   )
 
   const snapshot = payload?.snapshot
+  const snapshotConnections = snapshot?.connections
+  const snapshotEnvironments = snapshot?.environments
+  const snapshotTabs = snapshot?.tabs
   const activeConnection =
     snapshot?.connections.find((item) => item.id === snapshot.ui.activeConnectionId) ??
     snapshot?.connections[0]
@@ -1054,7 +769,10 @@ function DesktopWorkspace() {
       : undefined
   const activeBuilderKind = activeBuilderState?.kind
   const hasBuilderQuery = Boolean(activeBuilderState)
-  const activeTabSupportsScripting = activeConnection?.engine === 'mongodb'
+  const activeWorkbenchSlice = activeConnection
+    ? workbenchSliceForEngine(activeConnection.engine)
+    : undefined
+  const activeTabSupportsScripting = Boolean(activeWorkbenchSlice?.query?.supportsScripting)
   const activeQueryWindowMode: QueryViewMode = hasBuilderQuery
     ? queryWindowMode === 'script' && !activeTabSupportsScripting
       ? 'builder'
@@ -1104,13 +822,13 @@ function DesktopWorkspace() {
     activeTabId && activeQueryWindowMode !== 'builder'
       ? editorSelectionDrafts[activeTabId]?.trim()
       : ''
-  const activeMongoQueryScope = mongoQueryScopeForTab({
-    builderState: activeBuilderState,
-    connection: activeConnection,
-    queryText: activeEditorQueryText,
-    scriptText: activeTabScriptText,
-    tab: activeTab,
-  })
+  const activeMongoQueryScope = queryScopeForBuilderState(
+    activeBuilderState,
+    activeConnection,
+    activeTab,
+    activeEditorQueryText,
+    activeTabScriptText,
+  )
   const intellisenseCatalog = useQueryIntellisenseCatalog({
     connection: activeConnection,
     environment: activeEnvironment,
@@ -1350,10 +1068,8 @@ function DesktopWorkspace() {
     if (
       !activeConnectionId ||
       !activeEnvironmentId ||
-      !(
-        connectionUsesManagedOracleRuntime(activeConnection) ||
-        activeConnection?.engine === 'mongodb'
-      )
+      !activeConnection ||
+      !activeWorkbenchSlice?.query?.requiresStructureRefresh?.(activeConnection)
     ) {
       return
     }
@@ -1363,13 +1079,13 @@ function DesktopWorkspace() {
       environmentId: activeEnvironmentId,
       limit: 160,
     })
-  }, [actions, activeConnection, activeConnectionId, activeEnvironmentId])
+  }, [actions, activeConnection, activeConnectionId, activeEnvironmentId, activeWorkbenchSlice])
 
   useEffect(() => {
-    if (activeQueryWindowMode === 'script' && activeConnection?.engine === 'mongodb') {
+    if (activeQueryWindowMode === 'script' && activeTabSupportsScripting) {
       requestIntellisenseRefresh()
     }
-  }, [activeConnection?.engine, activeQueryWindowMode, requestIntellisenseRefresh])
+  }, [activeQueryWindowMode, activeTabSupportsScripting, requestIntellisenseRefresh])
 
   const rememberRedisConsoleCommand = useCallback((
     tabId: string,
@@ -1498,7 +1214,7 @@ function DesktopWorkspace() {
     }
 
     const documentEfficiencyMode =
-      activeConnection?.engine === 'mongodb' && activeDocumentEfficiencyMode
+      Boolean(activeWorkbenchSlice?.query?.supportsDocumentEfficiency) && activeDocumentEfficiencyMode
 
     if (!generatedQueryText || !builderState) {
       void actions.executeQuery(
@@ -1529,6 +1245,7 @@ function DesktopWorkspace() {
     activeConnection,
     activeDocumentEfficiencyMode,
     activeQueryWindowMode,
+    activeWorkbenchSlice?.query?.supportsDocumentEfficiency,
     activeTab,
     commitQueryTextDraft,
     rememberRedisConsoleCommand,
@@ -1606,8 +1323,12 @@ function DesktopWorkspace() {
         ...request,
         confirmationText,
       })
-      if (execution?.executed && isMongoManagementOperation(request.operationId)) {
-        for (const scope of mongoManagementRefreshScopes(request)) {
+      const connection = snapshot?.connections.find((item) => item.id === request.connectionId)
+      const refreshScopes = connection
+        ? runtimeSliceForEngine(connection.engine)?.operation?.refreshScopesAfterExecution?.(request) ?? []
+        : []
+      if (execution?.executed) {
+        for (const scope of refreshScopes) {
           void actions.loadExplorer({
             connectionId: request.connectionId,
             environmentId: request.environmentId,
@@ -1619,7 +1340,7 @@ function DesktopWorkspace() {
 
       return operationExecutionPlanResponse(response, execution)
     },
-    [actions, confirmReview],
+    [actions, confirmReview, snapshot?.connections],
   )
 
   const persistBuilderState = (tabId: string, builderState: QueryBuilderState) => {
@@ -1675,7 +1396,7 @@ function DesktopWorkspace() {
 
   const flushQueryTabDrafts = useCallback(
     async (tabId: string) => {
-      const tab = snapshot?.tabs.find((item) => item.id === tabId)
+      const tab = snapshotTabs?.find((item) => item.id === tabId)
 
       if (
         !tab ||
@@ -1692,7 +1413,7 @@ function DesktopWorkspace() {
         return
       }
 
-      const connection = snapshot?.connections.find((item) => item.id === tab.connectionId)
+      const connection = snapshotConnections?.find((item) => item.id === tab.connectionId)
       const builderState = builderStateDraftRef.current[tabId]
       const draftQueryText = queryTextDraftRef.current[tabId]
       const draftScriptText = scriptTextDraftRef.current[tabId]
@@ -1730,18 +1451,18 @@ function DesktopWorkspace() {
         await actions.updateQuery(tabId, draftQueryText)
       }
     },
-    [actions, snapshot?.connections, snapshot?.tabs],
+    [actions, snapshotConnections, snapshotTabs],
   )
 
   const saveEnvironmentTabDraft = useCallback(
     async (tabId: string) => {
-      const tab = snapshot?.tabs.find((item) => item.id === tabId)
+      const tab = snapshotTabs?.find((item) => item.id === tabId)
 
       if (!tab || tab.tabKind !== 'environment') {
         return
       }
 
-      const savedEnvironment = snapshot?.environments.find(
+      const savedEnvironment = snapshotEnvironments?.find(
         (item) => item.id === tab.environmentId,
       )
       const draft = environmentDraftsRef.current[tabId] ?? savedEnvironment
@@ -1773,13 +1494,13 @@ function DesktopWorkspace() {
         await actions.renameTab(tabId, nextTitle)
       }
     },
-    [actions, snapshot?.environments, snapshot?.tabs],
+    [actions, snapshotEnvironments, snapshotTabs],
   )
 
   const requestSaveQuery = useCallback(
     (tabId: string) => {
       void (async () => {
-        const tab = snapshot?.tabs.find((item) => item.id === tabId)
+        const tab = snapshotTabs?.find((item) => item.id === tabId)
 
         if (!tab) {
           return
@@ -1808,7 +1529,7 @@ function DesktopWorkspace() {
         setPendingSaveTabId(tabId)
       })()
     },
-    [actions, flushQueryTabDrafts, saveEnvironmentTabDraft, snapshot?.tabs],
+    [actions, flushQueryTabDrafts, saveEnvironmentTabDraft, snapshotTabs],
   )
 
   useEffect(() => {
@@ -1883,8 +1604,7 @@ function DesktopWorkspace() {
   useEffect(() => {
     if (
       !activeConnection ||
-      activeConnection.engine !== 'oracle' ||
-      !connectionUsesManagedOracleRuntime(activeConnection) ||
+      !activeWorkbenchSlice?.query?.requiresStructureRefresh?.(activeConnection) ||
       !activeConnectionId ||
       !activeEnvironmentId ||
       !activeTab ||
@@ -1910,12 +1630,12 @@ function DesktopWorkspace() {
     if (
       structureIsCurrent ||
       structureStatus === 'loading' ||
-      oracleIntellisenseLoadRef.current === requestKey
+      structureRefreshLoadRef.current === requestKey
     ) {
       return
     }
 
-    oracleIntellisenseLoadRef.current = requestKey
+    structureRefreshLoadRef.current = requestKey
     void actions.loadStructureMap({
       connectionId: activeConnectionId,
       environmentId: activeEnvironmentId,
@@ -1924,6 +1644,7 @@ function DesktopWorkspace() {
   }, [
     actions,
     activeConnection,
+    activeWorkbenchSlice,
     activeConnectionId,
     activeEnvironmentId,
     activeTab,
@@ -1949,11 +1670,11 @@ function DesktopWorkspace() {
       return
     }
 
-    const database = mongoQueryScopeForTab({
+    const database = queryScopeForBuilderState(
       builderState,
-      connection: activeConnection,
-      tab: activeTab,
-    })?.database
+      activeConnection,
+      activeTab,
+    )?.database
     const scopedBuilderState = queryBuilderStateWithDatabase(builderState, database)
     const queryText = buildQueryTextForBuilderState(
       scopedBuilderState,
@@ -2007,7 +1728,7 @@ function DesktopWorkspace() {
       !activeConnectionId ||
       !activeEnvironmentId ||
       !activeTabIsExplorer ||
-      !connectionUsesManagedOracleRuntime(activeConnection)
+      !activeConnection
     ) {
       return
     }
@@ -2644,7 +2365,7 @@ function DesktopWorkspace() {
   }
 
   const openActiveMongoAddDocumentView = () => {
-    if (!activeConnection || activeConnection.engine !== 'mongodb') {
+    if (!activeConnection || !activeWorkbenchSlice?.query?.supportsAddDocument) {
       return
     }
 
@@ -3359,12 +3080,12 @@ function DesktopWorkspace() {
                       }
                       onOpenConnectionDrawer={openConnectionDrawer}
                       canAddDocument={Boolean(
-                        activeConnection.engine === 'mongodb' &&
+                        activeWorkbenchSlice?.query?.supportsAddDocument &&
                         activeMongoQueryScope?.collection,
                       )}
                       onAddDocument={openActiveMongoAddDocumentView}
                       canToggleDocumentEfficiency={Boolean(
-                        activeConnection.engine === 'mongodb' &&
+                        activeWorkbenchSlice?.query?.supportsDocumentEfficiency &&
                         activeTab.tabKind !== 'explorer' &&
                         activeTab.tabKind !== 'metrics' &&
                         activeTab.tabKind !== 'object-view' &&
@@ -3453,7 +3174,7 @@ function DesktopWorkspace() {
                         !activeRedisKeyBrowserVisible
                       }
                       showScriptingGuideToggle={
-                        activeConnection.engine === 'mongodb' && activeQueryWindowMode === 'script'
+                        activeTabSupportsScripting && activeQueryWindowMode === 'script'
                       }
                       scriptingGuideVisible={snapshot.ui.mongoScriptGuideVisible}
                       onToggleScriptingGuide={() => {
@@ -3504,84 +3225,41 @@ function DesktopWorkspace() {
                             redisRefreshSignal={redisBrowserRefreshSignals[activeTab.id] ?? 0}
                           />
                         ) : null}
-                        {activeQueryWindowMode !== 'builder' ? (
-                          activeRedisConsoleVisible ? (
-                            <RedisConsoleEditor
-                              value={activeEditorQueryText ?? 'PING'}
-                              engineLabel={activeConnection.engine === 'valkey' ? 'Valkey' : 'Redis'}
-                              history={
-                                isRedisKeyBrowserState(activeBuilderState)
-                                  ? activeBuilderState.consoleHistory ?? []
-                                  : []
-                              }
-                              pipelineMode={
-                                isRedisKeyBrowserState(activeBuilderState)
-                                  ? Boolean(activeBuilderState.pipelineMode)
-                                  : false
-                              }
-                              theme={resolvedTheme}
-                              resetKey={activeEditorResetKey}
-                              completionContext={completionContext}
-                              completionProviders={completionProviders}
-                              onRequestCompletionRefresh={requestIntellisenseRefresh}
-                              onRun={() => runCurrentTabQuery()}
-                              onSelectionChange={rememberActiveEditorSelection}
-                              onPipelineModeChange={(enabled) => {
-                                setRedisConsolePipelineMode(
-                                  activeTab.id,
-                                  activeBuilderState,
-                                  enabled,
-                                )
-                              }}
-                              onChange={(value) => {
-                                scheduleQueryTextDraftSync(activeTab.id, value)
-                              }}
-                            />
-                          ) : activeQueryWindowMode === 'script' ? (
-                            <MongoScriptWorkspace
-                              value={activeEditorQueryText ?? ''}
-                              theme={resolvedTheme}
-                              resetKey={activeEditorResetKey}
-                              database={activeMongoQueryScope?.database ?? activeConnection.database}
-                              collection={activeMongoQueryScope?.collection}
-                              guideVisible={snapshot.ui.mongoScriptGuideVisible}
-                              guideWidth={snapshot.ui.mongoScriptGuideWidth}
-                              completionContext={completionContext}
-                              completionProviders={completionProviders}
-                              onRequestCompletionRefresh={requestIntellisenseRefresh}
-                              onSelectionChange={rememberActiveEditorSelection}
-                              onGuideWidthChange={(mongoScriptGuideWidth) => {
-                                void actions.updateUiState({ mongoScriptGuideWidth })
-                              }}
-                              onChange={(value) => {
-                                const nextScriptText = value ?? ''
-                                scheduleScriptTextDraftSync(activeTab.id, nextScriptText)
-                              }}
-                            />
-                          ) : (
-                            <DesktopCodeEditor
-                              value={activeEditorQueryText ?? activeTab.queryText}
-                              language={runtimeCapabilities.editorLanguage}
-                              theme={resolvedTheme}
-                              resetKey={activeEditorResetKey}
-                              completionContext={completionContext}
-                              completionProviders={completionProviders}
-                              onRequestCompletionRefresh={requestIntellisenseRefresh}
-                              onSelectionChange={rememberActiveEditorSelection}
-                              onChange={(value) => {
-                                const nextQueryText = value ?? ''
-                                scheduleQueryTextDraftSync(activeTab.id, nextQueryText)
-                              }}
-                              onDropField={(fieldPath) => {
-                                const nextQueryText = appendFieldToQueryText(
-                                  activeTabQueryText ?? activeTab.queryText,
-                                  fieldPath,
-                                )
-                                commitQueryTextDraft(activeTab.id, nextQueryText, 'raw')
-                              }}
-                            />
-                          )
-                        ) : null}
+                        <DatastoreQueryEditor
+                          mode={activeQueryWindowMode}
+                          redisConsoleVisible={activeRedisConsoleVisible}
+                          connection={activeConnection}
+                          builderState={activeBuilderState}
+                          value={activeEditorQueryText}
+                          rawValue={activeTab.queryText}
+                          language={runtimeCapabilities.editorLanguage}
+                          theme={resolvedTheme}
+                          resetKey={activeEditorResetKey}
+                          completionContext={completionContext}
+                          completionProviders={completionProviders}
+                          mongoDatabase={activeMongoQueryScope?.database}
+                          mongoCollection={activeMongoQueryScope?.collection}
+                          mongoGuideVisible={snapshot.ui.mongoScriptGuideVisible}
+                          mongoGuideWidth={snapshot.ui.mongoScriptGuideWidth}
+                          onRequestCompletionRefresh={requestIntellisenseRefresh}
+                          onSelectionChange={rememberActiveEditorSelection}
+                          onRun={() => runCurrentTabQuery()}
+                          onRedisPipelineModeChange={(enabled) => {
+                            setRedisConsolePipelineMode(activeTab.id, activeBuilderState, enabled)
+                          }}
+                          onRawChange={(value) => scheduleQueryTextDraftSync(activeTab.id, value)}
+                          onScriptChange={(value) => scheduleScriptTextDraftSync(activeTab.id, value)}
+                          onMongoGuideWidthChange={(mongoScriptGuideWidth) => {
+                            void actions.updateUiState({ mongoScriptGuideWidth })
+                          }}
+                          onDropField={(fieldPath) => {
+                            const nextQueryText = appendFieldToQueryText(
+                              activeTabQueryText ?? activeTab.queryText,
+                              fieldPath,
+                            )
+                            commitQueryTextDraft(activeTab.id, nextQueryText, 'raw')
+                          }}
+                        />
                       </div>
                     </div>
                   </>
@@ -3804,46 +3482,6 @@ function DesktopWorkspace() {
       />
     </div>
   )
-}
-
-function buildQueryTextForBuilderState(
-  builderState: QueryBuilderState,
-  connection: ConnectionProfile | undefined,
-  tab?: QueryTabState,
-) {
-  if (isMongoFindBuilderState(builderState)) {
-    return buildMongoFindQueryText(builderState, {
-      database: mongoQueryScopeForTab({ builderState, connection, tab })?.database,
-    })
-  }
-
-  if (isMongoAggregationBuilderState(builderState)) {
-    return buildMongoAggregationQueryText(builderState, {
-      database: mongoQueryScopeForTab({ builderState, connection, tab })?.database,
-    })
-  }
-
-  if (connection && isSqlSelectBuilderState(builderState)) {
-    return buildSqlSelectQueryText(builderState, connection.engine)
-  }
-
-  if (isDynamoDbKeyConditionBuilderState(builderState)) {
-    return buildDynamoDbKeyConditionQueryText(builderState)
-  }
-
-  if (isCqlPartitionBuilderState(builderState)) {
-    return buildCqlPartitionQueryText(builderState)
-  }
-
-  if (isSearchDslBuilderState(builderState)) {
-    return buildSearchDslQueryText(builderState)
-  }
-
-  if (isRedisKeyBrowserState(builderState)) {
-    return undefined
-  }
-
-  return undefined
 }
 
 function apiServerInstancesFromPreferences(

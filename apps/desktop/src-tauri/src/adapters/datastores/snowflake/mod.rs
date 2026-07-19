@@ -17,6 +17,10 @@ pub(crate) struct SnowflakeAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for SnowflakeAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         snowflake_manifest()
     }

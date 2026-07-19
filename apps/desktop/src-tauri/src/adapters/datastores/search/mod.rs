@@ -35,6 +35,10 @@ const OPENSEARCH: SearchEngine = SearchEngine {
 
 #[async_trait]
 impl DatastoreAdapter for ElasticsearchAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         search_manifest(ELASTICSEARCH)
     }
@@ -117,6 +121,10 @@ impl DatastoreAdapter for ElasticsearchAdapter {
 
 #[async_trait]
 impl DatastoreAdapter for OpenSearchAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         search_manifest(OPENSEARCH)
     }

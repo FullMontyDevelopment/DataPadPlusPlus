@@ -317,13 +317,20 @@ async function validateOpenSearchPluginBoundaries(engine) {
   ])
 
   const security = await searchRaw(engine, 'GET', '/_plugins/_security/api/roles')
-  expectBoundaryStatus(engine, 'security plugin boundary evidence', security, [
-    401,
-    403,
-    404,
-    405,
-    501,
-  ])
+  if (security.status === 400) {
+    expect(
+      /no handler found for uri \[\/_plugins\/_security\/api\/roles\]/i.test(security.text),
+      `${engine.label} security plugin boundary returned an unexpected 400 payload: ${security.text}`,
+    )
+  } else {
+    expectBoundaryStatus(engine, 'security plugin boundary evidence', security, [
+      401,
+      403,
+      404,
+      405,
+      501,
+    ])
+  }
 
   const performanceAnalyzer = await searchRaw(engine, 'GET', '/_plugins/_performanceanalyzer/metrics')
   expectBoundaryStatus(engine, 'Performance Analyzer boundary evidence', performanceAnalyzer, [

@@ -18,6 +18,10 @@ const VALKEY_CAPABILITIES: &[&str] = &[
 
 #[async_trait]
 impl DatastoreAdapter for ValkeyAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         manifest_with_maturity(
             "adapter-valkey",
@@ -74,6 +78,22 @@ impl DatastoreAdapter for ValkeyAdapter {
         request: &StructureRequest,
     ) -> Result<StructureResponse, CommandError> {
         load_redis_structure(connection, request).await
+    }
+
+    async fn scan_redis_keys(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &RedisKeyScanRequest,
+    ) -> Result<RedisKeyScanResponse, CommandError> {
+        RedisAdapter.scan_redis_keys(connection, request).await
+    }
+
+    async fn inspect_redis_key(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &RedisKeyInspectRequest,
+    ) -> Result<ExecutionResultEnvelope, CommandError> {
+        RedisAdapter.inspect_redis_key(connection, request).await
     }
 
     async fn execute(

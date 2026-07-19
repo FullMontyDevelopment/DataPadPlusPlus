@@ -20,6 +20,21 @@ Every adapter should supply:
 - diagnostics for plans, profiles, metrics, series, query history, and warnings
 - error normalization and user-facing hints
 
+These surfaces are explicit adapter hooks. The default adapter may build an unsupported or preview response, but it must not silently perform network or mutation work. Planned engines use an explicit family provider rather than inheriting engine-specific behavior from the default implementation.
+
+## Provider Ownership
+
+The adapter registry contains composition only: one engine registration points to one concrete adapter. Operational behavior belongs to the engine slice (`catalog`, `tree`, `experience`, `operations`, `editing`, `explorer`, `query`, `diagnostics`, and `import_export` as applicable). Reusable family behavior belongs under `datastores/common/<family>` and must not import a concrete engine provider or switch on an engine id.
+
+Subsystem registries are intentionally separate from the adapter registry:
+
+- API Server providers own resource kinds, identities, datastore read/mutation requests, and schema hints.
+- MCP read-policy providers own datastore read-only classification while common authentication and loopback policy run before dispatch.
+- Security-check providers own version mapping, profile posture, and bounded deep probes; common code owns cache/source orchestration and finding sanitization.
+- Runtime and workbench slices own browser-preview execution, tree placement, object actions, query targets/templates, and builder serialization.
+
+Compatibility facades remain stable while ownership moves behind them. Provider registries must have exactly one applicable provider for every declared engine.
+
 Mature adapters can also add safe live edit support for natural data edits. These edits are separate from destructive/admin operations and must be identity-safe.
 
 ## Experience Manifest

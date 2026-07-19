@@ -17,6 +17,10 @@ pub(crate) struct PrometheusAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for PrometheusAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         prometheus_manifest()
     }

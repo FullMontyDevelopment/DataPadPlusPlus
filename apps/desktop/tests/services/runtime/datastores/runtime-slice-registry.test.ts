@@ -40,6 +40,38 @@ describe('datastore runtime slice registry', () => {
     }
   })
 
+  it('dispatches post-operation explorer refresh policy through the owning runtime slice', () => {
+    const hook = runtimeSliceForEngine('mongodb')?.operation?.refreshScopesAfterExecution
+
+    expect(hook?.({
+      connectionId: 'conn-mongodb',
+      environmentId: 'env-local',
+      operationId: 'mongodb.collection.rename',
+      parameters: {
+        database: 'sales',
+        targetDatabase: 'archive',
+      },
+    })).toEqual([
+      'databases',
+      'system-databases',
+      'database:sales',
+      'collections:sales',
+      'time-series-collections:sales',
+      'capped-collections:sales',
+      'views:sales',
+      'database:archive',
+      'collections:archive',
+      'time-series-collections:archive',
+      'capped-collections:archive',
+      'views:archive',
+    ])
+    expect(hook?.({
+      connectionId: 'conn-mongodb',
+      environmentId: 'env-local',
+      operationId: 'mongodb.query.explain',
+    })).toEqual([])
+  })
+
   it('keeps every registered engine safe through common runtime entrypoints', () => {
     for (const entry of DATASTORE_FEATURE_BACKLOG) {
       const connection = connectionFor(entry.engine, entry.family, entry.defaultPort)

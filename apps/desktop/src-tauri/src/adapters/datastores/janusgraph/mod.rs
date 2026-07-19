@@ -19,6 +19,10 @@ pub(crate) struct JanusGraphAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for JanusGraphAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         janusgraph_manifest()
     }

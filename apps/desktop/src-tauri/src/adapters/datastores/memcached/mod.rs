@@ -17,6 +17,10 @@ pub(crate) struct MemcachedAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for MemcachedAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         memcached_manifest()
     }

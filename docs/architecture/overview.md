@@ -69,7 +69,11 @@ Each datastore integration is isolated behind the Rust adapter contract. A matur
 - import/export and backup/restore planning
 - error normalization and user-facing hints
 
-Datastore-specific code should live under the relevant engine folder whenever practical. Shared family helpers should be used for identifiers, pagination, result builders, guardrails, secret redaction, and operation planning.
+Datastore-specific code lives under the relevant engine slice. A registry is a composition root: it associates one declared engine with one concrete provider and does not implement datastore behavior. Family-common modules may own identifiers, pagination, result builders, quoting, guardrails, secret redaction, and normalization, but they must not choose behavior by engine name.
+
+Tree manifests and generated operation requests are exposed through stable common facades and delegated to provider modules. Global operation safety stays outside those providers: the shared executor resolves the manifest and plan, applies read-only, safe-mode, confirmation, execution-support, redaction, and environment policy, and only then invokes an adapter-owned live hook.
+
+API Server, MCP Server, security-check, runtime, and workbench integrations follow the same bounded-provider rule. Their shared protocol or shell modules own orchestration and policy; datastore providers own resource identities, query/request generation, schema hints, read classification, version mapping, and bounded probes.
 
 ### Infrastructure Layer
 
@@ -106,6 +110,10 @@ The current repo uses:
 - `packages/shared-types` for product contracts, capabilities, catalog entries, runtime payloads, and datastore experiences
 - `tests/fixtures` for Docker Compose fixtures, generated env files, and repeatable seed data
 - `docs/` for architecture, feature, testing, release, and contributing material
+
+Rust domain models are split by adapter, execution, workspace, Library, API Server, MCP Server, security, and UI-state ownership. `domain::models` re-exports those modules so existing command paths and serialized shapes remain stable. Tauri workspace commands are similarly split by command domain and re-exported through `commands::workspace`, preserving every registered command name.
+
+Architecture checks enforce ownership, allowed dependencies, registry completeness, and compatibility facades. They intentionally do not impose a numeric source-file line limit; a split is required when responsibilities or dependencies cross a durable boundary, not when a counter is exceeded.
 
 ## Naming
 

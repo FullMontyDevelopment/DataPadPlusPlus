@@ -19,6 +19,10 @@ pub(crate) struct ArangoDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for ArangoDbAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         arango_manifest()
     }

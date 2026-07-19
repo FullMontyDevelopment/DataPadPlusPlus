@@ -33,6 +33,52 @@ pub(crate) struct MongoDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for MongoDbAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if matches!(
+            request.operation_id.as_str(),
+            "mongodb.collection.export" | "mongodb.collection.import"
+        ) {
+            return execute_mongodb_collection_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        if matches!(
+            request.operation_id.as_str(),
+            "mongodb.database.create"
+                | "mongodb.database.drop"
+                | "mongodb.collection.create"
+                | "mongodb.collection.drop"
+                | "mongodb.collection.rename"
+                | "mongodb.collection.modify"
+                | "mongodb.collection.convert-to-capped"
+                | "mongodb.collection.clone-as-capped"
+                | "mongodb.collection.compact"
+                | "mongodb.collection.validate"
+        ) {
+            return execute_mongodb_management_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         mongodb_manifest()
     }
@@ -62,6 +108,30 @@ impl DatastoreAdapter for MongoDbAdapter {
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
         inspect_mongodb_explorer_node(connection, request).await
+    }
+
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_mongodb_structure(connection, request).await
+    }
+
+    async fn fetch_document_node_children(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &DocumentNodeChildrenRequest,
+    ) -> Result<DocumentNodeChildrenResponse, CommandError> {
+        fetch_mongodb_document_node_children(connection, request).await
+    }
+
+    async fn fetch_result_page(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ResultPageRequest,
+    ) -> Result<ResultPageResponse, CommandError> {
+        fetch_mongodb_page(connection, request).await
     }
 
     async fn execute(

@@ -21,6 +21,10 @@ pub(crate) struct OracleAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for OracleAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         oracle_manifest()
     }

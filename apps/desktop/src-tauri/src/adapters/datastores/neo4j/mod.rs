@@ -20,6 +20,10 @@ pub(crate) struct Neo4jAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for Neo4jAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         neo4j_manifest()
     }

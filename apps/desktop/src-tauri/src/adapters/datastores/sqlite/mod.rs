@@ -24,6 +24,34 @@ pub(crate) struct SqliteAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for SqliteAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if matches!(
+            request.operation_id.as_str(),
+            "sqlite.database.backup" | "sqlite.table.export" | "sqlite.table.import"
+        ) {
+            return execute_sqlite_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         sqlite_manifest()
     }
@@ -57,6 +85,22 @@ impl DatastoreAdapter for SqliteAdapter {
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
         inspect_sqlite_explorer_node(connection, request).await
+    }
+
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_sqlite_structure(connection, request).await
+    }
+
+    async fn fetch_result_page(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ResultPageRequest,
+    ) -> Result<ResultPageResponse, CommandError> {
+        fetch_sqlite_page(connection, request).await
     }
 
     async fn execute(

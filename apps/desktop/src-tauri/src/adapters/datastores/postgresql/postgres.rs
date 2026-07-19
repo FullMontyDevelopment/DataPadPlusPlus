@@ -9,6 +9,34 @@ pub(crate) struct PostgresAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for PostgresAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if matches!(
+            request.operation_id.as_str(),
+            "postgresql.data.import-export" | "postgresql.data.backup-restore"
+        ) {
+            return execute_postgres_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         manifest(
             "adapter-postgresql",
@@ -109,6 +137,22 @@ impl DatastoreAdapter for PostgresAdapter {
     ) -> Result<ExplorerInspectResponse, CommandError> {
         explorer::inspect_postgres_explorer_node(connection, request).await
     }
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_postgres_structure(connection, request).await
+    }
+
+    async fn fetch_result_page(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ResultPageRequest,
+    ) -> Result<ResultPageResponse, CommandError> {
+        fetch_postgres_page(connection, request).await
+    }
+
     async fn execute(
         &self,
         connection: &ResolvedConnectionProfile,

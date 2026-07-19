@@ -113,6 +113,12 @@ export interface BootstrapPayload {
   snapshot: WorkspaceSnapshot
   resolvedEnvironment: ResolvedEnvironment
   diagnostics: DiagnosticsReport
+  persistenceWarning?: PersistenceWarning
+}
+
+export interface PersistenceWarning {
+  code: string
+  message: string
 }
 
 export interface ExportBundle {

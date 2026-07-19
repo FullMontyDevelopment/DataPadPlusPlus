@@ -17,6 +17,10 @@ pub(crate) struct CosmosDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for CosmosDbAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         cosmosdb_manifest()
     }

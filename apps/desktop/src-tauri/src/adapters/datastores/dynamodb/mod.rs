@@ -17,6 +17,10 @@ pub(crate) struct DynamoDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for DynamoDbAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         dynamodb_manifest()
     }

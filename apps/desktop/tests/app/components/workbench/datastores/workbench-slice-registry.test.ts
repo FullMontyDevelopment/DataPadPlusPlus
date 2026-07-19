@@ -50,4 +50,17 @@ describe('datastore workbench slice registry', () => {
       }
     }
   })
+
+  it('owns query-mode policy in datastore workbench slices', () => {
+    const mongodb = workbenchSliceForEngine('mongodb')
+    const oracle = workbenchSliceForEngine('oracle')
+
+    expect(mongodb?.query).toMatchObject({
+      supportsScripting: true,
+      supportsDocumentEfficiency: true,
+      supportsAddDocument: true,
+    })
+    expect(mongodb?.query?.requiresStructureRefresh?.({} as never)).toBe(true)
+    expect(typeof oracle?.query?.requiresStructureRefresh).toBe('function')
+  })
 })

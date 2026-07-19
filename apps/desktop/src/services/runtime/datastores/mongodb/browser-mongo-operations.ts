@@ -276,6 +276,44 @@ export function mongoOperationRequest(request: OperationPlanRequest) {
   }, null, 2)
 }
 
+export function mongoManagementRefreshScopes(request: OperationPlanRequest) {
+  if (!isMongoManagementOperation(request.operationId)) {
+    return []
+  }
+
+  const parameters = request.parameters ?? {}
+  const database = stringParameter(parameters.database)
+  const targetDatabase = stringParameter(parameters.targetDatabase)
+  const scopes = new Set(['databases', 'system-databases'])
+
+  for (const name of [database, targetDatabase].filter(Boolean)) {
+    scopes.add(`database:${name}`)
+    scopes.add(`collections:${name}`)
+    scopes.add(`time-series-collections:${name}`)
+    scopes.add(`capped-collections:${name}`)
+    scopes.add(`views:${name}`)
+  }
+
+  return [...scopes]
+}
+
+function isMongoManagementOperation(operationId: string) {
+  return operationId === 'mongodb.database.create' ||
+    operationId === 'mongodb.database.drop' ||
+    operationId === 'mongodb.collection.create' ||
+    operationId === 'mongodb.collection.drop' ||
+    operationId === 'mongodb.collection.rename' ||
+    operationId === 'mongodb.collection.modify' ||
+    operationId === 'mongodb.collection.convert-to-capped' ||
+    operationId === 'mongodb.collection.clone-as-capped' ||
+    operationId === 'mongodb.collection.compact' ||
+    operationId === 'mongodb.collection.validate'
+}
+
+function stringParameter(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
 function asRecord(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>

@@ -18,6 +18,10 @@ pub(crate) struct ClickHouseAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for ClickHouseAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         clickhouse_manifest()
     }

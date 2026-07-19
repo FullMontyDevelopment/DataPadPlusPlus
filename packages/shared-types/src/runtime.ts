@@ -5,6 +5,7 @@ import type {
   RightDrawerView,
   SidebarPane,
   UiActivity,
+  PersistenceWarning,
 } from './app'
 import type { ConnectionProfile, DatastoreEngine, DatastoreFamily } from './connection'
 import type {
@@ -922,10 +923,7 @@ export interface ExecutionResponse {
   result?: ExecutionResultEnvelope
   guardrail: GuardrailDecision
   diagnostics: string[]
-  persistenceWarning?: {
-    code: string
-    message: string
-  }
+  persistenceWarning?: PersistenceWarning
 }
 
 export interface ResultPageRequest {

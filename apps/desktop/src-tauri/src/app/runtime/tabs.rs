@@ -18,10 +18,11 @@ use crate::domain::{
     error::CommandError,
     models::{
         BootstrapPayload, ClosedQueryTabSnapshot, CreateObjectViewTabRequest,
-        CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget,
-        UpdateQueryBuilderStateRequest, WorkspaceSnapshot,
+        CreateScopedQueryTabRequest, PersistenceWarning, QueryTabReorderRequest, QueryTabState,
+        ScopedQueryTarget, UpdateQueryBuilderStateRequest, WorkspaceSnapshot,
     },
 };
+use crate::infrastructure;
 
 impl ManagedAppState {
     pub fn set_active_tab(&mut self, tab_id: &str) -> Result<BootstrapPayload, CommandError> {
@@ -399,8 +400,19 @@ impl ManagedAppState {
         }
 
         self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
-        Ok(self.bootstrap_payload())
+        let persistence_warning = tab_close_persistence_warning(self.persist());
+        if let Some(warning) = persistence_warning.as_ref() {
+            infrastructure::log_warning(
+                "command",
+                format!(
+                    "tab-close-persist-failed tab={tab_id} code={} message={}",
+                    warning.code, warning.message
+                ),
+            );
+        }
+        let mut payload = self.bootstrap_payload();
+        payload.persistence_warning = persistence_warning;
+        Ok(payload)
     }
 
     pub fn reopen_closed_query_tab(
@@ -595,6 +607,15 @@ fn archive_closed_tab(snapshot: &mut WorkspaceSnapshot, mut tab: QueryTabState, 
         },
     );
     snapshot.closed_tabs.truncate(MAX_CLOSED_TABS);
+}
+
+pub(super) fn tab_close_persistence_warning(
+    result: Result<(), CommandError>,
+) -> Option<PersistenceWarning> {
+    result.err().map(|error| PersistenceWarning {
+        code: error.code,
+        message: error.message,
+    })
 }
 
 pub(super) fn reorder_query_tabs_in_place(

@@ -131,6 +131,13 @@ async function exists(relativePath) {
 }
 
 async function read(relativePath) {
+  if (relativePath === roots.roadmap) {
+    const roadmapFiles = await sourceFiles('packages/shared-types/src/datastore-roadmap', ['.ts'])
+    return (await Promise.all([
+      readFile(absolutePath(relativePath), 'utf8'),
+      ...roadmapFiles.map((file) => readFile(absolutePath(file), 'utf8')),
+    ])).join('\n')
+  }
   return readFile(absolutePath(relativePath), 'utf8')
 }
 

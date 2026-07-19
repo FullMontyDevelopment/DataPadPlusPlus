@@ -21,6 +21,10 @@ pub(crate) struct TimescaleAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for TimescaleAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         timescale_manifest()
     }

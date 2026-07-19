@@ -28,6 +28,34 @@ pub(crate) struct RedisAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for RedisAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if matches!(
+            request.operation_id.as_str(),
+            "redis.key.export" | "redis.key.import"
+        ) {
+            return execute_redis_key_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         redis_manifest()
     }
@@ -57,6 +85,38 @@ impl DatastoreAdapter for RedisAdapter {
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
         inspect_redis_explorer_node(connection, request).await
+    }
+
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_redis_structure(connection, request).await
+    }
+
+    async fn scan_redis_keys(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &RedisKeyScanRequest,
+    ) -> Result<RedisKeyScanResponse, CommandError> {
+        scan_redis_keys(connection, request).await
+    }
+
+    async fn inspect_redis_key(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &RedisKeyInspectRequest,
+    ) -> Result<ExecutionResultEnvelope, CommandError> {
+        inspect_redis_key(connection, request).await
+    }
+
+    async fn fetch_result_page(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ResultPageRequest,
+    ) -> Result<ResultPageResponse, CommandError> {
+        fetch_redis_page(connection, request).await
     }
 
     async fn execute(

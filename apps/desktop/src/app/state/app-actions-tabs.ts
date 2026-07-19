@@ -1,5 +1,5 @@
-import { useCallback, useMemo } from 'react'
-import type { QueryTabState } from '@datapadplusplus/shared-types'
+import { useCallback, useMemo, useRef } from 'react'
+import type { BootstrapPayload, QueryTabState } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { toUserMessage } from './app-state-selectors'
@@ -51,6 +51,25 @@ export function useQueryTabActions({
   applyPayload,
   handleError,
 }: AppActionContext): QueryTabActions {
+  const closingTabIdsRef = useRef(new Set<string>())
+  const runOpenTabMutation = useCallback(async (
+    tabId: string,
+    operation: () => Promise<BootstrapPayload>,
+  ) => {
+    if (closingTabIdsRef.current.has(tabId)) {
+      return
+    }
+    try {
+      const payload = await operation()
+      if (!closingTabIdsRef.current.has(tabId)) {
+        applyPayload(payload)
+      }
+    } catch (error) {
+      if (!closingTabIdsRef.current.has(tabId)) {
+        handleError(error)
+      }
+    }
+  }, [applyPayload, handleError])
   const recordTabIssue = useCallback((
     tab: QueryTabState | undefined,
     source: 'metrics' | 'object-view',
@@ -352,9 +371,14 @@ export function useQueryTabActions({
 
   const closeTab = useCallback<Actions['closeTab']>(
     async (tabId) => {
+      if (closingTabIdsRef.current.has(tabId)) {
+        return
+      }
+      closingTabIdsRef.current.add(tabId)
       try {
         applyPayload(await desktopClient.closeQueryTab(tabId))
       } catch (error) {
+        closingTabIdsRef.current.delete(tabId)
         handleError(error)
       }
     },
@@ -385,53 +409,41 @@ export function useQueryTabActions({
 
   const updateQuery = useCallback<Actions['updateQuery']>(
     async (tabId, queryText, queryViewMode, documentEfficiencyMode) => {
-      try {
-        applyPayload(
-          await desktopClient.updateQueryTab(
-            tabId,
-            queryText,
-            queryViewMode,
-            documentEfficiencyMode,
-          ),
+      await runOpenTabMutation(
+        tabId,
+        () => desktopClient.updateQueryTab(
+          tabId,
+          queryText,
+          queryViewMode,
+          documentEfficiencyMode,
         )
-      } catch (error) {
-        handleError(error)
-      }
+      )
     },
-    [applyPayload, handleError],
+    [runOpenTabMutation],
   )
 
   const updateQueryBuilderState = useCallback<Actions['updateQueryBuilderState']>(
     async (request) => {
-      try {
-        applyPayload(await desktopClient.updateQueryBuilderState(request))
-      } catch (error) {
-        handleError(error)
-      }
+      await runOpenTabMutation(
+        request.tabId,
+        () => desktopClient.updateQueryBuilderState(request),
+      )
     },
-    [applyPayload, handleError],
+    [runOpenTabMutation],
   )
 
   const updateTestSuiteTab = useCallback<Actions['updateTestSuiteTab']>(
     async (request) => {
-      try {
-        applyPayload(await desktopClient.updateTestSuiteTab(request))
-      } catch (error) {
-        handleError(error)
-      }
+      await runOpenTabMutation(request.tabId, () => desktopClient.updateTestSuiteTab(request))
     },
-    [applyPayload, handleError],
+    [runOpenTabMutation],
   )
 
   const renameTab = useCallback<Actions['renameTab']>(
     async (tabId, title) => {
-      try {
-        applyPayload(await desktopClient.renameQueryTab(tabId, title))
-      } catch (error) {
-        handleError(error)
-      }
+      await runOpenTabMutation(tabId, () => desktopClient.renameQueryTab(tabId, title))
     },
-    [applyPayload, handleError],
+    [runOpenTabMutation],
   )
 
   const saveCurrentQuery = useCallback<Actions['saveCurrentQuery']>(
@@ -447,6 +459,10 @@ export function useQueryTabActions({
 
   const saveAndCloseTab = useCallback<Actions['saveAndCloseTab']>(
     async (tabId) => {
+      if (closingTabIdsRef.current.has(tabId)) {
+        return
+      }
+      closingTabIdsRef.current.add(tabId)
       try {
         await saveQueryTabToCurrentTarget({
           payload: state.payload,
@@ -455,6 +471,7 @@ export function useQueryTabActions({
           closeAfterSave: true,
         })
       } catch (error) {
+        closingTabIdsRef.current.delete(tabId)
         handleError(error)
       }
     },

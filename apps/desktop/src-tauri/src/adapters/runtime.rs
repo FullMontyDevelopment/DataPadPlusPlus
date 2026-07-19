@@ -62,42 +62,27 @@ pub async fn fetch_document_node_children(
     connection: &ResolvedConnectionProfile,
     request: &DocumentNodeChildrenRequest,
 ) -> Result<DocumentNodeChildrenResponse, CommandError> {
-    if connection.engine != "mongodb" {
-        return Err(CommandError::new(
-            "document-lazy-unsupported",
-            "Lazy document expansion is only available for MongoDB document results in this milestone.",
-        ));
-    }
-
-    super::datastores::mongodb::fetch_mongodb_document_node_children(connection, request).await
+    adapter_for_engine(&connection.engine)?
+        .fetch_document_node_children(connection, request)
+        .await
 }
 
 pub async fn scan_redis_keys(
     connection: &ResolvedConnectionProfile,
     request: &RedisKeyScanRequest,
 ) -> Result<RedisKeyScanResponse, CommandError> {
-    if connection.engine != "redis" && connection.engine != "valkey" {
-        return Err(CommandError::new(
-            "redis-browser-unsupported",
-            "Redis key browsing is only available for Redis and Valkey connections.",
-        ));
-    }
-
-    super::datastores::redis::scan_redis_keys(connection, request).await
+    adapter_for_engine(&connection.engine)?
+        .scan_redis_keys(connection, request)
+        .await
 }
 
 pub async fn inspect_redis_key(
     connection: &ResolvedConnectionProfile,
     request: &RedisKeyInspectRequest,
 ) -> Result<ExecutionResultEnvelope, CommandError> {
-    if connection.engine != "redis" && connection.engine != "valkey" {
-        return Err(CommandError::new(
-            "redis-browser-unsupported",
-            "Redis key inspection is only available for Redis and Valkey connections.",
-        ));
-    }
-
-    super::datastores::redis::inspect_redis_key(connection, request).await
+    adapter_for_engine(&connection.engine)?
+        .inspect_redis_key(connection, request)
+        .await
 }
 
 pub async fn cancel(
@@ -137,9 +122,8 @@ pub async fn execute_operation(
     connection: &ResolvedConnectionProfile,
     request: &OperationExecutionRequest,
 ) -> Result<OperationExecutionResponse, CommandError> {
-    adapter_for_engine(&connection.engine)?
-        .execute_operation(connection, request)
-        .await
+    let adapter = adapter_for_engine(&connection.engine)?;
+    execute_guarded_operation(adapter.as_ref(), connection, request).await
 }
 
 pub async fn plan_data_edit(

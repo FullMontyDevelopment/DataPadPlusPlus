@@ -26,6 +26,37 @@ pub(crate) struct MysqlLikeAdapter {
 
 #[async_trait]
 impl DatastoreAdapter for MysqlLikeAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if matches!(
+            request.operation_id.as_str(),
+            "mysql.data.import-export"
+                | "mysql.data.backup-restore"
+                | "mariadb.data.import-export"
+                | "mariadb.data.backup-restore"
+        ) {
+            return execute_mysql_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         mysql_manifest(self.engine)
     }
@@ -93,6 +124,22 @@ impl DatastoreAdapter for MysqlLikeAdapter {
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
         inspect_mysql_explorer_node(self.engine, connection, request).await
+    }
+
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_mysql_structure(connection, request).await
+    }
+
+    async fn fetch_result_page(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ResultPageRequest,
+    ) -> Result<ResultPageResponse, CommandError> {
+        fetch_mysql_page(connection, request).await
     }
 
     async fn execute(

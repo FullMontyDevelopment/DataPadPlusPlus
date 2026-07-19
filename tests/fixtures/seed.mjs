@@ -366,7 +366,16 @@ function seedRedisStackDomain(container) {
   }
 
   seedKeyValueDomain(container)
-  redisCommandIfSupported(container, ['DEL', 'json:account:1', 'ts:orders:throughput'])
+  redisCommandIfSupported(container, [
+    'DEL',
+    'json:account:1',
+    'ts:orders:throughput',
+    'bf:seen-orders',
+    'cf:skus',
+    'cms:regions',
+    'topk:products',
+    'tdigest:latency',
+  ])
   redisCommandIfSupported(container, [
     'JSON.SET',
     'json:account:1',

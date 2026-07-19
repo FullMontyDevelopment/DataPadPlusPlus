@@ -18,6 +18,10 @@ pub(crate) struct CockroachAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for CockroachAdapter {
+    fn supports_standard_live_operations(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         cockroach_manifest()
     }
@@ -141,6 +145,22 @@ impl DatastoreAdapter for CockroachAdapter {
         PostgresAdapter
             .inspect_explorer_node(connection, request)
             .await
+    }
+
+    async fn load_structure_map(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &StructureRequest,
+    ) -> Result<StructureResponse, CommandError> {
+        load_postgres_structure(connection, request).await
+    }
+
+    async fn fetch_result_page(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ResultPageRequest,
+    ) -> Result<ResultPageResponse, CommandError> {
+        fetch_postgres_page(connection, request).await
     }
 
     async fn execute(

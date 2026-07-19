@@ -126,6 +126,7 @@ impl ManagedAppState {
             snapshot: self.snapshot.clone(),
             resolved_environment: self.resolve_environment(&self.snapshot.ui.active_environment_id),
             diagnostics: self.diagnostics(),
+            persistence_warning: None,
         }
     }
 

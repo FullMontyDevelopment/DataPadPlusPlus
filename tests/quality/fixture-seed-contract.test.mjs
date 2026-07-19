@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, readFile } from 'node:fs/promises'
+import { access, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 
@@ -10,7 +10,41 @@ function absolutePath(relativePath) {
 }
 
 async function read(relativePath) {
+  const splitRustSources = new Map([
+    [
+      'apps/desktop/src-tauri/src/adapters/common/operations/planning.rs',
+      'apps/desktop/src-tauri/src/adapters/common/operations/planning',
+    ],
+    [
+      'apps/desktop/src-tauri/src/adapters/common/operations/manifest.rs',
+      'apps/desktop/src-tauri/src/adapters/common/operations/manifest',
+    ],
+  ])
+  const splitFolder = splitRustSources.get(relativePath)
+  if (splitFolder) {
+    const folder = absolutePath(splitFolder)
+    const files = await recursiveFiles(folder)
+    const facadePath = await exists(relativePath)
+      ? absolutePath(relativePath)
+      : path.join(folder, 'mod.rs')
+    return [
+      await readFile(facadePath, 'utf8'),
+      ...(await Promise.all(files
+        .filter((file) => file !== facadePath)
+        .map((file) => readFile(file, 'utf8')))),
+    ].join('\n')
+  }
   return readFile(absolutePath(relativePath), 'utf8')
+}
+
+async function recursiveFiles(folder) {
+  const files = []
+  for (const entry of await readdir(folder, { withFileTypes: true })) {
+    const child = path.join(folder, entry.name)
+    if (entry.isDirectory()) files.push(...await recursiveFiles(child))
+    else if (entry.name.endsWith('.rs')) files.push(child)
+  }
+  return files
 }
 
 async function exists(relativePath) {
@@ -680,7 +714,7 @@ test('LiteDB optional fixtures cover local-file preflight and sidecar boundary e
     read('apps/desktop/src/services/runtime/browser-operation-manifests.ts'),
     read('apps/desktop/src-tauri/src/adapters/common/operations/planning.rs'),
     read('apps/desktop/src-tauri/src/adapters/common/operations/manifest.rs'),
-    read('apps/desktop/src-tauri/src/adapters/contract.rs'),
+    read('apps/desktop/src-tauri/src/adapters/datastores/litedb/mod.rs'),
     read('apps/desktop/src-tauri/sidecars/litedb/DataPadPlusPlus.LiteDbSidecar.csproj'),
     read('apps/desktop/src-tauri/sidecars/litedb/Program.cs'),
     read('apps/desktop/src-tauri/sidecars/litedb/README.md'),

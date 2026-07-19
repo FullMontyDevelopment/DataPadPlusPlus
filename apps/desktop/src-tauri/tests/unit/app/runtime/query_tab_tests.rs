@@ -6,10 +6,28 @@ use super::{
         build_environment_tab, build_metrics_tab, build_query_tab, default_query_text,
         default_script_text,
     },
+    tabs::tab_close_persistence_warning,
     timestamp_now,
     ui::{focus_query_tab, is_bottom_panel_tab},
 };
-use crate::domain::models::{ConnectionAuth, ConnectionProfile, EnvironmentProfile};
+use crate::domain::{
+    error::CommandError,
+    models::{ConnectionAuth, ConnectionProfile, EnvironmentProfile},
+};
+
+#[test]
+fn tab_close_keeps_persistence_failure_as_a_non_blocking_warning() {
+    assert!(tab_close_persistence_warning(Ok(())).is_none());
+
+    let warning = tab_close_persistence_warning(Err(CommandError::new(
+        "workspace-save-blocked",
+        "Workspace file is temporarily in use.",
+    )))
+    .expect("tab close persistence warning");
+
+    assert_eq!(warning.code, "workspace-save-blocked");
+    assert_eq!(warning.message, "Workspace file is temporarily in use.");
+}
 
 #[test]
 fn bottom_panel_tab_validator_accepts_history_tab() {
