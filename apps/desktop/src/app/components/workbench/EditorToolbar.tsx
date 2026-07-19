@@ -5,7 +5,6 @@ import type {
 } from '@datapadplusplus/shared-types'
 import {
   ExplainIcon,
-  PanelIcon,
   ConsoleIcon,
   PlayIcon,
   SettingsIcon,
@@ -15,18 +14,17 @@ import {
   KeyValueIcon,
   ObjectDocumentIcon,
   EfficiencyIcon,
+  GuideIcon,
 } from './icons'
 
 interface EditorToolbarProps {
   executionStatus: 'idle' | 'loading' | 'ready'
   capabilities: ExecutionCapabilities
   canCancelExecution: boolean
-  bottomPanelVisible: boolean
   onExecute(): void
   onExplain(): void
   onCancel(): void
   onOpenConnectionDrawer(): void
-  onToggleBottomPanel(): void
   onAddDocument?(): void
   onToggleDocumentEfficiency?(): void
   canToggleBuilderView: boolean
@@ -40,18 +38,19 @@ interface EditorToolbarProps {
   executeAriaLabel?: string
   executeTitle?: string
   executeDisabled?: boolean
+  showScriptingGuideToggle?: boolean
+  scriptingGuideVisible?: boolean
+  onToggleScriptingGuide?(): void
 }
 
 export function EditorToolbar({
   executionStatus,
   capabilities,
   canCancelExecution,
-  bottomPanelVisible,
   onExecute,
   onExplain,
   onCancel,
   onOpenConnectionDrawer,
-  onToggleBottomPanel,
   onAddDocument = noop,
   onToggleDocumentEfficiency = noop,
   canToggleBuilderView,
@@ -65,6 +64,9 @@ export function EditorToolbar({
   executeAriaLabel = 'Run query',
   executeTitle = 'Run the current query against the selected connection and environment. Shortcut: Ctrl+Enter.',
   executeDisabled = false,
+  showScriptingGuideToggle = false,
+  scriptingGuideVisible = false,
+  onToggleScriptingGuide = noop,
 }: EditorToolbarProps) {
   const queryWindowModeButtonLabels: Record<
     QueryViewMode,
@@ -198,6 +200,21 @@ export function EditorToolbar({
 
       <div className="toolbar-spacer" />
 
+      {showScriptingGuideToggle ? (
+        <div className="toolbar-group" aria-label="MongoDB scripting help">
+          <button
+            type="button"
+            className={`toolbar-icon-action${scriptingGuideVisible ? ' is-active' : ''}`}
+            aria-label={scriptingGuideVisible ? 'Hide scripting guide' : 'Show scripting guide'}
+            title={scriptingGuideVisible ? 'Hide scripting guide' : 'Show scripting guide'}
+            aria-pressed={scriptingGuideVisible}
+            onClick={onToggleScriptingGuide}
+          >
+            <GuideIcon className="toolbar-icon" />
+          </button>
+        </div>
+      ) : null}
+
       <div className="toolbar-group toolbar-group--context" aria-label="Execution context">
         <button
           type="button"
@@ -210,15 +227,6 @@ export function EditorToolbar({
         </button>
       </div>
 
-      <button
-        type="button"
-        className={`toolbar-icon-action${bottomPanelVisible ? ' is-active' : ''}`}
-        aria-label={bottomPanelVisible ? 'Toggle results panel' : 'Show results panel'}
-        title="Show or hide the Results, Messages, and Details panel. Shortcut: Ctrl+J."
-        onClick={onToggleBottomPanel}
-      >
-        <PanelIcon className="toolbar-icon" />
-      </button>
     </div>
   )
 }

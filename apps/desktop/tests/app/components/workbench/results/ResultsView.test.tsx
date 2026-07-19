@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
   ConnectionProfile,
   DataEditExecutionResponse,
@@ -454,6 +454,170 @@ describe('ResultsView', () => {
     })
     expect(await screen.findByText('reserved')).toBeInTheDocument()
     expect(screen.getByText('available')).toBeInTheDocument()
+  })
+
+  it('keeps failed lazy nodes visible and retries deep nested paths', async () => {
+    const result = resultEnvelope([
+      {
+        _id: 'doc-1',
+        inventory: {
+          __datapadLazyNode: true,
+          type: 'object',
+          childCount: 1,
+          path: ['inventory'],
+          loaded: false,
+        },
+      },
+    ], false)
+    result.payloads[0] = {
+      renderer: 'document',
+      documents: result.payloads[0]?.renderer === 'document' ? result.payloads[0].documents : [],
+      hydrationMode: 'lazy',
+      database: 'catalog',
+      collection: 'products',
+    }
+    const onFetchDocumentNodeChildren = vi.fn()
+      .mockRejectedValueOnce(new Error('The selected field no longer exists.'))
+      .mockResolvedValueOnce({
+        tabId: 'tab-mongodb',
+        documentId: 'doc-1',
+        path: ['inventory'],
+        value: {
+          warehouse: {
+            __datapadLazyNode: true,
+            type: 'object',
+            childCount: 1,
+            path: ['inventory', 'warehouse'],
+            loaded: false,
+          },
+        },
+        notices: [],
+      })
+      .mockResolvedValueOnce({
+        tabId: 'tab-mongodb',
+        documentId: 'doc-1',
+        path: ['inventory', 'warehouse'],
+        value: { bin: null },
+        notices: [],
+      })
+
+    render(
+      <ResultsView
+        activeEnvironment={{ ...environmentProfile(), id: 'env-selected' }}
+        activeTab={queryTab(result)}
+        capabilities={{
+          canCancel: false,
+          canExplain: false,
+          defaultRowLimit: 200,
+          editorLanguage: 'mongodb',
+          supportsLiveMetadata: true,
+        }}
+        connection={connectionProfile({ family: 'document', engine: 'mongodb' })}
+        payload={result.payloads[0]}
+        renderer="document"
+        result={result}
+        onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
+        onLoadNextPage={vi.fn()}
+        onResultRendered={vi.fn()}
+        onSelectRenderer={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand doc-1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand inventory' }))
+
+    expect(await screen.findByLabelText('The selected field no longer exists.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry inventory' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry inventory' }))
+    expect(await screen.findByText('warehouse')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand warehouse' }))
+    expect(await screen.findByText('bin')).toBeInTheDocument()
+    expect(onFetchDocumentNodeChildren).toHaveBeenLastCalledWith(
+      expect.objectContaining({ path: ['inventory', 'warehouse'] }),
+    )
+  })
+
+  it('ignores lazy hydration responses after the result is replaced', async () => {
+    const result = resultEnvelope([{
+      _id: 'doc-1',
+      inventory: {
+        __datapadLazyNode: true,
+        type: 'object',
+        childCount: 1,
+        path: ['inventory'],
+        loaded: false,
+      },
+    }], false)
+    result.payloads[0] = {
+      renderer: 'document',
+      documents: result.payloads[0]?.renderer === 'document' ? result.payloads[0].documents : [],
+      hydrationMode: 'lazy',
+      database: 'catalog',
+      collection: 'products',
+    }
+    let resolveHydration: ((value: {
+      tabId: string
+      documentId: string
+      path: string[]
+      value: Record<string, unknown>
+      notices: string[]
+    }) => void) | undefined
+    const onFetchDocumentNodeChildren = vi.fn(() => new Promise((resolve) => {
+      resolveHydration = resolve
+    }))
+    const capabilities = {
+      canCancel: false,
+      canExplain: false,
+      defaultRowLimit: 200,
+      editorLanguage: 'mongodb',
+      supportsLiveMetadata: true,
+    }
+    const replacement = resultEnvelope([{ _id: 'doc-2', status: 'fresh' }], false)
+    const commonProps = {
+      activeEnvironment: { ...environmentProfile(), id: 'env-selected' },
+      capabilities,
+      connection: connectionProfile({ family: 'document' as const, engine: 'mongodb' }),
+      renderer: 'document' as const,
+      onFetchDocumentNodeChildren,
+      onLoadNextPage: vi.fn(),
+      onResultRendered: vi.fn(),
+      onSelectRenderer: vi.fn(),
+    }
+
+    const { rerender } = render(
+      <ResultsView
+        {...commonProps}
+        activeTab={queryTab(result)}
+        payload={result.payloads[0]}
+        result={result}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Expand doc-1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand inventory' }))
+    await waitFor(() => expect(onFetchDocumentNodeChildren).toHaveBeenCalledOnce())
+
+    rerender(
+      <ResultsView
+        {...commonProps}
+        activeTab={queryTab(replacement)}
+        payload={replacement.payloads[0]}
+        result={replacement}
+      />,
+    )
+
+    await act(async () => {
+      resolveHydration?.({
+        tabId: 'tab-mongodb',
+        documentId: 'doc-1',
+        path: ['inventory'],
+        value: { staleChild: true },
+        notices: [],
+      })
+    })
+
+    expect(screen.getAllByText('doc-2')).not.toHaveLength(0)
+    expect(screen.queryByText('staleChild')).not.toBeInTheDocument()
   })
 
   it('uses the last executed query as edit context after the editor text changes', async () => {

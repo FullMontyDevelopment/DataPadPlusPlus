@@ -275,6 +275,7 @@ fn test_connection(prefix: Option<&str>) -> ResolvedConnectionProfile {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     }

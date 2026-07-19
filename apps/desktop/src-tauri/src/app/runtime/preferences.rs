@@ -5,9 +5,9 @@ use crate::domain::{
 };
 
 use super::ui::{
-    clamp_bottom_panel_height, clamp_results_side_width, clamp_right_drawer_width,
-    clamp_sidebar_width, is_activity, is_bottom_panel_tab, is_connection_group_mode,
-    is_explorer_view, is_results_dock, is_right_drawer, is_sidebar_pane,
+    clamp_bottom_panel_height, clamp_mongo_script_guide_width, clamp_results_side_width,
+    clamp_right_drawer_width, clamp_sidebar_width, is_activity, is_bottom_panel_tab,
+    is_connection_group_mode, is_explorer_view, is_results_dock, is_right_drawer, is_sidebar_pane,
 };
 
 impl ManagedAppState {
@@ -227,6 +227,14 @@ impl ManagedAppState {
 
         if let Some(results_side_width) = patch.results_side_width {
             self.snapshot.ui.results_side_width = clamp_results_side_width(results_side_width);
+        }
+
+        if let Some(visible) = patch.mongo_script_guide_visible {
+            self.snapshot.ui.mongo_script_guide_visible = visible;
+        }
+
+        if let Some(width) = patch.mongo_script_guide_width {
+            self.snapshot.ui.mongo_script_guide_width = clamp_mongo_script_guide_width(width);
         }
 
         if let Some(right_drawer) = patch.right_drawer.filter(|value| is_right_drawer(value)) {

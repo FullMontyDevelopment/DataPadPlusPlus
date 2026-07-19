@@ -11,6 +11,7 @@ const MAX_SEARCH_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 
 pub(super) struct SearchResponse {
     pub(super) body: String,
+    pub(super) status_code: u16,
 }
 
 pub(super) async fn search_http_request(
@@ -18,6 +19,26 @@ pub(super) async fn search_http_request(
     method: Method,
     url: String,
     body: Option<&str>,
+) -> Result<SearchResponse, CommandError> {
+    search_http_request_with_status(connection, method, url, body, &[]).await
+}
+
+pub(super) async fn search_http_request_allowing_status(
+    connection: &ResolvedConnectionProfile,
+    method: Method,
+    url: String,
+    body: Option<&str>,
+    allowed_statuses: &[u16],
+) -> Result<SearchResponse, CommandError> {
+    search_http_request_with_status(connection, method, url, body, allowed_statuses).await
+}
+
+async fn search_http_request_with_status(
+    connection: &ResolvedConnectionProfile,
+    method: Method,
+    url: String,
+    body: Option<&str>,
+    allowed_statuses: &[u16],
 ) -> Result<SearchResponse, CommandError> {
     let client = search_http_client(connection)?;
     let mut request = client
@@ -66,14 +87,17 @@ pub(super) async fn search_http_request(
         bytes.extend_from_slice(&chunk);
     }
     let body = String::from_utf8_lossy(&bytes).to_string();
-    if !status.is_success() {
+    if !status.is_success() && !allowed_statuses.contains(&status.as_u16()) {
         return Err(CommandError::new(
             "search-http-error",
             sanitized_search_error(&body).unwrap_or("Search HTTP request failed."),
         ));
     }
 
-    Ok(SearchResponse { body })
+    Ok(SearchResponse {
+        body,
+        status_code: status.as_u16(),
+    })
 }
 
 fn search_http_client(connection: &ResolvedConnectionProfile) -> Result<Client, CommandError> {

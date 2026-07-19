@@ -19,6 +19,9 @@ use crate::domain::{
     },
 };
 
+mod mongodb_script;
+pub(crate) use mongodb_script::{analyze_mongodb_script, analyze_resolved_mongodb_script};
+
 pub const SAFE_MODE_LABEL: &str = "production-safe-mode";
 const EXPORT_KDF: &str = "pbkdf2-sha256";
 const EXPORT_KDF_ITERATIONS: u32 = 210_000;
@@ -553,7 +556,12 @@ fn classify_oracle_query_risk(query_text: &str) -> QueryRisk {
 
 fn classify_mongodb_query_risk(query_text: &str) -> QueryRisk {
     let Ok(input) = serde_json::from_str::<Value>(query_text) else {
-        return classify_tokenized_query_risk(query_text);
+        return analyze_resolved_mongodb_script(query_text)
+            .map(|analysis| QueryRisk {
+                looks_write: analysis.looks_write,
+                always_confirm_reason: analysis.confirmation_reason(),
+            })
+            .unwrap_or_else(|_| classify_tokenized_query_risk(query_text));
     };
     let operation = input
         .get("operation")

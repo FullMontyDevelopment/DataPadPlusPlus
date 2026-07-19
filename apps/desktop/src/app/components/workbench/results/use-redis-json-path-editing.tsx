@@ -7,6 +7,7 @@ import type {
 import type { DocumentEditContext } from './document-edit-context'
 import type { DataEditConfirmationHandler, ExecuteDataEdit } from './data-edit-confirmation'
 import {
+  dataEditErrorMessage,
   dataEditStatusMessage,
   executeDataEditWithConfirmation,
 } from './data-edit-confirmation'
@@ -92,11 +93,17 @@ export function useRedisJsonPathEditing({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: `Set ${path} on ${selectedKey}.`,
-      confirm: confirmDataEdit,
-      confirmationTitle: 'Apply this JSON edit?',
-    })
+    let response: DataEditExecutionResponse | undefined
+    try {
+      response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+        actionLabel: `Set ${path} on ${selectedKey}.`,
+        confirm: confirmDataEdit,
+        confirmationTitle: 'Apply this JSON edit?',
+      })
+    } catch (error) {
+      setStatusMessage(dataEditErrorMessage(error, `Unable to update ${path}.`))
+      return
+    }
     if (response?.executed) {
       patchSelectedJsonEntry(selectedKey, entries, updateDraftEntries, (root) =>
         setRedisJsonPathValue(root, path, nextValue),
@@ -123,11 +130,17 @@ export function useRedisJsonPathEditing({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: `Delete ${path} from ${selectedKey}.`,
-      confirm: confirmDataEdit,
-      confirmationTitle: 'Delete this JSON path?',
-    })
+    let response: DataEditExecutionResponse | undefined
+    try {
+      response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+        actionLabel: `Delete ${path} from ${selectedKey}.`,
+        confirm: confirmDataEdit,
+        confirmationTitle: 'Delete this JSON path?',
+      })
+    } catch (error) {
+      setStatusMessage(dataEditErrorMessage(error, `Unable to delete ${path}.`))
+      return
+    }
     handleJsonDeleteResponse(response, selectedKey, path, entries, updateDraftEntries, setStatusMessage)
   }
 

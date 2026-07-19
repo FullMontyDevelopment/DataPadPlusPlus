@@ -1,6 +1,11 @@
 use std::sync::MutexGuard;
 
-use tauri::{ipc::Channel, AppHandle, State};
+use serde::Deserialize;
+use tauri::{
+    ipc::Channel,
+    window::{ProgressBarState, ProgressBarStatus},
+    AppHandle, State, WebviewWindow,
+};
 
 use crate::{
     app::runtime::{
@@ -28,6 +33,50 @@ fn lock_state<'a, 'b>(
             "Workspace state is temporarily unavailable. Restart DataPad++ if this continues.",
         )
     })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskbarQueryActivityRequest {
+    running_count: u32,
+}
+
+fn taskbar_query_progress_state(running_count: u32) -> ProgressBarState {
+    if running_count == 0 {
+        return ProgressBarState {
+            status: Some(ProgressBarStatus::None),
+            progress: None,
+        };
+    }
+
+    #[cfg(windows)]
+    let state = ProgressBarState {
+        status: Some(ProgressBarStatus::Indeterminate),
+        progress: None,
+    };
+
+    #[cfg(not(windows))]
+    let state = ProgressBarState {
+        status: Some(ProgressBarStatus::Normal),
+        progress: Some(50),
+    };
+
+    state
+}
+
+#[tauri::command]
+pub fn set_taskbar_query_activity(
+    window: WebviewWindow,
+    request: TaskbarQueryActivityRequest,
+) -> Result<(), CommandError> {
+    window
+        .set_progress_bar(taskbar_query_progress_state(request.running_count))
+        .map_err(|error| {
+            CommandError::new(
+                "taskbar-query-activity-update-failed",
+                format!("Could not update the operating system query activity indicator: {error}"),
+            )
+        })
 }
 
 #[tauri::command]
@@ -112,3 +161,7 @@ pub async fn install_app_update(
 ) -> Result<(), CommandError> {
     app_updates::install_app_update(pending_update, on_event).await
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/commands/app_tests.rs"]
+mod tests;

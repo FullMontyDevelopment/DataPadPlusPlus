@@ -43,9 +43,10 @@ pub async fn execute(
     request: &ExecutionRequest,
     notices: Vec<QueryExecutionNotice>,
 ) -> Result<ExecutionResultEnvelope, CommandError> {
-    adapter_for_engine(&connection.engine)?
+    let result = adapter_for_engine(&connection.engine)?
         .execute(connection, request, notices)
-        .await
+        .await?;
+    normalize_count_execution_result(connection, request, result)
 }
 
 pub async fn fetch_result_page(

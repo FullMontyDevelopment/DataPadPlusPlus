@@ -13,6 +13,9 @@ mod metadata;
 mod paging;
 mod query;
 mod script;
+mod script_cancellation;
+mod script_operations;
+mod script_runtime;
 
 pub(crate) use document_lazy::fetch_mongodb_document_node_children;
 pub(crate) use import_export::execute_mongodb_collection_file_operation;
@@ -91,13 +94,25 @@ impl DatastoreAdapter for MongoDbAdapter {
         _connection: &ResolvedConnectionProfile,
         request: &CancelExecutionRequest,
     ) -> Result<CancelExecutionResult, CommandError> {
+        let cancelled = script_cancellation::cancel(&request.execution_id);
         Ok(CancelExecutionResult {
-            ok: false,
+            ok: cancelled,
             supported: true,
-            message: format!(
-                "No active MongoDB execution {} was found to cancel.",
-                request.execution_id
-            ),
+            message: if cancelled {
+                format!(
+                    "Cancellation requested for MongoDB execution {}.",
+                    request.execution_id
+                )
+            } else {
+                format!(
+                    "No active MongoDB execution {} was found to cancel.",
+                    request.execution_id
+                )
+            },
         })
     }
+}
+
+pub(crate) fn cancel_mongodb_script_execution(execution_id: &str) -> bool {
+    script_cancellation::cancel(execution_id)
 }

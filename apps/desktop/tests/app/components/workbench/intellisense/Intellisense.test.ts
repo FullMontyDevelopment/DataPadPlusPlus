@@ -649,6 +649,41 @@ describe('query intellisense', () => {
     )
   })
 
+  it('uses a dedicated JavaScript provider for MongoDB scripting', () => {
+    const connection = connectionProfile('mongodb', 'document')
+    connection.database = 'catalog'
+    const provider = completionProvidersForConnection(connection, 'javascript')
+      .find((item) => item.id === 'mongodb-script')
+    const context = completionContext(connection, 'db.', {
+      objects: [{ name: 'products', kind: 'collection' }],
+      fields: [{ name: 'status', path: 'status', objectName: 'products' }],
+    })
+    const databaseItems = provider?.buildItems({
+      ...context,
+      language: 'javascript',
+      cursorOffset: context.queryText.length,
+    }) ?? []
+
+    expect(databaseItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'products', kind: 'collection' }),
+      expect.objectContaining({ label: 'runCommand', kind: 'function' }),
+      expect.objectContaining({ label: 'ObjectId', kind: 'value' }),
+      expect.objectContaining({ label: 'status', kind: 'field' }),
+    ]))
+
+    const collectionItems = provider?.buildItems({
+      ...context,
+      language: 'javascript',
+      queryText: 'db.products.',
+      cursorOffset: 'db.products.'.length,
+    }) ?? []
+    expect(collectionItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'find', kind: 'function' }),
+      expect.objectContaining({ label: 'bulkWrite', kind: 'function' }),
+      expect.objectContaining({ label: 'createIndex', kind: 'function' }),
+    ]))
+  })
+
   it('suggests Redis commands, known keys, and namespace prefixes', () => {
     const connection = connectionProfile('redis', 'keyvalue')
     const provider = completionProvidersForConnection(

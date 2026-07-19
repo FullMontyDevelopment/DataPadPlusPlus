@@ -559,7 +559,7 @@ pub struct WarehouseConnectionOptions {
     pub cost_limit_usd: Option<f64>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MongoDbConnectionOptions {
     pub connection_scheme: Option<String>,
@@ -567,6 +567,7 @@ pub struct MongoDbConnectionOptions {
     pub app_name: Option<String>,
     pub tls: Option<bool>,
     pub replica_set: Option<String>,
+    pub query_timeout_ms: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -652,6 +653,7 @@ pub struct ResolvedConnectionProfile {
     pub search_options: Option<SearchConnectionOptions>,
     pub time_series_options: Option<TimeSeriesConnectionOptions>,
     pub graph_options: Option<GraphConnectionOptions>,
+    pub mongodb_options: Option<MongoDbConnectionOptions>,
     pub warehouse_options: Option<WarehouseConnectionOptions>,
     pub read_only: bool,
 }
@@ -2717,6 +2719,8 @@ pub struct UiState {
     pub bottom_panel_height: u32,
     pub results_dock: String,
     pub results_side_width: u32,
+    pub mongo_script_guide_visible: bool,
+    pub mongo_script_guide_width: u32,
     pub right_drawer: String,
     pub right_drawer_width: u32,
 }
@@ -2744,6 +2748,8 @@ impl Default for UiState {
             bottom_panel_height: 260,
             results_dock: "bottom".into(),
             results_side_width: 420,
+            mongo_script_guide_visible: true,
+            mongo_script_guide_width: 360,
             right_drawer: "none".into(),
             right_drawer_width: 360,
         }
@@ -2934,6 +2940,8 @@ pub struct ExecutionRequest {
     pub row_limit: Option<u32>,
     pub document_efficiency_mode: Option<bool>,
     pub confirmed_guardrail_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_state: Option<Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -3049,12 +3057,21 @@ pub struct RedisKeyInspectRequest {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PersistenceWarning {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionResponse {
     pub execution_id: String,
     pub tab: QueryTabState,
     pub result: Option<ExecutionResultEnvelope>,
     pub guardrail: GuardrailDecision,
     pub diagnostics: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persistence_warning: Option<PersistenceWarning>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -3265,6 +3282,9 @@ pub struct UpdateUiStateRequest {
     pub results_dock: Option<String>,
     #[serde(default, deserialize_with = "optional_u32_from_number")]
     pub results_side_width: Option<u32>,
+    pub mongo_script_guide_visible: Option<bool>,
+    #[serde(default, deserialize_with = "optional_u32_from_number")]
+    pub mongo_script_guide_width: Option<u32>,
     pub right_drawer: Option<String>,
     #[serde(default, deserialize_with = "optional_u32_from_number")]
     pub right_drawer_width: Option<u32>,

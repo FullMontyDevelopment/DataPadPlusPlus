@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use tauri::{AppHandle, Manager};
 
@@ -8,6 +11,8 @@ use crate::domain::{
         WorkspaceSnapshot, WorkspaceSummary, WorkspaceSummaryCounts, WorkspaceSwitcherStatus,
     },
 };
+
+mod durable_write;
 
 pub const SNAPSHOT_FORMAT: &str = "datapadplusplus-pack-v1";
 pub const LEGACY_DATANAUT_SNAPSHOT_FORMAT: &str = "datanaut-pack-v1";
@@ -113,7 +118,7 @@ pub fn load_snapshot(app: &AppHandle) -> Result<Option<WorkspaceSnapshot>, Comma
     read_snapshot_with_backup(&path)
 }
 
-fn read_snapshot_with_backup(path: &PathBuf) -> Result<Option<WorkspaceSnapshot>, CommandError> {
+fn read_snapshot_with_backup(path: &Path) -> Result<Option<WorkspaceSnapshot>, CommandError> {
     let content = fs::read_to_string(path)?;
     match serde_json::from_str::<WorkspaceSnapshot>(&content) {
         Ok(snapshot) => Ok(Some(snapshot)),
@@ -249,24 +254,9 @@ pub fn switch_workspace_profile(
     Ok(snapshot)
 }
 
-fn write_snapshot_file(path: &PathBuf, snapshot: &WorkspaceSnapshot) -> Result<(), CommandError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
+fn write_snapshot_file(path: &Path, snapshot: &WorkspaceSnapshot) -> Result<(), CommandError> {
     let serialized = serde_json::to_string_pretty(snapshot)?;
-    let temporary_path = path.with_extension("json.tmp");
-    let backup_path = path.with_extension("json.bak");
-
-    fs::write(&temporary_path, serialized)?;
-
-    if path.exists() {
-        let _ = fs::copy(path, &backup_path);
-        fs::remove_file(path)?;
-    }
-
-    fs::rename(temporary_path, path)?;
-    Ok(())
+    durable_write::write_json(path, serialized.as_bytes())
 }
 
 fn ensure_workspace_registry(
@@ -298,9 +288,21 @@ fn read_workspace_registry(
         return Ok(None);
     }
 
-    let content = fs::read_to_string(path)?;
-    let registry = serde_json::from_str::<WorkspaceSwitcherStatus>(&content)?;
-    Ok(Some(registry))
+    let content = fs::read_to_string(&path)?;
+    match serde_json::from_str::<WorkspaceSwitcherStatus>(&content) {
+        Ok(registry) => Ok(Some(registry)),
+        Err(primary_error) => {
+            let backup_path = path.with_extension("json.bak");
+            if !backup_path.exists() {
+                return Err(primary_error.into());
+            }
+
+            let backup_content = fs::read_to_string(backup_path)?;
+            Ok(Some(serde_json::from_str::<WorkspaceSwitcherStatus>(
+                &backup_content,
+            )?))
+        }
+    }
 }
 
 fn save_workspace_registry(
@@ -308,14 +310,8 @@ fn save_workspace_registry(
     registry: &WorkspaceSwitcherStatus,
 ) -> Result<(), CommandError> {
     let path = workspace_registry_path(app);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(
-        path,
-        serde_json::to_string_pretty(&status_response(registry.clone()))?,
-    )?;
-    Ok(())
+    let serialized = serde_json::to_string_pretty(&status_response(registry.clone()))?;
+    durable_write::write_json(&path, serialized.as_bytes())
 }
 
 fn normalize_workspace_registry(

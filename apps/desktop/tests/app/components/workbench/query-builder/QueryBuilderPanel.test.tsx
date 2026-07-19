@@ -25,6 +25,52 @@ describe('QueryBuilderPanel', () => {
     clearMongoBuilderRowDrag()
   })
 
+  it('runs Count from the shared footer with the current builder state', async () => {
+    const onCount = vi.fn().mockResolvedValue(undefined)
+
+    render(
+      <BuilderHarness
+        onBuilderStateChange={vi.fn()}
+        onCount={onCount}
+        tab={mongoTab()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Count' }))
+
+    await waitFor(() => expect(onCount).toHaveBeenCalledWith(
+      'tab-mongo',
+      expect.objectContaining({ kind: 'mongo-find', collection: 'products' }),
+    ))
+  })
+
+  it('disables Count when the target is missing or the tab is executing', () => {
+    const { rerender } = render(
+      <BuilderHarness
+        initialBuilderState={createDefaultMongoFindBuilderState('')}
+        onBuilderStateChange={vi.fn()}
+        onCount={vi.fn()}
+        tab={mongoTab()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Count' })).toBeDisabled()
+
+    rerender(
+      <BuilderHarness
+        onBuilderStateChange={vi.fn()}
+        onCount={vi.fn()}
+        tab={mongoTab({
+          activeExecution: {
+            executionId: 'execution-count',
+            phase: 'server',
+            startedAt: '2026-01-01T00:00:00.000Z',
+          },
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Count' })).toBeDisabled()
+  })
+
   it('adds dragged result fields to filter, projection, and sort sections', () => {
     const onBuilderStateChange = vi.fn()
     const tab = mongoTab()
@@ -896,12 +942,14 @@ function BuilderHarness({
   onInspectRedisKey,
   onScanRedisKeys,
   onExecuteDataEdit,
+  onCount,
   onBuilderStateChange,
   tab,
 }: {
   connectionEngine?: 'mongodb' | 'postgresql' | 'dynamodb' | 'cassandra' | 'elasticsearch' | 'redis'
   initialBuilderState?: QueryBuilderState
   onExecuteDataEdit?: ComponentProps<typeof QueryBuilderPanel>['onExecuteDataEdit']
+  onCount?: ComponentProps<typeof QueryBuilderPanel>['onCount']
   onInspectRedisKey?: ComponentProps<typeof QueryBuilderPanel>['onInspectRedisKey']
   onScanRedisKeys?: ComponentProps<typeof QueryBuilderPanel>['onScanRedisKeys']
   onBuilderStateChange(tabId: string, builderState: QueryBuilderState): void
@@ -950,6 +998,7 @@ function BuilderHarness({
       onExecuteDataEdit={onExecuteDataEdit}
       onInspectRedisKey={onInspectRedisKey}
       onScanRedisKeys={onScanRedisKeys}
+      onCount={onCount}
     />
   )
 }

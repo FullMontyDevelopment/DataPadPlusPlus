@@ -243,6 +243,8 @@ fn fixture_workspace_seed_for_profile_options(
             bottom_panel_height: 300,
             results_dock: "bottom".into(),
             results_side_width: 420,
+            mongo_script_guide_visible: true,
+            mongo_script_guide_width: 360,
             right_drawer: "none".into(),
             right_drawer_width: 380,
         },

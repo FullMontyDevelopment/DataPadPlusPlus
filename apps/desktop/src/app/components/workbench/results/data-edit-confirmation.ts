@@ -2,6 +2,7 @@ import type {
   DataEditExecutionRequest,
   DataEditExecutionResponse,
 } from '@datapadplusplus/shared-types'
+import { redactErrorMessage } from '../../../state/security-redaction'
 
 export type ExecuteDataEdit = (
   request: DataEditExecutionRequest,
@@ -82,6 +83,10 @@ export function dataEditStatusMessage(
     cleanResponse?.warnings.at(-1) ??
     fallback
   )
+}
+
+export function dataEditErrorMessage(error: unknown, fallback: string) {
+  return redactErrorMessage(error, fallback)
 }
 
 export function dataEditConfirmationDetails(

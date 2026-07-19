@@ -1618,6 +1618,14 @@ async fn execute_mcp_query(
     let (resolved_connection, resolved_environment, _) = runtime
         .resolve_connection_profile(&connection, &request.environment_id)
         .map_err(command_to_mcp)?;
+    if connection.engine == "mongodb"
+        && request
+            .language
+            .as_deref()
+            .is_some_and(|language| matches!(language, "javascript" | "mongodb-script"))
+    {
+        security::analyze_mongodb_script(&request.query).map_err(command_to_mcp)?;
+    }
     let query_text = resolve_string_template(&request.query, &resolved_environment.variables)
         .map_err(command_to_mcp)?;
     validate_read_only_query(&query_text, request.language.as_deref())?;
@@ -1666,6 +1674,7 @@ async fn execute_mcp_query(
         row_limit: Some(row_limit),
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
+        builder_state: None,
     };
     let result = tokio::time::timeout(
         Duration::from_secs(QUERY_TIMEOUT_SECONDS),

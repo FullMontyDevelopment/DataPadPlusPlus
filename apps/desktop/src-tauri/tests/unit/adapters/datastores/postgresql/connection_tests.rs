@@ -40,6 +40,8 @@ fn postgres_dsn_applies_native_profile_options() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
+
         warehouse_options: None,
         read_only: false,
     });
@@ -87,6 +89,8 @@ fn postgres_dsn_uses_cloud_sql_socket_host() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
+
         warehouse_options: None,
         read_only: false,
     });

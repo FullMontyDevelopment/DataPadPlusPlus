@@ -182,7 +182,11 @@ pub(crate) async fn execute_redis_data_edit(
                 .arg(&field)
                 .query_async(&mut redis)
                 .await?;
-            messages.push(format!("Hash field `{field}` on `{key}` was deleted."));
+            if deleted > 0 {
+                messages.push(format!("Hash field `{field}` on `{key}` was deleted."));
+            } else {
+                warnings.push(format!("Hash field `{field}` was not found on `{key}`."));
+            }
             json!({ "command": "HDEL", "key": key, "field": field, "deleted": deleted })
         }
         "json-set-path" => {
@@ -310,7 +314,13 @@ pub(crate) async fn execute_redis_data_edit(
                 .arg(redis_value(value))
                 .query_async(&mut redis)
                 .await?;
-            messages.push(format!("Removed {removed} list item(s) from `{key}`."));
+            if removed > 0 {
+                messages.push(format!("Removed {removed} list item(s) from `{key}`."));
+            } else {
+                warnings.push(format!(
+                    "The requested list value was not found on `{key}`."
+                ));
+            }
             json!({ "command": "LREM", "key": key, "removed": removed })
         }
         "set-add-member" => {
@@ -348,7 +358,13 @@ pub(crate) async fn execute_redis_data_edit(
                 .arg(redis_value(value))
                 .query_async(&mut redis)
                 .await?;
-            messages.push(format!("Set member was removed from `{key}`."));
+            if removed > 0 {
+                messages.push(format!("Set member was removed from `{key}`."));
+            } else {
+                warnings.push(format!(
+                    "The requested set member was not found on `{key}`."
+                ));
+            }
             json!({ "command": "SREM", "key": key, "removed": removed })
         }
         "zset-add-member" => {
@@ -397,9 +413,15 @@ pub(crate) async fn execute_redis_data_edit(
                 .arg(&member)
                 .query_async(&mut redis)
                 .await?;
-            messages.push(format!(
-                "Sorted set member `{member}` was removed from `{key}`."
-            ));
+            if removed > 0 {
+                messages.push(format!(
+                    "Sorted set member `{member}` was removed from `{key}`."
+                ));
+            } else {
+                warnings.push(format!(
+                    "Sorted set member `{member}` was not found on `{key}`."
+                ));
+            }
             json!({ "command": "ZREM", "key": key, "member": member, "removed": removed })
         }
         "stream-add-entry" => {
@@ -634,14 +656,39 @@ pub(crate) async fn execute_redis_data_edit(
         }
     };
 
+    let executed = redis_destructive_edit_applied(&request.edit_kind, &metadata).unwrap_or(true);
+
     Ok(data_edit_response(
         request,
         plan,
-        true,
+        executed,
         messages,
         warnings,
         Some(metadata),
     ))
+}
+
+fn redis_destructive_edit_applied(edit_kind: &str, metadata: &Value) -> Option<bool> {
+    let field = match edit_kind {
+        "delete-key"
+        | "hash-delete-field"
+        | "json-delete-path"
+        | "stream-delete-entry"
+        | "timeseries-delete-sample" => "deleted",
+        "list-remove-value"
+        | "set-remove-member"
+        | "zset-remove-member"
+        | "vector-remove-member" => "removed",
+        _ => return None,
+    };
+
+    Some(
+        metadata
+            .get(field)
+            .and_then(Value::as_i64)
+            .unwrap_or_default()
+            > 0,
+    )
 }
 
 fn data_edit_response(

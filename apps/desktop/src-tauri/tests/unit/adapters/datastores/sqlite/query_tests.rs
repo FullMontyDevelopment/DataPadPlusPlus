@@ -46,6 +46,7 @@ fn execute_sqlite_query_reads_tables_from_database_path() {
                 row_limit: Some(20),
                 document_efficiency_mode: None,
                 confirmed_guardrail_id: None,
+                builder_state: None,
             },
             Vec::new(),
         )
@@ -132,6 +133,7 @@ fn execute_sqlite_query_returns_batch_sections_for_multiple_selects() {
                 row_limit: Some(20),
                 document_efficiency_mode: None,
                 confirmed_guardrail_id: None,
+                builder_state: None,
             },
             Vec::new(),
         )
@@ -185,6 +187,8 @@ fn test_connection(path: &str) -> ResolvedConnectionProfile {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
+
         warehouse_options: None,
         read_only: false,
     }

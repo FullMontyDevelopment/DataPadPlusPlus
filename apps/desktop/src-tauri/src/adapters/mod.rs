@@ -25,6 +25,7 @@ use crate::domain::{
 
 mod common;
 mod contract;
+mod count_execution;
 mod data_edit;
 mod datastores;
 mod experience;
@@ -33,7 +34,11 @@ mod runtime;
 
 pub(crate) use common::*;
 pub(crate) use contract::DatastoreAdapter;
-pub(crate) use data_edit::{default_data_edit_execution, default_data_edit_plan};
+pub(crate) use count_execution::{cancel_count_execution, register_count_execution};
+pub(crate) use data_edit::{
+    affected_rows_edit_executed, default_data_edit_execution, default_data_edit_plan,
+};
+pub(crate) use datastores::mongodb::cancel_mongodb_script_execution;
 pub(crate) use experience::experience_manifest_for_manifest;
 pub use registry::{execution_capabilities, manifests};
 pub use runtime::{

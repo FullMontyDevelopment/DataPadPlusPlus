@@ -1,3 +1,5 @@
+import { bsonScalarInfo } from './document-bson-values'
+
 export function formatResultCellValue(value: unknown): string {
   if (value === null || value === undefined) {
     return ''
@@ -14,6 +16,11 @@ export function formatResultCellValue(value: unknown): string {
   const temporalValue = formatTemporalCellValue(value)
   if (temporalValue) {
     return temporalValue
+  }
+
+  const bsonScalar = bsonScalarInfo(value)
+  if (bsonScalar) {
+    return bsonScalar.label
   }
 
   try {

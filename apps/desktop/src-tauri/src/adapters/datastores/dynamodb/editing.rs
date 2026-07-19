@@ -64,7 +64,64 @@ pub(super) async fn execute_dynamodb_data_edit(
     } else {
         None
     };
-    let response = dynamodb_call(connection, &edit.operation, &edit.body).await?;
+    if request.edit_kind == "delete-item"
+        && before_response
+            .as_ref()
+            .and_then(|response| response.get("Item"))
+            .is_none()
+    {
+        warnings.push(
+            "DynamoDB did not delete the item because no item matched the supplied key.".into(),
+        );
+        let response = json!({ "notApplied": "item-not-found" });
+        return Ok(data_edit_response(
+            request,
+            plan,
+            false,
+            messages,
+            warnings,
+            Some(dynamodb_edit_metadata(
+                &edit,
+                &response,
+                evidence_request.as_ref(),
+                before_response.as_ref(),
+                before_response.as_ref(),
+            )),
+        ));
+    }
+    let response = match dynamodb_call(connection, &edit.operation, &edit.body).await {
+        Ok(response) => response,
+        Err(error)
+            if request.edit_kind == "delete-item"
+                && is_dynamodb_conditional_check_failed(&error) =>
+        {
+            warnings.push(
+                "DynamoDB did not delete the item because it no longer matched the supplied key."
+                    .into(),
+            );
+            let response = json!({ "notApplied": "conditional-check-failed" });
+            let after_response = if let Some(evidence) = evidence_request.as_ref() {
+                Some(dynamodb_call(connection, &evidence.operation, &evidence.body).await?)
+            } else {
+                None
+            };
+            return Ok(data_edit_response(
+                request,
+                plan,
+                false,
+                messages,
+                warnings,
+                Some(dynamodb_edit_metadata(
+                    &edit,
+                    &response,
+                    evidence_request.as_ref(),
+                    before_response.as_ref(),
+                    after_response.as_ref(),
+                )),
+            ));
+        }
+        Err(error) => return Err(error),
+    };
     let after_response = if let Some(evidence) = evidence_request.as_ref() {
         Some(dynamodb_call(connection, &evidence.operation, &evidence.body).await?)
     } else {
@@ -378,6 +435,13 @@ fn dynamodb_edit_metadata(
 
 fn item_from_get_response(response: Option<&Value>) -> Option<Value> {
     response.and_then(|value| value.get("Item").cloned())
+}
+
+fn is_dynamodb_conditional_check_failed(error: &CommandError) -> bool {
+    error
+        .message
+        .to_ascii_lowercase()
+        .contains("conditionalcheckfailedexception")
 }
 
 fn consumed_capacity_from_response(response: Option<&Value>) -> Value {

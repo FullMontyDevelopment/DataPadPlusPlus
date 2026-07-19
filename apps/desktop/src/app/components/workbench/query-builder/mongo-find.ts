@@ -89,6 +89,27 @@ export function buildMongoFindQueryText(
   return JSON.stringify(query, null, 2)
 }
 
+export function buildMongoFindCountQueryText(
+  state: MongoFindBuilderState,
+  context: MongoQueryTextContext = {},
+) {
+  const query = JSON.parse(buildMongoFindQueryText({
+    ...state,
+    projectionMode: 'all',
+    projectionFields: [],
+    sort: [],
+    skip: undefined,
+    limit: undefined,
+  }, context)) as Record<string, unknown>
+
+  return JSON.stringify({
+    ...(query.database ? { database: query.database } : {}),
+    collection: query.collection,
+    operation: 'countDocuments',
+    filter: query.filter ?? {},
+  }, null, 2)
+}
+
 export function buildMongoFilter(state: Pick<MongoFindBuilderState, 'filters' | 'filterGroups'>): Record<string, unknown> {
   const groups = state.filterGroups ?? []
   const standaloneExpression = combineFilterExpressions(

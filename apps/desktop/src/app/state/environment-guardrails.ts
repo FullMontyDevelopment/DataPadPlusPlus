@@ -8,6 +8,7 @@ import type {
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { resolveEnvironmentVariablesForPreview } from './environment-variables'
+import { classifyMongoScriptRisk } from './environment-guardrails-mongo'
 
 export function resolveEnvironment(
   environments: EnvironmentProfile[],
@@ -246,7 +247,7 @@ function classifyMongoQueryRisk(queryText: string): QueryRisk {
 
     return { looksWrite: false }
   } catch {
-    return classifyTokenizedQueryRisk(queryText)
+    return classifyMongoScriptRisk(queryText)
   }
 }
 

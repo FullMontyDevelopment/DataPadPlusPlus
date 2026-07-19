@@ -8,10 +8,7 @@ import type {
   OperationPlanResponse,
 } from '@datapadplusplus/shared-types'
 import type { DocumentEditContext } from './document-edit-context'
-import {
-  dataEditStatusMessage,
-  executeDataEditWithConfirmation,
-} from './data-edit-confirmation'
+import { dataEditStatusMessage } from './data-edit-confirmation'
 import { useDataEditConfirmation } from './use-data-edit-confirmation'
 import {
   KeyValueAddPanel,
@@ -44,6 +41,15 @@ import {
 } from './keyvalue-results-helpers'
 import { useRedisKeyFileOperations } from './use-redis-key-file-operations'
 import { useRedisJsonPathEditing } from './use-redis-json-path-editing'
+import {
+  createKeyValueDataEditRunner,
+  type ContextMenuState,
+  type DeleteTarget,
+  type EntryPatchState,
+  type PendingAddState,
+  type PendingRenameState,
+  type PendingTtlState,
+} from './keyvalue-data-edit-actions'
 
 interface KeyValueResultsViewProps {
   connection?: ConnectionProfile
@@ -56,38 +62,6 @@ interface KeyValueResultsViewProps {
   onPlanOperation?(
     request: OperationPlanRequest,
   ): Promise<OperationPlanResponse | undefined>
-}
-
-interface ContextMenuState {
-  keyName: string
-  x: number
-  y: number
-}
-
-interface DeleteTarget {
-  keyName: string
-  rawValue?: string
-  target: 'key' | 'member'
-}
-
-interface PendingTtlState {
-  keyName: string
-  seconds: string
-}
-
-interface PendingAddState {
-  keyName: string
-  value: string
-}
-
-interface PendingRenameState {
-  keyName: string
-  nextKeyName: string
-}
-
-interface EntryPatchState {
-  patches: KeyValueEntryPatches
-  version: string
 }
 
 export function KeyValueResultsView({
@@ -121,6 +95,7 @@ export function KeyValueResultsView({
   const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
   const canEdit = keyValueCanEdit(connection, editContext) && Boolean(onExecuteDataEdit)
   const redisType = payload?.redisType
+  const runDataEdit = createKeyValueDataEditRunner(onExecuteDataEdit, setStatusMessage)
   const canEditValues = canEdit && !['stream', 'timeseries', 'vectorset'].includes(redisType ?? '')
   const selectedKey = payload?.key
   const activeEntryPatches = entryPatchState.version === entriesVersion
@@ -239,11 +214,15 @@ export function KeyValueResultsView({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: `Update ${keyName}.`,
-      confirm: confirmDataEdit,
-      confirmationTitle: 'Apply this key edit?',
-    })
+    const response = await runDataEdit(
+      request,
+      {
+        actionLabel: `Update ${keyName}.`,
+        confirm: confirmDataEdit,
+        confirmationTitle: 'Apply this key edit?',
+      },
+      `Unable to update ${keyName}.`,
+    )
     if (response?.executed) {
       updateDraftEntries((current) => ({
         ...current,
@@ -279,11 +258,15 @@ export function KeyValueResultsView({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: `Add ${keyName}.`,
-      confirm: confirmDataEdit,
-      confirmationTitle: 'Create this key?',
-    })
+    const response = await runDataEdit(
+      request,
+      {
+        actionLabel: `Add ${keyName}.`,
+        confirm: confirmDataEdit,
+        confirmationTitle: 'Create this key?',
+      },
+      `Unable to add ${keyName}.`,
+    )
     if (response?.executed) {
       updateDraftEntries((current) => ({
         ...current,
@@ -315,11 +298,15 @@ export function KeyValueResultsView({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: `Set TTL for ${keyName}.`,
-      confirm: confirmDataEdit,
-      confirmationTitle: 'Apply this TTL change?',
-    })
+    const response = await runDataEdit(
+      request,
+      {
+        actionLabel: `Set TTL for ${keyName}.`,
+        confirm: confirmDataEdit,
+        confirmationTitle: 'Apply this TTL change?',
+      },
+      `Unable to set TTL for ${keyName}.`,
+    )
     setStatusMessage(
       response?.executed
         ? `Set TTL for ${keyName}.`
@@ -343,11 +330,15 @@ export function KeyValueResultsView({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: `Remove TTL for ${keyName}.`,
-      confirm: confirmDataEdit,
-      confirmationTitle: 'Remove this TTL?',
-    })
+    const response = await runDataEdit(
+      request,
+      {
+        actionLabel: `Remove TTL for ${keyName}.`,
+        confirm: confirmDataEdit,
+        confirmationTitle: 'Remove this TTL?',
+      },
+      `Unable to remove TTL for ${keyName}.`,
+    )
     setStatusMessage(
       response?.executed
         ? `Removed TTL for ${keyName}.`
@@ -379,11 +370,15 @@ export function KeyValueResultsView({
       return
     }
 
-    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: `Rename ${keyName} to ${nextKeyName}.`,
-      confirm: confirmDataEdit,
-      confirmationTitle: 'Rename this key?',
-    })
+    const response = await runDataEdit(
+      request,
+      {
+        actionLabel: `Rename ${keyName} to ${nextKeyName}.`,
+        confirm: confirmDataEdit,
+        confirmationTitle: 'Rename this key?',
+      },
+      `Unable to rename ${keyName}.`,
+    )
     if (response?.executed) {
       updateDraftEntries((current) => {
         const next = { ...current }
@@ -425,16 +420,18 @@ export function KeyValueResultsView({
       return
     }
 
-    const response =
-      request.editKind === 'delete-key' && targetKind === 'key'
-        ? await onExecuteDataEdit(request)
-        : await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-            actionLabel: targetKind === 'member' && selectedKey
-              ? `Delete ${keyName} from ${selectedKey}.`
-              : `Delete ${keyName}.`,
-            confirm: confirmDataEdit,
-            confirmationTitle: targetKind === 'member' ? 'Delete this item?' : 'Delete this key?',
-          })
+    const response = await runDataEdit(
+      request,
+      {
+        actionLabel: targetKind === 'member' && selectedKey
+          ? `Delete ${keyName} from ${selectedKey}.`
+          : `Delete ${keyName}.`,
+        confirm: confirmDataEdit,
+        confirmationTitle: targetKind === 'member' ? 'Delete this item?' : 'Delete this key?',
+      },
+      `Unable to delete ${keyName}.`,
+      request.editKind === 'delete-key' && targetKind === 'key',
+    )
 
     if (response?.executed) {
       updateDraftEntries((current) => {
@@ -560,7 +557,7 @@ export function KeyValueResultsView({
         />
       ) : null}
       {confirmationDialog}
-      {statusMessage ? <div className="data-grid-status">{statusMessage}</div> : null}
+      {statusMessage ? <div className="data-grid-status" role="status">{statusMessage}</div> : null}
       {contextMenu ? (
         <KeyValueContextMenu
           canEdit={canEditValues}

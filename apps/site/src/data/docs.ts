@@ -666,7 +666,11 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Switch modes deliberately',
-        body: 'Move between Query Builder, raw JSON command, aggregation, and safe scripting-style reads depending on the task.',
+        body: 'Move between Query Builder, raw JSON command, aggregation, and sandboxed mongosh-style JavaScript. Script mode supports guarded CRUD, bulk operations, transactions, indexes, collection management, BSON values, and permission-authorized commands.',
+      },
+      {
+        title: 'Use the scripting guide',
+        body: 'Search the resizable guide for query, CRUD, aggregation, bulk, transaction, index, administration, BSON, output, and safety examples. Insert examples at the cursor, and use JavaScript IntelliSense for live collections and discovered fields.',
       },
       {
         title: 'Inspect documents efficiently',
@@ -678,7 +682,7 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Use guarded document edits',
-        body: 'Insert, replace, delete, and field changes require collection/document identity and environment checks before live execution.',
+        body: 'Document edits and script mutations share read-only checks and environment confirmations. The script sandbox cannot access files, processes, packages, or arbitrary networks, and cancellation aborts any open transaction.',
       },
     ],
   },

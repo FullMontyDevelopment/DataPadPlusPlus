@@ -28,6 +28,7 @@ fn connection() -> crate::domain::models::ResolvedConnectionProfile {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: Some(crate::domain::models::WarehouseConnectionOptions {
             endpoint_url: Some("http://localhost:19050/reverse".into()),
             path_prefix: Some("/bq".into()),

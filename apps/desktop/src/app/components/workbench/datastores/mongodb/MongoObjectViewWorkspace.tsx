@@ -40,7 +40,10 @@ import { mongoValidationViewKey } from './MongoValidationView.helpers'
 import { ObjectViewFeedbackPanel, type ObjectViewFeedback } from '../../ObjectViewFeedbackPanel'
 import { ObjectViewHeader } from '../../ObjectViewHeader'
 import { SectionHeading, WarningList } from '../../ObjectViewPrimitives'
-import { executeDataEditWithConfirmation } from '../../results/data-edit-confirmation'
+import {
+  dataEditErrorMessage,
+  executeDataEditWithConfirmation,
+} from '../../results/data-edit-confirmation'
 import { useDataEditConfirmation } from '../../results/use-data-edit-confirmation'
 
 type MongoOperationPlanner = (request: {
@@ -166,11 +169,21 @@ export function MongoObjectViewWorkspace({
         valueType: 'json',
       }],
     }
-    const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
-      actionLabel: `Insert a document into ${collection}.`,
-      confirm: confirmDataEdit,
-      confirmationTitle: 'Insert this MongoDB document?',
-    })
+    let response: DataEditExecutionResponse | undefined
+    try {
+      response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+        actionLabel: `Insert a document into ${collection}.`,
+        confirm: confirmDataEdit,
+        confirmationTitle: 'Insert this MongoDB document?',
+      })
+    } catch (error) {
+      setFeedback({
+        title: 'Insert Document',
+        messages: [],
+        warnings: [dataEditErrorMessage(error, 'Document insert failed.')],
+      })
+      return
+    }
 
     setFeedback({
       title: 'Insert Document',

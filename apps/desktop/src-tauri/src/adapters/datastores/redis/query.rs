@@ -23,6 +23,9 @@ pub(super) async fn execute_redis_query(
     notices: Vec<QueryExecutionNotice>,
 ) -> Result<ExecutionResultEnvelope, CommandError> {
     let started = Instant::now();
+    if execute_mode(request) == "count" {
+        return super::browser::count_redis_keys(connection, request, notices, started).await;
+    }
     let lines = redis_command_lines(selected_query(request));
 
     if lines.is_empty() {

@@ -87,6 +87,13 @@ impl DatastoreAdapter for DynamoDbAdapter {
         _connection: &ResolvedConnectionProfile,
         request: &CancelExecutionRequest,
     ) -> Result<CancelExecutionResult, CommandError> {
+        if cancel_count_execution(&request.execution_id) {
+            return Ok(CancelExecutionResult {
+                ok: true,
+                supported: true,
+                message: format!("DynamoDB Count {} was cancelled.", request.execution_id),
+            });
+        }
         Ok(CancelExecutionResult {
             ok: false,
             supported: false,

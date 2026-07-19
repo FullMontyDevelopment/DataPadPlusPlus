@@ -1,6 +1,21 @@
 use super::*;
 
 #[test]
+fn aggregation_count_rejects_write_producing_stages() {
+    let merge = vec![doc! { "$match": {} }, doc! { "$merge": "archive" }];
+    let out = vec![doc! { "$out": "archive" }];
+
+    assert_eq!(
+        validate_mongodb_count_pipeline(&merge)
+            .expect_err("$merge should be rejected")
+            .code,
+        "mongodb-count-pipeline-write-stage"
+    );
+    assert!(validate_mongodb_count_pipeline(&out).is_err());
+    assert!(validate_mongodb_count_pipeline(&[doc! { "$limit": 10 }]).is_ok());
+}
+
+#[test]
 fn mongodb_operation_detects_native_read_shapes() {
     assert_eq!(
         mongodb_operation(&json!({ "collection": "products" })),
@@ -186,6 +201,7 @@ fn resolved_connection() -> ResolvedConnectionProfile {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     }

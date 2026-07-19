@@ -20,6 +20,10 @@ pub(super) async fn execute_search_query(
         ));
     }
 
+    if execute_mode(request) == "count" {
+        return execute_search_count(engine, connection, query_text, notices, started).await;
+    }
+
     let row_limit = bounded_page_size(
         request
             .row_limit
@@ -91,6 +95,74 @@ pub(super) async fn execute_search_query(
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
         truncated,
+        explain_payload: None,
+    }))
+}
+
+async fn execute_search_count(
+    engine: SearchEngine,
+    connection: &ResolvedConnectionProfile,
+    query_text: &str,
+    notices: Vec<QueryExecutionNotice>,
+    started: Instant,
+) -> Result<ExecutionResultEnvelope, CommandError> {
+    let query = parse_search_query(
+        query_text,
+        connection
+            .search_options
+            .as_ref()
+            .and_then(|options| options.default_index.as_deref())
+            .or(connection.database.as_deref()),
+        1,
+        false,
+    )?;
+    let parsed_body: Value = serde_json::from_str(&query.body).map_err(|error| {
+        CommandError::new(
+            "search-query-json-invalid",
+            format!("Search Count Query DSL could not be normalized: {error}"),
+        )
+    })?;
+    let count_body = json!({
+        "query": parsed_body.get("query").cloned().unwrap_or_else(|| json!({ "match_all": {} })),
+    });
+    let count_body = serde_json::to_string(&count_body).map_err(|error| {
+        CommandError::new(
+            "search-query-json-invalid",
+            format!("Search Count Query DSL could not be serialized: {error}"),
+        )
+    })?;
+    let path = format!("/{}/_count", search_index_path_segment(&query.index)?);
+    let response = search_post_json(connection, &path, &count_body).await?;
+    let value: Value = serde_json::from_str(&response.body).map_err(|error| {
+        CommandError::new(
+            "search-json-invalid",
+            format!("Search engine returned invalid Count JSON: {error}"),
+        )
+    })?;
+    let count = value.get("count").and_then(Value::as_u64).ok_or_else(|| {
+        CommandError::new(
+            "search-count-invalid",
+            "Search engine returned a Count response without `count`.",
+        )
+    })?;
+
+    Ok(build_result(ResultEnvelopeInput {
+        engine: &connection.engine,
+        summary: format!(
+            "{} Count returned {count} matching document(s).",
+            engine.label
+        ),
+        default_renderer: "table",
+        renderer_modes: vec!["table", "json", "raw"],
+        payloads: vec![
+            payload_table(vec!["count".into()], vec![vec![count.to_string()]]),
+            payload_json(value),
+            payload_raw(count_body),
+        ],
+        notices,
+        duration_ms: duration_ms(started),
+        row_limit: None,
+        truncated: false,
         explain_payload: None,
     }))
 }

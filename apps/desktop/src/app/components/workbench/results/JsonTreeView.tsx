@@ -310,6 +310,10 @@ function bsonScalarPreview(value: unknown) {
     return { kind: 'objectid', preview: `ObjectId("${value.$oid}")` }
   }
 
+  if (typeof value.$uuid === 'string') {
+    return { kind: 'uuid', preview: `UUID("${value.$uuid}")` }
+  }
+
   if (typeof value.$date === 'string') {
     return { kind: 'date', preview: value.$date }
   }

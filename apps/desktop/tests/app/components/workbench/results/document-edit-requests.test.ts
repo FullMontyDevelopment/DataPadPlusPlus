@@ -63,6 +63,36 @@ describe('document-edit-requests', () => {
     ).toBeUndefined()
   })
 
+  it.each([
+    ['ObjectId', { $oid: '507f1f77bcf86cd799439011' }],
+    ['UUID', { $uuid: '9e107d9d-372b-4f7d-bb3a-17d63746f9a0' }],
+  ])('preserves raw MongoDB %s identity and resolved target context', (_label, documentId) => {
+    const documents = [{ _id: documentId, status: 'active' }]
+
+    expect(
+      buildDocumentDeleteRequest(
+        mongoConnection(),
+        {
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          database: 'resolved-database',
+          collection: 'resolved-collection',
+          queryText: '{ "database": "stale", "collection": "stale", "filter": {} }',
+        },
+        documents,
+        { ...rootRow(), value: documents[0] },
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        target: expect.objectContaining({
+          database: 'resolved-database',
+          collection: 'resolved-collection',
+          documentId,
+        }),
+      }),
+    )
+  })
+
   it('keeps field edit requests unguarded by UI confirmation text', () => {
     expect(
       buildDocumentEditRequest(

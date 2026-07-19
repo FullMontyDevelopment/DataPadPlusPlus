@@ -54,6 +54,8 @@ fn neptune_endpoint_prefers_graph_options() {
             path_prefix: Some("/neptune".into()),
             ..crate::domain::models::GraphConnectionOptions::default()
         }),
+        mongodb_options: None,
+
         warehouse_options: None,
         read_only: true,
     };

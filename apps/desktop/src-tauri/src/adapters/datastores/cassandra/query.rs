@@ -51,7 +51,8 @@ pub(super) async fn execute_cassandra_query(
 
         for statement in &batch_statements {
             let statement_started = Instant::now();
-            let execution_statement = cassandra_statement_for_execution(&statement.text, row_limit);
+            let execution_statement =
+                cassandra_statement_for_mode(&statement.text, row_limit, execute_mode(request));
             let response = execute_cassandra_statement(
                 &session,
                 connection,
@@ -112,7 +113,8 @@ pub(super) async fn execute_cassandra_query(
         }));
     }
 
-    let execution_statement = cassandra_statement_for_execution(statement, row_limit);
+    let execution_statement =
+        cassandra_statement_for_mode(statement, row_limit, execute_mode(request));
     if cql_needs_partition_key_warning(&execution_statement) {
         notices.push(QueryExecutionNotice {
             code: "cassandra-partition-key-warning".into(),
@@ -285,6 +287,14 @@ pub(crate) fn normalize_cassandra_response_bounded(
         columns,
         rows,
         truncated,
+    }
+}
+
+fn cassandra_statement_for_mode(statement: &str, row_limit: u32, mode: &str) -> String {
+    if mode == "count" {
+        strip_sql_semicolon(statement)
+    } else {
+        cassandra_statement_for_execution(statement, row_limit)
     }
 }
 

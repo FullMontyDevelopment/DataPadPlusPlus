@@ -1,5 +1,6 @@
 import {
   compactValue,
+  documentRowId,
   documentRootLabel,
   isExpandableValue,
   pathToFieldPath,
@@ -30,9 +31,10 @@ export function searchDocumentRows(
   }
 
   documents.forEach((document, index) => {
-    const rootId = `document-${index}`
+    const rootId = documentRowId(index, [])
     visitValue({
       ancestors: [],
+      documentIndex: index,
       id: rootId,
       label: documentRootLabel(document, index),
       path: [],
@@ -47,6 +49,7 @@ export function searchDocumentRows(
 
 function visitValue({
   ancestors,
+  documentIndex,
   id,
   label,
   path,
@@ -55,6 +58,7 @@ function visitValue({
   value,
 }: {
   ancestors: string[]
+  documentIndex: number
   id: string
   label: string
   path: Array<string | number>
@@ -79,13 +83,14 @@ function visitValue({
     return
   }
 
-  for (const [key, childValue] of valueEntries(value)) {
-    const pathKey = key.startsWith('[') ? Number(key.slice(1, -1)) : key
+  for (const { label, pathSegment, value: childValue } of valueEntries(value)) {
+    const childPath = [...path, pathSegment]
     visitValue({
       ancestors: [...ancestors, id],
-      id: `${id}.${key}`,
-      label: key,
-      path: [...path, pathKey],
+      documentIndex,
+      id: documentRowId(documentIndex, childPath),
+      label,
+      path: childPath,
       result,
       searchText,
       value: childValue,

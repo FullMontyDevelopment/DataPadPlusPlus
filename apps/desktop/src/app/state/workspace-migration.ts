@@ -43,6 +43,9 @@ const MAX_RIGHT_DRAWER_WIDTH = 560
 const MIN_RESULTS_SIDE_WIDTH = 320
 const DEFAULT_RESULTS_SIDE_WIDTH = 420
 const MAX_RESULTS_SIDE_WIDTH = 2400
+const MIN_MONGO_SCRIPT_GUIDE_WIDTH = 280
+const DEFAULT_MONGO_SCRIPT_GUIDE_WIDTH = 360
+const MAX_MONGO_SCRIPT_GUIDE_WIDTH = 520
 const WORKSPACE_SCHEMA_VERSION = 10
 const FIRST_INSTALL_GUIDE_STEP_IDS: FirstInstallGuideStepId[] = [
   'welcome',
@@ -102,6 +105,17 @@ function clampResultsSideWidth(value: unknown) {
   return Math.min(
     MAX_RESULTS_SIDE_WIDTH,
     Math.max(MIN_RESULTS_SIDE_WIDTH, Math.round(value)),
+  )
+}
+
+function clampMongoScriptGuideWidth(value: unknown) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return DEFAULT_MONGO_SCRIPT_GUIDE_WIDTH
+  }
+
+  return Math.min(
+    MAX_MONGO_SCRIPT_GUIDE_WIDTH,
+    Math.max(MIN_MONGO_SCRIPT_GUIDE_WIDTH, Math.round(value)),
   )
 }
 
@@ -227,6 +241,11 @@ export function normalizeUiState(snapshot: WorkspaceSnapshot): UiState {
     bottomPanelHeight: clampBottomPanelHeight(legacyUi?.bottomPanelHeight),
     resultsDock: isResultsDock(legacyUi?.resultsDock) ? legacyUi.resultsDock : 'bottom',
     resultsSideWidth: clampResultsSideWidth(legacyUi?.resultsSideWidth),
+    mongoScriptGuideVisible:
+      typeof legacyUi?.mongoScriptGuideVisible === 'boolean'
+        ? legacyUi.mongoScriptGuideVisible
+        : true,
+    mongoScriptGuideWidth: clampMongoScriptGuideWidth(legacyUi?.mongoScriptGuideWidth),
     rightDrawer,
     rightDrawerWidth: clampRightDrawerWidth(legacyUi?.rightDrawerWidth),
   }

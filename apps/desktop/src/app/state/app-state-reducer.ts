@@ -348,7 +348,9 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
       return {
         ...state,
         status: state.payload ? 'ready' : 'error',
-        payload: openMessagesPayload(state.payload),
+        payload: action.openMessages === false
+          ? state.payload
+          : openMessagesPayload(state.payload),
         explorerStatus: state.explorerStatus === 'loading' ? 'idle' : state.explorerStatus,
         explorerLoadingRequests: {},
         structureStatus: state.structureStatus === 'loading' ? 'idle' : state.structureStatus,
@@ -364,7 +366,9 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
     case 'WORKBENCH_MESSAGE_ADDED':
       return {
         ...state,
-        payload: openMessagesPayload(state.payload),
+        payload: action.openMessages === false
+          ? state.payload
+          : openMessagesPayload(state.payload),
         workbenchMessages: [action.message, ...state.workbenchMessages],
       }
     case 'WORKBENCH_MESSAGES_OPENED':

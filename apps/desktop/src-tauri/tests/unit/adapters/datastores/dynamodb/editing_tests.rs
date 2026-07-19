@@ -188,3 +188,15 @@ fn to_attribute_value_converts_nested_plain_json() {
         json!({ "S": "already-typed" })
     );
 }
+
+#[test]
+fn dynamodb_conditional_failure_detection_is_specific() {
+    assert!(is_dynamodb_conditional_check_failed(&CommandError::new(
+        "dynamodb-http-error",
+        r#"{"__type":"ConditionalCheckFailedException"}"#,
+    )));
+    assert!(!is_dynamodb_conditional_check_failed(&CommandError::new(
+        "dynamodb-http-error",
+        "ProvisionedThroughputExceededException",
+    )));
+}

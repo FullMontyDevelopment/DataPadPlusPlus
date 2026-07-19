@@ -1,4 +1,4 @@
-use mongodb::bson::{doc, Bson, Document};
+use mongodb::bson::{doc, spec::BinarySubtype, Bson, Document};
 use serde_json::{json, Value};
 
 use super::super::super::*;
@@ -104,10 +104,22 @@ pub(super) async fn execute_mongodb_data_edit(
         ));
     };
 
-    let filter = doc! { "_id": json_value_to_bson(document_id)? };
+    let document_id_bson = json_value_to_bson(document_id)?;
+    let document_id_type = mongodb_identity_type(&document_id_bson);
+    let filter = doc! { "_id": document_id_bson };
     if request.edit_kind == "delete-document" {
-        let delete_result = collection.delete_one(filter).await?;
+        let matched_before = collection
+            .find_one(filter.clone())
+            .projection(doc! { "_id": 1 })
+            .await?
+            .is_some();
+        let delete_result = collection.delete_one(filter.clone()).await?;
         let deleted_count = delete_result.deleted_count;
+        let exists_after = collection
+            .find_one(filter)
+            .projection(doc! { "_id": 1 })
+            .await?
+            .is_some();
 
         if deleted_count == 0 {
             warnings.push(
@@ -119,6 +131,12 @@ pub(super) async fn execute_mongodb_data_edit(
                 "MongoDB deleted {deleted_count} document(s) from {database_name}.{collection_name}."
             ));
         }
+        if deleted_count > 0 && exists_after {
+            warnings.push(
+                "MongoDB reported a successful delete, but a document with the same `_id` exists after verification. It may have been recreated concurrently."
+                    .into(),
+            );
+        }
 
         return Ok(data_edit_response(
             request,
@@ -127,7 +145,12 @@ pub(super) async fn execute_mongodb_data_edit(
             messages,
             warnings,
             Some(json!({
-                "deletedCount": deleted_count
+                "database": database_name,
+                "collection": collection_name,
+                "documentIdType": document_id_type,
+                "matchedBefore": matched_before,
+                "deletedCount": deleted_count,
+                "existsAfter": exists_after
             })),
         ));
     }
@@ -368,6 +391,27 @@ fn data_edit_path(change: &DataEditChange) -> Result<String, CommandError> {
 
 fn json_value_to_bson(value: &Value) -> Result<Bson, CommandError> {
     mongodb_json_to_bson(value, "mongodb-edit-bson")
+}
+
+fn mongodb_identity_type(value: &Bson) -> &'static str {
+    match value {
+        Bson::String(_) => "string",
+        Bson::Int32(_) => "int32",
+        Bson::Int64(_) => "int64",
+        Bson::Double(_) => "double",
+        Bson::ObjectId(_) => "objectId",
+        Bson::Binary(binary)
+            if matches!(binary.subtype, BinarySubtype::Uuid | BinarySubtype::UuidOld) =>
+        {
+            "uuid"
+        }
+        Bson::Binary(_) => "binary",
+        Bson::Boolean(_) => "boolean",
+        Bson::DateTime(_) => "dateTime",
+        Bson::Decimal128(_) => "decimal128",
+        Bson::Null => "null",
+        _ => "other",
+    }
 }
 
 fn bson_value_to_json(value: &Bson) -> Result<Value, CommandError> {

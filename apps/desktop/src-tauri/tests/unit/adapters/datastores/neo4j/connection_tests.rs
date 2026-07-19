@@ -37,6 +37,7 @@ fn neo4j_commit_path_uses_profile_database() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };
@@ -78,6 +79,7 @@ fn neo4j_endpoint_prefers_graph_options() {
             database_name: Some("analytics".into()),
             ..crate::domain::models::GraphConnectionOptions::default()
         }),
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };
@@ -132,6 +134,7 @@ fn neo4j_endpoint_rejects_control_characters_and_path_in_database() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };
@@ -180,6 +183,7 @@ async fn neo4j_bolt_fixture_returns_graph_entities() {
             connect_mode: Some("neo4j-bolt".into()),
             ..GraphConnectionOptions::default()
         }),
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };
@@ -201,6 +205,7 @@ async fn neo4j_bolt_fixture_returns_graph_entities() {
             row_limit: Some(25),
             document_efficiency_mode: None,
             confirmed_guardrail_id: None,
+            builder_state: None,
         },
         Vec::new(),
     )

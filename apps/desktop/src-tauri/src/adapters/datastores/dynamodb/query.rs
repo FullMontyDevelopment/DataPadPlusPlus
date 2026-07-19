@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde_json::{json, Map, Value};
 
 use super::super::super::*;
@@ -51,6 +53,10 @@ pub(super) async fn execute_dynamodb_query(
     );
     let body = normalize_request_body(&operation, request_value, row_limit);
     validate_dynamodb_request(&operation, &body)?;
+    if execute_mode(request) == "count" {
+        return execute_dynamodb_count(connection, request, &operation, body, notices, started)
+            .await;
+    }
     let response = dynamodb_call(connection, &operation, &body).await?;
     let normalized = normalize_dynamodb_response_bounded(&operation, &response, row_limit);
     let columns = normalized.columns;
@@ -98,6 +104,109 @@ pub(super) async fn execute_dynamodb_query(
         truncated,
         explain_payload: None,
     }))
+}
+
+async fn execute_dynamodb_count(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    operation: &str,
+    mut body: Value,
+    notices: Vec<QueryExecutionNotice>,
+    started: Instant,
+) -> Result<ExecutionResultEnvelope, CommandError> {
+    if !matches!(operation, "Query" | "Scan") {
+        return Err(CommandError::new(
+            "dynamodb-count-operation-invalid",
+            "DynamoDB Query Builder Count supports Query and Scan operations.",
+        ));
+    }
+    body = normalize_count_request_body(body)?;
+    let raw_body = body.clone();
+    let cancellation = register_count_execution(request.execution_id.as_deref());
+    let mut count = 0_u64;
+    let mut scanned_count = 0_u64;
+    let mut consumed_capacity_units = 0_f64;
+    let mut pages = 0_u64;
+    let mut seen_cursors = HashSet::new();
+
+    loop {
+        cancellation.check()?;
+        let response = dynamodb_call(connection, operation, &body).await?;
+        cancellation.check()?;
+        pages = pages.saturating_add(1);
+        count = count.saturating_add(response.get("Count").and_then(Value::as_u64).unwrap_or(0));
+        scanned_count = scanned_count.saturating_add(
+            response
+                .get("ScannedCount")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+        );
+        consumed_capacity_units += response
+            .pointer("/ConsumedCapacity/CapacityUnits")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+
+        let next_key = response
+            .get("LastEvaluatedKey")
+            .filter(|value| value.as_object().is_some_and(|value| !value.is_empty()))
+            .cloned();
+        let Some(next_key) = next_key else {
+            break;
+        };
+        let cursor = serde_json::to_string(&next_key).unwrap_or_default();
+        if !seen_cursors.insert(cursor) {
+            return Err(CommandError::new(
+                "dynamodb-count-cursor-repeated",
+                "DynamoDB repeated a Count pagination cursor; no partial count was returned.",
+            ));
+        }
+        body.as_object_mut()
+            .expect("DynamoDB Count body was validated as an object")
+            .insert("ExclusiveStartKey".into(), next_key);
+    }
+
+    let metadata = json!({
+        "operation": operation,
+        "table": body.get("TableName").cloned().unwrap_or(Value::Null),
+        "index": body.get("IndexName").cloned().unwrap_or(Value::Null),
+        "count": count.to_string(),
+        "scannedCount": scanned_count.to_string(),
+        "consumedCapacityUnits": consumed_capacity_units,
+        "pages": pages,
+    });
+    Ok(build_result(ResultEnvelopeInput {
+        engine: &connection.engine,
+        summary: format!("DynamoDB {operation} counted {count} matching item(s)."),
+        default_renderer: "table",
+        renderer_modes: vec!["table", "json", "raw"],
+        payloads: vec![
+            payload_table(vec!["count".into()], vec![vec![count.to_string()]]),
+            payload_json(metadata),
+            payload_raw(serde_json::to_string_pretty(&raw_body).unwrap_or_default()),
+        ],
+        notices,
+        duration_ms: duration_ms(started),
+        row_limit: None,
+        truncated: false,
+        explain_payload: None,
+    }))
+}
+
+pub(crate) fn normalize_count_request_body(mut body: Value) -> Result<Value, CommandError> {
+    let object = body.as_object_mut().ok_or_else(|| {
+        CommandError::new(
+            "dynamodb-count-request-invalid",
+            "DynamoDB Count requires an object request body.",
+        )
+    })?;
+    object.remove("Limit");
+    object.remove("ProjectionExpression");
+    object.remove("ExclusiveStartKey");
+    object.insert("Select".into(), json!("COUNT"));
+    object
+        .entry("ReturnConsumedCapacity")
+        .or_insert_with(|| json!("TOTAL"));
+    Ok(body)
 }
 
 pub(crate) fn dynamodb_operation(value: &mut Value) -> Result<String, CommandError> {

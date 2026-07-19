@@ -41,6 +41,7 @@ fn influxdb_endpoint_uses_profile_defaults() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };
@@ -80,6 +81,7 @@ fn influxdb_endpoint_prefers_timeseries_endpoint_bucket_and_prefix() {
             ..crate::domain::models::TimeSeriesConnectionOptions::default()
         }),
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };
@@ -126,6 +128,7 @@ fn influxdb_endpoint_rejects_control_characters() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };
@@ -164,6 +167,7 @@ fn influxdb_token_auth_rejects_control_characters() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };
@@ -226,6 +230,7 @@ async fn influxdb_get_decodes_chunked_json_for_result_normalization() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };

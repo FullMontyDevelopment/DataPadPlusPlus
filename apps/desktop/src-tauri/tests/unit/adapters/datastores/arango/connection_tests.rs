@@ -39,6 +39,7 @@ fn arango_endpoint_prefers_graph_options() {
             database_name: Some("fraud".into()),
             ..crate::domain::models::GraphConnectionOptions::default()
         }),
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };

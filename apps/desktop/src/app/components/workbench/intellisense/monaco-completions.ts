@@ -50,13 +50,37 @@ export interface MonacoEditorLike {
     }>,
   ): string[]
   getSelection?(): MonacoRangeLike | null
+  getPosition?(): MonacoPositionLike | null
   getModel?(): MonacoModelLike | null
+  executeEdits?(source: string, edits: Array<{
+    range: MonacoRangeLike
+    text: string
+    forceMoveMarkers?: boolean
+  }>): boolean
+  pushUndoStop?(): boolean
+  focus?(): void
   onDidChangeCursorSelection?(handler: () => void): MonacoDisposableLike
   onDidChangeModelContent?(handler: () => void): MonacoDisposableLike
   trigger?(source: string, handlerId: string, payload: unknown): void
 }
 
 export interface MonacoApiLike {
+  MarkerSeverity?: Record<string, number>
+  editor?: {
+    setModelMarkers?(
+      model: MonacoModelLike,
+      owner: string,
+      markers: Array<{
+        startLineNumber: number
+        startColumn: number
+        endLineNumber: number
+        endColumn: number
+        message: string
+        severity: number
+        source?: string
+      }>,
+    ): void
+  }
   KeyMod?: {
     CtrlCmd?: number
   }
@@ -64,6 +88,13 @@ export interface MonacoApiLike {
     Space?: number
   }
   languages: {
+    typescript?: {
+      ScriptTarget?: Record<string, number>
+      javascriptDefaults?: {
+        addExtraLib?(content: string, filePath?: string): MonacoDisposableLike
+        setCompilerOptions?(options: Record<string, unknown>): void
+      }
+    }
     CompletionItemKind?: Record<string, number>
     CompletionItemInsertTextRule?: Record<string, number>
     registerCompletionItemProvider(

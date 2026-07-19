@@ -50,6 +50,40 @@ fn preserves_mongo_operators_while_converting_nested_native_scalars() {
 }
 
 #[test]
+fn round_trips_standard_uuid_values_as_displayable_scalars() {
+    let uuid = Uuid::parse_str("00112233-4455-6677-8899-aabbccddeeff").expect("uuid");
+    let bson = Bson::from(uuid);
+
+    assert_eq!(
+        mongodb_bson_to_json(&bson),
+        json!({ "$uuid": "00112233-4455-6677-8899-aabbccddeeff" })
+    );
+    assert_eq!(
+        mongodb_json_to_bson(
+            &json!({ "$uuid": "00112233-4455-6677-8899-aabbccddeeff" }),
+            "test"
+        )
+        .expect("uuid bson"),
+        bson
+    );
+}
+
+#[test]
+fn keeps_legacy_uuid_subtypes_as_binary_values() {
+    let bson = Bson::Binary(Binary {
+        subtype: BinarySubtype::UuidOld,
+        bytes: Uuid::parse_str("00112233-4455-6677-8899-aabbccddeeff")
+            .expect("uuid")
+            .bytes()
+            .to_vec(),
+    });
+    let rendered = mongodb_bson_to_json(&bson);
+
+    assert_eq!(rendered["$binary"]["subType"], "UuidOld");
+    assert!(rendered.get("$uuid").is_none());
+}
+
+#[test]
 fn document_to_json_truncates_deep_documents() {
     let mut value = Bson::String("leaf".into());
     for index in 0..(MAX_BSON_JSON_DEPTH + 4) {

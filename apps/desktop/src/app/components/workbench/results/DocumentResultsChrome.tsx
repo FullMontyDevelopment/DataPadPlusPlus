@@ -71,7 +71,7 @@ export function DocumentResultsFooter({
     <div className="document-data-grid-footer">
       <div className="document-data-grid-footer-left">
         {footerControls}
-        {copyMessage ? <span>{copyMessage}</span> : null}
+        {copyMessage ? <span role="status">{copyMessage}</span> : null}
       </div>
       <div className="document-data-grid-footer-right">
         <strong>{documentCountLabel}</strong>

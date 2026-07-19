@@ -4,6 +4,10 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import net from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import {
+  waitForCosmosDbInitialization,
+  waitForCosmosDbReady,
+} from './cosmosdb-health.mjs'
 
 const root = dirname(fileURLToPath(import.meta.url))
 const generatedEnvPath = join(root, '.generated.env')
@@ -49,49 +53,6 @@ function fixturePort(envName, fallback) {
 
 loadGeneratedEnvironment()
 
-async function waitForCosmosDbReady() {
-  const port = fixturePort('DATAPADPLUSPLUS_COSMOSDB_HEALTH_PORT', 18082)
-  let lastStatus = ''
-
-  for (let attempt = 0; attempt < 90; attempt += 1) {
-    try {
-      const response = await globalThis.fetch(`http://127.0.0.1:${port}/ready`)
-      const text = await response.text()
-
-      if (response.ok) {
-        return
-      }
-
-      lastStatus = `${response.status} ${text}`
-    } catch (error) {
-      lastStatus = error?.message ?? String(error)
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-  }
-
-  let aliveStatus = ''
-  try {
-    const response = await globalThis.fetch(`http://127.0.0.1:${port}/alive`)
-    aliveStatus = await response.text()
-  } catch (error) {
-    aliveStatus = error?.message ?? String(error)
-  }
-
-  throw new Error(
-    [
-      `Cosmos DB emulator container is running, but its health probe did not become ready on http://127.0.0.1:${port}/ready.`,
-      `Last /ready response: ${lastStatus || 'no response'}`,
-      `Last /alive response: ${aliveStatus || 'no response'}`,
-      'The vNext Linux emulator can get stuck with PostgreSQL=FAIL after stale local state or an incomplete startup.',
-      'Recreate just this fixture container, then seed again:',
-      '  docker compose --env-file tests/fixtures/.generated.env -f tests/fixtures/docker-compose.yml rm -sf cosmosdb',
-      '  npm run fixtures:up:profile -- cosmosdb',
-      '  npm run fixtures:seed:all',
-    ].join('\n'),
-  )
-}
-
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
@@ -113,6 +74,38 @@ function docker(args, options = {}) {
   return run('docker', args, options)
 }
 
+function dockerProbe(args) {
+  const result = spawnSync('docker', args, {
+    cwd: root,
+    env: process.env,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    shell: false,
+  })
+
+  if (result.error) {
+    throw result.error
+  }
+
+  return {
+    detail: `${result.stderr ?? ''}${result.stdout ?? ''}`.trim(),
+    ready: result.status === 0,
+  }
+}
+
+function recreateCosmosDbEmulator() {
+  const composeArgs = [
+    'compose',
+    '--env-file',
+    generatedEnvPath,
+    '-f',
+    join(root, 'docker-compose.yml'),
+  ]
+
+  docker([...composeArgs, 'rm', '-sf', 'cosmosdb'])
+  docker([...composeArgs, '--profile', 'cosmosdb', 'up', '-d', 'cosmosdb'])
+}
+
 function containerRunning(name) {
   const result = spawnSync('docker', ['inspect', '-f', '{{.State.Running}}', name], {
     cwd: root,
@@ -123,6 +116,35 @@ function containerRunning(name) {
   })
 
   return result.status === 0 && result.stdout.trim() === 'true'
+}
+
+async function initializeMongoReplicaSet() {
+  const port = String(fixturePort('DATAPADPLUSPLUS_MONGODB_PORT', 27018))
+  const baseArgs = [
+    'exec',
+    'datapadplusplus-mongodb',
+    'mongosh',
+    '--quiet',
+    `mongodb://datapadplusplus:datapadplusplus@127.0.0.1:${port}/admin?directConnection=true`,
+  ]
+  docker([
+    ...baseArgs,
+    '--eval',
+    `try { rs.status() } catch (error) { if (error.codeName === 'NotYetInitialized') { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:${port}' }] }) } else { throw error } }`,
+  ])
+
+  let detail = ''
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const probe = dockerProbe([
+      ...baseArgs,
+      '--eval',
+      'if (!db.hello().isWritablePrimary) { quit(1) }',
+    ])
+    if (probe.ready) return
+    detail = probe.detail
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  throw new Error(`MongoDB fixture replica set did not elect a primary. ${detail}`)
 }
 
 function shouldSeed(container, profile = 'core') {
@@ -578,17 +600,14 @@ async function seedCore() {
   }
 
   if (containerRunning('datapadplusplus-mongodb')) {
+    await initializeMongoReplicaSet()
+    const mongoPort = String(fixturePort('DATAPADPLUSPLUS_MONGODB_PORT', 27018))
     docker([
       'exec',
       'datapadplusplus-mongodb',
       'mongosh',
       '--quiet',
-      '--username',
-      'datapadplusplus',
-      '--password',
-      'datapadplusplus',
-      '--authenticationDatabase',
-      'admin',
+      `mongodb://datapadplusplus:datapadplusplus@127.0.0.1:${mongoPort}/catalog?authSource=admin&directConnection=true`,
       '/docker-entrypoint-initdb.d/001_seed.js',
     ])
   }
@@ -1080,14 +1099,20 @@ async function seedCosmosDbEmulator() {
     return
   }
 
-  await waitForCosmosDbReady()
-  docker([
-    'exec',
-    'datapadplusplus-cosmosdb',
-    'cosmoshell.sh',
-    '-c',
-    'query "SELECT VALUE COUNT(1) FROM c" --database=datapadplusplus --container=orders',
-  ])
+  await waitForCosmosDbReady({
+    healthPort: fixturePort('DATAPADPLUSPLUS_COSMOSDB_HEALTH_PORT', 18082),
+    recreate: recreateCosmosDbEmulator,
+  })
+  await waitForCosmosDbInitialization({
+    check: () =>
+      dockerProbe([
+        'exec',
+        'datapadplusplus-cosmosdb',
+        'cosmoshell.sh',
+        '-c',
+        'query "SELECT VALUE COUNT(1) FROM c" --database=datapadplusplus --container=orders',
+      ]),
+  })
 }
 
 async function seedCloudContract() {

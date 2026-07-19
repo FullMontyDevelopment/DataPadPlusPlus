@@ -7,6 +7,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import type { DocumentEditContext } from '../../../results/document-edit-context'
 import {
+  dataEditErrorMessage,
   dataEditStatusMessage,
   executeDataEditWithConfirmation,
 } from '../../../results/data-edit-confirmation'
@@ -142,8 +143,8 @@ export function SearchHitsResultsView({
         confirm: confirmDataEdit,
         confirmationTitle: 'Apply this document update?',
       })
-    } catch {
-      setStatusMessage('Search document update failed.')
+    } catch (error) {
+      setStatusMessage(dataEditErrorMessage(error, 'Search document update failed.'))
       return
     }
     if (response?.executed) {
@@ -194,8 +195,8 @@ export function SearchHitsResultsView({
         confirm: confirmDataEdit,
         confirmationTitle: 'Index this document?',
       })
-    } catch {
-      setStatusMessage('Search document index failed.')
+    } catch (error) {
+      setStatusMessage(dataEditErrorMessage(error, 'Search document index failed.'))
       return
     }
     if (response?.executed) {
@@ -246,8 +247,8 @@ export function SearchHitsResultsView({
           confirmationTitle: 'Delete this document?',
         },
       )
-    } catch {
-      setStatusMessage('Search document deletion failed.')
+    } catch (error) {
+      setStatusMessage(dataEditErrorMessage(error, 'Search document deletion failed.'))
       return
     }
     if (response?.executed) {
@@ -364,7 +365,7 @@ export function SearchHitsResultsView({
         />
       ) : null}
       {confirmationDialog}
-      {statusMessage ? <div className="data-grid-status">{statusMessage}</div> : null}
+      {statusMessage ? <div className="data-grid-status" role="status">{statusMessage}</div> : null}
       {contextMenu && contextMenuHit ? (
         <SearchHitsContextMenu
           canEdit={canEdit}

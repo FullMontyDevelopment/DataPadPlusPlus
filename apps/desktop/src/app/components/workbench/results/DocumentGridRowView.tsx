@@ -1,6 +1,11 @@
-import { useState } from 'react'
-import type { KeyboardEvent, PointerEvent } from 'react'
-import { isBsonDateValue, isBsonNumberValue, isBsonObjectIdValue } from './document-bson-values'
+import { useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { AlertTriangle } from 'lucide-react'
+import {
+  isBsonDateValue,
+  isBsonNumberValue,
+  isBsonObjectIdValue,
+  isBsonUuidValue,
+} from './document-bson-values'
 import { documentValueTypeLabel, type DocumentGridRow, type DocumentValueType } from './document-grid-model'
 import { coerceValue, editableValue, parseEditedValue } from './document-value-editing'
 import {
@@ -10,11 +15,10 @@ import {
   moveFieldPointerDrag,
   type FieldDragPayload,
 } from './field-drag'
-
 const TYPE_OPTIONS: DocumentValueType[] = ['string', 'number', 'boolean', 'null', 'object', 'array']
-
 interface DocumentGridRowViewProps {
   editingCell?: 'field' | 'type' | 'value'
+  error?: string
   expanded: boolean
   loading?: boolean
   matched?: boolean
@@ -31,6 +35,7 @@ interface DocumentGridRowViewProps {
 
 export function DocumentGridRowView({
   editingCell,
+  error,
   expanded,
   loading = false,
   matched = false,
@@ -87,14 +92,14 @@ export function DocumentGridRowView({
       <div
         className="document-data-grid-cell document-data-grid-cell--id"
         role="gridcell"
-        style={{ paddingLeft: 8 + row.depth * 18 }}
+        style={{ paddingLeft: `min(${8 + row.depth * 18}px, max(8px, calc(100% - 128px)))` }}
         title={row.fieldPath ? `Drag ${row.fieldPath} to the query builder` : row.label}
       >
         {row.expandable ? (
           <button
             type="button"
             className="document-data-grid-expander"
-            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${row.label}`}
+            aria-label={`${error ? 'Retry' : expanded ? 'Collapse' : 'Expand'} ${row.label}`}
             disabled={loading}
             onClick={() => onToggleRow(row)}
           >
@@ -119,6 +124,11 @@ export function DocumentGridRowView({
             {row.label}
           </span>
         )}
+        {error ? (
+          <span className="document-data-grid-row-error" title={error} aria-label={error}>
+            <AlertTriangle aria-hidden="true" size={13} strokeWidth={1.8} />
+          </span>
+        ) : null}
       </div>
       <div className="document-data-grid-cell document-data-grid-cell--type" role="gridcell">
         {editingType ? (
@@ -285,6 +295,10 @@ function documentDragValueType(value: unknown, fallbackType: DocumentValueType) 
 
   if (isBsonObjectIdValue(value)) {
     return 'objectid'
+  }
+
+  if (isBsonUuidValue(value)) {
+    return 'uuid'
   }
 
   if (isBsonNumberValue(value)) {

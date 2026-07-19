@@ -21,19 +21,31 @@ function commandOutput(result) {
   return `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim()
 }
 
+function mongoContainerPort() {
+  const result = docker([
+    'exec',
+    'datapadplusplus-mongodb',
+    'printenv',
+    'DATAPADPLUSPLUS_MONGODB_PORT',
+  ])
+  return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : '27018'
+}
+
+function mongoConnectionUri(options = {}) {
+  const user = encodeURIComponent(options.user ?? 'datapadplusplus')
+  const password = encodeURIComponent(options.password ?? 'datapadplusplus')
+  const database = encodeURIComponent(options.database ?? 'catalog')
+  const authDb = encodeURIComponent(options.authDb ?? 'admin')
+  return `mongodb://${user}:${password}@127.0.0.1:${mongoContainerPort()}/${database}?authSource=${authDb}&directConnection=true`
+}
+
 function mongoEval(script, options = {}) {
   const result = docker([
     'exec',
     'datapadplusplus-mongodb',
     'mongosh',
     '--quiet',
-    options.database ?? 'catalog',
-    '--username',
-    options.user ?? 'datapadplusplus',
-    '--password',
-    options.password ?? 'datapadplusplus',
-    '--authenticationDatabase',
-    options.authDb ?? 'admin',
+    mongoConnectionUri(options),
     '--eval',
     script,
   ])
@@ -135,6 +147,34 @@ return {
   expectAtLeast(result.largeDocuments, 12, 'MongoDB largeDocuments')
   expect(result.productIndexes.includes('sku_1'), 'MongoDB products unique sku index is missing')
   expectAtLeast(result.largeSampleBytes, 100000, 'MongoDB large sample payload bytes')
+})
+
+await record('MongoDB: replica set transactions commit and abort', () => {
+  const result = mongoJson(`
+const hello = db.adminCommand({ hello: 1 });
+const catalog = db.getSiblingDB('catalog');
+const name = 'fixture_mongodb_script_transactions';
+catalog.getCollection(name).drop();
+const session = db.getMongo().startSession();
+const collection = session.getDatabase('catalog').getCollection(name);
+session.startTransaction();
+collection.insertOne({ _id: 'aborted', state: 'pending' });
+session.abortTransaction();
+session.startTransaction();
+collection.insertOne({ _id: 'committed', state: 'ready' });
+session.commitTransaction();
+session.endSession();
+const counts = {
+  setName: hello.setName,
+  aborted: catalog.getCollection(name).countDocuments({ _id: 'aborted' }),
+  committed: catalog.getCollection(name).countDocuments({ _id: 'committed' }),
+};
+catalog.getCollection(name).drop();
+return counts;
+`)
+  expect(result.setName === 'rs0', `Expected rs0, got ${JSON.stringify(result.setName)}`)
+  expect(result.aborted === 0, 'Aborted fixture transaction persisted a document')
+  expect(result.committed === 1, 'Committed fixture transaction did not persist a document')
 })
 
 await record('MongoDB: collection export/import primitives', () => {

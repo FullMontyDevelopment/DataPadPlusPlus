@@ -6,6 +6,7 @@ import type {
 import type { AppActionContext, StateShape } from './app-state-types'
 
 export const RESULT_RENDER_ACK_FALLBACK_MS = 3000
+export const EXECUTION_ACTIVITY_MINIMUM_MS = 200
 
 export function tabExecution(
   executionId: string,
@@ -29,6 +30,16 @@ export function nextFrame(): Promise<void> {
 
     window.requestAnimationFrame(() => resolve())
   })
+}
+
+export function waitForMinimumExecutionActivity(
+  startedAtMs: number,
+  minimumMs = EXECUTION_ACTIVITY_MINIMUM_MS,
+): Promise<void> {
+  const remainingMs = Math.max(0, minimumMs - (Date.now() - startedAtMs))
+  return remainingMs > 0
+    ? new Promise((resolve) => setTimeout(resolve, remainingMs))
+    : Promise.resolve()
 }
 
 export function shouldWaitForVisibleResult(

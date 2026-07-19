@@ -207,6 +207,52 @@ describe('DesktopCodeEditor', () => {
     expect(editor).toHaveValue('select 123;')
   })
 
+  it('ignores a delayed parent echo after a newer local keystroke', async () => {
+    const onChange = vi.fn()
+
+    function Harness() {
+      const [value, setValue] = useState('print("start")')
+      const [resetKey, setResetKey] = useState(0)
+
+      return (
+        <>
+          <button type="button" onClick={() => setValue('print("older")')}>
+            stale echo
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setValue('print("replacement")')
+              setResetKey((current) => current + 1)
+            }}
+          >
+            reset editor
+          </button>
+          <DesktopCodeEditor
+            value={value}
+            resetKey={resetKey}
+            language="javascript"
+            theme="dark"
+            onChange={onChange}
+          />
+        </>
+      )
+    }
+
+    render(<Harness />)
+
+    const editor = await screen.findByLabelText('Query editor')
+    fireEvent.change(editor, { target: { value: 'print("newest")' } })
+    fireEvent.click(screen.getByRole('button', { name: 'stale echo' }))
+
+    expect(editor).toHaveValue('print("newest")')
+
+    fireEvent.click(screen.getByRole('button', { name: 'reset editor' }))
+    await waitFor(() => {
+      expect(screen.getByLabelText('Query editor')).toHaveValue('print("replacement")')
+    })
+  })
+
   it('reports highlighted Monaco text for run selection', async () => {
     const onSelectionChange = vi.fn()
     render(

@@ -221,7 +221,6 @@ pub fn status_for(
     })?;
     Ok(manager.status(preferences))
 }
-
 pub fn metrics_for(
     manager: &SharedDatastoreApiServer,
     preferences: &DatastoreApiServerPreferences,
@@ -234,7 +233,6 @@ pub fn metrics_for(
     })?;
     Ok(manager.metrics(preferences))
 }
-
 pub fn logs_for(
     manager: &SharedDatastoreApiServer,
     preferences: &DatastoreApiServerPreferences,
@@ -248,7 +246,6 @@ pub fn logs_for(
     })?;
     Ok(manager.logs(preferences, &request))
 }
-
 fn normalized_servers(
     preferences: &DatastoreApiServerPreferences,
 ) -> Vec<DatastoreApiServerConfig> {
@@ -3624,6 +3621,7 @@ async fn execute_custom_endpoint(
         row_limit: endpoint.row_limit.or(Some(100)).map(|limit| limit.min(500)),
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
+        builder_state: None,
     };
     let result = match adapters::execute(
         &resolved_connection,
@@ -3987,6 +3985,7 @@ async fn execute_resource_read(
         row_limit: Some(row_limit),
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
+        builder_state: None,
     };
     let result = match adapters::execute(
         &resolved_connection,
@@ -5239,6 +5238,7 @@ async fn live_sample_schema(
         row_limit: Some(50),
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
+        builder_state: None,
     };
     let result = adapters::execute(
         resolved_connection,

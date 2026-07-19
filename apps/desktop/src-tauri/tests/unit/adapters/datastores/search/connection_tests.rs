@@ -111,6 +111,7 @@ fn search_connection(search_options: Option<SearchConnectionOptions>) -> Resolve
         search_options,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     }

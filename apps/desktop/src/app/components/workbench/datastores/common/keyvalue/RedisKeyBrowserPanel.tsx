@@ -30,6 +30,7 @@ import {
   RedisKeyBrowserRows,
 } from './RedisKeyBrowserRows'
 import {
+  dataEditErrorMessage,
   dataEditStatusMessage,
   executeDataEditWithConfirmation,
 } from '../../../results/data-edit-confirmation'
@@ -200,26 +201,32 @@ export function RedisKeyBrowserPanel({
 
     const value = addKeyType === 'string' ? addKeyValue : parseRedisInitialValue(addKeyValue)
     const keyName = addKeyName.trim()
-    const response = await executeDataEditWithConfirmation(
-      onExecuteDataEdit,
-      {
-        connectionId: tab.connectionId,
-        environmentId: tab.environmentId,
-        editKind: 'set-key-value',
-        target: {
-          objectKind: 'key',
-          path: [],
-          database: String(databaseIndex),
-          key: keyName,
+    let response: DataEditExecutionResponse | undefined
+    try {
+      response = await executeDataEditWithConfirmation(
+        onExecuteDataEdit,
+        {
+          connectionId: tab.connectionId,
+          environmentId: tab.environmentId,
+          editKind: 'set-key-value',
+          target: {
+            objectKind: 'key',
+            path: [],
+            database: String(databaseIndex),
+            key: keyName,
+          },
+          changes: [{ value, valueType: addKeyType }],
         },
-        changes: [{ value, valueType: addKeyType }],
-      },
-      {
-        actionLabel: `Add Redis key ${keyName}.`,
-        confirm: confirmDataEdit,
-        confirmationTitle: 'Create this Redis key?',
-      },
-    )
+        {
+          actionLabel: `Add Redis key ${keyName}.`,
+          confirm: confirmDataEdit,
+          confirmationTitle: 'Create this Redis key?',
+        },
+      )
+    } catch (error) {
+      setStatus(dataEditErrorMessage(error, 'Unable to add Redis key.'))
+      return
+    }
 
     if (response?.executed) {
       setShowAddKey(false)
@@ -238,18 +245,24 @@ export function RedisKeyBrowserPanel({
     }
 
     setStatus(`Deleting ${key}...`)
-    const response = await onExecuteDataEdit({
-      connectionId: tab.connectionId,
-      environmentId: tab.environmentId,
-      editKind: 'delete-key',
-      target: {
-        objectKind: 'key',
-        path: [],
-        database: String(databaseIndex),
-        key,
-      },
-      changes: [],
-    })
+    let response: DataEditExecutionResponse | undefined
+    try {
+      response = await onExecuteDataEdit({
+        connectionId: tab.connectionId,
+        environmentId: tab.environmentId,
+        editKind: 'delete-key',
+        target: {
+          objectKind: 'key',
+          path: [],
+          database: String(databaseIndex),
+          key,
+        },
+        changes: [],
+      })
+    } catch (error) {
+      setStatus(dataEditErrorMessage(error, `Unable to delete ${key}.`))
+      return
+    }
 
     if (response?.executed) {
       setKeys((current) => current.filter((item) => item.key !== key))

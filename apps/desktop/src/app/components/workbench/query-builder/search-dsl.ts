@@ -78,6 +78,13 @@ export function buildSearchDslQueryText(state: SearchDslBuilderState) {
   )
 }
 
+export function buildSearchDslCountQueryText(state: SearchDslBuilderState) {
+  return JSON.stringify({
+    index: state.index.trim(),
+    body: { query: searchQuery(state) },
+  }, null, 2)
+}
+
 export function parseSearchDslQueryText(
   queryText: string,
 ): SearchDslBuilderState | undefined {

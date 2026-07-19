@@ -272,7 +272,7 @@ Current query experiences include:
 
 - SQL editors for relational databases, with raw SQL as the default
 - SQL SELECT builder for table-focused queries
-- MongoDB query builder, raw command JSON, aggregation work, and safe scripting
+- MongoDB query builder, raw command JSON, aggregation work, and sandboxed mongosh-style JavaScript
 - Redis and Valkey key browser plus Redis console
 - Elasticsearch/OpenSearch query builder
 - DynamoDB key-condition, projection/filter, and conditional-write helpers plus guarded read-only PartiQL `ExecuteStatement` requests in raw JSON mode
@@ -295,6 +295,9 @@ You can:
 - turn filters on and off without deleting them
 - add projections and sort fields
 - use aggregation-aware IntelliSense for stages, expression operators, snippets, and `$field.path` references
+- write JavaScript with variables, functions, loops, async/await, BSON constructors, cursor chaining, CRUD, bulk operations, explicit transactions, indexes, collection management, and permission-authorized database commands
+- use Script-mode IntelliSense for sandbox globals, collection methods, command/options signatures, live collection names, and discovered fields
+- search and resize the scripting guide, insert examples at the cursor, and hide or restore the guide without losing its saved width
 - control result size through fetch size and Load More
 - view documents as expandable rows
 - turn on efficiency mode for large documents so nested content is fetched only when expanded
@@ -307,6 +310,8 @@ You can:
 - open purpose-built views for schema, indexes, validation, GridFS, users, roles, statistics, and document insert/upload workflows
 
 Document editing is deliberate. You double-click to edit, and the desktop adapter only enables live insert, replace, delete, and field set/unset/rename/type-change edits when it can identify the collection/document safely and the active environment allows the change.
+
+MongoDB scripts run inside an embedded 64 MiB JavaScript sandbox with bounded CPU, stack, operation count, output, result size, timeout, and cancellation. The sandbox exposes MongoDB and BSON APIs but no filesystem, process, package/module loader, `eval`, or arbitrary network APIs. Reads run normally; writes, destructive operations, unknown server commands, and administrative work use the existing confirmation flow, while read-only profiles reject mutations at both preflight and native execution. An uncaught error or cancellation aborts an open transaction; previously completed non-transactional writes remain committed and are reported as partial execution.
 
 ## Redis And Valkey Experience
 

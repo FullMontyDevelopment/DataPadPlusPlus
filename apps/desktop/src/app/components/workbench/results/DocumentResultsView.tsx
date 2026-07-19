@@ -6,8 +6,6 @@ import type {
   DataEditExecutionRequest,
   DataEditExecutionResponse,
   DataEditKind,
-  DocumentNodeChildrenRequest,
-  DocumentNodeChildrenResponse,
 } from '@datapadplusplus/shared-types'
 import { DocumentContextMenu } from './document-context-menu'
 import { DeleteConfirmationPanel } from './DeleteConfirmationPanel'
@@ -26,10 +24,7 @@ import {
 import { DocumentGridRowView } from './DocumentGridRowView'
 import { DocumentVirtualGridRows } from './DocumentVirtualGridRows'
 import { documentResultBehaviorForConnection } from './datastore-result-behaviors'
-import {
-  dataEditStatusMessage,
-  executeDataEditWithConfirmation,
-} from './data-edit-confirmation'
+import { dataEditErrorMessage, dataEditStatusMessage, executeDataEditWithConfirmation } from './data-edit-confirmation'
 import { editablePermissions } from './document-edit-permissions'
 import {
   buildRows,
@@ -44,6 +39,7 @@ import { searchDocumentRows } from './document-grid-search'
 import { documentCountText } from './document-results-summary'
 import { copyText } from './payload-export'
 import { useDataEditConfirmation } from './use-data-edit-confirmation'
+import { useDocumentLazyHydration } from './use-document-lazy-hydration'
 
 interface DocumentResultsViewProps {
   connection?: ConnectionProfile
@@ -57,9 +53,7 @@ interface DocumentResultsViewProps {
   resultDurationMs?: number
   resultRuntimeTitle?: string
   resultSummary?: string
-  onFetchDocumentNodeChildren?(
-    request: DocumentNodeChildrenRequest,
-  ): Promise<DocumentNodeChildrenResponse | undefined>
+  onFetchDocumentNodeChildren?: Parameters<typeof useDocumentLazyHydration>[0]['onFetchDocumentNodeChildren']
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -75,16 +69,10 @@ interface ContextMenuState {
 type DocumentEditCell = 'field' | 'type' | 'value'
 
 const DOCUMENT_SEARCH_DEBOUNCE_MS = 180
-const EMPTY_ROW_ID_SET = new Set<string>()
 
 interface ActiveEditorState {
   rowId: string
   cell: DocumentEditCell
-}
-
-interface SourceScopedRowIds {
-  source: Array<Record<string, unknown>>
-  ids: Set<string>
 }
 
 interface PendingFieldDeleteState {
@@ -126,10 +114,6 @@ export function DocumentResultsView({
   const [inspectorRowId, setInspectorRowId] = useState<string>()
   const [pendingFieldDelete, setPendingFieldDelete] = useState<PendingFieldDeleteState>()
   const [pendingDocumentDelete, setPendingDocumentDelete] = useState<PendingDocumentDeleteState>()
-  const [hydratingRows, setHydratingRows] = useState<SourceScopedRowIds>(() => ({
-    source: documents,
-    ids: new Set(),
-  }))
   const {
     cancelDataEditConfirmation,
     confirmDataEdit,
@@ -139,9 +123,6 @@ export function DocumentResultsView({
   const efficiencyModeEnabled = hydrationMode === 'lazy'
   const effectiveActiveEditor = draftState.source === documents ? activeEditor : undefined
   const activeContextMenu = contextMenu?.source === documents ? contextMenu : undefined
-  const activeHydratingRows = hydratingRows.source === documents
-    ? hydratingRows.ids
-    : EMPTY_ROW_ID_SET
   const pendingFieldDeleteRow = pendingFieldDelete?.source === documents
     ? pendingFieldDelete.row
     : undefined
@@ -260,6 +241,32 @@ export function DocumentResultsView({
     })
   }
 
+  const {
+    hydrationErrors: activeHydrationErrors,
+    hydratingRows: activeHydratingRows,
+    hydrateLazyRow,
+  } = useDocumentLazyHydration({
+    collection,
+    database,
+    documents,
+    draftDocuments,
+    editContext,
+    tabId,
+    onFetchDocumentNodeChildren,
+    onHydrated: (row, response) => {
+      updateDraftDocuments((current) =>
+        current.map((item, index) =>
+          index === row.documentIndex ? setValueAtPath(item, row.path, response.value) : item,
+        ),
+      )
+      setExpandedRows((current) => new Set(current).add(row.id))
+      if (response.notices.length > 0) {
+        setCopyMessage(response.notices[0] ?? 'Field expanded.')
+      }
+    },
+    onMessage: setCopyMessage,
+  })
+
   const applyDocumentEdit = (
     row: DocumentGridRow,
     editKind: DataEditKind,
@@ -307,8 +314,8 @@ export function DocumentResultsView({
 
         updateDraftDocuments(updater)
         setCopyMessage(successMessage)
-      } catch {
-        setCopyMessage('Document edit failed.')
+      } catch (error) {
+        setCopyMessage(dataEditErrorMessage(error, 'Document edit failed.'))
       }
     })()
   }
@@ -352,63 +359,6 @@ export function DocumentResultsView({
       next.add(row.id)
       return next
     })
-  }
-
-  const hydrateLazyRow = async (row: DocumentGridRow) => {
-    if (!onFetchDocumentNodeChildren || !editContext || !tabId || !collection) {
-      setCopyMessage('Run a full query or select a collection before expanding this field.')
-      return
-    }
-
-    const document = draftDocuments[row.documentIndex]
-    const documentId = document?._id
-
-    if (documentId === undefined) {
-      setCopyMessage('This document cannot be expanded because its _id is unavailable.')
-      return
-    }
-
-    setHydratingRows((current) => {
-      const ids = new Set(current.source === documents ? current.ids : EMPTY_ROW_ID_SET)
-      ids.add(row.id)
-      return { source: documents, ids }
-    })
-
-    try {
-      const response = await onFetchDocumentNodeChildren({
-        tabId,
-        connectionId: editContext.connectionId,
-        environmentId: editContext.environmentId,
-        database,
-        collection,
-        documentId,
-        path: row.path,
-        queryText: editContext.queryText,
-      })
-
-      if (!response) {
-        setCopyMessage('Unable to expand this field.')
-        return
-      }
-
-      updateDraftDocuments((current) =>
-        current.map((item, index) =>
-          index === row.documentIndex ? setValueAtPath(item, row.path, response.value) : item,
-        ),
-      )
-      setExpandedRows((current) => new Set(current).add(row.id))
-      if (response.notices.length > 0) {
-        setCopyMessage(response.notices[0] ?? 'Field expanded.')
-      }
-    } catch {
-      setCopyMessage('Unable to expand this field.')
-    } finally {
-      setHydratingRows((current) => {
-        const next = new Set(current.source === documents ? current.ids : EMPTY_ROW_ID_SET)
-        next.delete(row.id)
-        return { source: documents, ids: next }
-      })
-    }
   }
 
   const expandAll = () => {
@@ -559,8 +509,8 @@ export function DocumentResultsView({
           current.filter((_document, index) => index !== row.documentIndex),
         )
         setCopyMessage(response.messages.at(-1) ?? 'Deleted document.')
-      } catch {
-        setCopyMessage('Document delete failed.')
+      } catch (error) {
+        setCopyMessage(dataEditErrorMessage(error, 'Document delete failed.'))
       }
     })()
   }
@@ -573,6 +523,7 @@ export function DocumentResultsView({
     <DocumentGridRowView
       key={row.id}
       row={row}
+      error={activeHydrationErrors.get(row.id)}
       expanded={effectiveExpandedRows.has(row.id)}
       loading={activeHydratingRows.has(row.id)}
       matched={hasSearch && searchResult.matchedRowIds.has(row.id)}

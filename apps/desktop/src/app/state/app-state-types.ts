@@ -90,6 +90,7 @@ import type {
   OperationManifestResponse,
   OperationPlanRequest,
   OperationPlanResponse,
+  QueryBuilderState,
   QueryViewMode,
   QueryTabActiveExecution,
   RedisKeyInspectRequest,
@@ -120,14 +121,9 @@ import type {
   WorkspaceSwitcherStatus,
   WorkspaceSwitchRequest,
 } from '@datapadplusplus/shared-types'
-import type {
-  ConnectionHealth,
-  ConnectionHealthSource,
-} from './connection-health'
-
+import type { ConnectionHealth, ConnectionHealthSource } from './connection-health'
 export type LoadStatus = 'booting' | 'ready' | 'error'
 export type RemoteStatus = 'idle' | 'loading' | 'ready'
-
 export type WorkbenchMessageSeverity = 'error' | 'warning' | 'info'
 
 export interface WorkbenchMessage {
@@ -139,9 +135,7 @@ export interface WorkbenchMessage {
   details?: string
 }
 
-export interface AppErrorOptions {
-  suppressWorkbenchMessage?: boolean
-}
+export type AppErrorOptions = { suppressWorkbenchMessage?: boolean; openMessages?: boolean }
 
 export interface ExplorerCacheEntry {
   connectionId: string
@@ -245,8 +239,8 @@ export type AppAction =
   | { type: 'RESULT_PAGE_LOADING'; tabId: string; execution: QueryTabActiveExecution }
   | { type: 'RESULT_PAGE_READY'; page: ResultPageResponse; executionId?: string; waitForDisplay?: boolean }
   | { type: 'BOOTSTRAP_ERROR'; message: string }
-  | { type: 'COMMAND_ERROR'; message: string }
-  | { type: 'WORKBENCH_MESSAGE_ADDED'; message: WorkbenchMessage }
+  | { type: 'COMMAND_ERROR'; message: string; openMessages?: boolean }
+  | { type: 'WORKBENCH_MESSAGE_ADDED'; message: WorkbenchMessage; openMessages?: boolean }
   | { type: 'WORKBENCH_MESSAGES_OPENED' }
   | { type: 'WORKBENCH_MESSAGE_DISMISSED'; id: string }
   | { type: 'WORKBENCH_MESSAGES_CLEARED' }
@@ -330,7 +324,11 @@ export interface Actions {
     scriptText?: string,
     documentEfficiencyMode?: boolean,
     selectedText?: string,
+    builderState?: QueryBuilderState,
   ): Promise<void>
+  executeBuilderCount(request: {
+    tabId: string; builderState: QueryBuilderState; queryText: string; countQueryText: string
+  }): Promise<void>
   executeTestSuite(request: ExecuteTestSuiteRequest): Promise<ExecuteTestSuiteResponse | undefined>
   cancelTestRun(
     request: CancelTestRunRequest,

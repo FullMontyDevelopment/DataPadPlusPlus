@@ -59,6 +59,13 @@ export function buildMongoAggregationQueryText(
   )
 }
 
+export function buildMongoAggregationCountQueryText(
+  state: MongoAggregationBuilderState,
+  context: MongoQueryTextContext = {},
+) {
+  return buildMongoAggregationQueryText({ ...state, limit: undefined }, context)
+}
+
 export function parseMongoAggregationQueryText(
   queryText: string,
 ): MongoAggregationBuilderState | undefined {

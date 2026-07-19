@@ -35,6 +35,8 @@ fn prometheus_endpoint_uses_host_profile_defaults() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
+
         warehouse_options: None,
         read_only: true,
     };
@@ -73,6 +75,8 @@ fn prometheus_endpoint_prefers_timeseries_endpoint_and_prefix() {
             ..crate::domain::models::TimeSeriesConnectionOptions::default()
         }),
         graph_options: None,
+        mongodb_options: None,
+
         warehouse_options: None,
         read_only: true,
     };
@@ -118,6 +122,8 @@ fn prometheus_endpoint_rejects_control_characters() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
+
         warehouse_options: None,
         read_only: true,
     };

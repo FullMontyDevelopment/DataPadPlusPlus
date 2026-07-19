@@ -6,14 +6,12 @@ import { desktopClient } from '../../services/runtime/client'
 import { effectiveConnectionEnvironmentIds } from '../../services/runtime/library-connection-helpers'
 import { useAppActions } from './app-actions'
 import { initialState, reducer } from './app-state-reducer'
-import { toUserMessage } from './app-state-selectors'
+import { toUserError, toUserMessage } from './app-state-selectors'
 import { buildConnectionTestFailure } from './connection-test-results'
 import { connectionHealthKey } from './connection-health'
 import { useStartupUpdateCheck } from './use-startup-update-check'
 import type { Actions, AppAction, AppContextValue, StateShape, AppErrorOptions } from './app-state-types'
-
 export type { WorkbenchMessage, WorkbenchMessageSeverity } from './app-state-types'
-
 const noop = async () => {}
 const noopFalse = async () => false
 
@@ -68,6 +66,7 @@ const defaultActions: Actions = {
   scanRedisKeys: async () => undefined,
   inspectRedisKey: noop,
   executeQuery: noop,
+  executeBuilderCount: noop,
   executeTestSuite: async () => undefined,
   cancelTestRun: async () => undefined,
   fetchResultPage: noop,
@@ -232,12 +231,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     if (!shouldDispatchCommandError(options)) {
       return
     }
+    const { code, message } = toUserError(error, 'Unexpected desktop command failure.')
     dispatch({
       type: 'COMMAND_ERROR',
-      message: toUserMessage(error, 'Unexpected desktop command failure.'),
+      message,
+      openMessages: options?.openMessages ?? code !== 'workspace-save-blocked',
     })
   }, [])
-
   const { actions, activeConnection, activeEnvironment } = useAppActions({
     state,
     stateRef,

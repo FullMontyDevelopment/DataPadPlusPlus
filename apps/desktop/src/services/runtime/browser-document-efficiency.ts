@@ -40,21 +40,21 @@ export function fetchDocumentNodeChildrenFromResult(
   }
 
   const currentValue = valueAtPath(document, request.path)
-  const previewLazy = isLazyMarker(currentValue)
-  const value = previewLazy
-    ? currentValue.type === 'array'
-      ? []
-      : {}
-    : summarizeValueForLazyHydration(currentValue, request.path)
+  if (isLazyMarker(currentValue)) {
+    throw new Error(
+      'Preview mode contains only the summarized field. Use a live desktop MongoDB connection to load its children.',
+    )
+  }
+  if (currentValue === undefined) {
+    throw new Error('The selected field is no longer available in the loaded result.')
+  }
 
   return {
     tabId: request.tabId,
     documentId: request.documentId,
     path: request.path,
-    value,
-    notices: previewLazy
-      ? ['Preview mode has only the summarized lazy field. Run against a live MongoDB connection to hydrate children.']
-      : [],
+    value: summarizeValueForLazyHydration(currentValue, request.path),
+    notices: [],
   }
 }
 

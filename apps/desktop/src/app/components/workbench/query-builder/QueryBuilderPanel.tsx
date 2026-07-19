@@ -10,7 +10,7 @@ import type {
   RedisKeyScanResponse,
 } from '@datapadplusplus/shared-types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent } from 'react'
+import type { DragEvent, ReactNode } from 'react'
 import {
   FIELD_POINTER_DRAG_CANCEL_EVENT,
   FIELD_POINTER_DRAG_DROP_EVENT,
@@ -46,6 +46,13 @@ import { isSearchDslBuilderState } from './search-dsl'
 import { SearchDslBuilder } from '../datastores/common/search/SearchDslBuilder'
 import { RedisKeyBrowserPanel } from '../datastores/common/keyvalue/RedisKeyBrowserPanel'
 import { isRedisKeyBrowserState } from './redis-key-browser'
+import { QueryBuilderCountFooter } from './QueryBuilderCountFooter'
+import {
+  filterGroupIdFromDropZone,
+  pointInsideElement,
+  queryBuilderDropZoneFromEvent,
+  queryBuilderDropZoneFromPoint,
+} from './query-builder-drag-targets'
 
 interface QueryBuilderPanelProps {
   connection?: ConnectionProfile
@@ -59,6 +66,7 @@ interface QueryBuilderPanelProps {
   ): Promise<DataEditExecutionResponse | undefined>
   onInspectRedisKey?(request: RedisKeyInspectRequest): Promise<void>
   onScanRedisKeys?(request: RedisKeyScanRequest): Promise<RedisKeyScanResponse | undefined>
+  onCount?(tabId: string, builderState: QueryBuilderState): Promise<void>
   redisRefreshSignal?: number
 }
 
@@ -72,12 +80,14 @@ export function QueryBuilderPanel({
   onExecuteDataEdit,
   onInspectRedisKey,
   onScanRedisKeys,
+  onCount,
   redisRefreshSignal = 0,
 }: QueryBuilderPanelProps) {
   const resolvedBuilderState = builderState ?? tab.builderState
+  let panel: ReactNode = null
 
   if (isMongoFindBuilderState(resolvedBuilderState)) {
-    return (
+    panel = (
       <MongoFindBuilder
         key={tab.id}
         connection={connection}
@@ -89,8 +99,8 @@ export function QueryBuilderPanel({
     )
   }
 
-  if (isMongoAggregationBuilderState(resolvedBuilderState)) {
-    return (
+  if (!panel && isMongoAggregationBuilderState(resolvedBuilderState)) {
+    panel = (
       <MongoAggregationBuilder
         key={tab.id}
         connection={connection}
@@ -102,8 +112,8 @@ export function QueryBuilderPanel({
     )
   }
 
-  if (connection && isSqlSelectBuilderState(resolvedBuilderState)) {
-    return (
+  if (!panel && connection && isSqlSelectBuilderState(resolvedBuilderState)) {
+    panel = (
       <SqlSelectBuilder
         key={tab.id}
         connection={connection}
@@ -115,8 +125,8 @@ export function QueryBuilderPanel({
     )
   }
 
-  if (isDynamoDbKeyConditionBuilderState(resolvedBuilderState)) {
-    return (
+  if (!panel && isDynamoDbKeyConditionBuilderState(resolvedBuilderState)) {
+    panel = (
       <DynamoDbKeyConditionBuilder
         key={tab.id}
         tab={tab}
@@ -127,8 +137,8 @@ export function QueryBuilderPanel({
     )
   }
 
-  if (isCqlPartitionBuilderState(resolvedBuilderState)) {
-    return (
+  if (!panel && isCqlPartitionBuilderState(resolvedBuilderState)) {
+    panel = (
       <CqlPartitionBuilder
         key={tab.id}
         tab={tab}
@@ -139,8 +149,8 @@ export function QueryBuilderPanel({
     )
   }
 
-  if (isSearchDslBuilderState(resolvedBuilderState)) {
-    return (
+  if (!panel && isSearchDslBuilderState(resolvedBuilderState)) {
+    panel = (
       <SearchDslBuilder
         key={tab.id}
         tab={tab}
@@ -151,8 +161,8 @@ export function QueryBuilderPanel({
     )
   }
 
-  if (isRedisKeyBrowserState(resolvedBuilderState)) {
-    return (
+  if (!panel && isRedisKeyBrowserState(resolvedBuilderState)) {
+    panel = (
       <RedisKeyBrowserPanel
         key={tab.id}
         tab={tab}
@@ -166,7 +176,21 @@ export function QueryBuilderPanel({
     )
   }
 
-  return null
+  if (!panel || !resolvedBuilderState) {
+    return null
+  }
+
+  return (
+    <div className="query-builder-workspace">
+      {panel}
+      <QueryBuilderCountFooter
+        activeExecution={Boolean(tab.activeExecution)}
+        builderState={resolvedBuilderState}
+        onCount={onCount}
+        tabId={tab.id}
+      />
+    </div>
+  )
 }
 
 function MongoFindBuilder({
@@ -405,47 +429,6 @@ function MongoFindBuilder({
 
 function uniqueValues(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
-}
-
-function queryBuilderDropZoneFromEvent(event: DragEvent<HTMLElement>) {
-  const target = event.target
-
-  if (!(target instanceof Element)) {
-    return undefined
-  }
-
-  const dropZone = target.closest<HTMLElement>('[data-query-builder-drop-zone]')
-  return dropZone?.dataset.queryBuilderDropZone
-}
-
-function filterGroupIdFromDropZone(dropZone: string | undefined) {
-  return dropZone?.startsWith('filters:') ? dropZone.slice('filters:'.length) : undefined
-}
-
-function queryBuilderDropZoneFromPoint(clientX: number, clientY: number) {
-  if (typeof document.elementFromPoint !== 'function') {
-    return undefined
-  }
-
-  const target = document.elementFromPoint(clientX, clientY)
-
-  if (!(target instanceof Element)) {
-    return undefined
-  }
-
-  return target.closest<HTMLElement>('[data-query-builder-drop-zone]')
-    ?.dataset.queryBuilderDropZone
-}
-
-function pointInsideElement(element: HTMLElement, clientX: number, clientY: number) {
-  const rect = element.getBoundingClientRect()
-
-  return (
-    clientX >= rect.left &&
-    clientX <= rect.right &&
-    clientY >= rect.top &&
-    clientY <= rect.bottom
-  )
 }
 
 function positiveInteger(value: string, fallback: number) {

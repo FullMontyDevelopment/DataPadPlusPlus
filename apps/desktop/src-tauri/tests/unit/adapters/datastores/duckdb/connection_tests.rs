@@ -32,6 +32,8 @@ fn duckdb_database_path_uses_connection_string() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
+
         warehouse_options: None,
         read_only: true,
     };
@@ -65,6 +67,8 @@ fn duckdb_database_path_prefers_warehouse_file_path() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
+
         warehouse_options: Some(crate::domain::models::WarehouseConnectionOptions {
             file_path: Some("duckdb://C:/data/analytics.duckdb".into()),
             extensions: vec!["httpfs".into(), "parquet".into()],

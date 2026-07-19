@@ -185,6 +185,7 @@ pub fn run() {
             commands::app::list_app_log_files,
             commands::app::read_app_log_file,
             commands::app::set_app_update_settings,
+            commands::app::set_taskbar_query_activity,
             commands::app::store_secret,
             commands::workspace::cancel_execution_request,
             commands::workspace::cancel_test_run,

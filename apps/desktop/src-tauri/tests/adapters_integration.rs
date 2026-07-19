@@ -10,9 +10,9 @@ use datapadplusplus_desktop_lib::{
         error::CommandError,
         models::{
             CosmosDbConnectionOptions, DataEditChange, DataEditExecutionRequest,
-            DataEditPlanRequest, DataEditTarget, ExecutionRequest, ExplorerRequest,
-            GraphConnectionOptions, OperationExecutionRequest, ResolvedConnectionProfile,
-            ResultPageRequest, WarehouseConnectionOptions,
+            DataEditPlanRequest, DataEditTarget, DocumentNodeChildrenRequest, ExecutionRequest,
+            ExplorerRequest, GraphConnectionOptions, OperationExecutionRequest,
+            ResolvedConnectionProfile, ResultPageRequest, WarehouseConnectionOptions,
         },
     },
 };
@@ -74,6 +74,7 @@ fn execution_request(
         row_limit: Some(25),
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
+        builder_state: None,
     }
 }
 
@@ -127,6 +128,7 @@ fn resolved_connection(engine: &str, family: &str) -> ResolvedConnectionProfile 
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     }
@@ -173,6 +175,7 @@ fn duckdb_fixture_connection(path: &Path) -> ResolvedConnectionProfile {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: Some(WarehouseConnectionOptions {
             file_path: Some(path),
             temp_directory: Some(extension_directory),
@@ -484,6 +487,7 @@ async fn data_edit_plans_are_guarded_and_engine_specific() -> Result<(), Command
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
         ..resolved_connection("mongodb", "document")
@@ -1757,6 +1761,7 @@ async fn postgres_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -1902,6 +1907,7 @@ async fn sqlserver_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -1992,6 +1998,7 @@ async fn mysql_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -2180,6 +2187,7 @@ fn mariadb_fixture_connection() -> ResolvedConnectionProfile {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     }
@@ -2229,6 +2237,7 @@ async fn sqlite_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -2425,6 +2434,7 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -2775,6 +2785,34 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         Some(1)
     );
 
+    let stale_delete_response = adapters::execute_data_edit(
+        &connection,
+        &DataEditExecutionRequest {
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            edit_kind: "delete-document".into(),
+            target: DataEditTarget {
+                object_kind: "document".into(),
+                database: Some("catalog".into()),
+                collection: Some(import_collection.clone()),
+                document_id: Some(json!(import_id.clone())),
+                ..Default::default()
+            },
+            changes: vec![],
+            confirmation_text: Some("CONFIRM MONGODB DELETE-DOCUMENT".into()),
+        },
+    )
+    .await?;
+    assert!(!stale_delete_response.executed);
+    assert_eq!(
+        stale_delete_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("matchedBefore"))
+            .and_then(|value| value.as_bool()),
+        Some(false)
+    );
+
     let username = connection.username.as_deref().unwrap_or("datapadplusplus");
     let password = connection.password.as_deref().unwrap_or("datapadplusplus");
     let database = connection.database.as_deref().unwrap_or("catalog");
@@ -2790,6 +2828,165 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         .find_one(mongodb::bson::doc! { "_id": &import_id })
         .await?;
     assert!(imported_document.is_none());
+
+    let typed_collection = client
+        .database(database)
+        .collection::<mongodb::bson::Document>(&import_collection);
+    let object_id = mongodb::bson::oid::ObjectId::new();
+    let uuid_text = "9e107d9d-372b-4f7d-bb3a-17d63746f9a0";
+    let uuid_id = mongodb::bson::Uuid::parse_str(uuid_text).expect("fixture UUID");
+    typed_collection
+        .insert_many([
+            mongodb::bson::doc! { "_id": object_id, "kind": "object-id" },
+            mongodb::bson::doc! { "_id": uuid_id, "kind": "uuid" },
+        ])
+        .await?;
+
+    let lazy_id = "1234567890abcdef12345678";
+    let mut deep_value = mongodb::bson::Bson::String("deep-ready".into());
+    let mut deep_path = Vec::new();
+    for depth in (0..36).rev() {
+        let field = format!("level{depth}");
+        deep_value = mongodb::bson::Bson::Document(mongodb::bson::doc! {
+            field.clone(): deep_value
+        });
+        deep_path.insert(0, json!(field));
+    }
+    typed_collection
+        .insert_one(mongodb::bson::doc! {
+            "_id": lazy_id,
+            "deep": deep_value,
+            "inventory": {
+                "items": [
+                    { "details": { "a.b": { "$value": [null, { "[0]": "unusual-ready" }] } } }
+                ]
+            }
+        })
+        .await?;
+
+    let mut full_deep_path = vec![json!("deep")];
+    full_deep_path.extend(deep_path);
+    let deep_response = adapters::fetch_document_node_children(
+        &connection,
+        &DocumentNodeChildrenRequest {
+            tab_id: "tab-mongodb-lazy-deep".into(),
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            database: Some(database.into()),
+            collection: import_collection.clone(),
+            document_id: json!(lazy_id),
+            path: full_deep_path,
+            query_text: None,
+        },
+    )
+    .await?;
+    assert_eq!(deep_response.value, json!("deep-ready"));
+
+    let unusual_response = adapters::fetch_document_node_children(
+        &connection,
+        &DocumentNodeChildrenRequest {
+            tab_id: "tab-mongodb-lazy-unusual".into(),
+            connection_id: connection.id.clone(),
+            environment_id: "env-dev".into(),
+            database: Some(database.into()),
+            collection: import_collection.clone(),
+            document_id: json!(lazy_id),
+            path: vec![
+                json!("inventory"),
+                json!("items"),
+                json!(0),
+                json!("details"),
+                json!("a.b"),
+                json!("$value"),
+                json!(1),
+                json!("[0]"),
+            ],
+            query_text: None,
+        },
+    )
+    .await?;
+    assert_eq!(unusual_response.value, json!("unusual-ready"));
+
+    for (document_id, identity_type) in [
+        (json!({ "$oid": object_id.to_hex() }), "objectId"),
+        (json!({ "$uuid": uuid_text }), "uuid"),
+    ] {
+        let response = adapters::execute_data_edit(
+            &connection,
+            &DataEditExecutionRequest {
+                connection_id: connection.id.clone(),
+                environment_id: "env-dev".into(),
+                edit_kind: "delete-document".into(),
+                target: DataEditTarget {
+                    object_kind: "document".into(),
+                    database: Some(database.into()),
+                    collection: Some(import_collection.clone()),
+                    document_id: Some(document_id),
+                    ..Default::default()
+                },
+                changes: vec![],
+                confirmation_text: Some("CONFIRM MONGODB DELETE-DOCUMENT".into()),
+            },
+        )
+        .await?;
+
+        assert!(response.executed, "{identity_type} delete should execute");
+        assert_eq!(
+            response
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("documentIdType"))
+                .and_then(|value| value.as_str()),
+            Some(identity_type)
+        );
+        assert_eq!(
+            response
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("existsAfter"))
+                .and_then(|value| value.as_bool()),
+            Some(false)
+        );
+    }
+
+    let script_collection = format!("fixture_mongodb_script_{}", std::process::id());
+    let script = format!(
+        r#"const session = db.startSession();
+session.startTransaction();
+db.getCollection({collection:?}).insertOne({{ _id: "aborted", state: "pending" }});
+session.abortTransaction();
+session.startTransaction();
+db.getCollection({collection:?}).insertOne({{ _id: "committed", state: "ready" }});
+session.commitTransaction();
+session.endSession();
+const committedCount = db.getCollection({collection:?}).countDocuments({{ _id: "committed" }});
+print("Committed documents:", committedCount);
+({{
+  aborted: db.getCollection({collection:?}).countDocuments({{ _id: "aborted" }}),
+  committed: committedCount
+}})"#,
+        collection = script_collection,
+    );
+    let mut script_request = execution_request(&connection.id, "env-dev", "javascript", &script);
+    script_request.execution_input_mode = Some("script".into());
+    script_request.script_text = Some(script);
+    let script_result = adapters::execute(&connection, &script_request, Vec::new()).await?;
+    let script_json = script_result
+        .payloads
+        .iter()
+        .find(|payload| payload.get("renderer").and_then(|value| value.as_str()) == Some("json"))
+        .expect("MongoDB script JSON result");
+    assert_eq!(script_json["value"]["result"]["aborted"], 0);
+    assert_eq!(script_json["value"]["result"]["committed"], 1);
+    assert!(script_json["value"]["console"]
+        .as_str()
+        .is_some_and(|console| console.contains("Committed documents: 1")));
+    let _ = client
+        .database(database)
+        .collection::<mongodb::bson::Document>(&script_collection)
+        .drop()
+        .await;
+
     let _ = client
         .database(database)
         .collection::<mongodb::bson::Document>(&import_collection)
@@ -2833,6 +3030,7 @@ async fn redis_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -2996,6 +3194,7 @@ async fn cache_profile_fixture_roundtrips() -> Result<(), CommandError> {
             search_options: None,
             time_series_options: None,
             graph_options: None,
+            mongodb_options: None,
             warehouse_options: None,
             read_only: false,
         };
@@ -3131,6 +3330,7 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3174,6 +3374,7 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3224,6 +3425,7 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3265,6 +3467,7 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3306,6 +3509,7 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3379,6 +3583,7 @@ async fn search_profile_fixture_roundtrips() -> Result<(), CommandError> {
             search_options: None,
             time_series_options: None,
             graph_options: None,
+            mongodb_options: None,
             warehouse_options: None,
             read_only: false,
         };
@@ -3433,6 +3638,7 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
             connect_mode: Some("neo4j-bolt".into()),
             ..GraphConnectionOptions::default()
         }),
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3480,6 +3686,7 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3530,6 +3737,7 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3603,6 +3811,7 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3642,6 +3851,7 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3683,6 +3893,7 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -3719,6 +3930,7 @@ async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError>
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };

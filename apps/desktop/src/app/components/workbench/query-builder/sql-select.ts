@@ -73,7 +73,7 @@ export function buildSqlSelectQueryText(
     `select${topClause} ${projection}`,
     `from ${quoteSqlTablePath(state, engine)}`,
   ]
-  const whereClause = buildWhereClause(state, engine)
+  const whereClause = buildSqlWhereClause(state, engine)
   const sortClause = buildSortClause(state, engine)
 
   if (whereClause) {
@@ -129,7 +129,7 @@ export function sqlBuilderRowId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-function buildWhereClause(state: SqlSelectBuilderState, engine: ConnectionProfile['engine']) {
+export function buildSqlWhereClause(state: SqlSelectBuilderState, engine: ConnectionProfile['engine']) {
   const predicates = state.filters
     .filter((row) => row.enabled ?? true)
     .map((row) => sqlPredicate(row, engine))
@@ -191,7 +191,7 @@ function buildSortClause(state: SqlSelectBuilderState, engine: ConnectionProfile
   return sort.length > 0 ? `order by ${sort.join(', ')}` : ''
 }
 
-function quoteSqlTablePath(state: SqlSelectBuilderState, engine: ConnectionProfile['engine']) {
+export function quoteSqlTablePath(state: SqlSelectBuilderState, engine: ConnectionProfile['engine']) {
   const schema = state.schema?.trim() || (engine === 'sqlite' ? 'main' : undefined)
 
   return [schema, state.table]

@@ -404,7 +404,8 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Browse databases, collections, views, GridFS buckets/files, indexes, validation rules, schema previews, users, roles, statistics, and collection actions.',
     ],
     queryModes: [
-      'Use find builder, raw command JSON, aggregation work, safe scripting-style reads, field-path IntelliSense, and drag fields from results into filters, projections, or sort.',
+      'Use find builder, raw command JSON, aggregation work, and sandboxed mongosh-style JavaScript with CRUD, bulk, transaction, index, collection, command, BSON, and output APIs.',
+      'Script mode adds JavaScript and live metadata IntelliSense plus a searchable, resizable guide whose examples insert at the cursor without executing.',
     ],
     resultViews: [
       'Inspect expandable document rows, raw JSON/BSON views, field side panels, efficiency mode for large nested documents, and local document search.',
@@ -420,7 +421,8 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Use guarded JSON, Extended JSON, NDJSON, CSV, and BSON collection import/export workflows with browser preview staying plan-only.',
     ],
     safety: [
-      'Live document changes are enabled only when collection identity, document identity, read-only state, and environment checks pass; bulkWrite stays preview-only until every write model can be confirmed.',
+      'Live document and script mutations require read-only and environment checks; destructive, administrative, unknown-command, and write scripts require confirmation before the first mutation.',
+      'The embedded JavaScript runtime has bounded memory, stack, CPU, operations, output, timeout, and cancellation, with no filesystem, process, module-loading, eval, or arbitrary network access.',
     ],
     screenshots: screenshotSet('MongoDB'),
   },

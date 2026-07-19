@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+fn redis_count_uses_dbsize_only_without_filters() {
+    assert!(redis_count_filters_are_empty(None));
+    assert!(redis_count_filters_are_empty(Some(
+        &json!({ "ttl": "all" })
+    )));
+    assert!(!redis_count_filters_are_empty(Some(
+        &json!({ "ttl": "expiring" })
+    )));
+    assert!(!redis_count_filters_are_empty(Some(
+        &json!({ "minBytes": 64 })
+    )));
+}
+
+#[test]
 fn redis_type_normalization_handles_core_and_module_types() {
     assert_eq!(normalize_redis_type("ReJSON-RL"), "json");
     assert_eq!(normalize_redis_type("TSDB-TYPE"), "timeseries");

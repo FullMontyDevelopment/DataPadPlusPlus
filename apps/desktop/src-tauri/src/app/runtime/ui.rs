@@ -60,6 +60,10 @@ pub(super) fn clamp_results_side_width(value: u32) -> u32 {
     value.clamp(320, 2400)
 }
 
+pub(super) fn clamp_mongo_script_guide_width(value: u32) -> u32 {
+    value.clamp(280, 520)
+}
+
 pub(super) fn focus_query_tab(ui: &mut UiState, tab: &QueryTabState) {
     ui.active_connection_id = tab.connection_id.clone();
     ui.active_environment_id = tab.environment_id.clone();
@@ -167,6 +171,10 @@ pub(super) fn normalize_ui_state(snapshot: &WorkspaceSnapshot) -> UiState {
             "bottom".into()
         },
         results_side_width: clamp_results_side_width(snapshot.ui.results_side_width),
+        mongo_script_guide_visible: snapshot.ui.mongo_script_guide_visible,
+        mongo_script_guide_width: clamp_mongo_script_guide_width(
+            snapshot.ui.mongo_script_guide_width,
+        ),
         right_drawer: if snapshot.ui.right_drawer == "inspection"
             || snapshot.ui.right_drawer == "diagnostics"
         {

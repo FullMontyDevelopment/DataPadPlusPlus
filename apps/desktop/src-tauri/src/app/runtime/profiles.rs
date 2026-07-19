@@ -16,7 +16,9 @@ use super::profile_options_cloud::{
     interpolate_search_options,
 };
 use super::profile_options_graph::interpolate_graph_options;
-use super::profile_options_mongodb::build_mongodb_native_connection_string;
+use super::profile_options_mongodb::{
+    build_mongodb_native_connection_string, interpolate_mongodb_options,
+};
 use super::profile_options_mysql::interpolate_mysql_options;
 use super::profile_options_timeseries::interpolate_timeseries_options;
 use super::profile_options_warehouse::interpolate_warehouse_options;
@@ -422,6 +424,10 @@ impl ManagedAppState {
                 .graph_options
                 .as_ref()
                 .map(|options| interpolate_graph_options(options, &interpolate)),
+            mongodb_options: profile
+                .mongodb_options
+                .as_ref()
+                .map(|options| interpolate_mongodb_options(options, &interpolate)),
             warehouse_options: profile
                 .warehouse_options
                 .as_ref()

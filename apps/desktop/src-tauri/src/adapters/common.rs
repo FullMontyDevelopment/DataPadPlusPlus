@@ -14,6 +14,7 @@ use crate::domain::{
 use super::datastores;
 
 mod capabilities;
+mod count_results;
 mod graph_results;
 mod gremlin_ws;
 mod http_client;
@@ -26,6 +27,7 @@ mod structure;
 mod tree_manifest;
 
 pub(crate) use capabilities::*;
+pub(crate) use count_results::*;
 pub(crate) use graph_results::*;
 pub(crate) use gremlin_ws::*;
 pub(crate) use http_client::*;

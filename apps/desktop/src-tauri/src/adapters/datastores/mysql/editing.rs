@@ -81,7 +81,7 @@ pub(super) async fn execute_mysql_data_edit(
     Ok(data_edit_response(
         request,
         plan,
-        true,
+        affected_rows_edit_executed(&request.edit_kind, rows_affected),
         messages,
         warnings,
         Some(json!({

@@ -1,4 +1,4 @@
-import type { DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse, GuardrailDecision, ResultPayload, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import type { DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse, ExecutionResultEnvelope, GuardrailDecision, QueryBuilderState, ResultPayload, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import {
   interpolateEnvironmentVariables,
   referencedSensitiveEnvironmentVariableKeys,
@@ -168,8 +168,18 @@ export function applyExecutionRequestLocally(
   })
 
   let result = guardrail.status === 'block' ? undefined : simulated.result
+  if (
+    result &&
+    request.executionInputMode === 'script' &&
+    connection.engine === 'mongodb'
+  ) {
+    result = browserMongoScriptPreview(result, queryText, connection.name)
+  }
   if (result && request.documentEfficiencyMode && connection.family === 'document') {
     result = summarizeDocumentResultForEfficiencyMode(result)
+  }
+  if (result && request.mode === 'count') {
+    result = browserCountPreview(result, request, queryText)
   }
   const diagnostics: string[] = []
 
@@ -295,6 +305,117 @@ export function applyExecutionRequestLocally(
       guardrail,
       diagnostics: redactedDiagnostics,
     },
+  }
+}
+
+function browserMongoScriptPreview(
+  result: ExecutionResultEnvelope,
+  script: string,
+  connectionName: string,
+): ExecutionResultEnvelope {
+  const metadata = {
+    preview: true,
+    executed: false,
+    engine: 'mongodb',
+    connection: connectionName,
+    script,
+    message: 'Browser preview validated the script shape but did not contact MongoDB.',
+  }
+  return {
+    ...result,
+    id: createId('result'),
+    summary: 'MongoDB script preview prepared locally; no remote operation was executed.',
+    defaultRenderer: 'json',
+    rendererModes: ['json', 'raw'],
+    payloads: [
+      { renderer: 'json', value: metadata },
+      { renderer: 'raw', text: JSON.stringify(metadata, null, 2) },
+    ],
+    notices: [
+      ...(result.notices ?? []),
+      {
+        code: 'mongodb-script-browser-preview',
+        level: 'info',
+        message: 'Live MongoDB scripting requires the DataPad++ desktop runtime.',
+      },
+    ],
+    truncated: false,
+    rowLimit: undefined,
+    pageInfo: {
+      pageSize: 0,
+      pageIndex: 0,
+      bufferedRows: 0,
+      hasMore: false,
+    },
+  }
+}
+
+function browserCountPreview(
+  result: ExecutionResultEnvelope,
+  request: ExecutionRequest,
+  queryText: string,
+): ExecutionResultEnvelope {
+  const count = String(result.pageInfo?.bufferedRows ?? 0)
+  const builderKind = request.builderState?.kind ?? 'unknown'
+  const target = browserBuilderTarget(request.builderState)
+  return {
+    ...result,
+    summary: `Preview Count matched ${count} synthetic record(s) in ${target}.`,
+    defaultRenderer: 'table',
+    rendererModes: ['table', 'json', 'raw'],
+    payloads: [
+      { renderer: 'table', columns: ['count'], rows: [[count]] },
+      {
+        renderer: 'json',
+        value: {
+          count,
+          exact: true,
+          preview: true,
+          builderKind,
+          target,
+          durationMs: result.durationMs ?? 0,
+        },
+      },
+      { renderer: 'raw', text: queryText },
+    ],
+    notices: [
+      ...result.notices,
+      {
+        code: 'query-builder-count-preview',
+        level: 'info',
+        message: 'Browser preview Count uses deterministic synthetic data, not a remote datastore.',
+      },
+    ],
+    truncated: false,
+    rowLimit: undefined,
+    pageInfo: {
+      pageSize: 1,
+      pageIndex: 0,
+      bufferedRows: 1,
+      hasMore: false,
+      totalRowsKnown: 1,
+    },
+  }
+}
+
+function browserBuilderTarget(state: QueryBuilderState | undefined) {
+  if (!state) {
+    return 'preview data'
+  }
+  switch (state.kind) {
+    case 'mongo-find':
+    case 'mongo-aggregation':
+      return [state.database, state.collection].filter(Boolean).join('.') || 'collection'
+    case 'sql-select':
+      return [state.schema, state.table].filter(Boolean).join('.') || 'table'
+    case 'cql-partition':
+      return [state.keyspace, state.table].filter(Boolean).join('.') || 'table'
+    case 'dynamodb-key-condition':
+      return [state.table, state.indexName].filter(Boolean).join('.') || 'table'
+    case 'search-dsl':
+      return state.index || '_all'
+    case 'redis-key-browser':
+      return `database ${state.databaseIndex ?? 0} (${state.pattern || '*'})`
   }
 }
 

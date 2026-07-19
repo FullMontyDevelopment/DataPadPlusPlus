@@ -22,7 +22,7 @@ const fixturePorts = [
   { env: 'DATAPADPLUSPLUS_POSTGRES_PORT', container: 'datapadplusplus-postgres', containerPort: 5432, defaultPort: 54329, fallbackStart: 55432, profiles: ['core'] },
   { env: 'DATAPADPLUSPLUS_MYSQL_PORT', container: 'datapadplusplus-mysql', containerPort: 3306, defaultPort: 33060, fallbackStart: 33360, profiles: ['core'] },
   { env: 'DATAPADPLUSPLUS_SQLSERVER_PORT', container: 'datapadplusplus-sqlserver', containerPort: 1433, defaultPort: 14333, fallbackStart: 15333, profiles: ['core'] },
-  { env: 'DATAPADPLUSPLUS_MONGODB_PORT', container: 'datapadplusplus-mongodb', containerPort: 27017, defaultPort: 27018, fallbackStart: 27118, profiles: ['core'] },
+  { env: 'DATAPADPLUSPLUS_MONGODB_PORT', container: 'datapadplusplus-mongodb', containerPort: null, defaultPort: 27018, fallbackStart: 27118, profiles: ['core'] },
   { env: 'DATAPADPLUSPLUS_REDIS_PORT', container: 'datapadplusplus-redis', containerPort: 6379, defaultPort: 6380, fallbackStart: 6480, profiles: ['core'] },
   { env: 'DATAPADPLUSPLUS_REDIS_STACK_PORT', container: 'datapadplusplus-redis-stack', containerPort: 6379, defaultPort: 6382, fallbackStart: 6482, profiles: ['redis-stack'] },
   { env: 'DATAPADPLUSPLUS_VALKEY_PORT', container: 'datapadplusplus-valkey', containerPort: 6379, defaultPort: 6381, fallbackStart: 6481, profiles: ['cache'] },
@@ -164,6 +164,15 @@ function mongoFixtureNeedsRecreate() {
   return /Authentication failed|UserNotFound|Could not find user/i.test(health)
 }
 
+function mongoContainerPort() {
+  return dockerOutput([
+    'exec',
+    'datapadplusplus-mongodb',
+    'printenv',
+    'DATAPADPLUSPLUS_MONGODB_PORT',
+  ]) || '27018'
+}
+
 function staleCoreFixtureServices() {
   const stale = []
 
@@ -209,6 +218,11 @@ function staleCoreFixtureServices() {
       'datapadplusplus-mongodb',
       'mongosh',
       '--quiet',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      mongoContainerPort(),
+      '--directConnection',
       '--username',
       'datapadplusplus',
       '--password',
@@ -226,7 +240,11 @@ function staleCoreFixtureServices() {
 }
 
 function mappedContainerPort(container, containerPort) {
-  const output = dockerOutput(['port', container, `${containerPort}/tcp`])
+  const output = dockerOutput(
+    containerPort === null
+      ? ['port', container]
+      : ['port', container, `${containerPort}/tcp`],
+  )
   const match = output.match(/:(\d+)\s*$/m)
 
   return match ? Number(match[1]) : undefined

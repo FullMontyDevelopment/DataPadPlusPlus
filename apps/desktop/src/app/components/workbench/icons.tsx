@@ -10,6 +10,7 @@ import {
   Asterisk,
   Binary,
   BookMarked,
+  BookOpen,
   Box,
   Boxes,
   Braces,
@@ -100,6 +101,7 @@ export const ConnectionsIcon = adapt(Server)
 export const EnvironmentsIcon = adapt(Layers3)
 export const ExplorerIcon = adapt(FolderTree)
 export const SavedWorkIcon = adapt(BookMarked)
+export const GuideIcon = adapt(BookOpen)
 export const TestsIcon = adapt(FlaskConical)
 export const SearchIcon = adapt(Search)
 export const CaseSensitiveIcon = adapt(CaseSensitive)

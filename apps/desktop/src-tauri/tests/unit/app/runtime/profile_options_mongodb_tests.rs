@@ -9,6 +9,7 @@ fn mongodb_native_srv_options_build_atlas_uri_without_port() {
         app_name: Some("DataPadPlusPlus".into()),
         tls: None,
         replica_set: None,
+        query_timeout_ms: None,
     });
 
     let uri = build_mongodb_native_connection_string(
@@ -39,6 +40,7 @@ fn mongodb_native_standard_options_build_multi_host_uri_with_replica_set() {
             app_name: Some("DataPadPlusPlus".into()),
             tls: Some(true),
             replica_set: Some("atlas-rs".into()),
+            query_timeout_ms: None,
         }),
         ..mongo_profile(MongoDbConnectionOptions::default())
     };

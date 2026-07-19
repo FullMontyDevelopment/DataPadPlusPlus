@@ -3,8 +3,9 @@ use serde_json::json;
 use super::*;
 use crate::domain::models::{
     ConnectionProfile, CreateObjectViewTabRequest, DataEditChange, DataEditTarget,
-    EnvironmentProfile, EnvironmentVariableDefinition, ExplorerRequest, OperationPlanRequest,
-    RedisKeyScanRequest, ResultPageRequest, UpdateQueryBuilderStateRequest,
+    DocumentNodeChildrenRequest, EnvironmentProfile, EnvironmentVariableDefinition,
+    ExplorerRequest, OperationPlanRequest, RedisKeyScanRequest, ResultPageRequest,
+    UpdateQueryBuilderStateRequest,
 };
 
 #[test]
@@ -78,6 +79,27 @@ fn validators_reject_invalid_object_view_and_renderer_inputs() {
     assert!(renderer_error
         .message
         .contains("Unsupported result renderer"));
+}
+
+#[test]
+fn validators_accept_the_full_mongodb_document_depth() {
+    let mut request = DocumentNodeChildrenRequest {
+        tab_id: "tab-mongodb".into(),
+        connection_id: "conn-mongodb".into(),
+        environment_id: "env-local".into(),
+        database: Some("catalog".into()),
+        collection: "deep_documents".into(),
+        document_id: json!(1),
+        path: (0..100)
+            .map(|index| json!(format!("level{index}")))
+            .collect(),
+        query_text: None,
+    };
+
+    validate_document_node_children_request(&request).expect("100 path segments");
+    request.path.push(json!("too-deep"));
+    let error = validate_document_node_children_request(&request).expect_err("101 segments");
+    assert!(error.message.contains("1 to 100"));
 }
 
 #[test]

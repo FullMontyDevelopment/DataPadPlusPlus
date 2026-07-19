@@ -14,6 +14,10 @@ export function bsonScalarInfo(value: unknown): DocumentBsonScalarInfo | undefin
     return { type: 'objectid', label: `ObjectId("${value.$oid}")` }
   }
 
+  if (typeof value.$uuid === 'string') {
+    return { type: 'uuid', label: `UUID("${value.$uuid}")` }
+  }
+
   if (typeof value.$date === 'string') {
     return { type: 'date', label: `ISODate("${value.$date}")` }
   }
@@ -83,6 +87,10 @@ export function isBsonDateValue(value: unknown) {
 
 export function isBsonObjectIdValue(value: unknown) {
   return isRecord(value) && typeof value.$oid === 'string'
+}
+
+export function isBsonUuidValue(value: unknown) {
+  return isRecord(value) && typeof value.$uuid === 'string'
 }
 
 export function isBsonNumberValue(value: unknown) {

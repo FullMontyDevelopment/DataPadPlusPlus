@@ -11,6 +11,10 @@ mod tests;
 
 use requests::generated_edit_request;
 
+pub(crate) fn affected_rows_edit_executed(edit_kind: &str, rows_affected: u64) -> bool {
+    edit_kind != "delete-row" || rows_affected > 0
+}
+
 pub(crate) fn default_data_edit_plan(
     connection: &ResolvedConnectionProfile,
     experience: &DatastoreExperienceManifest,

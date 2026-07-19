@@ -15,4 +15,13 @@ describe('formatResultCellValue', () => {
     expect(formatResultCellValue('DateTime2 { date: ... }')).toBe('DateTime2 { date: ... }')
     expect(formatResultCellValue({ value: 1 })).toBe('{"value":1}')
   })
+
+  it('renders MongoDB identity scalars using native constructor labels', () => {
+    expect(formatResultCellValue({ $oid: '507f1f77bcf86cd799439011' })).toBe(
+      'ObjectId("507f1f77bcf86cd799439011")',
+    )
+    expect(
+      formatResultCellValue({ $uuid: '00112233-4455-6677-8899-aabbccddeeff' }),
+    ).toBe('UUID("00112233-4455-6677-8899-aabbccddeeff")')
+  })
 })

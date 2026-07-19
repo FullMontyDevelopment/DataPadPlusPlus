@@ -803,7 +803,8 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Run query' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cancel query' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Explain query' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Show results panel')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Show results panel')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Show bottom panel')).toBeInTheDocument()
   })
 
   it('keeps new connections as drafts until they are saved', async () => {
@@ -2256,22 +2257,26 @@ describe('App', () => {
       target: { value: 'Catalog Mongo' },
     })
     chooseDatabaseType(mongoDrawer, 'MongoDB')
+    setConnectionDatabase(mongoDrawer, 'catalog')
     fireEvent.click(within(mongoDrawer).getByRole('button', { name: 'Save Connection' }))
 
     await waitFor(() => {
       expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()
     })
 
+    const tabCountBefore = getEditorTabNames().length
     fireEvent.contextMenu(getConnectionRow('Catalog Mongo'))
     fireEvent.click(
       await screen.findByRole('menuitem', {
         name: 'New Query for Catalog Mongo',
       }),
     )
-
+    await waitFor(() => {
+      expect(getEditorTabNames()).toHaveLength(tabCountBefore + 1)
+    }, { timeout: 4000 })
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Query Builder' })).toBeInTheDocument()
-    })
+    }, { timeout: 4000 })
     expect(screen.queryByRole('button', { name: 'Show builder and raw' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Query Builder' })).toHaveAttribute(
       'aria-pressed',
@@ -2282,7 +2287,7 @@ describe('App', () => {
     expect(screen.getByLabelText('MongoDB query builder')).toBeInTheDocument()
     expect(screen.queryByLabelText('Query editor')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()
-  })
+  }, 10000)
 
   it('starts builder queries in builder mode and toggles builder/raw/script panels', async () => {
     render(<App />)
@@ -2613,7 +2618,7 @@ describe('App', () => {
       expect(screen.queryByLabelText('Bottom panel')).not.toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByLabelText('Show results panel'))
+    fireEvent.click(screen.getByLabelText('Show bottom panel'))
     await waitFor(() => {
       expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
     })

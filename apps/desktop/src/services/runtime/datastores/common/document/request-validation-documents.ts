@@ -26,8 +26,8 @@ function validateDocumentPath(path: Array<string | number>) {
   if (!Array.isArray(path) || path.length === 0) {
     throw new Error('Document field path must be a non-empty array.')
   }
-  if (path.length > 64) {
-    throw new Error('Document field path can contain at most 64 segments.')
+  if (path.length > 100) {
+    throw new Error('Document field path can contain at most 100 segments.')
   }
   for (const segment of path) {
     if (typeof segment === 'number') {

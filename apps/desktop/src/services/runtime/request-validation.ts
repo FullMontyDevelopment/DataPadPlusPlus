@@ -272,6 +272,12 @@ export function validateExecutionRequest(request: ExecutionRequest): ExecutionRe
     validateQueryText(request.selectedText, 'Selected text')
   }
   const mode = validateOptionalExecutionMode(request.mode)
+  if (request.builderState !== undefined) {
+    assertJsonSize(request.builderState, 'Query builder state')
+  }
+  if (mode === 'count' && request.builderState === undefined) {
+    throw new Error('Query Builder Count requires the current builder state.')
+  }
   validateOptionalText(request.confirmedGuardrailId, 'Guardrail confirmation id', MAX_ID_LENGTH)
   return {
     ...request,
@@ -304,7 +310,8 @@ function validateOptionalExecutionMode(mode: ExecutionRequest['mode']) {
     normalized !== 'full' &&
     normalized !== 'selection' &&
     normalized !== 'explain' &&
-    normalized !== 'profile'
+    normalized !== 'profile' &&
+    normalized !== 'count'
   ) {
     throw new Error(`Unsupported execution mode: ${normalized}.`)
   }

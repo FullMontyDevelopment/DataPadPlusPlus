@@ -61,13 +61,24 @@ services:
       MONGO_INITDB_ROOT_USERNAME: datapadplusplus
       MONGO_INITDB_ROOT_PASSWORD: datapadplusplus
       MONGO_INITDB_DATABASE: catalog
+      DATAPADPLUSPLUS_MONGODB_PORT: '${DATAPADPLUSPLUS_MONGODB_PORT:-27018}'
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - >-
+        umask 077 &&
+        printf '%s' 'ZGF0YXBhZHBsdXNwbHVzLW1vbmdvZGItZml4dHVyZS1rZXk=' > /tmp/datapadplusplus-mongodb-keyfile &&
+        chown mongodb:mongodb /tmp/datapadplusplus-mongodb-keyfile &&
+        exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all
+        --port "$${DATAPADPLUSPLUS_MONGODB_PORT}"
+        --keyFile /tmp/datapadplusplus-mongodb-keyfile
     ports:
-      - '${DATAPADPLUSPLUS_MONGODB_PORT:-27018}:27017'
+      - '${DATAPADPLUSPLUS_MONGODB_PORT:-27018}:${DATAPADPLUSPLUS_MONGODB_PORT:-27018}'
     healthcheck:
       test:
         [
           'CMD-SHELL',
-          "mongosh --quiet --username datapadplusplus --password datapadplusplus --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 })' || exit 1",
+          "mongosh --quiet \"mongodb://datapadplusplus:datapadplusplus@127.0.0.1:$${DATAPADPLUSPLUS_MONGODB_PORT}/admin?directConnection=true\" --eval 'db.adminCommand({ ping: 1 })' || exit 1",
         ]
       interval: 5s
       timeout: 10s

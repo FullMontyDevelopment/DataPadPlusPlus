@@ -2362,6 +2362,7 @@ async fn execute_posture_probe(
         row_limit: Some(10),
         document_efficiency_mode: Some(true),
         confirmed_guardrail_id: None,
+        builder_state: None,
     };
     let notices = vec![QueryExecutionNotice {
         code: "datastore-security-checks-posture-probe".into(),
@@ -2820,6 +2821,7 @@ async fn detect_version_by_query(
         row_limit: Some(5),
         document_efficiency_mode: Some(true),
         confirmed_guardrail_id: None,
+        builder_state: None,
     };
     let notices = vec![QueryExecutionNotice {
         code: "datastore-security-checks-version-probe".into(),

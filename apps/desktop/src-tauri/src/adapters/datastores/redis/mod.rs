@@ -87,8 +87,15 @@ impl DatastoreAdapter for RedisAdapter {
     async fn cancel(
         &self,
         _connection: &ResolvedConnectionProfile,
-        _request: &CancelExecutionRequest,
+        request: &CancelExecutionRequest,
     ) -> Result<CancelExecutionResult, CommandError> {
+        if cancel_count_execution(&request.execution_id) {
+            return Ok(CancelExecutionResult {
+                ok: true,
+                supported: true,
+                message: format!("Redis Count {} was cancelled.", request.execution_id),
+            });
+        }
         Ok(CancelExecutionResult {
             ok: false,
             supported: false,

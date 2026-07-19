@@ -162,3 +162,23 @@ fn json_value_to_bson_understands_common_document_ids() {
     );
     assert_eq!(json_value_to_bson(&json!(7)).unwrap(), Bson::Int64(7));
 }
+
+#[test]
+fn mongodb_identity_type_preserves_object_ids_uuids_and_scalars() {
+    let object_id = json_value_to_bson(&json!({
+        "$oid": "507f1f77bcf86cd799439011"
+    }))
+    .expect("object id");
+    let uuid = json_value_to_bson(&json!({
+        "$uuid": "9e107d9d-372b-4f7d-bb3a-17d63746f9a0"
+    }))
+    .expect("uuid");
+
+    assert_eq!(mongodb_identity_type(&object_id), "objectId");
+    assert_eq!(mongodb_identity_type(&uuid), "uuid");
+    assert_eq!(
+        mongodb_identity_type(&Bson::String("sku-1".into())),
+        "string"
+    );
+    assert_eq!(mongodb_identity_type(&Bson::Int64(7)), "int64");
+}

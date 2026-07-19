@@ -1,4 +1,8 @@
-use mongodb::bson::{oid::ObjectId, Bson, DateTime, Decimal128, Document, Regex, Timestamp};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use mongodb::bson::{
+    oid::ObjectId, spec::BinarySubtype, Binary, Bson, DateTime, Decimal128, Document, Regex,
+    Timestamp, Uuid,
+};
 use serde_json::{json, Map, Number, Value};
 use std::str::FromStr;
 
@@ -118,12 +122,15 @@ fn bson_to_json_at_depth(value: &Bson, depth: usize) -> Value {
                 "i": increment,
             }
         }),
-        Bson::Binary(binary) => json!({
-            "$binary": {
-                "byteLength": binary.bytes.len(),
-                "subType": format!("{:?}", binary.subtype),
-            }
-        }),
+        Bson::Binary(binary) => match standard_uuid_string(binary) {
+            Some(uuid) => json!({ "$uuid": uuid }),
+            None => json!({
+                "$binary": {
+                    "byteLength": binary.bytes.len(),
+                    "subType": format!("{:?}", binary.subtype),
+                }
+            }),
+        },
         Bson::ObjectId(object_id) => json!({ "$oid": object_id.to_hex() }),
         Bson::DateTime(date_time) => {
             json!({ "$date": { "$numberLong": date_time.timestamp_millis().to_string() } })
@@ -180,6 +187,7 @@ fn bson_type_label(value: &Bson) -> &'static str {
         Bson::Int32(_) => "int32",
         Bson::Int64(_) => "int64",
         Bson::Timestamp(_) => "timestamp",
+        Bson::Binary(binary) if standard_uuid_string(binary).is_some() => "uuid",
         Bson::Binary(_) => "binary",
         Bson::ObjectId(_) => "objectId",
         Bson::DateTime(_) => "dateTime",
@@ -201,6 +209,38 @@ fn native_extended_json_scalar(
             .map(Bson::ObjectId)
             .map(Some)
             .map_err(|error| CommandError::new(code, error.to_string()));
+    }
+
+    if let Some(uuid) = object.get("$uuid").and_then(Value::as_str) {
+        return Uuid::parse_str(uuid)
+            .map(Bson::from)
+            .map(Some)
+            .map_err(|error| CommandError::new(code, error.to_string()));
+    }
+
+    if let Some(binary) = object.get("$binary").and_then(Value::as_object) {
+        let bytes = binary
+            .get("base64")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                CommandError::new(code, "MongoDB `$binary.base64` must be a Base64 string.")
+            })
+            .and_then(|value| {
+                BASE64.decode(value).map_err(|error| {
+                    CommandError::new(code, format!("MongoDB binary Base64 is invalid: {error}"))
+                })
+            })?;
+        let subtype = binary
+            .get("subType")
+            .and_then(Value::as_str)
+            .unwrap_or("00");
+        let subtype = u8::from_str_radix(subtype, 16).map_err(|error| {
+            CommandError::new(code, format!("MongoDB binary subtype is invalid: {error}"))
+        })?;
+        return Ok(Some(Bson::Binary(Binary {
+            subtype: BinarySubtype::from(subtype),
+            bytes,
+        })));
     }
 
     if let Some(date) = object.get("$date") {
@@ -275,6 +315,15 @@ fn native_extended_json_scalar(
     }
 
     Ok(None)
+}
+
+fn standard_uuid_string(binary: &Binary) -> Option<String> {
+    if binary.subtype != BinarySubtype::Uuid {
+        return None;
+    }
+
+    let bytes = <[u8; 16]>::try_from(binary.bytes.as_slice()).ok()?;
+    Some(Uuid::from_bytes(bytes).to_string())
 }
 
 fn extended_json_date_to_bson(value: &Value, code: &str) -> Result<Bson, CommandError> {

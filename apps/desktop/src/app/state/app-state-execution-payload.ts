@@ -17,15 +17,16 @@ export function preserveActiveExecutionsOnPayload(
 
   next.snapshot.tabs = next.snapshot.tabs.map((tab) => {
     const currentTab = currentTabsById.get(tab.id)
+    const tabWithNewestResult = preserveNewerExecutionState(tab, currentTab)
     const activeExecution = executionsByTab[tab.id] ?? currentTab?.activeExecution
 
     if (!activeExecution) {
-      return preserveResultDisplayTiming(tab, currentTab)
+      return preserveResultDisplayTiming(tabWithNewestResult, currentTab)
     }
 
     return preserveResultDisplayTiming(
       {
-        ...tab,
+        ...tabWithNewestResult,
         status: 'running',
         error: undefined,
         activeExecution,
@@ -35,6 +36,40 @@ export function preserveActiveExecutionsOnPayload(
   })
 
   return next
+}
+
+function preserveNewerExecutionState(
+  incoming: QueryTabState,
+  current: QueryTabState | undefined,
+): QueryTabState {
+  if (!current || current.result?.id === incoming.result?.id) {
+    return incoming
+  }
+
+  const currentRunAt = executionTimestamp(current)
+  const incomingRunAt = executionTimestamp(incoming)
+  if (currentRunAt === undefined || (incomingRunAt !== undefined && incomingRunAt >= currentRunAt)) {
+    return incoming
+  }
+
+  return {
+    ...incoming,
+    status: current.status,
+    lastRunAt: current.lastRunAt,
+    error: current.error,
+    result: current.result,
+    history: current.history,
+  }
+}
+
+function executionTimestamp(tab: QueryTabState) {
+  const value = tab.lastRunAt ?? tab.result?.executedAt
+  if (!value) {
+    return undefined
+  }
+
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : undefined
 }
 
 export function withServerTiming(result: ExecutionResultEnvelope): ExecutionResultEnvelope {

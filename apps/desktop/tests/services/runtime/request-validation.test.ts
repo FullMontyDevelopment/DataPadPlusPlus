@@ -6,6 +6,7 @@ import {
   validateConnectionProfile,
   validateConnectionTestRequest,
   validateDataEditPlanRequest,
+  validateDocumentNodeChildrenRequest,
   validateEnvironmentProfile,
   validateExecutionRequest,
   validateExplorerRequest,
@@ -21,6 +22,23 @@ import {
 } from '../../../src/services/runtime/request-validation'
 
 describe('runtime request validation', () => {
+  it('accepts the full MongoDB nesting limit for lazy document paths', () => {
+    const request = {
+      tabId: 'tab-mongodb',
+      connectionId: 'conn-mongodb',
+      environmentId: 'env-local',
+      collection: 'deep_documents',
+      documentId: 1,
+      path: Array.from({ length: 100 }, (_, index) => `level${index}`),
+    }
+
+    expect(validateDocumentNodeChildrenRequest(request).path).toHaveLength(100)
+    expect(() => validateDocumentNodeChildrenRequest({
+      ...request,
+      path: [...request.path, 'too-deep'],
+    })).toThrow(/at most 100 segments/)
+  })
+
   it('clamps metadata and Redis scan limits before command execution', () => {
     expect(
       validateExplorerRequest({
@@ -382,6 +400,7 @@ describe('runtime request validation', () => {
         appName: ' DataPadPlusPlus ',
         tls: true,
         replicaSet: ' atlas-10jff9-shard-0 ',
+        queryTimeoutMs: 90_000,
       },
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
@@ -396,6 +415,7 @@ describe('runtime request validation', () => {
         appName: 'DataPadPlusPlus',
         tls: true,
         replicaSet: 'atlas-10jff9-shard-0',
+        queryTimeoutMs: 90_000,
       },
     })
 
@@ -408,6 +428,11 @@ describe('runtime request validation', () => {
         },
       } as never),
     ).toThrow(/MongoDB TLS/)
+
+    expect(validateConnectionProfile({
+      ...profile,
+      mongodbOptions: { queryTimeoutMs: 9_000_000 },
+    })).toMatchObject({ mongodbOptions: { queryTimeoutMs: 1_800_000 } })
   })
 
   it('normalizes PostgreSQL-family and CockroachDB profile options', () => {
@@ -1451,6 +1476,36 @@ describe('runtime request validation', () => {
         queryText: 'select 1',
       } as never),
     ).toMatchObject({ mode: 'profile' })
+
+    expect(
+      validateExecutionRequest({
+        tabId: 'tab-1',
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        language: 'mongodb',
+        mode: 'count',
+        queryText: '{}',
+        builderState: {
+          kind: 'mongo-find',
+          collection: 'products',
+          filters: [],
+          projectionMode: 'all',
+          projectionFields: [],
+          sort: [],
+        },
+      }),
+    ).toMatchObject({ mode: 'count', builderState: { kind: 'mongo-find' } })
+
+    expect(() =>
+      validateExecutionRequest({
+        tabId: 'tab-1',
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        language: 'sql',
+        mode: 'count',
+        queryText: 'select count(*) from accounts',
+      }),
+    ).toThrow(/requires the current builder state/)
 
     expect(() =>
       validateExecutionRequest({

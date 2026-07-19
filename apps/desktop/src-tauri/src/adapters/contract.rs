@@ -391,6 +391,7 @@ pub trait DatastoreAdapter: Send + Sync {
                 row_limit: request.row_limit.or(Some(500)),
                 document_efficiency_mode: None,
                 confirmed_guardrail_id: None,
+                builder_state: None,
             };
             let result = self
                 .execute(

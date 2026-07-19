@@ -270,6 +270,7 @@ fn clear_tab_execution_after_cancel(
         result: None,
         guardrail,
         diagnostics: vec!["Execution canceled by user.".into()],
+        persistence_warning: None,
     })
 }
 
@@ -339,6 +340,10 @@ fn merge_execution_response(
             "Result loaded, but DataPad++ could not save this execution to workspace history."
                 .into(),
         );
+        response.persistence_warning = Some(crate::domain::models::PersistenceWarning {
+            code: "workspace-save-blocked".into(),
+            message: "The query completed, but DataPad++ could not save this execution to workspace history because the workspace file is temporarily in use. The result remains available, and saving will be retried on the next change.".into(),
+        });
     }
     Ok(response)
 }
@@ -1627,6 +1632,7 @@ pub async fn cancel_execution_request(
     executions: State<'_, SharedExecutionRegistry>,
     request: CancelExecutionRequest,
 ) -> Result<CancelExecutionResult, CommandError> {
+    adapters::cancel_mongodb_script_execution(&request.execution_id);
     {
         let mut executions = lock_executions(&executions)?;
         if executions.abort(&request.execution_id) {

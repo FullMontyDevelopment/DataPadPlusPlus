@@ -34,6 +34,105 @@ describe('app-state command error routing', () => {
     expect(state.payload?.snapshot.ui.bottomPanelVisible).toBe(true)
     expect(state.payload?.snapshot.ui.activeBottomPanelTab).toBe('messages')
   })
+
+  it('records persistence warnings without leaving Results', () => {
+    const payload = createSeedBootstrapPayload()
+    payload.snapshot.ui.bottomPanelVisible = true
+    payload.snapshot.ui.activeBottomPanelTab = 'results'
+
+    const state = reducer(
+      {
+        ...initialState,
+        status: 'ready',
+        payload,
+      },
+      {
+        type: 'WORKBENCH_MESSAGE_ADDED',
+        openMessages: false,
+        message: {
+          id: 'message-persistence',
+          severity: 'warning',
+          message: 'The result is available, but workspace history could not be saved.',
+          source: 'Workspace persistence',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          details: 'workspace-save-blocked',
+        },
+      },
+    )
+
+    expect(state.workbenchMessages).toHaveLength(1)
+    expect(state.payload?.snapshot.ui.activeBottomPanelTab).toBe('results')
+    expect(state.payload?.snapshot.ui.bottomPanelVisible).toBe(true)
+  })
+
+  it('keeps Results active for a non-blocking command error', () => {
+    const payload = createSeedBootstrapPayload()
+    payload.snapshot.ui.bottomPanelVisible = true
+    payload.snapshot.ui.activeBottomPanelTab = 'results'
+
+    const state = reducer(
+      {
+        ...initialState,
+        status: 'ready',
+        payload,
+      },
+      {
+        type: 'COMMAND_ERROR',
+        message: 'Workspace history could not be saved.',
+        openMessages: false,
+      },
+    )
+
+    expect(state.workbenchMessages).toHaveLength(1)
+    expect(state.payload?.snapshot.ui.activeBottomPanelTab).toBe('results')
+  })
+
+  it('keeps a successful result interactive when its persistence warning is recorded', () => {
+    const payload = payloadWithTwoTabs()
+    const tab = expectTab(payload.snapshot.tabs[0])
+    payload.snapshot.ui.activeTabId = tab.id
+    payload.snapshot.ui.bottomPanelVisible = true
+    payload.snapshot.ui.activeBottomPanelTab = 'results'
+    let state: StateShape = {
+      ...initialState,
+      status: 'ready',
+      payload,
+    }
+
+    state = reducer(state, {
+      type: 'EXECUTION_LOADING',
+      tabId: tab.id,
+      execution: activeExecution('execution-count'),
+    })
+    state = reducer(state, {
+      type: 'EXECUTION_READY',
+      execution: {
+        ...executionResponse(tab, 'execution-count'),
+        persistenceWarning: {
+          code: 'workspace-save-blocked',
+          message: 'Workspace history could not be saved.',
+        },
+      },
+      request: executionRequest(tab, 'execution-count'),
+    })
+    state = reducer(state, {
+      type: 'WORKBENCH_MESSAGE_ADDED',
+      openMessages: false,
+      message: {
+        id: 'message-count-persistence',
+        severity: 'warning',
+        message: 'Workspace history could not be saved.',
+        source: 'Workspace persistence',
+        createdAt: '2026-01-01T00:00:01.000Z',
+        details: 'workspace-save-blocked',
+      },
+    })
+
+    const currentTab = state.payload?.snapshot.tabs.find((item) => item.id === tab.id)
+    expect(currentTab?.result?.id).toBe('execution-count-result')
+    expect(state.payload?.snapshot.ui.activeBottomPanelTab).toBe('results')
+    expect(state.workbenchMessages).toHaveLength(1)
+  })
 })
 
 describe('app-state reducer connection health', () => {
@@ -578,6 +677,52 @@ describe('app-state reducer tab-scoped execution', () => {
     expect(updatedTab?.status).toBe('running')
     expect(updatedTab?.dirty).toBe(true)
     expect(updatedTab?.activeExecution?.executionId).toBe('execution-a')
+  })
+
+  it('does not let a delayed tab update erase a newer execution result', () => {
+    const payload = payloadWithTwoTabs()
+    const tab = expectTab(payload.snapshot.tabs[0])
+    let state: StateShape = {
+      ...initialState,
+      status: 'ready',
+      payload,
+    }
+
+    state = reducer(state, {
+      type: 'EXECUTION_LOADING',
+      tabId: tab.id,
+      execution: activeExecution('execution-new'),
+    })
+    const completedExecution = executionResponse(tab, 'execution-new')
+    completedExecution.tab.history = [
+      {
+        id: 'history-new',
+        queryText: tab.queryText,
+        executedAt: '2026-01-01T00:00:01.000Z',
+        status: 'success',
+      },
+    ]
+    state = reducer(state, {
+      type: 'EXECUTION_READY',
+      execution: completedExecution,
+      request: executionRequest(tab, 'execution-new'),
+    })
+
+    const delayedPayload = payloadWithTwoTabs()
+    const delayedTab = expectTab(delayedPayload.snapshot.tabs[0])
+    delayedTab.queryText = 'select newly typed text;'
+    delayedTab.lastRunAt = undefined
+    delayedTab.result = undefined
+    delayedTab.history = []
+    state = reducer(state, {
+      type: 'COMMAND_SUCCESS',
+      payload: delayedPayload,
+    })
+
+    const currentTab = state.payload?.snapshot.tabs.find((item) => item.id === tab.id)
+    expect(currentTab?.queryText).toBe('select newly typed text;')
+    expect(currentTab?.result?.id).toBe('execution-new-result')
+    expect(currentTab?.history).not.toHaveLength(0)
   })
 })
 

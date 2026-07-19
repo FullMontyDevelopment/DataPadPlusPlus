@@ -1,5 +1,5 @@
 import type { MongoDbConnectionOptions } from '@datapadplusplus/shared-types'
-import { validateOptionalText } from '../common/request-validation-core'
+import { clampOptionalInteger, validateOptionalText } from '../common/request-validation-core'
 
 export function validateMongoDbConnectionOptions(
   options: MongoDbConnectionOptions | undefined,
@@ -36,5 +36,11 @@ export function validateMongoDbConnectionOptions(
     replicaSet:
       validateOptionalText(options.replicaSet, 'MongoDB replica set', 128)?.trim()
       || undefined,
+    queryTimeoutMs: clampOptionalInteger(
+      options.queryTimeoutMs,
+      'MongoDB query timeout',
+      1_000,
+      1_800_000,
+    ),
   }
 }

@@ -92,6 +92,17 @@ export function buildDynamoDbKeyConditionQueryText(
   return JSON.stringify(body, null, 2)
 }
 
+export function buildDynamoDbCountQueryText(state: DynamoDbKeyConditionBuilderState) {
+  const request = JSON.parse(buildDynamoDbKeyConditionQueryText({
+    ...state,
+    projectionFields: [],
+    limit: undefined,
+  })) as Record<string, unknown>
+
+  request.select = 'COUNT'
+  return JSON.stringify(request, null, 2)
+}
+
 export function parseDynamoDbKeyConditionQueryText(
   queryText: string,
 ): DynamoDbKeyConditionBuilderState | undefined {

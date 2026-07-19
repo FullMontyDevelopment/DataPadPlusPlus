@@ -4,8 +4,7 @@ use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::bson_extjson::{
-    mongodb_bson_to_json, mongodb_document_to_json, mongodb_documents_to_json,
-    mongodb_json_to_array, mongodb_json_to_document,
+    mongodb_bson_to_json, mongodb_document_to_json, mongodb_json_to_array, mongodb_json_to_document,
 };
 use super::connection::{
     mongodb_client, mongodb_database_name_for_collection_query, mongodb_database_name_from_command,
@@ -45,6 +44,11 @@ pub(super) async fn execute_mongodb_query(
         || input.get("explain").and_then(Value::as_bool) == Some(true)
     {
         return execute_mongodb_explain(connection, &client, &input, &operation, notices, started)
+            .await;
+    }
+
+    if execute_mode(request) == "count" && operation == "aggregate" {
+        return execute_mongodb_aggregation_count(connection, &client, &input, notices, started)
             .await;
     }
 
@@ -255,6 +259,95 @@ async fn execute_mongodb_count(
             count.to_string(),
         ]],
     ))
+}
+
+async fn execute_mongodb_aggregation_count(
+    connection: &ResolvedConnectionProfile,
+    client: &mongodb::Client,
+    input: &Value,
+    notices: Vec<QueryExecutionNotice>,
+    started: Instant,
+) -> Result<ExecutionResultEnvelope, CommandError> {
+    let collection_name = collection_name(input)?;
+    let database_resolution =
+        mongodb_database_name_for_collection_query(client, connection, input, &collection_name)
+            .await?;
+    let pipeline = input
+        .get("pipeline")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            friendly_mongodb_error(
+                "mongodb-count-pipeline-invalid",
+                "MongoDB aggregation Count requires a pipeline array.",
+            )
+        })?;
+    let mut pipeline = pipeline
+        .iter()
+        .map(|stage| mongodb_json_to_document(stage, "pipeline[]", "mongodb-pipeline"))
+        .collect::<Result<Vec<Document>, _>>()?;
+
+    validate_mongodb_count_pipeline(&pipeline)?;
+
+    pipeline.push(doc! { "$count": "count" });
+    let documents = client
+        .database(&database_resolution.database_name)
+        .collection::<Document>(&collection_name)
+        .aggregate(pipeline)
+        .await?
+        .try_collect::<Vec<Document>>()
+        .await?;
+    let count = documents
+        .first()
+        .and_then(|document| document.get("count"))
+        .and_then(mongodb_count_value)
+        .unwrap_or(0);
+    let mut notices = notices;
+    if let Some(notice) = database_resolution.notice {
+        notices.push(notice);
+    }
+
+    Ok(scalar_result(
+        connection,
+        started,
+        notices,
+        format!(
+            "{count} aggregation record(s) counted in {}.",
+            connection.name
+        ),
+        json!({
+            "database": database_resolution.database_name,
+            "collection": collection_name,
+            "count": count.to_string(),
+            "estimated": false,
+        }),
+        vec!["count".into()],
+        vec![vec![count.to_string()]],
+    ))
+}
+
+fn validate_mongodb_count_pipeline(pipeline: &[Document]) -> Result<(), CommandError> {
+    if let Some(stage) = pipeline.iter().find_map(|stage| {
+        stage
+            .keys()
+            .find(|name| matches!(name.as_str(), "$out" | "$merge"))
+    }) {
+        return Err(friendly_mongodb_error(
+            "mongodb-count-pipeline-write-stage",
+            format!(
+                "MongoDB aggregation Count cannot execute the write-producing `{stage}` stage."
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn mongodb_count_value(value: &Bson) -> Option<u64> {
+    match value {
+        Bson::Int32(value) => u64::try_from(*value).ok(),
+        Bson::Int64(value) => u64::try_from(*value).ok(),
+        Bson::Double(value) if *value >= 0.0 => Some(*value as u64),
+        _ => None,
+    }
 }
 
 async fn execute_mongodb_distinct(
@@ -588,9 +681,8 @@ fn document_result(input: DocumentResultInput<'_>) -> ExecutionResultEnvelope {
     let bounded = bounded_items(documents.iter(), row_limit);
     let truncated = bounded.truncated;
     let visible_documents = bounded.visible;
-    let documents_json = mongodb_documents_to_json(visible_documents.iter().copied());
     let document_payload = mongodb_document_payload(
-        documents_json.clone(),
+        visible_documents.iter().copied(),
         database_name,
         collection_name,
         lazy_documents,
@@ -598,7 +690,7 @@ fn document_result(input: DocumentResultInput<'_>) -> ExecutionResultEnvelope {
     let display_documents_json = document_payload
         .get("documents")
         .cloned()
-        .unwrap_or_else(|| documents_json.clone());
+        .unwrap_or_else(|| Value::Array(Vec::new()));
     let display_documents = display_documents_json
         .as_array()
         .cloned()

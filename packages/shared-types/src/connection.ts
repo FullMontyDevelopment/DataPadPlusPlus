@@ -816,6 +816,7 @@ export interface MongoDbConnectionOptions {
   appName?: string
   tls?: boolean
   replicaSet?: string
+  queryTimeoutMs?: number
 }
 
 export interface ConnectionProfile {

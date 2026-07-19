@@ -101,8 +101,9 @@ Right-click menus are designed to be object-aware. A table should feel like a ta
 Different datastores want different tools. DataPad++ adapts the query window to the connection.
 
 - SQL databases open in a raw SQL editor by default, with metadata-aware IntelliSense.
-- MongoDB supports a find query builder, raw JSON command mode, aggregation work, and safe scripting-style reads.
+- MongoDB supports a find query builder, raw JSON command mode, aggregation work, and sandboxed mongosh-style JavaScript for guarded reads, writes, bulk operations, transactions, indexes, collection management, and permission-authorized commands.
 - MongoDB IntelliSense includes aggregation stages, expression operators, snippets, and document field path references from cached metadata and recent results.
+- MongoDB Script mode has JavaScript and BSON IntelliSense plus a searchable, resizable guide. Its embedded runtime has no filesystem, process, module, or arbitrary network access; mutations still pass through DataPad++ read-only and environment confirmation guardrails.
 - MongoDB document insert, replace, delete, and field set/unset/rename/type-change edits are live-capable in the desktop adapter only when collection/document identity and environment guardrails pass.
 - MongoDB diagnostics expose profiler, current operation, replica, shard, and index-usage signals as profile and metric payloads.
 - Redis and Valkey open in a native key browser, with a Redis console available when you want commands.

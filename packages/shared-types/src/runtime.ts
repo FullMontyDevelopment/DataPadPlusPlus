@@ -36,7 +36,7 @@ import type {
   StructureNode,
 } from './workspace'
 
-export type QueryExecutionMode = 'full' | 'selection' | 'explain' | 'profile'
+export type QueryExecutionMode = 'full' | 'selection' | 'explain' | 'profile' | 'count'
 
 export const DATASTORE_OPERATION_RISKS = [
   'read',
@@ -913,6 +913,7 @@ export interface ExecutionRequest {
   rowLimit?: number
   documentEfficiencyMode?: boolean
   confirmedGuardrailId?: string
+  builderState?: QueryBuilderState
 }
 
 export interface ExecutionResponse {
@@ -921,6 +922,10 @@ export interface ExecutionResponse {
   result?: ExecutionResultEnvelope
   guardrail: GuardrailDecision
   diagnostics: string[]
+  persistenceWarning?: {
+    code: string
+    message: string
+  }
 }
 
 export interface ResultPageRequest {
@@ -1134,6 +1139,8 @@ export interface UpdateUiStateRequest {
   bottomPanelHeight?: number
   resultsDock?: ResultsDock
   resultsSideWidth?: number
+  mongoScriptGuideVisible?: boolean
+  mongoScriptGuideWidth?: number
   rightDrawer?: RightDrawerView
   rightDrawerWidth?: number
 }

@@ -2,9 +2,27 @@ use serde_json::json;
 
 use super::{
     attribute_or_json_to_string, bounded_dynamodb_response, dynamodb_operation,
-    dynamodb_partiql_is_read_only, dynamodb_profile_payload, normalize_dynamodb_response_bounded,
-    normalize_request_body, validate_dynamodb_request,
+    dynamodb_partiql_is_read_only, dynamodb_profile_payload, normalize_count_request_body,
+    normalize_dynamodb_response_bounded, normalize_request_body, validate_dynamodb_request,
 };
+
+#[test]
+fn count_request_removes_display_limits_and_projection() {
+    let body = normalize_count_request_body(json!({
+        "TableName": "Orders",
+        "Limit": 20,
+        "ProjectionExpression": "#n0",
+        "ExclusiveStartKey": { "pk": { "S": "old" } },
+        "FilterExpression": "#n1 = :v0",
+    }))
+    .expect("count request should normalize");
+
+    assert_eq!(body.get("Select"), Some(&json!("COUNT")));
+    assert_eq!(body.get("FilterExpression"), Some(&json!("#n1 = :v0")));
+    assert!(body.get("Limit").is_none());
+    assert!(body.get("ProjectionExpression").is_none());
+    assert!(body.get("ExclusiveStartKey").is_none());
+}
 
 #[test]
 fn dynamodb_operation_reads_and_normalizes_action_field() {

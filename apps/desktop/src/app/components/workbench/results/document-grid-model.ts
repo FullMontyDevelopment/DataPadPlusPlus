@@ -8,6 +8,7 @@ export type DocumentValueType =
   | 'boolean'
   | 'null'
   | 'objectid'
+  | 'uuid'
   | 'date'
   | 'decimal'
   | 'binary'
@@ -38,16 +39,22 @@ export interface DocumentLazyNode {
   loaded?: false
 }
 
+export interface DocumentValueEntry {
+  label: string
+  pathSegment: string | number
+  value: unknown
+}
+
 export function buildRows(documents: Array<Record<string, unknown>>, expandedRows: Set<string>) {
   const rows: DocumentGridRow[] = []
 
   documents.forEach((document, index) => {
-    const rootId = `document-${index}`
+    const rootId = documentRowId(index, [])
     const rootLabel = documentRootLabel(document, index)
     rows.push(rowForValue(rootId, index, 0, rootLabel, '_id', document, [], []))
 
     if (expandedRows.has(rootId)) {
-      rows.push(...childRows(document, index, rootId, 1, [], expandedRows))
+      rows.push(...childRows(document, index, 1, [], expandedRows))
     }
   })
 
@@ -58,9 +65,9 @@ export function collectExpandableRowIds(documents: Array<Record<string, unknown>
   const ids: string[] = []
 
   documents.forEach((document, index) => {
-    const rootId = `document-${index}`
+    const rootId = documentRowId(index, [])
     ids.push(rootId)
-    collectExpandableChildren(document, rootId, ids)
+    collectExpandableChildren(document, index, [], ids)
   })
 
   return ids
@@ -69,7 +76,6 @@ export function collectExpandableRowIds(documents: Array<Record<string, unknown>
 function childRows(
   value: unknown,
   documentIndex: number,
-  parentId: string,
   depth: number,
   parentPath: Array<string | number>,
   expandedRows: Set<string>,
@@ -80,36 +86,41 @@ function childRows(
 
   const entries = valueEntries(value)
 
-  return entries.flatMap(([key, childValue]) => {
-    const pathKey = key.startsWith('[') ? Number(key.slice(1, -1)) : key
-    const path = [...parentPath, pathKey]
+  return entries.flatMap(({ label, pathSegment, value: childValue }) => {
+    const path = [...parentPath, pathSegment]
     const fieldPath = pathToFieldPath(path)
-    const id = `${parentId}.${key}`
-    const row = rowForValue(id, documentIndex, depth, key, fieldPath, childValue, parentPath, path)
+    const id = documentRowId(documentIndex, path)
+    const row = rowForValue(id, documentIndex, depth, label, fieldPath, childValue, parentPath, path)
 
     if (!expandedRows.has(id)) {
       return [row]
     }
 
-    return [row, ...childRows(childValue, documentIndex, id, depth + 1, path, expandedRows)]
+    return [row, ...childRows(childValue, documentIndex, depth + 1, path, expandedRows)]
   })
 }
 
-function collectExpandableChildren(value: unknown, parentId: string, ids: string[]): void {
+function collectExpandableChildren(
+  value: unknown,
+  documentIndex: number,
+  parentPath: Array<string | number>,
+  ids: string[],
+): void {
   if (!isExpandableValue(value)) {
     return
   }
 
   const entries = valueEntries(value)
 
-  entries.forEach(([key, childValue]) => {
+  entries.forEach(({ pathSegment, value: childValue }) => {
     if (!isExpandableValue(childValue)) {
       return
     }
 
-    const id = `${parentId}.${key}`
+    const path = [...parentPath, pathSegment]
+    const id = documentRowId(documentIndex, path)
     ids.push(id)
-    collectExpandableChildren(childValue, id, ids)
+    collectExpandableChildren(childValue, documentIndex, path, ids)
   })
 }
 
@@ -184,7 +195,15 @@ function rootIdentityLabel(value: unknown) {
 
 export function pathToFieldPath(path: Array<string | number>) {
   return path
-    .map((item) => (typeof item === 'number' ? `[${item}]` : item))
+    .map((item) => {
+      if (typeof item === 'number') {
+        return `[${item}]`
+      }
+
+      return /^[A-Za-z_][A-Za-z0-9_]*$/.test(item)
+        ? item
+        : `[${JSON.stringify(item)}]`
+    })
     .reduce((current, item) => {
       if (item.startsWith('[')) {
         return `${current}${item}`
@@ -204,7 +223,14 @@ export function isDocumentLazyNode(value: unknown): value is DocumentLazyNode {
     record.__datapadLazyNode === true &&
     (record.type === 'object' || record.type === 'array') &&
     typeof record.childCount === 'number' &&
-    Array.isArray(record.path)
+    Number.isInteger(record.childCount) &&
+    record.childCount >= 0 &&
+    Array.isArray(record.path) &&
+    record.path.every(
+      (segment) =>
+        typeof segment === 'string' ||
+        (typeof segment === 'number' && Number.isInteger(segment) && segment >= 0),
+    )
   )
 }
 
@@ -220,14 +246,28 @@ export function isExpandableValue(value: unknown): value is Array<unknown> | Rec
   return typeof value === 'object' && value !== null && Object.keys(value).length > 0
 }
 
-export function valueEntries(value: Array<unknown> | Record<string, unknown> | DocumentLazyNode): Array<[string, unknown]> {
+export function valueEntries(
+  value: Array<unknown> | Record<string, unknown> | DocumentLazyNode,
+): DocumentValueEntry[] {
   if (isDocumentLazyNode(value)) {
     return []
   }
 
   return Array.isArray(value)
-    ? value.map((item, index) => [`[${index}]`, item])
-    : Object.entries(value)
+    ? value.map((item, index) => ({
+        label: `[${index}]`,
+        pathSegment: index,
+        value: item,
+      }))
+    : Object.entries(value).map(([key, item]) => ({
+        label: key,
+        pathSegment: key,
+        value: item,
+      }))
+}
+
+export function documentRowId(documentIndex: number, path: Array<string | number>) {
+  return `document:${documentIndex}:${JSON.stringify(path)}`
 }
 
 function valueType(value: unknown): DocumentValueType {
@@ -289,6 +329,10 @@ export function compactValue(value: unknown) {
 export function documentValueTypeLabel(type: DocumentValueType) {
   if (type === 'objectid') {
     return 'ObjectId'
+  }
+
+  if (type === 'uuid') {
+    return 'UUID'
   }
 
   if (type === 'date') {

@@ -95,6 +95,8 @@ export function createBlankSnapshot(): WorkspaceSnapshot {
       bottomPanelHeight: 260,
       resultsDock: 'bottom',
       resultsSideWidth: 420,
+      mongoScriptGuideVisible: true,
+      mongoScriptGuideWidth: 360,
       rightDrawer: 'none',
       rightDrawerWidth: 360,
     },

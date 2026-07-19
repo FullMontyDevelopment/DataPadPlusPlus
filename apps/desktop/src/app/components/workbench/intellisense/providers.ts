@@ -9,6 +9,7 @@ import type {
   EditorCompletionContext,
 } from './types'
 import { buildMongoItems } from './mongo-provider'
+import { buildMongoScriptItems } from '../datastores/mongodb/mongo-script-provider'
 import { buildCockroachSqlItems } from './cockroach-provider'
 import { buildDynamoDbItems } from './dynamodb-provider'
 import { buildMySqlItems, quoteMySqlIdentifier } from './mysql-provider'
@@ -119,6 +120,12 @@ export const DEFAULT_COMPLETION_PROVIDERS: DatastoreCompletionProvider[] = [
     engines: ['mongodb'],
     languages: ['json'],
     buildItems: buildMongoItems,
+  },
+  {
+    id: 'mongodb-script',
+    engines: ['mongodb'],
+    languages: ['javascript'],
+    buildItems: buildMongoScriptItems,
   },
   {
     id: 'redis',

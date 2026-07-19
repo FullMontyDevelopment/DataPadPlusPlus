@@ -36,6 +36,12 @@ export function useRuntimeCommandActions({
             type: 'COMMAND_ERROR',
             message: result.message,
           })
+        } else if (tabId) {
+          dispatch({
+            type: 'EXECUTION_DISPLAYED',
+            tabId,
+            executionId,
+          })
         }
       } catch (error) {
         handleError(error)
@@ -146,9 +152,15 @@ export function useRuntimeCommandActions({
   )
 
   const executeDataEdit = useCallback<Actions['executeDataEdit']>(
-    async (request) => callRuntimeCommand(state.payload, handleError, () =>
-      desktopClient.executeDataEdit(request),
-    ),
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.executeDataEdit(request)
+      } catch (error) {
+        handleError(error)
+        throw error
+      }
+    },
     [handleError, state.payload],
   )
 

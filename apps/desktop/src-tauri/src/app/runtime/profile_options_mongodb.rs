@@ -53,7 +53,7 @@ pub(super) fn build_mongodb_native_connection_string(
     })
 }
 
-fn interpolate_mongodb_options(
+pub(super) fn interpolate_mongodb_options(
     options: &MongoDbConnectionOptions,
     interpolate: &impl Fn(&str) -> String,
 ) -> MongoDbConnectionOptions {
@@ -63,6 +63,7 @@ fn interpolate_mongodb_options(
         app_name: options.app_name.as_deref().map(interpolate),
         tls: options.tls,
         replica_set: options.replica_set.as_deref().map(interpolate),
+        query_timeout_ms: options.query_timeout_ms,
     }
 }
 

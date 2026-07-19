@@ -32,6 +32,14 @@ pub(in crate::app::runtime) fn validate_execution_request(
         validate_query_text(selected, "Selected text")?;
     }
     validate_optional_text(request.mode.as_deref(), "Execution mode", 32)?;
+    if let Some(builder_state) = &request.builder_state {
+        assert_json_size(builder_state, "Query builder state")?;
+    }
+    if request.mode.as_deref() == Some("count") && request.builder_state.is_none() {
+        return Err(invalid_request(
+            "Query Builder Count requires the current builder state.",
+        ));
+    }
     validate_optional_text(
         request.confirmed_guardrail_id.as_deref(),
         "Guardrail confirmation id",
@@ -84,9 +92,10 @@ pub(in crate::app::runtime) fn validate_document_node_children_request(
     if let Some(query_text) = &request.query_text {
         validate_query_text(query_text, "Query text")?;
     }
-    if request.path.is_empty() || request.path.len() > MAX_PATH_SEGMENTS {
+    const MAX_DOCUMENT_PATH_SEGMENTS: usize = 100;
+    if request.path.is_empty() || request.path.len() > MAX_DOCUMENT_PATH_SEGMENTS {
         return Err(invalid_request(format!(
-            "Document field path must contain 1 to {MAX_PATH_SEGMENTS} segments."
+            "Document field path must contain 1 to {MAX_DOCUMENT_PATH_SEGMENTS} segments."
         )));
     }
     for segment in &request.path {

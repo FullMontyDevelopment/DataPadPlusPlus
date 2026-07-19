@@ -32,6 +32,7 @@ fn connection() -> ResolvedConnectionProfile {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     }
@@ -155,6 +156,7 @@ async fn cassandra_live_fixture_returns_real_rows() {
             row_limit: Some(25),
             document_efficiency_mode: None,
             confirmed_guardrail_id: None,
+            builder_state: None,
         },
         Vec::new(),
     )

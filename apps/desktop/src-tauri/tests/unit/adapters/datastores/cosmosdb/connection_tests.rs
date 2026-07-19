@@ -176,6 +176,7 @@ fn connection(cosmos_db_options: Option<CosmosDbConnectionOptions>) -> ResolvedC
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     }

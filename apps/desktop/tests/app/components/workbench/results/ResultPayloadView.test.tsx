@@ -598,7 +598,7 @@ describe('ResultPayloadView', () => {
 
   it('handles rejected Mongo document field edits without applying a local success state', async () => {
     const executeDataEdit = vi.fn(async () => {
-      throw new Error('super-secret datastore failure')
+      throw new Error('MongoDB rejected the document edit.')
     })
 
     render(
@@ -624,10 +624,9 @@ describe('ResultPayloadView', () => {
     fireEvent.blur(valueInput)
 
     await waitFor(() => {
-      expect(screen.getByText('Document edit failed.')).toBeInTheDocument()
+      expect(screen.getByText('MongoDB rejected the document edit.')).toBeInTheDocument()
     })
     expect(screen.getByRole('button', { name: 'active' })).toBeInTheDocument()
-    expect(screen.queryByText('super-secret datastore failure')).not.toBeInTheDocument()
   })
 
   it('uses a confirm dialog instead of typed confirmation for guarded Mongo field edits', async () => {
@@ -796,6 +795,86 @@ describe('ResultPayloadView', () => {
     })
     expect(screen.queryByText('account-1')).not.toBeInTheDocument()
     expect(screen.getByText('account-2')).toBeInTheDocument()
+  })
+
+  it('keeps an unmatched Mongo document visible and explains the zero-match outcome', async () => {
+    const executeDataEdit = vi.fn(async (): Promise<DataEditExecutionResponse> => ({
+      connectionId: 'conn-mongo',
+      environmentId: 'env-dev',
+      editKind: 'delete-document',
+      executionSupport: 'live',
+      executed: false,
+      plan: {
+        operationId: 'mongodb.data-edit.delete-document',
+        engine: 'mongodb',
+        summary: 'Delete document.',
+        generatedRequest: '{}',
+        requestLanguage: 'mongodb',
+        destructive: true,
+        confirmationText: 'CONFIRM MONGODB DELETE-DOCUMENT',
+        requiredPermissions: ['delete collection document'],
+        warnings: [],
+      },
+      messages: [],
+      warnings: ['MongoDB did not find a document with the supplied _id.'],
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "database": "catalog", "collection": "products" }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-1', status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByText('account-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Document' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('MongoDB did not find a document with the supplied _id.')).toBeInTheDocument()
+    })
+    expect(screen.getByText('account-1')).toBeInTheDocument()
+  })
+
+  it('keeps a Mongo document visible and shows a redacted runtime delete error', async () => {
+    const executeDataEdit = vi.fn(async () => {
+      throw new Error('MongoDB permission denied; password=top-secret')
+    })
+
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "database": "catalog", "collection": "products" }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-1', status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByText('account-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Document' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('MongoDB permission denied; password=********')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/top-secret/)).not.toBeInTheDocument()
+    expect(screen.getByText('account-1')).toBeInTheDocument()
   })
 
   it('keeps Mongo child field deletion separate from root document deletion', () => {
@@ -3301,9 +3380,9 @@ describe('ResultPayloadView', () => {
     expect(screen.queryByText(/processing/)).not.toBeInTheDocument()
   })
 
-  it('handles rejected search document updates without leaking raw errors', async () => {
+  it('shows sanitized search document update errors without changing the hit', async () => {
     const executeDataEdit = vi.fn(async () => {
-      throw new Error('super-secret search failure')
+      throw new Error('Search update denied; password=top-secret')
     })
 
     render(
@@ -3337,9 +3416,9 @@ describe('ResultPayloadView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Update' }))
 
     await waitFor(() => {
-      expect(screen.getByText('Search document update failed.')).toBeInTheDocument()
+      expect(screen.getByText('Search update denied; password=********')).toBeInTheDocument()
     })
-    expect(screen.queryByText('super-secret search failure')).not.toBeInTheDocument()
+    expect(screen.queryByText(/top-secret/)).not.toBeInTheDocument()
     expect(screen.getByText(/processing/)).toBeInTheDocument()
   })
 
@@ -3493,6 +3572,23 @@ describe('ResultPayloadView', () => {
 })
 
 describe('JsonTreeView', () => {
+  it('renders MongoDB UUID scalars as terminal native values', () => {
+    render(
+      <JsonTreeView
+        value={{ sessionId: { $uuid: '00112233-4455-6677-8899-aabbccddeeff' } }}
+        label="Mongo result"
+        defaultExpandAll
+      />,
+    )
+
+    const tree = screen.getByRole('tree', { name: 'Mongo result JSON tree' })
+    expect(
+      within(tree).getByText('UUID("00112233-4455-6677-8899-aabbccddeeff")'),
+    ).toBeInTheDocument()
+    expect(within(tree).getByText('uuid')).toBeInTheDocument()
+    expect(within(tree).queryByText('$uuid')).not.toBeInTheDocument()
+  })
+
   it('caps expanded children so large payloads do not flood the DOM', () => {
     const value = Object.fromEntries(
       Array.from({ length: 300 }, (_, index) => [`key${index}`, index]),

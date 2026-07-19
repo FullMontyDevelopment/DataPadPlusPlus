@@ -20,6 +20,17 @@ import {
   readMonacoSelection,
   variableDecorations,
 } from './DesktopCodeEditor.helpers'
+import {
+  useEditorLanguageSupport,
+  type EditorDiagnostic,
+} from './DesktopCodeEditor.language-support'
+
+export type { EditorDiagnostic } from './DesktopCodeEditor.language-support'
+
+export interface EditorInsertionRequest {
+  id: string
+  text: string
+}
 
 export function DesktopCodeEditor({
   value,
@@ -33,6 +44,9 @@ export function DesktopCodeEditor({
   onChange,
   onSelectionChange,
   onDropField,
+  insertionRequest,
+  ambientDeclarations,
+  buildDiagnostics,
 }: {
   value: string
   resetKey?: string | number
@@ -45,12 +59,14 @@ export function DesktopCodeEditor({
   onChange(value: string): void
   onSelectionChange?(selectedText: string): void
   onDropField?(fieldPath: string): void
+  insertionRequest?: EditorInsertionRequest
+  ambientDeclarations?: string
+  buildDiagnostics?(value: string): EditorDiagnostic[]
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [localValue, setLocalValue] = useState(value)
   const localValueRef = useRef(value)
   const lastExternalValueRef = useRef(value)
-  const lastEmittedValueRef = useRef(value)
   const lastResetKeyRef = useRef(resetKey)
   const completionRef = useRef({
     completionContext,
@@ -58,6 +74,7 @@ export function DesktopCodeEditor({
     onRequestCompletionRefresh,
   })
   const pendingCompletionCatalogRef = useRef<string | undefined>(undefined)
+  const appliedInsertionRef = useRef<string | undefined>(undefined)
   const [monacoRuntime, setMonacoRuntime] = useState<
     | {
         editor: MonacoEditorLike
@@ -86,14 +103,23 @@ export function DesktopCodeEditor({
   }, [localValue])
 
   useEffect(() => {
-    if (value === lastExternalValueRef.current && resetKey === lastResetKeyRef.current) {
+    const previousExternalValue = lastExternalValueRef.current
+    const resetChanged = resetKey !== lastResetKeyRef.current
+
+    if (value === previousExternalValue && !resetChanged) {
       return
     }
 
     lastExternalValueRef.current = value
     lastResetKeyRef.current = resetKey
-    if (value !== localValueRef.current) {
-      lastEmittedValueRef.current = value
+
+    if (value === localValueRef.current) {
+      return
+    }
+
+    const hasNewerLocalValue = localValueRef.current !== previousExternalValue
+    if (resetChanged || !hasNewerLocalValue) {
+      localValueRef.current = value
       setLocalValue(value)
     }
   }, [resetKey, value])
@@ -101,7 +127,7 @@ export function DesktopCodeEditor({
   const handleValueChange = useCallback(
     (nextValue: string | undefined) => {
       const resolvedValue = nextValue ?? ''
-      lastEmittedValueRef.current = resolvedValue
+      localValueRef.current = resolvedValue
       setLocalValue(resolvedValue)
       onChange(resolvedValue)
     },
@@ -170,6 +196,44 @@ export function DesktopCodeEditor({
   }, [monacoRuntime, onSelectionChange])
 
   useEffect(() => {
+    if (!insertionRequest || appliedInsertionRef.current === insertionRequest.id) {
+      return
+    }
+
+    appliedInsertionRef.current = insertionRequest.id
+    const editor = monacoRuntime?.editor
+    const position = editor?.getPosition?.()
+    if (editor?.executeEdits && position) {
+      editor.pushUndoStop?.()
+      editor.executeEdits('mongodb-script-guide', [{
+        range: {
+          startLineNumber: position.lineNumber,
+          startColumn: position.column,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        },
+        text: insertionRequest.text,
+        forceMoveMarkers: true,
+      }])
+      editor.pushUndoStop?.()
+      editor.focus?.()
+      return
+    }
+
+    const textarea = textareaRef.current
+    const start = textarea?.selectionStart ?? localValueRef.current.length
+    const end = textarea?.selectionEnd ?? start
+    const separator = start > 0 && !localValueRef.current.slice(0, start).endsWith('\n') ? '\n' : ''
+    const nextValue = `${localValueRef.current.slice(0, start)}${separator}${insertionRequest.text}${localValueRef.current.slice(end)}`
+    handleValueChange(nextValue)
+    window.requestAnimationFrame(() => {
+      const nextPosition = start + separator.length + insertionRequest.text.length
+      textareaRef.current?.setSelectionRange(nextPosition, nextPosition)
+      textareaRef.current?.focus()
+    })
+  }, [handleValueChange, insertionRequest, monacoRuntime])
+
+  useEffect(() => {
     if (!monacoRuntime || !hasCompletionContext || completionProviderCount === 0) {
       return undefined
     }
@@ -204,6 +268,14 @@ export function DesktopCodeEditor({
       {},
     )
   }, [completionContext?.catalog.loadedAt, monacoRuntime])
+
+  useEditorLanguageSupport({
+    runtime: monacoRuntime,
+    language,
+    value: localValue,
+    ambientDeclarations,
+    buildDiagnostics,
+  })
 
   useEffect(() => {
     if (!monacoRuntime?.editor.deltaDecorations || !monacoRuntime.editor.getModel) {

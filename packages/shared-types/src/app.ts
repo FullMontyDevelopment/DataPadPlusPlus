@@ -83,6 +83,8 @@ export interface UiState {
   bottomPanelHeight: number
   resultsDock: ResultsDock
   resultsSideWidth: number
+  mongoScriptGuideVisible: boolean
+  mongoScriptGuideWidth: number
   rightDrawer: RightDrawerView
   rightDrawerWidth: number
 }

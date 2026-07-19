@@ -172,6 +172,7 @@ impl ManagedAppState {
                 required_confirmation_text: None,
             },
             diagnostics: Vec::new(),
+            persistence_warning: None,
         })
     }
 

@@ -86,6 +86,17 @@ describe('data edit confirmation', () => {
     expect(response?.executed).toBe(false)
     expect(response?.warnings).toContain('Global safe mode blocks inline result edits.')
   })
+
+  it('propagates runtime failures to the active result view', async () => {
+    const failure = new Error('MongoDB permission denied')
+
+    await expect(executeDataEditWithConfirmation(
+      async () => {
+        throw failure
+      },
+      dataEditRequest(),
+    )).rejects.toBe(failure)
+  })
 })
 
 function dataEditRequest(): DataEditExecutionRequest {

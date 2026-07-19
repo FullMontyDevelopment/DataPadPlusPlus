@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createSeedSnapshot } from '../../fixtures/seed-workspace'
 import { applyExecutionRequestLocally } from '../../../src/services/runtime/browser-execution'
+import { createDefaultSqlSelectBuilderState } from '../../../src/app/components/workbench/query-builder/sql-select'
 
 describe('browser execution runtime', () => {
   it('keeps dirty query tabs dirty after execution', () => {
@@ -169,6 +170,41 @@ describe('browser execution runtime', () => {
       renderer: 'profile',
       summary: expect.stringContaining('profile preview'),
     })
+  })
+
+  it('returns a clearly marked scalar Count preview without replacing the builder query', () => {
+    const snapshot = createSeedSnapshot()
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-commerce-mysql')
+    if (!tab) {
+      throw new Error('Expected seed SQL query tab.')
+    }
+    const builderState = createDefaultSqlSelectBuilderState('inventory_items')
+    const originalQuery = 'select * from inventory_items limit 20;'
+    const { response, snapshot: executed } = applyExecutionRequestLocally(snapshot, {
+      tabId: tab.id,
+      connectionId: tab.connectionId,
+      environmentId: tab.environmentId,
+      language: tab.language,
+      executionInputMode: 'builder',
+      queryText: originalQuery,
+      selectedText: 'select count(*) as count from inventory_items;',
+      mode: 'count',
+      builderState,
+    })
+
+    expect(response.result?.defaultRenderer).toBe('table')
+    expect(response.result?.payloads[0]).toMatchObject({
+      renderer: 'table',
+      columns: ['count'],
+    })
+    expect(response.result?.payloads[1]).toMatchObject({
+      renderer: 'json',
+      value: { exact: true, preview: true, builderKind: 'sql-select' },
+    })
+    expect(response.result?.notices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'query-builder-count-preview' }),
+    ]))
+    expect(executed.tabs.find((item) => item.id === tab.id)?.queryText).toBe(originalQuery)
   })
 
   it('blocks browser preview execution that references secret environment variables', () => {

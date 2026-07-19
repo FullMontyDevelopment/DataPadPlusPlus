@@ -32,6 +32,7 @@ import {
 } from './components/workbench/AppDialogs'
 import { BootSurface, WelcomeSurface } from './components/workbench/BootSurfaces'
 import { DesktopCodeEditor } from './components/workbench/DesktopCodeEditor'
+import { MongoScriptWorkspace } from './components/workbench/datastores/mongodb/MongoScriptWorkspace'
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
 import { FirstInstallGuide } from './components/workbench/FirstInstallGuide'
@@ -68,6 +69,10 @@ import {
   isRedisKeyBrowserState,
 } from './components/workbench/query-builder/redis-key-browser'
 import {
+  buildQueryBuilderCountText,
+  queryBuilderStateWithDatabase,
+} from './components/workbench/query-builder/query-builder-count'
+import {
   isRedisConsoleTab,
   redisConsoleCommandFromQueryText,
 } from './components/workbench/query-builder/redis-console'
@@ -86,6 +91,7 @@ import {
   isExplorerRequestLoading,
 } from './state/app-state-reducer-helpers'
 import { connectionUsesManagedOracleRuntime } from './state/oracle-runtime'
+import { useTaskbarQueryActivity } from './state/use-taskbar-query-activity'
 import {
   connectionHealthKey,
   connectionHealthToConnectionTest,
@@ -508,6 +514,7 @@ function DesktopWorkspace() {
     workspaceSwitcherStatus,
     actions,
   } = useAppState()
+  useTaskbarQueryActivity(executionsByTab)
   const [exportPassphrase, setExportPassphrase] = useState('')
   const [importPayload, setImportPayload] = useState('')
   const [rendererPreference, setRendererPreference] = useState<{
@@ -1114,10 +1121,13 @@ function DesktopWorkspace() {
   })
   const completionProviders = useMemo(
     () => [
-      ...completionProvidersForConnection(activeConnection, runtimeCapabilities.editorLanguage),
+      ...completionProvidersForConnection(
+        activeConnection,
+        activeQueryWindowMode === 'script' ? 'javascript' : runtimeCapabilities.editorLanguage,
+      ),
       ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER,
     ],
-    [activeConnection, runtimeCapabilities.editorLanguage],
+    [activeConnection, activeQueryWindowMode, runtimeCapabilities.editorLanguage],
   )
   const completionContext = useMemo(() => {
     if (
@@ -1142,7 +1152,7 @@ function DesktopWorkspace() {
       connection: activeConnection,
       environment: activeEnvironment,
       tab: activeTab,
-      language: runtimeCapabilities.editorLanguage,
+      language: activeQueryWindowMode === 'script' ? 'javascript' : runtimeCapabilities.editorLanguage,
       queryText: activeEditorQueryText ?? activeTab.queryText,
       catalog: intellisenseCatalog,
     }
@@ -1161,6 +1171,7 @@ function DesktopWorkspace() {
     activeTabIsSecurityChecks,
     activeTabIsSettings,
     activeTabIsWorkspaceSearch,
+    activeQueryWindowMode,
     intellisenseCatalog,
     runtimeCapabilities.editorLanguage,
   ])
@@ -1339,7 +1350,10 @@ function DesktopWorkspace() {
     if (
       !activeConnectionId ||
       !activeEnvironmentId ||
-      !connectionUsesManagedOracleRuntime(activeConnection)
+      !(
+        connectionUsesManagedOracleRuntime(activeConnection) ||
+        activeConnection?.engine === 'mongodb'
+      )
     ) {
       return
     }
@@ -1350,6 +1364,12 @@ function DesktopWorkspace() {
       limit: 160,
     })
   }, [actions, activeConnection, activeConnectionId, activeEnvironmentId])
+
+  useEffect(() => {
+    if (activeQueryWindowMode === 'script' && activeConnection?.engine === 'mongodb') {
+      requestIntellisenseRefresh()
+    }
+  }, [activeConnection?.engine, activeQueryWindowMode, requestIntellisenseRefresh])
 
   const rememberRedisConsoleCommand = useCallback((
     tabId: string,
@@ -1920,6 +1940,38 @@ function DesktopWorkspace() {
     structure,
     structureStatus,
   ])
+
+  const countQueryBuilderResults = useCallback(async (
+    tabId: string,
+    builderState: QueryBuilderState,
+  ) => {
+    if (!activeConnection || !activeTab || activeTab.id !== tabId) {
+      return
+    }
+
+    const database = mongoQueryScopeForTab({
+      builderState,
+      connection: activeConnection,
+      tab: activeTab,
+    })?.database
+    const scopedBuilderState = queryBuilderStateWithDatabase(builderState, database)
+    const queryText = buildQueryTextForBuilderState(
+      scopedBuilderState,
+      activeConnection,
+      activeTab,
+    ) ?? resolveQueryText(activeTab)
+    const countQueryText = buildQueryBuilderCountText(scopedBuilderState, {
+      connection: activeConnection,
+      database,
+    })
+
+    await actions.executeBuilderCount({
+      tabId,
+      builderState: scopedBuilderState,
+      queryText,
+      countQueryText,
+    })
+  }, [actions, activeConnection, activeTab, resolveQueryText])
 
   useEffect(() => {
     if (
@@ -3298,7 +3350,6 @@ function DesktopWorkspace() {
                       executionStatus={activeExecutionStatus}
                       capabilities={runtimeCapabilities}
                       canCancelExecution={canCancelExecution}
-                      bottomPanelVisible={snapshot.ui.bottomPanelVisible}
                       onExecute={() => runCurrentTabQuery()}
                       onExplain={() => runCurrentTabQuery('explain')}
                       onCancel={() =>
@@ -3401,11 +3452,15 @@ function DesktopWorkspace() {
                         !activeRedisConsoleVisible &&
                         !activeRedisKeyBrowserVisible
                       }
-                      onToggleBottomPanel={() =>
-                        void actions.updateUiState({
-                          bottomPanelVisible: !snapshot.ui.bottomPanelVisible,
-                        })
+                      showScriptingGuideToggle={
+                        activeConnection.engine === 'mongodb' && activeQueryWindowMode === 'script'
                       }
+                      scriptingGuideVisible={snapshot.ui.mongoScriptGuideVisible}
+                      onToggleScriptingGuide={() => {
+                        void actions.updateUiState({
+                          mongoScriptGuideVisible: !snapshot.ui.mongoScriptGuideVisible,
+                        })
+                      }}
                     />
 
                     <div className="editor-surface">
@@ -3445,6 +3500,7 @@ function DesktopWorkspace() {
                             onExecuteDataEdit={actions.executeDataEdit}
                             onScanRedisKeys={actions.scanRedisKeys}
                             onInspectRedisKey={actions.inspectRedisKey}
+                            onCount={countQueryBuilderResults}
                             redisRefreshSignal={redisBrowserRefreshSignals[activeTab.id] ?? 0}
                           />
                         ) : null}
@@ -3482,16 +3538,21 @@ function DesktopWorkspace() {
                               }}
                             />
                           ) : activeQueryWindowMode === 'script' ? (
-                            <DesktopCodeEditor
+                            <MongoScriptWorkspace
                               value={activeEditorQueryText ?? ''}
-                              language="javascript"
                               theme={resolvedTheme}
                               resetKey={activeEditorResetKey}
-                              ariaLabel="MongoDB script editor"
+                              database={activeMongoQueryScope?.database ?? activeConnection.database}
+                              collection={activeMongoQueryScope?.collection}
+                              guideVisible={snapshot.ui.mongoScriptGuideVisible}
+                              guideWidth={snapshot.ui.mongoScriptGuideWidth}
                               completionContext={completionContext}
                               completionProviders={completionProviders}
                               onRequestCompletionRefresh={requestIntellisenseRefresh}
                               onSelectionChange={rememberActiveEditorSelection}
+                              onGuideWidthChange={(mongoScriptGuideWidth) => {
+                                void actions.updateUiState({ mongoScriptGuideWidth })
+                              }}
                               onChange={(value) => {
                                 const nextScriptText = value ?? ''
                                 scheduleScriptTextDraftSync(activeTab.id, nextScriptText)

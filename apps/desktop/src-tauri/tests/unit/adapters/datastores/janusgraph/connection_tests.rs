@@ -40,6 +40,7 @@ fn janusgraph_body_maps_g_alias_to_traversal_source() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };
@@ -81,6 +82,7 @@ fn janusgraph_endpoint_prefers_graph_options() {
             traversal_source: Some("analyticsTraversal".into()),
             ..crate::domain::models::GraphConnectionOptions::default()
         }),
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };
@@ -169,6 +171,7 @@ async fn janusgraph_websocket_fixture_answers_query() {
             traversal_source: Some("g".into()),
             ..GraphConnectionOptions::default()
         }),
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     };

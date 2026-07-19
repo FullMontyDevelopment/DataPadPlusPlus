@@ -951,6 +951,7 @@ fn connection(engine: &str, family: &str, read_only: bool) -> ResolvedConnection
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only,
     }
@@ -1001,4 +1002,11 @@ fn change(field: &str, value: serde_json::Value) -> DataEditChange {
         value: Some(value),
         ..Default::default()
     }
+}
+
+#[test]
+fn affected_row_outcomes_require_a_match_only_for_deletes() {
+    assert!(!affected_rows_edit_executed("delete-row", 0));
+    assert!(affected_rows_edit_executed("delete-row", 1));
+    assert!(affected_rows_edit_executed("update-row", 0));
 }

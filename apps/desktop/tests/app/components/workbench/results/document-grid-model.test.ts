@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRows,
   compactValue,
+  documentRowId,
   documentValueTypeLabel,
   isDocumentLazyNode,
   isExpandableValue,
@@ -31,7 +32,7 @@ describe('document-grid-model lazy nodes', () => {
 
     const rows = buildRows(
       [{ _id: 'doc-1', inventory: objectMarker, channels: arrayMarker }],
-      new Set(['document-0']),
+      new Set([documentRowId(0, [])]),
     )
 
     expect(rows.find((row) => row.fieldPath === 'inventory')).toMatchObject({
@@ -64,7 +65,7 @@ describe('document-grid-model lazy nodes', () => {
           },
         },
       ],
-      new Set(['document-0', 'document-0.inventory']),
+      new Set([documentRowId(0, []), documentRowId(0, ['inventory'])]),
     )
 
     expect(rows.map((row) => row.fieldPath)).toEqual(['_id', '_id', 'inventory'])
@@ -73,6 +74,7 @@ describe('document-grid-model lazy nodes', () => {
   it('renders Extended JSON BSON scalars as native terminal values', () => {
     const createdAt = { $date: '2026-05-29T10:00:00.000Z' }
     const ownerId = { $oid: '60a840ad652b980ac314bb89' }
+    const sessionId = { $uuid: '00112233-4455-6677-8899-aabbccddeeff' }
     const modifiedAt = { $date: { $numberLong: '1770036000000' } }
     const total = { $numberDecimal: '12.50' }
 
@@ -80,12 +82,15 @@ describe('document-grid-model lazy nodes', () => {
     expect(isExpandableValue(ownerId)).toBe(false)
     expect(compactValue(createdAt)).toBe('ISODate("2026-05-29T10:00:00.000Z")')
     expect(compactValue(ownerId)).toBe('ObjectId("60a840ad652b980ac314bb89")')
+    expect(compactValue(sessionId)).toBe(
+      'UUID("00112233-4455-6677-8899-aabbccddeeff")',
+    )
     expect(compactValue(modifiedAt)).toBe('ISODate("2026-02-02T12:40:00.000Z")')
     expect(compactValue(total)).toBe('Decimal128("12.50")')
 
     const rows = buildRows(
-      [{ _id: ownerId, ownerId, createdAt, modifiedAt, total }],
-      new Set(['document-0']),
+      [{ _id: ownerId, ownerId, sessionId, createdAt, modifiedAt, total }],
+      new Set([documentRowId(0, [])]),
     )
 
     expect(rows[0]).toMatchObject({
@@ -102,7 +107,43 @@ describe('document-grid-model lazy nodes', () => {
       expandable: false,
       valueLabel: 'ObjectId("60a840ad652b980ac314bb89")',
     })
+    expect(rows.find((row) => row.fieldPath === 'sessionId')).toMatchObject({
+      type: 'uuid',
+      expandable: false,
+      valueLabel: 'UUID("00112233-4455-6677-8899-aabbccddeeff")',
+    })
     expect(documentValueTypeLabel('objectid')).toBe('ObjectId')
+    expect(documentValueTypeLabel('uuid')).toBe('UUID')
     expect(documentValueTypeLabel('date')).toBe('Date')
+  })
+
+  it('keeps typed paths and row ids distinct for unusual MongoDB field names', () => {
+    const rows = buildRows(
+      [
+        {
+          _id: 1,
+          'a.b': { '[0]': 'literal' },
+          a: { b: ['array value'] },
+        },
+      ],
+      new Set([
+        documentRowId(0, []),
+        documentRowId(0, ['a.b']),
+        documentRowId(0, ['a']),
+        documentRowId(0, ['a', 'b']),
+      ]),
+    )
+
+    const dotted = rows.find((row) => row.path.length === 1 && row.path[0] === 'a.b')
+    const nested = rows.find((row) => row.path.length === 2 && row.path.join('.') === 'a.b')
+    const bracketKey = rows.find((row) => row.path.at(-1) === '[0]')
+    const arrayItem = rows.find((row) => row.path.at(-1) === 0)
+
+    expect(dotted?.id).not.toBe(nested?.id)
+    expect(dotted?.fieldPath).toBe('["a.b"]')
+    expect(bracketKey?.path.at(-1)).toBe('[0]')
+    expect(bracketKey?.fieldPath).toBe('["a.b"]["[0]"]')
+    expect(arrayItem?.path.at(-1)).toBe(0)
+    expect(arrayItem?.fieldPath).toBe('a.b[0]')
   })
 })

@@ -46,6 +46,10 @@ impl ManagedAppState {
         let (resolved_connection, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
         let query_template = adapters::selected_query(&request).to_string();
+        if profile.engine == "mongodb" && request.execution_input_mode.as_deref() == Some("script")
+        {
+            security::analyze_mongodb_script(&query_template)?;
+        }
         let query_text = resolve_string_template(&query_template, &resolved_environment.variables)?;
         let mut resolved_request = request.clone();
         resolved_request.query_text =
@@ -127,6 +131,7 @@ impl ManagedAppState {
                     diagnostics: vec![
                         "Execution requires explicit confirmation before running.".into()
                     ],
+                    persistence_warning: None,
                 });
             }
         }
@@ -237,6 +242,7 @@ impl ManagedAppState {
                 .into_iter()
                 .map(|notice| notice.message)
                 .collect(),
+            persistence_warning: None,
         })
     }
 

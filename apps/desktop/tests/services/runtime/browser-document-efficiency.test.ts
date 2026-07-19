@@ -68,6 +68,33 @@ describe('browser document efficiency helpers', () => {
       childCount: 1,
     })
   })
+
+  it('keeps preview lazy markers intact instead of returning empty children', () => {
+    const result = summarizeDocumentResultForEfficiencyMode(documentResult([
+      {
+        _id: 'doc-1',
+        payload: { nested: { value: 1 } },
+      },
+    ]))
+
+    expect(() => fetchDocumentNodeChildrenFromResult(result, {
+      tabId: 'tab-docs',
+      connectionId: 'conn-docs',
+      environmentId: 'env-qa',
+      collection: 'orders',
+      documentId: 'doc-1',
+      path: ['payload'],
+    })).toThrow(/live desktop MongoDB connection/i)
+
+    const payload = result.payloads[0]
+    expect(payload?.renderer).toBe('document')
+    if (payload?.renderer === 'document') {
+      expect(payload.documents[0]?.payload).toMatchObject({
+        __datapadLazyNode: true,
+        childCount: 1,
+      })
+    }
+  })
 })
 
 function documentResult(documents: Array<Record<string, unknown>>): ExecutionResultEnvelope {

@@ -1,7 +1,9 @@
 use reqwest::Method;
 
 use super::super::super::*;
-use super::http_client::{search_http_request, SearchResponse};
+use super::http_client::{
+    search_http_request, search_http_request_allowing_status, SearchResponse,
+};
 use super::SearchEngine;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +66,19 @@ pub(super) async fn search_delete(
     connection: &ResolvedConnectionProfile,
     path: &str,
 ) -> Result<SearchResponse, CommandError> {
-    search_request(connection, Method::DELETE, path, None).await
+    if let Some(reason) = search_live_disabled_reason(connection) {
+        return Err(CommandError::new("search-live-runtime-disabled", reason));
+    }
+
+    let endpoint = SearchEndpoint::from_connection(connection)?;
+    search_http_request_allowing_status(
+        connection,
+        Method::DELETE,
+        endpoint.url(path),
+        None,
+        &[404],
+    )
+    .await
 }
 
 async fn search_request(

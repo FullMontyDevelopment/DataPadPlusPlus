@@ -75,3 +75,20 @@ fn search_document_evidence_path_uses_get_doc_shape() {
         "/orders%202026%2F05/_doc/customer%2F101?realtime=true"
     );
 }
+
+#[test]
+fn search_delete_requires_a_deleted_result() {
+    assert!(search_edit_executed(
+        "delete-document",
+        &json!({ "result": "deleted" })
+    ));
+    assert!(!search_edit_executed(
+        "delete-document",
+        &json!({ "result": "not_found" })
+    ));
+    assert!(!search_edit_executed("delete-document", &json!({})));
+    assert!(search_edit_executed(
+        "update-document",
+        &json!({ "result": "noop" })
+    ));
+}

@@ -79,6 +79,28 @@ export function buildCqlPartitionQueryText(state: CqlPartitionBuilderState) {
   return `${lines.join('\n')};`
 }
 
+export function buildCqlPartitionCountQueryText(state: CqlPartitionBuilderState) {
+  const target = cqlTarget(state.keyspace, state.table)
+  const predicates = [
+    ...state.partitionKeys,
+    ...state.clusteringKeys,
+    ...state.filters,
+  ]
+    .filter((row) => row.enabled ?? true)
+    .map(cqlCondition)
+    .filter(Boolean)
+  const lines = ['select count(*) as count', `from ${target}`]
+
+  if (predicates.length > 0) {
+    lines.push(`where ${predicates.join(' and ')}`)
+  }
+  if (state.allowFiltering) {
+    lines.push('allow filtering')
+  }
+
+  return `${lines.join('\n')};`
+}
+
 export function parseCqlPartitionQueryText(
   queryText: string,
 ): CqlPartitionBuilderState | undefined {

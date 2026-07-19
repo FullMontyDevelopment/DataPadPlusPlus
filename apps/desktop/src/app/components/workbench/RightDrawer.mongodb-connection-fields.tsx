@@ -103,6 +103,24 @@ export function MongoDbNativeAdvancedFields({
           />
         </FormField>
       ) : null}
+
+      <FormField label="Query timeout (ms)">
+        <input
+          aria-label="MongoDB query timeout"
+          type="number"
+          min={1000}
+          max={1800000}
+          step={1000}
+          value={options.queryTimeoutMs ?? 120000}
+          onChange={(event) =>
+            updateOptions({
+              queryTimeoutMs: event.target.value
+                ? Math.min(1800000, Math.max(1000, Number(event.target.value)))
+                : undefined,
+            })
+          }
+        />
+      </FormField>
     </>
   )
 }

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use redis::Value as RedisValue;
 use serde_json::{json, Map, Value as JsonValue};
@@ -9,6 +9,221 @@ use super::connection::{configured_database_index, redis_connection, select_redi
 const DEFAULT_SCAN_COUNT: u32 = 100;
 const DEFAULT_KEY_SAMPLE_SIZE: u32 = 200;
 const MAX_SCAN_ROUNDS: usize = 12;
+
+pub(super) async fn count_redis_keys(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    mut notices: Vec<QueryExecutionNotice>,
+    started: Instant,
+) -> Result<ExecutionResultEnvelope, CommandError> {
+    let state = request
+        .builder_state
+        .as_ref()
+        .and_then(JsonValue::as_object)
+        .ok_or_else(|| {
+            CommandError::new(
+                "redis-count-builder-state-missing",
+                "Redis Count requires the current key browser state.",
+            )
+        })?;
+    let mut redis = redis_connection(connection).await?;
+    let database_index = state
+        .get("databaseIndex")
+        .and_then(JsonValue::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .or_else(|| configured_database_index(connection));
+    select_redis_database(&mut redis, database_index).await?;
+    let pattern = state
+        .get("pattern")
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("*");
+    let type_filter = state
+        .get("typeFilter")
+        .and_then(JsonValue::as_str)
+        .map(normalize_requested_type)
+        .unwrap_or_else(|| "all".into());
+    let filters = state.get("filters");
+    let cancellation = register_count_execution(request.execution_id.as_deref());
+
+    if pattern == "*" && type_filter == "all" && redis_count_filters_are_empty(filters) {
+        cancellation.check()?;
+        let count: u64 = redis::cmd("DBSIZE").query_async(&mut redis).await?;
+        cancellation.check()?;
+        return Ok(redis_count_result(RedisCountResultInput {
+            connection,
+            notices,
+            started,
+            count,
+            scanned_count: count,
+            database_index,
+            pattern,
+            type_filter: &type_filter,
+            pages: 1,
+            fast_path: true,
+        }));
+    }
+
+    let count_hint = state
+        .get("scanCount")
+        .and_then(JsonValue::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(1_000)
+        .clamp(100, 10_000);
+    let scan_type = redis_scan_type_argument(&type_filter);
+    let mut cursor = 0_u64;
+    let mut scanned_count = 0_u64;
+    let mut matched_count = 0_u64;
+    let mut pages = 0_u64;
+    let mut seen_keys = HashSet::new();
+    let mut seen_cursors = HashSet::new();
+    let mut use_scan_type = scan_type.is_some();
+
+    loop {
+        cancellation.check()?;
+        let page = scan_page(
+            &mut redis,
+            cursor,
+            pattern,
+            count_hint,
+            use_scan_type.then_some(scan_type.as_deref()).flatten(),
+        )
+        .await;
+        let (next_cursor, page_keys) = match page {
+            Ok(page) => page,
+            Err(error) if use_scan_type && pages == 0 => {
+                use_scan_type = false;
+                notices.push(QueryExecutionNotice {
+                    code: "redis-count-type-fallback".into(),
+                    level: "warning".into(),
+                    message: format!(
+                        "Redis did not accept SCAN TYPE for `{type_filter}`; Count used batched TYPE checks instead. Details: {}",
+                        error.message
+                    ),
+                });
+                scan_page(&mut redis, cursor, pattern, count_hint, None).await?
+            }
+            Err(error) => return Err(error),
+        };
+        cancellation.check()?;
+        pages = pages.saturating_add(1);
+        scanned_count = scanned_count.saturating_add(page_keys.len() as u64);
+        let unique_page_keys = page_keys
+            .into_iter()
+            .filter(|key| seen_keys.insert(key.clone()))
+            .collect::<Vec<_>>();
+        let summaries = key_summaries_for_count(
+            &mut redis,
+            &unique_page_keys,
+            database_index,
+            scan_filters_require_memory(filters),
+        )
+        .await?;
+        matched_count = matched_count.saturating_add(
+            summaries
+                .iter()
+                .filter(|summary| {
+                    (type_filter == "all" || redis_type_matches(&summary.key_type, &type_filter))
+                        && summary_matches_filters(summary, filters)
+                })
+                .count() as u64,
+        );
+
+        cursor = next_cursor;
+        if cursor == 0 {
+            break;
+        }
+        if !seen_cursors.insert(cursor) {
+            return Err(CommandError::new(
+                "redis-count-cursor-repeated",
+                "Redis repeated a SCAN cursor during Count; no partial count was returned.",
+            ));
+        }
+    }
+
+    Ok(redis_count_result(RedisCountResultInput {
+        connection,
+        notices,
+        started,
+        count: matched_count,
+        scanned_count,
+        database_index,
+        pattern,
+        type_filter: &type_filter,
+        pages,
+        fast_path: false,
+    }))
+}
+
+struct RedisCountResultInput<'a> {
+    connection: &'a ResolvedConnectionProfile,
+    notices: Vec<QueryExecutionNotice>,
+    started: Instant,
+    count: u64,
+    scanned_count: u64,
+    database_index: Option<u32>,
+    pattern: &'a str,
+    type_filter: &'a str,
+    pages: u64,
+    fast_path: bool,
+}
+
+fn redis_count_result(input: RedisCountResultInput<'_>) -> ExecutionResultEnvelope {
+    let RedisCountResultInput {
+        connection,
+        notices,
+        started,
+        count,
+        scanned_count,
+        database_index,
+        pattern,
+        type_filter,
+        pages,
+        fast_path,
+    } = input;
+    build_result(ResultEnvelopeInput {
+        engine: &connection.engine,
+        summary: format!("{} Count matched {count} key(s).", connection.engine),
+        default_renderer: "table",
+        renderer_modes: vec!["table", "json", "raw"],
+        payloads: vec![
+            payload_table(vec!["count".into()], vec![vec![count.to_string()]]),
+            payload_json(json!({
+                "count": count.to_string(),
+                "scannedCount": scanned_count.to_string(),
+                "databaseIndex": database_index,
+                "pattern": pattern,
+                "typeFilter": type_filter,
+                "pages": pages,
+                "fastPath": fast_path,
+            })),
+            payload_raw(if fast_path {
+                "DBSIZE".into()
+            } else {
+                format!("SCAN 0 MATCH {pattern} COUNT <until cursor 0>")
+            }),
+        ],
+        notices,
+        duration_ms: duration_ms(started),
+        row_limit: None,
+        truncated: false,
+        explain_payload: None,
+    })
+}
+
+fn redis_count_filters_are_empty(filters: Option<&JsonValue>) -> bool {
+    filters
+        .and_then(JsonValue::as_object)
+        .is_none_or(|filters| {
+            filters
+                .get("ttl")
+                .and_then(JsonValue::as_str)
+                .is_none_or(|ttl| ttl == "all")
+                && !filters.contains_key("minBytes")
+                && !filters.contains_key("maxBytes")
+        })
+}
 
 pub(crate) async fn scan_redis_keys(
     connection: &ResolvedConnectionProfile,
@@ -311,6 +526,56 @@ async fn key_summaries_for_scan(
     }
 
     Ok(summaries)
+}
+
+async fn key_summaries_for_count(
+    redis: &mut redis::aio::MultiplexedConnection,
+    keys: &[String],
+    database_index: Option<u32>,
+    include_memory: bool,
+) -> Result<Vec<RedisKeySummary>, CommandError> {
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut pipeline = redis::pipe();
+    for key in keys {
+        pipeline.cmd("TYPE").arg(key);
+        pipeline.cmd("TTL").arg(key);
+        if include_memory {
+            pipeline.cmd("MEMORY").arg("USAGE").arg(key);
+        }
+    }
+    let values: Vec<RedisValue> = pipeline.query_async(redis).await?;
+    let stride = if include_memory { 3 } else { 2 };
+    Ok(keys
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            let value_index = index * stride;
+            let key_type = values
+                .get(value_index)
+                .and_then(redis_value_as_string)
+                .map(|value| normalize_redis_type(&value))
+                .unwrap_or_else(|| "unknown".into());
+            let ttl_seconds = values
+                .get(value_index + 1)
+                .and_then(redis_value_as_i64)
+                .unwrap_or(-2);
+            let memory_usage_bytes = include_memory
+                .then(|| values.get(value_index + 2).and_then(redis_value_as_u64))
+                .flatten();
+            RedisKeySummary {
+                key: key.clone(),
+                key_type,
+                ttl_seconds: Some(ttl_seconds),
+                ttl_label: Some(ttl_label(ttl_seconds)),
+                memory_usage_bytes,
+                memory_usage_label: memory_usage_bytes.map(format_bytes),
+                database_index,
+                ..Default::default()
+            }
+        })
+        .collect())
 }
 
 async fn enrich_scan_lengths(

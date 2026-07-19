@@ -3170,6 +3170,204 @@ button:disabled:hover {
   height: 100%;
 }
 
+.mongo-script-workspace {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--editor-bg);
+}
+
+.mongo-script-workspace.has-guide {
+  grid-template-columns: minmax(0, 1fr) var(--mongo-script-guide-width, 360px);
+}
+
+.mongo-script-editor,
+.mongo-script-editor .editor-monaco-frame {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.mongo-script-guide {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--panel-bg);
+  box-shadow: -8px 0 22px rgba(0, 0, 0, 0.12);
+}
+
+.mongo-script-guide-resizer {
+  position: absolute;
+  z-index: 2;
+  inset: 0 auto 0 -4px;
+  width: 8px;
+  cursor: col-resize;
+}
+
+.mongo-script-guide-resizer:hover,
+.mongo-script-guide-resizer:focus-visible {
+  background: rgba(78, 201, 176, 0.42);
+}
+
+.mongo-script-guide-header {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mongo-script-guide-header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.mongo-script-guide-header strong {
+  color: var(--heading);
+  font-size: 14px;
+}
+
+.mongo-script-guide-eyebrow {
+  color: var(--success);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.mongo-script-guide-search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--muted);
+}
+
+.mongo-script-guide-search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.mongo-script-guide-content {
+  min-height: 0;
+  overflow: auto;
+}
+
+.mongo-script-guide-section > h3 {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  margin: 0;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.mongo-script-guide-entry {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mongo-script-guide-entry-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mongo-script-guide-entry code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--heading);
+  font-size: 11px;
+}
+
+.mongo-script-guide-entry p,
+.mongo-script-guide-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mongo-script-guide-entry button {
+  justify-self: start;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
+
+.mongo-script-guide-entry button:hover {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.mongo-script-risk {
+  flex: 0 0 auto;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.mongo-script-risk--write,
+.mongo-script-risk--administrative {
+  color: var(--warning);
+}
+
+.mongo-script-risk--destructive {
+  color: var(--danger);
+}
+
+.mongo-script-guide-empty {
+  padding: 16px 12px;
+}
+
+.mongo-script-guide-links {
+  display: flex;
+  gap: 12px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.mongo-script-guide-links a {
+  color: var(--link);
+}
+
+@media (max-width: 900px) {
+  .mongo-script-workspace.has-guide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mongo-script-guide {
+    position: absolute;
+    z-index: 5;
+    inset: 0 0 0 auto;
+    width: min(var(--mongo-script-guide-width, 360px), calc(100% - 44px));
+  }
+}
+
 .welcome-surface {
   min-height: 0;
   display: grid;
@@ -8316,6 +8514,56 @@ button:disabled:hover {
   background: var(--panel-bg);
 }
 
+.query-builder-workspace {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  height: 100%;
+  background: var(--panel-bg);
+}
+
+.query-builder-count-footer {
+  display: flex;
+  flex: 0 0 38px;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 38px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.query-builder-count-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 78px;
+  height: 27px;
+  padding: 0 10px;
+  border: 1px solid rgba(78, 201, 176, 0.38);
+  background: rgba(78, 201, 176, 0.08);
+  color: var(--success);
+  font-weight: 600;
+}
+
+.query-builder-count-button:hover:not(:disabled),
+.query-builder-count-button:focus-visible {
+  border-color: rgba(78, 201, 176, 0.68);
+  background: rgba(78, 201, 176, 0.14);
+  color: var(--heading);
+}
+
+.query-builder-count-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.query-builder-count-button .connection-metadata-spinner {
+  width: 13px;
+  height: 13px;
+}
+
 .query-builder-panel.is-drag-over {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
@@ -10379,6 +10627,13 @@ body.is-results-side-resizing .editor-workspace {
   flex: 0 0 18px;
 }
 
+.document-data-grid-row-error {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  color: var(--danger);
+}
+
 .document-data-grid-field,
 .document-data-grid-value {
   min-width: 0;
@@ -10470,6 +10725,7 @@ body.is-field-pointer-dragging * {
 }
 
 .document-type-badge.is-objectid,
+.document-type-badge.is-uuid,
 .document-type-badge.is-date,
 .document-type-badge.is-decimal,
 .document-type-badge.is-binary,
@@ -11199,6 +11455,7 @@ body.is-field-pointer-dragging * {
 }
 
 .json-tree-row.is-objectid .json-tree-preview,
+.json-tree-row.is-uuid .json-tree-preview,
 .json-tree-row.is-date .json-tree-preview,
 .json-tree-row.is-binary .json-tree-preview {
   color: var(--warning);

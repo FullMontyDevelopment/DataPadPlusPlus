@@ -34,6 +34,8 @@ fn beta_execution_clamps_large_requested_row_limits() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
+
         warehouse_options: None,
         read_only: true,
     };
@@ -51,6 +53,7 @@ fn beta_execution_clamps_large_requested_row_limits() {
         row_limit: Some(99_999),
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
+        builder_state: None,
     };
 
     let result = beta_execution_result(

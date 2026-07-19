@@ -43,6 +43,7 @@ fn connection() -> ResolvedConnectionProfile {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: true,
     }
@@ -178,6 +179,7 @@ fn execution_request(query_text: String, row_limit: Option<u32>) -> ExecutionReq
         row_limit,
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
+        builder_state: None,
     }
 }
 

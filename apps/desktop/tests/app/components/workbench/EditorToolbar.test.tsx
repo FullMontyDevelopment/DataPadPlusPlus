@@ -18,7 +18,6 @@ describe('EditorToolbar', () => {
         executionStatus="idle"
         capabilities={baseCapabilities}
         canCancelExecution={false}
-        bottomPanelVisible={false}
         canToggleBuilderView
         builderKind="redis-key-browser"
         queryWindowMode="raw"
@@ -28,7 +27,6 @@ describe('EditorToolbar', () => {
         onExplain={vi.fn()}
         onCancel={vi.fn()}
         onOpenConnectionDrawer={vi.fn()}
-        onToggleBottomPanel={vi.fn()}
         onToggleQueryWindowMode={onToggleQueryWindowMode}
       />,
     )
@@ -52,7 +50,6 @@ describe('EditorToolbar', () => {
         executionStatus="idle"
         capabilities={baseCapabilities}
         canCancelExecution={false}
-        bottomPanelVisible={false}
         canToggleBuilderView
         builderKind="mongo-find"
         queryWindowMode="builder"
@@ -60,7 +57,6 @@ describe('EditorToolbar', () => {
         onExplain={vi.fn()}
         onCancel={vi.fn()}
         onOpenConnectionDrawer={vi.fn()}
-        onToggleBottomPanel={vi.fn()}
         onToggleQueryWindowMode={onToggleQueryWindowMode}
         canAddDocument
         onAddDocument={onAddDocument}
@@ -87,7 +83,6 @@ describe('EditorToolbar', () => {
         executionStatus="loading"
         capabilities={{ ...baseCapabilities, canCancel: true, editorLanguage: 'mongodb' }}
         canCancelExecution
-        bottomPanelVisible={false}
         canToggleBuilderView
         builderKind="mongo-find"
         queryWindowMode="builder"
@@ -95,7 +90,6 @@ describe('EditorToolbar', () => {
         onExplain={vi.fn()}
         onCancel={onCancel}
         onOpenConnectionDrawer={vi.fn()}
-        onToggleBottomPanel={vi.fn()}
         onToggleQueryWindowMode={vi.fn()}
       />,
     )
@@ -113,14 +107,12 @@ describe('EditorToolbar', () => {
         executionStatus="idle"
         capabilities={baseCapabilities}
         canCancelExecution={false}
-        bottomPanelVisible={false}
         canToggleBuilderView={false}
         queryWindowMode="raw"
         onExecute={vi.fn()}
         onExplain={vi.fn()}
         onCancel={vi.fn()}
         onOpenConnectionDrawer={vi.fn()}
-        onToggleBottomPanel={vi.fn()}
         onToggleQueryWindowMode={vi.fn()}
         canToggleDocumentEfficiency
         documentEfficiencyMode
@@ -137,33 +129,78 @@ describe('EditorToolbar', () => {
     expect(onToggleDocumentEfficiency).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the results panel toggle and omits the dock-position toggle', () => {
-    const onToggleBottomPanel = vi.fn()
+  it('omits results panel controls from the editor toolbar', () => {
     render(
       <EditorToolbar
         executionStatus="idle"
         capabilities={baseCapabilities}
         canCancelExecution={false}
-        bottomPanelVisible={false}
         canToggleBuilderView={false}
         queryWindowMode="raw"
         onExecute={vi.fn()}
         onExplain={vi.fn()}
         onCancel={vi.fn()}
         onOpenConnectionDrawer={vi.fn()}
-        onToggleBottomPanel={onToggleBottomPanel}
         onToggleQueryWindowMode={vi.fn()}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show results panel' }))
-
-    expect(onToggleBottomPanel).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: 'Show results panel' })).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Dock results to right' }),
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Dock results to bottom' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('toggles the MongoDB scripting guide with an accessible icon action', () => {
+    const onToggleScriptingGuide = vi.fn()
+    const { rerender } = render(
+      <EditorToolbar
+        executionStatus="idle"
+        capabilities={baseCapabilities}
+        canCancelExecution={false}
+        canToggleBuilderView
+        builderKind="mongo-find"
+        queryWindowMode="script"
+        showScriptingGuideToggle
+        scriptingGuideVisible
+        onToggleScriptingGuide={onToggleScriptingGuide}
+        onExecute={vi.fn()}
+        onExplain={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenConnectionDrawer={vi.fn()}
+        onToggleQueryWindowMode={vi.fn()}
+      />,
+    )
+
+    const hide = screen.getByRole('button', { name: 'Hide scripting guide' })
+    expect(hide).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(hide)
+    expect(onToggleScriptingGuide).toHaveBeenCalledOnce()
+
+    rerender(
+      <EditorToolbar
+        executionStatus="idle"
+        capabilities={baseCapabilities}
+        canCancelExecution={false}
+        canToggleBuilderView
+        builderKind="mongo-find"
+        queryWindowMode="script"
+        showScriptingGuideToggle
+        scriptingGuideVisible={false}
+        onToggleScriptingGuide={onToggleScriptingGuide}
+        onExecute={vi.fn()}
+        onExplain={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenConnectionDrawer={vi.fn()}
+        onToggleQueryWindowMode={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Show scripting guide' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
   })
 })

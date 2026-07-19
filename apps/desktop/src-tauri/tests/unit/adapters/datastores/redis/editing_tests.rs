@@ -277,3 +277,48 @@ fn vector_helpers_extract_members_vectors_and_attributes() {
         Some("")
     );
 }
+
+#[test]
+fn destructive_redis_edits_require_a_positive_removal_count() {
+    for edit_kind in [
+        "delete-key",
+        "hash-delete-field",
+        "json-delete-path",
+        "stream-delete-entry",
+        "timeseries-delete-sample",
+    ] {
+        assert_eq!(
+            redis_destructive_edit_applied(edit_kind, &json!({ "deleted": 0 })),
+            Some(false),
+            "{edit_kind} should preserve an unmatched target"
+        );
+        assert_eq!(
+            redis_destructive_edit_applied(edit_kind, &json!({ "deleted": 1 })),
+            Some(true),
+            "{edit_kind} should confirm a removed target"
+        );
+    }
+
+    for edit_kind in [
+        "list-remove-value",
+        "set-remove-member",
+        "zset-remove-member",
+        "vector-remove-member",
+    ] {
+        assert_eq!(
+            redis_destructive_edit_applied(edit_kind, &json!({ "removed": 0 })),
+            Some(false),
+            "{edit_kind} should preserve an unmatched target"
+        );
+        assert_eq!(
+            redis_destructive_edit_applied(edit_kind, &json!({ "removed": 1 })),
+            Some(true),
+            "{edit_kind} should confirm a removed target"
+        );
+    }
+
+    assert_eq!(
+        redis_destructive_edit_applied("set-key-value", &json!({})),
+        None
+    );
+}

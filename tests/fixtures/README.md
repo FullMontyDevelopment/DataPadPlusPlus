@@ -74,7 +74,7 @@ npm run fixtures:seed
 npm run fixtures:validate:mongodb
 ```
 
-The validator checks seeded catalog volume, large-document export primitives, collection import/export command primitives, duplicate-key and validator failure evidence, permission-denied diagnostics with a temporary read-only user, and before/after evidence for index hiding, validator updates, and user management. It creates and removes transient `fixture_mongodb_*` collections and users.
+MongoDB runs as an authenticated single-node `rs0` replica set so scripting transaction commit and rollback paths are real. The validator checks replica-set transactions, seeded catalog volume, large-document export primitives, collection import/export command primitives, duplicate-key and validator failure evidence, permission-denied diagnostics with a temporary read-only user, and before/after evidence for index hiding, validator updates, and user management. It creates and removes transient `fixture_mongodb_*` collections and users.
 
 For full Redis reference-engine evidence, start and seed the optional Redis Stack and cache profiles, then run the Redis validator:
 
@@ -115,7 +115,7 @@ npm run fixtures:seed:all
 npm run fixtures:validate:cosmosdb
 ```
 
-The profile runs the Microsoft Linux vNext Cosmos DB emulator in HTTP gateway mode, publishes the gateway, health, and Data Explorer ports, and seeds `datapadplusplus` with `accounts`, `products`, `orders`, and `order_events` containers through the emulator's built-in `cosmoshell.sh` init flow. The validator checks the health probe, seeded database/container visibility, order/product query evidence, and seeded row volume. The existing cloud-contract Cosmos DB mock remains available for fast contract tests that do not need the full emulator.
+The profile runs the Microsoft Linux vNext Cosmos DB emulator in HTTP gateway mode, publishes the gateway, health, and Data Explorer ports, and seeds `datapadplusplus` with `accounts`, `products`, `orders`, and `order_events` containers through the emulator's built-in `cosmoshell.sh` init flow. Seeding waits separately for gateway readiness and init-data readiness. If the normal readiness window ends with the emulator's exact healthy-gateway, healthy-explorer, unhealthy-PostgreSQL signature, the seed runner recreates only the Cosmos DB fixture container once and retries; unrelated failures never trigger automatic recreation. The validator checks the health probe, seeded database/container visibility, order/product query evidence, and seeded row volume. The existing cloud-contract Cosmos DB mock remains available for fast contract tests that do not need the full emulator.
 
 For DynamoDB Local optional evidence, start and seed the `cloud-contract` profile, then run the DynamoDB validator:
 

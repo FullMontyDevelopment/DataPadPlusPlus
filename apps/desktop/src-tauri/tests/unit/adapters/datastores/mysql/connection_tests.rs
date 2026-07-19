@@ -26,6 +26,7 @@ fn mysql_dsn_percent_encodes_credentials_and_database() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -62,6 +63,7 @@ fn explicit_mysql_connection_string_is_preserved() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
@@ -110,6 +112,7 @@ fn mysql_dsn_applies_native_profile_options() {
         search_options: None,
         time_series_options: None,
         graph_options: None,
+        mongodb_options: None,
         warehouse_options: None,
         read_only: false,
     };
