@@ -1,4 +1,9 @@
-import type { ExecutionResponse, ExplorerResponse, QueryTabState } from '@datapadplusplus/shared-types'
+import type {
+  ExecutionResponse,
+  ExplorerResponse,
+  QueryTabState,
+  StructureResponse,
+} from '@datapadplusplus/shared-types'
 import { describe, expect, it } from 'vitest'
 import { createSeedBootstrapPayload } from '../../fixtures/seed-workspace'
 import { initialState, reducer } from '../../../src/app/state/app-state-reducer'
@@ -510,6 +515,41 @@ describe('app-state reducer explorer metadata cache', () => {
 
     expect(state.explorerError).toBe('Unable to inspect explorer object.')
     expect(state.explorerLoadingRequests).toEqual({})
+  })
+})
+
+describe('app-state reducer structure metadata', () => {
+  const structure = (connectionId: string): StructureResponse => ({
+    connectionId,
+    environmentId: 'env-dev',
+    engine: 'oracle',
+    summary: 'Oracle structure',
+    groups: [],
+    nodes: [],
+    edges: [],
+    metrics: [],
+  })
+
+  it('invalidates only the matching connection structure after DDL', () => {
+    let state = reducer(initialState, {
+      type: 'STRUCTURE_READY',
+      structure: structure('connection-oracle'),
+    })
+
+    state = reducer(state, {
+      type: 'STRUCTURE_INVALIDATED',
+      connectionId: 'connection-other',
+      environmentId: 'env-dev',
+    })
+    expect(state.structure?.connectionId).toBe('connection-oracle')
+
+    state = reducer(state, {
+      type: 'STRUCTURE_INVALIDATED',
+      connectionId: 'connection-oracle',
+      environmentId: 'env-dev',
+    })
+    expect(state.structure).toBeUndefined()
+    expect(state.structureStatus).toBe('idle')
   })
 })
 

@@ -75,6 +75,7 @@ fn execution_request(
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
         builder_state: None,
+        scoped_target: None,
     }
 }
 
@@ -85,6 +86,7 @@ fn result_page_request(
     query_text: &str,
 ) -> ResultPageRequest {
     ResultPageRequest {
+        execution_id: None,
         tab_id: format!("tab-{connection_id}"),
         connection_id: connection_id.to_string(),
         environment_id: environment_id.to_string(),
@@ -96,6 +98,7 @@ fn result_page_request(
         page_index: Some(1),
         cursor: None,
         document_efficiency_mode: None,
+        scoped_target: None,
     }
 }
 
@@ -1592,7 +1595,6 @@ async fn concrete_preview_adapters_return_safe_non_cursor_page_responses(
         ("bigquery", "warehouse", "google-sql"),
         ("oracle", "sql", "sql"),
         ("clickhouse", "warehouse", "clickhouse-sql"),
-        ("cosmosdb", "document", "sql"),
         ("cassandra", "widecolumn", "cql"),
         ("litedb", "document", "json"),
         ("duckdb", "embedded-olap", "sql"),

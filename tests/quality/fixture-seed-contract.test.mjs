@@ -84,9 +84,12 @@ test('fixture seed runner executes all datastore init scripts in order', async (
 })
 
 test('screenshot launcher seeds running fixtures before resetting and opening the workspace', async () => {
-  const launcher = await read('tests/fixtures/launch-screenshot-seed.mjs')
+  const [launcher, workspaceHelper] = await Promise.all([
+    read('tests/fixtures/launch-screenshot-seed.mjs'),
+    read('tests/fixtures/screenshot-workspace.mjs'),
+  ])
   const seedIndex = launcher.indexOf("[join(fixtureDir, 'seed.mjs')")
-  const resetIndex = launcher.indexOf('rmSync(workspaceDir')
+  const resetIndex = launcher.indexOf('prepareScreenshotWorkspace(workspaceDir')
   const launchIndex = launcher.indexOf('const child = spawn(command')
 
   assert.ok(seedIndex >= 0, 'Screenshot launcher must invoke the fixture seed runner.')
@@ -94,6 +97,8 @@ test('screenshot launcher seeds running fixtures before resetting and opening th
   assert.ok(resetIndex < launchIndex, 'The workspace must be prepared before DataPad++ launches.')
   assert.match(launcher, /DATAPADPLUSPLUS_SCREENSHOT_SEED_FIXTURES/)
   assert.match(launcher, /seedResult\.status !== 0/)
+  assert.match(workspaceHelper, /rmSync\(workspaceDirectory, \{ recursive: true, force: true \}\)/)
+  assert.match(workspaceHelper, /mkdirSync\(workspaceDirectory, \{ recursive: true \}\)/)
 })
 
 test('CockroachDB fixture seeding verifies the configured database before debug startup', async () => {

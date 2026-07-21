@@ -1622,8 +1622,9 @@ fn query_documents_template(database: &str, container: &str) -> String {
         "operation": "QueryDocuments",
         "database": database,
         "container": container,
-        "query": "SELECT * FROM c",
-        "limit": 20
+        "query": "SELECT TOP 50 * FROM c",
+        "parameters": [],
+        "enableCrossPartitionQueries": true
     })
     .to_string()
 }

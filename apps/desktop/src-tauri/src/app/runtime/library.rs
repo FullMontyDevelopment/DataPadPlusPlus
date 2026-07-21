@@ -392,6 +392,23 @@ pub(super) fn default_library_folder_for_connection(
         .and_then(|node| node.parent_id.clone())
 }
 
+fn library_folder_for_save(
+    nodes: &[LibraryNode],
+    item_id: &str,
+    requested_folder_id: Option<String>,
+    default_folder_id: Option<String>,
+) -> Option<String> {
+    if requested_folder_id.is_some() {
+        return requested_folder_id;
+    }
+
+    if let Some(existing) = nodes.iter().find(|node| node.id == item_id) {
+        return existing.parent_id.clone();
+    }
+
+    default_folder_id
+}
+
 pub(super) fn effective_connection_environment_id(
     snapshot: &WorkspaceSnapshot,
     connection_id: &str,
@@ -641,9 +658,20 @@ impl ManagedAppState {
             })
             .or(tab.saved_query_id.clone())
             .unwrap_or_else(|| generate_id("library-item"));
+        let existing_index = self
+            .snapshot
+            .library_nodes
+            .iter()
+            .position(|existing| existing.id == item_id);
         let now = timestamp_now();
-        let folder_id = folder_id
-            .or_else(|| default_library_folder_for_connection(&self.snapshot, &tab.connection_id));
+        let default_folder_id =
+            default_library_folder_for_connection(&self.snapshot, &tab.connection_id);
+        let folder_id = library_folder_for_save(
+            &self.snapshot.library_nodes,
+            &item_id,
+            folder_id,
+            default_folder_id,
+        );
         let connection = self.connection_by_id(&tab.connection_id)?;
         let query_text = if matches!(kind.as_str(), "script" | "test-suite") {
             None
@@ -678,12 +706,7 @@ impl ManagedAppState {
             snapshot_result_id: None,
         };
 
-        if let Some(index) = self
-            .snapshot
-            .library_nodes
-            .iter()
-            .position(|existing| existing.id == item_id)
-        {
+        if let Some(index) = existing_index {
             let created_at = self.snapshot.library_nodes[index].created_at.clone();
             self.snapshot.library_nodes[index] = LibraryNode { created_at, ..node };
         } else {

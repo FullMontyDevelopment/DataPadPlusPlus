@@ -300,6 +300,132 @@ describe('browser Library runtime', () => {
     expect(saved.libraryNodes[0]).not.toHaveProperty('result')
   })
 
+  it('preserves PROD/Mongo/Queries placement when resaving an existing query', () => {
+    const snapshot = workspaceSnapshot()
+    const timestamp = '2026-05-14T00:00:00.000Z'
+    snapshot.libraryNodes = [
+      {
+        id: 'folder-prod',
+        kind: 'folder',
+        name: 'PROD',
+        tags: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      {
+        id: 'connection-mongo',
+        kind: 'connection',
+        parentId: 'folder-prod',
+        name: 'Mongo',
+        tags: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        connectionId: 'connection-1',
+      },
+      {
+        id: 'folder-queries',
+        kind: 'folder',
+        parentId: 'connection-mongo',
+        name: 'Queries',
+        tags: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      {
+        ...snapshot.libraryNodes[0]!,
+        parentId: 'folder-queries',
+      },
+    ]
+
+    const firstSave = saveQueryTabToLibrary(snapshot, {
+      tabId: 'tab-existing',
+      itemId: 'library-query-1',
+      folderId: 'folder-queries',
+      name: 'Orders',
+      kind: 'query',
+    })
+    firstSave.tabs[0]!.queryText = 'select 2;'
+    firstSave.tabs[0]!.dirty = true
+
+    const secondSave = saveQueryTabToLibrary(firstSave, {
+      tabId: 'tab-existing',
+      itemId: 'library-query-1',
+      name: 'Orders',
+      kind: 'query',
+    })
+    const savedItem = secondSave.libraryNodes.find((node) => node.id === 'library-query-1')
+
+    expect(savedItem?.parentId).toBe('folder-queries')
+    expect(savedItem?.queryText).toBe('select 2;')
+    expect(secondSave.tabs[0]?.dirty).toBe(false)
+  })
+
+  it('honors explicit moves while defaulting new or stale item ids', () => {
+    const snapshot = workspaceSnapshot()
+    const timestamp = '2026-05-14T00:00:00.000Z'
+    snapshot.libraryNodes.push(
+      {
+        id: 'folder-prod',
+        kind: 'folder',
+        name: 'PROD',
+        tags: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      {
+        id: 'folder-mongo',
+        kind: 'folder',
+        parentId: 'folder-prod',
+        name: 'Mongo',
+        tags: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      {
+        id: 'folder-archive',
+        kind: 'folder',
+        parentId: 'folder-mongo',
+        name: 'Archive',
+        tags: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      {
+        id: connectionLibraryNodeId('connection-1'),
+        kind: 'connection',
+        parentId: 'folder-mongo',
+        name: 'Mongo',
+        tags: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        connectionId: 'connection-1',
+      },
+    )
+
+    const moved = saveQueryTabToLibrary(snapshot, {
+      tabId: 'tab-existing',
+      itemId: 'library-query-1',
+      folderId: 'folder-archive',
+      name: 'Orders',
+      kind: 'query',
+    })
+    expect(moved.libraryNodes.find((node) => node.id === 'library-query-1')?.parentId).toBe(
+      'folder-archive',
+    )
+
+    moved.tabs[0]!.saveTarget = undefined
+    moved.tabs[0]!.savedQueryId = undefined
+    const createdFromStaleId = saveQueryTabToLibrary(moved, {
+      tabId: 'tab-existing',
+      itemId: 'library-query-stale',
+      name: 'New query',
+      kind: 'query',
+    })
+    expect(
+      createdFromStaleId.libraryNodes.find((node) => node.id === 'library-query-stale')?.parentId,
+    ).toBe('folder-mongo')
+  })
+
   it('keeps the open tab results when saving to a local file', () => {
     const snapshot = workspaceSnapshot()
     snapshot.tabs[0] = {

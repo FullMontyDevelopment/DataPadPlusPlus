@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import type {
   ConnectionProfile,
   DatastoreApiServerInstanceStatus,
@@ -43,6 +44,213 @@ describe('LibraryPane', () => {
     const queryRow = treeRowForLabel('Orders query')
 
     expect(queryRow.querySelector('.library-node-icon--query svg')).toBeInTheDocument()
+  })
+
+  it('reveals, selects, and scrolls a deeply nested active query into view', () => {
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+
+    try {
+      renderLibraryPane(vi.fn(), {
+        activeLibraryNodeId: 'query-products',
+        libraryNodes: [
+          folder('folder-prod', 'PROD'),
+          folder('folder-mongo', 'Mongo', 'folder-prod'),
+          folder('folder-queries', 'Queries', 'folder-mongo'),
+          item('query-products', 'Products query', 'folder-queries'),
+        ],
+        sectionStates: {
+          [sidebarSectionId('library', 'node', 'folder-prod')]: false,
+          [sidebarSectionId('library', 'node', 'folder-mongo')]: false,
+          [sidebarSectionId('library', 'node', 'folder-queries')]: false,
+        },
+      })
+
+      const activeRow = treeRowForLabel('Products query')
+      expect(activeRow).toHaveClass('is-active')
+      expect(treeItemForLabel('Products query')).toHaveAttribute('aria-selected', 'true')
+      expect(labelButtonForLabel('Products query')).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('button', { name: 'Collapse PROD' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Collapse Mongo' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Collapse Queries' })).toBeInTheDocument()
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        configurable: true,
+        value: originalScrollIntoView,
+      })
+    }
+  })
+
+  it('highlights only the active query rather than its connection', () => {
+    renderLibraryPane(vi.fn(), {
+      activeLibraryNodeId: 'query-products',
+      connections: [mongoConnection()],
+      libraryNodes: [
+        connectionNode('connection-mongo-node', 'MongoDB', 'connection-mongo'),
+        item('query-products', 'Products query'),
+      ],
+    })
+
+    expect(treeRowForLabel('Products query')).toHaveClass('is-active')
+    expect(
+      document.querySelector('[data-library-node-id="connection-mongo-node"]'),
+    ).not.toHaveClass('is-active')
+  })
+
+  it('keeps a filter unchanged when it hides the active item', () => {
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+
+    try {
+      renderLibraryPane(vi.fn(), {
+        activeLibraryNodeId: 'item-orders',
+        libraryFilter: 'unrelated',
+      })
+
+      expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveValue('unrelated')
+      expect(screen.queryByText('Orders query')).not.toBeInTheDocument()
+      expect(scrollIntoView).not.toHaveBeenCalled()
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        configurable: true,
+        value: originalScrollIntoView,
+      })
+    }
+  })
+
+  it('collapses every Library container and preserves the active filter', () => {
+    const onCollapseExplorerItems = vi.fn()
+    const libraryNodes = [
+      folder('folder-prod', 'PROD'),
+      folder('folder-mongo', 'Mongo', 'folder-prod'),
+      item('query-products', 'Products query', 'folder-mongo'),
+      connectionNode('connection-mongo-node', 'MongoDB', 'connection-mongo'),
+    ]
+
+    renderLibraryPane(vi.fn(), {
+      activeLibraryNodeId: 'query-products',
+      connections: [mongoConnection()],
+      libraryFilter: 'o',
+      libraryNodes,
+      onCollapseExplorerItems,
+      sectionStates: {
+        [sidebarSectionId('library', 'node', 'connection-mongo-node')]: true,
+      },
+    })
+
+    expect(screen.getByText('Products query')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all explorer items' }))
+
+    expect(onCollapseExplorerItems).toHaveBeenCalledTimes(1)
+    expect(onCollapseExplorerItems).toHaveBeenCalledWith([
+      sidebarSectionId('library', 'node', 'folder-prod'),
+      sidebarSectionId('library', 'node', 'folder-mongo'),
+      sidebarSectionId('library', 'node', 'connection-mongo-node'),
+    ])
+    expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveValue('o')
+    expect(screen.queryByText('Products query')).not.toBeInTheDocument()
+  })
+
+  it('resets expanded datastore objects when a collapsed connection is reopened', () => {
+    renderLibraryPane(vi.fn(), {
+      activeEnvironmentId: 'env-dev',
+      connections: [mongoConnection()],
+      connectionExplorerItems: [
+        {
+          id: 'database:catalog',
+          label: 'catalog',
+          kind: 'database',
+          detail: '',
+          family: 'document',
+          scope: 'database:catalog',
+        },
+      ],
+      explorerStatus: 'ready',
+      libraryNodes: [
+        connectionNode('connection-mongo-node', 'MongoDB', 'connection-mongo'),
+      ],
+      sectionStates: {
+        [sidebarSectionId('library', 'node', 'connection-mongo-node')]: true,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Databases' }))
+    expect(screen.getByText('catalog')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all explorer items' }))
+    expect(screen.queryByText('Databases')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand connection MongoDB' }))
+
+    expect(screen.getByText('Databases').closest('[role="treeitem"]')).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(screen.queryByText('catalog')).not.toBeInTheDocument()
+  })
+
+  it('restores active-item auto-reveal after the active tab changes', () => {
+    function ActiveRevealHarness() {
+      const [activeLibraryNodeId, setActiveLibraryNodeId] = useState('query-products')
+      const libraryNodes = [
+        folder('folder-prod', 'PROD'),
+        item('query-products', 'Products query', 'folder-prod'),
+        item('query-orders', 'Orders query', 'folder-prod'),
+      ]
+
+      return (
+        <>
+          <button type="button" onClick={() => setActiveLibraryNodeId('query-orders')}>
+            Switch active query
+          </button>
+          <LibraryPane
+            activeLibraryNodeId={activeLibraryNodeId}
+            environments={[]}
+            libraryFilter=""
+            libraryNodes={libraryNodes}
+            sectionStates={{}}
+            onCreateFolder={vi.fn()}
+            onDeleteNode={vi.fn()}
+            onLibraryFilterChange={vi.fn()}
+            onMoveNode={vi.fn()}
+            onOpenLibraryItem={vi.fn()}
+            onRenameNode={vi.fn()}
+            onSetNodeEnvironment={vi.fn()}
+            onSidebarSectionExpandedChange={vi.fn()}
+          />
+        </>
+      )
+    }
+
+    render(<ActiveRevealHarness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all explorer items' }))
+    expect(screen.queryByText('Products query')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch active query' }))
+
+    expect(screen.getByText('Orders query')).toBeInTheDocument()
+    expect(treeRowForLabel('Orders query')).toHaveClass('is-active')
+  })
+
+  it('disables Collapse All when the Library has no containers', () => {
+    renderLibraryPane(vi.fn(), {
+      libraryNodes: [item('query-products', 'Products query')],
+    })
+
+    expect(
+      screen.getByRole('button', { name: 'Collapse all explorer items' }),
+    ).toBeDisabled()
   })
 
   it('creates folders with an in-app dialog instead of a browser prompt', () => {
@@ -580,6 +788,7 @@ function renderLibraryPane(
   overrides: Partial<{
     activeConnectionId: string
     activeEnvironmentId: string
+    activeLibraryNodeId: string
     connectionExplorerItems: ExplorerNode[]
     connections: ConnectionProfile[]
     environments: EnvironmentProfile[]
@@ -588,6 +797,7 @@ function renderLibraryPane(
     getConnectionExplorerStatus: (connectionId: string, environmentId?: string) => 'idle' | 'loading' | 'ready'
     getConnectionHealth: (connectionId: string, environmentId?: string) => ConnectionHealth | undefined
     libraryNodes: LibraryNode[]
+    libraryFilter: string
     onCreateConnection: () => void
     onCreateEnvironment: () => void
     onCreateFolder: (parentId: string | undefined, name: string) => void
@@ -610,6 +820,7 @@ function renderLibraryPane(
     apiServerEnabled: boolean
     apiServers: DatastoreApiServerInstanceStatus[]
     onCreateApiServer: () => void
+    onCollapseExplorerItems: (sectionIds: string[]) => void
     workspaceSwitcherStatus: WorkspaceSwitcherStatus
   }> = {},
 ) {
@@ -617,6 +828,7 @@ function renderLibraryPane(
     <LibraryPane
       activeConnectionId={overrides.activeConnectionId ?? ''}
       activeEnvironmentId={overrides.activeEnvironmentId ?? ''}
+      activeLibraryNodeId={overrides.activeLibraryNodeId}
       getConnectionExplorerItems={
         overrides.getConnectionExplorerItems ??
         (() => overrides.connectionExplorerItems)
@@ -634,12 +846,13 @@ function renderLibraryPane(
       workspaceSwitcherStatus={overrides.workspaceSwitcherStatus}
       workspaceSearchEnabled={overrides.workspaceSearchEnabled ?? false}
       activeWorkspaceSearch={overrides.activeWorkspaceSearch ?? false}
-      libraryFilter=""
+      libraryFilter={overrides.libraryFilter ?? ''}
       libraryNodes={overrides.libraryNodes ?? nodes}
       sectionStates={overrides.sectionStates ?? {}}
       onCreateConnection={overrides.onCreateConnection ?? vi.fn()}
       onCreateEnvironment={overrides.onCreateEnvironment ?? vi.fn()}
       onCreateApiServer={overrides.onCreateApiServer ?? vi.fn()}
+      onCollapseExplorerItems={overrides.onCollapseExplorerItems ?? vi.fn()}
       onCreateWorkspace={overrides.onCreateWorkspace ?? vi.fn()}
       onCloneEnvironment={overrides.onCloneEnvironment ?? vi.fn()}
       onCreateFolder={overrides.onCreateFolder ?? vi.fn()}

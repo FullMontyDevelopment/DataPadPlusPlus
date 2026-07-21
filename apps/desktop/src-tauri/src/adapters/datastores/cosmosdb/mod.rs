@@ -1,9 +1,11 @@
 use super::super::*;
 
+mod cancellation;
 mod catalog;
 mod connection;
 mod diagnostics;
 mod explorer;
+mod paging;
 mod query;
 mod structure;
 
@@ -63,10 +65,10 @@ impl DatastoreAdapter for CosmosDbAdapter {
 
     async fn fetch_result_page(
         &self,
-        _connection: &ResolvedConnectionProfile,
+        connection: &ResolvedConnectionProfile,
         request: &ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
-        Ok(no_additional_pages_response("cosmosdb", request))
+        paging::fetch_cosmosdb_page(connection, request).await
     }
 
     async fn load_structure_map(
@@ -91,13 +93,18 @@ impl DatastoreAdapter for CosmosDbAdapter {
         _connection: &ResolvedConnectionProfile,
         request: &CancelExecutionRequest,
     ) -> Result<CancelExecutionResult, CommandError> {
+        let cancelled = cancellation::cancel(&request.execution_id);
         Ok(CancelExecutionResult {
-            ok: false,
-            supported: false,
-            message: format!(
-                "Cosmos DB SQL API request {} cannot be cancelled by DataPad++ after dispatch.",
-                request.execution_id
-            ),
+            ok: cancelled,
+            supported: true,
+            message: if cancelled {
+                format!("Cosmos DB request {} was cancelled.", request.execution_id)
+            } else {
+                format!(
+                    "Cosmos DB request {} is no longer active.",
+                    request.execution_id
+                )
+            },
         })
     }
 }

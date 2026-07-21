@@ -5,7 +5,7 @@ use crate::domain::models::{
     ConnectionProfile, CreateObjectViewTabRequest, DataEditChange, DataEditTarget,
     DocumentNodeChildrenRequest, EnvironmentProfile, EnvironmentVariableDefinition,
     ExplorerRequest, OperationPlanRequest, RedisKeyScanRequest, ResultPageRequest,
-    UpdateQueryBuilderStateRequest,
+    ScopedQueryTarget, UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest,
 };
 
 #[test]
@@ -63,6 +63,7 @@ fn validators_reject_invalid_object_view_and_renderer_inputs() {
     assert!(object_error.message.contains("Object view node id"));
 
     let mut page = ResultPageRequest {
+        execution_id: None,
         tab_id: "tab-1".into(),
         connection_id: "conn-1".into(),
         environment_id: "env-1".into(),
@@ -74,11 +75,36 @@ fn validators_reject_invalid_object_view_and_renderer_inputs() {
         page_index: None,
         cursor: None,
         document_efficiency_mode: None,
+        scoped_target: None,
     };
     let renderer_error = validate_result_page_request(&mut page).unwrap_err();
     assert!(renderer_error
         .message
         .contains("Unsupported result renderer"));
+}
+
+#[test]
+fn validators_accept_bounded_cosmos_continuation_state_and_execution_ids() {
+    let mut page = ResultPageRequest {
+        execution_id: Some("execution-cosmos-page-1".into()),
+        tab_id: "tab-cosmos".into(),
+        connection_id: "conn-cosmos".into(),
+        environment_id: "env-local".into(),
+        language: "sql".into(),
+        query_text: "select * from c".into(),
+        selected_text: None,
+        renderer: "document".into(),
+        page_size: Some(25),
+        page_index: Some(1),
+        cursor: Some("x".repeat(200 * 1024)),
+        document_efficiency_mode: None,
+        scoped_target: None,
+    };
+
+    validate_result_page_request(&mut page).expect("bounded Cosmos cursor");
+    page.cursor = Some("x".repeat(257 * 1024));
+    let error = validate_result_page_request(&mut page).expect_err("oversized Cosmos cursor");
+    assert!(error.message.contains("Result cursor"));
 }
 
 #[test]
@@ -162,6 +188,31 @@ fn validators_reject_oversized_query_builder_state_and_bad_view_modes() {
     };
     let mode_error = validate_update_query_builder_state_request(&bad_mode).unwrap_err();
     assert!(mode_error.message.contains("Unsupported query view mode"));
+}
+
+#[test]
+fn validators_accept_atomic_query_target_updates_and_reject_bad_modes() {
+    let mut request = UpdateQueryTabTargetRequest {
+        tab_id: "tab-1".into(),
+        scoped_target: ScopedQueryTarget {
+            kind: "collection".into(),
+            label: "orders".into(),
+            path: vec!["archive".into(), "Collections".into()],
+            scope: Some("collection:archive:orders".into()),
+            query_template: None,
+            preferred_builder: Some("mongo-find".into()),
+        },
+        query_text: "{ \"collection\": \"orders\" }".into(),
+        query_view_mode: "builder".into(),
+        script_text: None,
+        builder_state: None,
+        title: None,
+    };
+    validate_update_query_tab_target_request(&request).expect("valid target update");
+
+    request.query_view_mode = "both".into();
+    let error = validate_update_query_tab_target_request(&request).unwrap_err();
+    assert!(error.message.contains("Unsupported query view mode"));
 }
 
 fn data_edit_request_with_changes(

@@ -103,6 +103,7 @@ import type {
   StructureResponse,
   UpdateTestSuiteTabRequest,
   UpdateQueryBuilderStateRequest,
+  UpdateQueryTabTargetRequest,
   UpdateUiStateRequest,
   WorkspaceBackupDeleteRequest,
   WorkspaceBackupRestoreRequest,
@@ -231,6 +232,7 @@ export type AppAction =
   | { type: 'STRUCTURE_LOADING' }
   | { type: 'STRUCTURE_READY'; structure: StructureResponse }
   | { type: 'STRUCTURE_ERROR'; message: string }
+  | { type: 'STRUCTURE_INVALIDATED'; connectionId: string; environmentId: string }
   | { type: 'EXECUTION_LOADING'; tabId?: string; execution: QueryTabActiveExecution }
   | { type: 'EXECUTION_PHASE'; tabId?: string; executionId: string; phase: QueryTabActiveExecution['phase']; message?: string }
   | { type: 'EXECUTION_DISPLAYED'; tabId?: string; executionId: string }
@@ -289,6 +291,7 @@ export interface Actions {
     documentEfficiencyMode?: boolean,
   ): Promise<void>
   updateQueryBuilderState(request: UpdateQueryBuilderStateRequest): Promise<void>
+  updateQueryTarget(request: UpdateQueryTabTargetRequest): Promise<boolean>
   updateTestSuiteTab(request: UpdateTestSuiteTabRequest): Promise<void>
   renameTab(tabId: string, title: string): Promise<void>
   saveCurrentQuery(tabId: string): Promise<void>

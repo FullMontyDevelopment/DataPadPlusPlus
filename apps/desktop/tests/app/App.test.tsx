@@ -1434,6 +1434,47 @@ describe('App', () => {
     ).toHaveAttribute('aria-expanded', 'false')
   })
 
+  it('persists Collapse All as one merged Library tree state update', async () => {
+    render(<App />)
+
+    await createFirstConnection()
+    const updateUiStateSpy = vi.spyOn(desktopClient, 'updateUiState')
+    const sidebar = screen.getByLabelText('library sidebar')
+
+    fireEvent.click(
+      within(sidebar).getByRole('button', {
+        name: 'Collapse Environments section (1)',
+      }),
+    )
+    await waitFor(() => {
+      expect(
+        within(sidebar).getByRole('button', {
+          name: 'Expand Environments section (1)',
+        }),
+      ).toBeInTheDocument()
+    })
+    updateUiStateSpy.mockClear()
+
+    fireEvent.click(
+      within(sidebar).getByRole('button', {
+        name: 'Collapse all explorer items',
+      }),
+    )
+
+    await waitFor(() => {
+      expect(updateUiStateSpy).toHaveBeenCalledTimes(1)
+    })
+    const request = updateUiStateSpy.mock.calls[0]?.[0]
+    const sectionStates = request?.sidebarSectionStates ?? {}
+    const libraryNodeStates = Object.entries(sectionStates).filter(([sectionId]) =>
+      sectionId.startsWith('library:node:'),
+    )
+
+    expect(sectionStates['library:environments']).toBe(false)
+    expect(libraryNodeStates.length).toBeGreaterThan(0)
+    expect(libraryNodeStates.every(([, expanded]) => expanded === false)).toBe(true)
+  })
+
   it('renders datastore-specific object trees under connections', async () => {
     render(<App />)
 
@@ -2308,14 +2349,14 @@ describe('App', () => {
 
     expect(screen.getByLabelText('MongoDB query builder')).toBeInTheDocument()
     expect(screen.queryByLabelText('Query editor')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('MongoDB query scope')).toHaveTextContent('Databasecatalog')
-    expect(screen.getByLabelText('MongoDB query scope')).toHaveTextContent('Collectionproducts')
+    expect(screen.getByLabelText('Query target')).toHaveTextContent('Databasecatalog')
+    expect(screen.getByLabelText('Query target')).toHaveTextContent('Collectionproducts')
 
     fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
     expect(screen.queryByLabelText('MongoDB query builder')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Query editor')).toBeInTheDocument()
-    expect(screen.getByLabelText('MongoDB query scope')).toHaveTextContent('Databasecatalog')
-    expect(screen.getByLabelText('MongoDB query scope')).toHaveTextContent('Collectionproducts')
+    expect(screen.getByLabelText('Query target')).toHaveTextContent('Databasecatalog')
+    expect(screen.getByLabelText('Query target')).toHaveTextContent('Collectionproducts')
 
     fireEvent.click(screen.getByRole('button', { name: 'Scripting' }))
     expect(screen.queryByLabelText('MongoDB query builder')).not.toBeInTheDocument()

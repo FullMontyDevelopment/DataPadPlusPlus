@@ -340,6 +340,40 @@ describe('sidebar connection tree helpers', () => {
     })
   })
 
+  it('maps Cosmos DB NoSQL containers to the Cosmos SQL builder', () => {
+    const connection: ConnectionProfile = {
+      ...createSeedSnapshot().connections.find((item) => item.id === 'conn-catalog')!,
+      id: 'conn-cosmos',
+      engine: 'cosmosdb',
+      icon: 'cosmosdb',
+      database: 'catalog',
+      cosmosDbOptions: { api: 'nosql', databaseName: 'catalog' },
+    }
+    const node: ExplorerNode = {
+      id: 'cosmos:container:catalog:products',
+      label: 'products',
+      kind: 'container',
+      detail: 'Cosmos DB container',
+      family: 'document',
+      path: ['Cosmos DB', 'Databases', 'catalog', 'Containers'],
+      scope: 'cosmos:container:catalog:products',
+      queryTemplate: JSON.stringify({
+        operation: 'QueryDocuments',
+        database: 'catalog',
+        container: 'products',
+        query: 'SELECT TOP 50 * FROM c',
+      }),
+    }
+
+    expect(isExplorerNodeQueryable(node)).toBe(true)
+    expect(explorerNodeTarget(node, connection)).toMatchObject({
+      kind: 'container',
+      label: 'products',
+      preferredBuilder: 'cosmos-sql',
+      scope: 'cosmos:container:catalog:products',
+    })
+  })
+
   it('maps explorer Redis prefixes to key-browser scoped targets', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-cache')

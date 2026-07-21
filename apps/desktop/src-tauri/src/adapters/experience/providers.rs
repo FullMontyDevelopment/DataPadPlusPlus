@@ -391,6 +391,12 @@ fn query_builders(manifest: &AdapterManifest) -> Vec<DatastoreExperienceBuilder>
             "table",
             "split",
         )],
+        "cosmosdb" => vec![builder(
+            "cosmos-sql",
+            "Cosmos SQL Builder",
+            "collection",
+            "visual",
+        )],
         "prometheus" => vec![builder(
             "timeseries-query",
             "PromQL Range Builder",

@@ -138,6 +138,29 @@ export function searchIndexFromTarget(target: ScopedQueryTarget, fallbackIndex: 
   )
 }
 
+export function cosmosSqlTargetFromTarget(
+  target: ScopedQueryTarget,
+  connection: ConnectionProfile,
+  fallbackContainer?: string,
+) {
+  const parsed = jsonObjectFromTemplate(target.queryTemplate)
+  const scope = /^cosmos:(?:container|items):([^:]+):(.+)$/i.exec(target.scope ?? '')
+  return {
+    database:
+      normalizeOptionalObjectName(stringField(parsed, 'database')) ??
+      normalizeOptionalObjectName(scope?.[1]) ??
+      normalizeOptionalObjectName(connection.cosmosDbOptions?.databaseName) ??
+      normalizeOptionalObjectName(connection.database),
+    container:
+      normalizeOptionalObjectName(stringField(parsed, 'container')) ??
+      normalizeOptionalObjectName(stringField(parsed, 'collection')) ??
+      normalizeOptionalObjectName(scope?.[2]) ??
+      normalizeOptionalObjectName(fallbackContainer) ??
+      normalizeOptionalObjectName(connection.cosmosDbOptions?.containerPrefix) ??
+      '',
+  }
+}
+
 function cassandraKeyspaceFromTarget(
   target: ScopedQueryTarget,
   connection: ConnectionProfile,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ConnectionProfile, QueryBuilderState } from '@datapadplusplus/shared-types'
 import { createDefaultCqlPartitionBuilderState } from '../../../../../src/app/components/workbench/query-builder/cql-partition'
+import { createDefaultCosmosSqlBuilderState } from '../../../../../src/app/components/workbench/query-builder/cosmos-sql'
 import { createDefaultDynamoDbKeyConditionBuilderState } from '../../../../../src/app/components/workbench/query-builder/dynamodb-key-condition'
 import { createDefaultMongoAggregationBuilderState } from '../../../../../src/app/components/workbench/query-builder/mongo-aggregation'
 import { createDefaultMongoFindBuilderState } from '../../../../../src/app/components/workbench/query-builder/mongo-find'
@@ -84,6 +85,40 @@ describe('Query Builder Count', () => {
     expect(query).not.toHaveProperty('limit')
   })
 
+  it('builds a parameterized Cosmos DB exact count without display controls', () => {
+    const state = createDefaultCosmosSqlBuilderState('products', 'catalog', 10)
+    state.projectionFields = [{ id: 'projection-1', field: 'name' }]
+    state.filters = [{
+      id: 'filter-1',
+      enabled: true,
+      field: 'status',
+      operator: 'eq',
+      value: 'active',
+      valueType: 'string',
+    }]
+    state.sort = [{ id: 'sort-1', field: 'name', direction: 'asc' }]
+    state.offset = 50
+    state.partitionKeyEnabled = true
+    state.partitionKeyValue = 'tenant-1'
+
+    const request = JSON.parse(buildQueryBuilderCountText(state))
+
+    expect(request).toMatchObject({
+      operation: 'QueryDocuments',
+      database: 'catalog',
+      container: 'products',
+      query: 'SELECT VALUE COUNT(1) FROM c WHERE c["status"] = @p0',
+      parameters: [{ name: '@p0', value: 'active' }],
+      partitionKey: 'tenant-1',
+      enableCrossPartitionQueries: false,
+      populateQueryMetrics: true,
+      populateIndexMetrics: true,
+    })
+    expect(request.query).not.toContain('ORDER BY')
+    expect(request.query).not.toContain('OFFSET')
+    expect(request.query).not.toContain('LIMIT')
+  })
+
   it('builds Cassandra and search counts from filters without display controls', () => {
     const cql = createDefaultCqlPartitionBuilderState('events', 'app', 20)
     cql.partitionKeys[0] = {
@@ -113,6 +148,7 @@ describe('Query Builder Count', () => {
     const states: QueryBuilderState[] = [
       createDefaultMongoFindBuilderState('products'),
       createDefaultMongoAggregationBuilderState('orders'),
+      createDefaultCosmosSqlBuilderState('products', 'catalog'),
       createDefaultSqlSelectBuilderState('accounts'),
       createDefaultDynamoDbKeyConditionBuilderState('Orders'),
       createDefaultCqlPartitionBuilderState('events', 'app'),

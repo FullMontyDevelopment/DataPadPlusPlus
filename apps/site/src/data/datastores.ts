@@ -504,7 +504,7 @@ export const datastoreDocs: DatastoreDoc[] = [
     family: 'Document and NoSQL',
     maturity: 'Native Gremlin query runtime; cloud admin gated',
     summary:
-      'Cosmos DB supports SQL API reads and a native GraphSON v2 Gremlin WebSocket runtime with Cosmos authentication, bounded graph results, and request-charge metrics.',
+      'Cosmos DB supports parameterized SQL API reads with a visual NoSQL builder and bounded continuation-token paging, plus a native GraphSON v2 Gremlin WebSocket runtime with Cosmos authentication, bounded graph results, and request-charge metrics.',
     bestFor: ['Cosmos SQL API containers', 'Cosmos Gremlin graphs', 'RU throughput review'],
     connections: [
       'Choose Cosmos DB and configure account endpoint, database, credential mode, API flavor, preferred regions, consistency expectations, timeout, and read-only posture. Gremlin profiles also select the graph, Gremlin endpoint, and traversal source.',
@@ -513,10 +513,10 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Browse databases, containers, partition keys, indexing policies, throughput, consistency, regions, access, diagnostics, and API-specific native branches.',
     ],
     queryModes: [
-      'Use Cosmos SQL reads or live Gremlin traversals. Gremlin responses aggregate partial GraphSON messages into bounded graph, object, table, JSON, profile, and metrics views.',
+      'Build Cosmos SQL reads visually with fields, typed filters, AND/OR logic, sorting, offset/limit, partition routing, and exact Count, or run live Gremlin traversals. NoSQL paging is cancellable and session-aware; Gremlin responses aggregate partial GraphSON messages into bounded graph, object, table, JSON, profile, and metrics views.',
     ],
     resultViews: [
-      'Inspect document rows or normalized graph nodes and edges, raw JSON, RU/query metrics, continuation or partial-response signals, partition metadata, and container posture cards.',
+      'Inspect document rows or normalized graph nodes and edges, raw JSON, RU/query metrics, opaque continuation state or partial-response signals, partition metadata, and container posture cards.',
     ],
     adminFeatures: [
       'Preview throughput changes, indexing policy changes, consistency changes, failover, access checks, exports, imports, and guarded container drops.',

@@ -245,6 +245,11 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    watch: {
+      // Cargo owns Rust rebuilds. Watching its large generated tree can starve
+      // Vite's first module transform after fixture and release builds.
+      ignored: ['**/src-tauri/**'],
+    },
   },
   preview: {
     port: 4173,

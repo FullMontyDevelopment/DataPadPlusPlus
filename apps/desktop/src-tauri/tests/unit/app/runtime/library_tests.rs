@@ -34,6 +34,60 @@ fn effective_library_environment_stops_on_parent_cycles() {
 }
 
 #[test]
+fn library_save_preserves_an_existing_nested_parent() {
+    let nodes = vec![
+        test_node("prod", None, None),
+        test_node("mongo", Some("prod"), None),
+        test_node("queries", Some("mongo"), None),
+        test_node("query", Some("queries"), None),
+    ];
+
+    assert_eq!(
+        library_folder_for_save(&nodes, "query", None, Some("mongo".into())).as_deref(),
+        Some("queries")
+    );
+}
+
+#[test]
+fn library_save_preserves_an_existing_root_parent() {
+    let nodes = vec![
+        test_node("query", None, None),
+        connection_node("connection-mongo", Some("prod")),
+    ];
+
+    assert_eq!(
+        library_folder_for_save(&nodes, "query", None, Some("prod".into())),
+        None
+    );
+}
+
+#[test]
+fn library_save_honors_an_explicit_folder() {
+    let nodes = vec![test_node("query", Some("queries"), None)];
+
+    assert_eq!(
+        library_folder_for_save(
+            &nodes,
+            "query",
+            Some("archive".into()),
+            Some("mongo".into())
+        )
+        .as_deref(),
+        Some("archive")
+    );
+}
+
+#[test]
+fn library_save_uses_the_connection_default_for_new_or_stale_items() {
+    let nodes = vec![connection_node("connection-mongo", Some("mongo"))];
+
+    assert_eq!(
+        library_folder_for_save(&nodes, "missing-query", None, Some("mongo".into())).as_deref(),
+        Some("mongo")
+    );
+}
+
+#[test]
 fn local_file_content_uses_script_text_for_script_tabs() {
     let tab = QueryTabState {
         query_text: "{ \"collection\": \"products\" }".into(),
@@ -101,5 +155,16 @@ fn test_node(id: &str, parent_id: Option<&str>, environment_id: Option<&str>) ->
         script_text: None,
         test_suite: None,
         snapshot_result_id: None,
+    }
+}
+
+fn connection_node(connection_id: &str, parent_id: Option<&str>) -> LibraryNode {
+    LibraryNode {
+        id: format!("library-{connection_id}"),
+        kind: "connection".into(),
+        parent_id: parent_id.map(str::to_string),
+        name: connection_id.into(),
+        connection_id: Some(connection_id.into()),
+        ..test_node("folder", None, None)
     }
 }

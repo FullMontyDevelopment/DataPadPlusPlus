@@ -299,6 +299,7 @@ pub fn run() {
             commands::workspace::update_datastore_security_check_settings,
             commands::workspace::create_datastore_mcp_server_token,
             commands::workspace::update_query_builder_state,
+            commands::workspace::update_query_tab_target,
             commands::workspace::update_query_tab,
             commands::workspace::update_test_suite_tab,
             commands::workspace::update_workspace_backup_settings,

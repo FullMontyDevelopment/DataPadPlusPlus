@@ -915,6 +915,7 @@ export interface ExecutionRequest {
   documentEfficiencyMode?: boolean
   confirmedGuardrailId?: string
   builderState?: QueryBuilderState
+  scopedTarget?: ScopedQueryTarget
 }
 
 export interface ExecutionResponse {
@@ -927,6 +928,7 @@ export interface ExecutionResponse {
 }
 
 export interface ResultPageRequest {
+  executionId?: string
   tabId: string
   connectionId: string
   environmentId: string
@@ -938,6 +940,7 @@ export interface ResultPageRequest {
   pageIndex?: number
   cursor?: string
   documentEfficiencyMode?: boolean
+  scopedTarget?: ScopedQueryTarget
 }
 
 export interface ResultPageResponse {
@@ -1085,6 +1088,16 @@ export interface UpdateQueryBuilderStateRequest {
   builderState: QueryBuilderState
   queryText?: string
   queryViewMode?: QueryViewMode
+}
+
+export interface UpdateQueryTabTargetRequest {
+  tabId: string
+  scopedTarget: ScopedQueryTarget
+  queryText: string
+  queryViewMode: QueryViewMode
+  scriptText?: string
+  builderState?: QueryBuilderState
+  title?: string
 }
 
 export interface UpdateQueryTabRequest {

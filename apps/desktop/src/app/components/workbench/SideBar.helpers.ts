@@ -35,6 +35,7 @@ export function isExplorerNodeQueryable(node: ExplorerNode) {
 
   return [
     'collection',
+    'container',
     'documents',
     'aggregations',
     'gridfs-collection',
@@ -72,6 +73,10 @@ export function explorerNodeTarget(
     connection?.engine === 'dynamodb' && ['table', 'items'].includes(kind)
   const cassandraTarget =
     connection?.engine === 'cassandra' && ['table', 'data', 'materialized-view'].includes(kind)
+  const cosmosTarget =
+    connection?.engine === 'cosmosdb' &&
+    (connection.cosmosDbOptions?.api ?? 'nosql') === 'nosql' &&
+    ['container', 'items'].includes(kind)
 
   return {
     kind: node.kind,
@@ -83,6 +88,7 @@ export function explorerNodeTarget(
       : node.queryTemplate,
     preferredBuilder: preferredBuilderForExplorerNode({
       cassandraTarget,
+      cosmosTarget,
       dynamoTarget,
       kind,
       redisKeyBrowserTarget,
@@ -102,6 +108,7 @@ function normalizedTargetPath(path: unknown): string[] {
 
 function preferredBuilderForExplorerNode({
   cassandraTarget,
+  cosmosTarget,
   dynamoTarget,
   engine,
   kind,
@@ -109,6 +116,7 @@ function preferredBuilderForExplorerNode({
   searchTarget,
 }: {
   cassandraTarget: boolean
+  cosmosTarget: boolean
   dynamoTarget: boolean
   engine?: string
   kind: string
@@ -137,6 +145,10 @@ function preferredBuilderForExplorerNode({
 
   if (cassandraTarget) {
     return 'cql-partition'
+  }
+
+  if (cosmosTarget) {
+    return 'cosmos-sql'
   }
 
   return undefined

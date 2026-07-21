@@ -6,14 +6,119 @@ use super::{
         build_environment_tab, build_metrics_tab, build_query_tab, default_query_text,
         default_script_text,
     },
-    tabs::tab_close_persistence_warning,
+    tabs::{apply_query_target_update, tab_close_persistence_warning},
     timestamp_now,
     ui::{focus_query_tab, is_bottom_panel_tab},
 };
 use crate::domain::{
     error::CommandError,
-    models::{ConnectionAuth, ConnectionProfile, EnvironmentProfile},
+    models::{
+        ConnectionAuth, ConnectionProfile, EnvironmentProfile, QueryHistoryEntry,
+        QueryTabActiveExecution, ScopedQueryTarget, UpdateQueryTabTargetRequest, UserFacingError,
+    },
 };
+
+#[test]
+fn target_update_is_atomic_and_clears_stale_execution_state() {
+    let connection = test_connection("conn-postgres", "Postgres", "postgresql", "sql");
+    let mut tab = build_query_tab(&connection, true, "accounts.sql".into());
+    tab.status = "success".into();
+    tab.last_run_at = Some("2026-07-20T10:00:00Z".into());
+    tab.result = Some(
+        serde_json::from_value(serde_json::json!({
+            "id": "result-old",
+            "engine": "postgresql",
+            "summary": "Old rows",
+            "defaultRenderer": "table",
+            "rendererModes": ["table"],
+            "payloads": [{ "renderer": "table", "columns": ["id"], "rows": [["1"]] }],
+            "notices": [],
+            "executedAt": "2026-07-20T10:00:00Z",
+            "durationMs": 5
+        }))
+        .expect("result fixture"),
+    );
+    tab.error = Some(UserFacingError {
+        code: "old-error".into(),
+        message: "Old error".into(),
+    });
+    tab.history.push(QueryHistoryEntry {
+        id: "history-1".into(),
+        query_text: "select * from public.accounts".into(),
+        executed_at: "2026-07-20T10:00:00Z".into(),
+        status: "success".into(),
+    });
+    let tab_id = tab.id.clone();
+
+    apply_query_target_update(
+        &mut tab,
+        UpdateQueryTabTargetRequest {
+            tab_id,
+            scoped_target: ScopedQueryTarget {
+                kind: "table".into(),
+                label: "orders".into(),
+                path: vec!["app".into(), "Tables".into()],
+                scope: Some("table:app.orders".into()),
+                query_template: Some("select * from app.orders limit 100".into()),
+                preferred_builder: None,
+            },
+            query_text: "select * from app.orders limit 100".into(),
+            query_view_mode: "raw".into(),
+            script_text: None,
+            builder_state: None,
+            title: Some("orders.sql".into()),
+        },
+    )
+    .expect("target update");
+
+    assert_eq!(tab.title, "orders.sql");
+    assert_eq!(tab.query_text, "select * from app.orders limit 100");
+    assert_eq!(tab.status, "idle");
+    assert!(tab.result.is_none());
+    assert!(tab.error.is_none());
+    assert!(tab.last_run_at.is_none());
+    assert_eq!(tab.history.len(), 1);
+    assert!(tab.dirty);
+}
+
+#[test]
+fn target_update_is_rejected_while_the_tab_is_executing() {
+    let connection = test_connection("conn-postgres", "Postgres", "postgresql", "sql");
+    let mut tab = build_query_tab(&connection, true, "accounts.sql".into());
+    tab.active_execution = Some(QueryTabActiveExecution {
+        execution_id: "execution-1".into(),
+        phase: "server".into(),
+        started_at: "2026-07-20T10:00:00Z".into(),
+        message: None,
+    });
+    let old_text = tab.query_text.clone();
+    let tab_id = tab.id.clone();
+
+    let error = apply_query_target_update(
+        &mut tab,
+        UpdateQueryTabTargetRequest {
+            tab_id,
+            scoped_target: ScopedQueryTarget {
+                kind: "table".into(),
+                label: "orders".into(),
+                path: vec!["app".into()],
+                scope: None,
+                query_template: None,
+                preferred_builder: None,
+            },
+            query_text: "select * from app.orders".into(),
+            query_view_mode: "raw".into(),
+            script_text: None,
+            builder_state: None,
+            title: None,
+        },
+    )
+    .expect_err("running target change should fail");
+
+    assert_eq!(error.code, "query-target-change-running");
+    assert_eq!(tab.query_text, old_text);
+    assert!(tab.scoped_target.is_none());
+}
 
 #[test]
 fn tab_close_keeps_persistence_failure_as_a_non_blocking_warning() {

@@ -1,4 +1,8 @@
-use super::{inspect_oracle_explorer_node, list_oracle_explorer_nodes, oracle_table_query};
+use super::{
+    decode_scope_component, encode_scope_component, inspect_oracle_explorer_node,
+    list_oracle_explorer_nodes, oracle_empty_category_node, oracle_query_for_node,
+    oracle_schema_discovery_query, oracle_table_query, OracleObjectContext,
+};
 use crate::domain::models::{
     ExplorerInspectRequest, ExplorerRequest, OracleConnectionOptions, ResolvedConnectionProfile,
 };
@@ -111,6 +115,99 @@ async fn oracle_database_scope_uses_authenticated_schema_under_selected_database
     let query = tables.query_template.as_deref().expect("tables query");
     assert!(query.contains("where owner = 'APP'"));
     assert!(!query.contains("where owner = 'FREEPDB1'"));
+}
+
+#[tokio::test]
+async fn oracle_contract_scope_preserves_configured_schema_case() {
+    let mut profile = connection();
+    profile.username = Some("Mixed Case Owner".into());
+
+    let response = list_oracle_explorer_nodes(
+        &profile,
+        &ExplorerRequest {
+            connection_id: profile.id.clone(),
+            environment_id: "env".into(),
+            limit: None,
+            scope: Some("oracle:container:FREEPDB1".into()),
+        },
+    )
+    .await
+    .expect("oracle database children");
+
+    let tables = response
+        .nodes
+        .iter()
+        .find(|node| node.label == "Tables")
+        .expect("tables folder");
+    assert!(tables
+        .query_template
+        .as_deref()
+        .expect("tables query")
+        .contains("where owner = 'Mixed Case Owner'"));
+    assert!(tables
+        .scope
+        .as_deref()
+        .expect("tables scope")
+        .contains("Mixed Case Owner"));
+}
+
+#[test]
+fn oracle_schema_discovery_uses_permission_visible_objects() {
+    let query = oracle_schema_discovery_query().to_ascii_lowercase();
+
+    assert!(query.contains("from all_objects"));
+    assert!(query.contains("current_schema"));
+    assert!(!query.contains("account_status"));
+    assert!(!query.contains("dba_"));
+}
+
+#[test]
+fn oracle_user_metadata_query_uses_columns_available_in_all_users() {
+    let query = oracle_query_for_node("oracle-users", "APP").to_ascii_lowercase();
+
+    assert!(query.contains("from all_users"));
+    assert!(!query.contains("account_status"));
+    assert!(!query.contains("default_tablespace"));
+}
+
+#[test]
+fn oracle_scope_components_and_child_paths_round_trip_unusual_names() {
+    let profile = connection();
+    let container = "Sales:PDB";
+    let schema = "Mixed:Owner";
+    let object = "Order:Lines";
+    let context = OracleObjectContext::database(&profile, container.into(), schema.into());
+    let scope = context.object_scope("table", object);
+    let (parsed, kind, parsed_object) =
+        OracleObjectContext::from_object_scope(&profile, &scope).expect("object scope");
+
+    assert_eq!(kind, "table");
+    assert_eq!(parsed.schema, schema);
+    assert_eq!(parsed_object, object);
+    assert_eq!(
+        parsed.object_path(&kind, &parsed_object),
+        vec!["Oracle", "Databases", container, "Tables", object]
+    );
+    assert_eq!(
+        decode_scope_component(&encode_scope_component("R\u{00e9}sum\u{00e9}:Orders")),
+        Some("R\u{00e9}sum\u{00e9}:Orders".into())
+    );
+}
+
+#[test]
+fn oracle_empty_live_category_is_explicit() {
+    let profile = connection();
+    let context = OracleObjectContext::schema(&profile, "EMPTY_OWNER".into());
+    let node = oracle_empty_category_node(
+        &context,
+        "tables",
+        "Tables",
+        "select owner, table_name from all_tables where owner = 'EMPTY_OWNER'",
+    );
+
+    assert_eq!(node.kind, "info");
+    assert_eq!(node.label, "No tables visible");
+    assert!(node.detail.contains("EMPTY_OWNER"));
 }
 
 #[tokio::test]

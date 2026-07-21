@@ -159,10 +159,18 @@ export function saveQueryTabToLibrary(
     tab.savedQueryId ??
     createId('library-item')
   const kind = request.kind ?? 'query'
+  const existingIndex = next.libraryNodes.findIndex((item) => item.id === itemId)
+  const existingNode = existingIndex >= 0 ? next.libraryNodes[existingIndex] : undefined
+  const parentId =
+    request.folderId !== undefined
+      ? request.folderId
+      : existingNode
+        ? existingNode.parentId
+        : defaultLibraryFolderForConnection(next, tab.connectionId)
   const node: LibraryNode = {
     id: itemId,
     kind,
-    parentId: request.folderId ?? defaultLibraryFolderForConnection(next, tab.connectionId),
+    parentId,
     name,
     summary: connectionSummary(next, tab),
     tags: request.tags ?? [],
@@ -179,8 +187,6 @@ export function saveQueryTabToLibrary(
     scriptText: tab.scriptText ?? (kind === 'script' ? tab.queryText : undefined),
     testSuite: kind === 'test-suite' ? tab.testSuite : undefined,
   }
-  const existingIndex = next.libraryNodes.findIndex((item) => item.id === itemId)
-
   if (existingIndex >= 0) {
     const existing = next.libraryNodes[existingIndex]
     node.createdAt = existing?.createdAt ?? timestamp

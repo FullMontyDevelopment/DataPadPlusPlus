@@ -23,6 +23,7 @@ describe('browser datastore platform contracts', () => {
     const litedb = experiences.find((item) => item.engine === 'litedb')
     const timescale = experiences.find((item) => item.engine === 'timescaledb')
     const oracle = experiences.find((item) => item.engine === 'oracle')
+    const cosmos = experiences.find((item) => item.engine === 'cosmosdb')
 
     expect(mongodb?.queryBuilders.map((item) => item.kind)).toEqual(
       expect.arrayContaining(['mongo-find', 'mongo-aggregation']),
@@ -58,6 +59,12 @@ describe('browser datastore platform contracts', () => {
       scope: 'table',
       editKinds: ['insert-row', 'update-row', 'delete-row'],
       liveExecution: false,
+    })
+    expect(cosmos?.queryBuilders).toContainEqual({
+      kind: 'cosmos-sql',
+      label: 'Cosmos SQL Builder',
+      scope: 'collection',
+      defaultMode: 'visual',
     })
     expect(redis?.editableScopes[0]?.editKinds).toContain('set-ttl')
     expect(redis?.editableScopes[0]?.editKinds).toContain('stream-add-entry')

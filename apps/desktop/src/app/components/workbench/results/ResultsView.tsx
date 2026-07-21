@@ -151,6 +151,9 @@ export function ResultsView({
   }
 
   const usesDocumentPayload = connection?.family === 'document' && payload?.renderer === 'document'
+  const usesPageablePayload = payload
+    ? ['document', 'table', 'json', 'keyvalue', 'schema'].includes(payload.renderer)
+    : false
   const footerMessages = [
     result?.summary && payload?.renderer !== 'document' ? result.summary : undefined,
     result?.truncated && !result.pageInfo?.hasMore
@@ -281,7 +284,7 @@ export function ResultsView({
         onPlanOperation={onPlanOperation}
       />
 
-      {payload && !usesDocumentPayload && result?.pageInfo?.hasMore ? (
+      {payload && usesPageablePayload && !usesDocumentPayload && result?.pageInfo?.hasMore ? (
         <div className="panel-page-row">
           <span>
             Showing {result.pageInfo.bufferedRows} buffered item(s). Copy/export uses the buffered result only.

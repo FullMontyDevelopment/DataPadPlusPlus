@@ -8,6 +8,10 @@ import {
   isCqlPartitionBuilderState,
 } from '../components/workbench/query-builder/cql-partition'
 import {
+  buildCosmosSqlQueryText,
+  isCosmosSqlBuilderState,
+} from '../components/workbench/query-builder/cosmos-sql'
+import {
   buildDynamoDbKeyConditionQueryText,
   isDynamoDbKeyConditionBuilderState,
 } from '../components/workbench/query-builder/dynamodb-key-condition'
@@ -73,6 +77,10 @@ export function buildQueryTextForBuilderState(
 
   if (isCqlPartitionBuilderState(builderState)) {
     return buildCqlPartitionQueryText(builderState)
+  }
+
+  if (isCosmosSqlBuilderState(builderState)) {
+    return buildCosmosSqlQueryText(builderState)
   }
 
   if (isSearchDslBuilderState(builderState)) {

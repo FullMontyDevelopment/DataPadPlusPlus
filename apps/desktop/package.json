@@ -8,6 +8,7 @@
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "dev:ensure": "node ../../.vscode/ensure-ui-dev.mjs",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

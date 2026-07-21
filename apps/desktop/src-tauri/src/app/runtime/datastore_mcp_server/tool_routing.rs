@@ -560,6 +560,7 @@ async fn execute_mcp_query(
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
         builder_state: None,
+        scoped_target: None,
     };
     let result = tokio::time::timeout(
         Duration::from_secs(QUERY_TIMEOUT_SECONDS),

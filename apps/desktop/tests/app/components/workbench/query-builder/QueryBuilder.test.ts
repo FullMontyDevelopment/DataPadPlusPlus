@@ -16,6 +16,11 @@ import {
   parseCqlPartitionQueryText,
 } from '../../../../../src/app/components/workbench/query-builder/cql-partition'
 import {
+  buildCosmosSqlQueryText,
+  createDefaultCosmosSqlBuilderState,
+  parseCosmosSqlQueryText,
+} from '../../../../../src/app/components/workbench/query-builder/cosmos-sql'
+import {
   buildDynamoDbKeyConditionQueryText,
   createDefaultDynamoDbKeyConditionBuilderState,
   parseDynamoDbKeyConditionQueryText,
@@ -658,6 +663,95 @@ describe('Mongo query builder', () => {
         { total: { $gte: 100 } },
       ],
     })
+  })
+})
+
+describe('Cosmos DB SQL query builder', () => {
+  it('generates a bounded NoSQL query request for the selected container', () => {
+    const request = JSON.parse(
+      buildCosmosSqlQueryText(createDefaultCosmosSqlBuilderState('products', 'catalog', 25)),
+    )
+
+    expect(request).toEqual({
+      operation: 'QueryDocuments',
+      database: 'catalog',
+      container: 'products',
+      query: 'SELECT TOP 25 * FROM c',
+      parameters: [],
+      enableCrossPartitionQueries: true,
+    })
+  })
+
+  it('quotes field paths and parameterizes filters without interpolating values', () => {
+    const state = createDefaultCosmosSqlBuilderState('products', 'catalog', 20)
+    state.projectionFields = [
+      { id: 'projection-name', field: 'profile.displayName' },
+      { id: 'projection-price', field: 'pricing["list.price"]' },
+    ]
+    state.filters = [
+      {
+        id: 'filter-status',
+        enabled: true,
+        field: 'status',
+        operator: 'eq',
+        value: 'active" OR true',
+        valueType: 'string',
+      },
+      {
+        id: 'filter-tags',
+        enabled: true,
+        field: 'tags',
+        operator: 'array-contains',
+        value: 'featured',
+        valueType: 'string',
+      },
+    ]
+    state.filterLogic = 'and'
+    state.sort = [{ id: 'sort-updated', field: 'updatedAt', direction: 'desc' }]
+    state.offset = 40
+    state.limit = 20
+
+    const request = JSON.parse(buildCosmosSqlQueryText(state))
+
+    expect(request.query).toBe([
+      'SELECT c["profile"]["displayName"], c["pricing"]["list.price"] FROM c',
+      'WHERE c["status"] = @p0 AND ARRAY_CONTAINS(c["tags"], @p1)',
+      'ORDER BY c["updatedAt"] DESC',
+      'OFFSET 40 LIMIT 20',
+    ].join(' '))
+    expect(request.query).not.toContain('active" OR true')
+    expect(request.parameters).toEqual([
+      { name: '@p0', value: 'active" OR true' },
+      { name: '@p1', value: 'featured' },
+    ])
+  })
+
+  it('uses an exact partition key route when configured', () => {
+    const state = createDefaultCosmosSqlBuilderState('orders', 'catalog')
+    state.partitionKeyEnabled = true
+    state.partitionKeyValue = '42'
+    state.partitionKeyValueType = 'number'
+
+    expect(JSON.parse(buildCosmosSqlQueryText(state))).toMatchObject({
+      partitionKey: 42,
+      enableCrossPartitionQueries: false,
+    })
+  })
+
+  it('parses simple starter requests while leaving custom SQL untouched', () => {
+    expect(parseCosmosSqlQueryText(JSON.stringify({
+      operation: 'QueryDocuments',
+      database: 'catalog',
+      container: 'products',
+      query: 'SELECT TOP 30 * FROM c',
+      parameters: [],
+    }))).toMatchObject({
+      kind: 'cosmos-sql',
+      database: 'catalog',
+      container: 'products',
+      limit: 30,
+    })
+    expect(parseCosmosSqlQueryText('SELECT * FROM c WHERE c.status = "active"')).toBeUndefined()
   })
 })
 

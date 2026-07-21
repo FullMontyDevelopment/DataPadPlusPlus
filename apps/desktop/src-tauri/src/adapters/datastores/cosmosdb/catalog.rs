@@ -14,7 +14,7 @@ pub(super) fn cosmosdb_manifest() -> AdapterManifest {
 
 pub(super) fn cosmosdb_execution_capabilities() -> ExecutionCapabilities {
     ExecutionCapabilities {
-        can_cancel: false,
+        can_cancel: true,
         can_explain: false,
         supports_live_metadata: true,
         editor_language: "sql".into(),

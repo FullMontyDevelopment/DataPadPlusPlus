@@ -29,6 +29,7 @@ type QueryTabActions = Pick<
   | 'reorderTabs'
   | 'updateQuery'
   | 'updateQueryBuilderState'
+  | 'updateQueryTarget'
   | 'updateTestSuiteTab'
   | 'renameTab'
   | 'saveCurrentQuery'
@@ -57,18 +58,20 @@ export function useQueryTabActions({
     operation: () => Promise<BootstrapPayload>,
   ) => {
     if (closingTabIdsRef.current.has(tabId)) {
-      return
+      return false
     }
     try {
       const payload = await operation()
       if (!closingTabIdsRef.current.has(tabId)) {
         applyPayload(payload)
+        return true
       }
     } catch (error) {
       if (!closingTabIdsRef.current.has(tabId)) {
         handleError(error)
       }
     }
+    return false
   }, [applyPayload, handleError])
   const recordTabIssue = useCallback((
     tab: QueryTabState | undefined,
@@ -432,6 +435,16 @@ export function useQueryTabActions({
     [runOpenTabMutation],
   )
 
+  const updateQueryTarget = useCallback<Actions['updateQueryTarget']>(
+    async (request) => {
+      return runOpenTabMutation(
+        request.tabId,
+        () => desktopClient.updateQueryTarget(request),
+      )
+    },
+    [runOpenTabMutation],
+  )
+
   const updateTestSuiteTab = useCallback<Actions['updateTestSuiteTab']>(
     async (request) => {
       await runOpenTabMutation(request.tabId, () => desktopClient.updateTestSuiteTab(request))
@@ -620,6 +633,7 @@ export function useQueryTabActions({
       reorderTabs,
       updateQuery,
       updateQueryBuilderState,
+      updateQueryTarget,
       updateTestSuiteTab,
       renameTab,
       saveCurrentQuery,
@@ -669,6 +683,7 @@ export function useQueryTabActions({
       setLibraryNodeEnvironment,
       updateQuery,
       updateQueryBuilderState,
+      updateQueryTarget,
       updateTestSuiteTab,
     ],
   )

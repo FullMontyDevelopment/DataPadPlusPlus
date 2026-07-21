@@ -21,6 +21,12 @@ npm run build
 npm run tauri:dev
 ```
 
+For the everyday feedback loop, run lint, production TypeScript checks, the full frontend test suite, repository quality tests, Rust formatting, and `cargo check` without building bundles or compiling Rust tests and Clippy targets:
+
+```bash
+npm run check:fast
+```
+
 Full local validation:
 
 ```bash
@@ -33,6 +39,25 @@ Native Rust formatting can be checked independently from the Tauri host:
 cd apps/desktop/src-tauri
 cargo fmt --check
 ```
+
+## Graphify
+
+Graphify indexes production architecture. Test sources, fixtures, build output, and local runtime state are excluded through `.graphifyignore`.
+
+Install the non-blocking incremental hooks once per clone:
+
+```bash
+npm run graphify:setup
+npm run graphify:status
+```
+
+The post-commit hook refreshes changed code in the background. Use the explicit full refresh only when uncommitted architecture changes must be visible immediately or for final graph validation:
+
+```bash
+npm run graphify:refresh
+```
+
+The graph is regenerable. Repository maintenance disables dated Graphify backups and `npm run graphify:prune` removes any legacy dated backup directories while retaining the live graph and its curated metadata.
 
 ## Current package boundaries
 

@@ -6,7 +6,8 @@ use crate::domain::{
         CancelTestRunRequest, ConnectionProfile, ConnectionTestRequest,
         CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, EnvironmentProfile,
         ExecuteTestSuiteRequest, OpenTestSuiteTemplateRequest, QueryTabReorderRequest,
-        ScopedQueryTarget, SecretRef, UpdateQueryBuilderStateRequest, UpdateTestSuiteTabRequest,
+        ScopedQueryTarget, SecretRef, UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest,
+        UpdateTestSuiteTabRequest,
     },
 };
 
@@ -211,6 +212,22 @@ pub(in crate::app::runtime) fn validate_update_query_builder_state_request(
     validate_query_view_mode(request.query_view_mode.as_deref())
 }
 
+pub(in crate::app::runtime) fn validate_update_query_tab_target_request(
+    request: &UpdateQueryTabTargetRequest,
+) -> Result<(), CommandError> {
+    validate_required_id(&request.tab_id, "Tab id")?;
+    validate_scoped_query_target(&request.scoped_target)?;
+    validate_query_text(&request.query_text, "Query text")?;
+    validate_query_view_mode(Some(&request.query_view_mode))?;
+    if let Some(script_text) = request.script_text.as_deref() {
+        validate_query_text(script_text, "Script text")?;
+    }
+    if let Some(builder_state) = request.builder_state.as_ref() {
+        assert_json_size(builder_state, "Query builder state")?;
+    }
+    validate_optional_text(request.title.as_deref(), "Tab title", 80)
+}
+
 pub(in crate::app::runtime) fn validate_create_test_suite_tab_request(
     request: &CreateTestSuiteTabRequest,
 ) -> Result<(), CommandError> {
@@ -261,7 +278,9 @@ pub(in crate::app::runtime) fn validate_cancel_test_run_request(
     validate_optional_id(request.tab_id.as_deref(), "Tab id")
 }
 
-fn validate_scoped_query_target(target: &ScopedQueryTarget) -> Result<(), CommandError> {
+pub(in crate::app::runtime) fn validate_scoped_query_target(
+    target: &ScopedQueryTarget,
+) -> Result<(), CommandError> {
     validate_required_text(&target.kind, "Scoped query target kind", 80)?;
     validate_required_text(
         &target.label,

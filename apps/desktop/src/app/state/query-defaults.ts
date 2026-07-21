@@ -162,6 +162,10 @@ export function defaultQueryViewModeForConnection(connection: ConnectionProfile)
     case 'elasticsearch':
     case 'opensearch':
       return 'builder'
+    case 'cosmosdb':
+      return (connection.cosmosDbOptions?.api ?? 'nosql') === 'nosql'
+        ? 'builder'
+        : 'raw'
     default:
       return 'raw'
   }

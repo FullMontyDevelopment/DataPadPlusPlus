@@ -122,6 +122,7 @@ fn builder_target(state: &Value) -> String {
         "sql-select" => join_target(string("schema"), string("table")),
         "cql-partition" => join_target(string("keyspace"), string("table")),
         "dynamodb-key-condition" => join_target(string("table"), string("indexName")),
+        "cosmos-sql" => join_target(string("database"), string("container")),
         "search-dsl" => string("index").unwrap_or("_all").to_string(),
         "redis-key-browser" => format!(
             "database {} ({})",

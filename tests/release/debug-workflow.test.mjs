@@ -55,6 +55,7 @@ test('Tauri dev reuses only a verified DataPad++ UI server', () => {
     readFileSync(resolve(root, 'apps', 'desktop', 'package.json'), 'utf8'),
   )
   const ensureUi = readFileSync(resolve(root, '.vscode', 'ensure-ui-dev.mjs'), 'utf8')
+  const viteConfig = readFileSync(resolve(root, 'apps', 'desktop', 'vite.config.ts'), 'utf8')
 
   assert.match(tauri.build.beforeDevCommand, /npm run dev:ensure/)
   assert.equal(desktopPackage.scripts['dev:ensure'], 'node ../../.vscode/ensure-ui-dev.mjs')
@@ -65,6 +66,7 @@ test('Tauri dev reuses only a verified DataPad++ UI server', () => {
   assert.doesNotMatch(ensureUi, /cmd\.exe/)
   assert.match(ensureUi, /Port \$\{port\} is occupied by another application/)
   assert.match(ensureUi, /windowsHide: true/)
+  assert.match(viteConfig, /ignored: \['\*\*\/src-tauri\/\*\*'\]/)
 })
 
 test('UI health rejects a DataPad++ server with stale optimized dependencies', async () => {

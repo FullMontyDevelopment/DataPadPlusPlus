@@ -166,6 +166,20 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         structureStatus: 'ready',
         structureError: action.message,
       }
+    case 'STRUCTURE_INVALIDATED':
+      if (
+        state.structure &&
+        (state.structure.connectionId !== action.connectionId ||
+          state.structure.environmentId !== action.environmentId)
+      ) {
+        return state
+      }
+      return {
+        ...state,
+        structureStatus: 'idle',
+        structure: undefined,
+        structureError: undefined,
+      }
     case 'EXECUTION_LOADING':
       return {
         ...state,

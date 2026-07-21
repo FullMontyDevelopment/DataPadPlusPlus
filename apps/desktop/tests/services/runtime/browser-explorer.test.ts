@@ -322,6 +322,32 @@ describe('browser explorer runtime', () => {
     })
   })
 
+  it('preserves Oracle quoted schema case and escapes scope delimiters in preview', () => {
+    const connection = {
+      ...oracleConnection(),
+      auth: { username: 'Mixed:Owner' },
+      oracleOptions: {
+        connectMode: 'service-name' as const,
+        serviceName: 'Sales:PDB',
+      },
+    }
+
+    const database = createExplorerNodes(connection)[0]
+    expect(database).toMatchObject({
+      label: 'Sales:PDB',
+      id: 'oracle-container:Sales%3APDB',
+      scope: 'oracle:container:Sales%3APDB',
+    })
+
+    const tables = createExplorerNodes(connection, database.scope)
+      .find((node) => node.label === 'Tables')
+    expect(tables).toMatchObject({
+      id: 'oracle-tables:database:Sales%3APDB:Mixed%3AOwner',
+      scope: 'oracle:category:database:Sales%3APDB:Mixed%3AOwner:tables',
+      queryTemplate: expect.stringContaining("where owner = 'Mixed:Owner'"),
+    })
+  })
+
   it('returns Oracle inspection payloads that purpose-built views can render', () => {
     const connection = oracleConnection()
     const snapshot = {
@@ -1285,7 +1311,9 @@ describe('browser explorer runtime', () => {
       nodeId: 'cosmos:container:catalog:products',
     })
 
-    expect(containerResponse.queryTemplate).toContain('"collection": "products"')
+    expect(containerResponse.queryTemplate).toContain('"operation": "QueryDocuments"')
+    expect(containerResponse.queryTemplate).toContain('"container": "products"')
+    expect(containerResponse.queryTemplate).toContain('"query": "SELECT TOP 50 * FROM c"')
     expect(containerResponse.payload).toMatchObject({
       engine: 'cosmosdb',
       objectView: 'container',

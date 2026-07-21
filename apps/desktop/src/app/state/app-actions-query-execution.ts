@@ -82,6 +82,7 @@ export function useQueryExecutionActions({
           documentEfficiencyMode,
           confirmedGuardrailId,
           builderState,
+          scopedTarget: tab.scopedTarget,
         }
 
         dispatch({
@@ -103,6 +104,9 @@ export function useQueryExecutionActions({
           tabId,
           executionWithId,
         )
+        const invalidatesOracleMetadata = executionWithId.result?.notices.some(
+          (notice) => notice.code === 'oracle-metadata-invalidated',
+        )
         startTransition(() => {
           dispatch({
             type: 'EXECUTION_READY',
@@ -110,6 +114,13 @@ export function useQueryExecutionActions({
             request: executionRequest,
             waitForDisplay,
           })
+          if (invalidatesOracleMetadata) {
+            dispatch({
+              type: 'STRUCTURE_INVALIDATED',
+              connectionId: executionRequest.connectionId,
+              environmentId: executionRequest.environmentId,
+            })
+          }
           if (executionWithId.persistenceWarning) {
             dispatch({
               type: 'WORKBENCH_MESSAGE_ADDED',

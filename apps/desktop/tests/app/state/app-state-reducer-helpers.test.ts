@@ -347,6 +347,41 @@ describe('applyResultPageToPayload', () => {
     expect(result?.pageInfo?.bufferedRows).toBe(2)
   })
 
+  it('appends Cosmos DB JSON document pages and preserves page metadata', () => {
+    const payload = payloadWithResult({
+      renderer: 'json',
+      value: {
+        Documents: [{ id: 'product-1' }],
+        _count: 1,
+        _requestCharge: 2.5,
+      },
+    })
+
+    const next = applyResultPageToPayload(
+      payload,
+      pageFor({
+        renderer: 'json',
+        value: {
+          Documents: [{ id: 'product-2' }],
+          _count: 1,
+          _requestCharge: 3.25,
+          _activityId: 'activity-2',
+        },
+      }),
+    )
+
+    expect(resultFrom(next).payloads[0]).toEqual({
+      renderer: 'json',
+      value: {
+        Documents: [{ id: 'product-1' }, { id: 'product-2' }],
+        _count: 1,
+        _requestCharge: 3.25,
+        _activityId: 'activity-2',
+      },
+    })
+    expect(resultFrom(next).pageInfo?.bufferedRows).toBe(2)
+  })
+
   it('treats malformed null document page arrays as empty pages', () => {
     const payload = payloadWithResult({
       renderer: 'document',

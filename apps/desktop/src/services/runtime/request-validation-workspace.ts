@@ -12,6 +12,7 @@ import type {
   SecretRef,
   ScopedQueryTarget,
   UpdateQueryBuilderStateRequest,
+  UpdateQueryTabTargetRequest,
   UpdateQueryTabRequest,
   UpdateTestSuiteTabRequest,
 } from '@datapadplusplus/shared-types'
@@ -223,6 +224,31 @@ export function validateUpdateQueryBuilderStateRequest(
   return request
 }
 
+export function validateUpdateQueryTabTargetRequest(
+  request: UpdateQueryTabTargetRequest,
+): UpdateQueryTabTargetRequest {
+  const scriptText = request.scriptText ?? undefined
+  const builderState = request.builderState ?? undefined
+  const title = request.title ?? undefined
+  validateRequiredId(request.tabId, 'Tab id')
+  validateQueryText(request.queryText, 'Query text')
+  validateQueryViewMode(request.queryViewMode)
+  if (scriptText !== undefined) {
+    validateQueryText(scriptText, 'Script text')
+  }
+  if (builderState !== undefined) {
+    assertJsonSize(builderState, 'Query builder state')
+  }
+  validateOptionalText(title, 'Tab title', 80)
+  return {
+    ...request,
+    scriptText,
+    builderState,
+    title,
+    scopedTarget: validateScopedQueryTarget(request.scopedTarget),
+  }
+}
+
 export function validateCreateTestSuiteTabRequest(
   request: CreateTestSuiteTabRequest,
 ): CreateTestSuiteTabRequest {
@@ -270,21 +296,27 @@ export function validateCancelTestRunRequest(
   return request
 }
 
-function validateScopedQueryTarget(target: ScopedQueryTarget): ScopedQueryTarget {
+export function validateScopedQueryTarget(target: ScopedQueryTarget): ScopedQueryTarget {
+  const scope = target.scope ?? undefined
+  const preferredBuilder = target.preferredBuilder ?? undefined
+  const queryTemplate = target.queryTemplate ?? undefined
   validateRequiredText(target.kind, 'Scoped query target kind', 80)
   validateRequiredText(target.label, 'Scoped query target label', MAX_OBJECT_NAME_LENGTH)
   const path = (target as { path?: string[] | null }).path ?? []
   validatePath(path, 'Scoped query target path')
-  validateOptionalText(target.scope, 'Scoped query target scope', MAX_SCOPE_LENGTH)
-  validateOptionalText(target.preferredBuilder, 'Scoped query target builder', 80)
-  if (target.queryTemplate !== undefined) {
-    validateQueryText(target.queryTemplate, 'Scoped query template')
+  validateOptionalText(scope, 'Scoped query target scope', MAX_SCOPE_LENGTH)
+  validateOptionalText(preferredBuilder, 'Scoped query target builder', 80)
+  if (queryTemplate !== undefined) {
+    validateQueryText(queryTemplate, 'Scoped query template')
   }
   return {
     ...target,
     kind: target.kind.trim(),
     label: target.label.trim(),
     path,
+    scope,
+    preferredBuilder,
+    queryTemplate,
   }
 }
 

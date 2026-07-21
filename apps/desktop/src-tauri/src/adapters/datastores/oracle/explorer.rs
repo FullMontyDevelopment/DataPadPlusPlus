@@ -6,6 +6,10 @@ use super::super::super::*;
 use super::catalog::oracle_execution_capabilities;
 use super::connection::{oracle_service_name, oracle_sqlplus_path};
 use super::query::{oracle_sqlplus_script, parse_oracle_sqlplus_csv, run_oracle_sqlplus_script};
+use super::session::{
+    load_oracle_session_context, oracle_managed_response_rows, OracleSessionContext,
+    ORACLE_SESSION_CONTEXT_QUERY,
+};
 use super::sidecar::{execute_oracle_managed_read, oracle_execution_runtime};
 
 const ORACLE_OBJECT_CATEGORIES: [(&str, &str, &str); 12] = [
@@ -52,9 +56,9 @@ pub(super) async fn list_oracle_explorer_nodes(
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
     let nodes = match request.scope.as_deref() {
-        Some("oracle:containers") => container_nodes(connection),
+        Some("oracle:containers") => container_nodes(connection).await,
         Some(scope) if scope.starts_with("oracle:container:") => {
-            container_child_nodes(connection, scope)
+            container_child_nodes(connection, scope).await
         }
         Some("oracle:schemas") => schema_nodes(connection, request.limit.unwrap_or(250)).await,
         Some(scope) if scope.starts_with("oracle:schema:") => schema_child_nodes(connection, scope),
@@ -75,7 +79,7 @@ pub(super) async fn list_oracle_explorer_nodes(
         Some("oracle:flashback") => flashback_nodes(connection),
         Some("oracle:diagnostics") => diagnostics_nodes(connection),
         Some(_) => Vec::new(),
-        None => root_nodes(connection),
+        None => root_nodes(connection).await,
     };
 
     Ok(ExplorerResponse {
@@ -109,19 +113,8 @@ pub(super) fn inspect_oracle_explorer_node(
     }
 }
 
-fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    let service = oracle_service_name(connection);
-    let mut nodes = vec![ExplorerNode {
-        id: format!("oracle-container:{service}"),
-        family: "sql".into(),
-        label: service.clone(),
-        kind: "database".into(),
-        detail: "Selected Oracle service/PDB.".into(),
-        scope: Some(format!("oracle:container:{service}")),
-        path: Some(vec![connection.name.clone(), "Databases".into()]),
-        query_template: Some("select name, open_mode from v$pdbs order by name".into()),
-        expandable: Some(true),
-    }];
+async fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    let mut nodes = container_nodes(connection).await;
 
     nodes.extend(
         [
@@ -131,7 +124,7 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
                 "schemas",
                 "Users and object schemas.",
                 "oracle:schemas",
-                "select username from all_users order by username",
+                "select owner, count(*) object_count from all_objects group by owner order by case when owner = sys_context('USERENV', 'CURRENT_SCHEMA') then 0 else 1 end, owner",
             ),
             section(
                 "oracle-security",
@@ -173,48 +166,45 @@ fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
     nodes
 }
 
-fn container_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
-    let service = oracle_service_name(connection);
-    vec![ExplorerNode {
-        id: format!("oracle-container:{service}"),
-        family: "sql".into(),
-        label: service.clone(),
-        kind: "database".into(),
-        detail: "Selected Oracle container/service. Live PDB discovery requires V$PDBS grants."
-            .into(),
-        scope: Some(format!("oracle:container:{service}")),
-        path: Some(vec![connection.name.clone(), "Databases".into()]),
-        query_template: Some("select name, open_mode from v$pdbs order by name".into()),
-        expandable: Some(true),
-    }]
+async fn container_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
+    match load_oracle_session_context(connection).await {
+        Ok(context) => vec![oracle_database_node(connection, &context)],
+        Err(error) => vec![oracle_session_context_notice_node(connection, &error)],
+    }
 }
 
-fn container_child_nodes(connection: &ResolvedConnectionProfile, scope: &str) -> Vec<ExplorerNode> {
-    let scoped_container = scope.trim_start_matches("oracle:container:").trim();
-    let container = if scoped_container.is_empty() {
-        oracle_service_name(connection)
-    } else {
-        scoped_container.into()
-    };
-    let schema = default_schema(connection);
-    schema_section_nodes(
-        connection,
-        &OracleObjectContext::database(connection, container, schema),
-    )
+async fn container_child_nodes(
+    connection: &ResolvedConnectionProfile,
+    _scope: &str,
+) -> Vec<ExplorerNode> {
+    match load_oracle_session_context(connection).await {
+        Ok(context) => schema_section_nodes(
+            connection,
+            &OracleObjectContext::database(
+                connection,
+                context.database_label().to_string(),
+                context.current_schema,
+            ),
+        ),
+        Err(error) => vec![oracle_session_context_notice_node(connection, &error)],
+    }
 }
 
 async fn schema_nodes(connection: &ResolvedConnectionProfile, limit: u32) -> Vec<ExplorerNode> {
-    let query = "select username, account_status from all_users order by case when username = user then 0 else 1 end, username";
+    let query = oracle_schema_discovery_query();
     let runtime = oracle_execution_runtime(connection);
     let loaded = match runtime {
-        "managed" => execute_oracle_managed_read(connection, query, limit)
+        "managed" => execute_oracle_managed_read(connection, &query, limit)
             .await
-            .and_then(|response| oracle_managed_rows(&response)),
+            .and_then(|response| oracle_managed_response_rows(&response)),
         "sqlplus" => {
             let path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
-            load_oracle_category_rows(connection, &path, query, limit).await
+            load_oracle_category_rows(connection, &path, &query, limit).await
         }
-        "contract" => Ok(vec![vec![default_schema(connection), "PREVIEW".into()]]),
+        "contract" => Ok(vec![vec![
+            OracleSessionContext::contract(connection).current_schema,
+            "0".into(),
+        ]]),
         unsupported => Err(CommandError::new(
             "oracle-runtime-unsupported",
             format!("Oracle execution runtime '{unsupported}' is not supported."),
@@ -230,16 +220,19 @@ async fn schema_nodes(connection: &ResolvedConnectionProfile, limit: u32) -> Vec
                     return None;
                 }
                 Some(ExplorerNode {
-                    id: format!("oracle-schema:{schema}"),
+                    id: format!("oracle-schema:{}", encode_scope_component(schema)),
                     family: "sql".into(),
                     label: schema.into(),
                     kind: "schema".into(),
                     detail: row
                         .get(1)
                         .filter(|value| !value.trim().is_empty())
-                        .map(|status| format!("Oracle schema / {status}."))
+                        .map(|count| format!("Oracle schema / {count} visible object(s)."))
                         .unwrap_or_else(|| "Oracle object schema.".into()),
-                    scope: Some(format!("oracle:schema:{schema}")),
+                    scope: Some(format!(
+                        "oracle:schema:{}",
+                        encode_scope_component(schema)
+                    )),
                     path: Some(vec![connection.name.clone(), "Schemas".into()]),
                     query_template: Some(format!(
                         "select object_type, count(*) from all_objects where owner = '{}' group by object_type order by object_type",
@@ -264,11 +257,10 @@ async fn schema_nodes(connection: &ResolvedConnectionProfile, limit: u32) -> Vec
 }
 
 fn schema_child_nodes(connection: &ResolvedConnectionProfile, scope: &str) -> Vec<ExplorerNode> {
-    let schema = scope.trim_start_matches("oracle:schema:");
-    schema_section_nodes(
-        connection,
-        &OracleObjectContext::schema(connection, schema.into()),
-    )
+    let Some(schema) = decode_scope_component(scope.trim_start_matches("oracle:schema:")) else {
+        return Vec::new();
+    };
+    schema_section_nodes(connection, &OracleObjectContext::schema(connection, schema))
 }
 
 fn schema_section_nodes(
@@ -295,22 +287,35 @@ struct OracleObjectContext {
     key: String,
     schema: String,
     base_path: Vec<String>,
+    origin: OracleObjectOrigin,
+}
+
+#[derive(Clone)]
+enum OracleObjectOrigin {
+    Database { container: String },
+    Schema,
 }
 
 impl OracleObjectContext {
     fn database(connection: &ResolvedConnectionProfile, service: String, schema: String) -> Self {
         Self {
-            key: format!("database:{service}:{schema}"),
+            key: format!(
+                "database:{}:{}",
+                encode_scope_component(&service),
+                encode_scope_component(&schema)
+            ),
             schema,
-            base_path: vec![connection.name.clone(), "Databases".into(), service],
+            base_path: vec![connection.name.clone(), "Databases".into(), service.clone()],
+            origin: OracleObjectOrigin::Database { container: service },
         }
     }
 
     fn schema(connection: &ResolvedConnectionProfile, schema: String) -> Self {
         Self {
-            key: format!("schema:{schema}"),
+            key: format!("schema:{}", encode_scope_component(&schema)),
             schema: schema.clone(),
             base_path: vec![connection.name.clone(), "Schemas".into(), schema],
+            origin: OracleObjectOrigin::Schema,
         }
     }
 
@@ -325,11 +330,15 @@ impl OracleObjectContext {
 
         match parts.as_slice() {
             ["database", service, schema, category] => Some((
-                Self::database(connection, (*service).into(), (*schema).into()),
+                Self::database(
+                    connection,
+                    decode_scope_component(service)?,
+                    decode_scope_component(schema)?,
+                ),
                 (*category).into(),
             )),
             ["schema", schema, category] => Some((
-                Self::schema(connection, (*schema).into()),
+                Self::schema(connection, decode_scope_component(schema)?),
                 (*category).into(),
             )),
             _ => None,
@@ -345,12 +354,68 @@ impl OracleObjectContext {
     }
 
     fn object_id(&self, kind: &str, object_name: &str) -> String {
-        format!("oracle-{kind}:{}:{object_name}", self.key)
+        format!(
+            "oracle-{kind}:{}:{}",
+            self.key,
+            encode_scope_component(object_name)
+        )
+    }
+
+    fn object_scope(&self, kind: &str, object_name: &str) -> String {
+        let object_name = encode_scope_component(object_name);
+        let schema = encode_scope_component(&self.schema);
+        match &self.origin {
+            OracleObjectOrigin::Database { container } => format!(
+                "oracle:object:{kind}:database:{}:{schema}:{object_name}",
+                encode_scope_component(container)
+            ),
+            OracleObjectOrigin::Schema => {
+                format!("oracle:object:{kind}:schema:{schema}:{object_name}")
+            }
+        }
+    }
+
+    fn from_object_scope(
+        connection: &ResolvedConnectionProfile,
+        scope: &str,
+    ) -> Option<(Self, String, String)> {
+        let parts = scope
+            .strip_prefix("oracle:object:")?
+            .split(':')
+            .collect::<Vec<_>>();
+        match parts.as_slice() {
+            [kind, "database", container, schema, object_name] => Some((
+                Self::database(
+                    connection,
+                    decode_scope_component(container)?,
+                    decode_scope_component(schema)?,
+                ),
+                (*kind).into(),
+                decode_scope_component(object_name)?,
+            )),
+            [kind, "schema", schema, object_name] => Some((
+                Self::schema(connection, decode_scope_component(schema)?),
+                (*kind).into(),
+                decode_scope_component(object_name)?,
+            )),
+            [kind, schema, object_name] => Some((
+                Self::schema(connection, decode_scope_component(schema)?),
+                (*kind).into(),
+                decode_scope_component(object_name)?,
+            )),
+            _ => None,
+        }
     }
 
     fn category_path(&self, label: &str) -> Vec<String> {
         let mut path = self.base_path.clone();
         path.push(label.into());
+        path
+    }
+
+    fn object_path(&self, kind: &str, object_name: &str) -> Vec<String> {
+        let mut path = self.category_path(oracle_object_category_label(kind));
+        path.push(object_name.into());
         path
     }
 }
@@ -376,7 +441,7 @@ async fn category_object_nodes(
     let loaded = match runtime {
         "managed" => execute_oracle_managed_read(connection, &query, limit)
             .await
-            .and_then(|response| oracle_managed_rows(&response)),
+            .and_then(|response| oracle_managed_response_rows(&response)),
         "sqlplus" => {
             let sqlplus_path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
             load_oracle_category_rows(connection, &sqlplus_path, &query, limit).await
@@ -392,35 +457,15 @@ async fn category_object_nodes(
         Err(error) => return vec![oracle_metadata_notice_node(&context, label, &query, &error)],
     };
 
-    oracle_object_nodes_from_rows(&context, &category, label, rows, runtime == "contract")
-}
-
-fn oracle_managed_rows(response: &Value) -> Result<Vec<Vec<String>>, CommandError> {
-    let rows = response
-        .get("sections")
-        .and_then(Value::as_array)
-        .and_then(|sections| sections.first())
-        .and_then(|section| section.get("rows"))
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            CommandError::new(
-                "oracle-metadata-response-invalid",
-                "The Oracle runtime returned an invalid metadata response.",
-            )
-        })?;
-    Ok(rows
-        .iter()
-        .filter_map(Value::as_array)
-        .map(|row| {
-            row.iter()
-                .map(|value| match value {
-                    Value::Null => String::new(),
-                    Value::String(value) => value.clone(),
-                    other => other.to_string(),
-                })
-                .collect()
-        })
-        .collect())
+    let nodes =
+        oracle_object_nodes_from_rows(&context, &category, label, rows, runtime == "contract");
+    if nodes.is_empty() {
+        vec![oracle_empty_category_node(
+            &context, &category, label, &query,
+        )]
+    } else {
+        nodes
+    }
 }
 
 async fn load_oracle_category_rows(
@@ -463,12 +508,7 @@ fn oracle_object_nodes_from_rows(
                 label: object_name.into(),
                 kind: object_kind.into(),
                 detail: oracle_object_detail(category, &row, contract_preview),
-                scope: expandable.then(|| {
-                    format!(
-                        "oracle:object:{object_kind}:{}:{object_name}",
-                        context.schema
-                    )
-                }),
+                scope: expandable.then(|| context.object_scope(object_kind, object_name)),
                 path: Some(context.category_path(category_label)),
                 query_template: Some(oracle_object_query(category, &context.schema, object_name)),
                 expandable: Some(expandable),
@@ -497,21 +537,20 @@ async fn object_child_nodes(
     scope: &str,
     limit: u32,
 ) -> Vec<ExplorerNode> {
-    let parts = scope
-        .strip_prefix("oracle:object:")
-        .map(|value| value.splitn(3, ':').collect::<Vec<_>>())
-        .unwrap_or_default();
-    let [kind, schema, object_name] = parts.as_slice() else {
+    let Some((context, kind, object_name)) =
+        OracleObjectContext::from_object_scope(connection, scope)
+    else {
         return Vec::new();
     };
-    let Some(query) = oracle_object_children_query(kind, schema, object_name) else {
+    let schema = context.schema.as_str();
+    let Some(query) = oracle_object_children_query(&kind, schema, &object_name) else {
         return Vec::new();
     };
     let runtime = oracle_execution_runtime(connection);
     let loaded = match runtime {
         "managed" => execute_oracle_managed_read(connection, &query, limit)
             .await
-            .and_then(|response| oracle_managed_rows(&response)),
+            .and_then(|response| oracle_managed_response_rows(&response)),
         "sqlplus" => {
             let path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
             load_oracle_category_rows(connection, &path, &query, limit).await
@@ -526,17 +565,17 @@ async fn object_child_nodes(
         Ok(rows) => rows,
         Err(error) => {
             return vec![ExplorerNode {
-                id: format!("oracle-object-metadata-unavailable:{schema}:{object_name}"),
+                id: format!(
+                    "oracle-object-metadata-unavailable:{}:{}",
+                    context.key,
+                    encode_scope_component(&object_name)
+                ),
                 family: "sql".into(),
                 label: "Object metadata unavailable".into(),
                 kind: "warning".into(),
                 detail: error.message,
                 scope: None,
-                path: Some(vec![
-                    connection.name.clone(),
-                    (*schema).into(),
-                    (*object_name).into(),
-                ]),
+                path: Some(context.object_path(&kind, &object_name)),
                 query_template: None,
                 expandable: Some(false),
             }]
@@ -562,18 +601,19 @@ async fn object_child_nodes(
                 .collect::<Vec<_>>()
                 .join(" / ");
             Some(ExplorerNode {
-                id: format!("oracle-{child_kind}:{schema}:{object_name}:{name}"),
+                id: format!(
+                    "oracle-{child_kind}:{}:{}:{}",
+                    context.key,
+                    encode_scope_component(&object_name),
+                    encode_scope_component(name)
+                ),
                 family: "sql".into(),
                 label: name.into(),
                 kind: child_kind.into(),
                 detail,
                 scope: None,
-                path: Some(vec![
-                    connection.name.clone(),
-                    (*schema).into(),
-                    (*object_name).into(),
-                ]),
-                query_template: oracle_child_query(kind, child_kind, schema, object_name, name),
+                path: Some(context.object_path(&kind, &object_name)),
+                query_template: oracle_child_query(&kind, child_kind, schema, &object_name, name),
                 expandable: Some(false),
             })
         })
@@ -783,7 +823,8 @@ fn oracle_object_detail(category: &str, row: &[String], contract_preview: bool) 
         if !detail.is_empty() {
             detail.push_str(" | ");
         }
-        detail.push_str("Contract preview; configure SQLPlus for live metadata.");
+        detail
+            .push_str("Preview-only metadata; use the desktop built-in runtime for live objects.");
     }
     detail
 }
@@ -840,7 +881,7 @@ fn security_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
             "Users",
             "users",
             "Database users.",
-            "select username, account_status, default_tablespace from all_users order by username"
+            "select username, user_id, created, common, oracle_maintained from all_users order by username"
                 .into(),
         ),
         object_section(
@@ -1032,7 +1073,7 @@ fn inspect_payload(
     connection: &ResolvedConnectionProfile,
     node_id: &str,
 ) -> (String, serde_json::Value) {
-    let schema = default_schema(connection);
+    let schema = configured_schema(connection);
 
     for (prefix, kind, category) in [
         ("oracle-table:", "table", "tables"),
@@ -1135,13 +1176,13 @@ fn object_view_payload(
 
 fn oracle_object_target(node_id: &str, prefix: &str) -> Option<(String, String)> {
     let mut parts = node_id.strip_prefix(prefix)?.rsplit(':');
-    let object_name = parts.next()?.trim();
-    let schema = parts.next()?.trim();
+    let object_name = decode_scope_component(parts.next()?.trim())?;
+    let schema = decode_scope_component(parts.next()?.trim())?;
     if schema.is_empty() || object_name.is_empty() {
         return None;
     }
 
-    Some((schema.into(), object_name.into()))
+    Some((schema, object_name))
 }
 
 fn oracle_schema_overview_payload(
@@ -1429,7 +1470,7 @@ fn oracle_payload_for_node(
 fn oracle_query_for_node(node_id: &str, schema: &str) -> String {
     match node_id {
         "oracle-security" | "oracle-users" => {
-            "select username, account_status, default_tablespace from all_users order by username"
+            "select username, user_id, created, common, oracle_maintained from all_users order by username"
                 .into()
         }
         "oracle-roles" => "select * from session_roles order by role".into(),
@@ -1581,13 +1622,134 @@ pub(crate) fn oracle_table_query(schema: &str, table: &str) -> String {
     )
 }
 
-fn default_schema(connection: &ResolvedConnectionProfile) -> String {
+fn configured_schema(connection: &ResolvedConnectionProfile) -> String {
     connection
         .username
         .as_deref()
-        .filter(|value| !value.trim().is_empty())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .unwrap_or("APP")
-        .to_uppercase()
+        .to_string()
+}
+
+fn oracle_database_node(
+    connection: &ResolvedConnectionProfile,
+    context: &OracleSessionContext,
+) -> ExplorerNode {
+    let database = context.database_label();
+    ExplorerNode {
+        id: format!("oracle-container:{}", encode_scope_component(database)),
+        family: "sql".into(),
+        label: database.into(),
+        kind: "database".into(),
+        detail: context.detail(),
+        scope: Some(format!(
+            "oracle:container:{}",
+            encode_scope_component(database)
+        )),
+        path: Some(vec![connection.name.clone(), "Databases".into()]),
+        query_template: Some(ORACLE_SESSION_CONTEXT_QUERY.into()),
+        expandable: Some(true),
+    }
+}
+
+fn oracle_session_context_notice_node(
+    connection: &ResolvedConnectionProfile,
+    error: &CommandError,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: "oracle-session-context-unavailable".into(),
+        family: "sql".into(),
+        label: "Oracle database metadata unavailable".into(),
+        kind: "warning".into(),
+        detail: format!("{}: {}", error.code, error.message),
+        scope: None,
+        path: Some(vec![connection.name.clone(), "Databases".into()]),
+        query_template: Some(ORACLE_SESSION_CONTEXT_QUERY.into()),
+        expandable: Some(false),
+    }
+}
+
+fn oracle_schema_discovery_query() -> String {
+    let supported_types = "'TABLE','VIEW','MATERIALIZED VIEW','SYNONYM','SEQUENCE','FUNCTION','PROCEDURE','PACKAGE','PACKAGE BODY','TYPE','TYPE BODY','DATABASE LINK'";
+    format!(
+        "select owner, object_count from (select owner, count(*) object_count from all_objects where object_type in ({supported_types}) group by owner union all select sys_context('USERENV', 'CURRENT_SCHEMA') owner, 0 object_count from dual where not exists (select 1 from all_objects where owner = sys_context('USERENV', 'CURRENT_SCHEMA') and object_type in ({supported_types}))) order by case when owner = sys_context('USERENV', 'CURRENT_SCHEMA') then 0 else 1 end, owner"
+    )
+}
+
+fn oracle_empty_category_node(
+    context: &OracleObjectContext,
+    category: &str,
+    category_label: &str,
+    query: &str,
+) -> ExplorerNode {
+    ExplorerNode {
+        id: format!("oracle-empty-{category}:{}", context.key),
+        family: "sql".into(),
+        label: format!("No {} visible", category_label.to_lowercase()),
+        kind: "info".into(),
+        detail: format!(
+            "Oracle returned no permission-visible {category_label} for schema {}.",
+            context.schema
+        ),
+        scope: None,
+        path: Some(context.category_path(category_label)),
+        query_template: Some(query.into()),
+        expandable: Some(false),
+    }
+}
+
+fn oracle_object_category_label(kind: &str) -> &'static str {
+    match kind {
+        "table" => "Tables",
+        "view" => "Views",
+        "materialized-view" => "Materialized Views",
+        "synonym" => "Synonyms",
+        "sequence" => "Sequences",
+        "function" => "Functions",
+        "procedure" => "Procedures",
+        "package" => "Packages",
+        "type" => "Types",
+        "json-collection" => "JSON Collections",
+        "external-table" => "External Tables",
+        "database-link" => "Database Links",
+        _ => "Objects",
+    }
+}
+
+fn encode_scope_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_graphic() && byte != b'%' && byte != b':' {
+            encoded.push(char::from(byte));
+        } else if byte == b' ' {
+            encoded.push(' ');
+        } else {
+            const HEX: &[u8; 16] = b"0123456789ABCDEF";
+            encoded.push('%');
+            encoded.push(char::from(HEX[(byte >> 4) as usize]));
+            encoded.push(char::from(HEX[(byte & 0x0f) as usize]));
+        }
+    }
+    encoded
+}
+
+fn decode_scope_component(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            decoded.push(bytes[index]);
+            index += 1;
+            continue;
+        }
+        let hex = bytes.get(index + 1..index + 3)?;
+        let hex = std::str::from_utf8(hex).ok()?;
+        decoded.push(u8::from_str_radix(hex, 16).ok()?);
+        index += 3;
+    }
+    String::from_utf8(decoded).ok()
 }
 
 fn oracle_tables_query(schema: &str) -> String {

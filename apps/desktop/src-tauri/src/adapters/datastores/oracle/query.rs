@@ -206,6 +206,7 @@ fn oracle_managed_result(
     let mut total_rows = 0usize;
     let mut total_affected = 0u64;
     let mut truncated = false;
+    let mut invalidates_metadata = false;
 
     for (index, section) in sections.iter().enumerate() {
         let columns = section
@@ -238,6 +239,7 @@ fn oracle_managed_result(
             .get("statementKind")
             .and_then(Value::as_str)
             .unwrap_or("statement");
+        invalidates_metadata |= oracle_statement_invalidates_metadata(kind);
         let duration = section
             .get("durationMs")
             .and_then(Value::as_u64)
@@ -304,6 +306,16 @@ fn oracle_managed_result(
         }
     }
 
+    if invalidates_metadata {
+        notices.push(QueryExecutionNotice {
+            code: "oracle-metadata-invalidated".into(),
+            level: "info".into(),
+            message:
+                "Oracle metadata changed; Explorer and IntelliSense metadata will be refreshed."
+                    .into(),
+        });
+    }
+
     let main_payload = if rendered_sections.len() > 1 {
         payload_batch(
             rendered_sections,
@@ -355,6 +367,13 @@ fn oracle_managed_result(
         truncated,
         explain_payload: None,
     }))
+}
+
+fn oracle_statement_invalidates_metadata(kind: &str) -> bool {
+    matches!(
+        kind,
+        "create" | "alter" | "drop" | "truncate" | "rename" | "comment" | "grant" | "revoke"
+    )
 }
 
 struct OracleSqlPlusOutcome {

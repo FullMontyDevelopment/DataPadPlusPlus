@@ -47,6 +47,12 @@ pub(super) fn build_scoped_query_tab(
             100,
             redis_database_index_from_target(&request.target),
         )
+    } else if builder_kind.as_deref() == Some("cosmos-sql") {
+        cosmos_sql_query_text(
+            target_object_name.as_deref().unwrap_or_default(),
+            limit,
+            target_database.as_deref(),
+        )
     } else {
         request
             .target
@@ -71,6 +77,12 @@ pub(super) fn build_scoped_query_tab(
             &redis_pattern_from_target(&request.target),
             &query_text,
             redis_database_index_from_target(&request.target).unwrap_or(0),
+        )),
+        Some("cosmos-sql") => Some(cosmos_sql_builder_state(
+            target_object_name.as_deref().unwrap_or_default(),
+            target_database.as_deref(),
+            &query_text,
+            limit,
         )),
         _ => None,
     };
@@ -157,6 +169,10 @@ fn scoped_builder_kind(
         && target.preferred_builder.as_deref() == Some("redis-key-browser")
     {
         Some("redis-key-browser".into())
+    } else if is_cosmos_nosql_connection(connection)
+        && target.preferred_builder.as_deref() == Some("cosmos-sql")
+    {
+        Some("cosmos-sql".into())
     } else {
         None
     }
@@ -207,7 +223,7 @@ fn scoped_target_object_label(
     connection: &ConnectionProfile,
     target_object_name: Option<&str>,
 ) -> String {
-    if connection.engine == "mongodb" {
+    if matches!(connection.engine.as_str(), "mongodb" | "cosmosdb") {
         return normalized_target_label(target_object_name.unwrap_or_default());
     }
 
@@ -218,6 +234,10 @@ fn scoped_target_object_name(
     target: &ScopedQueryTarget,
     connection: &ConnectionProfile,
 ) -> Option<String> {
+    if connection.engine == "cosmosdb" {
+        return cosmos_target_parts(target).1;
+    }
+
     if connection.engine != "mongodb" {
         return None;
     }
@@ -252,6 +272,18 @@ fn scoped_target_database(
     target: &ScopedQueryTarget,
     connection: &ConnectionProfile,
 ) -> Option<String> {
+    if connection.engine == "cosmosdb" {
+        return cosmos_target_parts(target)
+            .0
+            .or_else(|| {
+                connection
+                    .cosmos_db_options
+                    .as_ref()
+                    .and_then(|options| options.database_name.clone())
+            })
+            .or_else(|| connection.database.clone());
+    }
+
     if connection.engine != "mongodb" {
         return connection.database.clone();
     }
@@ -288,6 +320,76 @@ fn non_empty_object_name(value: &str) -> Option<String> {
     } else {
         Some(trimmed.into())
     }
+}
+
+fn is_cosmos_nosql_connection(connection: &ConnectionProfile) -> bool {
+    connection.engine == "cosmosdb"
+        && connection
+            .cosmos_db_options
+            .as_ref()
+            .and_then(|options| options.api.as_deref())
+            .map(|api| api.eq_ignore_ascii_case("nosql"))
+            .unwrap_or(true)
+}
+
+fn cosmos_target_parts(target: &ScopedQueryTarget) -> (Option<String>, Option<String>) {
+    let Some(scope) = target.scope.as_deref() else {
+        return (None, non_empty_object_name(&target.label));
+    };
+    let parts: Vec<&str> = scope.split(':').filter(|part| !part.is_empty()).collect();
+    if parts.len() >= 4
+        && parts[0].eq_ignore_ascii_case("cosmos")
+        && matches!(parts[1], "container" | "items")
+    {
+        return (
+            non_empty_object_name(parts[2]),
+            non_empty_object_name(&parts[3..].join(":")),
+        );
+    }
+
+    (None, non_empty_object_name(&target.label))
+}
+
+fn cosmos_sql_query_text(container: &str, limit: u32, database: Option<&str>) -> String {
+    let mut query = json!({
+        "operation": "QueryDocuments",
+        "container": container,
+        "query": format!("SELECT TOP {limit} * FROM c"),
+        "parameters": [],
+        "enableCrossPartitionQueries": true,
+    });
+    if let Some(database) = database.filter(|value| !value.trim().is_empty()) {
+        query["database"] = json!(database.trim());
+    }
+
+    serde_json::to_string_pretty(&query).unwrap_or_default()
+}
+
+fn cosmos_sql_builder_state(
+    container: &str,
+    database: Option<&str>,
+    query_text: &str,
+    limit: u32,
+) -> serde_json::Value {
+    let mut state = json!({
+        "kind": "cosmos-sql",
+        "container": container,
+        "projectionFields": [],
+        "filters": [],
+        "filterLogic": "and",
+        "sort": [],
+        "offset": 0,
+        "limit": limit,
+        "partitionKeyEnabled": false,
+        "partitionKeyValue": "",
+        "partitionKeyValueType": "string",
+        "enableCrossPartitionQueries": true,
+        "lastAppliedQueryText": query_text,
+    });
+    if let Some(database) = database.filter(|value| !value.trim().is_empty()) {
+        state["database"] = json!(database.trim());
+    }
+    state
 }
 
 fn mongo_find_query_text(collection: &str, limit: u32, database: Option<&str>) -> String {

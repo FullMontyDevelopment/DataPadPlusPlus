@@ -96,6 +96,12 @@ function expectSuccess(response, label) {
 try {
   const tested = expectSuccess(await request('test'), 'Connection test')
   expect(tested.authenticatedSchema === 'DATAPADPLUSPLUS', 'Connection test returned the wrong schema.')
+  expect(tested.sessionUser === 'DATAPADPLUSPLUS', 'Connection test returned the wrong session user.')
+  expect(tested.currentSchema === 'DATAPADPLUSPLUS', 'Connection test returned the wrong current schema.')
+  expect(tested.containerName === 'FREEPDB1', 'Connection test did not resolve the connected PDB.')
+  expect(tested.databaseName === 'FREE', 'Connection test did not resolve the database name.')
+  expect(tested.databaseUniqueName, 'Connection test did not return the database unique name.')
+  expect(Number(tested.containerId) > 0, 'Connection test did not return the container ID.')
   expect(tested.serviceName?.toUpperCase().startsWith('FREEPDB1'), 'Connection test returned the wrong service.')
 
   const metadata = expectSuccess(await request('execute', {
@@ -105,6 +111,18 @@ try {
   for (const table of ['ACCOUNTS', 'ORDERS', 'ORDER_ITEMS', 'SUPPORT_TICKETS']) {
     expect(tables.includes(table), `Live metadata did not include ${table}.`)
   }
+
+  const objectMetadata = expectSuccess(await request('execute', {
+    statement: `select
+      (select count(*) from all_tab_columns where owner = sys_context('USERENV', 'CURRENT_SCHEMA') and table_name = 'ORDERS') columns_count,
+      (select count(*) from all_constraints where owner = sys_context('USERENV', 'CURRENT_SCHEMA') and table_name = 'ORDERS') constraints_count,
+      (select count(*) from all_indexes where owner = sys_context('USERENV', 'CURRENT_SCHEMA') and table_name = 'ORDERS') indexes_count
+    from dual`,
+  }), 'Child object metadata')
+  const [columnsCount, constraintsCount, indexesCount] = objectMetadata.sections[0].rows[0].map(Number)
+  expect(columnsCount > 0, 'Live metadata did not return Oracle columns.')
+  expect(constraintsCount > 0, 'Live metadata did not return Oracle constraints.')
+  expect(indexesCount > 0, 'Live metadata did not return Oracle indexes.')
 
   const bounded = expectSuccess(await request('execute', {
     statement: 'select id, name from accounts order by id',
@@ -125,7 +143,7 @@ try {
   })
   expect(!blocked.ok && blocked.code === 'oracle-read-only-blocked', 'Read-only Oracle execution did not fail closed.')
 
-  console.log(`Managed Oracle fixture OK: ${tables.length} tables, bounded SQL, PL/SQL output, and read-only guardrails.`)
+  console.log(`Managed Oracle fixture OK: ${tested.containerName}, schema ${tested.currentSchema}, ${tables.length} tables, child metadata, bounded SQL, PL/SQL output, and read-only guardrails.`)
 } finally {
   child.stdin.end()
   lines.close()

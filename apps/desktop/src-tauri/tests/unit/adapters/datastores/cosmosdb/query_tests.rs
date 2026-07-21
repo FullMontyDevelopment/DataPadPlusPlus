@@ -62,14 +62,13 @@ fn cosmosdb_operation_normalizes_action() {
 }
 
 #[test]
-fn cosmosdb_query_body_includes_parameters_and_limit() {
+fn cosmosdb_query_body_includes_parameters_without_transport_options() {
     let body = cosmosdb_query_body(
         "SELECT * FROM c WHERE c.id = @id",
         Some(&json!([{ "name": "@id", "value": "1" }])),
-        25,
     );
     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(value["maxItemCount"], 25);
+    assert!(value.get("maxItemCount").is_none());
     assert_eq!(value["parameters"][0]["name"], "@id");
 }
 
@@ -109,18 +108,20 @@ fn cosmosdb_documents_normalize_with_truncation_and_continuation() {
     assert_eq!(result.rows.len(), 2);
     assert_eq!(result.documents.as_array().unwrap().len(), 2);
     assert_eq!(bounded["Documents"].as_array().unwrap().len(), 2);
-    assert_eq!(bounded["datapad"]["continuation"], "next-page");
+    assert_eq!(bounded["datapad"]["hasMore"], true);
+    assert!(bounded["datapad"].get("continuation").is_none());
     assert_eq!(profile["renderer"], "profile");
     assert_eq!(profile["stages"]["requestCharge"], 5.25);
     assert_eq!(profile["stages"]["count"], 3);
+    assert_eq!(profile["stages"]["hasMore"], true);
 }
 
 #[test]
-fn cosmosdb_query_body_uses_requested_fetch_size() {
-    let body = cosmosdb_query_body("SELECT * FROM c", None, 101);
+fn cosmosdb_query_body_always_includes_an_empty_parameter_array() {
+    let body = cosmosdb_query_body("SELECT * FROM c", None);
     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
 
-    assert_eq!(value["maxItemCount"], 101);
+    assert_eq!(value["parameters"], json!([]));
 }
 
 #[test]

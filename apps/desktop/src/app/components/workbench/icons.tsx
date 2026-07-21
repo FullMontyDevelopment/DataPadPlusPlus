@@ -46,6 +46,7 @@ import {
   KeyRound,
   Layers3,
   List,
+  ListCollapse,
   LockKeyhole,
   LockKeyholeOpen,
   MemoryStick,
@@ -117,6 +118,7 @@ export const RenameIcon = adapt(PencilLine)
 export const PlayIcon = adapt(Play)
 export const StopIcon = adapt(CircleStop)
 export const RefreshIcon = adapt(RefreshCw)
+export const CollapseAllIcon = adapt(ListCollapse)
 export const CloseIcon = adapt(X)
 export const PlusIcon = adapt(FilePlus2)
 export const QueryIcon = adapt(FileCode2)

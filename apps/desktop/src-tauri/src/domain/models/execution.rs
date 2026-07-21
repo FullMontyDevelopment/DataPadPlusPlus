@@ -309,11 +309,15 @@ pub struct ExecutionRequest {
     pub confirmed_guardrail_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub builder_state: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scoped_target: Option<ScopedQueryTarget>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResultPageRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_id: Option<String>,
     pub tab_id: String,
     pub connection_id: String,
     pub environment_id: String,
@@ -325,6 +329,8 @@ pub struct ResultPageRequest {
     pub page_index: Option<u32>,
     pub cursor: Option<String>,
     pub document_efficiency_mode: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scoped_target: Option<ScopedQueryTarget>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -497,6 +503,21 @@ pub struct UpdateQueryBuilderStateRequest {
     pub query_text: Option<String>,
     #[serde(default)]
     pub query_view_mode: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateQueryTabTargetRequest {
+    pub tab_id: String,
+    pub scoped_target: ScopedQueryTarget,
+    pub query_text: String,
+    pub query_view_mode: String,
+    #[serde(default)]
+    pub script_text: Option<String>,
+    #[serde(default)]
+    pub builder_state: Option<Value>,
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

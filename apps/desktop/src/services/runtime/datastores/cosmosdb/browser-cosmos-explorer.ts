@@ -303,10 +303,12 @@ function cosmosNode(
 function cosmosContainerQuery(database: string, container: string) {
   return JSON.stringify(
     {
+      operation: 'QueryDocuments',
       database,
-      collection: container,
-      filter: {},
-      limit: 20,
+      container,
+      query: 'SELECT TOP 50 * FROM c',
+      parameters: [],
+      enableCrossPartitionQueries: true,
     },
     null,
     2,

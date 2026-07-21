@@ -605,7 +605,7 @@ describe('ConnectionObjectTree', () => {
             family: 'document',
             path: ['datapad-cosmos', 'Databases', 'catalog', 'Containers'],
             scope: 'cosmos:container:catalog:products',
-            queryTemplate: '{ "database": "catalog", "collection": "products", "filter": {}, "limit": 20 }',
+            queryTemplate: '{ "operation": "QueryDocuments", "database": "catalog", "container": "products", "query": "SELECT TOP 50 * FROM c", "parameters": [] }',
             expandable: true,
           },
           {
@@ -647,7 +647,8 @@ describe('ConnectionObjectTree', () => {
     fireEvent.click(within(containerMenu).getByRole('menuitem', { name: 'Open Query' }))
     expect(onOpenScopedQuery).toHaveBeenCalledWith('conn-cosmos', expect.objectContaining({
       label: 'products',
-      queryTemplate: expect.stringContaining('"collection": "products"'),
+      preferredBuilder: 'cosmos-sql',
+      queryTemplate: expect.stringContaining('"container": "products"'),
     }))
   })
 

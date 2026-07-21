@@ -2,6 +2,8 @@ import type { ConnectionProfile, ExplorerNode } from '@datapadplusplus/shared-ty
 import {
   oracleCategoryObjectNodes,
   oracleCategoryTarget,
+  decodeOracleScopeComponent,
+  encodeOracleScopeComponent,
   oracleDatabaseContext,
   oracleInspectQueryTemplateForKind,
   oracleNode,
@@ -18,13 +20,15 @@ export function createOracleExplorerNodes(
   connection: ConnectionProfile,
   scope?: string,
 ): ExplorerNode[] {
-  const schema = connection.auth.username?.trim().toUpperCase() || ''
+  const schema = connection.auth.username?.trim() || ''
   const service = oracleServiceName(connection)
+  const encodedService = encodeOracleScopeComponent(service)
+  const encodedSchema = encodeOracleScopeComponent(schema)
 
   if (!scope) {
     return [
       ...(service
-        ? [oracleNode(`oracle-container:${service}`, service, 'database', 'Selected Oracle service/PDB', `oracle:container:${service}`, ['Oracle', 'Databases'], true)]
+        ? [oracleNode(`oracle-container:${encodedService}`, service, 'database', 'Preview-only configured Oracle service/PDB', `oracle:container:${encodedService}`, ['Oracle', 'Databases'], true)]
         : []),
       oracleNode('oracle-schemas', 'Schemas', 'schemas', 'Users and object schemas', 'oracle:schemas', ['Oracle'], true),
       oracleNode('oracle-security', 'Security', 'security', 'Users, roles, profiles, privileges, and grants', 'oracle:security', ['Oracle'], true),
@@ -36,24 +40,24 @@ export function createOracleExplorerNodes(
 
   if (scope === 'oracle:containers') {
     return service ? [
-      oracleNode(`oracle-container:${service}`, service, 'database', 'Selected Oracle service/container', `oracle:container:${service}`, ['Oracle', 'Databases'], true),
+      oracleNode(`oracle-container:${encodedService}`, service, 'database', 'Preview-only configured Oracle service/container', `oracle:container:${encodedService}`, ['Oracle', 'Databases'], true),
     ] : []
   }
 
   if (scope.startsWith('oracle:container:')) {
-    const container = scope.replace('oracle:container:', '') || service
+    const container = decodeOracleScopeComponent(scope.replace('oracle:container:', '')) || service
     if (!container || !schema) return []
     return oracleSchemaSections(oracleDatabaseContext(container, schema))
   }
 
   if (scope === 'oracle:schemas') {
     return schema ? [
-      oracleNode(`oracle-schema:${schema}`, schema, 'schema', 'Configured Oracle schema', `oracle:schema:${schema}`, ['Oracle', 'Schemas'], true),
+      oracleNode(`oracle-schema:${encodedSchema}`, schema, 'schema', 'Preview-only configured Oracle schema', `oracle:schema:${encodedSchema}`, ['Oracle', 'Schemas'], true),
     ] : []
   }
 
   if (scope.startsWith('oracle:schema:')) {
-    const scopedSchema = scope.replace('oracle:schema:', '') || schema
+    const scopedSchema = decodeOracleScopeComponent(scope.replace('oracle:schema:', '')) || schema
     return scopedSchema ? oracleSchemaSections(oracleSchemaContext(scopedSchema)) : []
   }
 
@@ -125,7 +129,7 @@ export function oracleInspectQueryTemplate(nodeId: string) {
   }
 
   if (nodeId === 'oracle-security' || nodeId === 'oracle-users') {
-    return 'select username, account_status, default_tablespace from all_users order by username;'
+    return "select owner, count(*) object_count from all_objects group by owner order by case when owner = sys_context('USERENV', 'CURRENT_SCHEMA') then 0 else 1 end, owner;"
   }
 
   return oracleInspectQueryTemplateForKind('object', nodeId)
@@ -133,7 +137,7 @@ export function oracleInspectQueryTemplate(nodeId: string) {
 
 export function oracleInspectPayload(connection: ConnectionProfile, nodeId: string) {
   const service = oracleServiceName(connection)
-  const schema = connection.auth.username?.trim().toUpperCase() || ''
+  const schema = connection.auth.username?.trim() || ''
   const base = {
     engine: 'oracle',
     nodeId,
@@ -157,7 +161,7 @@ export function oracleInspectPayload(connection: ConnectionProfile, nodeId: stri
         type: objectTarget.kind.replaceAll('-', ' ').toUpperCase(),
         status: 'VALID',
       }],
-      warnings: ['Contract preview metadata is shown; configure SQLPlus for live object details.'],
+      warnings: ['Browser preview metadata is synthetic; the desktop built-in Oracle runtime loads live object details.'],
     }
   }
 

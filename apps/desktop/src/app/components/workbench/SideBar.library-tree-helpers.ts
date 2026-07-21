@@ -1,4 +1,71 @@
-import type { LibraryNode } from '@datapadplusplus/shared-types'
+import type { LibraryNode, QueryTabState } from '@datapadplusplus/shared-types'
+
+const GLOBAL_TAB_KINDS = new Set<NonNullable<QueryTabState['tabKind']>>([
+  'environment',
+  'settings',
+  'api-server',
+  'mcp-server',
+  'workspace-search',
+  'security-checks',
+])
+
+const CONNECTION_CONTEXT_TAB_KINDS = new Set<NonNullable<QueryTabState['tabKind']>>([
+  'query',
+  'explorer',
+  'metrics',
+  'object-view',
+])
+
+export function resolveActiveLibraryNodeId(
+  nodes: LibraryNode[],
+  activeTab: QueryTabState | undefined,
+  activeConnectionId?: string,
+) {
+  if (activeTab?.tabKind && GLOBAL_TAB_KINDS.has(activeTab.tabKind)) {
+    return undefined
+  }
+
+  const savedItemId =
+    activeTab?.saveTarget?.kind === 'library'
+      ? activeTab.saveTarget.libraryItemId
+      : activeTab?.savedQueryId
+
+  if (savedItemId && nodes.some((node) => node.id === savedItemId)) {
+    return savedItemId
+  }
+
+  const hasConnectionContext =
+    !activeTab ||
+    !activeTab.tabKind ||
+    CONNECTION_CONTEXT_TAB_KINDS.has(activeTab.tabKind)
+  if (!hasConnectionContext) {
+    return undefined
+  }
+
+  const connectionId = activeTab?.connectionId || activeConnectionId
+  if (!connectionId) {
+    return undefined
+  }
+
+  return nodes.find(
+    (node) => node.kind === 'connection' && node.connectionId === connectionId,
+  )?.id
+}
+
+export function libraryAncestorNodeIds(nodes: LibraryNode[], nodeId?: string) {
+  const ancestors = new Set<string>()
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const visited = new Set<string>()
+  let current = nodeId ? nodesById.get(nodeId) : undefined
+
+  while (current?.parentId && !visited.has(current.parentId)) {
+    visited.add(current.parentId)
+    ancestors.add(current.parentId)
+    current = nodesById.get(current.parentId)
+  }
+
+  return ancestors
+}
 
 export function libraryNodePath(nodes: LibraryNode[], node: LibraryNode | undefined) {
   if (!node) {

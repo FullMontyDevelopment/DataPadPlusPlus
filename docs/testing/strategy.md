@@ -76,6 +76,12 @@ The default GitHub CI path must not require Docker, local database ports, deskto
 
 ## Current Commands
 
+Use the faster development gate during normal iteration. It retains the full frontend test suite but skips the production bundle, Rust tests, and all-target Clippy compilation:
+
+```bash
+npm run check:fast
+```
+
 Use the broad local check when changing contracts, runtime, adapters, releases, or app-wide UI:
 
 ```bash

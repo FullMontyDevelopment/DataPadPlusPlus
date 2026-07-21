@@ -412,6 +412,8 @@ function browserBuilderTarget(state: QueryBuilderState | undefined) {
       return [state.keyspace, state.table].filter(Boolean).join('.') || 'table'
     case 'dynamodb-key-condition':
       return [state.table, state.indexName].filter(Boolean).join('.') || 'table'
+    case 'cosmos-sql':
+      return [state.database, state.container].filter(Boolean).join('.') || 'container'
     case 'search-dsl':
       return state.index || '_all'
     case 'redis-key-browser':

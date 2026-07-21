@@ -21,8 +21,8 @@ use crate::{
         models::{
             CancelExecutionRequest, CancelExecutionResult, DocumentNodeChildrenRequest,
             DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse,
-            QueryExecutionNotice, QueryHistoryEntry, ResultPageRequest, ResultPageResponse,
-            UserFacingError,
+            QueryExecutionNotice, QueryHistoryEntry, ResolvedConnectionProfile, ResultPageRequest,
+            ResultPageResponse, ScopedQueryTarget, UserFacingError,
         },
     },
     security,
@@ -43,8 +43,9 @@ impl ManagedAppState {
             .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let environment = self.environment_by_id(&request.environment_id)?;
-        let (resolved_connection, resolved_environment, _) =
+        let (mut resolved_connection, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
+        apply_scoped_target_override(&mut resolved_connection, request.scoped_target.as_ref());
         let query_template = adapters::selected_query(&request).to_string();
         if profile.engine == "mongodb" && request.execution_input_mode.as_deref() == Some("script")
         {
@@ -272,8 +273,9 @@ impl ManagedAppState {
         self.ensure_unlocked()?;
         validate_result_page_request(&mut request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
-        let (resolved, resolved_environment, _) =
+        let (mut resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
+        apply_scoped_target_override(&mut resolved, request.scoped_target.as_ref());
         let mut resolved_request = request.clone();
         resolved_request.query_text =
             resolve_string_template(&request.query_text, &resolved_environment.variables)?;
@@ -302,6 +304,280 @@ impl ManagedAppState {
     }
 }
 
+fn apply_scoped_target_override(
+    connection: &mut ResolvedConnectionProfile,
+    target: Option<&ScopedQueryTarget>,
+) {
+    let Some(target) = target else {
+        return;
+    };
+    let path = target_path_values(connection, target);
+
+    match connection.engine.as_str() {
+        "mongodb" | "litedb" => {
+            if let Some(database) = direct_target_value(target, &["database", "catalog"])
+                .or_else(|| scoped_namespace(target, &["collection", "view", "documents"]))
+                .or_else(|| path.first().cloned())
+            {
+                connection.database = Some(database);
+            }
+        }
+        "cosmosdb" => {
+            if let Some(database) = direct_target_value(target, &["database", "catalog"])
+                .or_else(|| scoped_namespace(target, &["container", "collection", "graph"]))
+                .or_else(|| path.first().cloned())
+            {
+                connection.database = Some(database.clone());
+                if let Some(options) = connection.cosmos_db_options.as_mut() {
+                    options.database_name = Some(database);
+                }
+            }
+            if let Some(container) = cosmos_container_from_target(target) {
+                if let Some(options) = connection.cosmos_db_options.as_mut() {
+                    options.container_prefix = Some(container);
+                }
+            }
+        }
+        "cassandra" => {
+            let keyspace = scoped_namespace(target, &["table", "data", "materialized-view"])
+                .or_else(|| path.first().cloned());
+            if let (Some(keyspace), Some(options)) =
+                (keyspace, connection.cassandra_options.as_mut())
+            {
+                connection.database = Some(keyspace.clone());
+                options.default_keyspace = Some(keyspace);
+            }
+        }
+        "redis" | "valkey" => {
+            if let Some(database_index) = redis_database_index(target) {
+                if let Some(options) = connection.redis_options.as_mut() {
+                    options.database_index = Some(database_index);
+                }
+            }
+        }
+        "neo4j" | "arango" | "janusgraph" => {
+            let graph_name = direct_target_value(target, &["graph", "database"])
+                .or_else(|| target_path_value_after(target, &["graphs", "databases"]));
+            if let (Some(graph_name), Some(options)) = (
+                graph_name.filter(|value| !value.is_empty()),
+                connection.graph_options.as_mut(),
+            ) {
+                options.database_name = Some(graph_name.clone());
+                options.graph_name = Some(graph_name);
+            }
+        }
+        "influxdb" | "opentsdb" | "prometheus" => {
+            let namespace = direct_target_value(target, &["bucket", "database"])
+                .or_else(|| target_path_value_after(target, &["buckets", "databases"]));
+            if let (Some(namespace), Some(options)) =
+                (namespace, connection.time_series_options.as_mut())
+            {
+                if connection.engine == "influxdb" {
+                    options.bucket = Some(namespace.clone());
+                }
+                options.database_name = Some(namespace);
+            }
+        }
+        "clickhouse" | "duckdb" | "snowflake" | "bigquery" => {
+            let namespace = direct_target_value(target, &["database", "catalog", "project"])
+                .or_else(|| {
+                    target_path_value_after(target, &["databases", "catalogs", "projects"])
+                });
+            let scoped_schema = sql_schema_from_target(target)
+                .or_else(|| direct_target_value(target, &["schema", "dataset"]));
+            if let (Some(namespace), Some(options)) =
+                (namespace, connection.warehouse_options.as_mut())
+            {
+                connection.database = Some(namespace.clone());
+                if connection.engine == "bigquery" {
+                    options.project_id = Some(namespace.clone());
+                } else if connection.engine == "snowflake" {
+                    options.database_name = Some(namespace.clone());
+                    options.catalog_name = Some(namespace.clone());
+                } else {
+                    options.database_name = Some(namespace.clone());
+                }
+            }
+            if let (Some(schema), Some(options)) =
+                (scoped_schema, connection.warehouse_options.as_mut())
+            {
+                if connection.engine == "bigquery" {
+                    options.dataset_id = Some(schema);
+                } else {
+                    options.schema_name = Some(schema);
+                }
+            }
+        }
+        "postgresql" | "cockroachdb" | "timescaledb" | "sqlserver" | "mysql" | "mariadb"
+        | "oracle" => {
+            if let Some(database) = sql_database_from_target(connection, target, &path) {
+                connection.database = Some(database);
+            }
+            if matches!(
+                connection.engine.as_str(),
+                "postgresql" | "cockroachdb" | "timescaledb"
+            ) {
+                if let (Some(schema), Some(options)) = (
+                    sql_schema_from_target(target),
+                    connection.postgres_options.as_mut(),
+                ) {
+                    options.search_path = Some(schema);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scoped_namespace(target: &ScopedQueryTarget, prefixes: &[&str]) -> Option<String> {
+    let scope = target.scope.as_deref()?;
+    let (prefix, value) = scope.split_once(':')?;
+    if !prefixes.contains(&normalized_kind(prefix).as_str()) {
+        return None;
+    }
+    value
+        .split([':', '.'])
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn redis_database_index(target: &ScopedQueryTarget) -> Option<u32> {
+    let scope_value = target
+        .scope
+        .as_deref()
+        .and_then(|scope| scope.strip_prefix("db:"))
+        .and_then(|value| value.split(':').next());
+    let label_value = target.label.trim().strip_prefix("DB ");
+    scope_value.or(label_value)?.parse().ok()
+}
+
+fn cosmos_container_from_target(target: &ScopedQueryTarget) -> Option<String> {
+    direct_target_value(target, &["container", "collection", "graph"])
+        .or_else(|| target_path_value_after(target, &["containers", "collections", "graphs"]))
+        .or_else(|| {
+            let parts = target.scope.as_deref()?.split(':').collect::<Vec<_>>();
+            (matches!(parts.first(), Some(&"cosmos"))
+                && matches!(
+                    parts.get(1),
+                    Some(&"container") | Some(&"items") | Some(&"partition-key")
+                )
+                && parts.len() >= 4)
+                .then(|| parts[3].trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+}
+
+fn direct_target_value(target: &ScopedQueryTarget, kinds: &[&str]) -> Option<String> {
+    kinds
+        .contains(&normalized_kind(&target.kind).as_str())
+        .then(|| target.label.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn target_path_value_after(target: &ScopedQueryTarget, containers: &[&str]) -> Option<String> {
+    target.path.windows(2).find_map(|pair| {
+        containers
+            .contains(&normalized_kind(&pair[0]).as_str())
+            .then(|| pair[1].trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn sql_database_from_target(
+    connection: &ResolvedConnectionProfile,
+    target: &ScopedQueryTarget,
+    path: &[String],
+) -> Option<String> {
+    if let Some(database) = direct_target_value(target, &["database", "catalog"]) {
+        return Some(database);
+    }
+    if let Some(database) = target_path_value_after(target, &["databases", "catalogs"]) {
+        return Some(database);
+    }
+
+    let scope = target.scope.as_deref().unwrap_or_default();
+    let parts = scope.split(':').collect::<Vec<_>>();
+    if connection.engine == "sqlserver" && parts.len() >= 4 && parts[0] == "table" {
+        return Some(parts[1].to_string());
+    }
+    if matches!(connection.engine.as_str(), "mysql" | "mariadb") {
+        if let Some(identity) = scope.strip_prefix("table:") {
+            return identity.split('.').next().map(str::to_string);
+        }
+        if parts.first() == Some(&"mysql") && parts.len() >= 2 {
+            return Some(parts[1].to_string());
+        }
+    }
+
+    (path.len() >= 2).then(|| path[0].clone())
+}
+
+fn sql_schema_from_target(target: &ScopedQueryTarget) -> Option<String> {
+    if let Some(schema) = direct_target_value(target, &["schema", "dataset"]) {
+        return Some(schema);
+    }
+    if let Some(schema) = target_path_value_after(target, &["schemas", "user-schemas", "datasets"])
+    {
+        return Some(schema);
+    }
+
+    let scope = target.scope.as_deref()?;
+    let parts = scope.split(':').collect::<Vec<_>>();
+    if parts.first() == Some(&"table") && parts.len() >= 4 {
+        return Some(parts[2].to_string());
+    }
+    if parts.first() == Some(&"oracle") && parts.get(1) == Some(&"object") {
+        return parts.get(3).map(|value| (*value).to_string());
+    }
+    let identity = scope.split_once(':')?.1;
+    identity
+        .split(['.', ':'])
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn target_path_values(
+    connection: &ResolvedConnectionProfile,
+    target: &ScopedQueryTarget,
+) -> Vec<String> {
+    const CONTAINERS: &[&str] = &[
+        "databases",
+        "catalogs",
+        "schemas",
+        "user schemas",
+        "tables",
+        "views",
+        "materialized views",
+        "collections",
+        "containers",
+        "indexes",
+        "data streams",
+        "keyspaces",
+        "graphs",
+        "node labels",
+        "metrics",
+        "measurements",
+        "buckets",
+    ];
+    target
+        .path
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .filter(|value| !value.eq_ignore_ascii_case(&connection.name))
+        .filter(|value| !CONTAINERS.contains(&value.to_ascii_lowercase().as_str()))
+        .map(str::to_string)
+        .collect()
+}
+
+fn normalized_kind(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace(['_', ' '], "-")
+}
+
 fn confirmation_guardrail_id(
     connection_id: &str,
     environment_id: &str,
@@ -324,3 +600,7 @@ fn confirmation_guardrail_id(
         .collect::<String>();
     format!("guardrail-{short_id}")
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/app/runtime/execution_target_tests.rs"]
+mod execution_target_tests;

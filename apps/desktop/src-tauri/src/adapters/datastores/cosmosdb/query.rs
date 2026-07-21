@@ -1,9 +1,12 @@
 use serde_json::{json, Map, Value};
 
 use super::super::super::*;
+use super::cancellation;
 use super::connection::{
-    cosmosdb_default_database, cosmosdb_get, cosmosdb_post_query, parse_cosmosdb_json,
+    cosmosdb_connection_string_value, cosmosdb_default_database, cosmosdb_get_with_cancellation,
+    cosmosdb_post_query, CosmosDbQueryRequestOptions, CosmosDbResponse,
 };
+use super::paging::apply_cosmosdb_result_paging;
 use super::CosmosDbAdapter;
 
 const READ_OPERATIONS: &[&str] = &[
@@ -28,10 +31,18 @@ pub(super) async fn execute_cosmosdb_query(
             "No Cosmos DB SQL API request was provided.",
         ));
     }
+    let cancellation = cancellation::register(request.execution_id.as_deref());
+    let cancellation_token = cancellation.token();
 
     if cosmosdb_api(connection) == "gremlin" {
-        return execute_cosmosdb_gremlin_query(adapter, connection, request, notices, started)
-            .await;
+        return tokio::select! {
+            biased;
+            _ = cancellation_token.cancelled() => Err(CommandError::new(
+                "execution-cancelled",
+                "The Cosmos DB Gremlin request was cancelled before it completed.",
+            )),
+            result = execute_cosmosdb_gremlin_query(adapter, connection, request, notices, started) => result,
+        };
     }
 
     let request_value = parse_request(query_text)?;
@@ -45,30 +56,43 @@ pub(super) async fn execute_cosmosdb_query(
         ));
     }
 
-    let row_limit = bounded_page_size(
+    let row_limit = cosmosdb_page_size(
+        connection,
         request
             .row_limit
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
-    let response =
-        execute_read_operation(connection, &operation, &request_value, row_limit).await?;
-    let normalized = normalize_cosmosdb_response_bounded(&operation, &response, row_limit);
+    let response = execute_read_operation(
+        connection,
+        CosmosDbReadOperationRequest {
+            execution_mode: request.mode.as_deref(),
+            operation: &operation,
+            request: &request_value,
+            row_limit,
+            continuation: None,
+            session_token: None,
+            cancellation: Some(&cancellation_token),
+        },
+    )
+    .await?;
+    let response_value = response.json()?;
+    let normalized = normalize_cosmosdb_response_bounded(&operation, &response_value, row_limit);
     let columns = normalized.columns;
     let rows = normalized.rows;
     let documents = normalized.documents;
-    let truncated = normalized.truncated;
+    let truncated = normalized.truncated || response.continuation.is_some();
     let row_count = rows.len() as u32;
     let mut payloads = vec![
         payload_document(documents),
         payload_table(columns, rows),
         payload_json(bounded_cosmosdb_response(
             &operation,
-            response.clone(),
+            response_value.clone(),
             row_limit,
             truncated,
         )),
     ];
-    if let Some(profile) = cosmosdb_profile_payload(&operation, &response) {
+    if let Some(profile) = cosmosdb_profile_payload(&operation, &response_value) {
         payloads.push(profile);
     }
     payloads.push(payload_raw(query_text.into()));
@@ -78,7 +102,7 @@ pub(super) async fn execute_cosmosdb_query(
         .map(String::as_str)
         .collect::<Vec<&str>>();
 
-    Ok(build_result(ResultEnvelopeInput {
+    let mut result = build_result(ResultEnvelopeInput {
         engine: &connection.engine,
         summary: if truncated {
             format!("Cosmos DB {operation} loaded the first {row_count} item(s).")
@@ -93,7 +117,9 @@ pub(super) async fn execute_cosmosdb_query(
         row_limit: Some(row_limit),
         truncated,
         explain_payload: None,
-    }))
+    });
+    apply_cosmosdb_result_paging(&mut result, &response, row_limit)?;
+    Ok(result)
 }
 
 async fn execute_cosmosdb_gremlin_query(
@@ -402,7 +428,7 @@ fn cosmosdb_gremlin_endpoint(
             connection
                 .connection_string
                 .as_deref()
-                .and_then(|value| connection_string_value(value, "AccountEndpoint"))
+                .and_then(|value| cosmosdb_connection_string_value(value, "AccountEndpoint"))
         })
         .or(connection.connection_string.as_deref())
         .or_else(|| (!connection.host.trim().is_empty()).then_some(connection.host.as_str()))
@@ -489,7 +515,7 @@ fn cosmosdb_gremlin_password(
             connection
                 .connection_string
                 .as_deref()
-                .and_then(|value| connection_string_value(value, "AccountKey"))
+                .and_then(|value| cosmosdb_connection_string_value(value, "AccountKey"))
                 .map(str::to_string)
         })
         .ok_or_else(|| {
@@ -511,41 +537,62 @@ fn gremlin_data(value: &Value) -> Vec<Value> {
     vec![data]
 }
 
-async fn execute_read_operation(
+pub(crate) struct CosmosDbReadOperationRequest<'a> {
+    pub(crate) execution_mode: Option<&'a str>,
+    pub(crate) operation: &'a str,
+    pub(crate) request: &'a Value,
+    pub(crate) row_limit: u32,
+    pub(crate) continuation: Option<String>,
+    pub(crate) session_token: Option<String>,
+    pub(crate) cancellation: Option<&'a tokio_util::sync::CancellationToken>,
+}
+
+pub(crate) async fn execute_read_operation(
     connection: &ResolvedConnectionProfile,
-    operation: &str,
-    request: &Value,
-    row_limit: u32,
-) -> Result<Value, CommandError> {
+    input: CosmosDbReadOperationRequest<'_>,
+) -> Result<CosmosDbResponse, CommandError> {
+    let CosmosDbReadOperationRequest {
+        execution_mode,
+        operation,
+        request,
+        row_limit,
+        continuation,
+        session_token,
+        cancellation,
+    } = input;
     let database = request
         .get("database")
         .and_then(Value::as_str)
         .map(str::to_string)
         .unwrap_or_else(|| cosmosdb_default_database(connection));
     match operation {
-        "ListDatabases" => {
-            let response = cosmosdb_get(connection, "/dbs").await?;
-            parse_cosmosdb_json(&response.body)
-        }
+        "ListDatabases" => cosmosdb_get_with_cancellation(connection, "/dbs", cancellation).await,
         "ListContainers" => {
-            let response = cosmosdb_get(connection, &format!("/dbs/{database}/colls")).await?;
-            parse_cosmosdb_json(&response.body)
+            cosmosdb_get_with_cancellation(
+                connection,
+                &format!("/dbs/{database}/colls"),
+                cancellation,
+            )
+            .await
         }
         "ReadContainer" => {
             let container = cosmosdb_request_container(connection, request)?;
-            let response =
-                cosmosdb_get(connection, &format!("/dbs/{database}/colls/{container}")).await?;
-            parse_cosmosdb_json(&response.body)
+            cosmosdb_get_with_cancellation(
+                connection,
+                &format!("/dbs/{database}/colls/{container}"),
+                cancellation,
+            )
+            .await
         }
         "ReadDocument" => {
             let container = cosmosdb_request_container(connection, request)?;
             let id = required_string(request, "id")?;
-            let response = cosmosdb_get(
+            cosmosdb_get_with_cancellation(
                 connection,
                 &format!("/dbs/{database}/colls/{container}/docs/{id}"),
+                cancellation,
             )
-            .await?;
-            parse_cosmosdb_json(&response.body)
+            .await
         }
         "QueryDocuments" => {
             let container = cosmosdb_request_container(connection, request)?;
@@ -553,18 +600,22 @@ async fn execute_read_operation(
                 .get("query")
                 .and_then(Value::as_str)
                 .unwrap_or("SELECT * FROM c");
-            let body = cosmosdb_query_body(
-                query,
-                request.get("parameters"),
-                row_limit.saturating_add(1),
-            );
-            let response = cosmosdb_post_query(
+            let body = cosmosdb_query_body(query, request.get("parameters"));
+            cosmosdb_post_query(
                 connection,
                 &format!("/dbs/{database}/colls/{container}/docs"),
                 &body,
+                cosmosdb_query_request_options(
+                    connection,
+                    execution_mode,
+                    request,
+                    row_limit,
+                    continuation,
+                    session_token,
+                )?,
+                cancellation,
             )
-            .await?;
-            parse_cosmosdb_json(&response.body)
+            .await
         }
         _ => Err(CommandError::new(
             "cosmosdb-operation-unsupported",
@@ -632,17 +683,76 @@ pub(crate) fn cosmosdb_operation(value: &Value) -> Result<String, CommandError> 
     Ok(normalize_operation_name(operation))
 }
 
-pub(crate) fn cosmosdb_query_body(
-    query: &str,
-    parameters: Option<&Value>,
-    row_limit: u32,
-) -> String {
+pub(crate) fn cosmosdb_query_body(query: &str, parameters: Option<&Value>) -> String {
     serde_json::to_string(&json!({
         "query": query,
         "parameters": parameters.cloned().unwrap_or_else(|| json!([])),
-        "maxItemCount": row_limit,
     }))
     .unwrap_or_default()
+}
+
+pub(crate) fn cosmosdb_page_size(
+    connection: &ResolvedConnectionProfile,
+    requested: Option<u32>,
+) -> u32 {
+    let requested = bounded_page_size(requested);
+    connection
+        .cosmos_db_options
+        .as_ref()
+        .and_then(|options| options.max_item_count)
+        .filter(|value| *value > 0)
+        .map(|configured| requested.min(configured))
+        .unwrap_or(requested)
+}
+
+fn cosmosdb_query_request_options(
+    connection: &ResolvedConnectionProfile,
+    execution_mode: Option<&str>,
+    request: &Value,
+    row_limit: u32,
+    continuation: Option<String>,
+    session_token: Option<String>,
+) -> Result<CosmosDbQueryRequestOptions, CommandError> {
+    let options = connection.cosmos_db_options.as_ref();
+    Ok(CosmosDbQueryRequestOptions {
+        max_item_count: row_limit,
+        continuation,
+        partition_key: request
+            .get("partitionKey")
+            .or_else(|| request.get("partition_key"))
+            .map(cosmosdb_partition_key_header)
+            .transpose()?,
+        session_token,
+        enable_cross_partition: request
+            .get("enableCrossPartitionQueries")
+            .and_then(Value::as_bool)
+            .or_else(|| options.and_then(|value| value.enable_cross_partition_queries))
+            .unwrap_or(true),
+        populate_query_metrics: execution_mode == Some("profile")
+            || request
+                .get("populateQueryMetrics")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        populate_index_metrics: execution_mode == Some("profile")
+            || request
+                .get("populateIndexMetrics")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+    })
+}
+
+fn cosmosdb_partition_key_header(value: &Value) -> Result<String, CommandError> {
+    let value = if value.is_array() {
+        value.clone()
+    } else {
+        Value::Array(vec![value.clone()])
+    };
+    serde_json::to_string(&value).map_err(|_| {
+        CommandError::new(
+            "cosmosdb-partition-key-invalid",
+            "Cosmos DB partition key could not be serialized for request routing.",
+        )
+    })
 }
 
 pub(crate) struct CosmosDbNormalizedResponse {
@@ -667,7 +777,7 @@ pub(crate) fn normalize_cosmosdb_response_bounded(
     .unwrap_or_else(|| json!([response.clone()]));
     let items = documents.as_array().cloned().unwrap_or_default();
     let bounded = bounded_items(items, row_limit);
-    let truncated = bounded.truncated || cosmosdb_continuation(response).is_some();
+    let truncated = bounded.truncated || cosmosdb_has_more(response);
     let visible_items = bounded.visible;
     let (columns, rows) = document_rows(&visible_items, row_limit);
 
@@ -685,9 +795,7 @@ fn bounded_cosmosdb_response(
     row_limit: u32,
     truncated: bool,
 ) -> Value {
-    let continuation = cosmosdb_continuation(&response)
-        .map(str::to_string)
-        .unwrap_or_default();
+    let has_more = cosmosdb_has_more(&response);
     if let Some(object) = response.as_object_mut() {
         let array_key = match operation {
             "ListDatabases" => Some("Databases"),
@@ -708,7 +816,7 @@ fn bounded_cosmosdb_response(
                 "datapad".into(),
                 json!({
                     "truncated": true,
-                    "continuation": if continuation.is_empty() { Value::Null } else { Value::String(continuation) },
+                    "hasMore": has_more,
                 }),
             );
         }
@@ -724,10 +832,8 @@ fn cosmosdb_profile_payload(operation: &str, response: &Value) -> Option<Value> 
         .and_then(Value::as_u64)
         .map(Value::from)
         .unwrap_or(Value::Null);
-    let continuation = cosmosdb_continuation(response)
-        .map(Value::from)
-        .unwrap_or(Value::Null);
-    let has_signal = request_charge.is_some() || !item_count.is_null() || !continuation.is_null();
+    let has_more = cosmosdb_has_more(response);
+    let has_signal = request_charge.is_some() || !item_count.is_null() || has_more;
 
     has_signal.then(|| {
         payload_profile(
@@ -736,7 +842,7 @@ fn cosmosdb_profile_payload(operation: &str, response: &Value) -> Option<Value> 
                 "operation": operation,
                 "requestCharge": request_charge,
                 "count": item_count,
-                "continuation": continuation,
+                "hasMore": has_more,
             }),
         )
     })
@@ -757,6 +863,14 @@ fn cosmosdb_continuation(response: &Value) -> Option<&str> {
         .or_else(|| response.get("x-ms-continuation"))
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
+}
+
+fn cosmosdb_has_more(response: &Value) -> bool {
+    response
+        .get("_hasMore")
+        .or_else(|| response.get("hasMore"))
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| cosmosdb_continuation(response).is_some())
 }
 
 fn document_rows(items: &[Value], row_limit: u32) -> (Vec<String>, Vec<Vec<String>>) {
@@ -916,17 +1030,6 @@ fn flush_gremlin_token(token: &mut String, tokens: &mut Vec<String>) {
     if !token.is_empty() {
         tokens.push(std::mem::take(token));
     }
-}
-
-fn connection_string_value<'a>(connection_string: &'a str, key: &str) -> Option<&'a str> {
-    connection_string.split(';').find_map(|part| {
-        let (part_key, value) = part.split_once('=')?;
-        part_key
-            .trim()
-            .eq_ignore_ascii_case(key)
-            .then(|| value.trim())
-            .filter(|value| !value.is_empty())
-    })
 }
 
 fn value_to_string(value: &Value) -> String {

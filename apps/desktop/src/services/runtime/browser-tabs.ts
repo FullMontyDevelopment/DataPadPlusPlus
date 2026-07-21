@@ -1,8 +1,10 @@
-import type { ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import type { ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, UpdateQueryTabTargetRequest, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { createId, defaultQueryTextForConnection, defaultQueryViewModeForConnection, defaultScriptTextForConnection, editorLabelForConnection, languageForConnection } from '../../app/state/helpers'
+import { createDefaultCosmosSqlBuilderState } from '../../app/components/workbench/query-builder/cosmos-sql'
 import {
   cassandraPartitionKeyFromTarget,
   cassandraTargetFromTarget,
+  cosmosSqlTargetFromTarget,
   dynamoTableNameFromTarget,
   mongoAggregationQueryText,
   mongoFindQueryText,
@@ -272,6 +274,16 @@ export function createScopedQueryTabInSnapshot(
   const targetDatabase = scopedTargetDatabase(request.target, connection)
   const targetLabel = scopedTargetObjectLabel(request.target, connection, targetObjectName)
   const builderKind = scopedBuilderKind(connection, request.target)
+  const cosmosTarget = builderKind === 'cosmos-sql'
+    ? cosmosSqlTargetFromTarget(request.target, connection, targetObjectName)
+    : undefined
+  const cosmosBuilderState = cosmosTarget
+    ? createDefaultCosmosSqlBuilderState(
+        cosmosTarget.container,
+        cosmosTarget.database,
+        50,
+      )
+    : undefined
   const legacyTitle = scopedQueryTitleCandidate(
     connection,
     targetLabel,
@@ -294,6 +306,8 @@ export function createScopedQueryTabInSnapshot(
       ? mongoFindQueryText(targetObjectName ?? '', 20, targetDatabase)
       : builderKind === 'mongo-aggregation'
         ? mongoAggregationQueryText(targetObjectName ?? '', 20, targetDatabase)
+      : builderKind === 'cosmos-sql'
+        ? cosmosBuilderState?.lastAppliedQueryText ?? request.target.queryTemplate ?? ''
       : builderKind === 'redis-key-browser'
         ? redisKeyBrowserQueryText(
             redisPatternFromTarget(request.target),
@@ -429,6 +443,17 @@ export function createScopedQueryTabInSnapshot(
               size: 20,
               lastAppliedQueryText: queryText,
             }
+        : builderKind === 'cosmos-sql'
+          ? {
+              ...cosmosBuilderState,
+              kind: 'cosmos-sql',
+              container: cosmosBuilderState?.container ?? '',
+              projectionFields: cosmosBuilderState?.projectionFields ?? [],
+              filters: cosmosBuilderState?.filters ?? [],
+              filterLogic: cosmosBuilderState?.filterLogic ?? 'and',
+              sort: cosmosBuilderState?.sort ?? [],
+              lastAppliedQueryText: queryText,
+            }
         : undefined,
     status: 'idle',
     dirty: true,
@@ -473,6 +498,14 @@ function scopedBuilderKind(
     target.preferredBuilder === 'search-dsl'
   ) {
     return 'search-dsl'
+  }
+
+  if (
+    connection.engine === 'cosmosdb' &&
+    (connection.cosmosDbOptions?.api ?? 'nosql') === 'nosql' &&
+    target.preferredBuilder === 'cosmos-sql'
+  ) {
+    return 'cosmos-sql'
   }
 
   return undefined
@@ -743,6 +776,37 @@ export function renameQueryTab(
     }
   }
 
+  next.updatedAt = new Date().toISOString()
+  return next
+}
+
+export function updateQueryTabTargetInSnapshot(
+  snapshot: WorkspaceSnapshot,
+  request: UpdateQueryTabTargetRequest,
+): WorkspaceSnapshot {
+  const next = cloneSnapshot(snapshot)
+  const tab = findTab(next, request.tabId)
+  if (!tab) {
+    return next
+  }
+  if (tab.activeExecution) {
+    throw new Error('Wait for the current query to finish before changing its target.')
+  }
+
+  tab.scopedTarget = request.scopedTarget
+  tab.queryText = request.queryText
+  tab.queryViewMode = request.queryViewMode
+  tab.scriptText = request.scriptText
+  tab.builderState = request.builderState
+  if (request.title?.trim()) {
+    tab.title = request.title.trim()
+  }
+  tab.status = 'idle'
+  tab.activeExecution = undefined
+  tab.dirty = true
+  tab.lastRunAt = undefined
+  tab.result = undefined
+  tab.error = undefined
   next.updatedAt = new Date().toISOString()
   return next
 }

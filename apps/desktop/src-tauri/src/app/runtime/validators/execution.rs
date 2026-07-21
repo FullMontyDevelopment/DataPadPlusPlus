@@ -6,6 +6,7 @@ use crate::domain::{
 };
 
 use super::common::*;
+use super::workspace::validate_scoped_query_target;
 
 pub(in crate::app::runtime) fn validate_execution_request(
     request: &mut ExecutionRequest,
@@ -35,6 +36,9 @@ pub(in crate::app::runtime) fn validate_execution_request(
     if let Some(builder_state) = &request.builder_state {
         assert_json_size(builder_state, "Query builder state")?;
     }
+    if let Some(scoped_target) = &request.scoped_target {
+        validate_scoped_query_target(scoped_target)?;
+    }
     if request.mode.as_deref() == Some("count") && request.builder_state.is_none() {
         return Err(invalid_request(
             "Query Builder Count requires the current builder state.",
@@ -52,6 +56,9 @@ pub(in crate::app::runtime) fn validate_execution_request(
 pub(in crate::app::runtime) fn validate_result_page_request(
     request: &mut ResultPageRequest,
 ) -> Result<(), CommandError> {
+    if let Some(execution_id) = request.execution_id.as_deref() {
+        validate_required_id(execution_id, "Execution id")?;
+    }
     validate_required_id(&request.tab_id, "Tab id")?;
     validate_required_id(&request.connection_id, "Connection id")?;
     validate_required_id(&request.environment_id, "Environment id")?;
@@ -67,7 +74,15 @@ pub(in crate::app::runtime) fn validate_result_page_request(
             request.renderer
         )));
     }
-    validate_optional_text(request.cursor.as_deref(), "Result cursor", MAX_SCOPE_LENGTH)?;
+    const MAX_RESULT_CURSOR_LENGTH: usize = 256 * 1024;
+    validate_optional_text(
+        request.cursor.as_deref(),
+        "Result cursor",
+        MAX_RESULT_CURSOR_LENGTH,
+    )?;
+    if let Some(scoped_target) = &request.scoped_target {
+        validate_scoped_query_target(scoped_target)?;
+    }
     clamp_optional_u32(&mut request.page_size, 1, MAX_RESULT_PAGE_SIZE);
     clamp_optional_u32(&mut request.page_index, 0, MAX_RESULT_PAGE_INDEX);
     Ok(())

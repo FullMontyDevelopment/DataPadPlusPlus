@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use super::{blank_workspace_snapshot, query_tabs::build_scoped_query_tab, timestamp_now};
 use crate::domain::models::{
-    ConnectionAuth, ConnectionProfile, CreateScopedQueryTabRequest, EnvironmentProfile,
-    ScopedQueryTarget,
+    ConnectionAuth, ConnectionProfile, CosmosDbConnectionOptions, CreateScopedQueryTabRequest,
+    EnvironmentProfile, ScopedQueryTarget,
 };
 
 #[test]
@@ -184,6 +184,75 @@ fn scoped_redis_database_tab_gets_db_scoped_key_browser_state() {
 }
 
 #[test]
+fn scoped_cosmos_container_tab_gets_nosql_builder_state() {
+    let snapshot = blank_workspace_snapshot();
+    let mut connection = test_connection("conn-cosmos", "Cosmos DB", "cosmosdb", "document");
+    connection.cosmos_db_options = Some(CosmosDbConnectionOptions {
+        api: Some("nosql".into()),
+        database_name: Some("catalog".into()),
+        container_prefix: Some("products".into()),
+        ..CosmosDbConnectionOptions::default()
+    });
+    let tab = build_scoped_query_tab(
+        &snapshot,
+        &connection,
+        scoped_request(
+            &connection,
+            ScopedQueryTarget {
+                kind: "container".into(),
+                label: "products".into(),
+                path: vec!["Cosmos DB".into(), "Databases".into(), "catalog".into()],
+                scope: Some("cosmos:container:catalog:products".into()),
+                query_template: None,
+                preferred_builder: Some("cosmos-sql".into()),
+            },
+            Some("env-dev".into()),
+        ),
+    );
+
+    assert_eq!(tab.title, "products.json");
+    assert_eq!(tab.query_view_mode.as_deref(), Some("builder"));
+    assert_eq!(builder_kind(&tab), Some("cosmos-sql"));
+    assert_eq!(builder_value(&tab, "database"), Some("catalog"));
+    assert_eq!(builder_value(&tab, "container"), Some("products"));
+    let request: serde_json::Value = serde_json::from_str(&tab.query_text).expect("Cosmos request");
+    assert_eq!(request["operation"], "QueryDocuments");
+    assert_eq!(request["database"], "catalog");
+    assert_eq!(request["container"], "products");
+    assert_eq!(request["query"], "SELECT TOP 20 * FROM c");
+}
+
+#[test]
+fn scoped_cosmos_gremlin_tab_stays_raw() {
+    let snapshot = blank_workspace_snapshot();
+    let mut connection = test_connection("conn-cosmos", "Cosmos DB", "cosmosdb", "graph");
+    connection.cosmos_db_options = Some(CosmosDbConnectionOptions {
+        api: Some("gremlin".into()),
+        ..CosmosDbConnectionOptions::default()
+    });
+    let tab = build_scoped_query_tab(
+        &snapshot,
+        &connection,
+        scoped_request(
+            &connection,
+            ScopedQueryTarget {
+                kind: "graph".into(),
+                label: "recommendations".into(),
+                path: vec!["Cosmos DB".into(), "Graphs".into()],
+                scope: Some("cosmos:container:catalog:recommendations".into()),
+                query_template: Some("g.V().limit(25)".into()),
+                preferred_builder: Some("cosmos-sql".into()),
+            },
+            None,
+        ),
+    );
+
+    assert_eq!(tab.query_view_mode.as_deref(), Some("raw"));
+    assert_eq!(tab.query_text, "g.V().limit(25)");
+    assert!(tab.builder_state.is_none());
+}
+
+#[test]
 fn scoped_query_target_deserializes_null_path_as_empty_path() {
     let request: CreateScopedQueryTabRequest = serde_json::from_value(serde_json::json!({
         "connectionId": "conn-redis",
@@ -276,6 +345,16 @@ fn builder_database_index(tab: &crate::domain::models::QueryTabState) -> Option<
         .as_ref()
         .and_then(|value| value.get("databaseIndex"))
         .and_then(serde_json::Value::as_u64)
+}
+
+fn builder_value<'a>(
+    tab: &'a crate::domain::models::QueryTabState,
+    field: &str,
+) -> Option<&'a str> {
+    tab.builder_state
+        .as_ref()
+        .and_then(|value| value.get(field))
+        .and_then(serde_json::Value::as_str)
 }
 
 fn snapshot_with_dev_environment() -> crate::domain::models::WorkspaceSnapshot {

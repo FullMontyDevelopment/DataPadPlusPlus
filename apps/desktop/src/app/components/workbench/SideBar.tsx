@@ -41,6 +41,7 @@ interface SideBarProps {
   isExplorerScopeLoading?(connectionId: string, scope?: string, environmentId?: string): boolean
   activeConnectionId: string
   activeEnvironmentId: string
+  activeLibraryNodeId?: string
   onSelectConnection(connectionId: string): void
   onSelectEnvironment(environmentId: string): void
   onCreateConnection(parentId?: string): void
@@ -50,6 +51,7 @@ interface SideBarProps {
   onDeleteEnvironment(environmentId: string): void
   onConnectionGroupModeChange(value: ConnectionGroupMode): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
+  onCollapseExplorerItems(sectionIds: string[]): void
   onDuplicateConnection(connectionId: string): void
   onDeleteConnection(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
@@ -114,6 +116,7 @@ export function SideBar({
   isExplorerScopeLoading,
   activeConnectionId,
   activeEnvironmentId,
+  activeLibraryNodeId,
   onSelectConnection,
   onSelectEnvironment,
   onCreateConnection,
@@ -122,6 +125,7 @@ export function SideBar({
   onEditEnvironment,
   onDeleteEnvironment,
   onSidebarSectionExpandedChange,
+  onCollapseExplorerItems,
   onDuplicateConnection,
   onDeleteConnection,
   onOpenConnectionExplorer,
@@ -292,6 +296,7 @@ export function SideBar({
         <LibraryPane
           activeConnectionId={activeConnectionId}
           activeEnvironmentId={activeEnvironmentId}
+          activeLibraryNodeId={activeLibraryNodeId}
           adapterManifests={adapterManifests}
           getConnectionExplorerItems={getConnectionExplorerItems}
           getConnectionExplorerStatus={getConnectionExplorerStatus}
@@ -350,6 +355,7 @@ export function SideBar({
           onSelectConnection={onSelectConnection}
           onSelectEnvironment={onSelectEnvironment}
           onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
+          onCollapseExplorerItems={onCollapseExplorerItems}
           onLibraryFilterChange={setLibraryFilter}
           onCollapseSidebar={onCollapseSidebar}
           onTestConnection={onTestConnection}

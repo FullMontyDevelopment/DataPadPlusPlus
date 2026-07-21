@@ -379,6 +379,7 @@ export function useRuntimeActions({
         }
 
         const request: ResultPageRequest = {
+          executionId,
           tabId: tab.id,
           connectionId: tab.connectionId,
           environmentId: tab.environmentId,
@@ -391,6 +392,7 @@ export function useRuntimeActions({
           documentEfficiencyMode: tab.result.payloads.some(
             (payload) => payload.renderer === 'document' && payload.hydrationMode === 'lazy',
           ),
+          scopedTarget: tab.scopedTarget,
         }
 
         dispatch({

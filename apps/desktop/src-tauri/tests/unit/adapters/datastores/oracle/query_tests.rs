@@ -2,8 +2,8 @@ use serde_json::json;
 
 use super::{
     is_read_only_oracle_statement, normalize_oracle_response, oracle_friendly_error,
-    oracle_live_statement, oracle_sqlplus_script, parse_oracle_sqlplus_csv,
-    preview_oracle_response, redact_oracle_sqlplus_output,
+    oracle_live_statement, oracle_sqlplus_script, oracle_statement_invalidates_metadata,
+    parse_oracle_sqlplus_csv, preview_oracle_response, redact_oracle_sqlplus_output,
 };
 use crate::domain::models::{OracleConnectionOptions, ResolvedConnectionProfile};
 
@@ -70,6 +70,18 @@ fn oracle_read_only_guard_detects_mutations() {
     assert!(!is_read_only_oracle_statement(
         "select * from accounts for update"
     ));
+}
+
+#[test]
+fn oracle_ddl_invalidates_cached_metadata() {
+    for kind in [
+        "create", "alter", "drop", "truncate", "rename", "comment", "grant", "revoke",
+    ] {
+        assert!(oracle_statement_invalidates_metadata(kind), "{kind}");
+    }
+    for kind in ["select", "insert", "update", "delete", "merge", "begin"] {
+        assert!(!oracle_statement_invalidates_metadata(kind), "{kind}");
+    }
 }
 
 #[test]

@@ -10,6 +10,7 @@ import {
 } from '../../../../../src/app/components/workbench/results/field-drag'
 import { ResultPayloadView } from '../../../../../src/app/components/workbench/results/ResultPayloadView'
 import { createDefaultCqlPartitionBuilderState } from '../../../../../src/app/components/workbench/query-builder/cql-partition'
+import { createDefaultCosmosSqlBuilderState } from '../../../../../src/app/components/workbench/query-builder/cosmos-sql'
 import { createDefaultDynamoDbKeyConditionBuilderState } from '../../../../../src/app/components/workbench/query-builder/dynamodb-key-condition'
 import { createDefaultMongoAggregationBuilderState } from '../../../../../src/app/components/workbench/query-builder/mongo-aggregation'
 import { createDefaultMongoFindBuilderState } from '../../../../../src/app/components/workbench/query-builder/mongo-find'
@@ -69,6 +70,54 @@ describe('QueryBuilderPanel', () => {
       />,
     )
     expect(screen.getByRole('button', { name: 'Count' })).toBeDisabled()
+  })
+
+  it('edits Cosmos SQL fields, filters, paging, and partition routing', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(
+      <BuilderHarness
+        connectionEngine="cosmosdb"
+        initialBuilderState={createDefaultCosmosSqlBuilderState('products', 'catalog', 25)}
+        onBuilderStateChange={onBuilderStateChange}
+        onCount={vi.fn().mockResolvedValue(undefined)}
+        tab={cosmosTab()}
+      />,
+    )
+
+    expect(screen.getByLabelText('Cosmos DB SQL query builder')).toBeInTheDocument()
+    expect(screen.getByLabelText('Database')).toHaveValue('catalog')
+    expect(screen.getByLabelText('Container')).toHaveValue('products')
+    expect(screen.getByLabelText('Limit')).toHaveValue(25)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Field' }))
+    fireEvent.change(screen.getByLabelText('Projection field'), {
+      target: { value: 'profile.name' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Filter' }))
+    fireEvent.change(screen.getByLabelText('Filter field'), { target: { value: 'status' } })
+    fireEvent.change(screen.getByLabelText('Filter value'), { target: { value: 'active' } })
+    fireEvent.click(screen.getByLabelText('Route to partition key'))
+    fireEvent.change(screen.getByLabelText('Partition key value'), {
+      target: { value: 'tenant-1' },
+    })
+
+    const next = lastBuilderState(onBuilderStateChange)
+    expect(next).toMatchObject({
+      kind: 'cosmos-sql',
+      database: 'catalog',
+      container: 'products',
+      partitionKeyEnabled: true,
+      partitionKeyValue: 'tenant-1',
+    })
+    expect(JSON.parse(next.lastAppliedQueryText ?? '{}')).toMatchObject({
+      operation: 'QueryDocuments',
+      database: 'catalog',
+      container: 'products',
+      partitionKey: 'tenant-1',
+      enableCrossPartitionQueries: false,
+    })
+    expect(screen.getByRole('button', { name: 'Count' })).toBeEnabled()
   })
 
   it('adds dragged result fields to filter, projection, and sort sections', () => {
@@ -946,7 +995,7 @@ function BuilderHarness({
   onBuilderStateChange,
   tab,
 }: {
-  connectionEngine?: 'mongodb' | 'postgresql' | 'dynamodb' | 'cassandra' | 'elasticsearch' | 'redis'
+  connectionEngine?: 'mongodb' | 'cosmosdb' | 'postgresql' | 'dynamodb' | 'cassandra' | 'elasticsearch' | 'redis'
   initialBuilderState?: QueryBuilderState
   onExecuteDataEdit?: ComponentProps<typeof QueryBuilderPanel>['onExecuteDataEdit']
   onCount?: ComponentProps<typeof QueryBuilderPanel>['onCount']
@@ -968,6 +1017,8 @@ function BuilderHarness({
         family:
           connectionEngine === 'mongodb'
             ? 'document'
+            : connectionEngine === 'cosmosdb'
+              ? 'document'
             : connectionEngine === 'redis'
               ? 'keyvalue'
             : connectionEngine === 'dynamodb'
@@ -1015,6 +1066,29 @@ function redisTab(): QueryTabState {
     language: 'redis',
     editorLabel: 'Redis console',
     queryText: 'SCAN 0 MATCH * COUNT 100',
+    status: 'idle',
+    dirty: false,
+    history: [],
+    builderState,
+  }
+}
+
+function cosmosTab(): QueryTabState {
+  const builderState: QueryBuilderState = createDefaultCosmosSqlBuilderState(
+    'products',
+    'catalog',
+    25,
+  )
+
+  return {
+    id: 'tab-cosmos',
+    title: 'products.sql',
+    connectionId: 'conn-cosmosdb',
+    environmentId: 'env-dev',
+    family: 'document',
+    language: 'sql',
+    editorLabel: 'Cosmos DB SQL query',
+    queryText: builderState.lastAppliedQueryText ?? '',
     status: 'idle',
     dirty: false,
     history: [],

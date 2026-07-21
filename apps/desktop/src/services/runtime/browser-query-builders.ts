@@ -32,6 +32,12 @@ const SINGLE_QUERY_BUILDER_BY_ENGINE: Partial<
     scope: 'table',
     defaultMode: 'split',
   },
+  cosmosdb: {
+    kind: 'cosmos-sql',
+    label: 'Cosmos SQL Builder',
+    scope: 'collection',
+    defaultMode: 'visual',
+  },
   prometheus: {
     kind: 'timeseries-query',
     label: 'PromQL Range Builder',

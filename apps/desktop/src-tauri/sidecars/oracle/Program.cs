@@ -17,6 +17,8 @@ internal static partial class Program
     private const int ProtocolVersion = 1;
     private const int MaxLobCharacters = 1_048_576;
     private const int MaxBinaryBytes = 1_048_576;
+    internal const string SessionContextProbe =
+        "select sys_context('USERENV', 'SESSION_USER'), sys_context('USERENV', 'CURRENT_SCHEMA'), sys_context('USERENV', 'PROXY_USER'), sys_context('USERENV', 'DB_NAME'), sys_context('USERENV', 'DB_UNIQUE_NAME'), sys_context('USERENV', 'CON_NAME'), sys_context('USERENV', 'CON_ID'), sys_context('USERENV', 'SERVICE_NAME') from dual";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -197,19 +199,26 @@ internal static partial class Program
         await connection.OpenAsync(cancellationToken);
         ApplySessionIdentity(connection, input);
 
-        const string probe = "select user, sys_context('USERENV', 'DB_NAME'), sys_context('USERENV', 'SERVICE_NAME') from dual";
         await using var command = connection.CreateCommand();
-        command.CommandText = probe;
+        command.CommandText = SessionContextProbe;
         command.CommandTimeout = CommandTimeoutSeconds(request.TimeoutMs);
         active.SetCommand(command);
         await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, cancellationToken);
         await reader.ReadAsync(cancellationToken);
 
+        var sessionUser = ValueAsString(reader.GetValue(0));
+        var currentSchema = ValueAsString(reader.GetValue(1));
         return new
         {
-            authenticatedSchema = ValueAsString(reader.GetValue(0)),
-            databaseName = ValueAsString(reader.GetValue(1)),
-            serviceName = ValueAsString(reader.GetValue(2)),
+            authenticatedSchema = currentSchema,
+            sessionUser,
+            currentSchema,
+            proxyUser = ValueAsString(reader.GetValue(2)),
+            databaseName = ValueAsString(reader.GetValue(3)),
+            databaseUniqueName = ValueAsString(reader.GetValue(4)),
+            containerName = ValueAsString(reader.GetValue(5)),
+            containerId = Convert.ToInt32(reader.GetValue(6), CultureInfo.InvariantCulture),
+            serviceName = ValueAsString(reader.GetValue(7)),
             serverVersion = connection.ServerVersion,
             tls = input.UseTls || input.ConnectMode is "tcps" or "cloud-wallet",
             durationMs = started.ElapsedMilliseconds,

@@ -262,6 +262,7 @@ async fn live_sample_schema(
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
         builder_state: None,
+        scoped_target: None,
     };
     let result = adapters::execute(
         resolved_connection,

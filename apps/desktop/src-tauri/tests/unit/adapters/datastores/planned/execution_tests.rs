@@ -54,6 +54,7 @@ fn beta_execution_clamps_large_requested_row_limits() {
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
         builder_state: None,
+        scoped_target: None,
     };
 
     let result = beta_execution_result(

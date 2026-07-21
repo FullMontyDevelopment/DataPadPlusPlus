@@ -1,6 +1,6 @@
-import type { BootstrapPayload, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateQueryBuilderStateRequest } from '@datapadplusplus/shared-types'
+import type { BootstrapPayload, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest } from '@datapadplusplus/shared-types'
 import { resolveEnvironment } from '../../app/state/helpers'
-import { closeQueryTab, createEnvironmentTabInSnapshot, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createObjectViewTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, upsertTab } from './browser-tabs'
+import { closeQueryTab, createEnvironmentTabInSnapshot, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createObjectViewTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, updateQueryTabTargetInSnapshot, upsertTab } from './browser-tabs'
 import { collectDiagnosticsLocally } from './browser-operation-inspection'
 import { redactForEnvironment } from './browser-response-redaction'
 import { buildBrowserPayload, cloneSnapshot, findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
@@ -12,6 +12,7 @@ import {
   validateQueryTabReorderRequest,
   validateRequiredTabId,
   validateUpdateQueryBuilderStateRequest,
+  validateUpdateQueryTabTargetRequest,
   validateUpdateQueryTabRequest,
 } from './request-validation'
 import { validateOptionalId, validateRequiredId, validateRequiredText } from './datastores/common/request-validation-core'
@@ -390,6 +391,20 @@ export const clientTabs = {
       }
       next.updatedAt = new Date().toISOString()
     }
+
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async updateQueryTarget(
+    request: UpdateQueryTabTargetRequest,
+  ): Promise<BootstrapPayload> {
+    request = validateUpdateQueryTabTargetRequest(request)
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('update_query_tab_target', { request })
+    }
+
+    const next = updateQueryTabTargetInSnapshot(loadBrowserSnapshot(), request)
 
     saveBrowserSnapshot(next)
     return buildBrowserPayload(next)

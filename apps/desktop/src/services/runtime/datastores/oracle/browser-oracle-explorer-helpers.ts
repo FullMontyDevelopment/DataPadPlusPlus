@@ -38,7 +38,7 @@ export function oracleSchemaSections(context: OracleObjectContext): ExplorerNode
 
 export function oracleDatabaseContext(service: string, schema: string): OracleObjectContext {
   return {
-    key: `database:${service}:${schema}`,
+    key: `database:${encodeOracleScopeComponent(service)}:${encodeOracleScopeComponent(schema)}`,
     schema,
     path: ['Oracle', 'Databases', service],
   }
@@ -46,7 +46,7 @@ export function oracleDatabaseContext(service: string, schema: string): OracleOb
 
 export function oracleSchemaContext(schema: string): OracleObjectContext {
   return {
-    key: `schema:${schema}`,
+    key: `schema:${encodeOracleScopeComponent(schema)}`,
     schema,
     path: ['Oracle', 'Schemas', schema],
   }
@@ -58,14 +58,19 @@ export function oracleCategoryTarget(
   const parts = scope.replace('oracle:category:', '').split(':')
   const [branch, first, second, third] = parts
   if (branch === 'database' && parts.length === 4 && first && second && third) {
+    const service = decodeOracleScopeComponent(first)
+    const schema = decodeOracleScopeComponent(second)
+    if (service === undefined || schema === undefined) return undefined
     return {
-      context: oracleDatabaseContext(first, second),
+      context: oracleDatabaseContext(service, schema),
       category: third,
     }
   }
   if (branch === 'schema' && parts.length === 3 && first && second && !third) {
+    const schema = decodeOracleScopeComponent(first)
+    if (schema === undefined) return undefined
     return {
-      context: oracleSchemaContext(first),
+      context: oracleSchemaContext(schema),
       category: second,
     }
   }
@@ -86,7 +91,7 @@ export function oracleCategoryObjectNodes(context: OracleObjectContext, category
     seen.add(objectName)
 
     return [oracleNode(
-      `oracle-${objectKind}:${context.key}:${objectName}`,
+      `oracle-${objectKind}:${context.key}:${encodeOracleScopeComponent(objectName)}`,
       objectName,
       objectKind,
       `${oracleObjectDetail(category, row)} | Browser preview; live Oracle metadata is available in the desktop app.`,
@@ -135,14 +140,26 @@ export function oracleObjectTargetFromNodeId(nodeId: string) {
   for (const [prefix, kind, category] of definitions) {
     if (!nodeId.startsWith(prefix)) continue
     const parts = nodeId.slice(prefix.length).split(':')
-    const schema = parts.at(-2)?.trim()
-    const objectName = parts.at(-1)?.trim()
+    const schema = decodeOracleScopeComponent(parts.at(-2)?.trim() ?? '')
+    const objectName = decodeOracleScopeComponent(parts.at(-1)?.trim() ?? '')
     if (schema && objectName) {
       return { kind, category, schema, objectName }
     }
   }
 
   return undefined
+}
+
+export function encodeOracleScopeComponent(value: string) {
+  return encodeURIComponent(value).replaceAll('%20', ' ')
+}
+
+export function decodeOracleScopeComponent(value: string) {
+  try {
+    return decodeURIComponent(value.replaceAll(' ', '%20'))
+  } catch {
+    return undefined
+  }
 }
 
 function oracleContractCategoryRows(category: string, schema: string): string[][] {

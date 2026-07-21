@@ -180,6 +180,7 @@ fn execution_request(query_text: String, row_limit: Option<u32>) -> ExecutionReq
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
         builder_state: None,
+        scoped_target: None,
     }
 }
 

@@ -191,6 +191,7 @@ pub(crate) async fn execute_standard_live_operation<A: DatastoreAdapter + ?Sized
             document_efficiency_mode: None,
             confirmed_guardrail_id: None,
             builder_state: None,
+            scoped_target: None,
         };
         let result = adapter
             .execute(

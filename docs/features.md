@@ -449,6 +449,7 @@ Document-like cloud and local engines keep their own management surfaces.
 DataPad++ can help you:
 
 - review Cosmos DB containers, partition keys, indexing policy, RU throughput, regions, consistency, access, and diagnostics
+- build parameterized Cosmos DB for NoSQL queries visually with selected fields, typed filters, AND/OR logic, sorting, offset/limit paging, optional exact partition routing, and exact Count execution
 - use deterministic Cosmos SQL and JSON IntelliSense for databases, containers, fields, partition-key helpers, and bounded query snippets
 - preview Cosmos DB query metrics, throughput changes, consistency changes, indexing policy updates, region failover, access checks, exports, and guarded drops
 - inspect LiteDB local files, collections, schema previews, indexes, file storage, storage health, local-file preflight, encryption posture, lock-boundary posture, and settings

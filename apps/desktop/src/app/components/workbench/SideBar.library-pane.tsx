@@ -20,6 +20,7 @@ import type { ConnectionHealth } from '../../state/connection-health'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  CollapseAllIcon,
   DatabaseIcon,
   EnvironmentsIcon,
   ExplorerIcon,
@@ -45,6 +46,7 @@ import { LibraryTextInputDialog } from './LibraryTextInputDialog'
 import {
   canMoveLibraryNode,
   findFolderIdByPath,
+  libraryAncestorNodeIds,
   libraryNodePath,
 } from './SideBar.library-tree-helpers'
 import { sidebarSectionId } from './SideBar.helpers'
@@ -53,6 +55,7 @@ import { EngineIcon } from './SideBar.node-icons'
 interface LibraryPaneProps {
   activeConnectionId?: string
   activeEnvironmentId?: string
+  activeLibraryNodeId?: string
   adapterManifests?: AdapterManifest[]
   connections?: ConnectionProfile[]
   environments: EnvironmentProfile[]
@@ -129,6 +132,7 @@ interface LibraryPaneProps {
   onSetNodeEnvironment(nodeId: string, environmentId?: string): void
   onSetExplorerFolderOrder?(orderKey: string, orderedNodeKeys: string[]): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
+  onCollapseExplorerItems?(sectionIds: string[]): void
   onSwitchWorkspace?(workspaceId: string): void
   onTestConnection?(connectionId: string, environmentId?: string): void
 }
@@ -204,6 +208,7 @@ function validateRequiredLibraryInput(value: string) {
 export function LibraryPane({
   activeConnectionId = '',
   activeEnvironmentId = '',
+  activeLibraryNodeId,
   adapterManifests = [],
   connections = [],
   environments,
@@ -263,6 +268,7 @@ export function LibraryPane({
   onSetNodeEnvironment,
   onSetExplorerFolderOrder = noop,
   onSidebarSectionExpandedChange,
+  onCollapseExplorerItems = noop,
   onSwitchWorkspace = noop,
   onTestConnection = noop,
 }: LibraryPaneProps) {
@@ -278,6 +284,12 @@ export function LibraryPane({
   const [workspaceDialog, setWorkspaceDialog] =
     useState<WorkspaceDialogState>()
   const [draggedNodeId, setDraggedNodeId] = useState<string>()
+  const [forcedCollapsedSectionIds, setForcedCollapsedSectionIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set())
+  const [suppressedActiveNodeId, setSuppressedActiveNodeId] = useState<string>()
+  const libraryTreeRef = useRef<HTMLDivElement>(null)
+  const previousActiveLibraryNodeIdRef = useRef(activeLibraryNodeId)
   const pointerDragRef = useRef<LibraryPointerDragState | undefined>(undefined)
   const suppressOpenClickNodeIdRef = useRef<string | undefined>(undefined)
   const [rootDragActive, setRootDragActive] = useState(false)
@@ -287,6 +299,20 @@ export function LibraryPane({
     [libraryFilter, libraryNodes],
   )
   const tree = useMemo(() => buildLibraryTree(filteredNodes), [filteredNodes])
+  const collapsibleSectionIds = useMemo(
+    () =>
+      libraryNodes
+        .filter((node) => node.kind === 'folder' || node.kind === 'connection')
+        .map((node) => sidebarSectionId('library', 'node', node.id)),
+    [libraryNodes],
+  )
+  const activeAncestorNodeIds = useMemo(
+    () =>
+      activeLibraryNodeId && suppressedActiveNodeId === activeLibraryNodeId
+        ? new Set<string>()
+        : libraryAncestorNodeIds(libraryNodes, activeLibraryNodeId),
+    [activeLibraryNodeId, libraryNodes, suppressedActiveNodeId],
+  )
   const hasLibraryNodes = filteredNodes.length > 0
   const workspacesExpanded = sectionStates[WORKSPACES_SECTION_ID] ?? true
   const workspaceSwitcherEnabled = Boolean(workspaceSwitcherStatus?.enabled)
@@ -301,6 +327,44 @@ export function LibraryPane({
     () => new Map(connections.map((connection) => [connection.id, connection])),
     [connections],
   )
+
+  useEffect(() => {
+    if (previousActiveLibraryNodeIdRef.current === activeLibraryNodeId) {
+      return
+    }
+
+    previousActiveLibraryNodeIdRef.current = activeLibraryNodeId
+    setSuppressedActiveNodeId(undefined)
+  }, [activeLibraryNodeId])
+
+  const collapseAllExplorerItems = useCallback(() => {
+    setForcedCollapsedSectionIds(new Set(collapsibleSectionIds))
+    setSuppressedActiveNodeId(activeLibraryNodeId)
+    onCollapseExplorerItems(collapsibleSectionIds)
+  }, [activeLibraryNodeId, collapsibleSectionIds, onCollapseExplorerItems])
+
+  const releaseForcedCollapse = useCallback((sectionId: string) => {
+    setForcedCollapsedSectionIds((current) => {
+      if (!current.has(sectionId)) {
+        return current
+      }
+
+      const next = new Set(current)
+      next.delete(sectionId)
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!activeLibraryNodeId) {
+      return
+    }
+
+    const activeRow = Array.from(
+      libraryTreeRef.current?.querySelectorAll<HTMLElement>('[data-library-node-id]') ?? [],
+    ).find((row) => row.dataset.libraryNodeId === activeLibraryNodeId)
+    activeRow?.scrollIntoView?.({ block: 'nearest' })
+  }, [activeLibraryNodeId, filteredNodes])
 
   useEffect(() => {
     if (!contextMenu && !environmentMenu && !apiServerMenu) {
@@ -536,6 +600,16 @@ export function LibraryPane({
           <button
             type="button"
             className="sidebar-icon-button"
+            aria-label="Collapse all explorer items"
+            title="Collapse all explorer items"
+            disabled={collapsibleSectionIds.length === 0}
+            onClick={collapseAllExplorerItems}
+          >
+            <CollapseAllIcon className="sidebar-icon" />
+          </button>
+          <button
+            type="button"
+            className="sidebar-icon-button"
             aria-label="New datastore connection"
             title="New Connection"
             data-tour-id="library-add-connection"
@@ -621,12 +695,20 @@ export function LibraryPane({
             <span className="sr-only">Drop here to move to Library root</span>
           </div>
 
-          <div className="library-tree" role="tree" aria-label="Library tree">
+          <div
+            ref={libraryTreeRef}
+            className="library-tree"
+            role="tree"
+            aria-label="Library tree"
+          >
             {tree.map((item) => (
               <LibraryTreeItem
                 key={item.node.id}
                 activeConnectionId={activeConnectionId}
                 activeEnvironmentId={activeEnvironmentId}
+                activeLibraryNodeId={activeLibraryNodeId}
+                activeAncestorNodeIds={activeAncestorNodeIds}
+                forcedCollapsedSectionIds={forcedCollapsedSectionIds}
                 adapterManifests={adapterManifests}
                 connections={connections}
                 item={item}
@@ -669,6 +751,7 @@ export function LibraryPane({
                 onSelectEnvironment={onSelectEnvironment}
                 onSetExplorerFolderOrder={onSetExplorerFolderOrder}
                 onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
+                onReleaseForcedCollapse={releaseForcedCollapse}
                 onTestConnection={onTestConnection}
                 shouldSuppressOpenClick={shouldSuppressOpenClick}
               />
@@ -1519,6 +1602,9 @@ export function LibraryPane({
 function LibraryTreeItem({
   activeConnectionId,
   activeEnvironmentId,
+  activeLibraryNodeId,
+  activeAncestorNodeIds,
+  forcedCollapsedSectionIds,
   adapterManifests,
   connections,
   item,
@@ -1561,11 +1647,15 @@ function LibraryTreeItem({
   onSelectEnvironment,
   onSetExplorerFolderOrder,
   onSidebarSectionExpandedChange,
+  onReleaseForcedCollapse,
   onTestConnection,
   shouldSuppressOpenClick,
 }: {
   activeConnectionId: string
   activeEnvironmentId: string
+  activeLibraryNodeId?: string
+  activeAncestorNodeIds: ReadonlySet<string>
+  forcedCollapsedSectionIds: ReadonlySet<string>
   adapterManifests: AdapterManifest[]
   connections: ConnectionProfile[]
   item: TreeNode
@@ -1628,6 +1718,7 @@ function LibraryTreeItem({
   onSelectEnvironment(environmentId: string): void
   onSetExplorerFolderOrder(orderKey: string, orderedNodeKeys: string[]): void
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
+  onReleaseForcedCollapse(sectionId: string): void
   onTestConnection(connectionId: string, environmentId?: string): void
   shouldSuppressOpenClick(nodeId: string): boolean
 }) {
@@ -1639,10 +1730,14 @@ function LibraryTreeItem({
       : undefined
   const isConnection = Boolean(connection)
   const isContainer = isFolder || isConnection
+  const isActive = node.id === activeLibraryNodeId
   const sectionId = sidebarSectionId('library', 'node', node.id)
   const [optimisticExpanded, setOptimisticExpanded] = useState<boolean>()
+  const forceCollapsed = forcedCollapsedSectionIds.has(sectionId)
   const expanded =
-    optimisticExpanded ?? sectionStates[sectionId] ?? (isFolder && depth === 0)
+    activeAncestorNodeIds.has(node.id) ||
+    (!forceCollapsed &&
+      (optimisticExpanded ?? sectionStates[sectionId] ?? (isFolder && depth === 0)))
   const environmentState = effectiveEnvironmentForNode(
     node,
     libraryNodes,
@@ -1680,6 +1775,7 @@ function LibraryTreeItem({
       }`}
       role="treeitem"
       aria-expanded={isContainer ? expanded : undefined}
+      aria-selected={isActive ? true : undefined}
       onDoubleClick={() => {
         if (connection) {
           onOpenConnectionExplorer(connection.id)
@@ -1692,12 +1788,13 @@ function LibraryTreeItem({
       }}
     >
       <div
-        className={`library-tree-row${
+        className={`library-tree-row${isActive ? ' is-active' : ''}${
           environmentState
             ? ` has-library-env is-library-env-${environmentState.source}`
             : ''
         }`}
         data-library-folder-id={isFolder ? node.id : undefined}
+        data-library-node-id={node.id}
         data-library-row="true"
         style={{
           paddingLeft: 8 + depth * 14,
@@ -1713,6 +1810,9 @@ function LibraryTreeItem({
             }`}
             onClick={() => {
               const nextExpanded = !expanded
+              if (nextExpanded) {
+                onReleaseForcedCollapse(sectionId)
+              }
               setOptimisticExpanded(nextExpanded)
               onSidebarSectionExpandedChange(sectionId, nextExpanded)
               if (connection && nextExpanded) {
@@ -1736,6 +1836,7 @@ function LibraryTreeItem({
         <button
           type="button"
           className="library-tree-label"
+          aria-current={isActive ? 'page' : undefined}
           onPointerDown={(event) => onBeginPointerDrag(node.id, event)}
           onPointerMove={onPointerDragMove}
           onPointerUp={onFinishPointerDrag}
@@ -1884,6 +1985,9 @@ function LibraryTreeItem({
               key={child.node.id}
               activeConnectionId={activeConnectionId}
               activeEnvironmentId={activeEnvironmentId}
+              activeLibraryNodeId={activeLibraryNodeId}
+              activeAncestorNodeIds={activeAncestorNodeIds}
+              forcedCollapsedSectionIds={forcedCollapsedSectionIds}
               adapterManifests={adapterManifests}
               connections={connections}
               item={child}
@@ -1926,6 +2030,7 @@ function LibraryTreeItem({
               onSelectEnvironment={onSelectEnvironment}
               onSetExplorerFolderOrder={onSetExplorerFolderOrder}
               onSidebarSectionExpandedChange={onSidebarSectionExpandedChange}
+              onReleaseForcedCollapse={onReleaseForcedCollapse}
               onTestConnection={onTestConnection}
               shouldSuppressOpenClick={shouldSuppressOpenClick}
             />

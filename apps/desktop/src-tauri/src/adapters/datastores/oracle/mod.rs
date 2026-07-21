@@ -6,6 +6,7 @@ mod diagnostics;
 mod editing;
 mod explorer;
 mod query;
+mod session;
 mod sidecar;
 mod structure;
 

@@ -20,6 +20,27 @@ public sealed class OracleSidecarTests
     }
 
     [Fact]
+    public void SessionContextProbeReportsLiveContainerAndSchemaIdentity()
+    {
+        foreach (var field in new[]
+        {
+            "SESSION_USER",
+            "CURRENT_SCHEMA",
+            "PROXY_USER",
+            "DB_NAME",
+            "DB_UNIQUE_NAME",
+            "CON_NAME",
+            "CON_ID",
+            "SERVICE_NAME",
+        })
+        {
+            Assert.Contains(field, Program.SessionContextProbe, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain("V$PDBS", Program.SessionContextProbe, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void SplitterHandlesSqlAndSlashTerminatedPlSql()
     {
         var statements = OracleScriptSplitter.Split("""

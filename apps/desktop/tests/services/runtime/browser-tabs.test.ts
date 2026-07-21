@@ -9,6 +9,7 @@ import {
   createQueryTabForConnection,
   createScopedQueryTabInSnapshot,
   scopedTargetsMatch,
+  updateQueryTabTargetInSnapshot,
 } from '../../../src/services/runtime/browser-tabs'
 import {
   createSettingsTabInSnapshot,
@@ -16,6 +17,63 @@ import {
 } from '../../../src/services/runtime/browser-settings-tab'
 
 describe('browser tab runtime', () => {
+  it('updates a query target atomically while retaining history', () => {
+    const snapshot = createSeedSnapshot()
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-mongo-catalog')
+    if (!tab) throw new Error('MongoDB tab fixture is missing.')
+    tab.result = {
+      id: 'old-result',
+      summary: 'Old result',
+      defaultRenderer: 'json',
+      rendererModes: ['json'],
+      payloads: [{ renderer: 'json', value: {} }],
+      notices: [],
+      generatedAt: '2026-07-20T10:00:00.000Z',
+    }
+    tab.error = { code: 'old-error', message: 'Old error' }
+    tab.lastRunAt = '2026-07-20T10:00:00.000Z'
+    tab.history = [{
+      id: 'history-1',
+      queryText: '{ "collection": "products" }',
+      executedAt: '2026-07-20T10:00:00.000Z',
+      status: 'success',
+    }]
+
+    const updated = updateQueryTabTargetInSnapshot(snapshot, {
+      tabId: tab.id,
+      scopedTarget: {
+        kind: 'collection',
+        label: 'orders',
+        path: ['archive', 'Collections'],
+        scope: 'collection:archive:orders',
+        preferredBuilder: 'mongo-find',
+      },
+      queryText: '{ "database": "archive", "collection": "orders" }',
+      queryViewMode: 'builder',
+      builderState: {
+        kind: 'mongo-find',
+        database: 'archive',
+        collection: 'orders',
+        filters: [],
+        projectionMode: 'all',
+        projectionFields: [],
+        sort: [],
+      },
+    })
+    const updatedTab = updated.tabs.find((item) => item.id === tab.id)
+
+    expect(updatedTab).toMatchObject({
+      status: 'idle',
+      dirty: true,
+      scopedTarget: { label: 'orders' },
+      builderState: { database: 'archive', collection: 'orders' },
+    })
+    expect(updatedTab?.result).toBeUndefined()
+    expect(updatedTab?.error).toBeUndefined()
+    expect(updatedTab?.lastRunAt).toBeUndefined()
+    expect(updatedTab?.history).toHaveLength(1)
+  })
+
   it('opens Explorer as one unsaveable tab per connection', () => {
     const snapshot = createSeedSnapshot()
     const opened = createExplorerTabInSnapshot(snapshot, 'conn-catalog')
@@ -512,6 +570,75 @@ describe('browser tab runtime', () => {
     expect(searchTab?.builderState).not.toMatchObject({ index: 'Documents' })
   })
 
+  it('opens Cosmos DB NoSQL containers with the SQL builder active', () => {
+    const snapshot = createSeedSnapshot()
+    snapshot.connections = [...snapshot.connections, cosmosConnection()]
+
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-cosmos',
+      target: {
+        kind: 'container',
+        label: 'products',
+        path: ['Cosmos DB', 'Databases', 'catalog', 'Containers'],
+        scope: 'cosmos:container:catalog:products',
+        preferredBuilder: 'cosmos-sql',
+        queryTemplate: JSON.stringify({
+          operation: 'QueryDocuments',
+          database: 'catalog',
+          container: 'products',
+          query: 'SELECT TOP 50 * FROM c',
+          parameters: [],
+          enableCrossPartitionQueries: true,
+        }),
+      },
+    })
+    const cosmosTab = opened.tabs.find(
+      (tab) => tab.scopedTarget?.scope === 'cosmos:container:catalog:products',
+    )
+
+    expect(cosmosTab).toMatchObject({
+      connectionId: 'conn-cosmos',
+      title: 'products.json',
+      queryViewMode: 'builder',
+      builderState: expect.objectContaining({
+        kind: 'cosmos-sql',
+        database: 'catalog',
+        container: 'products',
+        limit: 50,
+      }),
+    })
+    expect(JSON.parse(cosmosTab?.queryText ?? '{}')).toMatchObject({
+      operation: 'QueryDocuments',
+      database: 'catalog',
+      container: 'products',
+      query: 'SELECT TOP 50 * FROM c',
+    })
+  })
+
+  it('keeps non-NoSQL Cosmos APIs out of the SQL builder', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = { ...cosmosConnection(), id: 'conn-cosmos-gremlin' }
+    connection.cosmosDbOptions = { ...connection.cosmosDbOptions, api: 'gremlin' }
+    snapshot.connections = [...snapshot.connections, connection]
+
+    const opened = createScopedQueryTabInSnapshot(snapshot, {
+      connectionId: 'conn-cosmos-gremlin',
+      target: {
+        kind: 'graph',
+        label: 'recommendations',
+        path: ['Cosmos DB', 'Graphs'],
+        scope: 'cosmos:container:catalog:recommendations',
+        preferredBuilder: 'cosmos-sql',
+        queryTemplate: 'g.V().limit(25)',
+      },
+    })
+    const cosmosTab = opened.tabs.find((tab) => tab.connectionId === 'conn-cosmos-gremlin')
+
+    expect(cosmosTab?.queryViewMode).toBe('raw')
+    expect(cosmosTab?.builderState).toBeUndefined()
+    expect(cosmosTab?.queryText).toBe('g.V().limit(25)')
+  })
+
   it('matches scoped targets by object identity instead of generated query text', () => {
     const left = {
       kind: 'collection',
@@ -604,6 +731,36 @@ function searchConnection(): ConnectionProfile {
     color: undefined,
     group: undefined,
     notes: undefined,
+    auth: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function cosmosConnection(): ConnectionProfile {
+  return {
+    id: 'conn-cosmos',
+    name: 'Cosmos DB',
+    engine: 'cosmosdb',
+    family: 'document',
+    host: 'localhost',
+    port: 8081,
+    database: 'catalog',
+    connectionString: undefined,
+    connectionMode: 'native',
+    environmentIds: ['env-dev'],
+    tags: [],
+    favorite: false,
+    readOnly: false,
+    icon: 'cosmosdb',
+    color: undefined,
+    group: undefined,
+    notes: undefined,
+    cosmosDbOptions: {
+      api: 'nosql',
+      databaseName: 'catalog',
+      containerPrefix: 'products',
+    },
     auth: {},
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',

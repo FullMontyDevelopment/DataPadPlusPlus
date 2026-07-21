@@ -3,6 +3,7 @@ import type {
   QueryBuilderState,
 } from '@datapadplusplus/shared-types'
 import { buildCqlPartitionCountQueryText } from './cql-partition'
+import { buildCosmosSqlCountQueryText } from './cosmos-sql'
 import { buildDynamoDbCountQueryText } from './dynamodb-key-condition'
 import { buildMongoAggregationCountQueryText } from './mongo-aggregation'
 import { buildMongoFindCountQueryText } from './mongo-find'
@@ -29,6 +30,8 @@ export function buildQueryBuilderCountText(
       return buildDynamoDbCountQueryText(state)
     case 'cql-partition':
       return buildCqlPartitionCountQueryText(state)
+    case 'cosmos-sql':
+      return buildCosmosSqlCountQueryText(state)
     case 'search-dsl':
       return buildSearchDslCountQueryText(state)
     case 'redis-key-browser':
@@ -52,6 +55,8 @@ export function queryBuilderCountTarget(state: QueryBuilderState) {
       return state.table.trim()
     case 'dynamodb-key-condition':
       return state.table.trim()
+    case 'cosmos-sql':
+      return state.container.trim()
     case 'search-dsl':
       return state.index.trim()
     case 'redis-key-browser':
@@ -68,6 +73,9 @@ export function queryBuilderStateWithDatabase(
   database: string | undefined,
 ): QueryBuilderState {
   if ((state.kind === 'mongo-find' || state.kind === 'mongo-aggregation') && database) {
+    return { ...state, database }
+  }
+  if (state.kind === 'cosmos-sql' && database) {
     return { ...state, database }
   }
   return state

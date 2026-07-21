@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use super::super::super::*;
+use super::session::{load_oracle_session_context, oracle_managed_response_rows};
 use super::sidecar::{execute_oracle_managed_read, oracle_execution_runtime};
 
 pub(super) async fn load_oracle_structure(
@@ -16,16 +17,18 @@ pub(super) async fn load_oracle_structure(
 
     let node_limit = structure_node_limit(request, 320);
     let edge_limit = structure_edge_limit(request, 1_000);
+    let session = load_oracle_session_context(connection).await?;
+    let current_schema = sql_literal(&session.current_schema);
     let owner_filter = if request.include_system_objects.unwrap_or(false) {
         String::new()
     } else {
-        "and owner not in ('SYS','SYSTEM','OUTLN','DBSNMP','XDB','MDSYS','CTXSYS','ORDSYS','WMSYS','AUDSYS')".into()
+        format!("and (owner = '{current_schema}' or owner not in ('SYS','SYSTEM','OUTLN','DBSNMP','XDB','MDSYS','CTXSYS','ORDSYS','WMSYS','AUDSYS'))")
     };
     let object_query = format!(
-        "select owner, object_name, object_type from (select distinct owner, object_name, object_type from all_objects where object_type in ('TABLE','VIEW','MATERIALIZED VIEW') {owner_filter} order by case when owner = user then 0 else 1 end, owner, object_name) where rownum <= {}",
+        "select owner, object_name, object_type from (select distinct owner, object_name, object_type from all_objects where object_type in ('TABLE','VIEW','MATERIALIZED VIEW') {owner_filter} order by case when owner = '{current_schema}' then 0 else 1 end, owner, object_name) where rownum <= {}",
         node_limit + 1
     );
-    let object_rows = oracle_response_rows(
+    let object_rows = oracle_managed_response_rows(
         &execute_oracle_managed_read(connection, &object_query, node_limit + 1).await?,
     )?;
     let selected = object_rows
@@ -40,7 +43,9 @@ pub(super) async fn load_oracle_structure(
         let query = format!(
             "select owner, table_name, column_name, data_type || case when data_type in ('VARCHAR2','CHAR','NVARCHAR2','NCHAR','RAW') then '(' || data_length || ')' when data_type = 'NUMBER' and data_precision is not null then '(' || data_precision || nvl2(data_scale, ',' || data_scale, '') || ')' else '' end, nullable, column_id from all_tab_columns where {filter} order by owner, table_name, column_id"
         );
-        oracle_response_rows(&execute_oracle_managed_read(connection, &query, 10_000).await?)?
+        oracle_managed_response_rows(
+            &execute_oracle_managed_read(connection, &query, 10_000).await?,
+        )?
     };
     let primary_key_rows = if selected.is_empty() {
         Vec::new()
@@ -49,7 +54,9 @@ pub(super) async fn load_oracle_structure(
             "select c.owner, c.table_name, cc.column_name from all_constraints c join all_cons_columns cc on cc.owner = c.owner and cc.constraint_name = c.constraint_name and cc.table_name = c.table_name where c.constraint_type = 'P' and ({})",
             oracle_object_filter("c.owner", "c.table_name", &selected)
         );
-        oracle_response_rows(&execute_oracle_managed_read(connection, &query, 10_000).await?)?
+        oracle_managed_response_rows(
+            &execute_oracle_managed_read(connection, &query, 10_000).await?,
+        )?
     };
     let foreign_key_rows = if selected.is_empty() {
         Vec::new()
@@ -58,7 +65,9 @@ pub(super) async fn load_oracle_structure(
             "select c.owner, c.table_name, cc.column_name, c.constraint_name, r.owner, r.table_name, rcc.column_name, c.delete_rule from all_constraints c join all_cons_columns cc on cc.owner = c.owner and cc.constraint_name = c.constraint_name and cc.table_name = c.table_name join all_constraints r on r.owner = c.r_owner and r.constraint_name = c.r_constraint_name join all_cons_columns rcc on rcc.owner = r.owner and rcc.constraint_name = r.constraint_name and rcc.position = cc.position where c.constraint_type = 'R' and ({}) and rownum <= {edge_limit} order by c.owner, c.table_name, c.constraint_name, cc.position",
             oracle_object_filter("c.owner", "c.table_name", &selected)
         );
-        oracle_response_rows(&execute_oracle_managed_read(connection, &query, edge_limit).await?)?
+        oracle_managed_response_rows(
+            &execute_oracle_managed_read(connection, &query, edge_limit).await?,
+        )?
     };
 
     let primary_keys = primary_key_rows
@@ -88,7 +97,7 @@ pub(super) async fn load_oracle_structure(
                 kind: object_type.to_lowercase().replace(' ', "-"),
                 group_id: Some(owner.clone()),
                 detail: Some(id.clone()),
-                database: connection.database.clone(),
+                database: Some(session.database_label().to_string()),
                 schema: Some(owner.clone()),
                 object_name: Some(name.clone()),
                 qualified_name: Some(id),
@@ -159,7 +168,11 @@ pub(super) async fn load_oracle_structure(
         request,
         connection,
         StructureResponseInput {
-            summary: format!("Loaded {object_count} Oracle object(s) from live metadata."),
+            summary: format!(
+                "Loaded {object_count} Oracle object(s) from container {} with current schema {}.",
+                session.database_label(),
+                session.current_schema
+            ),
             groups: groups.into_values().collect(),
             nodes: nodes.into_values().collect(),
             edges,
@@ -167,34 +180,6 @@ pub(super) async fn load_oracle_structure(
             truncated,
         },
     ))
-}
-
-fn oracle_response_rows(response: &Value) -> Result<Vec<Vec<String>>, CommandError> {
-    let rows = response
-        .get("sections")
-        .and_then(Value::as_array)
-        .and_then(|sections| sections.first())
-        .and_then(|section| section.get("rows"))
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            CommandError::new(
-                "oracle-metadata-response-invalid",
-                "The Oracle runtime returned an invalid structure response.",
-            )
-        })?;
-    Ok(rows
-        .iter()
-        .filter_map(Value::as_array)
-        .map(|row| {
-            row.iter()
-                .map(|value| match value {
-                    Value::Null => String::new(),
-                    Value::String(value) => value.clone(),
-                    other => other.to_string(),
-                })
-                .collect()
-        })
-        .collect())
 }
 
 fn oracle_object_filter(

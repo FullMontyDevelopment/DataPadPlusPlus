@@ -46,6 +46,7 @@ import {
   validateRequiredId,
   validateRequiredText,
 } from './datastores/common/request-validation-core'
+import { validateScopedQueryTarget } from './request-validation-workspace'
 export * from './request-validation-library'
 export * from './request-validation-workspace'
 export * from './datastores/common/document/request-validation-documents'
@@ -275,6 +276,9 @@ export function validateExecutionRequest(request: ExecutionRequest): ExecutionRe
   if (request.builderState !== undefined) {
     assertJsonSize(request.builderState, 'Query builder state')
   }
+  const scopedTarget = request.scopedTarget
+    ? validateScopedQueryTarget(request.scopedTarget)
+    : undefined
   if (mode === 'count' && request.builderState === undefined) {
     throw new Error('Query Builder Count requires the current builder state.')
   }
@@ -284,6 +288,7 @@ export function validateExecutionRequest(request: ExecutionRequest): ExecutionRe
     executionInputMode,
     language,
     mode,
+    scopedTarget,
     rowLimit: clampOptionalInteger(request.rowLimit, 'Execution row limit', 1, MAX_ROW_LIMIT),
   }
 }
@@ -319,6 +324,9 @@ function validateOptionalExecutionMode(mode: ExecutionRequest['mode']) {
 }
 
 export function validateResultPageRequest(request: ResultPageRequest): ResultPageRequest {
+  if (request.executionId !== undefined) {
+    validateRequiredId(request.executionId, 'Execution id')
+  }
   validateRequiredId(request.tabId, 'Tab id')
   validateRequiredId(request.connectionId, 'Connection id')
   validateRequiredId(request.environmentId, 'Environment id')
@@ -331,10 +339,14 @@ export function validateResultPageRequest(request: ResultPageRequest): ResultPag
   if (!RESULT_RENDERERS.has(request.renderer)) {
     throw new Error(`Unsupported result renderer: ${request.renderer}.`)
   }
-  validateOptionalText(request.cursor, 'Result cursor', MAX_SCOPE_LENGTH)
+  validateOptionalText(request.cursor, 'Result cursor', 256 * 1024)
+  const scopedTarget = request.scopedTarget
+    ? validateScopedQueryTarget(request.scopedTarget)
+    : undefined
   return {
     ...request,
     language,
+    scopedTarget,
     pageSize: clampOptionalInteger(
       request.pageSize,
       'Result page size',

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type {
   ConnectionProfile,
+  CosmosSqlBuilderState,
   CqlPartitionBuilderState,
   DynamoDbKeyConditionBuilderState,
   MongoFindBuilderState,
@@ -24,7 +25,7 @@ import {
 
 function createTab(
   queryText: string,
-  builderState?: MongoFindBuilderState | SqlSelectBuilderState | DynamoDbKeyConditionBuilderState | CqlPartitionBuilderState | SearchDslBuilderState,
+  builderState?: MongoFindBuilderState | CosmosSqlBuilderState | SqlSelectBuilderState | DynamoDbKeyConditionBuilderState | CqlPartitionBuilderState | SearchDslBuilderState,
 ): QueryTabState {
   return {
     id: 'tab-test',
@@ -155,6 +156,31 @@ describe('workspace query helpers', () => {
     })
   })
 
+  it('builds a Cosmos DB SQL builder for NoSQL requests', () => {
+    const tab = createTab(`{
+      "operation": "QueryDocuments",
+      "database": "catalog",
+      "container": "products",
+      "query": "SELECT TOP 25 * FROM c",
+      "parameters": [],
+      "enableCrossPartitionQueries": true
+    }`)
+
+    expect(builderStateForTab(tab, cosmosConnection(), {})).toMatchObject({
+      kind: 'cosmos-sql',
+      database: 'catalog',
+      container: 'products',
+      limit: 25,
+    })
+  })
+
+  it('does not expose the SQL builder for non-NoSQL Cosmos APIs', () => {
+    const connection = cosmosConnection()
+    connection.cosmosDbOptions = { ...connection.cosmosDbOptions, api: 'gremlin' }
+
+    expect(builderStateForTab(createTab('g.V().limit(25)'), connection, {})).toBeUndefined()
+  })
+
   it('derives editor capabilities from adapter manifests', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')
@@ -217,6 +243,16 @@ describe('workspace query helpers', () => {
         { kind: 'data-stream', label: 'logs-app-default' },
       ]),
     ).toEqual(['products', 'logs-app-default'])
+  })
+
+  it('collects Cosmos DB containers without inventing databases or policy nodes', () => {
+    expect(
+      queryBuilderObjectOptions(cosmosConnection(), [
+        { kind: 'container', label: 'products' },
+        { kind: 'database', label: 'catalog' },
+        { kind: 'indexing-policy', label: 'Indexing Policy' },
+      ]),
+    ).toEqual(['products'])
   })
 
   it('keeps connection-level starter queries free of fake datastore object names', () => {
@@ -329,6 +365,24 @@ function searchConnection(): ConnectionProfile {
     auth: {},
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function cosmosConnection(): ConnectionProfile {
+  return {
+    ...mongoConnection(),
+    id: 'conn-cosmos',
+    name: 'Cosmos DB',
+    engine: 'cosmosdb',
+    host: '127.0.0.1',
+    port: 8081,
+    database: 'catalog',
+    icon: 'cosmosdb',
+    cosmosDbOptions: {
+      api: 'nosql',
+      databaseName: 'catalog',
+      containerPrefix: 'products',
+    },
   }
 }
 

@@ -244,6 +244,17 @@ fn analytics_engines_advertise_sql_builders_without_edit_scopes() {
 }
 
 #[test]
+fn cosmosdb_advertises_the_visual_nosql_builder() {
+    let experience = experience_for_engine("cosmosdb");
+
+    assert!(experience.query_builders.iter().any(|builder| {
+        builder.kind == "cosmos-sql"
+            && builder.default_mode == "visual"
+            && builder.scope == "collection"
+    }));
+}
+
+#[test]
 fn wave_five_engines_advertise_query_builders_without_edit_scopes() {
     for (engine, kind) in [
         ("prometheus", "timeseries-query"),

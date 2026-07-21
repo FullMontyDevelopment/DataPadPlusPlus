@@ -87,6 +87,10 @@ function explorerNodeToConnectionTreeNode(
   const isCassandraBuilderNode =
     connection.engine === 'cassandra' &&
     ['table', 'data', 'materialized-view'].includes(normalizedKind)
+  const isCosmosBuilderNode =
+    connection.engine === 'cosmosdb' &&
+    (connection.cosmosDbOptions?.api ?? 'nosql') === 'nosql' &&
+    ['container', 'items'].includes(normalizedKind)
   const isGraphQueryNode =
     connection.family === 'graph' &&
     ['graph', 'node-label', 'relationship'].includes(normalizedKind)
@@ -127,6 +131,8 @@ function explorerNodeToConnectionTreeNode(
             ? 'dynamodb-key-condition'
             : isCassandraBuilderNode
               ? 'cql-partition'
+              : isCosmosBuilderNode
+                ? 'cosmos-sql'
               : undefined,
   }
 }

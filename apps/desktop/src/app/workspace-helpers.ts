@@ -12,6 +12,11 @@ import {
   parseCqlPartitionQueryText,
 } from './components/workbench/query-builder/cql-partition'
 import {
+  createDefaultCosmosSqlBuilderState,
+  isCosmosSqlBuilderState,
+  parseCosmosSqlQueryText,
+} from './components/workbench/query-builder/cosmos-sql'
+import {
   createDefaultDynamoDbKeyConditionBuilderState,
   isDynamoDbKeyConditionBuilderState,
   parseDynamoDbKeyConditionQueryText,
@@ -105,6 +110,20 @@ export function builderStateForTab(
     }
 
     return parseRedisKeyBrowserQueryText(tab.queryText) ?? createDefaultRedisKeyBrowserState('*', 100)
+  }
+
+  if (isCosmosNoSqlConnection(connection)) {
+    if (isCosmosSqlBuilderState(draftState)) {
+      return draftState
+    }
+
+    if (isCosmosSqlBuilderState(tab.builderState)) {
+      return tab.builderState
+    }
+
+    const target = cosmosTargetForTab(tab, connection)
+    return parseCosmosSqlQueryText(tab.queryText, target)
+      ?? createDefaultCosmosSqlBuilderState(target.container, target.database)
   }
 
   if (isSqlBuilderConnection(connection)) {
@@ -207,6 +226,12 @@ export function queryBuilderObjectOptions(
         .map((node) => node.label)
     }
 
+    if (connection?.engine === 'cosmosdb') {
+      return explorerItems
+        .filter((node) => node.kind === 'container')
+        .map((node) => node.label)
+    }
+
     if (connection && isSqlBuilderConnection(connection)) {
       return explorerItems
         .filter((node) => ['table', 'view'].includes(node.kind))
@@ -239,6 +264,11 @@ export function isSqlBuilderConnection(connection: ConnectionProfile) {
   return ['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'sqlite'].includes(
     connection.engine,
   )
+}
+
+export function isCosmosNoSqlConnection(connection: ConnectionProfile) {
+  return connection.engine === 'cosmosdb' &&
+    (connection.cosmosDbOptions?.api ?? 'nosql') === 'nosql'
 }
 
 export function defaultCapabilities(): ExecutionCapabilities {
@@ -350,6 +380,29 @@ export function appendFieldToQueryText(queryText: string, fieldPath: string) {
 }
 
 export { createDefaultMongoAggregationBuilderState, isMongoAggregationBuilderState }
+
+function cosmosTargetForTab(tab: QueryTabState, connection: ConnectionProfile) {
+  const parts = tab.scopedTarget?.scope?.split(':').filter(Boolean) ?? []
+  const scopedDatabase = parts[0] === 'cosmos' && parts.length >= 3
+    ? parts[2]
+    : undefined
+  const scopedContainer =
+    parts[0] === 'cosmos' && ['container', 'items'].includes(parts[1] ?? '')
+      ? parts[3]
+      : undefined
+  return {
+    database:
+      scopedDatabase ??
+      connection.cosmosDbOptions?.databaseName ??
+      connection.database,
+    container:
+      scopedContainer ??
+      (['container', 'items'].includes(tab.scopedTarget?.kind ?? '')
+        ? tab.scopedTarget?.label
+        : undefined) ??
+      connection.cosmosDbOptions?.containerPrefix,
+  }
+}
 
 function mongoCollectionFromQueryText(queryText: string) {
   try {

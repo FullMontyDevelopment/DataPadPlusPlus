@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 export interface ReviewConfirmationDetails {
   action: string
   confirmLabel?: string
+  eyebrow?: string
   reasons: string[]
   title: string
 }
@@ -56,7 +57,7 @@ export function useReviewConfirmation() {
         aria-modal="true"
         aria-labelledby="review-confirmation-title"
       >
-        <p className="sidebar-eyebrow">Guardrail</p>
+        <p className="sidebar-eyebrow">{pending.eyebrow ?? 'Guardrail'}</p>
         <h2 id="review-confirmation-title">{pending.title}</h2>
         <p>{pending.action}</p>
         {pending.reasons.length > 0 ? (

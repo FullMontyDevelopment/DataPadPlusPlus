@@ -40,4 +40,12 @@ fn builder_targets_include_the_scoped_datastore_object() {
         })),
         "database 2 (session:*)"
     );
+    assert_eq!(
+        builder_target(&json!({
+            "kind": "cosmos-sql",
+            "database": "catalog",
+            "container": "products",
+        })),
+        "catalog.products"
+    );
 }

@@ -18,7 +18,9 @@ fn cosmosdb_query_template_targets_database_and_container() {
     assert_eq!(value["operation"], "QueryDocuments");
     assert_eq!(value["database"], "app");
     assert_eq!(value["container"], "orders");
-    assert_eq!(value["limit"], 20);
+    assert_eq!(value["query"], "SELECT TOP 50 * FROM c");
+    assert_eq!(value["parameters"], json!([]));
+    assert_eq!(value["enableCrossPartitionQueries"], true);
 }
 
 #[test]

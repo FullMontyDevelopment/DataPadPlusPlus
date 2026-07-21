@@ -47,12 +47,15 @@ import {
   isRedisConsoleTab,
   redisConsoleCommandFromQueryText,
 } from './components/workbench/query-builder/redis-console'
+import { QueryTargetPicker } from './components/workbench/query-targets/QueryTargetPicker'
+import { buildQueryTargetChangePlan } from './components/workbench/query-targets/query-target-change'
 import {
   ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER,
   completionProvidersForConnection,
 } from './components/workbench/intellisense/providers'
 import { useQueryIntellisenseCatalog } from './components/workbench/intellisense/useQueryIntellisenseCatalog'
 import { SavedWorkIcon } from './components/workbench/icons'
+import { resolveActiveLibraryNodeId } from './components/workbench/SideBar.library-tree-helpers'
 import { AppStateProvider, useAppState } from './state/app-state'
 import type { Actions } from './state/app-state-types'
 import {
@@ -349,6 +352,15 @@ function DesktopWorkspace() {
     (activeConnection
       ? snapshot?.tabs.find((item) => item.connectionId === activeConnection.id)
       : undefined)
+  const activeLibraryNodeId = useMemo(
+    () =>
+      resolveActiveLibraryNodeId(
+        snapshot?.libraryNodes ?? [],
+        activeTab,
+        activeConnection?.id,
+      ),
+    [activeConnection?.id, activeTab, snapshot?.libraryNodes],
+  )
   const activeTabId = activeTab?.id
   const activeTabExecution =
     activeTabId ? activeTab?.activeExecution ?? executionsByTab[activeTabId] : undefined
@@ -1080,6 +1092,168 @@ function DesktopWorkspace() {
       limit: 160,
     })
   }, [actions, activeConnection, activeConnectionId, activeEnvironmentId, activeWorkbenchSlice])
+
+  const loadActiveQueryTargetScope = useCallback((scope?: string) => {
+    if (
+      !activeConnectionId ||
+      !activeEnvironmentId ||
+      hasExplorerScope(activeExplorerCacheEntry, scope) ||
+      isExplorerRequestLoading(
+        explorerLoadingRequests,
+        activeConnectionId,
+        activeEnvironmentId,
+        scope,
+      )
+    ) {
+      return
+    }
+    void actions.loadExplorer({
+      connectionId: activeConnectionId,
+      environmentId: activeEnvironmentId,
+      limit: 100,
+      scope,
+    })
+  }, [
+    actions,
+    activeConnectionId,
+    activeEnvironmentId,
+    activeExplorerCacheEntry,
+    explorerLoadingRequests,
+  ])
+
+  const isActiveQueryTargetScopeLoaded = useCallback(
+    (scope?: string) => hasExplorerScope(activeExplorerCacheEntry, scope),
+    [activeExplorerCacheEntry],
+  )
+
+  const isActiveQueryTargetScopeLoading = useCallback(
+    (scope?: string) => isExplorerRequestLoading(
+      explorerLoadingRequests,
+      activeConnectionId,
+      activeEnvironmentId,
+      scope,
+    ),
+    [activeConnectionId, activeEnvironmentId, explorerLoadingRequests],
+  )
+
+  const refreshActiveQueryTargets = useCallback(() => {
+    if (!activeConnectionId || !activeEnvironmentId) {
+      return
+    }
+    const scopes = [
+      undefined,
+      ...Object.values(activeExplorerCacheEntry?.scopes ?? {})
+        .map((response) => response.scope)
+        .filter((scope): scope is string => Boolean(scope)),
+    ]
+    for (const scope of new Set(scopes)) {
+      void actions.loadExplorer({
+        connectionId: activeConnectionId,
+        environmentId: activeEnvironmentId,
+        limit: 100,
+        scope,
+      })
+    }
+  }, [actions, activeConnectionId, activeEnvironmentId, activeExplorerCacheEntry])
+
+  const changeActiveQueryTarget = useCallback(async (target: ScopedQueryTarget) => {
+    if (
+      !snapshot ||
+      !activeConnection ||
+      !activeTab ||
+      (activeTab.tabKind && activeTab.tabKind !== 'query')
+    ) {
+      return
+    }
+    if (JSON.stringify(activeTab.scopedTarget) === JSON.stringify(target)) {
+      return
+    }
+
+    const currentQueryText = resolveQueryText(activeTab)
+    const currentScriptText = scriptTextDraftRef.current[activeTab.id] ?? activeTab.scriptText
+    const changePlan = buildQueryTargetChangePlan({
+      builderState: activeBuilderState,
+      connection: activeConnection,
+      currentQueryText,
+      currentScriptText,
+      mode: activeQueryWindowMode,
+      snapshot,
+      tab: activeTab,
+      target,
+    })
+
+    if (changePlan.customRepresentations.length > 0) {
+      const labels = changePlan.customRepresentations.map((item) =>
+        item === 'script' ? 'MongoDB script' : 'query text',
+      )
+      const confirmed = await confirmReview({
+        eyebrow: 'Change Query Target',
+        title: `Switch this tab to ${target.label}?`,
+        action: `Changing the target will replace custom ${labels.join(' and ')} with starter content for the selected target.`,
+        reasons: [
+          'The current tab only will change.',
+          'Existing results will be cleared, and the query will not run automatically.',
+        ],
+        confirmLabel: 'Change Target',
+      })
+      if (!confirmed) {
+        return
+      }
+    }
+
+    const queryTimer = queryTextDraftSyncTimersRef.current[activeTab.id]
+    if (queryTimer) {
+      window.clearTimeout(queryTimer)
+      delete queryTextDraftSyncTimersRef.current[activeTab.id]
+    }
+    const scriptTimer = scriptTextDraftSyncTimersRef.current[activeTab.id]
+    if (scriptTimer) {
+      window.clearTimeout(scriptTimer)
+      delete scriptTextDraftSyncTimersRef.current[activeTab.id]
+    }
+
+    const updated = await actions.updateQueryTarget(changePlan.request)
+    if (!updated) {
+      return
+    }
+    rememberQueryTextDraft(activeTab.id, changePlan.request.queryText)
+    mirrorQueryTextDraft(activeTab.id, changePlan.request.queryText)
+    if (changePlan.request.scriptText !== undefined) {
+      rememberScriptTextDraft(activeTab.id, changePlan.request.scriptText)
+      mirrorScriptTextDraft(activeTab.id, changePlan.request.scriptText)
+    }
+    if (changePlan.request.builderState) {
+      builderStateDraftRef.current[activeTab.id] = changePlan.request.builderState
+      setBuilderStateDrafts((current) => ({
+        ...current,
+        [activeTab.id]: changePlan.request.builderState as QueryBuilderState,
+      }))
+    }
+    setRendererPreference((current) => current.tabId === activeTab.id ? {} : current)
+    bumpEditorResetRevision(activeTab.id)
+    requestIntellisenseRefresh()
+  }, [
+    actions,
+    activeBuilderState,
+    activeConnection,
+    activeQueryWindowMode,
+    activeTab,
+    bumpEditorResetRevision,
+    confirmReview,
+    mirrorQueryTextDraft,
+    mirrorScriptTextDraft,
+    rememberQueryTextDraft,
+    rememberScriptTextDraft,
+    requestIntellisenseRefresh,
+    resolveQueryText,
+    snapshot,
+  ])
+
+  useEffect(() => {
+    if (!structure && structureStatus !== 'loading') {
+      structureRefreshLoadRef.current = undefined
+    }
+  }, [structure, structureStatus])
 
   useEffect(() => {
     if (activeQueryWindowMode === 'script' && activeTabSupportsScripting) {
@@ -2666,6 +2840,7 @@ function DesktopWorkspace() {
               isExplorerScopeLoading={isConnectionExplorerScopeLoading}
               activeConnectionId={activeConnection?.id ?? ''}
               activeEnvironmentId={activeEnvironment?.id ?? ''}
+              activeLibraryNodeId={activeLibraryNodeId}
               onSelectConnection={(connectionId) => void actions.selectConnection(connectionId)}
               onSelectEnvironment={(environmentId) =>
                 void actions.createEnvironmentTab(environmentId)
@@ -2690,6 +2865,16 @@ function DesktopWorkspace() {
                   sidebarSectionStates: {
                     ...(snapshot.ui.sidebarSectionStates ?? {}),
                     [sectionId]: expanded,
+                  },
+                })
+              }
+              onCollapseExplorerItems={(sectionIds) =>
+                void actions.updateUiState({
+                  sidebarSectionStates: {
+                    ...(snapshot.ui.sidebarSectionStates ?? {}),
+                    ...Object.fromEntries(
+                      sectionIds.map((sectionId) => [sectionId, false]),
+                    ),
                   },
                 })
               }
@@ -3193,18 +3378,19 @@ function DesktopWorkspace() {
                           health={activeConnectionHealth}
                           environmentLabel={activeEnvironment.label}
                         />
-                        {activeMongoQueryScope ? (
-                          <div className="editor-query-scope" aria-label="MongoDB query scope">
-                            <span className="editor-query-scope-item">
-                              <span className="editor-query-scope-label">Database</span>
-                              <strong>{activeMongoQueryScope.database ?? 'Not selected'}</strong>
-                            </span>
-                            <span className="editor-query-scope-item">
-                              <span className="editor-query-scope-label">Collection</span>
-                              <strong>{activeMongoQueryScope.collection ?? 'Not selected'}</strong>
-                            </span>
-                          </div>
-                        ) : null}
+                        <QueryTargetPicker
+                          builderState={activeBuilderState}
+                          connection={activeConnection}
+                          disabled={Boolean(executionsByTab[activeTab.id] || activeTab.activeExecution)}
+                          error={explorerError}
+                          isScopeLoaded={isActiveQueryTargetScopeLoaded}
+                          isScopeLoading={isActiveQueryTargetScopeLoading}
+                          nodes={explorerSourceNodes}
+                          scopedTarget={activeTab.scopedTarget}
+                          onChange={(target) => void changeActiveQueryTarget(target)}
+                          onLoadScope={loadActiveQueryTargetScope}
+                          onRefresh={refreshActiveQueryTargets}
+                        />
                       </div>
                       <div
                         className={`editor-query-layout query-layout--${activeQueryWindowMode}`}

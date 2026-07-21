@@ -189,7 +189,13 @@ export function assertJsonSize(value: unknown, label: string) {
   }
 }
 
-export function validateQueryText(value: string, label: string) {
+export function validateQueryText(
+  value: string | null | undefined,
+  label: string,
+) {
+  if (typeof value !== 'string') {
+    throw new Error(`${label} must be text.`)
+  }
   if (new TextEncoder().encode(value).byteLength > MAX_QUERY_TEXT_BYTES) {
     throw new Error(`${label} is too large for a desktop command.`)
   }

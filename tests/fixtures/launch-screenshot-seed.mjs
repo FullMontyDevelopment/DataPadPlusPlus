@@ -1,7 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { prepareScreenshotWorkspace } from './screenshot-workspace.mjs'
 
 const fixtureDir = dirname(fileURLToPath(import.meta.url))
 const workspaceDir =
@@ -49,10 +50,7 @@ if (seedFixtures) {
   }
 }
 
-if (resetWorkspace) {
-  rmSync(workspaceDir, { recursive: true, force: true })
-}
-mkdirSync(workspaceDir, { recursive: true })
+prepareScreenshotWorkspace(workspaceDir, { reset: resetWorkspace })
 
 console.log(`Launching DataPad++ with screenshot workspace: ${workspaceDir}`)
 if (resetWorkspace) {

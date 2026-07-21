@@ -9,4 +9,6 @@ Rules:
 - Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- Test sources, fixtures, and generated output are excluded through `.graphifyignore`; keep Graphify focused on production architecture.
+- Use `npm run graphify:setup` once per clone to install non-blocking incremental Git hooks. Ordinary edits should rely on the background post-commit rebuild instead of running a blocking full refresh.
+- Run `npm run graphify:refresh` only when uncommitted architecture work must be reflected immediately or as a final architecture validation. This full refresh is AST-only and creates no dated backups.

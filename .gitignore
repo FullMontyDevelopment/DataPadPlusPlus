@@ -39,6 +39,7 @@ packages/*/dist/
 tests/fixtures/sqlite/datapadplusplus.sqlite3
 tests/fixtures/sqlite/datanaut.sqlite3
 tests/fixtures/.generated.env
+tests/fixtures/.screenshot-workspace/
 *.sqlite-wal
 *.sqlite-shm
 *.db-wal

@@ -99,5 +99,13 @@ function inferLibraryItemKind(
 }
 
 function defaultLibraryFolderForTab(snapshot: WorkspaceSnapshot, tab: QueryTabState) {
+  const existingItemId =
+    tab.saveTarget?.kind === 'library' ? tab.saveTarget.libraryItemId : tab.savedQueryId
+  const existingNode = snapshot.libraryNodes.find((node) => node.id === existingItemId)
+
+  if (existingNode) {
+    return existingNode.parentId
+  }
+
   return defaultLibraryFolderForConnection(snapshot, tab.connectionId)
 }

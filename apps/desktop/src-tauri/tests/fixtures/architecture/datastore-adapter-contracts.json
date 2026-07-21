@@ -13255,7 +13255,14 @@
           "description": "Show effective roles, grants, IAM hints, and unavailable actions."
         }
       ],
-      "queryBuilders": [],
+      "queryBuilders": [
+        {
+          "kind": "cosmos-sql",
+          "label": "Cosmos SQL Builder",
+          "scope": "collection",
+          "defaultMode": "visual"
+        }
+      ],
       "editableScopes": [],
       "diagnosticsTabs": [
         {

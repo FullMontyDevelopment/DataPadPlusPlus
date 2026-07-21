@@ -178,6 +178,15 @@ pub fn update_query_builder_state(
 }
 
 #[tauri::command]
+pub fn update_query_tab_target(
+    state: State<'_, SharedAppState>,
+    request: UpdateQueryTabTargetRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.update_query_tab_target(request)
+}
+
+#[tauri::command]
 pub fn rename_query_tab(
     state: State<'_, SharedAppState>,
     tab_id: String,

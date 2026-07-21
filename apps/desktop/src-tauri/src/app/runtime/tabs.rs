@@ -12,6 +12,7 @@ use super::validators::{
     validate_create_scoped_query_tab_request, validate_environment_id,
     validate_query_tab_reorder_request, validate_required_tab_id,
     validate_update_query_builder_state_request, validate_update_query_tab_request,
+    validate_update_query_tab_target_request,
 };
 use super::{generate_id, timestamp_now, ManagedAppState};
 use crate::domain::{
@@ -19,7 +20,8 @@ use crate::domain::{
     models::{
         BootstrapPayload, ClosedQueryTabSnapshot, CreateObjectViewTabRequest,
         CreateScopedQueryTabRequest, PersistenceWarning, QueryTabReorderRequest, QueryTabState,
-        ScopedQueryTarget, UpdateQueryBuilderStateRequest, WorkspaceSnapshot,
+        ScopedQueryTarget, UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest,
+        WorkspaceSnapshot,
     },
 };
 use crate::infrastructure;
@@ -522,6 +524,24 @@ impl ManagedAppState {
         Ok(self.bootstrap_payload())
     }
 
+    pub fn update_query_tab_target(
+        &mut self,
+        request: UpdateQueryTabTargetRequest,
+    ) -> Result<BootstrapPayload, CommandError> {
+        validate_update_query_tab_target_request(&request)?;
+        let tab = self
+            .snapshot
+            .tabs
+            .iter_mut()
+            .find(|item| item.id == request.tab_id)
+            .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
+
+        apply_query_target_update(tab, request)?;
+        self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
     pub fn rename_query_tab(
         &mut self,
         tab_id: &str,
@@ -545,6 +565,34 @@ impl ManagedAppState {
         self.persist()?;
         Ok(self.bootstrap_payload())
     }
+}
+
+pub(super) fn apply_query_target_update(
+    tab: &mut QueryTabState,
+    request: UpdateQueryTabTargetRequest,
+) -> Result<(), CommandError> {
+    if tab.active_execution.is_some() {
+        return Err(CommandError::new(
+            "query-target-change-running",
+            "Wait for the current query to finish before changing its target.",
+        ));
+    }
+
+    tab.scoped_target = Some(request.scoped_target);
+    tab.query_text = request.query_text;
+    tab.query_view_mode = Some(request.query_view_mode);
+    tab.script_text = request.script_text;
+    tab.builder_state = request.builder_state;
+    if let Some(title) = request.title.filter(|value| !value.trim().is_empty()) {
+        tab.title = title.trim().to_string();
+    }
+    tab.status = "idle".into();
+    tab.active_execution = None;
+    tab.dirty = true;
+    tab.last_run_at = None;
+    tab.result = None;
+    tab.error = None;
+    Ok(())
 }
 
 pub(super) fn scoped_targets_match(left: &ScopedQueryTarget, right: &ScopedQueryTarget) -> bool {

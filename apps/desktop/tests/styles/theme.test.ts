@@ -33,4 +33,13 @@ describe('workbench theme styles', () => {
       /\.panel-body-frame--results\s*>\s*\.graph-result-view\s*{[^}]*height:\s*100%;/s,
     )
   })
+
+  it('keeps query-target refresh controls compact', () => {
+    expect(styles).toMatch(
+      /\.query-target-refresh\s*{[^}]*width:\s*22px;[^}]*height:\s*22px;[^}]*padding:\s*0;/s,
+    )
+    expect(styles).toMatch(
+      /\.query-target-refresh svg\s*{[^}]*width:\s*12px;[^}]*height:\s*12px;/s,
+    )
+  })
 })

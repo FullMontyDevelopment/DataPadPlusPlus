@@ -307,6 +307,7 @@ async fn execute_custom_endpoint(
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
         builder_state: None,
+        scoped_target: None,
     };
     let result = match adapters::execute(
         &resolved_connection,
@@ -671,6 +672,7 @@ async fn execute_resource_read(
         document_efficiency_mode: None,
         confirmed_guardrail_id: None,
         builder_state: None,
+        scoped_target: None,
     };
     let result = match adapters::execute(
         &resolved_connection,

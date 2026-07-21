@@ -1,6 +1,6 @@
 use super::super::super::*;
 use super::{
-    query::run_oracle_sqlplus_script,
+    session::{load_oracle_session_context, OracleSessionContext},
     sidecar::{oracle_execution_runtime, test_oracle_managed_connection},
 };
 
@@ -13,51 +13,34 @@ pub(super) async fn test_oracle_connection(
             .into(),
     ];
     let runtime = oracle_execution_runtime(connection);
-    let message = match runtime {
+    let (context, version, tls) = match runtime {
         "managed" => {
             let result = test_oracle_managed_connection(connection).await?;
-            let schema = result
-                .get("authenticatedSchema")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown schema");
-            let service = result
-                .get("serviceName")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| oracle_service_name(connection));
             let version = result
                 .get("serverVersion")
                 .and_then(Value::as_str)
-                .unwrap_or("unknown version");
+                .unwrap_or("unknown version")
+                .to_string();
             let tls = result.get("tls").and_then(Value::as_bool).unwrap_or(false);
-            format!(
-                "Connected to Oracle {version} service {service} as {schema}{}.",
-                if tls { " over TCPS" } else { "" }
+            (
+                OracleSessionContext::from_test_response(connection, &result)?,
+                version,
+                tls,
             )
         }
         "sqlplus" => {
-            let path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
-            let output = run_oracle_sqlplus_script(
-                connection,
-                &path,
-                "set heading off feedback off pagesize 0 verify off echo off\nselect user || '|' || sys_context('USERENV', 'SERVICE_NAME') from dual;\nexit success",
-            )
-            .await?;
-            let identity = output
-                .lines()
-                .map(str::trim)
-                .find(|line| line.contains('|'))
-                .unwrap_or("authenticated user|configured service");
-            format!("Connected to Oracle through SQLPlus as {identity}.")
+            let context = load_oracle_session_context(connection).await?;
+            (context, "unknown version".into(), false)
         }
         "contract" => {
             warnings.push(
                 "This is an explicit browser/demo preview profile. No Oracle server was contacted."
                     .into(),
             );
-            format!(
-                "Oracle preview profile {} was validated without contacting a database.",
-                connection.name
+            (
+                OracleSessionContext::contract(connection),
+                "preview".into(),
+                false,
             )
         }
         unsupported => {
@@ -67,6 +50,28 @@ pub(super) async fn test_oracle_connection(
             ));
         }
     };
+    let identity = if context.current_schema == context.session_user {
+        format!("schema {}", context.current_schema)
+    } else {
+        format!(
+            "schema {} (session user {})",
+            context.current_schema, context.session_user
+        )
+    };
+    let message = if runtime == "contract" {
+        format!(
+            "Oracle preview profile {} represents configured service {} as {} without contacting a database.",
+            connection.name, context.service_name, identity
+        )
+    } else {
+        format!(
+            "Connected to Oracle {version} container {} through service {} as {}{}.",
+            context.database_label(),
+            context.service_name,
+            identity,
+            if tls { " over TCPS" } else { "" }
+        )
+    };
 
     Ok(ConnectionTestResult {
         ok: true,
@@ -74,7 +79,7 @@ pub(super) async fn test_oracle_connection(
         message,
         warnings,
         resolved_host: connection.host.clone(),
-        resolved_database: Some(oracle_service_name(connection)),
+        resolved_database: Some(context.database_label().to_string()),
         duration_ms: Some(duration_ms(started)),
     })
 }

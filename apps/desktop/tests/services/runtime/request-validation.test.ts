@@ -19,6 +19,7 @@ import {
   validateSaveQueryTabToLocalFileRequest,
   validateSetLibraryNodeEnvironmentRequest,
   validateUpdateQueryBuilderStateRequest,
+  validateUpdateQueryTabTargetRequest,
 } from '../../../src/services/runtime/request-validation'
 
 describe('runtime request validation', () => {
@@ -301,19 +302,34 @@ describe('runtime request validation', () => {
     ).toBe(10_000)
     expect(
       validateResultPageRequest({
+        executionId: 'execution-page-1',
         tabId: 'tab-1',
         connectionId: 'conn-1',
         environmentId: 'env-1',
         language: 'sql',
         queryText: 'select 1',
         renderer: 'table',
+        cursor: 'x'.repeat(200 * 1024),
         pageSize: 999_999,
         pageIndex: 999_999,
       }),
     ).toMatchObject({
+      executionId: 'execution-page-1',
       pageSize: 1000,
       pageIndex: 100000,
     })
+    expect(() =>
+      validateResultPageRequest({
+        executionId: 'execution-page-2',
+        tabId: 'tab-1',
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        language: 'sql',
+        queryText: 'select 1',
+        renderer: 'table',
+        cursor: 'x'.repeat(257 * 1024),
+      }),
+    ).toThrow(/Result cursor/)
     expect(() =>
       validateResultPageRequest({
         tabId: 'tab-1',
@@ -1451,6 +1467,57 @@ describe('runtime request validation', () => {
         queryViewMode: 'both' as never,
       }),
     ).toThrow(/Unsupported query view mode/)
+  })
+
+  it('validates atomic query target updates', () => {
+    const request = validateUpdateQueryTabTargetRequest({
+      tabId: 'tab-1',
+      scopedTarget: {
+        kind: 'collection',
+        label: ' orders ',
+        path: ['archive', 'Collections'],
+        scope: 'collection:archive:orders',
+        preferredBuilder: 'mongo-find',
+      },
+      queryText: '{ "database": "archive", "collection": "orders" }',
+      queryViewMode: 'builder',
+    })
+
+    expect(request.scopedTarget.label).toBe('orders')
+    expect(() => validateUpdateQueryTabTargetRequest({
+      ...request,
+      queryViewMode: 'both' as never,
+    })).toThrow(/Unsupported query view mode/)
+  })
+
+  it('normalizes nullable native fields in query target updates', () => {
+    const request = validateUpdateQueryTabTargetRequest({
+      tabId: 'tab-redis',
+      scopedTarget: {
+        kind: 'database',
+        label: 'DB 0',
+        path: null,
+        scope: null,
+        queryTemplate: null,
+        preferredBuilder: 'redis-key-browser',
+      },
+      queryText: '{ "mode": "redis-key-browser", "database": 0 }',
+      queryViewMode: 'builder',
+      scriptText: null,
+      builderState: null,
+      title: null,
+    } as never)
+
+    expect(request).toMatchObject({
+      scriptText: undefined,
+      builderState: undefined,
+      title: undefined,
+      scopedTarget: {
+        path: [],
+        scope: undefined,
+        queryTemplate: undefined,
+      },
+    })
   })
 
   it('validates execution modes at the command boundary', () => {

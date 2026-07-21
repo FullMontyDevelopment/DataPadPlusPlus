@@ -46,6 +46,7 @@ const defaultActions: Actions = {
   reorderTabs: noop,
   updateQuery: noop,
   updateQueryBuilderState: noop,
+  updateQueryTarget: async () => false,
   updateTestSuiteTab: noop,
   renameTab: noop,
   saveCurrentQuery: noop,

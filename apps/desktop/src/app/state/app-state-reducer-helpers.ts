@@ -452,6 +452,13 @@ function mergeResultPayload(current: ResultPayload, incoming: ResultPayload): Re
     }
   }
 
+  if (current.renderer === 'json' && incoming.renderer === 'json') {
+    return {
+      ...current,
+      value: mergeJsonPageValue(current.value, incoming.value),
+    }
+  }
+
   if (current.renderer === 'keyvalue' && incoming.renderer === 'keyvalue') {
     const currentEntries = stringRecordValue(current.entries)
     const incomingEntries = stringRecordValue(incoming.entries)
@@ -474,6 +481,32 @@ function mergeResultPayload(current: ResultPayload, incoming: ResultPayload): Re
         ...schemaItemsValue(incoming.items),
       ],
     }
+  }
+
+  return incoming
+}
+
+function mergeJsonPageValue(current: unknown, incoming: unknown): unknown {
+  if (Array.isArray(current) && Array.isArray(incoming)) {
+    return [...current, ...incoming]
+  }
+
+  if (
+    current
+    && incoming
+    && typeof current === 'object'
+    && typeof incoming === 'object'
+    && !Array.isArray(current)
+    && !Array.isArray(incoming)
+  ) {
+    const merged = { ...recordValue(current), ...recordValue(incoming) }
+    for (const [key, incomingValue] of Object.entries(recordValue(incoming))) {
+      const currentValue = recordValue(current)[key]
+      if (Array.isArray(currentValue) && Array.isArray(incomingValue)) {
+        merged[key] = [...currentValue, ...incomingValue]
+      }
+    }
+    return merged
   }
 
   return incoming
@@ -554,6 +587,18 @@ function resultPayloadSize(payload: ResultPayload) {
 
   if (payload.renderer === 'schema') {
     return arrayValue(payload.items).length
+  }
+
+  if (payload.renderer === 'json') {
+    const value = payload.value
+    if (Array.isArray(value)) {
+      return value.length
+    }
+    const record = recordValue(value)
+    const pagedItems = ['Documents', 'DocumentCollections', 'Databases']
+      .map((key) => record[key])
+      .find(Array.isArray)
+    return pagedItems?.length ?? 1
   }
 
   return 1

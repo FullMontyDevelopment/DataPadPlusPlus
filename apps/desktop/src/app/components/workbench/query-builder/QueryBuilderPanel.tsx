@@ -23,6 +23,8 @@ import {
 } from '../results/field-drag'
 import { CqlPartitionBuilder } from './CqlPartitionBuilder'
 import { isCqlPartitionBuilderState } from './cql-partition'
+import { CosmosSqlBuilder } from './CosmosSqlBuilder'
+import { isCosmosSqlBuilderState } from './cosmos-sql'
 import { DynamoDbKeyConditionBuilder } from '../datastores/dynamodb/DynamoDbKeyConditionBuilder'
 import { isDynamoDbKeyConditionBuilderState } from './dynamodb-key-condition'
 import {
@@ -120,6 +122,18 @@ export function QueryBuilderPanel({
         tab={tab}
         builderState={resolvedBuilderState}
         tableOptions={tableOptions}
+        onBuilderStateChange={onBuilderStateChange}
+      />
+    )
+  }
+
+  if (!panel && isCosmosSqlBuilderState(resolvedBuilderState)) {
+    panel = (
+      <CosmosSqlBuilder
+        key={tab.id}
+        tab={tab}
+        builderState={resolvedBuilderState}
+        containerOptions={collectionOptions}
         onBuilderStateChange={onBuilderStateChange}
       />
     )

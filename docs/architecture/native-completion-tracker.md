@@ -93,6 +93,8 @@ Every datastore must pass this gate before its tracker status can move to native
 
 ## Progress Log
 
+- **2026-07-20:** Replaced the Cosmos DB NoSQL adapter's plain TCP request path with a shared, TLS-capable `reqwest` transport. Account-key/resource-token/AAD-token headers, bounded streamed bodies, Cosmos retry signals, request-charge/activity/query metadata, opaque continuation plus session paging, cancellation, and tab-local database/container routing now share the native execution path. The NoSQL surface also includes a parameterized visual SQL builder with typed filters, selected fields, sorting, bounded paging, exact partition routing, and exact Count. Automatic Entra/managed-identity token acquisition remains follow-up work.
+
 - **2026-07-14:** Replaced graph contract transports with protocol-correct native runtimes. Neo4j now defaults to Bolt and supports the current Query API with legacy fallback; ArangoDB uses shared bounded HTTP clients and cleans every cursor; JanusGraph defaults to GraphSON v3 WebSocket with SASL, partial responses, and TLS/custom-CA support; Neptune uses the AWS Neptune Data SDK and SigV4 for IAM profiles; Cosmos DB Gremlin uses GraphSON v2 WebSocket with Cosmos authentication and partial-response metrics. Guarded query writes, normalized graph results, live structure metadata, and local Neo4j/ArangoDB/JanusGraph fixture evidence are complete. Native-complete graduation remains gated on higher-impact admin/import-export execution and credential-gated Neptune/Cosmos cloud evidence.
 
 - **2026-06-03:** Created this tracker from the current all-engine native gap audit. MongoDB is the first active datastore because it is closest to native-complete and should become the reference pattern for later engines.

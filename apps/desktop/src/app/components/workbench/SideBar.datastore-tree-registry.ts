@@ -379,7 +379,10 @@ export function branchNodeForPath(
     node.scope = `cosmos:container:${database}:${label}`
     node.expandable = true
     node.queryable = true
-    node.queryTemplate = documentFindQueryTemplate(label, 20, database)
+    if ((connection.cosmosDbOptions?.api ?? 'nosql') === 'nosql') {
+      node.builderKind = 'cosmos-sql'
+      node.queryTemplate = cosmosSqlQueryTemplate(database, label, 50)
+    }
   }
 
   if (parentLabel && SQL_TABLE_CONTAINER_LABELS.has(parentLabel) && !isCategoryLabel(label)) {
@@ -392,6 +395,21 @@ export function branchNodeForPath(
 
   node.scope ??= branchScopeForPath(path)
   return node
+}
+
+function cosmosSqlQueryTemplate(database: string, container: string, limit: number) {
+  return JSON.stringify(
+    {
+      operation: 'QueryDocuments',
+      database,
+      container,
+      query: `SELECT TOP ${limit} * FROM c`,
+      parameters: [],
+      enableCrossPartitionQueries: true,
+    },
+    null,
+    2,
+  )
 }
 
 export function managementActionsForNode(

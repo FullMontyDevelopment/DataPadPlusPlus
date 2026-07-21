@@ -131,6 +131,7 @@ export interface CreateObjectViewTabRequest {
 export type QueryBuilderKind =
   | 'mongo-find'
   | 'mongo-aggregation'
+  | 'cosmos-sql'
   | 'redis-key-browser'
   | 'sql-select'
   | 'dynamodb-key-condition'
@@ -235,6 +236,69 @@ export interface MongoAggregationBuilderState {
   collection: string
   stages: MongoAggregationStageRow[]
   limit?: number
+  lastAppliedQueryText?: string
+}
+
+export type CosmosSqlFilterOperator =
+  | 'eq'
+  | 'ne'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'contains'
+  | 'not-contains'
+  | 'starts-with'
+  | 'not-starts-with'
+  | 'ends-with'
+  | 'not-ends-with'
+  | 'array-contains'
+  | 'in'
+  | 'not-in'
+  | 'is-null'
+  | 'is-not-null'
+
+export type CosmosSqlBuilderValueType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'null'
+  | 'json'
+
+export interface CosmosSqlProjectionField {
+  id: string
+  field: string
+}
+
+export interface CosmosSqlFilterRow {
+  id: string
+  enabled?: boolean
+  field: string
+  operator: CosmosSqlFilterOperator
+  value: string
+  valueType: CosmosSqlBuilderValueType
+}
+
+export interface CosmosSqlSortRow {
+  id: string
+  field: string
+  direction: 'asc' | 'desc'
+}
+
+export interface CosmosSqlBuilderState {
+  kind: 'cosmos-sql'
+  database?: string
+  container: string
+  projectionFields: CosmosSqlProjectionField[]
+  filters: CosmosSqlFilterRow[]
+  filterLogic: 'and' | 'or'
+  sort: CosmosSqlSortRow[]
+  offset?: number
+  limit?: number
+  partitionKeyEnabled?: boolean
+  partitionKeyValue?: string
+  partitionKeyValueType?: CosmosSqlBuilderValueType
+  enableCrossPartitionQueries?: boolean
   lastAppliedQueryText?: string
 }
 
@@ -499,6 +563,7 @@ export interface RedisKeyBrowserState {
 export type QueryBuilderState =
   | MongoFindBuilderState
   | MongoAggregationBuilderState
+  | CosmosSqlBuilderState
   | RedisKeyBrowserState
   | SqlSelectBuilderState
   | DynamoDbKeyConditionBuilderState
