@@ -519,6 +519,11 @@ describe('app-state reducer explorer metadata cache', () => {
 })
 
 describe('app-state reducer structure metadata', () => {
+  const request = {
+    connectionId: 'connection-oracle',
+    environmentId: 'env-dev',
+    scope: 'oracle:object:FREEPDB1:DATAPADPLUSPLUS:TABLE:ACCOUNTS',
+  }
   const structure = (connectionId: string): StructureResponse => ({
     connectionId,
     environmentId: 'env-dev',
@@ -532,8 +537,14 @@ describe('app-state reducer structure metadata', () => {
 
   it('invalidates only the matching connection structure after DDL', () => {
     let state = reducer(initialState, {
+      type: 'STRUCTURE_LOADING',
+      request,
+      requestId: 'structure-current',
+    })
+    state = reducer(state, {
       type: 'STRUCTURE_READY',
       structure: structure('connection-oracle'),
+      requestId: 'structure-current',
     })
 
     state = reducer(state, {
@@ -550,6 +561,42 @@ describe('app-state reducer structure metadata', () => {
     })
     expect(state.structure).toBeUndefined()
     expect(state.structureStatus).toBe('idle')
+  })
+
+  it('ignores stale structure success and error responses', () => {
+    let state = reducer(initialState, {
+      type: 'STRUCTURE_LOADING',
+      request: { ...request, scope: 'schema:OLD' },
+      requestId: 'structure-old',
+    })
+    state = reducer(state, {
+      type: 'STRUCTURE_LOADING',
+      request,
+      requestId: 'structure-current',
+    })
+
+    const afterStaleSuccess = reducer(state, {
+      type: 'STRUCTURE_READY',
+      structure: structure('connection-old'),
+      requestId: 'structure-old',
+    })
+    const afterStaleError = reducer(afterStaleSuccess, {
+      type: 'STRUCTURE_ERROR',
+      message: 'Oracle metadata timed out.',
+      requestId: 'structure-old',
+    })
+
+    expect(afterStaleError).toBe(state)
+    expect(afterStaleError.structureStatus).toBe('loading')
+    expect(afterStaleError.structureError).toBeUndefined()
+
+    const ready = reducer(afterStaleError, {
+      type: 'STRUCTURE_READY',
+      structure: structure('connection-oracle'),
+      requestId: 'structure-current',
+    })
+    expect(ready.structure?.connectionId).toBe('connection-oracle')
+    expect(ready.structureRequest?.scope).toBe(request.scope)
   })
 })
 

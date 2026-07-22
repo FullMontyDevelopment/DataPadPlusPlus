@@ -5,7 +5,10 @@ use serde_json::json;
 use super::super::super::*;
 use super::catalog::oracle_execution_capabilities;
 use super::connection::{oracle_service_name, oracle_sqlplus_path};
-use super::query::{oracle_sqlplus_script, parse_oracle_sqlplus_csv, run_oracle_sqlplus_script};
+use super::query::{
+    oracle_sqlplus_script, parse_oracle_sqlplus_csv, run_oracle_sqlplus_script,
+    ORACLE_COMPATIBLE_PLAN_QUERY,
+};
 use super::session::{
     load_oracle_session_context, oracle_managed_response_rows, OracleSessionContext,
     ORACLE_SESSION_CONTEXT_QUERY,
@@ -156,7 +159,7 @@ async fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode>
                 "diagnostics",
                 "Plans, locks, waits, and database health.",
                 "oracle:diagnostics",
-                "select * from table(dbms_xplan.display)",
+                ORACLE_COMPATIBLE_PLAN_QUERY,
             ),
         ]
         .into_iter()
@@ -418,6 +421,26 @@ impl OracleObjectContext {
         path.push(object_name.into());
         path
     }
+}
+
+pub(super) fn oracle_schema_from_scope(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+) -> Option<String> {
+    if let Some((context, _, _)) = OracleObjectContext::from_object_scope(connection, scope) {
+        return Some(context.schema);
+    }
+    if let Some((context, _)) = OracleObjectContext::from_category_scope(connection, scope) {
+        return Some(context.schema);
+    }
+    scope
+        .strip_prefix("oracle:schema:")
+        .and_then(decode_scope_component)
+        .or_else(|| {
+            scope
+                .strip_prefix("schema:")
+                .and_then(decode_scope_component)
+        })
 }
 
 async fn category_object_nodes(
@@ -1062,7 +1085,7 @@ fn flashback_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> 
 
 fn diagnostics_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
     simple_nodes(connection, "Diagnostics", [
-        ("oracle-explain-plan", "Execution Plan", "execution-plan", "DBMS_XPLAN output for the last explained statement.", "select * from table(dbms_xplan.display)"),
+        ("oracle-explain-plan", "Execution Plan", "execution-plan", "Compatible PLAN_TABLE rows visible to this session.", ORACLE_COMPATIBLE_PLAN_QUERY),
         ("oracle-sql-monitor", "SQL Monitor", "sql-monitor", "SQL Monitor reports where licensed/granted.", "select * from v$sql_monitor where rownum <= 100"),
         ("oracle-locks", "Locks", "locks", "Lock and blocking session metadata.", "select * from v$lock where rownum <= 100"),
         ("oracle-invalid-objects", "Invalid Objects", "invalid-objects", "Invalid objects and compilation status.", "select owner, object_name, object_type, status from all_objects where status <> 'VALID' order by owner, object_name"),
@@ -1487,7 +1510,7 @@ fn oracle_query_for_node(node_id: &str, schema: &str) -> String {
         }
         "oracle-locks" => "select * from v$lock where rownum <= 100".into(),
         "oracle-top-sql" | "oracle-sql-monitor" => "select * from v$sql where rownum <= 100".into(),
-        "oracle-explain-plan" => "select * from table(dbms_xplan.display)".into(),
+        "oracle-explain-plan" => ORACLE_COMPATIBLE_PLAN_QUERY.into(),
         "oracle-diagnostics" | "oracle-invalid-objects" => {
             "select owner, object_name, object_type, status from all_objects where status <> 'VALID' order by owner, object_name".into()
         }

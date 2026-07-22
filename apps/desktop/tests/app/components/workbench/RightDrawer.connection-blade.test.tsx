@@ -1227,6 +1227,50 @@ describe('ConnectionBlade', () => {
       'snowflake-token',
     )
   })
+
+  it('edits the Oracle request timeout from advanced connection settings', () => {
+    const onTestConnection = vi.fn()
+    const oracleConnection: ConnectionProfile = {
+      ...connection,
+      id: 'conn-oracle',
+      name: 'Finance Oracle',
+      engine: 'oracle',
+      port: 1521,
+      database: 'FREEPDB1',
+      icon: 'oracle',
+      oracleOptions: {
+        executionRuntime: 'managed',
+        serviceName: 'FREEPDB1',
+      },
+    }
+
+    render(
+      <ConnectionBlade
+        activeConnection={oracleConnection}
+        connectionTest={undefined}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={onTestConnection}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Oracle request timeout'), {
+      target: { value: '45000' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    expect(onTestConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: oracleConnection.id,
+        oracleOptions: expect.objectContaining({ requestTimeoutMs: 45_000 }),
+      }),
+      environment.id,
+      '',
+    )
+  })
 })
 
 function connectionTestResult(

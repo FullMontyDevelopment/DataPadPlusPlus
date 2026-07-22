@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use super::super::super::*;
+use super::explorer::oracle_schema_from_scope;
 use super::session::{load_oracle_session_context, oracle_managed_response_rows};
 use super::sidecar::{execute_oracle_managed_read, oracle_execution_runtime};
 
@@ -18,19 +19,28 @@ pub(super) async fn load_oracle_structure(
     let node_limit = structure_node_limit(request, 320);
     let edge_limit = structure_edge_limit(request, 1_000);
     let session = load_oracle_session_context(connection).await?;
-    let current_schema = sql_literal(&session.current_schema);
-    let owner_filter = if request.include_system_objects.unwrap_or(false) {
-        String::new()
-    } else {
-        format!("and (owner = '{current_schema}' or owner not in ('SYS','SYSTEM','OUTLN','DBSNMP','XDB','MDSYS','CTXSYS','ORDSYS','WMSYS','AUDSYS'))")
-    };
-    let object_query = format!(
-        "select owner, object_name, object_type from (select distinct owner, object_name, object_type from all_objects where object_type in ('TABLE','VIEW','MATERIALIZED VIEW') {owner_filter} order by case when owner = '{current_schema}' then 0 else 1 end, owner, object_name) where rownum <= {}",
-        node_limit + 1
-    );
-    let object_rows = oracle_managed_response_rows(
-        &execute_oracle_managed_read(connection, &object_query, node_limit + 1).await?,
-    )?;
+    let scoped_schema = request
+        .scope
+        .as_deref()
+        .and_then(|scope| oracle_schema_from_scope(connection, scope));
+    let primary_schema = scoped_schema.as_deref().unwrap_or(&session.current_schema);
+    let mut object_rows =
+        load_oracle_structure_objects(connection, primary_schema, node_limit + 1).await?;
+    let load_secondary_schemas = scoped_schema.is_none()
+        && request.mode.as_deref() == Some("relationships")
+        && object_rows.len() <= node_limit as usize;
+    if load_secondary_schemas {
+        let remaining = node_limit + 1 - object_rows.len() as u32;
+        object_rows.extend(
+            load_oracle_secondary_structure_objects(
+                connection,
+                primary_schema,
+                remaining,
+                request.include_system_objects.unwrap_or(false),
+            )
+            .await?,
+        );
+    }
     let selected = object_rows
         .iter()
         .take(node_limit as usize)
@@ -190,17 +200,60 @@ fn oracle_object_filter(
     if values.is_empty() {
         return "1 = 0".into();
     }
-    values
-        .iter()
-        .map(|(owner, table)| {
+    let mut by_owner = BTreeMap::<&str, Vec<&str>>::new();
+    for (owner, table) in values {
+        by_owner.entry(owner).or_default().push(table);
+    }
+    by_owner
+        .into_iter()
+        .map(|(owner, mut tables)| {
+            tables.sort_unstable();
+            tables.dedup();
+            let tables = tables
+                .into_iter()
+                .map(|table| format!("'{}'", sql_literal(table)))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!(
-                "({owner_expression} = '{}' and {table_expression} = '{}')",
-                sql_literal(owner),
-                sql_literal(table)
+                "({owner_expression} = '{}' and {table_expression} in ({tables}))",
+                sql_literal(owner)
             )
         })
         .collect::<Vec<_>>()
         .join(" or ")
+}
+
+async fn load_oracle_structure_objects(
+    connection: &ResolvedConnectionProfile,
+    owner: &str,
+    limit: u32,
+) -> Result<Vec<Vec<String>>, CommandError> {
+    let query = format!(
+        "select owner, object_name, object_type from (select owner, object_name, object_type from all_objects where owner = '{}' and object_type in ('TABLE','VIEW','MATERIALIZED VIEW') order by object_name, object_type) where rownum <= {limit}",
+        sql_literal(owner)
+    );
+    oracle_managed_response_rows(&execute_oracle_managed_read(connection, &query, limit).await?)
+}
+
+async fn load_oracle_secondary_structure_objects(
+    connection: &ResolvedConnectionProfile,
+    primary_owner: &str,
+    limit: u32,
+    include_system_objects: bool,
+) -> Result<Vec<Vec<String>>, CommandError> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let system_filter = if include_system_objects {
+        String::new()
+    } else {
+        "and owner not in ('SYS','SYSTEM','OUTLN','DBSNMP','XDB','MDSYS','CTXSYS','ORDSYS','WMSYS','AUDSYS')".into()
+    };
+    let query = format!(
+        "select owner, object_name, object_type from (select owner, object_name, object_type from all_objects where owner <> '{}' {system_filter} and object_type in ('TABLE','VIEW','MATERIALIZED VIEW') order by owner, object_name, object_type) where rownum <= {limit}",
+        sql_literal(primary_owner)
+    );
+    oracle_managed_response_rows(&execute_oracle_managed_read(connection, &query, limit).await?)
 }
 
 fn is_oracle_system_owner(owner: &str) -> bool {

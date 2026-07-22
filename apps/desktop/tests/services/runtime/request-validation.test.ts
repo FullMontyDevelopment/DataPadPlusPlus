@@ -396,6 +396,39 @@ describe('runtime request validation', () => {
     })
   })
 
+  it('validates the persisted Oracle request timeout range', () => {
+    const profile = {
+      id: 'conn-oracle',
+      name: 'Finance Oracle',
+      engine: 'oracle',
+      family: 'sql',
+      host: 'localhost',
+      environmentIds: ['env-local'],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'oracle',
+      auth: {},
+      oracleOptions: { requestTimeoutMs: 45_000 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    } as Parameters<typeof validateConnectionProfile>[0]
+
+    expect(validateConnectionProfile(profile).oracleOptions?.requestTimeoutMs).toBe(45_000)
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        oracleOptions: { requestTimeoutMs: 999 },
+      }),
+    ).toThrow(/Oracle request timeout must be an integer between 1000 and 300000/)
+    expect(() =>
+      validateConnectionProfile({
+        ...profile,
+        oracleOptions: { requestTimeoutMs: 300_001 },
+      }),
+    ).toThrow(/Oracle request timeout must be an integer between 1000 and 300000/)
+  })
+
   it('normalizes MongoDB Atlas SRV options without treating boolean TLS as text', () => {
     const profile = validateConnectionProfile({
       id: 'conn-mongo-atlas',

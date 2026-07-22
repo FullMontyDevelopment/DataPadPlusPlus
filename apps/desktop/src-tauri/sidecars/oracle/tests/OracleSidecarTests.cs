@@ -91,6 +91,57 @@ public sealed class OracleSidecarTests
         Assert.DoesNotContain('\n', sanitized);
     }
 
+    [Fact]
+    public void ExplainNormalizesPlainAndPreformattedStatements()
+    {
+        Assert.Equal(
+            "select * from accounts",
+            Program.NormalizeExplainStatement(new[] { "select * from accounts" }));
+        Assert.Equal(
+            "select * from accounts",
+            Program.NormalizeExplainStatement(new[]
+            {
+                "EXPLAIN PLAN SET STATEMENT_ID = 'old-plan' FOR select * from accounts",
+            }));
+        var error = Assert.Throws<SidecarException>(() =>
+            Program.NormalizeExplainStatement(new[] { "EXPLAIN PLAN FOR delete from accounts" }));
+        Assert.Equal("oracle-explain-statement-invalid", error.Code);
+    }
+
+    [Fact]
+    public void LegacyPlanTablesDoNotRequireOtherTag()
+    {
+        var columns = Program.CompatiblePlanColumns(new[]
+        {
+            "STATEMENT_ID", "ID", "PARENT_ID", "OPERATION", "OPTIONS", "OBJECT_NAME", "COST",
+        });
+
+        Assert.Contains("OPERATION", columns);
+        Assert.Contains("COST", columns);
+        Assert.DoesNotContain("OTHER_TAG", columns);
+    }
+
+    [Fact]
+    public void IncompatiblePlanTablesReportMissingCoreColumns()
+    {
+        var error = Assert.Throws<SidecarException>(() =>
+            Program.CompatiblePlanColumns(new[] { "STATEMENT_ID", "ID", "OPERATION" }));
+
+        Assert.Equal("oracle-plan-table-incompatible", error.Code);
+        Assert.Contains("PARENT_ID", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PlanStatementIdsAreUniqueAndFitOracleIdentifiers()
+    {
+        var first = Program.CreatePlanStatementId();
+        var second = Program.CreatePlanStatementId();
+
+        Assert.NotEqual(first, second);
+        Assert.True(first.Length <= 30);
+        Assert.Matches("^[A-Z0-9]+$", first);
+    }
+
     private static OracleConnectionInput Connection(
         string? connectMode = "service",
         string? serviceName = null,

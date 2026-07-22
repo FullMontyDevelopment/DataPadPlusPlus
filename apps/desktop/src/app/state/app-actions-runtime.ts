@@ -199,27 +199,22 @@ export function useRuntimeActions({
 
   const loadStructureMap = useCallback<Actions['loadStructureMap']>(
     async (request) => {
+      const requestId = `structure-${Date.now()}-${Math.random().toString(36).slice(2)}`
       try {
         ensureWorkspaceUnlocked(state.payload)
-        dispatch({ type: 'STRUCTURE_LOADING' })
+        dispatch({ type: 'STRUCTURE_LOADING', request, requestId })
         const structure = await desktopClient.loadStructureMap(request)
-        dispatch({ type: 'STRUCTURE_READY', structure })
-        recordConnected(
-          request.connectionId,
-          request.environmentId,
-          'structure',
-          'Structure loaded',
-        )
+        dispatch({ type: 'STRUCTURE_READY', structure, requestId })
       } catch (error) {
         const message = toUserMessage(error, 'Unable to load visual database structure.')
         dispatch({
           type: 'STRUCTURE_ERROR',
           message,
+          requestId,
         })
-        recordIssue(request.connectionId, request.environmentId, 'structure', message)
       }
     },
-    [dispatch, recordConnected, recordIssue, state.payload],
+    [dispatch, state.payload],
   )
 
   const inspectExplorer = useCallback<Actions['inspectExplorer']>(

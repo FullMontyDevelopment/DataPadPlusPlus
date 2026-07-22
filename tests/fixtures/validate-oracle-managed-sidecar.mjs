@@ -13,7 +13,9 @@ if (!runtimeName) {
   throw new Error(`Managed Oracle fixture validation is not configured for ${process.platform}-${process.arch}.`)
 }
 
-const runtime = resolve('apps', 'desktop', 'src-tauri', 'binaries', runtimeName)
+const runtime = process.env.DATAPADPLUSPLUS_ORACLE_RUNTIME
+  ? resolve(process.env.DATAPADPLUSPLUS_ORACLE_RUNTIME)
+  : resolve('apps', 'desktop', 'src-tauri', 'binaries', runtimeName)
 if (!existsSync(runtime)) {
   throw new Error('The bundled Oracle runtime is missing. Run `npm run oracle:sidecar:prepare` first.')
 }
@@ -99,8 +101,8 @@ try {
   expect(tested.sessionUser === 'DATAPADPLUSPLUS', 'Connection test returned the wrong session user.')
   expect(tested.currentSchema === 'DATAPADPLUSPLUS', 'Connection test returned the wrong current schema.')
   expect(tested.containerName === 'FREEPDB1', 'Connection test did not resolve the connected PDB.')
-  expect(tested.databaseName === 'FREE', 'Connection test did not resolve the database name.')
-  expect(tested.databaseUniqueName, 'Connection test did not return the database unique name.')
+  expect(tested.databaseName, 'Connection test did not resolve the database name.')
+  expect(tested.databaseUniqueName === 'FREE', 'Connection test returned the wrong database unique name.')
   expect(Number(tested.containerId) > 0, 'Connection test did not return the container ID.')
   expect(tested.serviceName?.toUpperCase().startsWith('FREEPDB1'), 'Connection test returned the wrong service.')
 
@@ -131,6 +133,34 @@ try {
   expect(bounded.sections[0].rows.length === 2, 'Managed row limiting did not stop at two rows.')
   expect(bounded.sections[0].truncated === true, 'Managed row limiting did not mark the result truncated.')
 
+  const legacyPlanTable = expectSuccess(await request('execute', {
+    statement: `select count(*) from user_tab_columns where table_name = 'PLAN_TABLE' and column_name = 'OTHER_TAG'`,
+  }), 'Legacy PLAN_TABLE metadata')
+  expect(Number(legacyPlanTable.sections[0].rows[0][0]) === 0, 'The fixture PLAN_TABLE still contains OTHER_TAG.')
+
+  const planRowsBefore = expectSuccess(await request('execute', {
+    statement: `select count(*) from plan_table where statement_id like 'DPP%'`,
+  }), 'Plan row baseline')
+  const explained = expectSuccess(await request('execute', {
+    statement: 'explain plan for select id, name from accounts where id = 1',
+    mode: 'explain',
+  }), 'Compatible explain plan')
+  expect(explained.sections.length === 1, 'Explain returned intermediate result sections.')
+  expect(explained.sections[0].statementKind === 'plan', 'Explain did not return a plan result section.')
+  expect(explained.sections[0].rows.length > 0, 'Explain returned no PLAN_TABLE rows.')
+  expect(
+    explained.sections[0].columns.some((column) => column.name === 'OPERATION'),
+    'Explain did not return the core OPERATION column.',
+  )
+  expect(explained.planRowsCleanedUp === true, 'Explain did not report cleaned-up plan rows.')
+  const planRowsAfter = expectSuccess(await request('execute', {
+    statement: `select count(*) from plan_table where statement_id like 'DPP%'`,
+  }), 'Plan row cleanup')
+  expect(
+    planRowsAfter.sections[0].rows[0][0] === planRowsBefore.sections[0].rows[0][0],
+    `Explain left temporary plan rows behind (${planRowsBefore.sections[0].rows[0][0]} before, ${planRowsAfter.sections[0].rows[0][0]} after).`,
+  )
+
   const output = expectSuccess(await request('execute', {
     statement: `begin dbms_output.put_line('managed-oracle-ok'); end;\n/`,
     readOnly: false,
@@ -143,7 +173,7 @@ try {
   })
   expect(!blocked.ok && blocked.code === 'oracle-read-only-blocked', 'Read-only Oracle execution did not fail closed.')
 
-  console.log(`Managed Oracle fixture OK: ${tested.containerName}, schema ${tested.currentSchema}, ${tables.length} tables, child metadata, bounded SQL, PL/SQL output, and read-only guardrails.`)
+  console.log(`Managed Oracle fixture OK: ${tested.containerName}, schema ${tested.currentSchema}, ${tables.length} tables, legacy PLAN_TABLE explain, child metadata, bounded SQL, PL/SQL output, and read-only guardrails.`)
 } finally {
   child.stdin.end()
   lines.close()

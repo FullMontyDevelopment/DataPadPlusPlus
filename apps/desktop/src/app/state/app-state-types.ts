@@ -159,6 +159,8 @@ export interface StateShape {
   structureStatus: RemoteStatus
   structure?: StructureResponse
   structureError?: string
+  structureRequestId?: string
+  structureRequest?: StructureRequest
   executionStatus: RemoteStatus
   executionsByTab: Record<string, QueryTabActiveExecution>
   latestExecutionsByTab: Record<string, string>
@@ -229,9 +231,9 @@ export type AppAction =
   | { type: 'EXPLORER_READY'; explorer: ExplorerResponse; requestId: string }
   | { type: 'EXPLORER_ERROR'; request: ExplorerRequest; requestId?: string; message: string }
   | { type: 'EXPLORER_INSPECTION_READY'; inspection: ExplorerInspectResponse }
-  | { type: 'STRUCTURE_LOADING' }
-  | { type: 'STRUCTURE_READY'; structure: StructureResponse }
-  | { type: 'STRUCTURE_ERROR'; message: string }
+  | { type: 'STRUCTURE_LOADING'; request: StructureRequest; requestId: string }
+  | { type: 'STRUCTURE_READY'; structure: StructureResponse; requestId: string }
+  | { type: 'STRUCTURE_ERROR'; message: string; requestId: string }
   | { type: 'STRUCTURE_INVALIDATED'; connectionId: string; environmentId: string }
   | { type: 'EXECUTION_LOADING'; tabId?: string; execution: QueryTabActiveExecution }
   | { type: 'EXECUTION_PHASE'; tabId?: string; executionId: string; phase: QueryTabActiveExecution['phase']; message?: string }

@@ -3,8 +3,9 @@ use std::io;
 use tokio::time::{Duration, Instant};
 
 use super::{
-    oracle_execution_runtime, oracle_sidecar_candidates, oracle_sidecar_spawn_error,
-    oracle_target_triple, OracleSidecarState, ORACLE_SIDECAR_BACKGROUND_COOLDOWN_MS,
+    oracle_execution_runtime, oracle_metadata_error, oracle_sidecar_candidates,
+    oracle_sidecar_spawn_error, oracle_target_triple, OracleSidecarState,
+    ORACLE_SIDECAR_BACKGROUND_COOLDOWN_MS,
 };
 use crate::domain::error::CommandError;
 use crate::domain::models::ResolvedConnectionProfile;
@@ -85,6 +86,23 @@ fn permission_denied_startup_is_reported_as_policy_blocking() {
     assert_eq!(error.code, "oracle-sidecar-blocked");
     assert!(error.message.contains("endpoint security"));
     assert!(!error.message.contains("Access is denied"));
+}
+
+#[test]
+fn metadata_timeouts_are_distinguished_from_query_execution() {
+    let error = oracle_metadata_error(
+        CommandError::new(
+            "oracle-sidecar-timeout",
+            "Oracle execution exceeded the 30000 ms request timeout.",
+        ),
+        30_000,
+    );
+
+    assert_eq!(error.code, "oracle-metadata-timeout");
+    assert!(error.message.contains("metadata loading"));
+    assert!(error
+        .message
+        .contains("completed query results remain available"));
 }
 
 #[cfg(windows)]

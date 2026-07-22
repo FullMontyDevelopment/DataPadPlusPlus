@@ -147,24 +147,40 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         ...state,
         explorerInspection: action.inspection,
       }
-    case 'STRUCTURE_LOADING':
+    case 'STRUCTURE_LOADING': {
+      const keepCurrentStructure =
+        state.structure?.connectionId === action.request.connectionId &&
+        state.structure.environmentId === action.request.environmentId &&
+        state.structureRequest?.scope === action.request.scope
       return {
         ...state,
         structureStatus: 'loading',
+        structure: keepCurrentStructure ? state.structure : undefined,
         structureError: undefined,
+        structureRequest: action.request,
+        structureRequestId: action.requestId,
       }
+    }
     case 'STRUCTURE_READY':
+      if (state.structureRequestId !== action.requestId) {
+        return state
+      }
       return {
         ...state,
         structureStatus: 'ready',
         structure: action.structure,
         structureError: undefined,
+        structureRequestId: undefined,
       }
     case 'STRUCTURE_ERROR':
+      if (state.structureRequestId !== action.requestId) {
+        return state
+      }
       return {
         ...state,
         structureStatus: 'ready',
         structureError: action.message,
+        structureRequestId: undefined,
       }
     case 'STRUCTURE_INVALIDATED':
       if (
@@ -179,6 +195,8 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         structureStatus: 'idle',
         structure: undefined,
         structureError: undefined,
+        structureRequest: undefined,
+        structureRequestId: undefined,
       }
     case 'EXECUTION_LOADING':
       return {

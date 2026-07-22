@@ -2,6 +2,7 @@ use serde_json::json;
 
 use super::super::super::*;
 use super::connection::{oracle_connect_descriptor, oracle_service_name};
+use super::query::ORACLE_COMPATIBLE_PLAN_QUERY;
 
 pub(super) async fn collect_oracle_diagnostics(
     connection: &ResolvedConnectionProfile,
@@ -49,7 +50,7 @@ pub(super) async fn collect_oracle_diagnostics(
         json!({
             "templates": [
                 "EXPLAIN PLAN FOR <query>",
-                "select * from table(dbms_xplan.display)",
+                ORACLE_COMPATIBLE_PLAN_QUERY,
                 "select * from table(dbms_xplan.display_cursor(null, null, 'ALLSTATS LAST'))",
                 "select * from v$sql_monitor where rownum <= 100",
                 "select * from v$session where rownum <= 100",
@@ -66,7 +67,7 @@ pub(super) async fn collect_oracle_diagnostics(
             "select * from all_tables where rownum <= 100",
             "select owner, object_name, object_type, status from all_objects where rownum <= 100",
             "select * from session_privs",
-            "select * from table(dbms_xplan.display)",
+            ORACLE_COMPATIBLE_PLAN_QUERY,
             "select tablespace_name, status from user_tablespaces order by tablespace_name"
         ]
     })));

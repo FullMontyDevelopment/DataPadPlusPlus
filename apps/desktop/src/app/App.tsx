@@ -212,6 +212,7 @@ function DesktopWorkspace() {
     explorerStatus,
     structure,
     structureError,
+    structureRequest,
     structureStatus,
     executionsByTab,
     lastExecution,
@@ -841,6 +842,7 @@ function DesktopWorkspace() {
     activeEditorQueryText,
     activeTabScriptText,
   )
+  const activeOracleStructureScope = oracleStructureScope(activeConnection, activeTab)
   const intellisenseCatalog = useQueryIntellisenseCatalog({
     connection: activeConnection,
     environment: activeEnvironment,
@@ -1090,8 +1092,16 @@ function DesktopWorkspace() {
       connectionId: activeConnectionId,
       environmentId: activeEnvironmentId,
       limit: 160,
+      scope: activeOracleStructureScope,
     })
-  }, [actions, activeConnection, activeConnectionId, activeEnvironmentId, activeWorkbenchSlice])
+  }, [
+    actions,
+    activeConnection,
+    activeConnectionId,
+    activeEnvironmentId,
+    activeOracleStructureScope,
+    activeWorkbenchSlice,
+  ])
 
   const loadActiveQueryTargetScope = useCallback((scope?: string) => {
     if (
@@ -1796,10 +1806,11 @@ function DesktopWorkspace() {
       return
     }
 
-    const requestKey = `${activeConnectionId}:${activeEnvironmentId}`
+    const requestKey = `${activeConnectionId}:${activeEnvironmentId}:${activeOracleStructureScope ?? ''}`
     const structureIsCurrent =
       structure?.connectionId === activeConnectionId &&
-      structure.environmentId === activeEnvironmentId
+      structure.environmentId === activeEnvironmentId &&
+      structureRequest?.scope === activeOracleStructureScope
 
     if (
       structureIsCurrent ||
@@ -1814,6 +1825,7 @@ function DesktopWorkspace() {
       connectionId: activeConnectionId,
       environmentId: activeEnvironmentId,
       limit: 160,
+      scope: activeOracleStructureScope,
     })
   }, [
     actions,
@@ -1832,7 +1844,9 @@ function DesktopWorkspace() {
     activeTabIsSettings,
     activeTabIsTestSuite,
     activeTabIsWorkspaceSearch,
+    activeOracleStructureScope,
     structure,
+    structureRequest?.scope,
     structureStatus,
   ])
 
@@ -3862,6 +3876,31 @@ function inferLibraryItemKindForTab(tab: QueryTabState): LibraryItemKind {
   }
 
   return 'query'
+}
+
+function oracleStructureScope(
+  connection: ConnectionProfile | undefined,
+  tab: QueryTabState | undefined,
+) {
+  if (connection?.engine !== 'oracle' || !tab?.scopedTarget) {
+    return undefined
+  }
+  const target = tab.scopedTarget
+  if (target.scope?.startsWith('oracle:')) {
+    return target.scope
+  }
+  const schemaContainerIndex = target.path?.findIndex(
+    (part) => part.trim().toLowerCase() === 'schemas',
+  ) ?? -1
+  const schema =
+    target.kind === 'schema'
+      ? target.label
+      : schemaContainerIndex >= 0
+        ? target.path?.[schemaContainerIndex + 1]
+        : target.path?.length === 2
+          ? target.path[0]
+          : undefined
+  return schema?.trim() ? `schema:${encodeURIComponent(schema.trim())}` : undefined
 }
 
 function environmentTabTitle(label: string) {

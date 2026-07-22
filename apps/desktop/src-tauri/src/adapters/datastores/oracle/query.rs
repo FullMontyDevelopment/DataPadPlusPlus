@@ -1,4 +1,8 @@
-use std::process::Stdio;
+use std::{
+    process::Stdio,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use serde_json::{json, Value};
 use tokio::io::AsyncWriteExt;
@@ -11,6 +15,10 @@ use super::sidecar::{
     configure_oracle_child_process, execute_oracle_managed, oracle_execution_runtime,
 };
 use super::OracleAdapter;
+
+static ORACLE_SQLPLUS_PLAN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+pub(super) const ORACLE_COMPATIBLE_PLAN_QUERY: &str =
+    "select id, parent_id, operation, statement_id from plan_table order by statement_id, id";
 
 pub(super) async fn execute_oracle_query(
     adapter: &OracleAdapter,
@@ -147,27 +155,45 @@ pub(super) async fn execute_oracle_query(
             "live": live_execution
         }),
     );
-    let payloads = vec![
-        payload_table(columns, rows),
-        payload_json(response.clone()),
-        payload_plan(
-            "json",
-            plan_payload,
-            "Oracle execution readiness and EXPLAIN PLAN workflow.",
-        ),
-        profile,
-        payload_metrics(json!([
-            {
-                "name": "oracle.contract.ready",
-                "value": 1,
-                "unit": "flag",
-                "labels": {
-                    "service": oracle_service_name(connection),
-                    "live": live_execution.to_string()
-                }
+    let table_payload = payload_table(columns, rows);
+    let plan_payload = payload_plan(
+        "json",
+        plan_payload,
+        if explain {
+            "Oracle optimizer plan"
+        } else {
+            "Oracle execution readiness and EXPLAIN PLAN workflow."
+        },
+    );
+    let json_payload = payload_json(response.clone());
+    let metrics_payload = payload_metrics(json!([
+        {
+            "name": "oracle.contract.ready",
+            "value": 1,
+            "unit": "flag",
+            "labels": {
+                "service": oracle_service_name(connection),
+                "live": live_execution.to_string()
             }
-        ])),
-    ];
+        }
+    ]));
+    let payloads = if explain {
+        vec![
+            plan_payload.clone(),
+            table_payload,
+            json_payload,
+            profile,
+            metrics_payload,
+        ]
+    } else {
+        vec![
+            table_payload,
+            json_payload,
+            plan_payload.clone(),
+            profile,
+            metrics_payload,
+        ]
+    };
     let (default_renderer, renderer_modes_owned) = renderer_modes_for_payloads(&payloads);
     let renderer_modes = renderer_modes_owned
         .iter()
@@ -184,7 +210,7 @@ pub(super) async fn execute_oracle_query(
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
         truncated: false,
-        explain_payload: None,
+        explain_payload: explain.then_some(plan_payload),
     }))
 }
 
@@ -196,6 +222,7 @@ fn oracle_managed_result(
     row_limit: u32,
     started: Instant,
 ) -> Result<ExecutionResultEnvelope, CommandError> {
+    let plan_mode = matches!(execute_mode(request), "explain" | "plan");
     let sections = response
         .get("sections")
         .and_then(Value::as_array)
@@ -251,7 +278,21 @@ fn oracle_managed_result(
         total_rows += rows.len();
         total_affected += affected;
         truncated |= section_truncated;
-        let payload = if columns.is_empty() {
+        let payload = if plan_mode && kind == "plan" {
+            payload_plan(
+                "json",
+                json!({
+                    "columns": columns,
+                    "rows": rows,
+                    "source": "PLAN_TABLE",
+                    "cleanedUp": response
+                        .get("planRowsCleanedUp")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                }),
+                "Oracle optimizer plan",
+            )
+        } else if columns.is_empty() {
             payload_raw(format!(
                 "Oracle {kind} completed successfully{}.",
                 if affected > 0 {
@@ -325,6 +366,7 @@ fn oracle_managed_result(
         primary_payload
             .unwrap_or_else(|| payload_raw("Oracle statement completed successfully.".into()))
     };
+    let explain_payload = plan_mode.then(|| main_payload.clone());
     let profile = payload_profile(
         "Oracle managed execution profile.",
         json!({
@@ -355,9 +397,11 @@ fn oracle_managed_result(
     let renderer_modes = renderer_modes_owned.iter().map(String::as_str).collect();
     Ok(build_result(ResultEnvelopeInput {
         engine: &connection.engine,
-        summary: format!(
-            "Oracle returned {total_rows} row(s) and affected {total_affected} row(s)."
-        ),
+        summary: if plan_mode {
+            format!("Oracle explain plan returned {total_rows} step(s).")
+        } else {
+            format!("Oracle returned {total_rows} row(s) and affected {total_affected} row(s).")
+        },
         default_renderer: &default_renderer,
         renderer_modes,
         payloads,
@@ -365,7 +409,7 @@ fn oracle_managed_result(
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),
         truncated,
-        explain_payload: None,
+        explain_payload,
     }))
 }
 
@@ -409,25 +453,31 @@ async fn execute_oracle_sqlplus_query(
         "columns": columns.clone(),
         "rows": rows.clone()
     });
-    let plan_payload = json!({
-        "engine": "oracle",
-        "runtime": "sqlplus",
-        "service": oracle_service_name(connection),
-        "mode": mode,
-        "rowLimit": row_limit,
-        "liveExecution": true,
-        "status": if explain {
-            "Oracle SQLPlus executed EXPLAIN PLAN and returned DBMS_XPLAN rows."
-        } else {
-            "Oracle SQLPlus executed a guarded read-only query and returned CSV rows."
-        },
-        "guards": [
-            "single-statement read guard",
-            "bounded row wrapper",
-            "SQLPlus /nolog stdin credential flow",
-            "password redaction in adapter errors"
-        ]
-    });
+    let plan_payload = if explain {
+        json!({
+            "columns": columns.clone(),
+            "rows": rows.clone(),
+            "source": "PLAN_TABLE",
+            "cleanedUp": true,
+            "runtime": "sqlplus"
+        })
+    } else {
+        json!({
+            "engine": "oracle",
+            "runtime": "sqlplus",
+            "service": oracle_service_name(connection),
+            "mode": mode,
+            "rowLimit": row_limit,
+            "liveExecution": true,
+            "status": "Oracle SQLPlus executed a guarded read-only query and returned CSV rows.",
+            "guards": [
+                "single-statement read guard",
+                "bounded row wrapper",
+                "SQLPlus /nolog stdin credential flow",
+                "password redaction in adapter errors"
+            ]
+        })
+    };
 
     Ok(OracleSqlPlusOutcome {
         response,
@@ -614,23 +664,49 @@ fn oracle_live_statement(
     }
 
     if explain {
-        if statement
-            .trim_start()
-            .to_lowercase()
-            .starts_with("explain plan")
-        {
-            return Ok(format!(
-                "{statement};\nselect * from table(dbms_xplan.display);"
-            ));
-        }
+        let statement = normalize_oracle_explain_statement(statement)?;
+        let statement_id = oracle_sqlplus_plan_statement_id();
         return Ok(format!(
-            "explain plan for {statement};\nselect * from table(dbms_xplan.display);"
+            "explain plan set statement_id = '{statement_id}' for {statement};\nselect id, parent_id, operation, statement_id from plan_table where statement_id = '{statement_id}' order by id;\ndelete from plan_table where statement_id = '{statement_id}';\ncommit;"
         ));
     }
 
     Ok(format!(
         "select * from (\n{statement}\n) where rownum <= {row_limit};"
     ))
+}
+
+fn normalize_oracle_explain_statement(statement: &str) -> Result<&str, CommandError> {
+    let normalized = statement.to_ascii_lowercase();
+    if !normalized.starts_with("explain plan") {
+        return Ok(statement);
+    }
+    let Some(for_offset) = normalized.find(" for ") else {
+        return Err(CommandError::new(
+            "oracle-explain-statement-invalid",
+            "Oracle Explain requires one read-only SQL statement.",
+        ));
+    };
+    let statement = statement[for_offset + 5..].trim();
+    if statement.is_empty() || !is_read_only_oracle_statement(statement) {
+        return Err(CommandError::new(
+            "oracle-explain-statement-invalid",
+            "Oracle Explain requires one read-only SQL statement.",
+        ));
+    }
+    Ok(statement)
+}
+
+fn oracle_sqlplus_plan_statement_id() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let sequence = ORACLE_SQLPLUS_PLAN_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("DPP{millis:X}{sequence:X}")
+        .chars()
+        .take(30)
+        .collect()
 }
 
 fn oracle_statement_supports_sqlplus_live(statement: &str) -> bool {
@@ -821,7 +897,7 @@ fn oracle_request_timeout_ms(connection: &ResolvedConnectionProfile) -> u64 {
         .as_ref()
         .and_then(|options| options.request_timeout_ms)
         .unwrap_or(30_000)
-        .clamp(1_000, 600_000)
+        .clamp(1_000, 300_000)
 }
 
 fn oracle_sqlplus_identifier(value: &str) -> String {

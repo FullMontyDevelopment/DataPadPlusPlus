@@ -26,6 +26,18 @@ internal static partial class Program
     private static readonly SemaphoreSlim OutputLock = new(1, 1);
     private static readonly ConcurrentDictionary<string, ActiveRequest> ActiveRequests = new();
     private static readonly ConcurrentDictionary<string, Task> RequestTasks = new();
+    private static readonly string[] PlanColumnPreference =
+    {
+        "ID", "PARENT_ID", "DEPTH", "POSITION", "OPERATION", "OPTIONS",
+        "OBJECT_OWNER", "OBJECT_NAME", "OBJECT_ALIAS", "OBJECT_TYPE", "OPTIMIZER",
+        "COST", "CARDINALITY", "BYTES", "CPU_COST", "IO_COST", "TEMP_SPACE", "TIME",
+        "PARTITION_START", "PARTITION_STOP", "ACCESS_PREDICATES", "FILTER_PREDICATES",
+        "PROJECTION", "QBLOCK_NAME", "DISTRIBUTION", "OTHER_TAG", "STATEMENT_ID",
+    };
+    private static readonly string[] RequiredPlanColumns =
+    {
+        "STATEMENT_ID", "ID", "PARENT_ID", "OPERATION",
+    };
 
     public static async Task<int> Main()
     {
@@ -243,10 +255,11 @@ internal static partial class Program
             throw new SidecarException("oracle-query-missing", "No executable Oracle statement was found.");
         }
 
+        var explainMode = IsExplainMode(request.Mode);
         foreach (var statement in statements)
         {
             RejectSqlPlusCommand(statement);
-            if (request.ReadOnly && !OracleStatementClassifier.IsReadOnly(statement))
+            if (!explainMode && request.ReadOnly && !OracleStatementClassifier.IsReadOnly(statement))
             {
                 throw new SidecarException(
                     "oracle-read-only-blocked",
@@ -258,7 +271,9 @@ internal static partial class Program
         var sections = new List<OracleResultSection>();
         var dbmsOutput = new List<string>();
         var scriptStarted = Stopwatch.StartNew();
-        var containsMutation = statements.Any(statement => !OracleStatementClassifier.IsReadOnly(statement));
+        var containsMutation = !explainMode &&
+            statements.Any(statement => !OracleStatementClassifier.IsReadOnly(statement));
+        var planRowsCleanedUp = false;
 
         await using var connection = BuildConnection(input);
         await connection.OpenAsync(cancellationToken);
@@ -266,18 +281,42 @@ internal static partial class Program
 
         try
         {
-            var dbmsOutputEnabled = request.CaptureDbmsOutput &&
+            var dbmsOutputEnabled = !explainMode && request.CaptureDbmsOutput &&
                 await TryEnableDbmsOutputAsync(connection, request, active, cancellationToken);
-            var executableStatements = BuildExecutionStatements(statements, request.Mode);
-            foreach (var statement in executableStatements)
+            if (explainMode)
             {
-                sections.AddRange(await ExecuteStatementAsync(
-                    connection,
-                    statement,
-                    rowLimit,
-                    request,
-                    active,
-                    cancellationToken));
+                var statementId = CreatePlanStatementId();
+                try
+                {
+                    sections.Add(await ExecuteExplainAsync(
+                        connection,
+                        statements,
+                        statementId,
+                        rowLimit,
+                        request,
+                        active,
+                        cancellationToken));
+                }
+                catch
+                {
+                    await TryCleanupPlanRowsAsync(connection, statementId, request, active);
+                    throw;
+                }
+                await CleanupPlanRowsAsync(connection, statementId, request, active, CancellationToken.None);
+                planRowsCleanedUp = true;
+            }
+            else
+            {
+                foreach (var statement in statements)
+                {
+                    sections.AddRange(await ExecuteStatementAsync(
+                        connection,
+                        statement,
+                        rowLimit,
+                        request,
+                        active,
+                        cancellationToken));
+                }
             }
 
             if (dbmsOutputEnabled)
@@ -311,30 +350,193 @@ internal static partial class Program
             sections,
             dbmsOutput,
             committed = containsMutation,
+            planRowsCleanedUp,
             durationMs = scriptStarted.ElapsedMilliseconds,
         };
     }
 
-    private static IReadOnlyList<string> BuildExecutionStatements(IReadOnlyList<string> statements, string? mode)
-    {
-        if (!string.Equals(mode, "explain", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
-        {
-            return statements;
-        }
+    private static bool IsExplainMode(string? mode) =>
+        string.Equals(mode, "explain", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase);
 
-        if (statements.Count != 1 || !OracleStatementClassifier.IsReadOnly(statements[0]))
+    internal static string NormalizeExplainStatement(IReadOnlyList<string> statements)
+    {
+        if (statements.Count != 1)
         {
             throw new SidecarException(
                 "oracle-explain-statement-invalid",
                 "Oracle Explain requires one read-only SQL statement.");
         }
 
-        return new[]
+        var statement = statements[0].Trim();
+        var match = ExplainPlanPrefixRegex().Match(statement);
+        if (match.Success)
         {
-            $"explain plan for {statements[0]}",
-            "select plan_table_output from table(dbms_xplan.display(format => 'TYPICAL'))",
-        };
+            statement = statement[match.Length..].Trim();
+        }
+        if (string.IsNullOrWhiteSpace(statement) || !OracleStatementClassifier.IsReadOnly(statement))
+        {
+            throw new SidecarException(
+                "oracle-explain-statement-invalid",
+                "Oracle Explain requires one read-only SQL statement.");
+        }
+        return statement;
+    }
+
+    internal static IReadOnlyList<string> CompatiblePlanColumns(IEnumerable<string> availableColumns)
+    {
+        var available = availableColumns.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missing = RequiredPlanColumns.Where(column => !available.Contains(column)).ToArray();
+        if (missing.Length > 0)
+        {
+            throw new SidecarException(
+                "oracle-plan-table-incompatible",
+                $"The resolved PLAN_TABLE is missing required column(s): {string.Join(", ", missing)}. DataPad++ did not modify the table; ask the database owner to provide a compatible PLAN_TABLE or synonym.");
+        }
+        return PlanColumnPreference.Where(available.Contains).ToArray();
+    }
+
+    internal static string CreatePlanStatementId() =>
+        $"DPP{Guid.NewGuid():N}".ToUpperInvariant()[..30];
+
+    private static async Task<OracleResultSection> ExecuteExplainAsync(
+        OracleConnection connection,
+        IReadOnlyList<string> statements,
+        string statementId,
+        int rowLimit,
+        OracleRequest request,
+        ActiveRequest active,
+        CancellationToken cancellationToken)
+    {
+        var statement = NormalizeExplainStatement(statements);
+        await using (var explain = connection.CreateCommand())
+        {
+            explain.CommandText = $"explain plan set statement_id = '{statementId}' for {statement}";
+            explain.CommandTimeout = CommandTimeoutSeconds(request.TimeoutMs);
+            active.SetCommand(explain);
+            await explain.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        IReadOnlyList<string> columns;
+        try
+        {
+            columns = CompatiblePlanColumns(await ReadPlanTableColumnsAsync(
+                connection,
+                request,
+                active,
+                cancellationToken));
+        }
+        catch (SidecarException)
+        {
+            throw;
+        }
+        catch (OracleException error)
+        {
+            throw new SidecarException(
+                "oracle-plan-table-incompatible",
+                $"DataPad++ could not inspect the resolved PLAN_TABLE. No schema objects were changed. Details: {SanitizeOracleMessage(error.Message)}");
+        }
+
+        var started = Stopwatch.StartNew();
+        await using var command = connection.CreateCommand();
+        command.BindByName = true;
+        command.CommandText = $"select {string.Join(", ", columns)} from PLAN_TABLE where STATEMENT_ID = :statement_id order by ID nulls first";
+        command.CommandTimeout = CommandTimeoutSeconds(request.TimeoutMs);
+        command.Parameters.Add("statement_id", OracleDbType.Varchar2, statementId, ParameterDirection.Input);
+        active.SetCommand(command);
+
+        try
+        {
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            var resultColumns = Enumerable.Range(0, reader.FieldCount)
+                .Select(index => new OracleColumn(reader.GetName(index), reader.GetDataTypeName(index)))
+                .ToArray();
+            var rows = new List<IReadOnlyList<string?>>();
+            var truncated = false;
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (rows.Count >= rowLimit)
+                {
+                    truncated = true;
+                    break;
+                }
+                var row = new string?[reader.FieldCount];
+                for (var index = 0; index < reader.FieldCount; index++)
+                {
+                    row[index] = await ReadCellAsync(reader, index, cancellationToken);
+                }
+                rows.Add(row);
+            }
+            return new OracleResultSection(
+                resultColumns,
+                rows,
+                null,
+                "plan",
+                started.ElapsedMilliseconds,
+                truncated);
+        }
+        catch (OracleException error)
+        {
+            throw new SidecarException(
+                "oracle-plan-table-incompatible",
+                $"DataPad++ could not read compatible rows from the resolved PLAN_TABLE. No schema objects were changed. Details: {SanitizeOracleMessage(error.Message)}");
+        }
+    }
+
+    private static async Task<IReadOnlyList<string>> ReadPlanTableColumnsAsync(
+        OracleConnection connection,
+        OracleRequest request,
+        ActiveRequest active,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "select * from PLAN_TABLE where 1 = 0";
+        command.CommandTimeout = CommandTimeoutSeconds(request.TimeoutMs);
+        active.SetCommand(command);
+        await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SchemaOnly, cancellationToken);
+        return Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToArray();
+    }
+
+    private static async Task CleanupPlanRowsAsync(
+        OracleConnection connection,
+        string statementId,
+        OracleRequest request,
+        ActiveRequest active,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.BindByName = true;
+            command.CommandText = "delete from PLAN_TABLE where STATEMENT_ID = :statement_id";
+            command.CommandTimeout = CommandTimeoutSeconds(request.TimeoutMs);
+            command.Parameters.Add("statement_id", OracleDbType.Varchar2, statementId, ParameterDirection.Input);
+            active.SetCommand(command);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+            await ExecuteTransactionControlAsync(connection, "commit", request, active, cancellationToken);
+        }
+        catch (OracleException error)
+        {
+            throw new SidecarException(
+                "oracle-plan-cleanup-failed",
+                $"DataPad++ could not remove its temporary PLAN_TABLE rows. Details: {SanitizeOracleMessage(error.Message)}");
+        }
+    }
+
+    private static async Task TryCleanupPlanRowsAsync(
+        OracleConnection connection,
+        string statementId,
+        OracleRequest request,
+        ActiveRequest active)
+    {
+        try
+        {
+            await CleanupPlanRowsAsync(connection, statementId, request, active, CancellationToken.None);
+        }
+        catch
+        {
+            // Preserve the original explain, timeout, or cancellation error.
+        }
     }
 
     private static async Task<IReadOnlyList<OracleResultSection>> ExecuteStatementAsync(
@@ -735,6 +937,9 @@ internal static partial class Program
 
     [GeneratedRegex(@"^(?:@{1,2}|set\s|spool\s|prompt(?:\s|$)|define\s|undefine\s|column\s|whenever\s|connect\s|host\s|exit(?:\s|$))", RegexOptions.IgnoreCase)]
     private static partial Regex SqlPlusCommandRegex();
+
+    [GeneratedRegex(@"^\s*explain\s+plan(?:\s+set\s+statement_id\s*=\s*(?:'[^']*'|""[^""]*""|[^\s]+))?\s+for\s+", RegexOptions.IgnoreCase)]
+    private static partial Regex ExplainPlanPrefixRegex();
 
     [GeneratedRegex(@"(?i)\b(password|pwd|wallet_password|proxy password)\b\s*=\s*(?:""[^""]*""|'[^']*'|[^\s;,\r\n]+)")]
     private static partial Regex ConnectionSecretRegex();

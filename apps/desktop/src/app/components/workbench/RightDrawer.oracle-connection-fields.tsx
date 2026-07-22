@@ -265,6 +265,23 @@ export function OracleAdvancedFields({
             }
           />
         </FormField>
+        <FormField label="Request timeout ms">
+          <input
+            aria-label="Oracle request timeout"
+            type="number"
+            min={1000}
+            max={300000}
+            step={1000}
+            placeholder="30000"
+            value={options.requestTimeoutMs ?? ''}
+            onChange={(event) =>
+              updateOptions({ requestTimeoutMs: Number(event.target.value) || undefined })
+            }
+          />
+        </FormField>
+      </div>
+
+      <div className="connection-advanced-grid">
         <FormField label="Statement cache">
           <input
             type="number"
@@ -275,6 +292,7 @@ export function OracleAdvancedFields({
             }
           />
         </FormField>
+        <span />
       </div>
     </div>
   )

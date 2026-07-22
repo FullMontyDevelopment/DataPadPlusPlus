@@ -352,6 +352,22 @@ pub(super) async fn execute_oracle_managed_read(
         OracleSidecarRequestOrigin::Background,
     )
     .await
+    .map_err(|error| oracle_metadata_error(error, timeout_ms))
+}
+
+fn oracle_metadata_error(error: CommandError, timeout_ms: u64) -> CommandError {
+    if matches!(
+        error.code.as_str(),
+        "oracle-sidecar-timeout" | "oracle-query-cancelled"
+    ) {
+        return CommandError::new(
+            "oracle-metadata-timeout",
+            format!(
+                "Oracle metadata loading exceeded the {timeout_ms} ms request timeout. The database connection and completed query results remain available; retry metadata loading or select a narrower schema scope."
+            ),
+        );
+    }
+    error
 }
 
 pub(super) async fn cancel_oracle_managed(execution_id: &str) -> Result<bool, CommandError> {

@@ -1,11 +1,14 @@
+use std::time::Instant;
+
 use serde_json::json;
 
 use super::{
     is_read_only_oracle_statement, normalize_oracle_response, oracle_friendly_error,
-    oracle_live_statement, oracle_sqlplus_script, oracle_statement_invalidates_metadata,
-    parse_oracle_sqlplus_csv, preview_oracle_response, redact_oracle_sqlplus_output,
+    oracle_live_statement, oracle_managed_result, oracle_sqlplus_script,
+    oracle_statement_invalidates_metadata, parse_oracle_sqlplus_csv, preview_oracle_response,
+    redact_oracle_sqlplus_output,
 };
-use crate::domain::models::{OracleConnectionOptions, ResolvedConnectionProfile};
+use crate::domain::models::{ExecutionRequest, OracleConnectionOptions, ResolvedConnectionProfile};
 
 fn connection() -> ResolvedConnectionProfile {
     ResolvedConnectionProfile {
@@ -90,10 +93,76 @@ fn oracle_live_statement_wraps_selects_and_explain_plans() {
         oracle_live_statement("select * from app.accounts;", 50, false).unwrap(),
         "select * from (\nselect * from app.accounts\n) where rownum <= 50;"
     );
+    let explain = oracle_live_statement("select * from app.accounts", 50, true).unwrap();
+    assert!(explain.starts_with("explain plan set statement_id = 'DPP"));
+    assert!(explain.contains("select id, parent_id, operation, statement_id from plan_table"));
+    assert!(explain.contains("delete from plan_table where statement_id = 'DPP"));
+    assert!(explain.ends_with("commit;"));
+    assert!(!explain.to_ascii_lowercase().contains("dbms_xplan"));
+    assert!(oracle_live_statement("explain plan for delete from app.accounts", 50, true).is_err());
+}
+
+#[test]
+fn oracle_managed_explain_returns_one_first_class_plan_payload() {
+    let request = ExecutionRequest {
+        execution_id: Some("execution-plan".into()),
+        tab_id: "tab-oracle".into(),
+        connection_id: "conn-oracle".into(),
+        environment_id: "env-local".into(),
+        language: "sql".into(),
+        query_text: "select * from accounts".into(),
+        execution_input_mode: Some("raw".into()),
+        script_text: None,
+        selected_text: None,
+        mode: Some("explain".into()),
+        row_limit: Some(50),
+        document_efficiency_mode: None,
+        confirmed_guardrail_id: None,
+        builder_state: None,
+        scoped_target: None,
+    };
+    let response = json!({
+        "sections": [{
+            "columns": [
+                { "name": "ID", "dataType": "NUMBER" },
+                { "name": "PARENT_ID", "dataType": "NUMBER" },
+                { "name": "OPERATION", "dataType": "VARCHAR2" }
+            ],
+            "rows": [["0", null, "SELECT STATEMENT"], ["1", "0", "TABLE ACCESS"]],
+            "statementKind": "plan",
+            "durationMs": 4,
+            "truncated": false
+        }],
+        "planRowsCleanedUp": true,
+        "durationMs": 5,
+        "committed": false
+    });
+
+    let result = oracle_managed_result(
+        &connection(),
+        &request,
+        response,
+        Vec::new(),
+        50,
+        Instant::now(),
+    )
+    .unwrap();
+
+    assert_eq!(result.default_renderer, "plan");
+    assert_eq!(result.payloads[0]["renderer"], "plan");
     assert_eq!(
-        oracle_live_statement("select * from app.accounts", 50, true).unwrap(),
-        "explain plan for select * from app.accounts;\nselect * from table(dbms_xplan.display);"
+        result.payloads[0]["value"]["rows"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
     );
+    assert_eq!(result.payloads[0]["value"]["cleanedUp"], true);
+    assert!(result.explain_payload.is_some());
+    assert!(!result
+        .payloads
+        .iter()
+        .any(|payload| payload["renderer"] == "batch"));
 }
 
 #[test]

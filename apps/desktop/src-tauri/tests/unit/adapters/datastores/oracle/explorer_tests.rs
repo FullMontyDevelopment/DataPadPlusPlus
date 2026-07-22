@@ -1,7 +1,8 @@
 use super::{
     decode_scope_component, encode_scope_component, inspect_oracle_explorer_node,
     list_oracle_explorer_nodes, oracle_empty_category_node, oracle_query_for_node,
-    oracle_schema_discovery_query, oracle_table_query, OracleObjectContext,
+    oracle_schema_discovery_query, oracle_schema_from_scope, oracle_table_query,
+    OracleObjectContext,
 };
 use crate::domain::models::{
     ExplorerInspectRequest, ExplorerRequest, OracleConnectionOptions, ResolvedConnectionProfile,
@@ -39,6 +40,24 @@ fn connection() -> ResolvedConnectionProfile {
         warehouse_options: None,
         read_only: true,
     }
+}
+
+#[test]
+fn oracle_structure_scope_resolves_database_and_schema_object_owners() {
+    let database_scope =
+        OracleObjectContext::database(&connection(), "FREE:PDB1".into(), "Mixed:Owner".into())
+            .object_scope("table", "Order:Lines");
+    let schema_scope =
+        OracleObjectContext::schema(&connection(), "REPORTING".into()).category_scope("tables");
+
+    assert_eq!(
+        oracle_schema_from_scope(&connection(), &database_scope).as_deref(),
+        Some("Mixed:Owner")
+    );
+    assert_eq!(
+        oracle_schema_from_scope(&connection(), &schema_scope).as_deref(),
+        Some("REPORTING")
+    );
 }
 
 #[tokio::test]

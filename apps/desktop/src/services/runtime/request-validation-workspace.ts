@@ -38,6 +38,7 @@ import { validateDynamoDbConnectionOptions } from './datastores/dynamodb/request
 import { validateGraphConnectionOptions } from './datastores/common/graph/request-validation-graph'
 import { validateMemcachedConnectionOptions } from './datastores/memcached/request-validation-memcached'
 import { validateMongoDbConnectionOptions } from './datastores/mongodb/request-validation-mongodb'
+import { validateOracleConnectionOptions } from './datastores/oracle/request-validation-oracle'
 import { validateMySqlConnectionOptions } from './datastores/common/sql/request-validation-mysql'
 import { validatePostgresConnectionOptions } from './datastores/common/sql/request-validation-postgres'
 import { validateSearchConnectionOptions } from './datastores/common/search/request-validation-search'
@@ -106,6 +107,7 @@ export function validateConnectionProfile(profile: ConnectionProfile): Connectio
     timeSeriesOptions: validateTimeSeriesConnectionOptions(profile.timeSeriesOptions),
     graphOptions: validateGraphConnectionOptions(profile.graphOptions),
     mongodbOptions: validateMongoDbConnectionOptions(profile.mongodbOptions),
+    oracleOptions: validateOracleConnectionOptions(profile.oracleOptions),
     warehouseOptions: validateWarehouseConnectionOptions(profile.warehouseOptions),
     connectionString,
     environmentIds: normalizeIds(profile.environmentIds, 'Connection environment id'),
